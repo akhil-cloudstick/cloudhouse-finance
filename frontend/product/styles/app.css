@@ -183,6 +183,45 @@ h3,
   to { transform: rotate(360deg); }
 }
 
+/* Full-screen "Preparing document…" overlay shown while a server-rendered
+ * PDF is generated for printing — see utils/print.ts's printPdfJob. Above
+ * modals, since a print is often started from one. */
+.print-progress {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: oklch(0.18 0.02 285 / 0.35);
+  cursor: progress;
+  animation: pageFadeIn 0.15s ease-out;
+}
+.print-progress-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  padding: 14px 20px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 32px oklch(0.18 0.02 285 / 0.18);
+  font-size: 14px;
+  font-weight: 500;
+}
+.print-progress-spinner {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2.5px solid var(--line);
+  border-top-color: var(--brand);
+  animation: shell-loading-spin 0.8s linear infinite;
+}
+
 .side {
   width: var(--sidebar-w);
   flex-shrink: 0;
@@ -412,6 +451,10 @@ h3,
   color: oklch(0.95 0.006 290 / 50%);
   white-space: nowrap;
 }
+
+/* Shared spinner / pop-in keyframes (used by the billing processing steps). */
+@keyframes upd-spin { to { transform: rotate(360deg) } }
+@keyframes upd-pop { from { transform: scale(.3); opacity: 0 } to { transform: scale(1); opacity: 1 } }
 
 /* .main is a fixed-height (exactly viewport-tall) flex column: .top sits at
  * its natural height (flex-shrink:0) and .page takes whatever's left
@@ -999,6 +1042,14 @@ h3,
   flex: 0 0 150px
 }
 
+/* NewLoan.tsx's Loan Date shares a `.frow.c2` row with Loan No, and every
+ * other field in that form fills its grid cell — a 230px picker beside a
+ * full-width input read as a misaligned column. Fill the cell instead. */
+.orn-form-card .frow .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
+}
+
 /* RepledgeModal.tsx's own exception to the 230px house convention above —
  * this modal's Pledge Date/Bank Pledge Due Date pickers sit in the same
  * grid row as plain `.inp` text fields (Pledged Amount, Interest Rate,
@@ -1118,6 +1169,17 @@ h3,
 
 .ss-input {
   padding-right: 26px
+}
+
+/* A locked SearchableSelect reads like a locked native select — faint fill,
+ * not-allowed cursor, and no dropdown chevron promising a choice. */
+.ss .inp:disabled {
+  background-color: var(--brand-faint);
+  cursor: not-allowed
+}
+
+.ss .inp:disabled ~ .ss-chevron {
+  display: none
 }
 
 .dp-trigger:disabled {
@@ -1336,16 +1398,126 @@ h3,
   color: var(--brand-deep)
 }
 
+/* ConnectMobileModal — the business QR the staff mobile app scans. Opened
+ * from the header account menu. */
+.connect-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.connect-qr img,
+.connect-qr-ph {
+  width: 224px;
+  height: 224px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  background: #fff;
+}
+
+.connect-qr-msg {
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 320px;
+}
+
+.connect-qr-name {
+  font-weight: 600;
+  color: var(--nav);
+}
+
+.connect-qr-code small {
+  display: block;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.connect-qr-code b {
+  font-size: 20px;
+  letter-spacing: .04em;
+  color: var(--brand-deep);
+}
+
+.connect-tabs {
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+/* Same footprint as the QR so switching tabs doesn't make the modal jump. */
+.connect-code-big {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 224px;
+  height: 224px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--brand-faint);
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: var(--brand-deep);
+  font-variant-numeric: tabular-nums;
+}
+
+.connect-qr-exp {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.connect-qr-steps {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.7;
+}
+
+/* Header account chip + dropdown (layout/AccountMenu.tsx): Connect mobile
+ * app, the update check/download row, and Sign out. Every row is the same
+ * height — the update row swaps its icon for a spinner or progress ring
+ * rather than growing. */
+.top .acct {
+  position: relative;
+  flex-shrink: 0;
+}
+
 .top .user {
   display: flex;
   align-items: center;
   gap: 9px;
+  font: inherit;
   font-size: 13px;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 3px;
+  cursor: pointer;
 }
 
-.top .user .av {
+.top .user:focus-visible {
+  outline: none
+}
+
+/* Hover / open / keyboard focus highlight only the avatar's ring, not the
+ * whole chip. */
+.top .user:hover .av,
+.top .user:focus-visible .av,
+.top .user[aria-expanded="true"] .av {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--brand);
+}
+
+.acct .av {
+  position: relative;
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--brand-light), var(--brand-deep));
   color: var(--nav);
@@ -1354,6 +1526,7 @@ h3,
   font-weight: 600;
   font-size: 13px;
   box-shadow: 0 0 0 2px #fff, 0 0 0 3px color-mix(in oklab, var(--brand) 40%, transparent);
+  transition: box-shadow .15s;
 }
 
 .top .user .nm {
@@ -1368,21 +1541,170 @@ h3,
   text-transform: uppercase
 }
 
-.top .logout {
+.acct-chev {
+  width: 14px;
+  height: 14px;
   color: var(--muted);
-  text-decoration: none;
-  font-size: 12px;
-  border: 1px solid var(--line);
-  padding: 5px 12px;
-  border-radius: 6px;
-  background: #fff;
-  white-space: nowrap;
-  flex-shrink: 0
+  transition: transform .15s;
 }
 
-.top .logout:hover {
-  color: var(--red);
-  border-color: oklch(0.86 0.06 25)
+.top .user[aria-expanded="true"] .acct-chev {
+  transform: rotate(180deg)
+}
+
+/* Update waiting (found or downloaded). */
+.acct-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+}
+
+.acct-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 264px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px -16px color-mix(in oklab, var(--nav) 45%, transparent);
+  padding: 6px;
+  animation: acct-drop .14s ease;
+}
+
+@keyframes acct-drop {
+  from { opacity: 0; transform: translateY(-4px) }
+  to { opacity: 1; transform: none }
+}
+
+.acct-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 10px;
+  min-width: 0;
+}
+
+.acct-who > div {
+  min-width: 0
+}
+
+.acct-who b,
+.acct-who span {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acct-who b {
+  font-size: 13px
+}
+
+.acct-who span {
+  font-size: 11.5px;
+  color: var(--muted)
+}
+
+.acct-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 2px;
+}
+
+.acct-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.acct-item:hover {
+  background: var(--brand-faint)
+}
+
+.acct-item:disabled {
+  cursor: default;
+  background: none;
+}
+
+.acct-item .i {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-content: center;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.acct-item .lbl {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acct-item.new .i { color: var(--amber) }
+.acct-item.ok .i { color: var(--green) }
+.acct-item.danger,
+.acct-item.danger .i { color: var(--red) }
+.acct-item.danger:hover { background: var(--red-bg) }
+
+/* Icon-only action at the end of the update row (the whole row is the
+ * button, so this is a span, not a nested button). */
+.acct-ibtn {
+  width: 28px;
+  height: 28px;
+  margin-right: -3px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--brand);
+  color: #fff;
+  display: grid;
+  place-content: center;
+}
+
+.acct-item:hover .acct-ibtn {
+  background: var(--brand-deep)
+}
+
+.acct-spin {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--brand-light);
+  border-right-color: transparent;
+  animation: upd-spin .8s linear infinite;
+}
+
+.acct-ring {
+  width: 18px;
+  height: 18px;
+  transform: rotate(-90deg);
+}
+
+.acct-ring .trk { stroke: var(--brand-pale) }
+.acct-ring .val { stroke: var(--brand); transition: stroke-dashoffset .12s linear }
+
+@media (prefers-reduced-motion: reduce) {
+  .acct-menu, .acct-spin { animation: none }
+  .acct .av, .acct-chev, .acct-ring .val { transition: none }
 }
 
 /* No max-width — the page stretches to the full available width (up to
@@ -2459,6 +2781,21 @@ h3,
   border-color: currentColor;
 }
 
+/* .plain (pagination Prev/Next and the like) stays exactly as it rests on
+ * hover, focus and press — no border highlight (currentColor above drew a
+ * black ring, its text being near-black ink), no lift, no focus ring. */
+.btn.plain:hover,
+.btn.plain:focus,
+.btn.plain:focus-visible,
+.btn.plain:active {
+  background: #fff;
+  border-color: var(--line);
+  color: var(--ink);
+  outline: none;
+  box-shadow: none;
+  transform: none;
+}
+
 .btn.ghost {
   background: #fff;
   color: var(--brand-deep);
@@ -3110,13 +3447,15 @@ table.tbl {
 
 /* Employees table (.emp-tbl): eight columns overflowed the card on laptop-
  * width screens, hiding the Action column behind .tbl-wrap's invisible
- * horizontal scrollbar. Below 1440px, tighten the horizontal gaps — cell
+ * horizontal scrollbar. Below 1700px, tighten the horizontal gaps — cell
  * padding, the first column's 54px indent, header letter-spacing — and let
- * the two-word headers wrap, so Edit/Delete stay in view. */
+ * the two-word headers wrap, so Edit/Delete stay in view. (Was 1440px, but
+ * with the sidebar taking its share the card was still too narrow for the
+ * untightened table well above that width, so Action got clipped.) */
 .tbl.emp-tbl .emp-actions {
   gap: 12px;
 }
-@media (max-width: 1440px) {
+@media (max-width: 1700px) {
   .tbl.emp-tbl th,
   .tbl.emp-tbl td {
     padding-left: 8px;
@@ -3796,6 +4135,12 @@ table.tbl {
 
 .modal.wide {
   max-width: 820px
+}
+
+/* PaymentModal's confirmation popup — a second, default-width modal stacked
+ * over the open Record Payment modal (z-index 80) instead of replacing it. */
+.modal-bg.pay-confirm-bg {
+  z-index: 90
 }
 
 @keyframes pop {
@@ -5605,7 +5950,8 @@ table.tbl {
   border-color: currentColor;
 }
 
-.ledger-ref-chip-loan {
+.ledger-ref-chip-loan,
+.ledger-ref-chip-personalloan {
   background: var(--brand-faint);
   color: var(--brand-deep);
 }
@@ -5673,4 +6019,1145 @@ table.tbl {
 @media (prefers-reduced-motion: reduce) {
   .save-btn, .save-btn.saved, .save-msg { animation: none; transition: none; }
   .save-btn:active:not(:disabled) { transform: none; }
+}
+
+/* Approval Workflow tab (Roles & Permissions: ApprovalWorkflowSettings.tsx
+ * and RoleChain.tsx). One card that fills the page's remaining height (the
+ * same flex fill as `.tbl-card-fill` on Loans/Customers): a category rail
+ * on the left, the selected category's chains on the right scrolling
+ * inside the card, and one Save per category pinned in the footer.
+ * Below 760px the rail turns into a wrapping pill row above the panel. */
+.card.wf {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  /* No entry motion: .card's generic `transition: all` would otherwise
+   * animate this card resizing as it replaces the loading placeholder. */
+  transition: none;
+}
+
+.wf-loading {
+  transition: none;
+  padding: 28px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.wf-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+}
+
+.wf-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  background: color-mix(in oklab, var(--brand-faint) 70%, transparent);
+  border-radius: 12px 0 0 12px;
+}
+
+.wf-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  transition: background .15s, color .15s;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.wf-rail-item:hover {
+  background: var(--brand-pale);
+}
+
+.wf-rail-item.on {
+  background: var(--card);
+  color: var(--brand-deep);
+  font-weight: 600;
+  box-shadow: 0 1px 4px color-mix(in oklab, var(--nav) 10%, transparent);
+}
+
+.wf-rail-item.on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+}
+
+.wf-rail-item:focus,
+.wf-rail-item:focus-visible {
+  outline: none;
+}
+
+.wf-rail-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.wf-rail-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  display: inline-grid;
+  place-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--line) 70%, transparent);
+}
+
+.wf-rail-item.on .wf-rail-count {
+  color: var(--brand-deep);
+  background: var(--brand-pale);
+}
+
+.wf-rail-dot {
+  width: 8px;
+  height: 8px;
+  margin: 0 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.wf-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.wf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.wf-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--nav);
+}
+
+.wf-head p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Two-option segmented control: "Same flow for all" / "Different per action". */
+.wf-seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--line) 60%, transparent);
+}
+
+.wf-seg button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+
+.wf-seg button.on {
+  background: var(--card);
+  color: var(--brand-deep);
+  font-weight: 600;
+  box-shadow: 0 1px 3px color-mix(in oklab, var(--nav) 14%, transparent);
+}
+
+.wf-seg button:disabled {
+  cursor: default;
+}
+
+.wf-seg button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand);
+}
+
+.wf-notice {
+  margin: 12px 18px 0;
+}
+
+/* The only part that scrolls — the head above and the footer below stay put. */
+.wf-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 18px;
+}
+
+.wf-row {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--line) 70%, transparent);
+}
+
+.wf-row:last-child {
+  border-bottom: 0;
+}
+
+.wf-row-label b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.wf-row-label small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Chain on the left, its "Add approver" button pinned to the right. */
+.wf-chain-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* The chain: a quiet stepper — numbered steps joined by a thin line. */
+.wf-chain {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 10px;
+  min-width: 0;
+}
+
+.wf-link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.wf-line {
+  width: 22px;
+  height: 2px;
+  margin: 0 4px;
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--brand) 22%, var(--line));
+}
+
+/* Each role is a badge — a bordered pill with a grip, so it reads as
+ * something you can pick up and drag. */
+.wf-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 6px 0 4px;
+  border: 1px solid color-mix(in oklab, var(--brand) 30%, var(--line));
+  border-radius: 15px;
+  background: var(--brand-pale);
+  color: var(--brand-deep);
+  font-size: 12.5px;
+  font-weight: 600;
+  user-select: none;
+  outline: none;
+  transition: background .15s, border-color .15s, box-shadow .15s, transform .15s;
+}
+
+.wf-step.movable {
+  cursor: grab;
+  touch-action: none;
+  padding-left: 8px;
+}
+
+.wf-step.movable:hover {
+  border-color: var(--brand);
+  box-shadow: 0 2px 8px -2px color-mix(in oklab, var(--brand) 35%, transparent);
+}
+
+.wf-step:focus-visible {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--brand) 30%, transparent);
+}
+
+.wf-step.dragging {
+  cursor: grabbing;
+  background: var(--card);
+  border-color: var(--brand);
+  box-shadow: 0 10px 24px -8px color-mix(in oklab, var(--nav) 40%, transparent);
+  position: relative;
+  z-index: 2;
+}
+
+.wf-grip {
+  display: inline-grid;
+  place-content: center;
+  color: color-mix(in oklab, var(--brand) 55%, transparent);
+}
+
+.wf-num {
+  display: inline-grid;
+  place-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.wf-step.inactive {
+  border-color: color-mix(in oklab, var(--amber) 45%, transparent);
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+.wf-step.inactive .wf-num {
+  background: var(--amber);
+}
+
+.wf-name {
+  white-space: nowrap;
+}
+
+/* Remove control: present but quiet until the step is hovered or focused. */
+.wf-x {
+  display: inline-grid;
+  place-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: .6;
+  transition: opacity .15s, background .15s, color .15s;
+}
+
+.wf-step:hover .wf-x,
+.wf-step:focus-within .wf-x {
+  opacity: 1;
+}
+
+.wf-x:hover {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+@media (hover: none) {
+  .wf-x { opacity: 1; }
+}
+
+.wf-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--green-bg);
+  color: var(--green);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.wf-empty {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.wf-empty.bad {
+  color: var(--red);
+  font-weight: 500;
+}
+
+.wf-add {
+  flex: 0 0 auto;
+  height: 31px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in oklab, var(--brand) 35%, var(--line));
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--brand-deep);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+
+.wf-add:hover,
+.wf-add.on {
+  background: var(--brand-faint);
+  border-color: var(--brand);
+}
+
+.wf-add:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand);
+}
+
+/* Role list — position:fixed (placed in JS from the button) so the
+ * scrolling .wf-body can never clip it. */
+.wf-picker {
+  position: fixed;
+  z-index: 1000;
+  max-height: 300px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 6px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
+}
+
+.wf-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wf-option:hover:not(:disabled) {
+  background: var(--brand-faint);
+}
+
+.wf-option.sel {
+  color: var(--brand-deep);
+  font-weight: 600;
+}
+
+.wf-option:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.wf-option-name {
+  flex: 1;
+}
+
+.wf-option-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.wf-picker-empty {
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.wf-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 12px 0;
+}
+
+.wf-foot-msg {
+  flex: 1;
+  min-width: 180px;
+  font-size: 12.5px;
+}
+
+.wf-hint {
+  color: var(--muted);
+}
+
+.wf-dirty {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+
+.wf-dirty::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.wf-err {
+  color: var(--red);
+  font-weight: 500;
+}
+
+@media (max-width: 1100px) {
+  .wf-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+}
+
+@media (max-width: 760px) {
+  .card.wf {
+    flex: 0 0 auto;
+  }
+
+  .wf-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wf-rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 12px 12px 0 0;
+  }
+
+  .wf-rail-item {
+    width: auto;
+    padding: 8px 12px;
+  }
+
+  .wf-rail-item.on::before {
+    display: none;
+  }
+
+  .wf-head,
+  .wf-body,
+  .wf-foot {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .wf-body {
+    overflow-y: visible;
+  }
+
+  .wf-notice {
+    margin: 12px 16px 0;
+  }
+
+  .wf-foot {
+    border-radius: 0 0 12px 12px;
+  }
+
+  .wf-row {
+    padding: 12px 0;
+  }
+
+  .wf-chain-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .wf-line {
+    width: 14px;
+  }
+
+  .wf-seg {
+    width: 100%;
+  }
+
+  .wf-seg button {
+    flex: 1;
+    padding: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-step, .wf-rail-item, .wf-seg button, .wf-add, .wf-x { transition: none; }
+}
+
+/* ==========================================================================
+ * Billing — plan upgrade (pages/billing/components/PlanUpgrade.tsx and
+ * UpgradePlanModal.tsx), shown when NEXT_PUBLIC_ENABLE_PLAN_UPGRADE is on.
+ * Plans are branch-count tiers with a one-time price.
+ * ========================================================================== */
+.bill-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.bill-cur-name {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--nav);
+}
+
+.bill-cur-sub { color: var(--muted); font-size: 13px; margin: 2px 0 14px }
+
+.bill-use {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.bill-use b { color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums }
+
+/* One segment per branch on the plan; filled segments are branches in use. */
+.bill-meter {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--brand-pale);
+  margin-bottom: 14px;
+}
+
+.bill-meter i { flex: 1; background: color-mix(in oklab, var(--brand) 14%, transparent); transition: background .3s }
+.bill-meter i.f { background: var(--brand) }
+.bill-meter.full i.f { background: var(--accent) }
+.bill-meter.inf { background: repeating-linear-gradient(45deg, var(--brand-pale) 0 6px, color-mix(in oklab, var(--brand) 16%, transparent) 6px 12px) }
+
+.bill-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--line);
+  font-size: 13px;
+}
+
+.bill-row span { color: var(--muted) }
+.bill-row b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums }
+
+.bill-limit {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 12.5px;
+}
+
+.bill-limit svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px }
+.bill-limit a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px }
+
+.bill-plans-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 26px 0 12px;
+  scroll-margin-top: 12px;
+}
+
+.bill-plans-h h2 {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--nav);
+}
+
+.bill-plans-h span { font-size: 12.5px; color: var(--muted) }
+
+.bill-ladder {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.bill-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  transition: border-color .2s, box-shadow .2s;
+}
+
+.bill-plan:hover { border-color: color-mix(in oklab, var(--brand) 40%, transparent) }
+
+.bill-plan.cur {
+  border: 1.5px solid var(--brand);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand) 10%, transparent);
+}
+
+.bill-plan.low { background: var(--brand-faint) }
+.bill-plan.low .bill-plan-name,
+.bill-plan.low .bill-plan-br,
+.bill-plan.low .bill-plan-price { opacity: .6 }
+.bill-plan.just { animation: bill-glow 1.6s ease }
+
+.bill-plan-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 22px }
+.bill-tier { font-size: 10px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; color: var(--muted) }
+
+.bill-plan-name {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--nav);
+}
+
+.bill-plan-br { display: flex; align-items: baseline; gap: 6px }
+
+.bill-plan-br b {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--brand-deep);
+  font-variant-numeric: tabular-nums;
+}
+
+.bill-plan-br span { font-size: 13px; color: var(--muted) }
+.bill-plan-price { font-size: 13px }
+.bill-plan-price b { font-size: 15px; font-variant-numeric: tabular-nums }
+.bill-plan-price small { color: var(--muted) }
+
+.bill-plan ul {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 0 0;
+  list-style: none;
+  border-top: 1px dashed var(--line);
+  font-size: 12.5px;
+}
+
+.bill-plan li { display: flex; gap: 8px; align-items: flex-start }
+.bill-plan li svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px; color: var(--green) }
+.bill-plan .btn { width: 100% }
+
+/* Upgrade modal */
+.bill-fromto {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.bill-tile { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px }
+.bill-tile.to { border-color: var(--brand); background: var(--brand-faint) }
+.bill-tile small { font-size: 9.5px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--muted) }
+.bill-tile b { display: block; margin-top: 2px; font-size: 14px; color: var(--nav) }
+.bill-tile span { font-size: 12px; color: var(--muted) }
+
+.bill-arrow {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--brand-pale);
+  color: var(--brand-deep);
+  font-weight: 700;
+}
+
+.bill-sum { padding: 2px 14px; border: 1px solid var(--line); border-radius: 10px }
+.bill-sum .bill-row:first-child { border-top: 0 }
+.bill-sum .bill-row.total { border-top: 1px solid var(--line); font-size: 14px }
+
+.bill-sum .bill-row.total b {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 18px;
+  color: var(--brand-deep);
+}
+
+.bill-fine { margin: 12px 0 0; font-size: 12px; color: var(--muted) }
+
+.bill-proc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 6px 8px;
+  text-align: center;
+}
+
+.bill-proc h4 {
+  margin: 0;
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 17px;
+  color: var(--nav);
+}
+
+.bill-proc p { margin: 0; max-width: 36ch; font-size: 13px; color: var(--muted) }
+
+.bill-proc ol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.bill-proc li { display: flex; gap: 10px; align-items: center }
+
+.bill-proc li i {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+}
+
+.bill-proc li.on { color: var(--ink); font-weight: 500 }
+.bill-proc li.on i { border-color: var(--brand); border-top-color: transparent; animation: upd-spin .8s linear infinite }
+.bill-proc li.ok { color: var(--ink) }
+.bill-proc li.ok i { border-color: var(--green); background: var(--green) }
+
+.bill-proc li.ok i::after {
+  content: "";
+  width: 5px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.bill-spin {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 4px solid var(--brand-pale);
+  border-top-color: var(--brand);
+  animation: upd-spin .8s linear infinite;
+}
+
+.bill-done {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--green-bg);
+  animation: upd-pop .5s cubic-bezier(.2, 1.4, .4, 1);
+}
+
+.bill-done span {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--green);
+  color: #fff;
+}
+
+.bill-done svg { width: 22px; height: 22px }
+
+@keyframes bill-glow {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--brand) 45%, transparent) }
+  100% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand) 10%, transparent) }
+}
+
+@media (max-width: 1060px) {
+  .bill-top { grid-template-columns: minmax(0, 1fr) }
+}
+
+@media (max-width: 900px) {
+  .bill-ladder { grid-template-columns: minmax(0, 1fr) }
+}
+
+/* ── Record Payment modal (PaymentModal.tsx) ──────────────────────────
+ * Opened `.wide`: form on the left, a live receipt on the right that
+ * restates what the customer pays, where it lands and what's left. Fields
+ * stay plain `.inp` (38px app-wide) in `.frow`/`.frow.c2` rows, so every
+ * edge lines up; these rules only add the two-column frame, section
+ * dividers and the receipt. Stacks to one column on narrow screens.
+ *
+ * Type scale, largest to smallest — keep new text on one of these steps:
+ *   24px/800  receipt total (the one number that matters)
+ *   13.5px/700 section titles (Payment · Payment breakdown · Details)
+ *   15px/700  the Amount input itself
+ *   12.5px    inputs and receipt rows (app default `.modal .inp`)
+ *   11.5px    muted captions / helper text
+ *   10px CAPS field labels and receipt headings (app default `.modal .f`)
+ *
+ * The receipt column is 250px so the left column still fits
+ * SplitPaymentInput's line grid (~490px of minimums) inside `.wide`. */
+.pay-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 20px;
+  align-items: start;
+}
+
+.pay-sec + .pay-sec {
+  margin-top: 2px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.pay-sec-t {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--nav);
+  margin-bottom: 12px;
+}
+
+.pay-sec-t small {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+/* The section title above already names it — drop the component's own
+ * "Payment breakdown" field label so it isn't said twice. */
+.pay-sec .split-payment > label.f:first-child {
+  display: none;
+}
+
+.pay-sec .split-payment {
+  margin-bottom: 16px;
+}
+
+.modal .inp.pay-amt {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.pay-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pay-chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px dashed var(--brand-light);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--brand-deep);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pay-chip:hover {
+  background: var(--brand-pale);
+}
+
+.pay-receipt {
+  position: sticky;
+  top: 0;
+  background: var(--brand-faint);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 12.5px;
+  color: var(--nav);
+}
+
+.pay-r-cap {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.pay-r-big {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--nav);
+  margin: 2px 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-r-h {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 16px 0 8px;
+}
+
+.pay-r-div {
+  border-top: 1px dashed var(--line);
+  padding-top: 14px;
+}
+
+.pay-r-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+}
+
+.pay-r-row b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--line);
+  margin-bottom: 8px;
+}
+
+.pay-bar i {
+  display: block;
+  height: 100%;
+}
+
+.pay-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.pay-r-ok {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--green-bg);
+  color: var(--green);
+  font-weight: 600;
+}
+
+.pay-r-warn {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--red-bg);
+  color: var(--red);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+/* Footer reason line — pushes Cancel/Review to the right. */
+.pay-ft-msg {
+  margin-right: auto;
+  align-self: center;
+  color: var(--red);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+@media (max-width: 760px) {
+  .pay-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pay-receipt {
+    position: static;
+  }
+}
+
+@media (max-width: 520px) {
+  .pay-layout .frow.c2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* No browser focus ring on clickable controls — Chrome paints its default
+ * black ring the moment a key is pressed after a click (pagination
+ * Prev/Next, icon buttons, ledger chips). :where() keeps this at zero
+ * specificity, so the deliberate brand rings above (.tabs, .kpi-link,
+ * .wf-*) still win; text inputs keep their own :focus styling. */
+:where(button, a, [role="button"], [tabindex], summary, svg):focus,
+:where(button, a, [role="button"], [tabindex], summary, svg):focus-visible {
+  outline: none;
+}
+
+/* The ledger row the user drilled in from / back to (hooks/useLedgerFocus).
+ * Painted on the cells, since a <tr> background doesn't show under cells
+ * that set their own; the inset bar marks it even on striped tables. */
+.tbl tr.ledger-row-focus > td {
+  background: color-mix(in oklab, var(--brand) 12%, transparent);
+  transition: background .4s ease;
+}
+
+.tbl tr.ledger-row-focus > td:first-child {
+  box-shadow: inset 3px 0 0 var(--brand);
 }

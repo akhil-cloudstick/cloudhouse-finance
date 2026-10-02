@@ -72,3 +72,28 @@ func (h *Handler) MyBranding(c *gin.Context) {
 	}
 	httpx.Success(c, http.StatusOK, rec)
 }
+
+// IssueConnectCode answers POST /branding/connect-code for the web
+// dashboard's "Connect mobile app" modal: a fresh short-lived code for the
+// caller's own business, taken from the token (see connect.go).
+func (h *Handler) IssueConnectCode(c *gin.Context) {
+	rec, err := h.svc.IssueConnectCode(platform.RequestContext(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	httpx.Success(c, http.StatusCreated, rec)
+}
+
+// RedeemConnectCode answers GET /public/connect/:code for the staff mobile
+// app's connect screen, before any session exists.
+func (h *Handler) RedeemConnectCode(c *gin.Context) {
+	rec, err := h.svc.RedeemConnectCode(c.Param("code"))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	httpx.Success(c, http.StatusOK, rec)
+}

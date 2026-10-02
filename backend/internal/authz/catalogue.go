@@ -192,9 +192,6 @@ var Catalogue = []PermissionDef{
 	{"can approve top-up branch manager stage", "Approve a loan top-up at the Branch Manager stage", "Top-Up Approval"},
 	{"can approve top-up management stage", "Approve a loan top-up at the Management stage", "Top-Up Approval"},
 
-	{"can approve waiver branch manager stage", "Approve a waiver/adjustment request at the Branch Manager stage", "Waiver Approval"},
-	{"can approve waiver management stage", "Approve a waiver/adjustment request at the Management stage", "Waiver Approval"},
-
 	{"can approve personal loan branch manager stage", "Approve a personal loan at the Branch Manager stage", "Personal Loan Approval"},
 	{"can approve personal loan management stage", "Approve a personal loan at the Management stage", "Personal Loan Approval"},
 }
@@ -209,7 +206,7 @@ var Catalogue = []PermissionDef{
 // themselves didn't change — only which module they're filed under).
 var ApprovalModuleNames = []string{
 	"Loan Sanction", "Loan Extension Approval", "Release Approval", "Auction Workflow",
-	"Expense Approval", "Top-Up Approval", "Waiver Approval", "Personal Loan Approval",
+	"Expense Approval", "Top-Up Approval", "Personal Loan Approval",
 }
 
 // StaffRoles is the canonical role list, seeded into the roles table by
@@ -287,8 +284,6 @@ var Restrictions = []RoleRestriction{
 	{"can approve expense", []string{"Administrator", "Branch Manager", "Management"}},
 	{"can approve top-up branch manager stage", []string{"Administrator", "Branch Manager"}},
 	{"can approve top-up management stage", []string{"Administrator", "Management"}},
-	{"can approve waiver branch manager stage", []string{"Administrator", "Branch Manager"}},
-	{"can approve waiver management stage", []string{"Administrator", "Management"}},
 	{"can approve personal loan branch manager stage", []string{"Administrator", "Branch Manager"}},
 	{"can approve personal loan management stage", []string{"Administrator", "Management"}},
 }

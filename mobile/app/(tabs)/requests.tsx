@@ -27,15 +27,14 @@ import {
   type DocLang,
 } from "../../src/utils/loanPrint";
 import { ApiError } from "../../src/api/client";
-import { dmy, inr } from "../../src/lib/format";
+import { dmy } from "../../src/lib/format";
 import type { LoanRequest } from "../../src/types/loan";
 import { useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
 import { ExtensionReviewPanel } from "../../src/components/loanRequests/ExtensionReviewPanel";
 import { ReleaseReviewPanel } from "../../src/components/loanRequests/ReleaseReviewPanel";
-import { WaiverReviewPanel } from "../../src/components/loanRequests/WaiverReviewPanel";
 import { useAuth } from "../../src/auth/AuthContext";
 
-// Requests (loan extensions, gold release, waivers / adjustments) — prototype #header-requests +
+// Requests (loan extensions, gold release) — prototype #header-requests +
 // #page-requests + #request-filter-modal. Every request across every loan,
 // searched (`q`) and filtered (`status`, `type`) server-side; "Review
 // Request" raises the same review panels the loan detail screen uses.
@@ -135,12 +134,12 @@ export default function RequestsScreen() {
   const summary = `${status === "All" && type === "All" ? "All requests" : [status !== "All" ? status : null, type !== "All" ? type : null].filter(Boolean).join(" · ")} · ${list.total ?? list.items.length}`;
 
   return (
-    <Screen header={<FlatHeader title="Requests" subtitle="Extensions, release & waivers" />}>
+    <Screen header={<FlatHeader title="Requests" subtitle="Extensions & release" />}>
       <ServerFlatList
         list={list}
         items={list.items}
         keyOf={(r) => String(r.id)}
-        emptyText={list.search || count ? "No requests match your search." : "No extension, release or waiver requests yet."}
+        emptyText={list.search || count ? "No requests match your search." : "No extension or release requests yet."}
         header={
           <>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
@@ -158,13 +157,8 @@ export default function RequestsScreen() {
         }
         renderItem={(r, i) => {
           const approvedRelease = r.type === "Release" && r.status === "Approved";
-          const isWaiver = r.type === "Waiver" || r.type === "Adjustment";
-          const details = isWaiver
-            ? [
-                { k: "Amount", v: inr(r.amount ?? 0) },
-                { k: "Date", v: dmy(r.requestedAt) },
-              ]
-            : r.type === "Extension"
+          const details =
+            r.type === "Extension"
               ? [
                   { k: "Requested", v: r.requestedExtensionMonths ? `+${r.requestedExtensionMonths} month${r.requestedExtensionMonths === 1 ? "" : "s"}` : r.detail || "—" },
                   { k: "Date", v: dmy(r.requestedAt) },
@@ -257,17 +251,7 @@ export default function RequestsScreen() {
               {!canDecide ? " · view only — you don't have permission to act on requests" : ""}
             </Txt>
             {sheetError ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{sheetError}</Txt> : null}
-            {selected.type === "Waiver" || selected.type === "Adjustment" ? (
-              <WaiverReviewPanel
-                request={selected}
-                loan={loanForSelected.data}
-                onSaved={() => {
-                  setSheetError(null);
-                  refreshAfterSave();
-                }}
-                onError={setSheetError}
-              />
-            ) : selected.type === "Extension" ? (
+            {selected.type === "Extension" ? (
               <ExtensionReviewPanel
                 request={selected}
                 loan={loanForSelected.data}

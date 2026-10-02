@@ -50,12 +50,10 @@ func (h *Handler) Login(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, LoginResponse{Token: token, Employee: emp})
 }
 
-// ForgotPassword always responds 200 regardless of whether the phone
-// number is registered, so the API never reveals which phone numbers have
-// accounts. ErrInvalidCredentials (meaning "no such phone" in this
-// context) is swallowed; any other/unexpected error still logs but also
-// responds 200 to avoid leaking account existence via timing/error
-// differences.
+// ForgotPassword tells the caller exactly what happened so the reset page can
+// react: 404 when the phone number is not registered with this business,
+// 403 when it belongs to an employee with no login, 503 when the code could
+// not be sent, 200 once the SMS is on its way.
 func (h *Handler) ForgotPassword(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	var in ForgotPasswordInput
@@ -63,10 +61,17 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	if err := h.svc.ForgotPassword(ctx, in.BusinessCode, in.Phone); err != nil && !errors.Is(err, ErrInvalidCredentials) {
-		log.Printf("auth: forgot-password error for %q: %v", in.Phone, err)
+	if err := h.svc.ForgotPassword(ctx, in.BusinessCode, in.Phone); err != nil {
+		var se httpx.StatusedError
+		if !errors.As(err, &se) {
+			// An unexpected DB/driver failure: the code was not sent.
+			log.Printf("auth: forgot-password error for %q: %v", in.Phone, err)
+			err = ErrResetCodeNotSent
+		}
+		httpx.FailErr(c, err)
+		return
 	}
-	httpx.SuccessMessage(c, http.StatusOK, "If that phone number is registered, a reset code has been sent by SMS.")
+	httpx.SuccessMessage(c, http.StatusOK, "A reset code has been sent by SMS.")
 }
 
 func (h *Handler) ResetPassword(c *gin.Context) {

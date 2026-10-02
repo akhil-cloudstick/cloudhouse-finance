@@ -276,6 +276,18 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	if err := authzRepo.SeedRoles(ctx, authz.StaffRoles); err != nil {
 		return err
 	}
+	// Before any backfill reads role_permissions: grants written by earlier
+	// boots' cross-tenant backfills were never stamped with their role's
+	// tenant and got swept to the default one, where the business that owns
+	// the role cannot see them — its Roles & Permissions screen came up empty.
+	// A grant belongs to its role's business; re-file any that say otherwise.
+	// No-op once repaired.
+	if res := db.Exec(`UPDATE role_permissions rp SET tenant_id = r.tenant_id
+		FROM roles r WHERE r.id = rp.role_id AND rp.tenant_id <> r.tenant_id`); res.Error != nil {
+		return fmt.Errorf("re-filing role_permissions under their role's business: %w", res.Error)
+	} else if res.RowsAffected > 0 {
+		log.Printf("permissions seed: %d role_permissions row(s) re-filed under their role's business", res.RowsAffected)
+	}
 
 	if err := authzRepo.SeedCatalogue(ctx, authz.Catalogue); err != nil {
 		return err
@@ -841,6 +853,8 @@ var tenantUniqueIndexes = []tenantUniqueIndex{
 	{"roles", "idx_roles_name", "uq_roles_tenant_name", "name", ""},
 	{"approval_limits", "idx_approval_limits_role", "uq_approval_limits_tenant_role", "role", ""},
 	{"approval_stage_settings", "idx_approval_stage_settings_flow_stage", "uq_approval_stage_settings_tenant_flow_stage", "flow, stage", ""},
+	{"approval_chains", "idx_approval_chains_scope", "uq_approval_chains_tenant_scope", "scope", ""},
+	{"approval_category_modes", "idx_approval_category_modes_category", "uq_approval_category_modes_tenant_category", "category", ""},
 
 	// Both of these were missed when this list was first written, and both
 	// are generated per business exactly like loans.loan_number above — the
@@ -1091,6 +1105,8 @@ var allModels = []any{
 	&loan.ApprovalLimit{},
 	&workflow.ApprovalStageSetting{},
 	&workflow.ApprovalAction{},
+	&workflow.ApprovalChain{},
+	&workflow.ApprovalCategoryMode{},
 	// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
 	&loan.LoanDraft{},
 	&loan.LoanDraftOrnament{},

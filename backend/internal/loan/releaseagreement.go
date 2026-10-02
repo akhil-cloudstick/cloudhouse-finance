@@ -2,7 +2,6 @@ package loan
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"html"
 	"html/template"
@@ -12,8 +11,6 @@ import (
 
 	"cloudhouse/backend/internal/tenant"
 
-	"github.com/chromedp/cdproto/page"
-	"github.com/chromedp/chromedp"
 )
 
 // ReleaseAgreementOrnament is one row of the FORM 7 discharge receipt's
@@ -51,6 +48,10 @@ type ReleaseAgreementData struct {
 	// the demo constants below.
 	LegalName   string
 	AddressLine string
+	// LenderSignature is the business's uploaded signature as an inline <img>
+	// (see Service.lenderSignature), printed over the OWNER SIGNATURE line.
+	LenderSignature template.HTML
+
 	KMLRegNo    string
 
 	// Policy is the business's document family, one of tenant.KnownPolicies
@@ -282,8 +283,7 @@ func renderReleaseAgreementHTML(data ReleaseAgreementData, lang string) (string,
 // releaseAgreement.ts's SHARED_STYLE/MALAYALAM_FONT_STYLE constants.
 func releaseAgreementStyle(lang string) string {
 	style := `
-@page{size:A4;margin:18mm 15mm}
-body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5}
+body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;margin:0;padding:0}
 h1{font-size:20px;letter-spacing:2px;margin:0 0 16px}
 p{margin:8px 0}
 .hd-table{border:none;margin-bottom:10px}
@@ -298,6 +298,11 @@ table:not(.hd-table):not(.amt-table) th{background:#ececec;font-size:12px}
 .sig-row{display:flex;justify-content:space-between;margin-top:44px}
 .sig-row div{text-align:left}
 .sig-line{display:inline-block;border-top:1px solid #333;padding-top:4px;min-width:170px;margin-top:34px}
+/* Owner signature: the uploaded image sits in a fixed slot above the line,
+ * so the line stays at the same height whether or not one is set. */
+.owner-sig .slot{height:46px;display:flex;align-items:flex-end}
+.owner-sig .sig-img{max-height:44px;max-width:170px;display:block}
+.owner-sig .sig-line{margin-top:0}
 `
 	if lang == BondLangMalayalam {
 		style += `body{font-family:'Noto Sans Malayalam','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif}`
@@ -306,49 +311,14 @@ table:not(.hd-table):not(.amt-table) th{background:#ececec;font-size:12px}
 }
 
 // RenderReleaseAgreementPDF renders the FORM 7 discharge receipt for the
-// given data, in the given language, into a PDF via a headless Chromium tab
-// — same chromedp invocation pattern as RenderIndemnityBondPDF, including
-// the same real per-page header/footer (bondHeaderTemplate/
-// bondFooterTemplate, defined in indemnitybond.go).
+// given data, in the given language, into an A4 PDF — same page geometry and
+// header/footer bands as every other document here (see renderA4PDF).
 func RenderReleaseAgreementPDF(data ReleaseAgreementData, lang string) ([]byte, error) {
 	html, err := renderReleaseAgreementHTML(data, lang)
 	if err != nil {
 		return nil, err
 	}
-
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	encoded := base64.StdEncoding.EncodeToString([]byte(html))
-	var pdfBytes []byte
-	err = chromedp.Run(ctx,
-		chromedp.Navigate("data:text/html;charset=utf-8;base64,"+encoded),
-		chromedp.WaitReady("body"),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			buf, _, err := page.PrintToPDF().
-				WithPrintBackground(true).
-				WithPreferCSSPageSize(true).
-				WithMarginTop(0.7).
-				WithMarginBottom(0.7).
-				WithMarginLeft(0.6).
-				WithMarginRight(0.6).
-				WithDisplayHeaderFooter(true).
-				WithHeaderTemplate(bondHeaderTemplate(data.LegalName)).
-				WithFooterTemplate(bondFooterTemplate).
-				Do(ctx)
-			if err != nil {
-				return err
-			}
-			pdfBytes = buf
-			return nil
-		}),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("release agreement: render PDF (is Chrome/Chromium installed and on PATH?): %w", err)
-	}
-	return pdfBytes, nil
+	return renderA4PDF(html, "release agreement")
 }
 
 // releaseAgreementDataForLoan builds RenderReleaseAgreementPDF's input from
@@ -393,6 +363,7 @@ func (s *Service) releaseAgreementDataForLoan(ctx context.Context, l *Loan) Rele
 		AddressLine:     addressLine,
 		KMLRegNo:        kmlRegNo,
 		Policy:          policy,
+		LenderSignature: s.lenderSignature(ctx),
 	}
 }
 

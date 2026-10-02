@@ -2,14 +2,11 @@ package loan
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"html/template"
 	"strings"
 	"time"
 
-	"github.com/chromedp/cdproto/page"
-	"github.com/chromedp/chromedp"
 )
 
 // PartialReleaseReceiptOrnament is one row of the receipt's ornament tables
@@ -54,6 +51,8 @@ type PartialReleaseReceiptData struct {
 
 	LegalName   string
 	AddressLine string
+	// LenderSignature — see ReleaseAgreementData.LenderSignature.
+	LenderSignature template.HTML
 }
 
 var partialReleaseReceiptTemplate = mustLoadTemplate("partial_release_receipt_en", "partial-release-receipt.html", nil)
@@ -116,48 +115,14 @@ func renderPartialReleaseReceiptHTML(data PartialReleaseReceiptData) (string, er
 	return sb.String(), nil
 }
 
-// RenderPartialReleaseReceiptPDF renders the Partial Release Receipt into a
-// PDF via headless Chromium — same chromedp invocation pattern as
-// RenderReleaseAgreementPDF.
+// RenderPartialReleaseReceiptPDF renders the Partial Release Receipt into an
+// A4 PDF — same page geometry as RenderReleaseAgreementPDF (see renderA4PDF).
 func RenderPartialReleaseReceiptPDF(data PartialReleaseReceiptData) ([]byte, error) {
 	htmlStr, err := renderPartialReleaseReceiptHTML(data)
 	if err != nil {
 		return nil, err
 	}
-
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	encoded := base64.StdEncoding.EncodeToString([]byte(htmlStr))
-	var pdfBytes []byte
-	err = chromedp.Run(ctx,
-		chromedp.Navigate("data:text/html;charset=utf-8;base64,"+encoded),
-		chromedp.WaitReady("body"),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			buf, _, err := page.PrintToPDF().
-				WithPrintBackground(true).
-				WithPreferCSSPageSize(true).
-				WithMarginTop(0.7).
-				WithMarginBottom(0.7).
-				WithMarginLeft(0.6).
-				WithMarginRight(0.6).
-				WithDisplayHeaderFooter(true).
-				WithHeaderTemplate(bondHeaderTemplate(data.LegalName)).
-				WithFooterTemplate(bondFooterTemplate).
-				Do(ctx)
-			if err != nil {
-				return err
-			}
-			pdfBytes = buf
-			return nil
-		}),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("partial release receipt: render PDF (is Chrome/Chromium installed and on PATH?): %w", err)
-	}
-	return pdfBytes, nil
+	return renderA4PDF(htmlStr, "partial release receipt")
 }
 
 // partialReleaseReceiptDataForRequest builds RenderPartialReleaseReceiptPDF's
@@ -223,6 +188,7 @@ func (s *Service) partialReleaseReceiptDataForRequest(ctx context.Context, req *
 		RevisedLTVRatio:         ltv,
 		LegalName:               legalName,
 		AddressLine:             addressLine,
+		LenderSignature:         s.lenderSignature(ctx),
 	}, nil
 }
 

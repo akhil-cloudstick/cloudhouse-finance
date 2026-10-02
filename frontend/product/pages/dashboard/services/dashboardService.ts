@@ -12,7 +12,7 @@ export type NeedsAttentionApprovalFlow = "loan_sanction" | "loan_topup" | "perso
 
 export type NeedsAttentionItem =
   | { kind: "approval"; flow: NeedsAttentionApprovalFlow; entityId: number; loanId: number; loanNumber: string; customerName: string; principal: number; approvalStage: string; detail: string }
-  | { kind: "request"; requestId: number; loanId: number; loanNumber: string; customerName: string; requestType: "Extension" | "Release" | "Waiver" | "Adjustment"; detail: string }
+  | { kind: "request"; requestId: number; loanId: number; loanNumber: string; customerName: string; requestType: "Extension" | "Release"; detail: string }
   | { kind: "auction"; loanId: number; loanNumber: string; customerName: string; outstanding: number; status: string };
 
 type BackendNeedsAttentionItem = {
@@ -68,7 +68,7 @@ function toNeedsAttentionItem(r: BackendNeedsAttentionItem): NeedsAttentionItem 
       loanId: r.loanId || 0,
       loanNumber: r.loanNumber || "",
       customerName: r.customerName || "—",
-      requestType: (r.requestType as "Extension" | "Release" | "Waiver" | "Adjustment") || "Extension",
+      requestType: (r.requestType as "Extension" | "Release") || "Extension",
       detail: r.detail || "",
     };
   }

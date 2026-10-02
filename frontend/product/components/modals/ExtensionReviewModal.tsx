@@ -25,7 +25,7 @@ import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
 export function ExtensionReviewModalContent({ request, onSaved }: { request: RequestView; onSaved: () => void }) {
   const { closeModal, openModal } = useModal();
   const toast = useToast();
-  const { can } = useAuth();
+  const { can, role, isAdmin } = useAuth();
   const { config: workflow } = useApprovalWorkflow();
   // canActOnStage below decides whose turn it is in the chain; this decides
   // whether the viewer may act on requests at all — without it the
@@ -80,7 +80,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
   const chain = chainFor(workflow, "loan_extension", req.status === "Pending" ? req.approvalStage : null);
   const stageIndex = stageKey ? chain.findIndex((s) => s.key === stageKey) : chain.length;
   const requiredRole = stageView?.role ?? null;
-  const canActOnStage = canActAtStage(can, stageView);
+  const canActOnStage = canActAtStage({ role, isAdmin }, stageView);
 
   async function decide(action: "Approved" | "Rejected", remarks = "") {
     if (!stageKey) return;
@@ -194,7 +194,8 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
                 <PaymentModalContent
                   loan={loan}
                   onSaved={() => { setNeedsPayment(false); setErr(""); getLoan(request.loanNumericId).then(setLoan); }}
-                />
+                />,
+                true
               )}
             >
               <Icon name="coin" /> Record Payment

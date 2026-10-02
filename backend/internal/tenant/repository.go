@@ -125,6 +125,12 @@ func (r *Repository) ReserveBranchSlot(ctx context.Context, tenantID uint, apply
 		if err := tx.First(&tier, t.TierID).Error; err != nil {
 			return fmt.Errorf("loading tier for tenant %d: %w", tenantID, err)
 		}
+		// A single-branch business is capped at one active branch whatever
+		// its plan. The module gate already refuses the write; this is the
+		// backstop for any path that reaches here without it.
+		if t.SingleBranch {
+			tier.BranchQuota = 1
+		}
 		// The tenant row is still locked above even for an unlimited plan, so
 		// a concurrent ChangeTier to a capped plan cannot slip in between.
 		if tier.IsUnlimited() {
@@ -273,12 +279,21 @@ func (r *Repository) FindTierByID(ctx context.Context, id uint) (*Tier, error) {
 // gated route for every existing business. Caught by the cross-tenant probe
 // suite, which is the only place this path runs against a real database.
 func (r *Repository) HasModule(ctx context.Context, tenantID uint, moduleKey string) (bool, error) {
-	var enabled string
+	var row struct {
+		Enabled      string
+		SingleBranch bool
+	}
 	err := r.db.WithContext(ctx).Model(&Tenant{}).
+		Select("COALESCE(enabled_modules, '') AS enabled, COALESCE(single_branch, false) AS single_branch").
 		Where("id = ?", tenantID).
-		Pluck("COALESCE(enabled_modules, '')", &enabled).Error
+		Take(&row).Error
 	if err != nil {
 		return false, err
 	}
-	return containsCSV(enabled, moduleKey), nil
+	// A single-branch business never gets Branch Management, whatever the
+	// stored module column says — see Tenant.EffectiveModuleList.
+	if moduleKey == ModuleBranches && row.SingleBranch {
+		return false, nil
+	}
+	return containsCSV(row.Enabled, moduleKey), nil
 }

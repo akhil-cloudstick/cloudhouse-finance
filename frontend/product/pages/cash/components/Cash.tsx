@@ -14,6 +14,7 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/co
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
+import { rememberedLedgerPage, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/product/pages/cash/components/ledgerCells";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
@@ -21,10 +22,12 @@ import {
   exportCashMovements, exportExpenses,
   type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory,
 } from "@/product/pages/cash/services/cashService";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import { canActAtStage, stageByPending } from "@/product/services/approvalWorkflowService";
 import { ApiError } from "@/product/services/httpClient";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
+import { useBranding } from "@/product/providers/BrandingProvider";
 
 function Kpi({ l, v, s, parts, cls }: {
   l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
@@ -73,7 +76,7 @@ function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; b
 
 function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance: number; categoryIds: Record<string, number> }) {
   return (
-    <tr>
+    <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
       <td data-label="Date">{m.d}</td>
       <td className="ledger-ref" data-label="Ref No" title={loanNumberFor(m)}>{refCellFor(m)}</td>
       <td data-label="Particulars">{particularsFor(m, categoryIds)}</td>
@@ -86,13 +89,14 @@ function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance
 }
 
 /* canApprove/onApprove/onReject drive the Approve/Reject pair shown on a
- * Pending row (the expense approval flow) — gated by "can approve expense". */
-function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, busy, onApprove, onReject }: {
+ * Pending row (the expense approval flow) — shown only to the role of the
+ * step the expense waits at (or Administrator); awaiting names that role. */
+function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, onApprove, onReject }: {
   e: ExpenseView; categoryId?: number; onViewReceipt: () => void;
-  canApprove: boolean; busy: boolean; onApprove: () => void; onReject: () => void;
+  canApprove: boolean; awaiting?: string; busy: boolean; onApprove: () => void; onReject: () => void;
 }) {
   return (
-    <tr>
+    <tr data-ledger-key={`e-${e.id}`} data-ledger-date={e.d} data-ledger-amount={e.amt}>
       <td data-label="Date">{e.d}</td>
       <td data-label="Category">
         {categoryId ? <LedgerRefLink kind="category" id={categoryId} label={e.cat} /> : e.cat}
@@ -104,6 +108,9 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, busy, onApprove,
       <td data-label="Status">
         <StatusChip status={e.status} />
         {e.remarks ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
+        {e.status === "Pending" && awaiting && !canApprove && (
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Awaiting {awaiting}</div>
+        )}
         {e.status === "Pending" && canApprove && (
           <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 6 }}>
             <button className="btn sm" disabled={busy} onClick={onApprove}><Icon name="check" /> Approve</button>
@@ -147,11 +154,16 @@ export function Cash() {
   const toast = useToast();
   // Recording cash movements and expenses is a create; closing a loan movement is an update.
   // Whatever the role can't do is hidden outright (see Customers.tsx).
-  const { can } = useAuth();
+  const { can, role, isAdmin } = useAuth();
+  const { singleBranch } = useBranding();
+  const { config: workflow } = useApprovalWorkflow();
   const canCreateCash = can("Cash_Management", "can_create_cash");
-  // Pending expenses (expense approval flow on) — approving posts the cash
-  // movement; enforced server-side by the same permission.
-  const canApproveExpense = can("Expense_Approval", "can_approve_expense");
+  // Pending expenses (expense approval chain configured) — each waits at one
+  // approver role; the last approval posts the cash movement. Enforced
+  // server-side by the same role check.
+  // A row from before the chain was configurable has no stage — it waits at
+  // the first step, the same as the backend reads it.
+  const expenseStage = (e: ExpenseView) => stageByPending(workflow, "expense", e.approvalStage || "Pending");
   const [decidingExpenseId, setDecidingExpenseId] = useState<number | null>(null);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -166,12 +178,13 @@ export function Cash() {
   const [movementSums, setMovementSums] = useState({ debit: 0, credit: 0 });
   const [expenseSum, setExpenseSum] = useState(0);
   const [goldSaleSums, setGoldSaleSums] = useState({ sold: 0, cost: 0, profit: 0 });
-  const [movementsPage, setMovementsPage] = useState(1);
+  // Back from a drill-down, each table reopens on the page the user left.
+  const [movementsPage, setMovementsPage] = useState(() => rememberedLedgerPage("cash-movements") ?? 1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
   const cashPageSize = useResponsivePageSize(15, 15);
   const smallScreen = useIsSmallScreen();
-  const [expensesPage, setExpensesPage] = useState(1);
+  const [expensesPage, setExpensesPage] = useState(() => rememberedLedgerPage("cash-expenses") ?? 1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
   const [expensesTotal, setExpensesTotal] = useState(0);
   const [goldSalesPage, setGoldSalesPage] = useState(1);
@@ -183,7 +196,7 @@ export function Cash() {
   const [summary, setSummary] = useState<CashSummary | null>(null);
   // Switches the card below between the Cash Movements and Expense Register
   // tables instead of stacking both full tables on the page at once.
-  const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses" | "goldSales">("movements");
+  const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses" | "goldSales">(() => rememberedLedgerPage("cash-expenses") ? "expenses" : "movements");
   // Cash Movements' own date-range filter — empty means "no bound", the
   // table's default unfiltered view. Only this table is filtered; the KPI
   // row above and the Expense Register tab are untouched.
@@ -214,11 +227,13 @@ export function Cash() {
   // Customer already picked whose home branch isn't among the selected
   // Branches then matches no rows server-side, same "customer has no
   // account in that branch → nothing shown" rule as the spec.
+  // A single-branch business has nothing to filter by branch — the category
+  // is dropped rather than shown with one option.
   const movementsFilterCategories: FilterCategory[] = [
-    {
-      key: "branch", label: "Branch", kind: "static",
+    ...(singleBranch ? [] : [{
+      key: "branch", label: "Branch", kind: "static" as const,
       options: allBranches.map((b) => ({ value: String(b.id), label: b.name })),
-    },
+    }]),
     {
       key: "customer", label: "Customer", kind: "async",
       fetchOptions: (search, p) =>
@@ -290,6 +305,9 @@ export function Cash() {
       setSummary(null);
     });
   }, [branchId, today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes]);
+
+  useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0, [movements]);
+  useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0, [expenses]);
 
   useEffect(() => {
     listActiveBranches().then((list) => {
@@ -475,7 +493,7 @@ export function Cash() {
             </div>
           </div>
           <div className="tbl-wrap tbl-scroll">
-            <table className="tbl tbl-center tbl-roomy tbl-stack">
+            <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-movements" data-ledger-page={movementsPage}>
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {movements.length
@@ -510,7 +528,7 @@ export function Cash() {
             <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 12 }}>Total {fmt(expenseSum)}</span>
           </div>
           <div className="tbl-wrap tbl-scroll">
-            <table className="tbl tbl-center tbl-roomy tbl-stack">
+            <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-expenses" data-ledger-page={expensesPage}>
               <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
               <tbody>
                 {expenses.length
@@ -520,7 +538,8 @@ export function Cash() {
                       e={e}
                       categoryId={categoryIdByName[e.cat.toLowerCase()]}
                       onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
-                      canApprove={canApproveExpense}
+                      canApprove={canActAtStage({ role, isAdmin }, expenseStage(e)) || (isAdmin && !expenseStage(e))}
+                      awaiting={expenseStage(e)?.label}
                       busy={decidingExpenseId === e.id}
                       onApprove={() => onApproveExpense(e)}
                       onReject={() => onRejectExpense(e)}

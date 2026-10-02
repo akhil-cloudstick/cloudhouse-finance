@@ -117,7 +117,7 @@ export function PersonalLoans() {
           {loading ? (
             <tr><td colSpan={5} className="empty">Loading personal loans…</td></tr>
           ) : loans.length === 0 ? (
-            <tr><td colSpan={5} className="empty">No personal loans in this category.</td></tr>
+            <tr><td colSpan={5} className="empty">No personal loans</td></tr>
           ) : loans.map((l) => <PersonalLoanRow loan={l} key={l.id} />)}
         </tbody>
       </table></div>

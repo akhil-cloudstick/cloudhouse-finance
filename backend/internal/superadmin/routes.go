@@ -40,8 +40,12 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, superAdminAuth gin.HandlerF
 	protected.PUT("/businesses/:id/profile", h.UpdateProfile)
 	protected.PUT("/businesses/:id/branding", h.SetBranding)
 	protected.POST("/businesses/:id/logo", h.SetLogo)
+	protected.POST("/businesses/:id/signature", h.SetSignature)
+	protected.GET("/businesses/:id/signature", h.GetSignature)
+	protected.DELETE("/businesses/:id/signature", h.ClearSignature)
 	protected.PUT("/businesses/:id/modules", h.SetModules)
 	protected.PUT("/businesses/:id/languages", h.SetLanguages)
+	protected.PUT("/businesses/:id/branch-mode", h.SetBranchMode)
 	protected.GET("/businesses/:id/admin", h.GetAdminLogin)
 	protected.PUT("/businesses/:id/admin", h.UpdateAdminLogin)
 

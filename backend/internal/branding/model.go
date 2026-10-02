@@ -90,6 +90,9 @@ type Self struct {
 	KMLRegNo    string   `json:"kmlRegNo"`
 	Modules     []string `json:"modules"`
 	Languages   []string `json:"languages"`
+	// SingleBranch tells the app to lock every branch picker to the one
+	// default branch and hide the branch switcher.
+	SingleBranch bool `json:"singleBranch"`
 }
 
 // publicOf projects a tenant, applying the platform fallbacks. logoURL is

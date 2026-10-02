@@ -28,6 +28,7 @@
 import {
   APP_ROUTES,
   DEFAULT_ROUTE,
+  ROUTE_ALIASES,
   STANDALONE_PAGES,
   isBusinessSegment,
   type StandalonePage,
@@ -43,6 +44,9 @@ export type ParsedPath = {
   arg?: string;
   /** Set for /<slug>/login and /<slug>/reset, which are not console routes. */
   page?: StandalonePage;
+  /** True when the URL used an old route name (ROUTE_ALIASES) — the address
+   * bar should be rewritten to the current one. */
+  aliased?: boolean;
 };
 
 /* parsePath splits a pathname into business, page, route and argument.
@@ -73,6 +77,9 @@ export function parsePath(pathname?: string): ParsedPath {
   if (first && (STANDALONE_PAGES as readonly string[]).includes(first)) {
     return { slug, route: DEFAULT_ROUTE, page: first as StandalonePage };
   }
+
+  const alias = first ? ROUTE_ALIASES[first] : undefined;
+  if (alias) return { slug, route: alias, arg: parts[1], aliased: true };
 
   return {
     slug,

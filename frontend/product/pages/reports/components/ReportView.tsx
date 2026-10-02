@@ -8,6 +8,7 @@ import { Select } from "@/product/components/ui/Select";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { exportReport, type ReportFilters, type ReportKey, type ReportResult } from "@/product/pages/reports/services/reportsService";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 
@@ -70,6 +71,8 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
   const pageSize = useResponsivePageSize(15, 15);
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: no branch filter — every row is its one branch.
+  const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number>(0);
   const [branchLabel, setBranchLabel] = useState("All branches");
   const [from, setFrom] = useState(config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
@@ -203,6 +206,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>To</label>
             <DatePicker value={to} onChange={setTo} min={from} />
           </div>
+          {!singleBranch && (
           <div style={{ width: 150 }}>
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Branch</label>
             <SearchableSelect<BranchView>
@@ -214,6 +218,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
               placeholder="Search branch…"
             />
           </div>
+          )}
           {config.extraFilter && (
             <div style={{ width: 150 }}>
               <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>{config.extraFilter.label}</label>

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"cloudhouse/backend/internal/platform"
 )
@@ -74,8 +75,11 @@ func (r *Repository) FindByID(ctx context.Context, id uint) (*Employee, error) {
 	return &e, nil
 }
 
+// Update persists e's own columns only. Associations are omitted because e
+// usually comes from FindByID with Branch preloaded — letting Save upsert
+// that stale Branch would write its ID back over a changed BranchID.
 func (r *Repository) Update(ctx context.Context, e *Employee) error {
-	return r.db.WithContext(ctx).Save(e).Error
+	return r.db.WithContext(ctx).Omit(clause.Associations).Save(e).Error
 }
 
 func (r *Repository) Delete(ctx context.Context, id uint) error {

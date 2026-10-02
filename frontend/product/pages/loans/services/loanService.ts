@@ -1,7 +1,7 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/product/services/httpClient";
 import { branchHeader } from "@/product/services/branchSelection";
 import { isSmallScreen } from "@/product/utils/responsive";
-import { printPdfBlob } from "@/product/utils/print";
+import { printPdfJob } from "@/product/utils/print";
 import type { BondLang } from "@/product/pages/loans/utils/indemnityBond";
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
@@ -1445,6 +1445,74 @@ export async function getAuctionHistory(loanId: number): Promise<AuctionRecordVi
   return (recs || []).map(toAuctionRecordView);
 }
 
+/* The Payment Ledger on LoanDetail — one page of the loan's whole history
+ * (sanction, payments, top-ups, auction rows), built and paged by GET
+ * /loans/:id/ledger (backend/internal/loan/ledger.go). Balances are carried
+ * over the full history server-side, so any page shows the true figure. A
+ * payment/payout/top-up split across modes is one row per mode — `part` is
+ * that row's share. */
+export type LoanLedgerPart = { mode: string; amount: number; index: number; count: number };
+type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart };
+export type LoanLedgerEntry =
+  | (LedgerEntryBase & { kind: "sanction"; balance: number; payment: PaymentView | null })
+  | (LedgerEntryBase & { kind: "payment"; balance: number; row: PaymentView; auction: AuctionRecordView | null })
+  | (LedgerEntryBase & { kind: "topup"; balance: number; row: LoanTopUpView })
+  | (LedgerEntryBase & { kind: "auction-sale"; balance: null; row: AuctionRecordView })
+  | (LedgerEntryBase & { kind: "auction-surplus"; balance: null; row: AuctionRecordView });
+export type LoanLedgerPage = { items: LoanLedgerEntry[]; total: number; limit: number; offset: number };
+export type LoanLedgerQuery = {
+  from?: string;
+  to?: string;
+  limit: number;
+  offset: number;
+  // Open on the page holding this row — by key, else by date + amount.
+  focusKey?: string;
+  focusDate?: string;
+  focusAmount?: number;
+};
+
+type BackendLoanLedgerEntry = {
+  kind: LoanLedgerEntry["kind"];
+  key: string;
+  date: string;
+  amount: number;
+  balance: number | null;
+  part?: LoanLedgerPart;
+  payment?: BackendLoanPayment;
+  topUp?: LoanTopUpView;
+  auction?: BackendAuctionRecord;
+};
+
+function toLedgerEntry(e: BackendLoanLedgerEntry): LoanLedgerEntry {
+  const base = { key: e.key, date: e.date, amount: e.amount, part: e.part };
+  const auction = e.auction ? toAuctionRecordView(e.auction) : null;
+  switch (e.kind) {
+    case "sanction":
+      return { ...base, kind: "sanction", balance: e.balance ?? 0, payment: e.payment ? toPaymentView(e.payment) : null };
+    case "payment":
+      return { ...base, kind: "payment", balance: e.balance ?? 0, row: toPaymentView(e.payment!), auction };
+    case "topup":
+      return { ...base, kind: "topup", balance: e.balance ?? 0, row: e.topUp! };
+    case "auction-sale":
+      return { ...base, kind: "auction-sale", balance: null, row: auction! };
+    default:
+      return { ...base, kind: "auction-surplus", balance: null, row: auction! };
+  }
+}
+
+export async function getLoanLedger(loanId: number, q: LoanLedgerQuery): Promise<LoanLedgerPage> {
+  const params = new URLSearchParams({ limit: String(q.limit), offset: String(q.offset) });
+  if (q.from) params.set("from", q.from);
+  if (q.to) params.set("to", q.to);
+  if (q.focusKey) params.set("focusKey", q.focusKey);
+  if (q.focusDate) params.set("focusDate", q.focusDate);
+  if (q.focusAmount !== undefined) params.set("focusAmount", String(q.focusAmount));
+  const rec = await apiFetch<{ items: BackendLoanLedgerEntry[] | null; total: number; limit?: number; offset?: number }>(`/loans/${loanId}/ledger?${params}`);
+  // limit/offset echo the page the server actually served (it may jump to a
+  // focused row); fall back to the requested one if they're absent.
+  return { items: (rec.items || []).map(toLedgerEntry), total: rec.total ?? 0, limit: rec.limit ?? q.limit, offset: rec.offset ?? q.offset };
+}
+
 /* listConcludedAuctions backs the Auctions page's History tab — finished cases
  * (Settled or Withdrawn) across all loans, which previously disappeared from
  * view entirely once concluded. */
@@ -1529,9 +1597,6 @@ export type BackendLoanRequest = {
   status: "Pending" | "Approved" | "Rejected";
   requestedBy: "Customer" | "Staff";
   detail: string;
-  // Waiver/Adjustment only — how much to forgive (Waiver: interest + penal)
-  // or write off the principal (Adjustment). detail carries the reason.
-  amount?: number;
   requestedExtensionMonths?: number | null;
   newDueDate?: string | null;
   // Release only — the same Manager→Management chain used for loan
@@ -1573,9 +1638,7 @@ export type BackendLoanRequest = {
   createdAt: string;
 };
 
-/* Waiver/Adjustment requests (the loan_waiver approval flow) share the
- * requests table and endpoints with Extension/Release. */
-export type LoanRequestType = "Extension" | "Release" | "Waiver" | "Adjustment";
+export type LoanRequestType = "Extension" | "Release";
 
 export type RequestView = {
   id: number;
@@ -1586,7 +1649,6 @@ export type RequestView = {
   type: LoanRequestType;
   status: "Pending" | "Approved" | "Rejected";
   detail: string;
-  amount: number;
   requestedAt: string; // "YYYY-MM-DD"
   remarks: string;
   requestedExtensionMonths: number | null;
@@ -1617,7 +1679,6 @@ function toRequestView(r: BackendLoanRequest): RequestView {
     type: r.type,
     status: r.status,
     detail: r.detail,
-    amount: r.amount ?? 0,
     requestedAt: r.requestedAt ? r.requestedAt.slice(0, 10) : "",
     remarks: r.remarks,
     requestedExtensionMonths: r.requestedExtensionMonths ?? null,
@@ -1856,35 +1917,6 @@ export async function approveExtensionRequest(requestId: number, input: Extensio
   return toRequestView(rec);
 }
 
-/* --- Waiver / adjustment requests ----------------------------------------
- * A Waiver forgives outstanding interest + penal interest (amount ≤ that
- * total); an Adjustment writes down principal (amount ≤ principal
- * outstanding). Goes through the loan_waiver approval chain (Branch Manager
- * -> Management by default); with that flow switched off the request comes
- * back already "Approved" and posted to the loan. */
-export type WaiverRequestInput = { type: "Waiver" | "Adjustment"; amount: number; reason: string };
-
-export async function createWaiverRequest(loanId: number, input: WaiverRequestInput): Promise<RequestView> {
-  const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/waiver-request`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return toRequestView(rec);
-}
-
-// Same generalized approve endpoint as Extension/Release — the backend
-// dispatches on the request's own Type. stage is the stage KEY
-// ("BranchManager"/"Management").
-export type WaiverApprovalInput = { stage: string; action: "Approved" | "Rejected"; remarks?: string };
-
-export async function approveWaiverRequest(requestId: number, input: WaiverApprovalInput): Promise<RequestView> {
-  const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return toRequestView(rec);
-}
-
 /* The actual "hand the gold back" step, separate from approving the
  * request — blocked server-side until the settlement is fully paid and any
  * bank pledge already released (see Service.CompleteRelease). */
@@ -1985,23 +2017,24 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
  * still uses the client-side copy, since there's no loan id yet to render
  * against. */
 export async function downloadIndemnityBondPDF(loanNumericId: number, lang: BondLang): Promise<void> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }
 
 /* Partial Ornament Release counterpart to downloadReleaseAgreementPDF below
@@ -2010,23 +2043,24 @@ export async function downloadIndemnityBondPDF(loanNumericId: number, lang: Bond
  * released BY THIS REQUEST). Only valid for a Release request with
  * isPartial true — see DownloadPartialReleaseReceiptPDF's own doc comment. */
 export async function downloadPartialReleaseReceiptPDF(requestId: number): Promise<void> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}/loans/requests/${requestId}/partial-release-receipt/pdf`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE}/loans/requests/${requestId}/partial-release-receipt/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }
 
 /* Sends the FORM 7 release/discharge agreement straight to the print dialog
@@ -2039,23 +2073,24 @@ export async function downloadPartialReleaseReceiptPDF(requestId: number): Promi
  * Requests.tsx) only reaches this once a loan is closed/release-approved, so
  * there is no pre-save preview variant, unlike the indemnity bond. */
 export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "en" | "ml"): Promise<void> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}/loans/${loanNumericId}/release-agreement/pdf?lang=${lang}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE}/loans/${loanNumericId}/release-agreement/pdf?lang=${lang}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }
 
 /* Same shape NewLoan.tsx's buildDraft() already assembles for the old
@@ -2082,26 +2117,27 @@ export type IndemnityBondPreviewInput = {
  * an already-saved loan, and sends it straight to the print dialog the
  * same way via printPdfBlob — just POST with a JSON body instead of GET. */
 export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, lang: BondLang): Promise<void> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}/loans/indemnity-bond/preview-pdf?lang=${lang}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE}/loans/indemnity-bond/preview-pdf?lang=${lang}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }

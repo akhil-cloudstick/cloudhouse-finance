@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { parsePath, ROUTE_CHANGE_EVENT, type ParsedPath } from "@/product/services/appRoutes";
+import { parsePath, routeHref, ROUTE_CHANGE_EVENT, type ParsedPath } from "@/product/services/appRoutes";
 
 export type AppRouteState = { route: string; arg?: string };
 
@@ -28,7 +28,13 @@ export function useAppRoute(): AppRouteState {
     // Read once on mount as well as on every event: the server-rendered
     // markup of a static export is built with no URL at all, so the first
     // client read is what establishes the real route.
-    const update = () => setState(parsePath());
+    const update = () => {
+      const next = parsePath();
+      // An old route name (/<slug>/cash) — show the current one (/<slug>/ledger)
+      // in the address bar without adding a history entry.
+      if (next.aliased) window.history.replaceState(window.history.state, "", routeHref(next.route, next.arg) + window.location.search);
+      setState(next);
+    };
     update();
     window.addEventListener("popstate", update);
     window.addEventListener(ROUTE_CHANGE_EVENT, update);

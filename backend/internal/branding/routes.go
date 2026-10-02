@@ -16,6 +16,9 @@ func RegisterPublicRoutes(rg *gin.RouterGroup, h *Handler) {
 	rg.GET("/branding", h.PublicBrandingByHost)
 	rg.GET("/branding/:code", h.PublicBranding)
 	rg.GET("/branding/:code/logo", h.PublicLogo)
+	// The staff mobile app redeeming the short code shown in the web
+	// dashboard's "Connect mobile app" modal (see connect.go).
+	rg.GET("/connect/:code", h.RedeemConnectCode)
 }
 
 // RegisterRoutes mounts the signed-in read (expected group:
@@ -26,4 +29,5 @@ func RegisterPublicRoutes(rg *gin.RouterGroup, h *Handler) {
 // would mean a role could be configured into a blank application.
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler) {
 	rg.GET("", h.MyBranding)
+	rg.POST("/connect-code", h.IssueConnectCode)
 }

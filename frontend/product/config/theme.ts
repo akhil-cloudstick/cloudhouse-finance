@@ -415,13 +415,19 @@ export function applyFavicon(logoUrl: string | null | undefined): void {
   // into the document, not on an attribute change to an existing one — a
   // same-element href swap can silently keep showing the old icon
   // indefinitely, which is exactly the "stuck on the platform icon" failure
-  // mode this exists to avoid. Next's static export may have baked in more
-  // than one <link rel="icon"> (different sizes) — remove all of them so
-  // the browser has exactly one to choose from, unambiguously the tenant's.
-  document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((el) => el.remove());
+  // mode this exists to avoid.
+  //
+  // Only OUR link (data-brand-icon) is ever removed. The <link rel="icon">
+  // Next renders from metadata is owned by React — removing it behind React's
+  // back makes React's own later removal (route change, layout swap) crash
+  // with "Cannot read properties of null (reading 'removeChild')". Leaving it
+  // in place is harmless: browsers use the LAST matching icon in tree order,
+  // and ours is always appended at the end of <head>.
+  document.querySelectorAll<HTMLLinkElement>('link[data-brand-icon]').forEach((el) => el.remove());
   const link = document.createElement("link");
   link.rel = "icon";
   link.href = logoUrl;
+  link.setAttribute("data-brand-icon", "");
   document.head.appendChild(link);
 }
 

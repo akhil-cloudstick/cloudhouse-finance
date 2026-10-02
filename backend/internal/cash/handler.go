@@ -299,7 +299,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 func (h *MovementHandler) withLoanSources(ctx context.Context, rows []CashMovement) []movementResponse {
 	var ids []uint
 	for _, m := range rows {
-		if m.Source == "Loan" {
+		if IsLoanSource(m.Source) {
 			ids = append(ids, m.ID)
 		}
 	}
@@ -1361,11 +1361,84 @@ func (h *GoldSaleHandler) Get(c *gin.Context) {
 // CashSourceHandler wires HTTP requests to the CashSourceService — backs
 // AddCashModal.tsx's "Source of Cash" searchable/creatable picker.
 type CashSourceHandler struct {
-	svc *CashSourceService
+	svc         *CashSourceService
+	movementSvc *MovementService
 }
 
-func NewCashSourceHandler(svc *CashSourceService) *CashSourceHandler {
-	return &CashSourceHandler{svc: svc}
+func NewCashSourceHandler(svc *CashSourceService, movementSvc *MovementService) *CashSourceHandler {
+	return &CashSourceHandler{svc: svc, movementSvc: movementSvc}
+}
+
+// Get backs GET /cash-sources/:id — the source plus, for a loan source with
+// its details captured, its current balance.
+func (h *CashSourceHandler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	src, bal, err := h.movementSvc.GetCashSource(ctx, id)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"source": src, "isLoan": IsLoanSource(src.Name), "balance": bal})
+}
+
+// GetLedger backs GET /cash-sources/:id/ledger — a loan source's own ledger
+// (see MovementService.ListLoanSourceLedger).
+func (h *CashSourceHandler) GetLedger(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	src, bal, err := h.movementSvc.GetCashSource(ctx, id)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if !IsLoanSource(src.Name) || !src.HasLoanDetails() {
+		httpx.Fail(c, http.StatusNotFound, "this source is not a loan with details recorded")
+		return
+	}
+	respondLoanLedger(c, h.movementSvc, src, bal)
+}
+
+// respondLoanLedger writes a loan source's ledger page (or PDF), adding the
+// loan's own header fields — shared by the cash-source and expense-category
+// ledger endpoints, since a loan's repayment category IS the loan.
+func respondLoanLedger(c *gin.Context, svc *MovementService, src *CashSource, bal LoanBalance) {
+	ctx := platform.RequestContext(c)
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, offset, export := ledgerPaging(c)
+	rows, total, totals, err := svc.ListLoanSourceLedger(ctx, src, fromDate, toDate, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	bankName := ""
+	if src.Bank != nil {
+		bankName = src.Bank.Name
+	}
+	respondLedger(c, export, "Loan Ledger — "+src.Name, "loan-ledger.pdf", fromDate, toDate, rows, total, totals, gin.H{
+		"categoryName": src.Name,
+		"loan": gin.H{
+			"sourceId": src.ID, "name": src.Name, "bankName": bankName, "loanNumber": src.LoanNumber,
+			"principal": bal.Principal, "drawn": bal.Drawn, "repaid": bal.Repaid, "balance": bal.Balance,
+		},
+	})
 }
 
 // List mirrors bank.Handler.List's pagination convention: plain array when
@@ -1498,6 +1571,17 @@ func (h *ExpenseCategoryHandler) GetLedger(c *gin.Context) {
 	cat, err := h.svc.FindByID(ctx, id)
 	if err != nil {
 		httpx.Fail(c, http.StatusNotFound, "expense category not found")
+		return
+	}
+	// A loan source's same-named category is its repayment category — its
+	// ledger is the loan's own ledger, balance and all.
+	if src := h.movementSvc.findLoanSource(ctx, cat.Name); src != nil {
+		src, bal, err := h.movementSvc.GetCashSource(ctx, src.ID)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		respondLoanLedger(c, h.movementSvc, src, bal)
 		return
 	}
 	fromDate, err := parseOptionalDate(c.Query("fromDate"))

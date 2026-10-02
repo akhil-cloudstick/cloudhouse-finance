@@ -5,7 +5,7 @@ import { searchExpenseCategoriesPage, EXPENSE_CATEGORIES_CHANGED } from "@/produ
 
 /* Lower-cased category name -> id. Expense.category is free text server
  * side, so ledger rows only carry the name; this resolves it to the id the
- * category ledger route (#party-category/:id) needs. Loaded on mount and
+ * category ledger route (/ledger-category/:id) needs. Loaded on mount and
  * again whenever a category is created. */
 export function useExpenseCategoryIds(): Record<string, number> {
   const [map, setMap] = useState<Record<string, number>>({});

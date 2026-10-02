@@ -13,6 +13,7 @@ import { listPackets } from "../api/packets";
 import { API_BASE_URL, API_ORIGIN } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
 import { ApiError } from "../api/client";
+import { withPrintProgress } from "../components/ui/PrintProgress";
 import { BRAND, printBrand, printColors } from "../config/brand";
 
 // Same CSS as openPrintWindow (frontend/common/utils/print.ts) — kept
@@ -206,9 +207,12 @@ export const RELEASE_AGREEMENT_LANGS: DocLang[] = ["en", "ml"];
 async function printServerPdf(path: string, filename: string): Promise<void> {
   const token = await getToken();
   const targetUri = `${FileSystem.cacheDirectory}${filename.replace(/[^\w.-]+/g, "-")}`;
-  const result = await FileSystem.downloadAsync(`${API_BASE_URL}${path}`, targetUri, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  // The render takes a few seconds server-side — show the overlay for it.
+  const result = await withPrintProgress(() =>
+    FileSystem.downloadAsync(`${API_BASE_URL}${path}`, targetUri, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+  );
   if (result.status < 200 || result.status >= 300) {
     let message = "";
     let body: unknown = null;

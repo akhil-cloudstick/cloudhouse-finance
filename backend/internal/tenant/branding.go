@@ -175,6 +175,24 @@ func (t *Tenant) PolicyOrDefault() string { return PolicyOrDefault(t.Policy) }
 // ModuleList returns the enabled modules, in KnownModules order.
 func (t *Tenant) ModuleList() []string { return filterKnown(t.EnabledModules, KnownModules) }
 
+// EffectiveModuleList is what the business's own app may use: ModuleList
+// minus ModuleBranches while the business is SingleBranch. The stored column
+// is left alone (the console still shows the vendor's tick), so switching the
+// business back to multi-branch restores the page exactly as it was.
+func (t *Tenant) EffectiveModuleList() []string {
+	mods := t.ModuleList()
+	if !t.SingleBranch {
+		return mods
+	}
+	out := make([]string, 0, len(mods))
+	for _, m := range mods {
+		if m != ModuleBranches {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // LanguageList returns the issuable languages, in KnownLanguages order and
 // always including English.
 //
@@ -257,6 +275,7 @@ func (t *Tenant) LogoPath() string {
 
 func (t *Tenant) syncDerived() {
 	t.LogoURL = t.LogoPath()
+	t.HasSignature = t.SignatureStorageKey != ""
 	t.Modules = t.ModuleList()
 	t.Languages = t.LanguageList()
 }

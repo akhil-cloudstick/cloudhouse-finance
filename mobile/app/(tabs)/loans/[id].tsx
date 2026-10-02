@@ -36,7 +36,7 @@ import {
   normalizeSanctionStage,
   type SanctionStage,
 } from "../../../src/api/loans";
-import { isFinalStage, stageByKey, stageByPending, stageIndex, stagePerm, stepperSteps, useApprovalWorkflow } from "../../../src/api/approvalWorkflow";
+import { isFinalStage, stageByKey, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "../../../src/api/approvalWorkflow";
 import { listPackets } from "../../../src/api/packets";
 import { getAuction } from "../../../src/api/auctions";
 import { dmy, inr } from "../../../src/lib/format";
@@ -53,8 +53,6 @@ import { LoanTimeline } from "../../../src/components/staff/loan/LoanTimeline";
 import { LoanLedger } from "../../../src/components/staff/loan/LoanLedger";
 import { TOP_UP_STATUSES, TopUpSheet } from "../../../src/components/staff/loan/TopUpSheet";
 import { TopUpReviewPanel } from "../../../src/components/staff/loan/TopUpReviewPanel";
-import { WaiverSheet } from "../../../src/components/staff/loan/WaiverSheet";
-import { WaiverReviewPanel } from "../../../src/components/loanRequests/WaiverReviewPanel";
 
 // Loan Description — prototype #header-loandesc + #page-loandesc with its
 // Actions / Documents rise-up sheets and every action sheet they open.
@@ -77,8 +75,6 @@ type SheetKey =
   | "disburse"
   | "topup"
   | "topupReview"
-  | "waiver"
-  | "waiverReview"
   | "reject"
   | "delete"
   | null;
@@ -100,7 +96,7 @@ export default function LoanDetailScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const loanId = Number(id);
-  const { can } = useAuth();
+  const { can, employee } = useAuth();
   const wf = useApprovalWorkflow();
   const canEditLoan = can("Loan_Management", "can_update_loan");
   const canHardDeleteLoan = can("Loan_Management", "can_hard_delete_loan");
@@ -122,7 +118,7 @@ export default function LoanDetailScreen() {
   const [open, setOpen] = useState<SheetKey>(null);
   const [error, setError] = useState<string | null>(null);
   const [recordTab, setRecordTab] = useState<RecordTab>("ledger");
-  // Which pending top-up / waiver request the review sheet is showing.
+  // Which pending top-up the review sheet is showing.
   const [reviewId, setReviewId] = useState<number | null>(null);
   useResetOnBlur(() => setOpen(null));
 
@@ -192,9 +188,7 @@ export default function LoanDetailScreen() {
   const allRequests = requests.data ?? [];
   const pendingExtension = allRequests.find((r) => r.type === "Extension" && r.status === "Pending");
   const pendingRelease = allRequests.find((r) => r.type === "Release" && r.status === "Pending");
-  const pendingWaivers = allRequests.filter((r) => (r.type === "Waiver" || r.type === "Adjustment") && r.status === "Pending");
   const pendingTopUps = (topUps.data ?? []).filter((t) => t.status === "Pending");
-  const reviewWaiver = pendingWaivers.find((r) => r.id === reviewId);
   const reviewTopUp = pendingTopUps.find((t) => t.id === reviewId);
 
   // Who may act on the pending sanction stage — a UX nicety only; the server
@@ -202,15 +196,17 @@ export default function LoanDetailScreen() {
   // LAST enabled one), come from the tenant's "loan_sanction" workflow;
   // acting needs that stage's Loan Sanction permission plus loan update.
   // LoanOperator is a verification ("Verified").
-  const pendingStage = normalizeSanctionStage(l.approvalStage);
-  const stageDef = stageByKey(wf, "loan_sanction", pendingStage);
+  // Resolved through the chain like the web's LoanDetail: a legacy value
+  // maps onto the current chain's stage, whose key the approve call sends.
+  const stageDef = stageByKey(wf, "loan_sanction", normalizeSanctionStage(l.approvalStage));
+  const pendingStage = stageDef?.key ?? null;
   const requiredRole = stageDef?.role ?? null;
   const stageLabel = stageDef?.label ?? pendingStage ?? "";
-  const isVerifyStage = pendingStage === "LoanOperator";
+  const isVerifyStage = stageDef?.role === "Loan Operator";
   const isFinalSanction = isFinalStage(wf, "loan_sanction", pendingStage);
-  const canActOnStage = !!stageDef && canEditLoan && can(...stagePerm(stageDef));
+  const canActOnStage = !!stageDef && canEditLoan && canActAtStage(employee?.role, stageDef);
   const sanctionSteps = stepperSteps(wf, "loan_sanction", pendingStage);
-  const approveLabel = isFinalSanction ? (isVerifyStage ? "Verify & Disburse" : "Approve & Disburse") : isVerifyStage ? "Verify" : "Approve";
+  const approveLabel = isFinalSanction ? (isVerifyStage ? " Disburse" : "Disburse") : isVerifyStage ? "Verify" : "Approve";
 
   const alreadyAuctioned = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
   const showAuction = !!auction.data || alreadyAuctioned || !!l.isDefaulted;
@@ -225,12 +221,12 @@ export default function LoanDetailScreen() {
     setOpen(k);
   }
 
-  function review(k: "topupReview" | "waiverReview", itemId: number) {
+  function review(k: "topupReview", itemId: number) {
     setReviewId(itemId);
     go(k);
   }
 
-  function stageLabelFor(flow: "loan_topup" | "loan_waiver", pending?: string) {
+  function stageLabelFor(flow: "loan_topup", pending?: string) {
     return stageByPending(wf, flow, pending)?.label;
   }
 
@@ -357,7 +353,7 @@ export default function LoanDetailScreen() {
           </>
         ) : null}
 
-        {pendingExtension || pendingRelease || pendingWaivers.length || pendingTopUps.length ? (
+        {pendingExtension || pendingRelease || pendingTopUps.length ? (
           <>
             <SectionTitle>Pending requests</SectionTitle>
             <Card style={{ paddingVertical: 4 }}>
@@ -388,15 +384,6 @@ export default function LoanDetailScreen() {
                     title: `Top-up requested · ${inr(t.amount)}`,
                     sub: `${st ? `Awaiting ${st}` : "Awaiting approval"} — tap to review`,
                     onPress: () => review("topupReview", t.id),
-                  });
-                }
-                for (const r of pendingWaivers) {
-                  const st = stageLabelFor("loan_waiver", r.approvalStage);
-                  add(`wv-${r.id}`, {
-                    icon: "coin",
-                    title: `${r.type} requested · ${inr(r.amount ?? 0)}`,
-                    sub: `${st ? `Awaiting ${st}` : "Awaiting approval"} — tap to review`,
-                    onPress: () => review("waiverReview", r.id),
                   });
                 }
                 return rows;
@@ -445,16 +432,6 @@ export default function LoanDetailScreen() {
           }
           if (canEditLoan && TOP_UP_STATUSES.includes(l.status)) {
             add("topup", { icon: "plus", title: "Top Up Loan", sub: "Disburse more against the pledged gold", onPress: () => go("topup") });
-          }
-          // Mirrors the backend's CreateWaiverRequest guard (not terminal, not
-          // still awaiting sanction).
-          if (canEditLoan && !isFinished && !["Pending Approval", "Auctioned", "Defaulted"].includes(l.status)) {
-            add("waiver", {
-              icon: "coin",
-              title: "Request Waiver / Adjustment",
-              sub: pendingWaivers.length ? `${pendingWaivers.length} awaiting approval · raise another` : "Waive interest or adjust the principal",
-              onPress: () => go("waiver"),
-            });
           }
           if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: "Scheme, principal, and ornament details", onPress: () => go("edit") });
           if (pendingStage && canActOnStage) add("docs", { icon: "doc", title: "Loan Documents", sub: "Statement, bond & eSign", onPress: () => go("documents") });
@@ -521,11 +498,6 @@ export default function LoanDetailScreen() {
           onConfirm={(split) => doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved", ...split })}
         />
       ) : null}
-      <WaiverSheet loan={l} visible={open === "waiver"} onClose={() => setOpen(null)} />
-      <Sheet visible={open === "waiverReview" && !!reviewWaiver} onClose={() => setOpen(null)} title={`Review ${reviewWaiver?.type ?? "Waiver"} — ${l.loanNumber}`} maxHeightPct={85}>
-        {error && open === "waiverReview" ? <WarningBanner>{error}</WarningBanner> : null}
-        {reviewWaiver ? <WaiverReviewPanel request={reviewWaiver} loan={l} onSaved={afterReview} onError={setError} /> : null}
-      </Sheet>
       <Sheet visible={open === "topupReview" && !!reviewTopUp} onClose={() => setOpen(null)} title={`Review Top-up — ${l.loanNumber}`} maxHeightPct={85}>
         {error && open === "topupReview" ? <WarningBanner>{error}</WarningBanner> : null}
         {reviewTopUp ? <TopUpReviewPanel loan={l} topUp={reviewTopUp} onSaved={afterReview} onError={setError} /> : null}

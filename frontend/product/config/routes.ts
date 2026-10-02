@@ -30,7 +30,7 @@ export const APP_ROUTES = [
   "personalloan",
   "investments",
   "investment",
-  "cash",
+  "ledger",
   "auctions",
   "packets",
   "packet",
@@ -42,7 +42,7 @@ export const APP_ROUTES = [
   "banks",
   "ledger-bank",
   "ledger-customer",
-  "party-category",
+  "ledger-category",
   "cash-ledger",
   "upi-ledger",
   "bank-transfer-ledger",
@@ -55,6 +55,14 @@ export const APP_ROUTES = [
 export type AppRoute = (typeof APP_ROUTES)[number];
 
 export const DEFAULT_ROUTE: AppRoute = "dashboard";
+
+/* Old route names still accepted in a URL, and the route each now is — a
+ * bookmarked /<slug>/cash opens the Ledger and the address bar is rewritten
+ * to /<slug>/ledger (see useAppRoute). */
+export const ROUTE_ALIASES: Readonly<Record<string, AppRoute>> = {
+  cash: "ledger",
+  "party-category": "ledger-category",
+};
 
 /* Pages that sit under a business but are not console routes:
  * /<slug>/login and /<slug>/reset. */
@@ -79,6 +87,7 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
  * created and break its own links later. */
 export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set<string>([
   ...APP_ROUTES,
+  ...Object.keys(ROUTE_ALIASES),
   ...STANDALONE_PAGES,
   "api",
   "uploads",

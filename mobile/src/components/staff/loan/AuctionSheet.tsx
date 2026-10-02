@@ -19,7 +19,7 @@ import {
   type AuctionSurplusDisposition,
 } from "../../../types/auction";
 import { useAuth } from "../../../auth/AuthContext";
-import { isFlowOff, stageByKey, stagePerm, useApprovalWorkflow } from "../../../api/approvalWorkflow";
+import { isFlowOff, stageByKey, canActAtStage, useApprovalWorkflow } from "../../../api/approvalWorkflow";
 import { dmy, inr, todayISO } from "../../../lib/format";
 import type { Loan } from "../../../types/loan";
 import { ErrorText, apiErr, invalidateLoan } from "./common";
@@ -49,7 +49,7 @@ export function AuctionSheet({
 }) {
   const qc = useQueryClient();
   const wf = useApprovalWorkflow();
-  const { can } = useAuth();
+  const { can, employee } = useAuth();
   const canAct = can("Loan_Management", "can_update_loan");
   const [error, setError] = useState<string | null>(null);
   const [auctionDate, setAuctionDate] = useState("");
@@ -100,7 +100,7 @@ export function AuctionSheet({
   const decisionFlow = decisionReq?.kind === "Shortfall" ? "auction_shortfall" : "auction_partial_repayment";
   const decisionFlowOff = isFlowOff(wf, decisionFlow);
   const decisionStage = stageByKey(wf, decisionFlow, "Decision");
-  const canDecideThis = canAct && !!decisionStage && can(...stagePerm(decisionStage));
+  const canDecideThis = canAct && !!decisionStage && canActAtStage(employee?.role, decisionStage);
   const balanceDue = l.status === "Auctioned - Balance Due";
   // getAuction only returns the ACTIVE case — a null record with an Auctioned
   // status means the pipeline already concluded, not "never started".

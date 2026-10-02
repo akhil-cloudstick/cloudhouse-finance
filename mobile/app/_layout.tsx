@@ -14,6 +14,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { ThemeProvider, useTheme } from "../src/theme/ThemeProvider";
 import { SheetHost } from "../src/components/SheetHost";
 import { ToastHost } from "../src/components/ui/Toast";
+import { PrintProgressHost } from "../src/components/ui/PrintProgress";
 import { KeyboardDoneBar } from "../src/components/ui/KeyboardDone";
 import { AnimatedSplash } from "../src/components/AnimatedSplash";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";
@@ -82,22 +83,29 @@ function useAndroidStatusBarTranslucency() {
 
 
 function RootNavigation() {
-  const { employee, isLoading } = useAuth();
+  const { employee, isLoading, businessCode } = useAuth();
   const { colors: themed } = useTheme();
   const segments = useSegments();
   const router = useRouter();
   useAndroidStatusBarTranslucency();
   const dismissKeyboard = useDismissKeyboardOnOutsideTouch();
 
+  // Signed out with no business yet → the scanner (connect); signed out with
+  // a business → that business's login; signed in → the dashboard. Connecting
+  // a business (connect screen) and "Exit business" both just change
+  // `businessCode`, and this moves the user on.
   useEffect(() => {
     if (isLoading) return;
     const inAuthGroup = segments[0] === "(auth)";
-    if (!employee && !inAuthGroup) {
+    const onConnect = inAuthGroup && (segments as string[])[1] === "connect";
+    if (employee) {
+      if (inAuthGroup) router.replace("/(tabs)/dashboard");
+    } else if (!businessCode) {
+      if (!onConnect) router.replace("/(auth)/connect");
+    } else if (!inAuthGroup || onConnect) {
       router.replace("/(auth)/login");
-    } else if (employee && inAuthGroup) {
-      router.replace("/(tabs)/dashboard");
     }
-  }, [employee, isLoading, segments, router]);
+  }, [employee, isLoading, businessCode, segments, router]);
 
   if (isLoading) {
     return (
@@ -131,6 +139,7 @@ function RootNavigation() {
           the real screen bounds. See src/components/SheetHost.tsx. */}
       <SheetHost />
       <ToastHost />
+      <PrintProgressHost />
       <KeyboardDoneBar />
     </View>
   );

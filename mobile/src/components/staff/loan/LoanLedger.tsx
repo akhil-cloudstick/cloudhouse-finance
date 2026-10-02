@@ -35,6 +35,23 @@ function modeSplit(r: { cashAmount?: number; upiAmount?: number; bankTransferAmo
     .join(" · ");
 }
 
+type Part = { mode: string; amount: number; index: number; count: number };
+
+/** A split payment/payout's per-mode shares, or [] when it used one mode. */
+function splitParts(r: { cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number }): Part[] {
+  const modes = (
+    [
+      ["Cash", r.cashAmount ?? 0],
+      ["UPI", r.upiAmount ?? 0],
+      ["Bank Transfer", r.bankTransferAmount ?? 0],
+      ["Cheque", r.chequeAmount ?? 0],
+    ] as const
+  ).filter(([, amount]) => amount > 0);
+  return modes.length > 1 ? modes.map(([mode, amount], index) => ({ mode, amount, index, count: modes.length })) : [];
+}
+
+const partNote = (p: Part, total: number) => `Split ${p.index + 1} of ${p.count} · total ${inr(total)}`;
+
 function paymentMethod(p: Payment) {
   if (p.method) return p.method;
   const modes = [
@@ -49,13 +66,22 @@ function paymentMethod(p: Payment) {
 /** The Payment Ledger's rows — mirrors the web LoanDetail's "Payment Ledger"
  * table: the sanction/disbursement, then every top-up (a further debit) and
  * payment (a credit) in date order, oldest first, with the running balance
- * the backend records against each payment. */
+ * the backend records against each payment. A payment, payout or top-up
+ * split across modes is one row per mode (the way the Cash/UPI/Bank ledgers
+ * book it), each with the balance after that share. The loan's
+ * "Disbursement" payment only carries the payout's mode split — the same
+ * event as the sanction row, so it splits that row instead of showing again
+ * as a credit. */
 export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
   const rows: Entry[] = [];
+  const payments = l.payments ?? [];
+  const disbursement = payments.find((p) => p.type === "Disbursement");
 
   if (l.disbursementDate) {
     const withheld = (l.sanctionedAmount ?? 0) - (l.disbursedAmount ?? 0);
-    rows.push({
+    const disbursed = l.disbursedAmount ?? l.principalAmount;
+    const sanctioned = l.sanctionedAmount || l.principalAmount;
+    const sanction: Entry = {
       key: "sanction",
       // The bare date sorts ahead of any same-day timestamp; sort is stable
       // for an equal key, and this row goes in first.
@@ -63,8 +89,9 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
       date: l.disbursementDate,
       title: "Loan sanctioned",
       sub: withheld > 0.004 ? `${inr(withheld)} withheld as service charge` : "Disbursed",
-      debit: l.disbursedAmount ?? l.principalAmount,
-      balance: l.sanctionedAmount || l.principalAmount,
+      debit: disbursed,
+      balance: sanctioned,
+      method: disbursement ? paymentMethod(disbursement) || undefined : undefined,
       split:
         withheld > 0.004
           ? [
@@ -72,7 +99,22 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
               { k: "Withheld", v: inr(withheld) },
             ]
           : [],
-    });
+    };
+    const parts = disbursement ? splitParts(disbursement) : [];
+    if (parts.length === 0) rows.push(sanction);
+    let later = parts.reduce((sum, pt) => sum + pt.amount, 0);
+    for (const pt of parts) {
+      later -= pt.amount;
+      rows.push({
+        ...sanction,
+        key: `sanction-${pt.mode}`,
+        sub: [pt.mode, partNote(pt, disbursed)].join(" · "),
+        debit: pt.amount,
+        balance: sanctioned - later,
+        method: pt.mode,
+        split: pt.index === 0 ? sanction.split : [],
+      });
+    }
   }
 
   for (const t of topUps) {
@@ -81,7 +123,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
     if (t.status === "Pending" || t.status === "Rejected") continue;
     const modes = modeSplit(t);
     const reversed = t.status === "Reversed";
-    rows.push({
+    const topUp: Entry = {
       key: `topup-${t.id}`,
       sortKey: t.occurredOn,
       date: t.occurredOn,
@@ -91,10 +133,23 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
       method: modes || undefined,
       reference: t.reference || undefined,
       split: [{ k: "Eligible at top-up", v: inr(t.eligibleAmountAtTopUp) }],
-    });
+    };
+    const parts = splitParts(t);
+    if (parts.length === 0) rows.push(topUp);
+    for (const pt of parts) {
+      rows.push({
+        ...topUp,
+        key: `topup-${t.id}-${pt.mode}`,
+        sub: [pt.mode, partNote(pt, t.amount), t.reference ? `Ref ${t.reference}` : ""].filter(Boolean).join(" · "),
+        debit: pt.amount,
+        method: pt.mode,
+        split: pt.index === 0 ? topUp.split : [],
+      });
+    }
   }
 
-  for (const p of l.payments ?? []) {
+  for (const p of payments) {
+    if (p.type === "Disbursement") continue;
     // Interest/Principal/Partial/Full Settlement/Waiver all reduce what's
     // owed (a credit); Waiver/Adjustment move no money (web: "Non-cash").
     const nonCash = p.type === "Adjustment" || p.type === "Waiver";
@@ -105,7 +160,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
     if (p.interestApplied > 0) split.push({ k: "Interest", v: inr(p.interestApplied) });
     if (p.principalApplied > 0) split.push({ k: "Principal", v: inr(p.principalApplied) });
     if (p.processingFee > 0) split.push({ k: "Fee charged", v: `+${inr(p.processingFee)}`, color: C.red });
-    rows.push({
+    const payment: Entry = {
       key: `pay-${p.id}`,
       sortKey: p.paidOn || p.createdAt,
       date: p.paidOn || p.createdAt,
@@ -117,7 +172,23 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
       method: method || undefined,
       reference: p.reference || undefined,
       split,
-    });
+    };
+    const parts = nonCash ? [] : splitParts(p);
+    if (parts.length === 0) rows.push(payment);
+    let later = parts.reduce((sum, pt) => sum + pt.amount, 0);
+    for (const pt of parts) {
+      later -= pt.amount;
+      rows.push({
+        ...payment,
+        key: `pay-${p.id}-${pt.mode}`,
+        sub: [pt.mode, partNote(pt, p.amount), p.reference ? `Ref ${p.reference}` : ""].filter(Boolean).join(" · "),
+        credit: pt.amount,
+        balance: p.runningBalance + later,
+        method: pt.mode,
+        // The allocation breakdown is the whole payment's — shown once.
+        split: pt.index === 0 ? split : [],
+      });
+    }
   }
 
   return rows.sort((a, b) => a.sortKey.localeCompare(b.sortKey));

@@ -4,6 +4,7 @@ import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { expenseCategoryOf } from "@/product/hooks/useExpenseCategoryIds";
 import { MODE_LEDGER_ROUTE, type CashMovementView } from "@/product/pages/cash/services/cashService";
 import { routeHref } from "@/product/services/appRoutes";
+import { isLoanSource } from "@/product/pages/cash/services/cashSourceService";
 
 /* Clickable cells for a cash-movement ledger row — shared by Cash.tsx's
  * Ledger tab and the Reports Ledger / Statement Export
@@ -21,6 +22,12 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
   if (categoryId) {
     return <LedgerRefLink kind="category" id={categoryId} label={text || category!} />;
   }
+  // A loan-sourced Add Cash entry links to that loan's own ledger — served
+  // by the loan's same-named repayment category.
+  const loanCategoryId = m.type === "in" && m.source && isLoanSource(m.source) ? categoryIds[m.source.toLowerCase()] : undefined;
+  if (loanCategoryId) {
+    return <LedgerRefLink kind="category" id={loanCategoryId} label={text || m.source!} />;
+  }
   if (m.partyCustomerId) {
     return <LedgerRefLink kind="customer" id={m.partyCustomerId} label={text || "Customer"} />;
   }
@@ -36,7 +43,7 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
 // RecordLoanPaymentCashIn/etc), there's no dedicated column for it. Movements
 // with no loan number (manual top-ups, expenses, gold sales, …) fall back to
 // the transaction group id / movement id.
-const LOAN_NUMBER_RE = /—\s*((?:LN|INV)-\S+)\s*$/;
+const LOAN_NUMBER_RE = /—\s*((?:LN|PL|INV)-\S+)\s*$/;
 export function loanNumberFor(m: CashMovementView): string {
   // A loan-sourced Add Cash entry carries the loan number staff typed in.
   if (m.loanSource?.loanNumber) return m.loanSource.loanNumber;
@@ -50,6 +57,7 @@ export function loanNumberFor(m: CashMovementView): string {
 export function refCellFor(m: CashMovementView) {
   const ref = loanNumberFor(m);
   if (ref.startsWith("LN-")) return <LedgerRefLink kind="loan" id={ref} label={ref} />;
+  if (ref.startsWith("PL-")) return <LedgerRefLink kind="personalloan" id={ref} label={ref} />;
   if (ref.startsWith("INV-")) return <LedgerRefLink kind="investment" id={ref} label={ref} />;
   return ref;
 }

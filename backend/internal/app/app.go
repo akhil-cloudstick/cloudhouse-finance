@@ -236,9 +236,9 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo, loanCashSourceRepo)
 	movementHandler := cash.NewMovementHandler(movementSvc)
 
-	// Per-tenant approval-workflow configuration (which approval stages each
-	// flow uses) — read by loan, cash and personal-loan services.
-	workflowSvc := workflow.NewService(workflow.NewRepository(pinned), authzRepo)
+	// Per-tenant approval-workflow configuration (the ordered approver roles
+	// of each flow) — read by loan, cash and personal-loan services.
+	workflowSvc := workflow.NewService(workflow.NewRepository(pinned))
 	workflowHandler := workflow.NewHandler(workflowSvc)
 
 	expenseSvc := cash.NewExpenseService(expenseRepo, branchRepo, movementSvc)
@@ -253,9 +253,12 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 
 	cashSourceRepo := cash.NewCashSourceRepository(pinned)
 	cashSourceSvc := cash.NewCashSourceService(cashSourceRepo)
-	cashSourceHandler := cash.NewCashSourceHandler(cashSourceSvc)
+	cashSourceHandler := cash.NewCashSourceHandler(cashSourceSvc, movementSvc)
 
 	expenseCategoryRepo := cash.NewExpenseCategoryRepository(pinned)
+	// Loan sources keep their bank/number/principal on the cash-source row
+	// and take repayments through a same-named expense category.
+	movementSvc.SetLoanSourceLookups(cashSourceRepo, expenseCategoryRepo)
 	expenseCategorySvc := cash.NewExpenseCategoryService(expenseCategoryRepo)
 	expenseCategoryHandler := cash.NewExpenseCategoryHandler(expenseCategorySvc, movementSvc)
 
@@ -371,7 +374,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
 	investmentRepo := investment.NewRepository(pinned)
-	investmentSvc := investment.NewService(investmentRepo, customerRepo, movementSvc, investmentCommsAdapter{notificationSvc: notificationSvc}, tenantRepo)
+	investmentSvc := investment.NewService(investmentRepo, customerRepo, movementSvc, investmentCommsAdapter{notificationSvc: notificationSvc}, tenantRepo, cfg.UploadsDir)
 	investmentHandler := investment.NewHandler(investmentSvc)
 
 	reminderRepo := reminder.NewRepository(pinned)
@@ -607,10 +610,14 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// Permissions admin API (the standard's 3-endpoint contract) + role
 	// CRUD — see internal/authz/handler.go.
 	authzHandler := authz.NewHandler(authzRepo)
+	// A role still in an approval chain cannot be deleted.
+	authzHandler.SetRoleUsageChecker(workflowSvc.RoleInUse)
 	authz.RegisterRoutes(protected.Group("/employees"), protected.Group("/roles"), authzHandler, authzRepo)
 	// Approval workflow configuration — edited on the Roles & Permissions
-	// screen, so writing it takes the same "can update role" grant.
-	workflow.RegisterRoutes(protected.Group("/approval-workflow"), workflowHandler, platform.RequirePermission(authzRepo, "can update role"))
+	// screen, so it takes the same view / "can update role" grants.
+	workflow.RegisterRoutes(protected.Group("/approval-workflow"), workflowHandler,
+		platform.RequirePermission(authzRepo, "can view role and permission"),
+		platform.RequirePermission(authzRepo, "can update role"))
 
 	// This business's own subscription billing (Step 10) — one permission
 	// gate, Administrator-only (see authz.Restrictions), same posture as

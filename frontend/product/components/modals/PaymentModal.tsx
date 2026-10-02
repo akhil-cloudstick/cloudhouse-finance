@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, Fragment, useState } from "react";
+import { createPortal } from "react-dom";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
@@ -9,7 +10,6 @@ import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/comp
 import { fmt } from "@/product/utils/format";
 import { recordPayment, recordReleasePayment, getLoan, type LoanView } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
-import { useIsSmallScreen } from "@/product/utils/responsive";
 
 /* What the Amount is allowed to pay off. Every mode clears any outstanding
  * processing fee first — a fee is a real charge, not something staff can
@@ -108,11 +108,19 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
 // (ReleaseReviewModal.tsx). Everything else (allocation mode, split
 // payment, interest override, processing fee) is identical either way, so
 // this stays one component rather than a duplicate bespoke modal.
-export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId }: { loan: LoanView; onSaved: () => void; releaseRequestId?: number }) {
+//
+// initialMode preselects "Apply Payment To" (and so the prefilled Amount) —
+// e.g. the top-up modal's "pay the interest first" redirect opens this on
+// "Interest". Ignored if it isn't one of ALLOCATION_MODES.
+//
+// Record Payment never posts straight away: it first pops a confirmation
+// summary (amount, where it lands, how it was paid) on top of the form, and
+// only that popup's Confirm Payment actually records it.
+export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId, initialMode }: { loan: LoanView; onSaved: () => void; releaseRequestId?: number; initialMode?: string }) {
   const { closeModal } = useModal();
   const toast = useToast();
-  const smallScreen = useIsSmallScreen();
   const today = new Date().toISOString().slice(0, 10);
+  const startMode = ALLOCATION_MODES.some((m) => m.value === initialMode) ? initialMode! : ALLOCATION_MODES[0].value;
 
   // The caller's `loan` prop can be a few minutes (or a full accrual cycle)
   // stale by the time staff actually open this modal — LoanDetail.tsx only
@@ -162,7 +170,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   }
 
   const [amt, setAmt] = useState(() => {
-    const v = amountForMode(initialLoan, ALLOCATION_MODES[0].value);
+    const v = amountForMode(initialLoan, startMode);
     return v > 0 ? String(v) : "";
   });
   // Set the instant a mode is picked, before the user has typed their own
@@ -170,9 +178,14 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // "prefill, don't fight an edit" rule as the Interest field's own
   // interestTouchedRef below.
   const amountTouchedRef = useRef(false);
+  // Picking a narrower mode (Interest/Penal/Principal/Full Settlement) always
+  // refills Amount with what that mode clears — keeping a typed figure made
+  // the picker look broken (the receipt still showed the old amount, now
+  // overshooting the new mode). Only "Both" keeps a typed amount, since any
+  // figure is valid there.
   function selectMode(nextMode: string) {
     setMode(nextMode);
-    if (!amountTouchedRef.current) {
+    if (nextMode !== "Partial" || !amountTouchedRef.current) {
       const v = amountForMode(loan, nextMode);
       setAmt(v > 0 ? String(v) : "");
     }
@@ -195,7 +208,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   }
   // Defaults to the full waterfall, which is what every payment did before
   // this picker existed — so leaving it alone reproduces the old behaviour.
-  const [mode, setMode] = useState(ALLOCATION_MODES[0].value);
+  const [mode, setMode] = useState(startMode);
   const [fee, setFee] = useState("");
   const [date, setDate] = useState(today);
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
@@ -208,14 +221,34 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // PaymentTypeDiscount ledger entry (see backend/internal/loan/service.go's
   // RecordReleaseRequestPayment).
   const [discount, setDiscount] = useState("");
-  const [err, setErr] = useState("");
+  // An error is about the figures as they were when it was raised — it's
+  // stamped with them and stops showing the moment any of them change.
+  const figuresKey = [amt, mode, remaining, fee, interest, discount].join("|");
+  const [errState, setErrState] = useState({ msg: "", key: "" });
+  const err = errState.key === figuresKey ? errState.msg : "";
+  const setErr = (msg: string) => setErrState({ msg, key: figuresKey });
   const [saving, setSaving] = useState(false);
+  // Synchronous guard against a double post: `saving` only disables the
+  // button after a re-render, so a fast double-click or a held Enter on the
+  // focused Confirm button could call save() twice before that. "done"
+  // stays set after success — this component outlives closeModal (the
+  // shell only hides it), so nothing may record a second time.
+  const postRef = useRef<"idle" | "posting" | "done">("idle");
+  // True while the confirmation popup is open over the form. The form stays
+  // as-is underneath, so going Back keeps everything entered.
+  const [confirming, setConfirming] = useState(false);
 
   // A fee entered here is added to the loan's owed fee BEFORE Amount is
   // allocated (see this component's doc comment), so the preview has to see
   // it too or it would under-report what the fee bucket swallows.
   const previewAmount = +amt || 0;
-  const previewLoan = { ...loan, outstandingProcessingFee: loan.outstandingProcessingFee + (+fee || 0) };
+  // An Interest override replaces the computed interest server-side (see
+  // PaymentInput.InterestOverride), so the preview uses it the same way.
+  const previewLoan = {
+    ...loan,
+    outstandingProcessingFee: loan.outstandingProcessingFee + (+fee || 0),
+    outstandingInterest: interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest,
+  };
   const alloc = previewAllocation(previewLoan, mode, previewAmount);
   const splitBalanced = Math.abs(remaining) < 0.01;
 
@@ -228,9 +261,13 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative."); return; }
     if (!date) { setErr("Please select the payment date."); return; }
     if (!splitBalanced) { setErr("The payment breakdown must add up to the amount."); return; }
+    if (allocWarning) { setErr(allocWarning); return; }
     const discountAmount = discount.trim() ? +discount : 0;
     if (discountAmount < 0) { setErr("Discount cannot be negative."); return; }
     if (discountAmount > amount) { setErr("Discount cannot exceed the amount."); return; }
+    if (!confirming) { setErr(""); setConfirming(true); return; }
+    if (postRef.current !== "idle") return;
+    postRef.current = "posting";
     setSaving(true);
     try {
       // The receiving employee is derived server-side from the logged-in
@@ -303,143 +340,218 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           interestOverride,
         });
       }
+      // closeModal only hides the shared shell — this component stays
+      // mounted, so the portalled popup has to be dropped explicitly.
+      postRef.current = "done";
+      setConfirming(false);
       onSaved();
       closeModal();
       toast(`Payment of ${fmt(amount)} recorded${processingFee ? ` (incl. ${fmt(processingFee)} processing fee charged)` : ""}`);
     } catch (e) {
+      // A throw after the post succeeded (e.g. from onSaved) must not
+      // re-open the door; only a rejected post allows a corrected retry.
+      if (postRef.current === "done") return;
+      postRef.current = "idle";
       setErr(e instanceof ApiError ? e.message : "Could not record the payment — try again.");
+      // Back to the form so the rejected figures can be corrected.
+      setConfirming(false);
     } finally {
       setSaving(false);
     }
+  }
+
+  // Live receipt figures (the right-hand panel) — what's left on the loan
+  // once previewAllocation's split lands, against the same fee-and-override
+  // adjusted previewLoan it allocated from.
+  const paidBy = ([
+    ["Cash", split.cashAmount],
+    ["UPI", split.upiAmount],
+    ["Bank transfer", split.bankTransferAmount],
+    ["Cheque", split.chequeAmount],
+  ] as const).filter(([, v]) => v > 0.001);
+  const allocRows = ([
+    ["Processing fee / charges", alloc.fee, "var(--accent)"],
+    ["Penal interest", alloc.penal, "var(--red)"],
+    ["Interest", alloc.interest, "var(--brand)"],
+    ["Principal", alloc.principal, "var(--green)"],
+  ] as const).filter(([, v]) => v > 0.001);
+  const principalLeft = Math.max(0, previewLoan.outstanding - alloc.principal);
+  const interestLeft = Math.max(0, previewLoan.outstandingInterest + previewLoan.outstandingPenalInterest - alloc.interest - alloc.penal);
+  const feeLeft = Math.max(0, previewLoan.outstandingProcessingFee - alloc.fee);
+  const closesLoan = previewAmount > 0 && alloc.short < 0.01 && principalLeft + interestLeft + feeLeft < 0.01;
+  const allocWarning = alloc.over > 0.01
+    ? `${fmt(alloc.over)} more than "${modeLabel(mode)}" can take. Lower the amount or choose another option.`
+    : alloc.short > 0.01
+      ? `${fmt(alloc.short)} short. Closing the loan needs the full ${fmt(previewAmount + alloc.short)}.`
+      : "";
+  const interestQuick = amountForMode(previewLoan, "Interest");
+  const settleQuick = amountForMode(previewLoan, "Full Settlement") + (+fee || 0);
+
+  // Quick-fill chips set the mode along with the amount, so the receipt and
+  // the backend both read the payment the same way the chip's label says.
+  function quickFill(m: string, v: number) {
+    setMode(m);
+    setAmount(String(Math.round(v * 100) / 100));
   }
 
   return (
     <>
       <div className="hd"><h3>Record Payment — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       {/* `bd-scroll` caps the modal at the viewport and scrolls THIS body
-        * instead of the page behind it (see app.css) — this modal's own
-        * `<Select>` dropdown (Apply Payment To) is a `position:absolute`
-        * descendant of `.bd`, unlike DatePicker's `position:fixed` panel, so
-        * it can in principle get clipped if opened right at the scrolled
-        * body's bottom edge. Accepted as the smaller issue versus the whole
-        * page scrolling instead of the modal — the dropdown is short (a
-        * handful of allocation-mode options), so in practice this rarely
-        * bites. */}
+        * instead of the page behind it (see app.css). Select's option list
+        * is position:fixed, so the scrolling body can't clip it. */}
       <div className="bd bd-scroll">
-        <div className="notice" style={{ marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-          <div><Icon name="coin" /> Outstanding principal: <b>{fmt(loan.outstanding)}</b></div>
-          <div>Outstanding interest: <b>{fmt(loan.outstandingInterest)}</b>{loan.outstandingPenalInterest > 0 && <> · Penal interest: <b>{fmt(loan.outstandingPenalInterest)}</b></>}</div>
-          {loan.outstandingProcessingFee > 0 && <div>Outstanding processing fee: <b>{fmt(loan.outstandingProcessingFee)}</b></div>}
-          <div>Settlement amount (pay this to close today): <b>{fmt(loan.settlementAmount)}</b></div>
-        </div>
-        {/* Every field sits in a 2-up grid, and the per-field helper
-          * paragraphs are gone: between them and a one-field-per-row layout
-          * this modal grew taller than the viewport, pushing its own footer
-          * (and the Record Payment button) out of reach. The allocation
-          * preview below already shows where the Amount actually lands,
-          * which is what the "Apply Payment To" hint was explaining. */}
-        {smallScreen ? (
-          <>
-            <div className="frow c2">
-              <div><label className="f">Apply Payment To *</label>
+        <div className="pay-layout">
+          <div className="pay-form">
+            <div className="pay-sec">
+              <div className="pay-sec-t">Payment</div>
+              <div className="frow"><div><label className="f">Apply Payment To *</label>
                 <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} />
+              </div></div>
+              <div className="frow c2">
+                <div>
+                  <label className="f">Amount (₹) *</label>
+                  <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} />
+                  <div className="pay-chips">
+                    {interestQuick > 0.01 && <button type="button" className="pay-chip" onClick={() => quickFill("Interest", interestQuick)}>Interest {fmt(interestQuick)}</button>}
+                    {settleQuick > 0.01 && <button type="button" className="pay-chip" onClick={() => quickFill("Full Settlement", settleQuick)}>Close {fmt(settleQuick)}</button>}
+                  </div>
+                </div>
+                <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
               </div>
-              <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} /></div>
             </div>
-            <div className="frow"><div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div></div>
-            <div className="frow">
+
+            <div className="pay-sec">
+              <div className="pay-sec-t">Payment breakdown <small>How the customer paid</small></div>
               <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} />
             </div>
-            <div className="frow c2">
-              <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
-              <div><label className="f">Interest (₹)</label>
-                <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} />
-              </div>
-            </div>
-            <div className="frow c2">
-              {releaseRequestId != null ? (
-                <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
-              ) : (
-                <div><label className="f">Additional Charges (₹)</label>
-                  <input className="inp" type="number" min={0} placeholder="optional — e.g. late fee, documentation charge" value={fee} onChange={(e) => setFee(e.target.value)} />
+
+            <div className="pay-sec">
+              <div className="pay-sec-t">Details <small>Optional</small></div>
+              <div className="frow c2">
+                <div><label className="f">Interest (₹)</label>
+                  <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} />
                 </div>
-              )}
-              <div><label className="f">Description</label>
-                <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} disabled={releaseRequestId != null} />
+                {releaseRequestId != null ? (
+                  <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
+                ) : (
+                  <div><label className="f">Additional Charges (₹)</label>
+                    <input className="inp" type="number" min={0} placeholder="e.g. late fee" value={fee} onChange={(e) => setFee(e.target.value)} />
+                  </div>
+                )}
               </div>
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Old (pre-Amount-sharing-a-row-with-the-picker) layout,
-              * restored for big screens on request: "Apply Payment To" gets
-              * its own full-width row since it's the widest-labelled field
-              * here, then Amount/Date, Method/Interest, Reference/Charges
-              * pair up, and Description closes it out alone. */}
-            <div className="frow"><div><label className="f">Apply Payment To *</label>
-              <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} />
-            </div></div>
-            <div className="frow c2">
-              <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} /></div>
-              <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
-            </div>
-            <div className="frow">
-              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} />
-            </div>
-            <div className="frow c2">
-              <div><label className="f">Interest (₹)</label>
-                <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} />
-              </div>
-              <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
-            </div>
-            <div className="frow c2">
-              {releaseRequestId != null ? (
-                <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
-              ) : (
-                <div><label className="f">Additional Charges (₹)</label>
-                  <input className="inp" type="number" min={0} placeholder="optional — e.g. late fee, documentation charge" value={fee} onChange={(e) => setFee(e.target.value)} />
+              <div className="frow c2">
+                <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+                <div><label className="f">Description</label>
+                  <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} disabled={releaseRequestId != null} />
                 </div>
-              )}
-              <div><label className="f">Description</label>
-                <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} disabled={releaseRequestId != null} />
               </div>
             </div>
-          </>
-        )}
-        {previewAmount > 0 && (
-          <div className="notice" style={{ marginBottom: 4, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-            <div><Icon name="coin" /> This {fmt(previewAmount)} will be applied as:</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 16px", fontSize: 13 }}>
-              {([
-                ["Processing fee", alloc.fee],
-                ["Penal interest", alloc.penal],
-                ["Interest", alloc.interest],
-                ["Principal", alloc.principal],
-              ] as const).map(([label, value]) => (
-                <Fragment key={label}>
-                  <span style={{ color: value > 0 ? undefined : "var(--muted)" }}>{label}</span>
-                  <b style={{ textAlign: "right", color: value > 0 ? undefined : "var(--muted)" }}>{fmt(value)}</b>
-                </Fragment>
-              ))}
-            </div>
-            {alloc.over > 0.01 && (
-              <div style={{ color: "var(--red)" }}>
-                {fmt(alloc.over)} more than this mode can apply — the payment will be rejected. Reduce the amount or pick a wider mode.
-              </div>
-            )}
-            {alloc.short > 0.01 && (
-              <div style={{ color: "var(--red)" }}>
-                {fmt(alloc.short)} short of everything owed — a full settlement must cover the whole balance.
-              </div>
-            )}
           </div>
-        )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
+
+          <aside className="pay-receipt">
+            <div className="pay-r-cap">Customer pays</div>
+            <div className="pay-r-big">{fmt(previewAmount)}</div>
+            <div className="pay-r-cap">{fmtDate(date)} · {paidBy.length ? paidBy.map(([l]) => l).join(" + ") : "—"}</div>
+
+            <div className="pay-r-h">Goes towards</div>
+            {allocRows.length > 0 ? (
+              <>
+                <div className="pay-bar">
+                  {allocRows.map(([label, v, color]) => <i key={label} style={{ width: `${(v / Math.max(previewAmount, 1)) * 100}%`, background: color }} />)}
+                </div>
+                {allocRows.map(([label, v, color]) => (
+                  <div className="pay-r-row" key={label}>
+                    <span><i className="pay-dot" style={{ background: color }} />{label}</span><b>{fmt(v)}</b>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div className="pay-r-row" style={{ color: "var(--muted)" }}>Enter an amount</div>
+            )}
+
+            <div className="pay-r-h pay-r-div">Left on the loan</div>
+            <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Principal</span><b>{fmt(principalLeft)}</b></div>
+            <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Interest{previewLoan.outstandingPenalInterest > 0 ? " + penal" : ""}</span><b>{fmt(interestLeft)}</b></div>
+            {feeLeft > 0.01 && <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Fees / charges</span><b>{fmt(feeLeft)}</b></div>}
+            {closesLoan && <div className="pay-r-ok"><Icon name="check" /> Loan will be closed</div>}
+            {allocWarning && <div className="pay-r-warn">{allocWarning}</div>}
+          </aside>
+        </div>
       </div>
       <div className="ft">
+        {/* Never a silently disabled button: whatever is blocking Review
+          * (or the server's last rejection) is spelled out here. */}
+        <span className="pay-ft-msg">{err || (!splitBalanced && previewAmount > 0 ? `Payment breakdown is ${fmt(Math.abs(remaining))} ${remaining > 0 ? "short of" : "over"} the amount` : "")}</span>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || !splitBalanced}><Icon name="check" /> {saving ? "Recording…" : "Record Payment"}</button>
+        <button className="btn" onClick={save} disabled={saving || confirming}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
       </div>
+      {/* Portalled to <body> so it stacks over the whole Record Payment modal
+        * as its own smaller popup instead of replacing its content. React
+        * events still bubble to the payment modal, so its shared Enter-to-
+        * submit handler sees the focused Confirm button and leaves it alone. */}
+      {confirming && createPortal(
+        <div
+          className="modal-bg open pay-confirm-bg"
+          onClick={(e) => { if (e.target === e.currentTarget && !saving) setConfirming(false); }}
+          onKeyDown={(e) => { if (e.key === "Escape" && !saving) setConfirming(false); }}
+        >
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="hd"><h3>Confirm Payment</h3><button className="x" onClick={() => setConfirming(false)} disabled={saving}>×</button></div>
+            <div className="bd bd-scroll">
+              <div style={{ textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Amount to be paid</div>
+                <div style={{ fontSize: 26, fontWeight: 700 }}>{fmt(previewAmount)}</div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{loan.id} · {loan.customerName}</div>
+              </div>
+              <div className="notice" style={{ marginBottom: 4, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 16px", fontSize: 13 }}>
+                  {([
+                    ["Apply payment to", modeLabel(mode)],
+                    ["Payment date", fmtDate(date)],
+                    ...paidBy.map(([label, v]) => [`Paid by ${label}`, fmt(v)]),
+                    ...(+fee > 0 ? [["Additional charges", fmt(+fee)]] : []),
+                    ...(+discount > 0 ? [["Discount", fmt(+discount)]] : []),
+                    ...(reference.trim() ? [["Reference", reference.trim()]] : []),
+                  ] as [string, string][]).map(([label, value]) => (
+                    <Fragment key={label}>
+                      <span>{label}</span>
+                      <b style={{ textAlign: "right" }}>{value}</b>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+              <div className="notice" style={{ marginTop: 12, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+                <div><Icon name="coin" /> Applied as:</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 16px", fontSize: 13 }}>
+                  {allocRows.map(([label, value]) => (
+                    <Fragment key={label}>
+                      <span>{label}</span>
+                      <b style={{ textAlign: "right" }}>{fmt(value)}</b>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="ft">
+              <button className="btn ghost" onClick={() => setConfirming(false)} disabled={saving}>Back</button>
+              <button className="btn" onClick={save} disabled={saving} autoFocus><Icon name="check" /> {saving ? "Recording…" : "Confirm Payment"}</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </>
   );
+}
+
+function modeLabel(mode: string) {
+  return ALLOCATION_MODES.find((m) => m.value === mode)?.label ?? mode;
+}
+
+// "2026-10-01" → "01 Oct 2026"; parsed as a local date so it never shifts a day.
+function fmtDate(iso: string) {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return "No date";
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }

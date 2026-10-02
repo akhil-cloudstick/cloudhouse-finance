@@ -541,6 +541,19 @@ func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*PersonalLo
 	return rec, nil
 }
 
+// ResolveNumber maps a loan number ("PL-00003") to its ID, so a ledger
+// reference can link to the loan's own page.
+func (s *Service) ResolveNumber(ctx context.Context, number string, branchID *uint) (uint, error) {
+	id, err := s.repo.FindIDByNumber(ctx, number, branchID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, ErrLoanNotFound
+		}
+		return 0, err
+	}
+	return id, nil
+}
+
 // ListPendingInstallmentsForCalendar returns every unpaid installment of an
 // Active loan, optionally branch-scoped — feeds the reminder calendar's
 // personal-loan due/overdue events (see reminder.Service.GetCalendarEvents).

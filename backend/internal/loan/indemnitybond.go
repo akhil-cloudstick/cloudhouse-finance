@@ -1,11 +1,7 @@
 package loan
 
 import (
-	"context"
-	_ "embed"
-	"encoding/base64"
 	"fmt"
-	"html"
 	"html/template"
 	"math"
 	"os"
@@ -15,22 +11,13 @@ import (
 	"time"
 
 	"cloudhouse/backend/internal/tenant"
-
-	"github.com/chromedp/cdproto/page"
-	"github.com/chromedp/chromedp"
 )
 
-// lenderSignatureSVG is the lender's own signature, a vector trace (not a
-// scanned/photographed image) — embedded into the binary and inlined as raw
-// SVG markup directly in the HTML (rather than an <img src="data:...">)
-// so it renders crisply at any size and needs no base64 round-trip. This
-// HTML is rendered headlessly via chromedp with no guarantee the frontend's
-// dev/prod server is reachable from wherever the backend runs, so embedding
-// it into the binary (rather than fetching it as a file/URL) is what makes
-// it always available.
-//
-//go:embed assets/lender_signature.svg
-var lenderSignatureSVG string
+// The lender's signature is no longer a fixed SVG compiled into the binary
+// (which put one demo signature on every business's paperwork). Each
+// business uploads its own in the superadmin console's "Modules & languages"
+// step; it arrives here as BondData.LenderSignature — see
+// Service.lenderSignature.
 
 // BondOrnament is one row of the pledge agreement's schedule table, mirrors
 // frontend/modules/loans/utils/indemnityBond.ts's IndemnityBondOrnament.
@@ -88,6 +75,10 @@ type BondData struct {
 	Policy string
 
 	DueDate time.Time // zero means unknown — rendered as a blank, same convention as Age
+
+	// LenderSignature is the business's uploaded lender signature as an inline
+	// <img> (see Service.lenderSignature). Empty prints a blank wet-ink line.
+	LenderSignature template.HTML
 }
 
 // blank is the placeholder used wherever a field on the printed document has
@@ -423,7 +414,7 @@ func bondDocFor(policy, lang string) bondDoc {
 // OS's own UI font) instead of that stylesheet's Georgia/serif — this
 // template is bond-only, so the swap doesn't touch any other printed doc.
 const bondPageStyle = `
-body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
+body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:0;line-height:1.55;font-size:14px;padding:0}
 h1{font-size:20px;text-align:center;margin:0 0 2px;letter-spacing:1px}
 h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:#555}
 table{width:100%;border-collapse:collapse;margin:14px 0}
@@ -431,15 +422,24 @@ th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;verti
 th{background:#f3ede1} .num{text-align:right}
 ol li{margin-bottom:10px;text-align:justify}
 .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
-.sig div{flex:1;text-align:center;position:relative}
+.sig{break-inside:avoid}
+.sig>div{flex:1;text-align:center;position:relative}
 .sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
 /* Absolutely positioned — sits inside the existing blank gap the .sig
  * span's own 44px margin-top already reserves, rather than adding its
  * own height to the flow (which would push the Lender's line lower than
  * the image-less Borrower's line beside it — see print.ts's identical
  * fix for the on-screen/print copy of this same bond). */
-.lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px}
-.lender-sig svg{width:100%;height:auto;display:block}
+.lender-sig{position:absolute;top:22px;left:50%;transform:translateX(-50%);width:130px}
+.lender-sig img{width:100%;max-height:40px;object-fit:contain;display:block}
+/* The KML letter has no Borrower/Lender row; the lender signs over the
+ * "Loan Sanctioned" line instead, right-aligned. The <img> only exists when
+ * the business has uploaded a signature, so the line keeps a fixed gap above
+ * it for a wet-ink signature either way. */
+.sanction-sig{width:210px;margin:-30px 0 0 auto;text-align:center}
+.sanction-sig .slot{height:46px;display:flex;align-items:flex-end;justify-content:center}
+.sanction-sig .sig-img{max-height:44px;max-width:170px;display:block}
+.sanction-sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:2px;font-size:12.5px}
 /* No forced page-break here (unlike the Gujarati deed's .sig-page below) —
  * this bond's whole point is fitting the short KML letterhead letter onto
  * ONE A4 page for a plain print. The signature/release block now just
@@ -463,7 +463,7 @@ ol li{margin-bottom:10px;text-align:justify}
 // bumped up slightly (1.7 -> 1.8) for a bit more breathing room between
 // lines, so the short KML letter still reliably fits a single A4 page.
 const bondPageStyleMalayalam = `
-body{font-family:'Noto Sans Malayalam','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif;color:#1a1a1a;margin:8px auto;max-width:760px;line-height:1.6;font-size:14px;padding:0 20px}
+body{font-family:'Noto Sans Malayalam','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif;color:#1a1a1a;margin:0;line-height:1.6;font-size:14px;padding:0}
 h1{font-size:19px;text-align:center;margin:0 0 2px;letter-spacing:.3px}
 h2{font-size:14px;text-align:center;margin:0 0 10px;font-weight:normal;color:#555}
 table{width:100%;border-collapse:collapse;margin:8px 0}
@@ -471,8 +471,14 @@ th,td{border:1px solid #999;padding:4px 7px;font-size:13px;text-align:left;verti
 th{background:#f3ede1} .num{text-align:right}
 ol{padding-left:22px} ol li{margin-bottom:8px;text-align:justify}
 .sig{display:flex;justify-content:space-between;gap:20px;margin-top:20px}
-.sig div{flex:1;text-align:center}
+.sig{break-inside:avoid}
+.sig>div{flex:1;text-align:center}
 .sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:16px;font-size:12.5px}
+/* Lender's signature over the "Loan Sanctioned" line — see bondPageStyle. */
+.sanction-sig{width:210px;margin:-30px 0 0 auto;text-align:center}
+.sanction-sig .slot{height:46px;display:flex;align-items:flex-end;justify-content:center}
+.sanction-sig .sig-img{max-height:44px;max-width:170px;display:block}
+.sanction-sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:2px;font-size:12.5px}
 /* No forced page-break — see bondPageStyle's .sig-page comment. */
 .sig-page{}
 `
@@ -488,7 +494,7 @@ ol{padding-left:22px} ol li{margin-bottom:8px;text-align:justify}
 // chromedp — the same caveat bondPageStyleMalayalam documents. Without it
 // the PDF still renders, just through whatever fallback the OS ships.
 const bondPageStyleGujarati = `
-body{font-family:'Noto Sans Gujarati','Shruti','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.7;font-size:14px;padding:0 20px}
+body{font-family:'Noto Sans Gujarati','Shruti','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif;color:#1a1a1a;margin:0;line-height:1.7;font-size:14px;padding:0}
 h1{font-size:19px;text-align:center;margin:0 0 2px;letter-spacing:.3px}
 h2{font-size:14px;text-align:center;margin:0 0 18px;font-weight:normal;color:#555}
 table{width:100%;border-collapse:collapse;margin:14px 0}
@@ -496,15 +502,16 @@ th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;verti
 th{background:#f3ede1} .num{text-align:right}
 ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
 .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
-.sig div{flex:1;text-align:center;position:relative}
+.sig{break-inside:avoid}
+.sig>div{flex:1;text-align:center;position:relative}
 .sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
 /* Absolutely positioned — sits inside the existing blank gap the .sig
  * span's own 44px margin-top already reserves, rather than adding its
  * own height to the flow (which would push the Lender's line lower than
  * the image-less Borrower's line beside it — see print.ts's identical
  * fix for the on-screen/print copy of this same bond). */
-.lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px}
-.lender-sig svg{width:100%;height:auto;display:block}
+.lender-sig{position:absolute;top:22px;left:50%;transform:translateX(-50%);width:130px}
+.lender-sig img{width:100%;max-height:40px;object-fit:contain;display:block}
 /* See bondPageStyle's .sig-page comment — same fix, Gujarati template. */
 .sig-page{page-break-before:always;min-height:240mm;display:flex;flex-direction:column;justify-content:flex-end}
 `
@@ -516,7 +523,6 @@ type bondTemplateData struct {
 	BondData
 	Style                 template.CSS
 	Blank                 string
-	LenderSignatureSVG template.HTML
 	LenderName            string
 	LenderRegNo           string
 	LenderAge             string
@@ -627,7 +633,6 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		Style:       template.CSS(style),
 		Blank:       blank,
 		// Tenant profile first, demo constants only as a fallback.
-		LenderSignatureSVG: template.HTML(lenderSignatureSVG),
 		LenderName:            firstNonEmpty(data.LegalName, data.BusinessName, lenderName),
 		LenderRegNo:           firstNonEmpty(data.KMLRegNo, lenderKMLRegNo),
 		LenderAge:             lenderAge,
@@ -660,122 +665,17 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	return sb.String(), nil
 }
 
-// bondHeaderTemplate/bondFooterTemplate are Chrome's PrintToPDF header/
-// footer templates — plain HTML rendered at a fixed height on EVERY page,
-// completely separate from the document's own content. Chrome recognizes a
-// handful of special classes it fills in itself: "date", "title", "url",
-// "pageNumber", "totalPages" — font-size must be set explicitly (these
-// templates render outside the document's own stylesheet, in their own
-// tiny default browser font otherwise). Kept as their own small templates
-// (not reusing bondPageStyle's CSS) since this is a completely different
-// rendering pass from the document body.
-//
-// bondHeaderTemplateFmt carries a single %s — the issuing business's name,
-// filled in by bondHeaderTemplate. The div is kept even when that name is
-// empty because Chrome substitutes its own default header (date + document
-// title) whenever it is handed an empty header template string, so an
-// "empty" header has to be an empty element.
-const bondHeaderTemplateFmt = `
-<div style="font-size:9px;width:100%%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
-%s
-</div>`
-
-// bondHeaderTemplate fills bondHeaderTemplateFmt with the business's own
-// name, escaped for safe embedding in this tiny standalone HTML fragment —
-// html.EscapeString rather than a template, since this is a single
-// interpolated value, not a document. Was a hardcoded "Ambika Gold Finance"
-// printed on every business's pledge agreement regardless of who issued it;
-// falls back to the same demo lenderName renderBondHTML uses when the tenant
-// has not set BusinessName.
-func bondHeaderTemplate(businessName string) string {
-	name := strings.TrimSpace(businessName)
-	if name == "" {
-		name = lenderName
-	}
-	return fmt.Sprintf(bondHeaderTemplateFmt, html.EscapeString(name))
-}
-
-const bondFooterTemplate = `
-<div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">
-Page <span class="pageNumber"></span> of <span class="totalPages"></span>
-</div>`
-
 // RenderIndemnityBondPDF renders the pledge agreement for the given loan/
-// customer data, in the given language (BondLangEnglish/BondLangMalayalam),
-// into a PDF, via a headless Chromium tab driven by chromedp. Requires a
-// Chrome/Chromium binary on the host; chromedp returns a clear error if
-// none is found.
+// customer data, in the given language, into an A4 PDF via headless
+// Chromium — see renderA4PDF (pdfpage.go) for the page geometry and the
+// reserved header/footer bands. Requires a Chrome/Chromium binary on the
+// host; chromedp returns a clear error if none is found.
 func RenderIndemnityBondPDF(data BondData, lang string) ([]byte, error) {
 	html, err := renderBondHTML(data, lang)
 	if err != nil {
 		return nil, err
 	}
-
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	// base64, not template.URLQueryEscaper(html): QueryEscape encodes spaces
-	// as "+", which is only meaningful inside an actual query string —
-	// Chromium never decodes a data: URI's payload that way, so every space
-	// in the bond rendered as a literal "+" (e.g. "AGREEMENT+OF+PLEDGE").
-	// Base64 has no such ambiguity.
-	encoded := base64.StdEncoding.EncodeToString([]byte(html))
-	var pdfBytes []byte
-	err = chromedp.Run(ctx,
-		chromedp.Navigate("data:text/html;charset=utf-8;base64,"+encoded),
-		chromedp.WaitReady("body"),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			// A4 (8.27in x 11.69in), explicit rather than left to
-			// PreferCSSPageSize -- Chromium's default paper size is US
-			// Letter and headless PrintToPDF doesn't reliably honor a
-			// page's own @page CSS.
-			//
-			// DisplayHeaderFooter + Header/FooterTemplate are what make
-			// this reserved margin space show a real, repeating
-			// header/footer on EVERY page — unlike this same document's
-			// body-level CSS margin (used for the client-side "print for
-			// wet-ink signing" copy in frontend/common/utils/print.ts),
-			// which only ever shows once, at the very top of page 1 /
-			// bottom of the last page, not per page. A plain browser
-			// window.print() has no equivalent to these two params at
-			// all — Chrome's PrintToPDF (used only here, server-side) is
-			// the only place a real custom per-page header/footer is
-			// possible in this app.
-			//
-			// MarginTop/MarginBottom trimmed from 0.9in/0.8in to 0.25in/
-			// 0.2in — the header is blank and the footer is a single
-			// small "Page X of Y" line (bondFooterTemplate), so the old
-			// margins reserved far more space than either ever used,
-			// which combined with .sig-page's now-removed forced
-			// page-break was pushing the short KML letter bond onto two
-			// pages instead of the one it should fit on. Still enough
-			// room for the footer text to render without clipping.
-			buf, _, err := page.PrintToPDF().
-				WithPrintBackground(true).
-				WithPreferCSSPageSize(false).
-				WithPaperWidth(8.27).
-				WithPaperHeight(11.69).
-				WithMarginTop(0.25).
-				WithMarginBottom(0.2).
-				WithMarginLeft(0.6).
-				WithMarginRight(0.6).
-				WithDisplayHeaderFooter(true).
-				WithHeaderTemplate(bondHeaderTemplate(data.BusinessName)).
-				WithFooterTemplate(bondFooterTemplate).
-				Do(ctx)
-			if err != nil {
-				return err
-			}
-			pdfBytes = buf
-			return nil
-		}),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("pledge agreement: render PDF (is Chrome/Chromium installed and on PATH?): %w", err)
-	}
-	return pdfBytes, nil
+	return renderA4PDF(html, "pledge agreement")
 }
 
 var pdfPagePattern = regexp.MustCompile(`(?s)/Type\s*/Page[^s]`)

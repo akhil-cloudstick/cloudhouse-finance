@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -113,6 +114,18 @@ func (h *Handler) Get(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// ByNumber backs GET /personal-loans/by-number/:number — resolves a loan
+// number ("PL-00003") from a ledger reference to the loan's id.
+func (h *Handler) ByNumber(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := h.svc.ResolveNumber(ctx, strings.TrimSpace(c.Param("number")), platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"id": id})
 }
 
 // Schedule returns one page of a loan's installment schedule as the

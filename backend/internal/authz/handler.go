@@ -1,7 +1,9 @@
 package authz
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -19,10 +21,23 @@ var ErrRoleNotFound = httpx.NewNotFound("role not found")
 // plain role CRUD for the admin screen.
 type Handler struct {
 	repo *Repository
+	// roleInUse reports the approval flow whose chain still includes a role
+	// (see SetRoleUsageChecker); nil skips the check.
+	roleInUse RoleUsageChecker
 }
+
+// RoleUsageChecker returns the label of an approval flow that still needs
+// roleID — a func rather than an import so authz stays independent of
+// internal/workflow.
+type RoleUsageChecker func(ctx context.Context, roleID uint) (string, bool, error)
 
 func NewHandler(repo *Repository) *Handler {
 	return &Handler{repo: repo}
+}
+
+// SetRoleUsageChecker wires the approval-chain guard on role deletion.
+func (h *Handler) SetRoleUsageChecker(f RoleUsageChecker) {
+	h.roleInUse = f
 }
 
 // actingIdentity reads the caller's own employeeId/roleId from the JWT
@@ -228,6 +243,17 @@ func (h *Handler) DeleteRole(c *gin.Context) {
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
+	}
+	if h.roleInUse != nil {
+		flow, used, err := h.roleInUse(ctx, id)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		if used {
+			httpx.Fail(c, http.StatusBadRequest, fmt.Sprintf("Cannot delete: this role is an approver in the %s approval workflow — remove it there first", flow))
+			return
+		}
 	}
 	if err := h.repo.DeleteRole(ctx, id); err != nil {
 		switch {

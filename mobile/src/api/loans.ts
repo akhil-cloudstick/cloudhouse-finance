@@ -147,17 +147,21 @@ export function deleteOrnament(ornamentId: number) {
 // Which sanction stages a loan walks — and which permission acts at each —
 // is per-tenant configuration now (src/api/approvalWorkflow.ts, flow
 // "loan_sanction"): the chain starts at the first enabled stage and the LAST
-// enabled stage disburses. Stage keys are LoanOperator / BranchManager /
-// FinalSanction (key and pending value are identical for this flow).
+// enabled stage disburses. Stage keys are the chain's role keys ("R<roleId>",
+// set on the web's Approval Workflow tab) or, on loans raised before that,
+// LoanOperator / BranchManager / FinalSanction (key and pending value are
+// identical for this flow).
 export type SanctionStage = string;
 
 // Maps the retired AuthorizedManagement value onto the stage that replaced
 // it, so a loan fetched before the backend migration ran still resolves to
-// a pending stage instead of none. Anything that isn't a sanction stage
-// (Approved / Rejected / "") is null.
+// a pending stage instead of none. A decided loan (Approved / Rejected / "")
+// is null; anything else is a pending stage — accepting only the three
+// legacy keys hid Approve/Disburse on every loan waiting at an "R<roleId>"
+// stage.
 export function normalizeSanctionStage(stage: string | null | undefined): SanctionStage | null {
   const s = stage === "AuthorizedManagement" ? "FinalSanction" : stage ?? "";
-  return s === "LoanOperator" || s === "BranchManager" || s === "FinalSanction" ? s : null;
+  return s && s !== "Approved" && s !== "Rejected" ? s : null;
 }
 
 export function approveLoan(
@@ -260,10 +264,10 @@ export function recordReleasePayment(
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/release-payment`, { method: "POST", body: input });
 }
 
-// Stage decision on an Extension / Release / Waiver / Adjustment request —
+// Stage decision on an Extension / Release request —
 // POST /loans/requests/:requestId/approve; the backend dispatches on the
 // request's own Type. `stage` is the stage KEY from the request's flow in
-// src/api/approvalWorkflow.ts (loan_extension / loan_release / loan_waiver).
+// src/api/approvalWorkflow.ts (loan_extension / loan_release).
 export function approveLoanRequest(
   requestId: number,
   input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }
@@ -273,14 +277,6 @@ export function approveLoanRequest(
 
 export const approveReleaseRequest = approveLoanRequest;
 export const approveExtensionRequest = approveLoanRequest;
-
-// Waiver (forgive interest + penal interest owed) or Adjustment (reduce
-// principal) — POST /loans/:id/waiver-request. With the tenant's
-// "loan_waiver" flow off it posts immediately; otherwise it waits in that
-// chain like an extension request and shows in GET /loans/requests.
-export function createWaiverRequest(loanId: number, input: { type: "Waiver" | "Adjustment"; amount: number; reason: string }) {
-  return apiRequest<LoanRequest>(`/loans/${loanId}/waiver-request`, { method: "POST", body: input });
-}
 
 // Finalizes a fully-approved release request: hands the gold back to the
 // customer and closes the loan. Requires the outstanding balance to be

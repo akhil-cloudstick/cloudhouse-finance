@@ -7,6 +7,7 @@ import {
   ChipToggle,
   ComboInput,
   DashedButton,
+  DateField,
   Field,
   FieldGrid,
   FieldRow,
@@ -161,6 +162,11 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
   const [rows, setRows] = useState<OrnRow[]>([{ ...emptyRow }]);
   const [principal, setPrincipal] = useState("");
   const [info, setInfo] = useState("");
+  // Loan (opened) date — same rule as the web NewLoan form: defaults to
+  // today, may be backdated but never set in the future (the DateField's max
+  // blocks it; the backend re-checks). Interest accrues from this date and
+  // the due date is derived from it.
+  const [openedDate, setOpenedDate] = useState(todayISO());
   const [error, setError] = useState<string | null>(null);
 
   const goldRate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible, refetchOnMount: "always" });
@@ -186,7 +192,7 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
   const goldValue = valid.reduce((sum, r) => sum + valueOf(r), 0);
   const eligible = scheme ? Math.round((goldValue * scheme.ltvPercent) / 100) : 0;
   const overEligible = !!scheme && valid.length > 0 && Number(principal) > eligible;
-  const canSubmit = canCreate && !!branch && !!customer && !!scheme && Number(principal) > 0 && valid.length > 0 && isTodaySet && !lessExceeds;
+  const canSubmit = canCreate && !!openedDate && openedDate <= today && !!branch && !!customer && !!scheme && Number(principal) > 0 && valid.length > 0 && isTodaySet && !lessExceeds;
 
   const reset = () => {
     setCustomer(null);
@@ -196,12 +202,14 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
     setRows([{ ...emptyRow }]);
     setPrincipal("");
     setInfo("");
+    setOpenedDate(todayISO());
     setError(null);
   };
 
   const submit = useMutation({
     mutationFn: () => {
-      const due = new Date();
+      const [oy, om, od] = openedDate.split("-").map(Number);
+      const due = new Date(oy, om - 1, od);
       due.setMonth(due.getMonth() + (scheme?.durationMonths ?? 0));
       const ornaments: CreateOrnamentInput[] = valid.map((r) => ({
         name: r.name.trim(),
@@ -215,7 +223,7 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
         ...(locker ? { lockerId: locker.id } : {}),
         customerId: customer!.id,
         schemeId: scheme!.id,
-        openedDate: today,
+        openedDate,
         dueDate: `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`,
         principalAmount: Number(principal),
         ornaments,
@@ -356,6 +364,7 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
         />
       </Card>
 
+      <DateField label="Loan date" value={openedDate} onChange={setOpenedDate} max={today} />
       <Field label="Principal amount">
         <Input keyboardType="number-pad" placeholder={eligible ? inr(eligible) : "₹"} value={principal} onChangeText={setPrincipal} />
       </Field>

@@ -8,7 +8,19 @@ export type BackendCashSource = {
   id: number;
   name: string;
   createdAt: string;
+  // A loan source's details, captured on its first Add Cash entry (see
+  // isLoanSource) — principalAmount present means they're on file.
+  bankId?: number;
+  bank?: { id: number; name: string };
+  loanNumber?: string;
+  principalAmount?: number;
 };
+
+/* A source whose name starts with "Loan" (any case) is one bank loan —
+ * mirrors backend/internal/cash/service.go's IsLoanSource. */
+export function isLoanSource(name: string): boolean {
+  return name.trim().toLowerCase().startsWith("loan");
+}
 
 export const CASH_SOURCES_PAGE_SIZE = 5;
 

@@ -10,6 +10,7 @@ export type BackendEmployee = {
   branchId: number;
   branch: { id: number; name: string; code?: string };
   phone: string;
+  username?: string;
   loansProcessed: number;
   collections: number;
   followups: number;
@@ -27,6 +28,7 @@ export type EmployeeView = {
   branchId: number;
   branchName: string;
   phone: string;
+  username: string;
   loansProcessed: number;
   collections: number;
   followups: number;
@@ -65,6 +67,7 @@ function toView(e: BackendEmployee): EmployeeView {
     branchId: e.branchId,
     branchName: e.branch?.name || "",
     phone: e.phone,
+    username: e.username || "",
     loansProcessed: e.loansProcessed,
     collections: e.collections,
     followups: e.followups,

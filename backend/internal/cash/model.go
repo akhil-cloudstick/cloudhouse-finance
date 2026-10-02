@@ -21,7 +21,7 @@ type CashMovement struct {
 	platform.TenantScoped
 	ID      uint   `json:"id" gorm:"primaryKey"`
 	Type    string `json:"type" gorm:"not null;size:10"` // "in" | "out"
-	Source  string `json:"source" gorm:"size:20"`        // "Savings" | "Loan" — only for type=in
+	Source  string `json:"source" gorm:"size:60"`        // a CashSource name ("Savings", "Loan HDFC 4471", …) — only for type=in
 	Purpose string `json:"purpose" gorm:"size:120"`      // only for type=out
 	// Mode is how the cash physically arrived — "Cash" | "UPI" | "Bank
 	// Transfer" (same free-text convention as Expense.Mode) — required for
@@ -105,17 +105,21 @@ type Expense struct {
 	// branch's own bank accounts when this expense's Mode is UPI/Bank —
 	// ExpenseModal.tsx's "From Bank"/"To Bank" pickers. Nullable: a Cash-mode
 	// expense has neither.
-	FromBankID   *uint         `json:"fromBankId"`
-	FromBank     *bank.Bank    `json:"fromBank,omitempty" gorm:"foreignKey:FromBankID"`
-	ToBankID     *uint         `json:"toBankId"`
-	ToBank       *bank.Bank    `json:"toBank,omitempty" gorm:"foreignKey:ToBankID"`
-	BranchID     uint          `json:"branchId" gorm:"not null"`
-	Branch       branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
-	Status       string        `json:"status" gorm:"not null;size:20;default:Pending"` // "Pending" | "Approved" | "Rejected"
-	Remarks      string        `json:"remarks" gorm:"size:500"`
-	ApprovedBy   *string       `json:"approvedBy,omitempty" gorm:"size:120"`
-	ApprovedAt   *time.Time    `json:"approvedAt,omitempty"`
-	ReceiptImage string        `json:"receiptImage,omitempty" gorm:"type:text"` // /uploads/... URL from the upload module (see internal/upload)
+	FromBankID *uint         `json:"fromBankId"`
+	FromBank   *bank.Bank    `json:"fromBank,omitempty" gorm:"foreignKey:FromBankID"`
+	ToBankID   *uint         `json:"toBankId"`
+	ToBank     *bank.Bank    `json:"toBank,omitempty" gorm:"foreignKey:ToBankID"`
+	BranchID   uint          `json:"branchId" gorm:"not null"`
+	Branch     branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
+	Status     string        `json:"status" gorm:"not null;size:20;default:Pending"` // "Pending" | "Approved" | "Rejected"
+	// ApprovalStage is the approval-chain stage a Pending expense waits at
+	// (workflow.FlowExpense, e.g. "R4"). Empty on rows from before the
+	// chain was configurable — they wait at its first step.
+	ApprovalStage string     `json:"approvalStage" gorm:"size:40"`
+	Remarks       string     `json:"remarks" gorm:"size:500"`
+	ApprovedBy    *string    `json:"approvedBy,omitempty" gorm:"size:120"`
+	ApprovedAt    *time.Time `json:"approvedAt,omitempty"`
+	ReceiptImage  string     `json:"receiptImage,omitempty" gorm:"type:text"` // /uploads/... URL from the upload module (see internal/upload)
 	// CashMovementID is set once this expense is Approved (see
 	// ExpenseService.Approve / MovementService.RecordExpenseCashOut) — the
 	// cash-out row that made this expense visible in the Cash Movements
@@ -232,11 +236,32 @@ func (GoldSale) TableName() string {
 // find-or-create pattern as bank.Bank). CashMovement.Source keeps storing
 // the resolved name as free text (no FK), so adding this lookup list
 // doesn't change how a movement itself is read/filtered.
+//
+// A source whose name starts with "Loan" (see IsLoanSource) is one bank
+// loan: BankID/LoanNumber/PrincipalAmount are captured on its first Add Cash
+// entry and reused by every later one. PrincipalAmount != nil marks the
+// details as captured. The loan's balance starts at the principal, drops
+// with each Add Cash under it and climbs back with each approved expense in
+// the same-named ExpenseCategory (a repayment) — see loanBalance.
 type CashSource struct {
 	platform.TenantScoped
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	Name      string    `json:"name" gorm:"index;not null;size:60"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID              uint       `json:"id" gorm:"primaryKey"`
+	Name            string     `json:"name" gorm:"index;not null;size:60"`
+	BankID          *uint      `json:"bankId,omitempty"`
+	Bank            *bank.Bank `json:"bank,omitempty" gorm:"foreignKey:BankID"`
+	LoanNumber      string     `json:"loanNumber,omitempty" gorm:"size:60"`
+	PrincipalAmount *float64   `json:"principalAmount,omitempty" gorm:"type:numeric(16,2)"`
+	// LoanOpenedAt is when the details were captured — only movements and
+	// repayments created from then on count toward the loan's balance, so
+	// older entries under a reused name (e.g. the seeded "Loan") don't.
+	LoanOpenedAt *time.Time `json:"loanOpenedAt,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt"`
+}
+
+// HasLoanDetails reports whether this loan source's bank/number/principal
+// were already captured on an earlier Add Cash entry.
+func (s *CashSource) HasLoanDetails() bool {
+	return s.PrincipalAmount != nil && s.BankID != nil
 }
 
 func (CashSource) TableName() string {

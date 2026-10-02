@@ -15,6 +15,7 @@ import { StatusChip } from "@/product/components/ui/StatusChip";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import {
   getPersonalLoan,
+  resolvePersonalLoanNumber,
   getPersonalLoanSchedulePage,
   getPersonalLoanHistoryPage,
   listPersonalLoanPaymentsPage,
@@ -88,7 +89,7 @@ function Pager({ page, totalPages, onChange }: { page: number; totalPages: numbe
 }
 
 export function PersonalLoanDetail({ id }: { id?: string }) {
-  const { can } = useAuth();
+  const { can, role, isAdmin } = useAuth();
   const { openModal, closeModal } = useModal();
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
   const toast = useToast();
@@ -115,7 +116,16 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   // was) in the chain, to show who rejected it and why.
   const [approvals, setApprovals] = useState<PersonalLoanApprovalRecord[]>([]);
 
-  const numericId = Number(id);
+  // `id` is the numeric id, or a loan number ("PL-00003") when reached from
+  // a ledger reference — resolved to the numeric id first.
+  const [resolvedId, setResolvedId] = useState(0);
+  const numericId = Number(id) || resolvedId;
+  useEffect(() => {
+    if (!id || Number(id)) return;
+    resolvePersonalLoanNumber(id)
+      .then(setResolvedId)
+      .catch((e) => { setError(e instanceof ApiError ? e.message : "Loan not found."); setLoading(false); });
+  }, [id]);
 
   const refreshLoan = useCallback(async () => {
     if (!numericId) return;
@@ -185,7 +195,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   const approvalStageView = pendingApproval ? stageByPending(workflow, "personal_loan", loan.approvalStage) : null;
   const approvalChain = pendingApproval ? chainFor(workflow, "personal_loan", loan.approvalStage) : [];
   const approvalIndex = approvalStageView ? approvalChain.findIndex((s) => s.key === approvalStageView.key) : approvalChain.length;
-  const canActOnApproval = canUpdate && canActAtStage(can, approvalStageView);
+  const canActOnApproval = canUpdate && canActAtStage({ role, isAdmin }, approvalStageView);
   const approvalIsFinal = !!approvalStageView && isFinalStage(workflow, "personal_loan", approvalStageView.key);
   const lastRejection = loan.status === "Rejected" ? [...approvals].reverse().find((a) => a.action === "Rejected") : undefined;
 

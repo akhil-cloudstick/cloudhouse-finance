@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
+import { rememberedLedgerPage, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { getModeLedger, downloadLedger, PARTY_PAGE_SIZE, type LedgerMode, type LedgerRowView } from "@/product/pages/cash/services/cashService";
 import { Icon } from "@/product/components/Icon";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { searchBanksPage, type BackendBank } from "@/product/pages/banks/services/bankService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { routeHref } from "@/product/services/appRoutes";
@@ -46,10 +48,13 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   const categoryIds = useExpenseCategoryIds();
   const [items, setItems] = useState<LedgerRowView[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  // Back from a drill-down, this ledger reopens on the page the user left.
+  const [page, setPage] = useState(() => rememberedLedgerPage("mode") ?? 1);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: no branch filter — every row is its one branch.
+  const { singleBranch } = useBranding();
   const [filters, setFilters] = useState<FilterValue>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -65,10 +70,27 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
     listActiveBranches().then(setBranches).catch(() => {});
   }, []);
 
-  // Any filter change resets back to page 1.
-  useEffect(() => { setPage(1); }, [fromDate, toDate, JSON.stringify(branchIds), bankId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Any filter change resets back to page 1; switching to another mode's
+  // ledger (same component, new `mode`) starts on its remembered page.
+  // Compared against the previous key so neither fires on mount.
+  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(branchIds)}|${bankId ?? ""}`;
+  const prevFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (prevFilterKey.current === filterKey) return;
+    prevFilterKey.current = filterKey;
+    setPage(1);
+  }, [filterKey]);
+  const prevMode = useRef(mode);
+  useEffect(() => {
+    if (prevMode.current === mode) return;
+    prevMode.current = mode;
+    setPage(rememberedLedgerPage("mode") ?? 1);
+  }, [mode]);
 
+  // Only the latest request may land — see PartyLedger's refresh.
+  const requestIdRef = useRef(0);
   const refresh = useCallback(() => {
+    const reqId = ++requestIdRef.current;
     setLoading(true);
     getModeLedger(
       mode,
@@ -77,20 +99,23 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
       PARTY_PAGE_SIZE
     )
       .then(({ items, total, totalDebit, totalCredit }) => {
+        if (reqId !== requestIdRef.current) return;
         setItems(items);
         setTotal(total);
         setTotals({ debit: totalDebit, credit: totalCredit });
         setError("");
       })
       .catch((e) => {
+        if (reqId !== requestIdRef.current) return;
         setItems([]);
         setError(e instanceof ApiError ? e.message : `Could not load the ${mode} ledger.`);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (reqId === requestIdRef.current) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, page, fromDate, toDate, JSON.stringify(branchIds), bankId]);
 
   useEffect(() => { refresh(); }, [refresh]);
+  useLedgerFocus("mode", !loading, [items]);
 
   async function onDownload() {
     setExporting(true);
@@ -107,7 +132,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   }
 
   const filterCategories: FilterCategory[] = [
-    { key: "branch", label: "Branch", kind: "static", options: branches.map((b) => ({ value: String(b.id), label: b.name })) },
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     ...(mode !== "Cash"
       ? [{
           key: "bank",
@@ -127,7 +152,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
     <>
       <div className="page-h">
         <div>
-          <a href={routeHref("cash")} style={{ fontSize: 13 }}>← Back</a>
+          <a href={routeHref("ledger")} style={{ fontSize: 13 }}>← Back</a>
           <h1>{mode} Ledger</h1>
           <p>{MODE_DESCRIPTION[mode]}</p>
         </div>
@@ -156,7 +181,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl">
+          <table className="tbl" data-ledger-scope="mode" data-ledger-page={page}>
             <thead>
               <tr><th>Date</th><th>Description</th><th>Mode</th>{mode !== "Cash" && <th>Bank</th>}<th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
@@ -179,10 +204,9 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                 return withBalance.reverse().map(({ r, balance }) => {
                   // A gold-loan reference ("LN-00047") gets a clickable link
                   // to that loan — #loan/:loanNumber resolves it directly.
-                  // A personal-loan reference ("PL-00012") has no such
-                  // by-number route (#personalloan only takes a numeric id),
-                  // so it stays plain text here rather than link to a 404.
-                  // A plain cash_movement row (e.g. a loan top-up) carries no
+                  // A personal-loan ("PL-00012") or investment ("INV-00003")
+                  // reference links the same way — both detail pages resolve
+                  // their number to the id. A plain cash_movement row (e.g. a loan top-up) carries no
                   // Reference at all — its loan number instead sits inside
                   // Description ("Loan top-up — LN-00048"), same shape
                   // Cash.tsx's own LOAN_NUMBER_RE parses.
@@ -194,8 +218,12 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                     (r.reference && r.reference.match(/^INV-\d+/i)?.[0]) ||
                     r.description.match(/—\s*(INV-\S+)\s*$/i)?.[1] ||
                     null;
+                  const plRef =
+                    (r.reference && r.reference.match(/^PL-\d+/i)?.[0]) ||
+                    r.description.match(/—\s*(PL-\S+)\s*$/i)?.[1] ||
+                    null;
                   return (
-                  <tr key={r.id}>
+                  <tr key={`${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
                     <td>{r.d}</td>
                     <td>
                       {r.description || r.type}
@@ -213,6 +241,8 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                         <a href={routeHref("loan", loanRef)} className="ledger-ref-chip ledger-ref-chip-loan">{r.reference || loanRef}</a>
                       ) : invRef ? (
                         <LedgerRefLink kind="investment" id={invRef} label={invRef} />
+                      ) : plRef ? (
+                        <LedgerRefLink kind="personalloan" id={plRef} label={plRef} />
                       ) : (
                         r.reference || "—"
                       )}

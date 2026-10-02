@@ -17,7 +17,11 @@ export function QrScanner({
   onClose,
   onScanned,
   title = "Scan Label",
+  embedded = false,
+  permissionText = "Camera access is needed to scan packet labels.",
 }: {
+  /** In embedded mode: whether scanning is live — flipping it back to true
+   * re-arms the single-fire lock for the next scan. */
   visible: boolean;
   onClose: () => void;
   /** Called once per open with the decoded QR string (raw, unparsed) — the
@@ -25,6 +29,11 @@ export function QrScanner({
    * scanner once it's done with the result. */
   onScanned: (data: string) => void;
   title?: string;
+  /** Render just the camera + frame, without its own full-screen Modal,
+   * title or close button — for a screen that IS the scanner (the connect
+   * screen, app/(auth)/connect.tsx) and draws its own controls on top. */
+  embedded?: boolean;
+  permissionText?: string;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
@@ -44,29 +53,31 @@ export function QrScanner({
     onScanned(data);
   }
 
+  const camera = permission?.granted ? (
+    <>
+      <CameraView
+        style={StyleSheet.absoluteFill}
+        facing="back"
+        barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+        onBarcodeScanned={locked || !visible ? undefined : handleScanned}
+      />
+      <View style={styles.frame} pointerEvents="none" />
+    </>
+  ) : (
+    <View style={styles.permissionWrap}>
+      <ThemedText variant="body" color={colors.card} style={{ textAlign: "center", marginBottom: 16 }}>
+        {permission?.canAskAgain === false ? "Camera access was denied. Enable it in Settings to scan." : permissionText}
+      </ThemedText>
+      {permission?.canAskAgain !== false ? <GoldButton title="Allow Camera" onPress={requestPermission} /> : null}
+    </View>
+  );
+
+  if (embedded) return <View style={styles.wrap}>{camera}</View>;
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.wrap}>
-        {permission?.granted ? (
-          <>
-            <CameraView
-              style={StyleSheet.absoluteFill}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onBarcodeScanned={locked ? undefined : handleScanned}
-            />
-            <View style={styles.frame} pointerEvents="none" />
-          </>
-        ) : (
-          <View style={styles.permissionWrap}>
-            <ThemedText variant="body" color={colors.card} style={{ textAlign: "center", marginBottom: 16 }}>
-              {permission?.canAskAgain === false
-                ? "Camera access was denied. Enable it in Settings to scan labels."
-                : "Camera access is needed to scan packet labels."}
-            </ThemedText>
-            {permission?.canAskAgain !== false ? <GoldButton title="Allow Camera" onPress={requestPermission} /> : null}
-          </View>
-        )}
+        {camera}
 
         <View style={[styles.titleWrap, { top: insets.top + 12 }]} pointerEvents="none">
           <ThemedText variant="h3" color={colors.card}>

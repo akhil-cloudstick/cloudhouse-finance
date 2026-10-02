@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useModal } from "@/product/components/Modal";
 
 /* "Reject — why?" prompt shared by the approval-chain screens (top-up,
- * waiver/adjustment, personal loan, expense). Holds its own remarks state —
+ * personal loan, expense). Holds its own remarks state —
  * a ConfirmModal whose children read the opener's state would only ever see
  * the value captured when the modal opened. `onConfirm` may be async and
  * may throw; its message is shown inline and the modal stays open. */

@@ -5,6 +5,7 @@ import { useModal } from "@/product/components/Modal";
 import { Select } from "@/product/components/ui/Select";
 import { createCustomer, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { getSelectedBranchId } from "@/product/services/branchSelection";
 
 /* Inline "+ Add new investor" flow reached from the New Investment picker
@@ -22,6 +23,8 @@ export function CreateInvestorModalContent({ onCreated }: { onCreated: (customer
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: the one branch is preselected and the picker locked.
+  const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number | "">("");
   const [address, setAddress] = useState("");
   const [pan, setPan] = useState("");
@@ -109,6 +112,7 @@ export function CreateInvestorModalContent({ onCreated }: { onCreated: (customer
             <Select
               value={branchId === "" ? "" : String(branchId)}
               onChange={(v) => setBranchId(v ? Number(v) : "")}
+              disabled={singleBranch}
               options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
               placeholder="Select branch…"
             />

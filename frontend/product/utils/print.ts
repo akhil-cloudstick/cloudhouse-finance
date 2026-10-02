@@ -22,7 +22,7 @@ const esc = (s: string) =>
  * Shared by every server-rendered PDF print flow (indemnity bond, release
  * agreement, personal-loan bond) — moved here from loanService.ts so it's
  * not duplicated per module. */
-export function printPdfBlob(blob: Blob): void {
+export function printPdfBlob(blob: Blob, onReady?: () => void): void {
   const url = window.URL.createObjectURL(blob);
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
@@ -34,6 +34,9 @@ export function printPdfBlob(blob: Blob): void {
   iframe.src = url;
   document.body.appendChild(iframe);
   iframe.onload = () => {
+    // Before print(): in some browsers print() blocks until the dialog
+    // closes, which would leave a progress overlay sitting over it.
+    onReady?.();
     const win = iframe.contentWindow;
     if (!win) return;
     const cleanup = () => {
@@ -47,6 +50,60 @@ export function printPdfBlob(blob: Blob): void {
     win.focus();
     win.print();
   };
+}
+
+/* The backend renders each document through headless Chrome, which takes a
+ * few seconds, and nothing on screen used to change in that time — so staff
+ * clicked Print again. This puts a full-screen "Preparing document…" overlay
+ * up for the whole wait, from request start until the print dialog opens.
+ *
+ * Plain DOM rather than React state: it is shared by every print flow in
+ * every module (loans, requests, personal loans, investments) and needs no
+ * per-screen wiring. Reference-counted so overlapping jobs keep it up until
+ * the last one finishes. */
+let printOverlay: HTMLDivElement | null = null;
+let printJobs = 0;
+
+function showPrintProgress(label: string): () => void {
+  printJobs++;
+  if (!printOverlay) {
+    printOverlay = document.createElement("div");
+    printOverlay.className = "print-progress";
+    printOverlay.setAttribute("role", "status");
+    printOverlay.setAttribute("aria-live", "polite");
+    printOverlay.innerHTML = `<div class="print-progress-card"><span class="print-progress-spinner"></span><span class="print-progress-label"></span></div>`;
+    document.body.appendChild(printOverlay);
+  }
+  const labelEl = printOverlay.querySelector(".print-progress-label");
+  if (labelEl) labelEl.textContent = label;
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    printJobs--;
+    if (printJobs <= 0 && printOverlay) {
+      printJobs = 0;
+      printOverlay.remove();
+      printOverlay = null;
+    }
+  };
+}
+
+/* Fetches a server-rendered PDF and sends it to the print dialog, with the
+ * progress overlay above shown throughout. Errors still reject, so callers
+ * keep their own toasts. */
+export async function printPdfJob(fetchBlob: () => Promise<Blob>, label = "Preparing document…"): Promise<void> {
+  const hide = showPrintProgress(label);
+  try {
+    const blob = await fetchBlob();
+    printPdfBlob(blob, hide);
+    // Safety net: an iframe that never fires onload must not leave the
+    // screen covered.
+    setTimeout(hide, 15_000);
+  } catch (err) {
+    hide();
+    throw err;
+  }
 }
 
 /**

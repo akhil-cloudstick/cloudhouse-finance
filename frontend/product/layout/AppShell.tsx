@@ -67,7 +67,7 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string; t
   personalloan: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
   investments: { module: "Investment_Management", key: "can_view_investment", tenantModule: "investments" },
   investment: { module: "Investment_Management", key: "can_view_investment" },
-  cash: { module: "Cash_Management", key: "can_view_cash" },
+  ledger: { module: "Cash_Management", key: "can_view_cash" },
   auctions: { module: "Loan_Management", key: "can_view_loan" },
   packets: { module: "Packet_Management", key: "can_view_packet" },
   packet: { module: "Packet_Management", key: "can_view_packet" },
@@ -82,7 +82,7 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string; t
   // see there, not a new resource) rather than a new permission.
   "ledger-bank": { module: "Cash_Management", key: "can_view_cash" },
   "ledger-customer": { module: "Cash_Management", key: "can_view_cash" },
-  "party-category": { module: "Cash_Management", key: "can_view_cash" },  "cash-ledger": { module: "Cash_Management", key: "can_view_cash" },
+  "ledger-category": { module: "Cash_Management", key: "can_view_cash" },  "cash-ledger": { module: "Cash_Management", key: "can_view_cash" },
   "upi-ledger": { module: "Cash_Management", key: "can_view_cash" },
   "bank-transfer-ledger": { module: "Cash_Management", key: "can_view_cash" },
   "cheque-ledger": { module: "Cash_Management", key: "can_view_cash" },
@@ -149,7 +149,7 @@ function View({ route, arg }: { route: string; arg?: string }) {
     case "loan":
       return <LoanDetail id={arg} />;
     case "newloan":
-      return <NewLoan />;
+      return <NewLoan customerId={arg} />;
     case "schemes":
       return <Schemes />;
     case "goldrates":
@@ -166,7 +166,7 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <Investments />;
     case "investment":
       return <InvestmentDetail id={arg} />;
-    case "cash":
+    case "ledger":
       return <Cash />;
     case "auctions":
       return <Auctions />;
@@ -190,7 +190,7 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <PartyLedger kind="bank" id={arg} />;
     case "ledger-customer":
       return <PartyLedger kind="customer" id={arg} />;
-    case "party-category":
+    case "ledger-category":
       return <PartyLedger kind="category" id={arg} />;    case "cash-ledger":
       return <ModeLedgerPage mode="Cash" />;
     case "upi-ledger":
@@ -277,7 +277,20 @@ function AppShellInner() {
   // back. Layout effect so the reset lands before paint, not a frame after.
   const pageRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
-    if (pageRef.current) pageRef.current.scrollTop = 0;
+    const el = pageRef.current;
+    if (el) {
+      el.scrollTop = 0;
+      /* Fade the whole page in as one unit on every route change. Pages
+       * paint in pieces (the header row, then whatever settles a beat later
+       * as data and layout land), which read as the page header flashing in
+       * on top of the content and then snapping to size. Starting at opacity
+       * 0 here, before the first paint, means none of that staggering is
+       * ever visible; the Web Animations API needs no wrapper element, so
+       * .page's own flex layout is untouched. */
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: "ease-out" });
+      }
+    }
     window.scrollTo(0, 0);
   }, [route, arg, reloadSeq]);
 

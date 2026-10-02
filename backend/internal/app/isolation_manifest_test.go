@@ -178,6 +178,8 @@ var routeManifest = map[string]routeSpec{
 	// it cannot be aimed at another business's customer documents.
 	"GET /api/v1/public/branding/:code":      public("login-page branding; unknown codes return the platform default, never a 404"),
 	"GET /api/v1/public/branding/:code/logo": public("a public logo, resolved from the tenant row's own key rather than a caller-supplied one"),
+	"GET /api/v1/public/connect/:code":       public("staff-app connect code; a short-lived random code that only reveals a business code, which grants nothing"),
+	"POST /api/v1/branding/connect-code":     self("issues a connect code for the caller's own business, taken from the token; no identifier to substitute"),
 	"GET /api/v1/branding":                   self("the caller's own business's branding and grants, taken from the token; no identifier to substitute"),
 
 	// ------------------------------------------------------------ branches
@@ -545,8 +547,12 @@ var routeManifest = map[string]routeSpec{
 	"PUT /api/v1/superadmin/businesses/:id/profile":   superAdminRoute("sets the name/legal identity printed on a business's own customer documents"),
 	"PUT /api/v1/superadmin/businesses/:id/branding":  superAdminRoute("sets the one colour the frontend derives a business's whole palette from"),
 	"POST /api/v1/superadmin/businesses/:id/logo":     superAdminRoute("stores a logo AS that business — the write runs under platform.WithTenant, so the uploaded_files row is stamped to it, not to the vendor"),
-	"PUT /api/v1/superadmin/businesses/:id/modules":   superAdminRoute("grants/revokes optional modules; enforced per request by platform.RequireTenantModule"),
+	"POST /api/v1/superadmin/businesses/:id/signature":   superAdminRoute("stores the lender signature AS that business (platform.WithTenant), embedded on its own printed documents"),
+	"GET /api/v1/superadmin/businesses/:id/signature":    superAdminRoute("streams that business's own lender signature, resolved from its tenant row — never a caller-supplied key"),
+	"DELETE /api/v1/superadmin/businesses/:id/signature": superAdminRoute("clears the lender signature pointer; documents fall back to a blank wet-ink line"),
+	"PUT /api/v1/superadmin/businesses/:id/modules": superAdminRoute("grants/revokes optional modules; enforced per request by platform.RequireTenantModule"),
 	"PUT /api/v1/superadmin/businesses/:id/languages": superAdminRoute("grants/revokes the languages a business may issue customer documents in"),
+	"PUT /api/v1/superadmin/businesses/:id/branch-mode": superAdminRoute("switches one business between single-branch and multi-branch"),
 	"GET /api/v1/superadmin/businesses/:id/admin":     superAdminRoute("reads the business's Administrator login (never the password hash) under that business's tenant tx — see superadmin.inTenantTx"),
 	"PUT /api/v1/superadmin/businesses/:id/admin":     superAdminRoute("vendor-side reset of the Administrator's name/username/password, for an owner locked out with no phone for the SMS reset"),
 
@@ -580,6 +586,8 @@ var routeManifest = map[string]routeSpec{
 
 	"GET /api/v1/cash-sources":                  list(),
 	"POST /api/v1/cash-sources":                 list(),
+	"GET /api/v1/cash-sources/:id":              probe("id=cash_sources"),
+	"GET /api/v1/cash-sources/:id/ledger":       probe("id=cash_sources"),
 	"GET /api/v1/expense-categories":            list(),
 	"POST /api/v1/expense-categories":           list(),
 	"GET /api/v1/expense-categories/:id/ledger": probe("id=expense_categories"),
@@ -604,7 +612,8 @@ var routeManifest = map[string]routeSpec{
 	// Configurable approval workflow (internal/workflow) and the approval
 	// endpoints of the flows it made configurable.
 	"GET /api/v1/approval-workflow":               list(),
-	"PUT /api/v1/approval-workflow/:flow":         list(),
+	"GET /api/v1/approval-workflow/categories":           list(),
+	"PUT /api/v1/approval-workflow/categories/:category": list(),
 	"POST /api/v1/loans/topups/:topUpId/approve":  probe("topUpId=loan_top_ups"),
 	"POST /api/v1/loans/:id/waiver-request":       probe("id=loans"),
 	"POST /api/v1/personal-loans/:id/approve":     probe("id=personal_loans"),

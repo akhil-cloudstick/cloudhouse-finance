@@ -11,6 +11,8 @@ import {
   subscribe,
   type BillingStatus,
 } from "@/product/pages/billing/services/billingService";
+import { FEATURES } from "@/product/config/features";
+import { PlanUpgrade } from "./PlanUpgrade";
 
 // Razorpay's checkout widget is loaded on demand (script tag), not bundled —
 // it is only ever needed on this one page, and only once a subscribe is
@@ -111,10 +113,40 @@ export function Billing() {
     }
   }
 
+  // The sign-in link card, shared by both layouts: on its own above the
+  // subscription card, or beside the current-plan card when plan upgrade is
+  // switched on (NEXT_PUBLIC_ENABLE_PLAN_UPGRADE).
+  const signInLinkCard = (s: BillingStatus) => (
+    <div className="card" style={FEATURES.planUpgrade ? { padding: 20 } : { padding: 20, maxWidth: 480, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ color: "var(--muted)" }}>Your team&apos;s sign-in link</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <code style={{ fontSize: 12.5, wordBreak: "break-all" }}>
+          {typeof window !== "undefined" ? window.location.origin : ""}
+          {loginPath(s.code)}
+        </code>
+        <button
+          className="btn plain sm"
+          onClick={() => {
+            const link = `${window.location.origin}${loginPath(s.code)}`;
+            navigator.clipboard.writeText(link);
+            toast("Sign-in link copied.");
+          }}
+        >
+          Copy
+        </button>
+      </div>
+      <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 4 }}>
+        Share this with your staff so they can sign in directly to your business.
+      </p>
+    </div>
+  );
+
   return (
     <>
       <div className="page-h">
-        <div><h1>Billing</h1><p>Administrator-only · this business&apos;s subscription plan</p></div>
+        <div><h1>Billing</h1><p>{FEATURES.planUpgrade ? "Administrator-only · your plan and branch limit" : "Administrator-only · this business's subscription plan"}</p></div>
       </div>
       <hr className="gold-rule" />
       {!canManageBilling && (
@@ -131,33 +163,11 @@ export function Billing() {
       {canManageBilling && !error && status === null && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading billing status…</p>
       )}
-      {canManageBilling && status && (
-        <div className="card" style={{ padding: 20, maxWidth: 480, marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <span style={{ color: "var(--muted)" }}>Your team&apos;s sign-in link</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <code style={{ fontSize: 12.5, wordBreak: "break-all" }}>
-              {typeof window !== "undefined" ? window.location.origin : ""}
-              {loginPath(status.code)}
-            </code>
-            <button
-              className="btn plain sm"
-              onClick={() => {
-                const link = `${window.location.origin}${loginPath(status.code)}`;
-                navigator.clipboard.writeText(link);
-                toast("Sign-in link copied.");
-              }}
-            >
-              Copy
-            </button>
-          </div>
-          <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 4 }}>
-            Share this with your staff so they can sign in directly to your business.
-          </p>
-        </div>
+      {canManageBilling && status && FEATURES.planUpgrade && (
+        <PlanUpgrade status={status} aside={signInLinkCard(status)} />
       )}
-      {canManageBilling && status && (
+      {canManageBilling && status && !FEATURES.planUpgrade && signInLinkCard(status)}
+      {canManageBilling && status && !FEATURES.planUpgrade && (
         <div className="card" style={{ padding: 20, maxWidth: 480 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
             <span style={{ color: "var(--muted)" }}>Plan</span>

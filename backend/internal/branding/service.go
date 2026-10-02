@@ -25,10 +25,12 @@ type Service struct {
 	tenants    *tenant.Repository
 	files      *upload.Repository
 	uploadsDir string
+	// connect holds the short-lived mobile connect codes (see connect.go).
+	connect *connectStore
 }
 
 func NewService(tenants *tenant.Repository, files *upload.Repository, uploadsDir string) *Service {
-	return &Service{tenants: tenants, files: files, uploadsDir: uploadsDir}
+	return &Service{tenants: tenants, files: files, uploadsDir: uploadsDir, connect: newConnectStore()}
 }
 
 // PublicByCode answers the login page. It NEVER returns an error for an
@@ -73,11 +75,12 @@ func (s *Service) ForTenant(ctx context.Context) (*Self, error) {
 		return nil, err
 	}
 	return &Self{
-		Public:      publicOf(t, t.LogoPath()),
-		AddressLine: t.AddressLine,
-		KMLRegNo:    t.KMLRegNo,
-		Modules:     t.ModuleList(),
-		Languages:   t.LanguageList(),
+		Public:       publicOf(t, t.LogoPath()),
+		AddressLine:  t.AddressLine,
+		KMLRegNo:     t.KMLRegNo,
+		Modules:      t.EffectiveModuleList(),
+		Languages:    t.LanguageList(),
+		SingleBranch: t.SingleBranch,
 	}, nil
 }
 

@@ -68,6 +68,9 @@ export type BrandingValue = {
   appUrl: string;
   modules: string[];
   languages: string[];
+  /** This business works on its one default branch only: branch pickers lock
+   * to it and the branch switcher is hidden. Per business, set by the vendor. */
+  singleBranch: boolean;
   /** True once a real response has been applied (either stage). */
   loaded: boolean;
   /** True when this browser already knew the business's name and logo before
@@ -114,6 +117,7 @@ const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "l
   appUrl: "",
   modules: [],
   languages: ["en"],
+  singleBranch: false,
 };
 
 const BrandingContext = createContext<BrandingValue | undefined>(undefined);
@@ -241,6 +245,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           appUrl: b.appUrl || "",
           modules: b.modules || [],
           languages: b.languages?.length ? b.languages : ["en"],
+          singleBranch: !!b.singleBranch,
         };
         setState(next);
         setLoaded(true);

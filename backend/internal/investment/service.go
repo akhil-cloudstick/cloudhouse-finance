@@ -85,10 +85,12 @@ type Service struct {
 	// Agreement — see investmentbond.go and loan.Service's identical
 	// lenderProfile pattern (same tenant profile, same nil-safe fallback).
 	tenantRepo *tenant.Repository
+	// uploadsDir is where the issuer's uploaded signature image is read from.
+	uploadsDir string
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorder CashRecorder, comms CommsRecorder, tenantRepo *tenant.Repository) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, cashRecorder: cashRecorder, comms: comms, tenantRepo: tenantRepo}
+func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorder CashRecorder, comms CommsRecorder, tenantRepo *tenant.Repository, uploadsDir string) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, cashRecorder: cashRecorder, comms: comms, tenantRepo: tenantRepo, uploadsDir: uploadsDir}
 }
 
 // --- Plans ---

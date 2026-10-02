@@ -149,7 +149,7 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: { kind: Led
     <ServerFlatList
       list={list}
       items={list.items}
-      keyOf={(r) => `${r.type}-${r.id}`}
+      keyOf={(r) => `${r.type}-${r.id}-${r.method}`}
       emptyText="No transactions found."
       header={
         <>

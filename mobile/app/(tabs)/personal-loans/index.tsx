@@ -44,6 +44,7 @@ import type { Bank } from "../../../src/types/bank";
 import { ApiError } from "../../../src/api/client";
 import { API_BASE_URL } from "../../../src/api/config";
 import { getToken } from "../../../src/auth/tokenStorage";
+import { withPrintProgress } from "../../../src/components/ui/PrintProgress";
 import {
   approvePersonalLoan,
   createPersonalLoan,
@@ -63,7 +64,7 @@ import {
 } from "../../../src/api/personalLoans";
 import { dmy, inr, todayISO } from "../../../src/lib/format";
 import type { Customer } from "../../../src/types/customer";
-import { userMessage } from "../../../src/api/errors";
+import { loadErrorText, userMessage } from "../../../src/api/errors";
 
 // Personal Loans — prototype #header-personalloans + #page-personalloans and
 // the pl-filter / pl-create / pl-collect / pl-detail / pl-renew sheets.
@@ -128,7 +129,7 @@ export default function PersonalLoansScreen() {
         list={list}
         items={list.items}
         keyOf={(l) => String(l.id)}
-        emptyText="No personal loans match your search."
+        emptyText={list.search || filterCount ? "No personal loans match your search." : "No personal loans yet."}
         header={
           <View style={{ paddingTop: 12 }}>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingBottom: 8 }} />
@@ -408,9 +409,11 @@ function PersonalLoanDetailSheet({
     try {
       const token = await getToken();
       const targetUri = `${FileSystem.cacheDirectory}bond-${l.loanNumber}.pdf`;
-      const result = await FileSystem.downloadAsync(`${API_BASE_URL}/personal-loans/${l.id}/bond`, targetUri, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const result = await withPrintProgress(() =>
+        FileSystem.downloadAsync(`${API_BASE_URL}/personal-loans/${l.id}/bond`, targetUri, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+      );
       if (result.status < 200 || result.status >= 300) throw new ApiError(result.status, "", undefined);
       if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri, { mimeType: "application/pdf" });
     } catch (e) {
@@ -508,7 +511,7 @@ function PersonalLoanDetailSheet({
   let body: React.ReactNode;
   if (!visible) body = null;
   else if (loan.isLoading) body = <Buffering block />;
-  else if (loan.isError || !l) body = <EmptyText>Could not load this loan.</EmptyText>;
+  else if (loan.isError || !l) body = <EmptyText>{loadErrorText(loan.error) ?? "This loan no longer exists."}</EmptyText>;
   else if (tab === "schedule")
     body = (
       <ServerFlatList

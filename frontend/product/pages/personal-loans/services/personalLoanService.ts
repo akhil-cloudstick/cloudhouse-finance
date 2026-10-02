@@ -1,5 +1,5 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/product/services/httpClient";
-import { printPdfBlob } from "@/product/utils/print";
+import { printPdfJob } from "@/product/utils/print";
 
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
@@ -169,6 +169,12 @@ export function getPersonalLoan(id: number): Promise<BackendPersonalLoan> {
   return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}`);
 }
 
+/* Resolves a loan number ("PL-00003") — what a ledger's Ref No links
+ * with — to the loan's numeric id. */
+export async function resolvePersonalLoanNumber(number: string): Promise<number> {
+  return (await apiFetch<{ id: number }>(`/personal-loans/by-number/${encodeURIComponent(number)}`)).id;
+}
+
 export const PERSONAL_LOAN_PAGE_SIZE = 10;
 
 /* Paginated schedule/payments — backs PersonalLoanDetail's infinite-scroll
@@ -256,21 +262,22 @@ export function listPersonalLoansForCustomer(customerId: number): Promise<Backen
  * pattern as loanService.ts's downloadIndemnityBondPDF, rather than
  * silently triggering a browser file save with no visible preview. */
 export async function downloadPersonalLoanBond(loanId: number): Promise<void> {
-  const token = typeof window !== "undefined" ? getAuthToken() : null;
-  const res = await fetch(`${API_BASE}/personal-loans/${loanId}/bond`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = typeof window !== "undefined" ? getAuthToken() : null;
+    const res = await fetch(`${API_BASE}/personal-loans/${loanId}/bond`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }

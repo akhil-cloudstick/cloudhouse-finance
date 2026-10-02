@@ -29,32 +29,41 @@ export async function shareLedgerPdf(kind: LedgerKind, ref: string, range: { fro
   if (range.fromDate) params.set("fromDate", range.fromDate);
   if (range.toDate) params.set("toDate", range.toDate);
   const path = ledgerPath(kind, ref, params);
-  await sharePdf(path, params, `${kind}-ledger`, title);
+  await shareFile(path, params, `${kind}-ledger`, title);
 }
 
-/** The Ledger page's (Cash tab's Movements) Download — web's
- * exportCashMovements: GET /cash-movements/export with the same filters. */
-export async function shareMovementsPdf(filters: {
-  fromDate?: string;
-  toDate?: string;
-  q?: string;
-  branchIds?: number[];
-  customerIds?: number[];
-  types?: string[];
-}) {
+/** The Ledger page's (Cash tab's Movements) and Reports' Ledger /
+ * Statement Download — web's exportCashMovements: GET /cash-movements/export
+ * with the same filters, as a PDF or (format=xlsx) an Excel sheet. */
+export async function shareMovementsPdf(
+  filters: {
+    fromDate?: string;
+    toDate?: string;
+    q?: string;
+    branchIds?: number[];
+    customerIds?: number[];
+    types?: string[];
+  },
+  format: "pdf" | "xlsx" = "pdf"
+) {
   const params = new URLSearchParams();
+  if (format === "xlsx") params.set("format", "xlsx");
   if (filters.fromDate) params.set("fromDate", filters.fromDate);
   if (filters.toDate) params.set("toDate", filters.toDate);
   if (filters.q) params.set("q", filters.q);
   if (filters.branchIds?.length) params.set("branchIds", filters.branchIds.join(","));
   if (filters.customerIds?.length) params.set("customerIds", filters.customerIds.join(","));
   if (filters.types?.length) params.set("types", filters.types.join(","));
-  await sharePdf("/cash-movements/export", params, "cash-movements", "Ledger");
+  await shareFile("/cash-movements/export", params, "cash-movements", "Ledger", format === "xlsx" ? XLSX : PDF);
 }
 
-async function sharePdf(path: string, params: URLSearchParams, fileStem: string, title: string) {
+type FileKind = { ext: string; mimeType: string; UTI: string };
+const PDF: FileKind = { ext: "pdf", mimeType: "application/pdf", UTI: "com.adobe.pdf" };
+const XLSX: FileKind = { ext: "xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", UTI: "org.openxmlformats.spreadsheetml.sheet" };
+
+async function shareFile(path: string, params: URLSearchParams, fileStem: string, title: string, kind: FileKind = PDF) {
   const token = await getToken();
-  const targetUri = `${FileSystem.cacheDirectory}${fileStem}-${Date.now()}.pdf`;
+  const targetUri = `${FileSystem.cacheDirectory}${fileStem}-${Date.now()}.${kind.ext}`;
   const result = await FileSystem.downloadAsync(`${API_BASE_URL}${path}?${params.toString()}`, targetUri, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -62,7 +71,7 @@ async function sharePdf(path: string, params: URLSearchParams, fileStem: string,
     throw new ApiError(result.status, "", undefined);
   }
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(result.uri, { mimeType: "application/pdf", dialogTitle: title, UTI: "com.adobe.pdf" });
+    await Sharing.shareAsync(result.uri, { mimeType: kind.mimeType, dialogTitle: title, UTI: kind.UTI });
   } else {
     throw new Error(`Saved to ${result.uri} — sharing isn't available on this device.`);
   }

@@ -160,6 +160,19 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   filter: <path d="M4 5h16l-6.5 7.5v6L10.5 21v-8.5Z" />,
+  refresh: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 4v7h-7" />
+    </>
+  ),
+  arrowUp: <path d="M12 19V5M6 11l6-6 6 6" />,
+  logout: (
+    <>
+      <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+      <path d="M10 16l-4-4 4-4M6 12h10" />
+    </>
+  ),
   gear: (
     <>
       <circle cx="12" cy="12" r="3" />

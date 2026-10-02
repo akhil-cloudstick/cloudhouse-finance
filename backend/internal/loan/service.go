@@ -147,8 +147,9 @@ var (
 	ErrPrincipalTooHigh      = httpx.NewBadRequest("principal amount cannot exceed the eligible loan amount")
 	ErrInvalidPrincipal      = httpx.NewBadRequest("principal amount must be greater than zero")
 	ErrInvalidDueDate        = httpx.NewBadRequest("due date must be after the opened date")
+	ErrFutureOpenedDate      = httpx.NewBadRequest("loan date cannot be in the future")
 	ErrWrongStage            = httpx.NewBadRequest("approval action does not match the loan's current approval stage")
-	ErrAlreadyDecided        = httpx.NewBadRequest("loan approval has already reached a terminal state")
+	ErrAlreadyDecided        = httpx.NewBadRequest("loan  already disbursed")
 	ErrInvalidAction         = httpx.NewBadRequest("action must be Approved or Rejected")
 	ErrInvalidAmount         = httpx.NewBadRequest("amount must be greater than zero")
 	ErrRequestNotFound       = httpx.NewNotFound("loan request not found")
@@ -169,7 +170,7 @@ var (
 	// ErrTopUpShortfall mirrors personalloan.ErrRenewalShortfall exactly —
 	// the requested top-up exceeds the loan's current headroom
 	// (EligibleLoanAmount - OutstandingAmount); reject, don't clamp.
-	ErrTopUpShortfall = httpx.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
+	ErrTopUpShortfall      = httpx.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
 	ErrTopUpAlreadyPending = httpx.NewConflict("this loan already has a top-up waiting for approval")
 	ErrTopUpNotFound       = httpx.NewNotFound("top-up not found")
 	ErrTopUpAlreadyDecided = httpx.NewConflict("this top-up has already been approved or rejected")
@@ -404,6 +405,17 @@ func (s *Service) SetWorkflow(w *workflow.Service) {
 // chain loads flow's configured stages for the tenant in ctx.
 func (s *Service) chain(ctx context.Context, flow string) (*workflow.Chain, error) {
 	return s.workflowSvc.Chain(ctx, flow)
+}
+
+// canDecideAuction reports whether roleID is the decider role of an auction
+// decision flow (its chain's single step), or Administrator.
+func (s *Service) canDecideAuction(ctx context.Context, roleID uint, flow string) bool {
+	c, err := s.chain(ctx, flow)
+	if err != nil {
+		return false
+	}
+	st, _ := c.First()
+	return s.workflowSvc.CanAct(ctx, roleID, flow, st.Key)
 }
 
 // CashBalanceGuard is satisfied by *cash.SummaryService — declared here so
@@ -710,6 +722,12 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	}
 	if !in.DueDate.After(in.OpenedDate) {
 		return nil, ErrInvalidDueDate
+	}
+	// Staff may backdate a loan (interest accrues from OpenedDate — see
+	// LastAccrualDate below) but never post-date one. Compared as calendar
+	// dates in time.Local, same as the gold-rate "today" check further down.
+	if in.OpenedDate.Format("2006-01-02") > time.Now().Format("2006-01-02") {
+		return nil, ErrFutureOpenedDate
 	}
 
 	branchOK, err := s.branchRepo.Exists(ctx, in.BranchID)
@@ -1429,6 +1447,14 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 			log.Printf("retracting disbursement cash movement(s) failed for loan %d: %v", l.ID, err)
 		}
 	}
+	// The loan's own ledger mirrors that disbursement as a LoanPayment row —
+	// retract it too, or re-sanction adds a second one and the ledger (which
+	// takes the oldest) keeps showing the retracted payout's mode split.
+	if materialChange && wasDisbursed {
+		if err := s.paymentRepo.DeleteByLoanIDAndType(ctx, l.ID, PaymentTypeDisbursement); err != nil {
+			log.Printf("retracting disbursement ledger row failed for loan %d: %v", l.ID, err)
+		}
+	}
 
 	if materialChange {
 		audit := &LoanApproval{
@@ -1720,18 +1746,26 @@ var sanctionLimits = map[string]float64{
 	"Management":     0, // 0 == no advisory ceiling — Management/Final Sanction can clear any amount
 }
 
-func sanctionWarning(l *Loan) string {
+// sanctionWarning looks up the role of the stage the loan waits at — a
+// role-chain stage by its role ID, a legacy stage by its catalogue role —
+// and checks the principal against that role's advisory limit.
+func (s *Service) sanctionWarning(ctx context.Context, l *Loan) string {
 	stage := normalizeSanctionStage(l.ApprovalStage)
-	f, _ := workflow.FindFlow(workflow.FlowLoanSanction)
-	for _, step := range f.Stages {
-		if step.Key != stage {
-			continue
-		}
-		limit := sanctionLimits[step.Role]
-		if limit > 0 && l.PrincipalAmount > limit {
-			return fmt.Sprintf("Principal ₹%.0f exceeds the typical ₹%.0f limit for %s — consider escalating.", l.PrincipalAmount, limit, step.Role)
-		}
+	if stage == "" || stage == ApprovalStageApproved || stage == ApprovalStageRejected {
 		return ""
+	}
+	role := s.workflowSvc.RoleName(ctx, stage)
+	if role == "" {
+		f, _ := workflow.FindFlow(workflow.FlowLoanSanction)
+		for _, step := range f.Stages {
+			if step.Key == stage {
+				role = step.Role
+			}
+		}
+	}
+	limit := sanctionLimits[role]
+	if limit > 0 && l.PrincipalAmount > limit {
+		return fmt.Sprintf("Principal ₹%.0f exceeds the typical ₹%.0f limit for %s — consider escalating.", l.PrincipalAmount, limit, role)
 	}
 	return ""
 }
@@ -1800,19 +1834,16 @@ type ApprovalInput struct {
 //
 //	LoanOperator (verified) -> BranchManager (approved) -> FinalSanction (Management) -> Approved (Status -> Active)
 //
-// but each tenant chooses which of those stages apply (workflow.
-// FlowLoanSanction): approving moves the loan to the next ENABLED stage,
-// and the last enabled stage disburses it. A Rejected action at any stage
-// sets Status -> Rejected. The actor's role must hold the current stage's
-// permission (see checkStagePermission).
+// but each tenant configures the chain as an ordered list of approver roles
+// (workflow.FlowLoanSanction): approving moves the loan to the next role,
+// and the last role disburses it. A Rejected action at any stage sets
+// Status -> Rejected. The actor must hold the current step's role, or be
+// Administrator (see workflow.Service.CanAct).
 //
-// The LoanOperator stage is a *verification*, not a sanction: the operator
-// who made the loan confirms it and the chain moves on to the Branch
-// Manager, who is the first actual approver. Both ApprovalActionVerified
-// and Approved are accepted there and behave identically (the UI sends
-// "Verified"; "Approved" stays accepted so older clients keep working).
-// No amount check gates it — the Loan Operator approval limit and
-// sanctionLimits are advisory only, feeding Loan.ApprovalWarning.
+// ApprovalActionVerified and Approved are accepted at any step and behave
+// identically (the UI sends "Verified" for a Loan Operator step). No amount
+// check gates it — the Loan Operator approval limit and sanctionLimits are
+// advisory only, feeding Loan.ApprovalWarning.
 func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*Loan, error) {
 	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
@@ -1827,33 +1858,29 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	// Compare against the normalized stage so a loan parked on the retired
 	// AuthorizedManagement value can be cleared by a client sending either
 	// that value or FinalSanction.
-	stage := normalizeSanctionStage(l.ApprovalStage)
-	if normalizeSanctionStage(in.Stage) != stage {
-		return nil, ErrWrongStage
-	}
-
 	chain, err := s.chain(ctx, workflow.FlowLoanSanction)
 	if err != nil {
 		return nil, err
 	}
-	step, ok := chain.ByKey(stage)
+	// The stored stage resolves onto the tenant's current chain (a loan
+	// still on a legacy stage value maps onto it — see workflow.Chain). The
+	// client may send either the stored value or the resolved stage key.
+	stored := normalizeSanctionStage(l.ApprovalStage)
+	step, ok := chain.ByKey(stored)
 	if !ok {
 		return nil, ErrWrongStage
 	}
-	// The last ENABLED stage of this tenant's chain is the one that pays the
-	// loan out — FinalSanction by default, but e.g. the Loan Operator's
-	// Verify when that is the only stage switched on.
+	if sent := normalizeSanctionStage(in.Stage); sent != stored && sent != step.Key {
+		return nil, ErrWrongStage
+	}
+	stage := step.Key
+	// The last step of this tenant's chain is the one that pays the loan out.
 	final := chain.IsFinal(stage)
 	next, _ := chain.Next(stage)
 
-	// Verified belongs to the LoanOperator stage only.
-	if in.Action == ApprovalActionVerified && stage != SanctionStageLoanOperator {
-		return nil, ErrWrongStage
-	}
-	// Permission-gated (see checkStagePermission's doc comment) — "Administrator"
-	// is no longer special-cased here: its role's grants can't be revoked
-	// (see authz.Repository), so it always holds the permission already.
-	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
+	// Only the step's own role (or Administrator) may act on it — see
+	// workflow.Service.CanAct. Verified and Approved behave the same.
+	if !s.workflowSvc.CanAct(ctx, in.ActorRoleID, workflow.FlowLoanSanction, stage) {
 		return nil, ErrWrongStage
 	}
 
@@ -2556,7 +2583,7 @@ func (s *Service) ApproveTopUp(ctx context.Context, topUpID uint, branchID *uint
 	if !ok || in.Stage != step.Key {
 		return nil, ErrWrongStage
 	}
-	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
+	if !s.workflowSvc.CanAct(ctx, in.ActorRoleID, workflow.FlowLoanTopUp, step.Key) {
 		return nil, ErrWrongStage
 	}
 
@@ -2840,74 +2867,6 @@ var ledgerCreditTypes = map[string]bool{
 	PaymentTypeWaiver:          true,
 	PaymentTypeAdjustment:      true,
 	PaymentTypeDiscount:        true,
-}
-
-// LoanLedgerRow is one normalized row of a single loan's payment ledger —
-// GET /loans/:id/ledger's response shape. Field names mirror
-// cash.CashMovement's own ledger-facing fields (see PartyLedger.tsx) so a
-// follow-up task can reuse the same rendering logic across both ledgers.
-type LoanLedgerRow struct {
-	ID             uint      `json:"id"`
-	Date           time.Time `json:"date"`
-	Description    string    `json:"description"`
-	Type           string    `json:"type"`
-	Method         string    `json:"method"`
-	Reference      string    `json:"reference"`
-	DebitOrCredit  string    `json:"debitOrCredit"` // "debit" | "credit"
-	Amount         float64   `json:"amount"`
-	RunningBalance float64   `json:"runningBalance"`
-	BankID         *uint     `json:"bankId"`
-	BankName       string    `json:"bankName,omitempty"`
-	CustomerID     uint      `json:"customerId"`
-	CustomerName   string    `json:"customerName"`
-}
-
-// GetLoanLedger returns one loan's payment ledger as a normalized,
-// chronological (oldest first) list — backs GET /loans/:id/ledger, the
-// single-loan drill-down counterpart of
-// ListCashMovementsByBank/ByCustomer/ByBranch (those query cross-entity
-// CashMovement rows; this queries only LoanPayment rows scoped to loanID,
-// since a single loan's ledger has nothing to do with other entities'
-// movements). branchID nil (Administrator/Management) skips the scope
-// check, same convention as Get/checkLoanBranch.
-func (s *Service) GetLoanLedger(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]LoanLedgerRow, int64, error) {
-	loanRec, err := s.repo.FindByID(ctx, loanID)
-	if err != nil {
-		return nil, 0, ErrNotFound
-	}
-	if branchID != nil && loanRec.BranchID != *branchID {
-		return nil, 0, ErrNotFound
-	}
-	payments, total, err := s.paymentRepo.FindByLoanIDPaged(ctx, loanID, limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	rows := make([]LoanLedgerRow, len(payments))
-	for i, p := range payments {
-		debitOrCredit := "debit"
-		if ledgerCreditTypes[p.Type] {
-			debitOrCredit = "credit"
-		}
-		row := LoanLedgerRow{
-			ID:             p.ID,
-			Date:           p.PaidOn,
-			Description:    p.Description,
-			Type:           p.Type,
-			Method:         p.Method,
-			Reference:      p.Reference,
-			DebitOrCredit:  debitOrCredit,
-			Amount:         p.Amount,
-			RunningBalance: p.RunningBalance,
-			BankID:         p.BankID,
-			CustomerID:     loanRec.CustomerID,
-			CustomerName:   loanRec.Customer.Name,
-		}
-		if p.BankRef != nil {
-			row.BankName = p.BankRef.Name
-		}
-		rows[i] = row
-	}
-	return rows, total, nil
 }
 
 // resolveAuctionAfterPayment reacts to a payment on a loan whose gold is still
@@ -3974,7 +3933,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 
 		switch req.Kind {
 		case AuctionDecisionKindPartialRepayment:
-			if !s.checkStagePermission(ctx, actorRoleID, "can decide auction partial repayment") {
+			if !s.canDecideAuction(ctx, actorRoleID, workflow.FlowAuctionPartialRepayment) {
 				return ErrPartialRepaymentAuthority
 			}
 			switch decision {
@@ -4007,7 +3966,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 			}
 
 		case AuctionDecisionKindShortfall:
-			if !s.checkStagePermission(ctx, actorRoleID, "can decide auction shortfall") {
+			if !s.canDecideAuction(ctx, actorRoleID, workflow.FlowAuctionShortfall) {
 				return ErrShortfallAuthorityRequired
 			}
 			if strings.TrimSpace(remarks) == "" {
@@ -4569,14 +4528,15 @@ func (s *Service) RecordReleaseRequestPayment(ctx context.Context, requestID uin
 		return nil, ErrRequestAlreadyDecided
 	}
 	// A drift/top-up payment (ErrDriftPaymentRequired's remedy) legitimately
-	// arrives with ApprovalStage already advanced to PendingManagement — that
-	// IS the request being past the Manager stage, by design (see this
+	// arrives with ApprovalStage already advanced to a later approver step —
+	// that IS the request being past the Manager stage, by design (see this
 	// func's doc comment). Refusing it here would make ErrDriftPaymentRequired
 	// unrecoverable: staff could never record the very payment the error
 	// tells them to record. Only a Locked, IsPartial request gets this
 	// exception; an ordinary (non-drift) attempt to pay past Manager stage
 	// is still refused.
-	pastManagerForDriftTopUp := req.IsPartial && req.Locked && req.ApprovalStage == ApprovalStagePendingManagement
+	pastManagerForDriftTopUp := req.IsPartial && req.Locked &&
+		req.ApprovalStage != ApprovalStageApproved && req.ApprovalStage != ApprovalStageRejected
 	if req.ApprovalStage != "" && req.ApprovalStage != ApprovalStagePendingManager && !pastManagerForDriftTopUp {
 		return nil, ErrNotManagerStage
 	}
@@ -4800,9 +4760,8 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if !ok || in.Stage != step.Key {
 		return nil, ErrWrongStage
 	}
-	// Requires the stage's "Release Approval" permission (see
-	// internal/authz.Catalogue and workflow.Catalogue).
-	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
+	// Only the step's own role (or Administrator) may act on it.
+	if !s.workflowSvc.CanAct(ctx, in.ActorRoleID, workflow.FlowLoanRelease, step.Key) {
 		return nil, ErrWrongStage
 	}
 
@@ -4895,8 +4854,9 @@ func (s *Service) advanceReleaseRequestStage(ctx context.Context, req *LoanReque
 	if err != nil {
 		return nil, err
 	}
+	// An empty chain resolves no stage: this advance is then the final one.
 	cur, ok := chain.ByPending(stage)
-	if !ok {
+	if !ok && !chain.Off() {
 		return nil, ErrWrongStage
 	}
 	next, hasNext := chain.Next(cur.Key)
@@ -5070,7 +5030,7 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 	if !ok || in.Stage != step.Key {
 		return nil, ErrWrongStage
 	}
-	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
+	if !s.workflowSvc.CanAct(ctx, in.ActorRoleID, workflow.FlowLoanExtension, step.Key) {
 		return nil, ErrWrongStage
 	}
 	next, hasNext := chain.Next(step.Key)
@@ -5697,7 +5657,18 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		KMLRegNo:        kmlRegNo,
 		Policy:          policy,
 		DueDate:         l.DueDate,
+		LenderSignature: s.lenderSignature(ctx),
 	}
+}
+
+// FillLenderProfile stamps the current business's own lender particulars and
+// uploaded signature onto data — for PreviewIndemnityBondPDF, whose draft
+// BondData comes from the request body and so otherwise printed the demo
+// lender, wrong document family and no signature.
+func (s *Service) FillLenderProfile(ctx context.Context, data *BondData) {
+	data.LegalName, data.AddressLine, data.KMLRegNo, data.Policy = s.lenderProfile(ctx)
+	data.BusinessName = s.businessName(ctx)
+	data.LenderSignature = s.lenderSignature(ctx)
 }
 
 // RenderIndemnityBondPDFForLoan renders the pledge agreement PDF for

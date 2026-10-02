@@ -20,12 +20,18 @@ export type SelfBranding = PublicBranding & {
   languages: string[];
 };
 
-// Pre-login: called with whatever business code the login screen currently
-// holds (may be "" on a single-tenant deployment, which the backend resolves
-// itself — see businessCode.ts's DEFAULT_BUSINESS_CODE fallback).
+// Pre-login: called with the business code the connect screen stored (or ""
+// before one is known, which shows the platform default).
 export function fetchPublicBranding(businessCode: string) {
   const code = businessCode || "default";
   return apiRequest<PublicBranding>(`/public/branding/${encodeURIComponent(code)}`, { skipAuth: true });
+}
+
+// Pre-login: swaps the short connect code from the web dashboard's QR (or
+// typed by hand) for the business it was issued for. A 404 means the code is
+// wrong or has expired.
+export function redeemConnectCode(connectCode: string) {
+  return apiRequest<{ businessCode: string }>(`/public/connect/${encodeURIComponent(connectCode)}`, { skipAuth: true });
 }
 
 // Post-login: the business comes from the token, so there is no code param.

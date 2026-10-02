@@ -9,8 +9,9 @@ import {
   EmptyText,
   FlatHeader,
   NoticeBanner,
-  FabCorner,
+  FabMenu,
   PIcon,
+  PillTabs,
   PrimaryButton,
   PScroll,
   Screen,
@@ -22,6 +23,7 @@ import {
   Txt,
 } from "../../src/components/ui";
 import { useAuth } from "../../src/auth/AuthContext";
+import { ApprovalWorkflowTab } from "../../src/components/staff/ApprovalWorkflowTab";
 import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import { useRefetchOnFocus, useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
 import { ApiError } from "../../src/api/client";
@@ -171,6 +173,12 @@ function NewRoleSheet({ visible, onClose, onCreated }: { visible: boolean; onClo
   );
 }
 
+// Permissions (the role matrix below) and Approval Workflow (who approves
+// what — src/components/staff/ApprovalWorkflowTab.tsx) are the page's two
+// tabs, switched from pill tabs at the top of the page.
+const PAGE_TABS = ["permissions", "workflow"] as const;
+type PageTab = (typeof PAGE_TABS)[number];
+
 export default function RolesPermissionsScreen() {
   const { employee, can } = useAuth();
   const canView = can("Role_Management", "can_view_role_and_permission");
@@ -191,6 +199,7 @@ export default function RolesPermissionsScreen() {
   const [showNewRole, setShowNewRole] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
+  const [pageTab, setPageTab] = useState<PageTab>("permissions");
 
   function loadRoles(selectId?: number) {
     fetchRoles()
@@ -283,7 +292,7 @@ export default function RolesPermissionsScreen() {
     }
   }
 
-  const header = <FlatHeader title="Roles & Permissions" subtitle="What each role can do" />;
+  const header = <FlatHeader title="Roles & Permissions" subtitle="What each role can do & who approves" />;
 
   if (!canView) {
     return (
@@ -295,6 +304,9 @@ export default function RolesPermissionsScreen() {
     );
   }
 
+  const pageTabs = <PillTabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} labels={{ permissions: "Permissions", workflow: "Approval Workflow" }} />;
+  if (pageTab === "workflow") return <ApprovalWorkflowTab header={header} tabs={pageTabs} />;
+
   const pendingCount = Object.keys(pending).length;
   const moduleEntries = Object.entries(effective ?? {});
   const editable = canUpdateRole && !!role && !role.isSystem;
@@ -305,13 +317,21 @@ export default function RolesPermissionsScreen() {
     <Screen
       header={header}
       floating={
-        <>
-          {canEditRole ? <FabCorner side="left" icon="edit" caption="Edit Role" label="Edit role" onPress={() => setEditVisible(true)} /> : null}
-          {canCreateRole ? <FabCorner label="New role" onPress={() => setShowNewRole(true)} /> : null}
-        </>
+        // One corner button that opens upward into both actions — the same
+        // grouping as the Bank Pledges page.
+        canEditRole || canCreateRole ? (
+          <FabMenu
+            label="Role actions"
+            actions={[
+              ...(canCreateRole ? [{ label: "New Role", icon: "plus", onPress: () => setShowNewRole(true) }] : []),
+              ...(canEditRole ? [{ label: "Edit Role", icon: "edit", onPress: () => setEditVisible(true) }] : []),
+            ]}
+          />
+        ) : undefined
       }
     >
       <PScroll extraBottom={60}>
+        <View style={{ paddingTop: 12 }}>{pageTabs}</View>
         {roles == null && !error ? (
           <Buffering block />
         ) : (

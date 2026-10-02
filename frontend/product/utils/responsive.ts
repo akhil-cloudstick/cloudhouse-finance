@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * Checks whether the current viewport is a "small" screen.
@@ -12,19 +12,20 @@ export function isSmallScreen(): boolean {
   return window.innerWidth < 1560 || window.innerHeight <= 850;
 }
 
+function subscribeResize(onChange: () => void): () => void {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
+/* Read through useSyncExternalStore rather than useState(false) + an effect.
+ * The effect version rendered every page's first frame in the big-screen
+ * layout and only switched to the small one after paint, so on a laptop
+ * each navigation flashed: the page drew at full size, then its header and
+ * tables snapped down a beat later. Here a page mounted by navigation gets
+ * the real value on its first render. The server snapshot (false) is used
+ * only while hydrating the static HTML, which keeps hydration consistent. */
 export function useIsSmallScreen(): boolean {
-  const [small, setSmall] = useState(false);
-
-  useEffect(() => {
-    function check() {
-      setSmall(isSmallScreen());
-    }
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-
-  return small;
+  return useSyncExternalStore(subscribeResize, isSmallScreen, () => false);
 }
 
 export function useResponsivePageSize(bigSize: number, smallSize: number): number {

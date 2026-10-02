@@ -1,55 +1,142 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
-import { StageTracker } from "@/product/components/ui/StageTracker";
 import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import { ApiError } from "@/product/services/httpClient";
-import { updateApprovalWorkflow, type FlowView } from "@/product/services/approvalWorkflowService";
+import { fetchRoles } from "@/product/services/permissionService";
+import {
+  fetchApprovalCategories,
+  updateApprovalCategory,
+  type CategoryView,
+  type ChainRole,
+} from "@/product/services/approvalWorkflowService";
+import { RoleChain } from "@/product/pages/roles/components/RoleChain";
 
-/* One flow's card — a checkbox per stage, a live preview of the chain the
- * ticked boxes would produce, and its own Save. Draft state is local to the
- * card so editing one flow never touches another's unsaved changes. */
-function FlowCard({ flow, canEdit, onSaved }: { flow: FlowView; canEdit: boolean; onSaved: () => Promise<void> }) {
+/* A category's editable state: its mode, the shared chain, and each flow's
+ * own chain. Both kinds are kept so switching mode back and forth never
+ * loses what was set up in the other. */
+type Draft = { shared: boolean; steps: ChainRole[]; flows: Record<string, ChainRole[]> };
+
+function draftOf(c: CategoryView): Draft {
+  return { shared: c.shared, steps: c.sharedSteps, flows: Object.fromEntries(c.flows.map((f) => [f.key, f.steps])) };
+}
+
+const ids = (steps: ChainRole[]) => steps.map((s) => s.roleId).join(",");
+
+function sameDraft(a: Draft, b: Draft): boolean {
+  if (a.shared !== b.shared) return false;
+  if (a.shared) return ids(a.steps) === ids(b.steps);
+  return Object.keys(a.flows).every((k) => ids(a.flows[k] || []) === ids(b.flows[k] || []));
+}
+
+function chainError(steps: ChainRole[], min: number, max: number): string {
+  if (steps.length < min) return `needs at least ${min} approver`;
+  if (max > 0 && steps.length > max) return `allows at most ${max} approver`;
+  if (steps.some((s) => !s.active)) return "has an inactive role — remove it";
+  return "";
+}
+
+/* "Approval Workflow" tab of Roles & Permissions. Flows are grouped into
+ * categories (Gold Loan, Personal Loan, Auction, Expense); each flow's
+ * approvers are an ordered chain of this business's own roles. A category
+ * with several actions can use one chain for all of them or a separate
+ * chain per action. Only a step's role (or Administrator) can approve it.
+ * Viewing needs "can view role and permission", editing "can update role".
+ * Saving refreshes the app-wide copy (useApprovalWorkflow) so trackers and
+ * buttons elsewhere pick the change up immediately. */
+export function ApprovalWorkflowSettings() {
+  const { can } = useAuth();
+  const { refresh } = useApprovalWorkflow();
   const toast = useToast();
-  const [draft, setDraft] = useState<Record<string, boolean>>(() => Object.fromEntries(flow.stages.map((s) => [s.key, s.enabled])));
+  const canEdit = can("Role_Management", "can_update_role");
+
+  const [categories, setCategories] = useState<CategoryView[] | null>(null);
+  const [roles, setRoles] = useState<ChainRole[]>([]);
+  const [loadErr, setLoadErr] = useState("");
+  const [activeKey, setActiveKey] = useState<string>("");
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  // Brief "Changes saved" confirmation beside the button after a save.
   const [justSaved, setJustSaved] = useState(false);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
 
-  // Resync the draft to the stored state whenever that state changes (a
-  // save here, or a config refresh).
-  const savedSig = flow.stages.map((s) => (s.enabled ? 1 : 0)).join("");
-  const [syncedSig, setSyncedSig] = useState(savedSig);
-  if (syncedSig !== savedSig) {
-    setSyncedSig(savedSig);
-    setDraft(Object.fromEntries(flow.stages.map((s) => [s.key, s.enabled])));
+  useEffect(() => {
+    let alive = true;
+    Promise.all([fetchApprovalCategories(), fetchRoles()])
+      .then(([cats, rs]) => {
+        if (!alive) return;
+        setCategories(cats);
+        setDrafts(Object.fromEntries(cats.map((c) => [c.key, draftOf(c)])));
+        setActiveKey((k) => k || cats[0]?.key || "");
+        // Administrator can always approve every step, so it is never
+        // offered as a chain member.
+        setRoles(
+          (rs || [])
+            .filter((r) => r.isActive && !r.isSystem)
+            .map((r) => ({ roleId: r.id, name: r.name, active: true })),
+        );
+      })
+      .catch((e) => alive && setLoadErr(e instanceof ApiError ? e.message : "Could not load the approval workflow."));
+    return () => { alive = false; };
+  }, []);
+
+  const category = categories?.find((c) => c.key === activeKey) ?? null;
+  const draft = category ? drafts[category.key] : null;
+  const dirtyKeys = useMemo(
+    () => new Set((categories || []).filter((c) => drafts[c.key] && !sameDraft(drafts[c.key], draftOf(c))).map((c) => c.key)),
+    [categories, drafts],
+  );
+  const dirty = !!category && dirtyKeys.has(category.key);
+  const multi = !!category && category.flows.length > 1;
+  const shared = !!draft && multi && draft.shared;
+
+  // The first rule a chain breaks, named after the chain — Save stays off
+  // until there is none.
+  const invalid = useMemo(() => {
+    if (!category || !draft) return "";
+    if (shared) {
+      const e = chainError(draft.steps, category.minEnabled, category.maxSteps);
+      return e ? `The ${category.label} chain ${e}.` : "";
+    }
+    for (const f of category.flows) {
+      const e = chainError(draft.flows[f.key] || [], f.minEnabled, f.maxSteps);
+      if (e) return `${f.actionLabel} ${e}.`;
+    }
+    return "";
+  }, [category, draft, shared]);
+
+  function patch(p: Partial<Draft>) {
+    if (!category) return;
+    setDrafts((d) => ({ ...d, [category.key]: { ...d[category.key], ...p } }));
+    setErr("");
+    setJustSaved(false);
   }
 
-  const ticked = flow.stages.filter((s) => draft[s.key]);
-  const dirty = flow.stages.some((s) => draft[s.key] !== s.enabled);
-  const tooFew = ticked.length < flow.minEnabled;
-  // The preview mirrors what a tracker will show for a new item: the
-  // enabled stages in order, the last one naming what it does.
-  const preview = ticked.map((s, i) => (i === ticked.length - 1 ? `${s.label} (${flow.finalAction})` : s.label));
+  function discard() {
+    if (!category) return;
+    setDrafts((d) => ({ ...d, [category.key]: draftOf(category) }));
+    setErr("");
+  }
 
   async function save() {
-    // The button stays enabled while it shows "Saved" (so the green
-    // confirmation isn't greyed out) — clicking it then is a no-op.
-    if (tooFew || !dirty) return;
+    if (!category || !draft || !dirty || invalid) return;
     setSaving(true);
     setErr("");
     try {
-      await updateApprovalWorkflow(flow.key, draft);
-      toast(`${flow.label} approval workflow saved`);
+      const body = shared
+        ? { shared: true, steps: draft.steps.map((s) => s.roleId) }
+        : { shared: false, flows: Object.fromEntries(category.flows.map((f) => [f.key, (draft.flows[f.key] || []).map((s) => s.roleId)])) };
+      const saved = await updateApprovalCategory(category.key, body);
+      setCategories((cs) => (cs || []).map((c) => (c.key === saved.key ? saved : c)));
+      setDrafts((d) => ({ ...d, [saved.key]: draftOf(saved) }));
+      toast(`${saved.label} approval workflow saved`);
       setJustSaved(true);
       if (savedTimer.current) clearTimeout(savedTimer.current);
       savedTimer.current = setTimeout(() => setJustSaved(false), 2500);
-      await onSaved();
+      await refresh();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
     } finally {
@@ -57,95 +144,122 @@ function FlowCard({ flow, canEdit, onSaved }: { flow: FlowView; canEdit: boolean
     }
   }
 
+  if (loadErr) return <div className="card" style={{ padding: 16 }}><div className="notice"><Icon name="warning" /> {loadErr}</div></div>;
+  if (!categories || !category || !draft) return <div key="loading" className="card wf-loading">Loading approval workflow…</div>;
+
   return (
-    <div className="card gtop">
-      <div className="hd"><h3 style={{ fontSize: 15 }}>{flow.label}</h3></div>
-      <div className="bd" style={{ padding: 0 }}>
-        <div className="perm-list-rows">
-          {flow.stages.map((s) => (
-            <label key={s.key} className="ccheck perm-list-row">
-              <input
-                type="checkbox"
-                checked={!!draft[s.key]}
-                disabled={!canEdit || saving}
-                onChange={(e) => setDraft((d) => ({ ...d, [s.key]: e.target.checked }))}
-              />
-              <span className="mark" />
-              <span>
-                <b style={{ fontSize: 13 }}>{s.label}</b>
-                <span className="sub" style={{ display: "block", fontSize: 11.5 }}>
-                  {s.role} · needs &quot;{s.permission}&quot;
-                </span>
-              </span>
-            </label>
+    <div key="ready" className="card wf">
+      <div className="wf-layout">
+        <nav className="wf-rail" aria-label="Approval categories">
+          {categories.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              className={`wf-rail-item${c.key === category.key ? " on" : ""}`}
+              onClick={() => { setActiveKey(c.key); setErr(""); setJustSaved(false); }}
+            >
+              <span className="wf-rail-label">{c.label}</span>
+              {dirtyKeys.has(c.key) ? (
+                <span className="wf-rail-dot" title="Unsaved changes" />
+              ) : (
+                <span className="wf-rail-count">{c.flows.length}</span>
+              )}
+            </button>
           ))}
-        </div>
-      </div>
-      <div className="bd">
-        {ticked.length > 0 ? (
-          <StageTracker stages={preview} currentIndex={-1} />
-        ) : (
-          <p className="ccheck-hint" style={{ margin: 0 }}>
-            <Icon name="shield" /> No approval — {flow.offBehavior}
-          </p>
-        )}
-        {tooFew && (
-          <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 8 }}>
-            At least {flow.minEnabled} stage{flow.minEnabled === 1 ? "" : "s"} must stay on — {flow.offBehavior}
-          </p>
-        )}
-        {err && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 8 }}>{err}</p>}
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 12 }}>
-          {justSaved && (
-            <span className="save-msg" role="status"><Icon name="check" /> Changes saved</span>
+        </nav>
+
+        <section className="wf-panel">
+          <header className="wf-head">
+            <div className="wf-head-text">
+              <h3>{category.label}</h3>
+              <p>{category.description}</p>
+            </div>
+            {multi && (
+              <div className="wf-seg" role="radiogroup" aria-label="Approval flow mode">
+                <button type="button" role="radio" aria-checked={shared} className={shared ? "on" : ""} disabled={!canEdit} onClick={() => patch({ shared: true })}>
+                  Same flow for all
+                </button>
+                <button type="button" role="radio" aria-checked={!shared} className={!shared ? "on" : ""} disabled={!canEdit} onClick={() => patch({ shared: false })}>
+                  Different per action
+                </button>
+              </div>
+            )}
+          </header>
+
+          {!canEdit && (
+            <div className="notice wf-notice">
+              <Icon name="shield" /> You can view the approval workflow but not change it — ask an administrator.
+            </div>
           )}
-          <button
-            className={`btn sm save-btn${justSaved ? " saved" : ""}`}
-            onClick={save}
-            disabled={!canEdit || saving || (!dirty && !justSaved) || tooFew}
-          >
-            <Icon name="check" /> {saving ? "Saving…" : justSaved ? "Saved" : "Save"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-/* "Approval Workflow" tab of Roles & Permissions — which stages of each
- * approval flow this business uses (backend GET/PUT /approval-workflow).
- * Who may act at a stage stays with the permission grants on the other tab;
- * this only switches stages on or off. Editing needs "can update role".
- * Saving refreshes the app-wide copy (useApprovalWorkflow) so trackers and
- * buttons elsewhere pick the change up immediately. */
-export function ApprovalWorkflowSettings() {
-  const { can } = useAuth();
-  const { config, refresh } = useApprovalWorkflow();
-  const canEdit = can("Role_Management", "can_update_role");
+          <div className="wf-body">
+            {shared ? (
+              <div className="wf-row">
+                <div className="wf-row-label">
+                  <b>All actions</b>
+                  <small>{category.flows.map((f) => f.actionLabel).join(" · ")}</small>
+                </div>
+                <RoleChain
+                  steps={draft.steps}
+                  roles={roles}
+                  onChange={(steps) => patch({ steps })}
+                  readOnly={!canEdit}
+                  finalAction="completes"
+                  offBehavior="each action completes immediately"
+                  minEnabled={category.minEnabled}
+                  maxSteps={category.maxSteps}
+                />
+              </div>
+            ) : (
+              category.flows.map((f) => (
+                <div key={f.key} className="wf-row">
+                  <div className="wf-row-label">
+                    <b>{f.actionLabel}</b>
+                    <small>Last approver {f.finalAction}</small>
+                  </div>
+                  <RoleChain
+                    steps={draft.flows[f.key] || []}
+                    roles={roles}
+                    onChange={(steps) => patch({ flows: { ...draft.flows, [f.key]: steps } })}
+                    readOnly={!canEdit}
+                    finalAction={f.finalAction}
+                    offBehavior={f.offBehavior}
+                    minEnabled={f.minEnabled}
+                    maxSteps={f.maxSteps}
+                  />
+                </div>
+              ))
+            )}
+          </div>
 
-  return (
-    <div className="card" style={{ padding: 16 }}>
-      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 12px" }}>
-        Choose which stages each approval goes through. An item moves to the next ticked stage when approved, and the last
-        ticked stage carries out the action. Items already waiting at a stage you switch off can still be acted on there.
-      </p>
-      {!canEdit && (
-        <div className="notice" style={{ marginBottom: 12 }}>
-          <Icon name="shield" /> You can view the approval workflow but not change it — ask an administrator.
-        </div>
-      )}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 24 }}>
-        {config.map((flow) => (
-          // Keyed on the flow only — the card resyncs its draft itself when
-          // the saved state changes, so it stays mounted (and can show its
-          // "Changes saved" confirmation) across a save.
-          <FlowCard
-            key={flow.key}
-            flow={flow}
-            canEdit={canEdit}
-            onSaved={refresh}
-          />
-        ))}
+          <footer className="wf-foot">
+            <span className="wf-foot-msg">
+              {err ? (
+                <span className="wf-err">{err}</span>
+              ) : invalid && dirty ? (
+                <span className="wf-err">{invalid}</span>
+              ) : justSaved ? (
+                <span className="save-msg" role="status"><Icon name="check" /> Changes saved</span>
+              ) : dirty ? (
+                <span className="wf-dirty">Unsaved changes</span>
+              ) : (
+                <span className="wf-hint">Only the role at each step — or Administrator — can approve it.</span>
+              )}
+            </span>
+            {canEdit && (
+              <>
+                <button className="btn ghost sm" onClick={discard} disabled={!dirty || saving}>Discard</button>
+                <button
+                  className={`btn sm save-btn${justSaved ? " saved" : ""}`}
+                  onClick={save}
+                  disabled={saving || (!dirty && !justSaved) || !!invalid}
+                >
+                  <Icon name="check" /> {saving ? "Saving…" : justSaved ? "Saved" : "Save changes"}
+                </button>
+              </>
+            )}
+          </footer>
+        </section>
       </div>
     </div>
   );

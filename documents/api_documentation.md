@@ -159,7 +159,7 @@ omitted when blank).
 | Method | Path | Purpose | Body | Auth |
 |---|---|---|---|---|
 | POST | `/api/v1/auth/login` | Log in with username-or-phone + password, get back a JWT | `{ "identifier", "password" }` → `{ "token", "employee": {...} }` | Public |
-| POST | `/api/v1/auth/forgot-password` | Request a password-reset SMS | `{ "phone" }` → `{ "message": "If that phone number is registered, a reset code has been sent by SMS." }` (always `200`, regardless of whether the phone exists — never reveals account existence) | Public |
+| POST | `/api/v1/auth/forgot-password` | Request a password-reset SMS | `{ "phone", "businessCode" }` → `200 { "message": "A reset code has been sent by SMS." }`; `404` "This phone number is not registered." when no employee of that business has the number; `403` "This number has no login account." when the employee has no login (no password set); `503` "Sending failed" when the SMS fails | Public |
 | POST | `/api/v1/auth/reset-password` | Complete a password reset using the texted OTP | `{ "phone", "otp", "newPassword" }` (min 8 chars) → `{ "message": "Password has been reset. You can now log in." }` | Public |
 | GET | `/api/v1/auth/me` | Get the calling employee's own record (id/role/branch/etc., from the token) | — → `Employee` JSON | Bearer token |
 

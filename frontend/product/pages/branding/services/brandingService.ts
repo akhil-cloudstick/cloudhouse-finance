@@ -43,6 +43,8 @@ export type MyBranding = PublicBranding & {
   modules: string[];
   /** Languages this business may issue customer documents in; always has "en". */
   languages: string[];
+  /** Set per business by the vendor: work on the one default branch only. */
+  singleBranch?: boolean;
 };
 
 /* A bare fetch rather than apiFetch: see the module comment. A failure here
@@ -70,4 +72,17 @@ export function fetchMyBranding(): Promise<MyBranding> {
   // no-store — same reasoning as fetchPublicBranding above: this must never
   // serve a cached response after a superadmin edit.
   return apiFetchEnveloped<MyBranding>("/branding", { cache: "no-store" });
+}
+
+/** A short-lived code that links the staff mobile app to this business —
+ * see backend/internal/branding/connect.go. */
+export type ConnectCode = {
+  code: string;
+  expiresAt: string;
+  /** Seconds until it expires, counted from when the server issued it. */
+  expiresIn: number;
+};
+
+export function createConnectCode(): Promise<ConnectCode> {
+  return apiFetchEnveloped<ConnectCode>("/branding/connect-code", { method: "POST", cache: "no-store" });
 }

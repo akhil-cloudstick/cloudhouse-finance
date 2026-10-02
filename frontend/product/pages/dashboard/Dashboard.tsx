@@ -260,7 +260,7 @@ export function Dashboard() {
            * instead ("Total Amount"'s longer value rendering visibly
            * wider than "Loans"' short one). */}
           <div className="kpis dashboard-kpis">
-            <Kpi l="Cash in Hand" v={fmt(cashInHand)} cls="ok" href={routeHref("cash")} />
+            <Kpi l="Cash in Hand" v={fmt(cashInHand)} cls="ok" href={routeHref("ledger")} />
             <Kpi l="Loans Opened Today" v={openedToday} href={routeHref("loans")} />
             <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} href={routeHref("loans/Active")} />
             <Kpi l="Due Soon" v={dueSoon.length} s="within 14 days" cls={dueSoon.length ? "warn" : ""} href={routeHref(`loans/${encodeURIComponent("Due Soon")}`)} />
@@ -270,7 +270,7 @@ export function Dashboard() {
             <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" href={routeHref("requests")} />
             <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} href={routeHref("bankpledge")} />
             <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href={routeHref("auctions")} />
-            <Kpi l="Today's Expenses" v={fmt(expToday)} href={routeHref("cash")} />
+            <Kpi l="Today's Expenses" v={fmt(expToday)} href={routeHref("ledger")} />
             <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={routeHref("reports")} />
           </div>
 
@@ -303,7 +303,7 @@ export function Dashboard() {
                         <li key={"appr-exp-" + item.entityId}>
                           <span className="ic"><Icon name="stamp" /></span>
                           <span className="tx"><b>Expense approval — {item.detail || "Expense"}</b><small>{item.customerName} · {fmt(item.principal)}</small></span>
-                          <span className="rt"><a className="btn sm" href={routeHref("cash")}>Review</a></span>
+                          <span className="rt"><a className="btn sm" href={routeHref("ledger")}>Review</a></span>
                         </li>
                       );
                     }

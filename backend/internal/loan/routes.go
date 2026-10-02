@@ -118,9 +118,6 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 
 	rg.POST("/:id/extension-request", perms.Update, h.CreateExtensionRequest)
 	rg.POST("/:id/release-request", perms.Update, h.CreateReleaseRequest)
-	// Waiver/adjustment requests ride the same requests list and
-	// /requests/:requestId/approve endpoint as extensions and releases.
-	rg.POST("/:id/waiver-request", perms.Update, h.CreateWaiverRequest)
 	rg.GET("/requests", perms.Read, h.ListRequests)
 	rg.PUT("/requests/:requestId/decide", perms.Update, h.DecideRequest)
 	rg.PUT("/requests/:requestId/verify", perms.Update, h.VerifyReleaseChecklist)
