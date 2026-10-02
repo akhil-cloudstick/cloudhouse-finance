@@ -87,9 +87,14 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
   // still fits beneath it, and shrinks (down to a floor) when it wouldn't.
   const windowHeight = useWindowDimensions().height;
   const [formH, setFormH] = useState(0);
+  const [heroH, setHeroH] = useState(0);
   const bodyPad = (keyboardOpen ? 0 : insets.bottom) + 28 + 8;
   const preferred = Math.round(Math.min(compact ? 280 : 350, windowHeight * (compact ? 0.34 : 0.42))) + insets.top;
-  const floor = insets.top + (compact ? 150 : 190);
+  // Never shorter than the heading itself: the panel's bottom edge is a
+  // diagonal (80% of its height at the right, 100% at the left), so a floor
+  // below the heading's height cut "Good to see you again." in half. The
+  // heading's right end sits well left of the edge, so ~84% clears it.
+  const floor = Math.max(insets.top + (compact ? 150 : 190), heroH ? Math.ceil(heroH / 0.84) : 0);
   const fitted = formH ? Math.max(floor, Math.min(preferred, windowHeight - formH - bodyPad)) : preferred;
   const panelHeight = keyboardOpen ? insets.top + 96 : fitted;
   const needsScroll = keyboardOpen || !formH || panelHeight + formH + bodyPad > windowHeight + 1;
@@ -135,7 +140,12 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
       >
         <View style={{ height: panelHeight }}>
           <BrandPanel colors={colors} />
-          <View style={[styles.hero, { paddingTop: insets.top + (keyboardOpen ? 16 : 20) }]}>
+          <View
+            style={[styles.hero, { paddingTop: insets.top + (keyboardOpen ? 16 : 20) }]}
+            onLayout={(e) => {
+              if (!keyboardOpen) setHeroH(e.nativeEvent.layout.height);
+            }}
+          >
             <Animated.View style={[styles.heroTop, keyboardOpen && styles.heroTopCompact, anim.top]}>
               <View style={[styles.logoTile, keyboardOpen && styles.logoTileCompact]}>
                 <Image
@@ -431,7 +441,7 @@ const styles = StyleSheet.create({
   },
 
   hero: { paddingHorizontal: 28 },
-  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24 },
+  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
   heroTopCompact: { marginBottom: 0, gap: 12 },
   compactTitle: { flex: 1 },
   // No white backing tile any more — the logo (HEADER_LOGO, cut out on a
@@ -462,21 +472,21 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.18)",
-    marginBottom: 14,
+    marginBottom: 10,
   },
   chipText: { fontWeight: "700", letterSpacing: 1.4 },
   title: { fontSize: 34, lineHeight: 40, letterSpacing: -0.6 },
 
   body: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 8 },
-  subtitle: { fontSize: 16, lineHeight: 23, marginBottom: 22 },
+  subtitle: { fontSize: 15, lineHeight: 21, marginBottom: 14 },
 
-  fieldGroup: { marginBottom: 18 },
-  fieldLabel: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
+  fieldGroup: { marginBottom: 12 },
+  fieldLabel: { fontSize: 14, fontWeight: "600", marginBottom: 6 },
   field: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    height: 60,
+    height: 56,
     borderRadius: 18,
     borderWidth: 2,
     paddingLeft: 10,
@@ -498,7 +508,7 @@ const styles = StyleSheet.create({
   buttonShadow: { borderRadius: 18, shadowOpacity: 0.45, shadowRadius: 16, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
   buttonShadowOff: { shadowOpacity: 0, elevation: 0 },
   button: {
-    height: 62,
+    height: 58,
     borderRadius: 18,
     overflow: "hidden",
     flexDirection: "row",
@@ -508,13 +518,13 @@ const styles = StyleSheet.create({
   },
   buttonLabel: { fontSize: 17, fontWeight: "700", letterSpacing: 0.2 },
 
-  errorBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 14, padding: 14, marginBottom: 18 },
+  errorBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 14, padding: 12, marginBottom: 12 },
   errorText: { flex: 1, fontSize: 14, lineHeight: 20 },
 
-  linkRight: { alignSelf: "flex-end", marginTop: -4, marginBottom: 24 },
-  linkCenter: { alignSelf: "center", marginTop: 22, paddingVertical: 4 },
+  linkRight: { alignSelf: "flex-end", marginTop: -2, marginBottom: 14 },
+  linkCenter: { alignSelf: "center", marginTop: 14, paddingVertical: 4 },
   linkText: { fontSize: 15, fontWeight: "600" },
 
-  secureRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 22 },
+  secureRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 12 },
   secureText: { fontSize: 13 },
 });

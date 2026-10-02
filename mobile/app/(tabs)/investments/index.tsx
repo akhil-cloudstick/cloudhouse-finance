@@ -67,7 +67,7 @@ import type {
   InterestRateType,
   PayoutFrequency,
 } from "../../../src/types/investment";
-import { isUserCancel, userMessage } from "../../../src/api/errors";
+import { isUserCancel, loadErrorText, userMessage } from "../../../src/api/errors";
 
 // Investments — prototype #header-investments + #page-investments and the
 // inv-filter / inv-create / investment-plans / inv-plan-create / inv-detail /
@@ -125,7 +125,7 @@ export default function InvestmentsScreen() {
         list={list}
         items={list.items}
         keyOf={(i) => String(i.id)}
-        emptyText="No investments match your search."
+        emptyText={list.search || status !== "All" ? "No investments match your search." : "No investments yet."}
         header={
           <View style={{ paddingTop: 12 }}>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by investment ID or investor name" style={{ paddingBottom: 8 }} />
@@ -572,7 +572,7 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: { investmen
   let body: React.ReactNode = null;
   if (!visible) body = null;
   else if (investment.isLoading) body = <Buffering block />;
-  else if (investment.isError || !inv) body = <EmptyText>Could not load this investment.</EmptyText>;
+  else if (investment.isError || !inv) body = <EmptyText>{loadErrorText(investment.error) ?? "This investment no longer exists."}</EmptyText>;
   else if (isLive)
     body = (
       <ServerFlatList

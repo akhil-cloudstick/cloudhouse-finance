@@ -205,11 +205,19 @@ var appRoutes = map[string]bool{
 	"loans": true, "loan": true, "newloan": true,
 	"schemes": true, "goldrates": true, "requests": true,
 	"loanrisk": true, "personalloans": true, "personalloan": true,
-	"investments": true, "investment": true, "cash": true,
+	"investments": true, "investment": true, "ledger": true,
+	// "cash" is the Ledger's old name — still served so old links open it
+	// (the frontend rewrites the address to /ledger, see ROUTE_ALIASES).
+	"cash": true,
 	"auctions": true, "packets": true, "packet": true,
 	"bankpledge": true, "reports": true, "employees": true,
 	"calendar": true, "branches": true, "banks": true,
-	"party-bank": true, "party-customer": true, "roles-permissions": true,
+	"ledger-bank": true, "ledger-customer": true, "ledger-category": true,
+	"cash-ledger": true, "upi-ledger": true, "bank-transfer-ledger": true, "cheque-ledger": true,
+	// Old names, still served so old links open (the frontend rewrites the
+	// address — see ROUTE_ALIASES).
+	"party-bank": true, "party-customer": true, "party-category": true,
+	"roles-permissions": true,
 	"billing": true, "settings": true,
 }
 

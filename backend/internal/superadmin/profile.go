@@ -426,6 +426,14 @@ func (s *Service) SetBranchMode(ctx context.Context, actor *SuperAdminUser, id u
 	return t, nil
 }
 
+// singleBranchFor reports whether a business on tier runs in single-branch
+// mode. The plan is the one control for how many branches a business has:
+// a 1-branch plan IS single-branch (Head Office only, Branch Management
+// hidden); anything larger, or unlimited, is multi-branch.
+func singleBranchFor(tier tenant.Tier) bool {
+	return tier.BranchQuota == 1
+}
+
 func branchModeLabel(single bool) string {
 	if single {
 		return "single"

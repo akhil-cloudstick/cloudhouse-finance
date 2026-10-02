@@ -24,15 +24,16 @@ export function LedgerRefLink({
   id,
   label,
 }: {
-  kind: "loan" | "investment" | "customer" | "bank" | "category";
+  kind: "loan" | "personalloan" | "investment" | "customer" | "bank" | "category";
   id: number | string;
   label: string;
 }) {
   const route =
     kind === "loan" ? "loan"
+    : kind === "personalloan" ? "personalloan"
     : kind === "investment" ? "investment"
     : kind === "customer" ? "ledger-customer"
-    : kind === "category" ? "party-category"
+    : kind === "category" ? "ledger-category"
     : "ledger-bank";
   return (
     <a

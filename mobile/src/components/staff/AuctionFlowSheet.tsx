@@ -46,13 +46,15 @@ import { dmy, inr, todayISO } from "../../lib/format";
 import type { Loan } from "../../types/loan";
 
 // Auction Flow (prototype #auction-workflow-modal) — one rise-up sheet that
-// steps a loan through Notice → Schedule → Conduct → Settle. The step shown
+// steps a loan through Eligible → Notice → Schedule → Conduct → Settle.
+// Marking a defaulted loan Auction Eligible is the first step of the flow
+// itself (it opens the case), not a separate tool. The step shown
 // is driven by the loan's real auction record (GET /loans/:id/auction);
 // every action is the same API call the loan detail screen makes, with the
 // same permission and role gates.
 
 
-const STEPS = ["Notice", "Schedule", "Conduct", "Settle"];
+const STEPS = ["Eligible", "Notice", "Schedule", "Conduct", "Settle"];
 const NOTICE_TYPES = ["Registered post", "SMS + Email", "In-person"];
 const DISPOSITIONS = ["RefundedToCustomer", "RecordedAsIncome"] as const;
 const DISPOSITION_LABELS: Record<AuctionSurplusDisposition, string> = {
@@ -88,6 +90,8 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
   const { can, employee } = useAuth();
   const wf = useApprovalWorkflow();
   const canAct = can("Loan_Management", "can_update_loan");
+  // Same gate as the web's Auctions page for opening a case.
+  const canMarkEligible = canAct && can("Auction_Workflow", "can_mark_loan_auction_eligible");
   const loanId = loan?.id ?? 0;
   const key = String(loanId);
 
@@ -219,16 +223,16 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
       return (
         <>
           <SectionTitle flush style={{ marginTop: 16 }}>
-            Step 1 · Issue Notice
+            Step 1 · Mark Auction Eligible
           </SectionTitle>
           <NoticeBanner>
             {isDefaulted
-              ? `${customer} has been overdue for ${days} day${days === 1 ? "" : "s"}. Mark the loan Auction Eligible first — then issue the notice that starts the legal auction-eligibility clock.`
-              : "This loan is not eligible for auction."}
+              ? `${customer} has been overdue for ${days} day${days === 1 ? "" : "s"} with interest still unpaid. Marking the loan Auction Eligible opens its auction case — the next step is issuing the notice.`
+              : "This loan is not eligible for auction — only a defaulted loan (over 90 days overdue with interest unpaid) can be."}
           </NoticeBanner>
           {errText(frozen ? null : error)}
           {isDefaulted ? (
-            canAct ? (
+            canMarkEligible ? (
               <PrimaryButton label="Mark Loan Auction Eligible" onPress={() => eligible.mutate()} loading={eligible.isPending} />
             ) : (
               <Txt style={{ fontSize: 12, color: C.muted }}>Eligible for auction — your role can&apos;t mark it, though.</Txt>
@@ -242,7 +246,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
       return (
         <>
           <SectionTitle flush style={{ marginTop: 16 }}>
-            Step 1 · Issue Notice
+            Step 2 · Issue Notice
           </SectionTitle>
           {current > 0 ? (
             <>
@@ -278,7 +282,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
       return (
         <>
           <SectionTitle flush style={{ marginTop: 16 }}>
-            Step 2 · Schedule Auction
+            Step 3 · Schedule Auction
           </SectionTitle>
           {current > 1 ? (
             <>
@@ -316,7 +320,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
       return (
         <>
           <SectionTitle flush style={{ marginTop: 16 }}>
-            Step 3 · Conduct Auction
+            Step 4 · Conduct Auction
           </SectionTitle>
           {current > 2 ? (
             <>
@@ -352,13 +356,13 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
       );
     }
 
-    // Step 4 — settle surplus / shortfall.
+    // Step 5 — settle surplus / shortfall.
     const ss = rec.surplusShortfall ?? 0;
     const outstanding = (rec.saleAmount ?? 0) - (rec.auctionExpenses ?? 0) - ss;
     return (
       <>
         <SectionTitle flush style={{ marginTop: 16 }}>
-          Step 4 · Settle Surplus / Shortfall
+          Step 5 · Settle Surplus / Shortfall
         </SectionTitle>
         <ResultBox k="Outstanding balance" v={inr(outstanding)} />
         <ResultBox k="Sale amount" v={inr(rec.saleAmount)} tone="green" />
@@ -411,7 +415,8 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
   return (
     <Sheet visible={visible} onClose={onClose} title={`Auction Flow — ${loan.loanNumber}`} maxHeightPct={90}>
       <View style={{ marginBottom: 6, marginTop: 8 }}>
-        <Stepper steps={STEPS} current={rec ? current : 0} allDone={allDone || (!rec && alreadyAuctioned)} />
+        {/* An existing record has already passed "Eligible", so its record step sits one along. */}
+        <Stepper steps={STEPS} current={rec ? current + 1 : 0} allDone={allDone || (!rec && alreadyAuctioned)} />
       </View>
 
       {decisionReq ? (

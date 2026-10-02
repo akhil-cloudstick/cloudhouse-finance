@@ -352,16 +352,16 @@ const REPORTS: ReportDef[] = [
     kind: "formg",
     defaultRange: () => ({ from: monthsAgo(3), to: todayISO() }),
   },
-  // Web's "Ledger / Statement Export" tile — on mobile it opens the Ledger
-  // (Cash tab Movements), which carries the same Branch/Customer/Type/Date
-  // filters, clickable loan/customer/bank/category/mode links and a PDF
-  // download of whatever the filters show.
+  // Web's "Ledger / Statement Export" tile — its own page inside Reports
+  // (app/(tabs)/ledger-statement.tsx): Branch/Customer/Type/Date filters,
+  // running balance, clickable loan/customer/bank/category/mode links and a
+  // PDF / Excel export of whatever the filters show.
   {
     key: "ledger-export",
     title: "Ledger / Statement Export",
     group: "Financial Statements",
     kind: "link",
-    href: "/cash?tab=movements",
+    href: "/ledger-statement?from=reports",
   },
   // Investments
   {

@@ -82,17 +82,7 @@ export function buildLoanEvents(l: Loan, requests: LoanRequest[], wf: WorkflowCo
     const amber = r.status === "Pending";
     const tone = amber ? { iconBg: C.amberBg, iconColor: C.amber } : r.status === "Rejected" ? { iconBg: C.redBg, iconColor: C.red } : { iconBg: C.greenBg, iconColor: C.green };
     const verb = r.status === "Pending" ? "requested" : r.status === "Approved" ? "approved" : "rejected";
-    if (r.type === "Waiver" || r.type === "Adjustment") {
-      ev.push({
-        key: `rq-${r.id}`,
-        at: r.decidedAt && r.status !== "Pending" ? r.decidedAt : r.requestedAt || r.createdAt,
-        order: 5,
-        icon: "coin",
-        ...tone,
-        title: `${r.type} ${verb}`,
-        sub: [inr(r.amount ?? 0), r.detail, r.status === "Pending" ? "pending approval" : ""].filter(Boolean).join(" · "),
-      });
-    } else if (r.type === "Extension") {
+    if (r.type === "Extension") {
       const m = r.requestedExtensionMonths;
       ev.push({
         key: `rq-${r.id}`,

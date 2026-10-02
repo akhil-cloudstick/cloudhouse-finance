@@ -9,11 +9,12 @@ import (
 const (
 	RequestTypeExtension = "Extension"
 	RequestTypeRelease   = "Release"
-	// RequestTypeWaiver/Adjustment are staff requests to forgive owed
-	// interest/penal interest (Waiver) or correct the principal
-	// (Adjustment), posted as the matching non-cash payment type once the
-	// tenant's waiver approval chain (workflow.FlowLoanWaiver) clears them —
-	// see Service.CreateWaiverRequest.
+	// RequestTypeWaiver/Adjustment are RETIRED: the Waiver / Adjustment
+	// request feature was removed, so nothing raises or approves them any
+	// more. Old rows keep their type and are hidden from every request
+	// list (LoanRequestRepository.FindAll). Waivers/adjustments already
+	// posted stay on the loan as non-cash payments (PaymentTypeWaiver /
+	// PaymentTypeAdjustment) — those are history and still show.
 	RequestTypeWaiver     = "Waiver"
 	RequestTypeAdjustment = "Adjustment"
 

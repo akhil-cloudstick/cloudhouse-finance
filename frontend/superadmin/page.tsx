@@ -17,7 +17,6 @@ import {
   updateProfile,
   setBranding,
   setModules,
-  setBranchMode,
   setLanguages,
   uploadLogo,
   uploadSignature,
@@ -115,6 +114,13 @@ function quotaText(quota: number): string {
 
 function planLabel(t: Tier): string {
   return `${t.name} (${quotaText(t.branchQuota)})`;
+}
+
+/* Plans in the order they grow: single branch, then capped multi-branch
+ * plans by size, then unlimited (branchQuota 0) last. */
+function sortedTiers(tiers: Tier[]): Tier[] {
+  const rank = (q: number) => (q === 0 ? Number.MAX_SAFE_INTEGER : q);
+  return [...tiers].sort((a, b) => rank(a.branchQuota) - rank(b.branchQuota));
 }
 
 function planLabelFor(tiers: Tier[], id: number): string {
@@ -899,15 +905,11 @@ function BusinessWizard({
 
   const [name, setName] = useState(business?.name ?? "");
   const [code, setCode] = useState("");
-  const [tierId, setTierId] = useState(business?.tierId ?? tiers[0]?.id ?? 0);
-  /* Single-branch mode, per business: the app hides Branch Management and
-   * locks every branch picker to Head Office. Independent of the plan. */
-  const [singleBranch, setSingleBranch] = useState(business?.singleBranch ?? false);
-  /* The server's refusal to switch to single-branch (too many active
-   * branches), shown right under the Branch setup field. Kept apart from
-   * `error` because goTo() clears that one, and the wizard jumps back to the
-   * Business step to show this. */
-  const [branchModeError, setBranchModeError] = useState<string | null>(null);
+  const [tierId, setTierId] = useState(business?.tierId ?? sortedTiers(tiers)[0]?.id ?? 0);
+  /* Single-branch mode follows the plan: a 1-branch plan hides Branch
+   * Management and locks every branch picker to Head Office. The server
+   * derives it the same way on create and on a plan change. */
+  const singleBranch = tiers.find((t) => t.id === tierId)?.branchQuota === 1;
   const [legalName, setLegalName] = useState(business?.legalName ?? "");
   const initialShortName = business?.shortName ?? "";
   const [shortName, setShortName] = useState(initialShortName);
@@ -1164,7 +1166,6 @@ function BusinessWizard({
   // markers and, in edit mode, which endpoints get called at all.
   const changed = {
     plan: planChanged,
-    branchMode: !isCreate && singleBranch !== (business.singleBranch ?? false),
     profile:
       !isCreate &&
       (name !== business.name ||
@@ -1236,7 +1237,6 @@ function BusinessWizard({
           brandColor: color,
           modules,
           languages,
-          singleBranch,
           reason,
         });
         // The logo needs an existing business to belong to, so it is the one
@@ -1265,18 +1265,6 @@ function BusinessWizard({
           });
         }
       } else {
-        // Branch mode FIRST: it is the one change the server may refuse on
-        // the business's current state, and a refusal should stop the save
-        // before anything else has been written.
-        if (changed.branchMode) {
-          try {
-            await setBranchMode(business.id, singleBranch, reason);
-          } catch (err) {
-            goTo(steps.findIndex((s) => s.id === "profile"));
-            setBranchModeError(err instanceof SuperAdminApiError ? err.message : "Could not change the branch setup.");
-            return;
-          }
-        }
         if (changed.plan) await changeTier(business.id, tierId, reason);
         if (changed.profile) {
           await updateProfile(business.id, {
@@ -1435,38 +1423,15 @@ function BusinessWizard({
                   value={String(tierId)}
                   onChange={(v) => setTierId(Number(v))}
                   ariaLabel="Plan"
-                  options={tiers.map((t) => ({ value: String(t.id), label: planLabel(t) }))}
-                />
-                <span className="sa-hint">
-                  {isCreate
-                    ? "Decides how many active branches this business may run. Enforced by the server."
-                    : "Takes effect on save and asks for a reason. Existing branches are never removed — a business above the new limit just cannot add or reactivate branches."}
-                </span>
-              </div>
-
-              <div className="sa-field">
-                <label>Branch setup</label>
-                <Select
-                  value={singleBranch ? "single" : "multi"}
-                  onChange={(v) => { setSingleBranch(v === "single"); setBranchModeError(null); }}
-                  ariaLabel="Branch setup"
-                  options={[
-                    { value: "multi", label: "Multiple branches" },
-                    { value: "single", label: "Single branch" },
-                  ]}
+                  options={sortedTiers(tiers).map((t) => ({ value: String(t.id), label: planLabel(t) }))}
                 />
                 <span className="sa-hint">
                   {singleBranch
-                    ? "This business works on its Head Office branch only: Branch Management is hidden and every branch picker is locked to it."
-                    : "This business can manage its own branches, within its plan's limit."}
-                  {!isCreate && singleBranch && !business.singleBranch &&
-                    " Refused on save if the business has more than one active branch."}
+                    ? "Head Office only: Branch Management is hidden and every branch picker is locked to it."
+                    : "Decides how many active branches this business may run. Enforced by the server."}
+                  {!isCreate &&
+                    " Takes effect on save and asks for a reason. Existing branches are never removed — a business above the new limit just cannot add or reactivate branches."}
                 </span>
-                {branchModeError && (
-                  <p className="sa-error" role="alert" ref={(el) => el?.scrollIntoView({ block: "nearest" })}>
-                    {branchModeError}
-                  </p>
-                )}
               </div>
 
               {/* Deployment URL is optional, so it lives behind a disclosure — but
@@ -1677,7 +1642,7 @@ function BusinessWizard({
                               is wallpaper; on one row it is a stop sign. */}
                           {destructive && <span className="sa-check-flag">irreversible</span>}
                           <span className="sa-check-sub">
-                            {locked ? "Off for single-branch businesses (see Branch setup)." : MODULE_HINTS[m] ?? ""}
+                            {locked ? "Off for single-branch businesses (see Plan)." : MODULE_HINTS[m] ?? ""}
                           </span>
                         </span>
                       </label>
@@ -1837,11 +1802,6 @@ function BusinessWizard({
                 <ReviewRow label="Business name" value={name} changed={changed.profile} />
                 <ReviewRow label="Sign-in code" value={isCreate ? code : business.code} />
                 <ReviewRow label="Plan" value={planLabelFor(tiers, tierId)} changed={changed.plan} />
-                <ReviewRow
-                  label="Branch setup"
-                  value={singleBranch ? "Single branch (Head Office)" : "Multiple branches"}
-                  changed={changed.branchMode}
-                />
                 <ReviewRow label="Legal name" value={legalName} changed={changed.profile} />
                 <ReviewRow label="Short name" value={shortName || "(falls back to business name)"} changed={changed.profile} />
                 <ReviewRow label="Address" value={addressLine} changed={changed.profile} />
@@ -2060,7 +2020,7 @@ function BusinessActionModal({
                   value={String(tierId)}
                   onChange={(v) => setTierId(Number(v))}
                   ariaLabel="New plan"
-                  options={tiers.map((t) => ({ value: String(t.id), label: planLabel(t) }))}
+                  options={sortedTiers(tiers).map((t) => ({ value: String(t.id), label: planLabel(t) }))}
                 />
                 <span className="sa-hint">
                   Takes effect immediately. Existing branches are never removed — a business above its plan&rsquo;s

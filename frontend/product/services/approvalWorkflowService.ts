@@ -20,7 +20,6 @@ export type ApprovalFlowKey =
   | "auction_shortfall"
   | "expense"
   | "loan_topup"
-  | "loan_waiver"
   | "personal_loan";
 
 export type StageView = {
@@ -106,10 +105,6 @@ const LEGACY: Record<string, LegacyStage[]> = {
     { key: "BranchManager", pending: "PendingBranchManager", role: "Branch Manager" },
     { key: "Management", pending: "PendingManagement", role: "Management" },
   ],
-  loan_waiver: [
-    { key: "BranchManager", pending: "PendingBranchManager", role: "Branch Manager" },
-    { key: "Management", pending: "PendingManagement", role: "Management" },
-  ],
   personal_loan: [
     { key: "BranchManager", pending: "PendingBranchManager", role: "Branch Manager" },
     { key: "Management", pending: "PendingManagement", role: "Management" },
@@ -140,8 +135,6 @@ export const DEFAULT_APPROVAL_WORKFLOW: ApprovalWorkflowConfig = [
   flowMeta("loan_release", "Gold release", "Release", "gold_loan", "releases",
     "The release completes as soon as the checklist is done and the payment is recorded.", ["Branch Manager", "Management"]),
   flowMeta("loan_topup", "Loan top-up", "Top-up", "gold_loan", "disburses", "Top-ups are paid out immediately.", []),
-  flowMeta("loan_waiver", "Waiver / adjustment", "Waiver / adjustment", "gold_loan", "posts",
-    "Waivers and adjustments are posted to the loan immediately.", ["Branch Manager", "Management"]),
   flowMeta("personal_loan", "Personal loan", "Sanction", "personal_loan", "disburses",
     "Personal loans are created active and disbursed immediately.", []),
   flowMeta("auction_partial_repayment", "Auction — partial repayment decision", "Partial repayment", "auction", "decides",

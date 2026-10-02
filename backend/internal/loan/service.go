@@ -1447,6 +1447,14 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 			log.Printf("retracting disbursement cash movement(s) failed for loan %d: %v", l.ID, err)
 		}
 	}
+	// The loan's own ledger mirrors that disbursement as a LoanPayment row —
+	// retract it too, or re-sanction adds a second one and the ledger (which
+	// takes the oldest) keeps showing the retracted payout's mode split.
+	if materialChange && wasDisbursed {
+		if err := s.paymentRepo.DeleteByLoanIDAndType(ctx, l.ID, PaymentTypeDisbursement); err != nil {
+			log.Printf("retracting disbursement ledger row failed for loan %d: %v", l.ID, err)
+		}
+	}
 
 	if materialChange {
 		audit := &LoanApproval{
@@ -2859,74 +2867,6 @@ var ledgerCreditTypes = map[string]bool{
 	PaymentTypeWaiver:          true,
 	PaymentTypeAdjustment:      true,
 	PaymentTypeDiscount:        true,
-}
-
-// LoanLedgerRow is one normalized row of a single loan's payment ledger —
-// GET /loans/:id/ledger's response shape. Field names mirror
-// cash.CashMovement's own ledger-facing fields (see PartyLedger.tsx) so a
-// follow-up task can reuse the same rendering logic across both ledgers.
-type LoanLedgerRow struct {
-	ID             uint      `json:"id"`
-	Date           time.Time `json:"date"`
-	Description    string    `json:"description"`
-	Type           string    `json:"type"`
-	Method         string    `json:"method"`
-	Reference      string    `json:"reference"`
-	DebitOrCredit  string    `json:"debitOrCredit"` // "debit" | "credit"
-	Amount         float64   `json:"amount"`
-	RunningBalance float64   `json:"runningBalance"`
-	BankID         *uint     `json:"bankId"`
-	BankName       string    `json:"bankName,omitempty"`
-	CustomerID     uint      `json:"customerId"`
-	CustomerName   string    `json:"customerName"`
-}
-
-// GetLoanLedger returns one loan's payment ledger as a normalized,
-// chronological (oldest first) list — backs GET /loans/:id/ledger, the
-// single-loan drill-down counterpart of
-// ListCashMovementsByBank/ByCustomer/ByBranch (those query cross-entity
-// CashMovement rows; this queries only LoanPayment rows scoped to loanID,
-// since a single loan's ledger has nothing to do with other entities'
-// movements). branchID nil (Administrator/Management) skips the scope
-// check, same convention as Get/checkLoanBranch.
-func (s *Service) GetLoanLedger(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]LoanLedgerRow, int64, error) {
-	loanRec, err := s.repo.FindByID(ctx, loanID)
-	if err != nil {
-		return nil, 0, ErrNotFound
-	}
-	if branchID != nil && loanRec.BranchID != *branchID {
-		return nil, 0, ErrNotFound
-	}
-	payments, total, err := s.paymentRepo.FindByLoanIDPaged(ctx, loanID, limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	rows := make([]LoanLedgerRow, len(payments))
-	for i, p := range payments {
-		debitOrCredit := "debit"
-		if ledgerCreditTypes[p.Type] {
-			debitOrCredit = "credit"
-		}
-		row := LoanLedgerRow{
-			ID:             p.ID,
-			Date:           p.PaidOn,
-			Description:    p.Description,
-			Type:           p.Type,
-			Method:         p.Method,
-			Reference:      p.Reference,
-			DebitOrCredit:  debitOrCredit,
-			Amount:         p.Amount,
-			RunningBalance: p.RunningBalance,
-			BankID:         p.BankID,
-			CustomerID:     loanRec.CustomerID,
-			CustomerName:   loanRec.Customer.Name,
-		}
-		if p.BankRef != nil {
-			row.BankName = p.BankRef.Name
-		}
-		rows[i] = row
-	}
-	return rows, total, nil
 }
 
 // resolveAuctionAfterPayment reacts to a payment on a loan whose gold is still

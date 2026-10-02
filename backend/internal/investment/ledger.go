@@ -64,7 +64,7 @@ func (s *Service) GetLedger(ctx context.Context, investmentID uint, branchID *ui
 				Date:           t.OccurredOn,
 				Type:           t.Type,
 				Method:         splitMethod(t.CashAmount, t.UpiAmount, t.BankTransferAmount, t.ChequeAmount),
-				Reference:      firstNonEmpty(t.Reference, inv.InvestmentNumber),
+				Reference:      inv.InvestmentNumber,
 				Amount:         t.Amount,
 				PrincipalPart:  t.PrincipalAmount,
 				InterestPart:   t.InterestAmount,
@@ -175,11 +175,4 @@ func splitMethod(cash, upi, bankTransfer, cheque float64) string {
 		}
 	}
 	return strings.Join(parts, " + ")
-}
-
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }

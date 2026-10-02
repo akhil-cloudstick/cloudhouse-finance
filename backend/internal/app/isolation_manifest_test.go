@@ -178,6 +178,8 @@ var routeManifest = map[string]routeSpec{
 	// it cannot be aimed at another business's customer documents.
 	"GET /api/v1/public/branding/:code":      public("login-page branding; unknown codes return the platform default, never a 404"),
 	"GET /api/v1/public/branding/:code/logo": public("a public logo, resolved from the tenant row's own key rather than a caller-supplied one"),
+	"GET /api/v1/public/connect/:code":       public("staff-app connect code; a short-lived random code that only reveals a business code, which grants nothing"),
+	"POST /api/v1/branding/connect-code":     self("issues a connect code for the caller's own business, taken from the token; no identifier to substitute"),
 	"GET /api/v1/branding":                   self("the caller's own business's branding and grants, taken from the token; no identifier to substitute"),
 
 	// ------------------------------------------------------------ branches

@@ -6,7 +6,6 @@ import { useBranding } from "@/product/providers/BrandingProvider";
 import BrandLogo from "@/product/components/BrandLogo";
 import { routeHref } from "@/product/services/appRoutes";
 import { resolveLockup } from "@/product/utils/brandLockup";
-import { UpdateNotice } from "./UpdateNotice";
 
 /* Ported from legacy/app.js's `NAV` array + nav-building/active-link logic
  * in `router()`. Each item now also carries the permission that gates it
@@ -54,7 +53,7 @@ export const NAV: [string, NavItem[]][] = [
     { route: "auctions", title: "Auctions", icon: "gavel", module: "Loan_Management", key: "can_view_loan" },
   ]],
   ["Operations", [
-    { route: "cash", title: "Ledger", icon: "coin", module: "Cash_Management", key: "can_view_cash" },
+    { route: "ledger", title: "Ledger", icon: "coin", module: "Cash_Management", key: "can_view_cash" },
     { route: "employees", title: "Employees & Roles", icon: "user", module: "Employee_Management", key: "can_view_employee" },
   ]],
   ["Administration", [
@@ -168,7 +167,6 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
           );
         })}
       </nav>
-      <UpdateNotice />
       <div className="sfoot">
         Trust · Value · Growth
         <br />

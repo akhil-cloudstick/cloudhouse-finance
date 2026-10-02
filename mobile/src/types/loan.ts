@@ -108,17 +108,14 @@ export type LoanRequest = {
   // without a separate lookup per row (mirrors frontend/modules/loans/
   // services/loanService.ts's RequestView flattening).
   loan?: Loan;
-  type: "Extension" | "Release" | "Waiver" | "Adjustment";
+  type: "Extension" | "Release";
   status: "Pending" | "Approved" | "Rejected";
-  // Waiver/Adjustment only: how much to forgive (Waiver: interest + penal
-  // interest; Adjustment: principal). The reason rides in `detail`.
-  amount?: number;
   requestedBy: string;
   detail?: string;
   requestedExtensionMonths?: number | null;
   newDueDate?: string | null;
   // Pending stage value of the request's approval flow (src/api/
-  // approvalWorkflow.ts: loan_extension / loan_release / loan_waiver), or
+  // approvalWorkflow.ts: loan_extension / loan_release), or
   // "Approved" / "Rejected" once decided.
   approvalStage?: string;
   // Release only. isPartial: a strict subset of ornaments (ornamentSelections).

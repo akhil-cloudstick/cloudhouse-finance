@@ -1,16 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
-  AccBtn,
   AsyncSelect,
   Buffering,
   C,
   Card,
   CashRow,
-  CheckItem,
   ConfirmSheet,
   ChipToggle,
   ClosingCard,
@@ -56,15 +54,20 @@ import {
 } from "../../../src/api/cash";
 import { createBank, listBanksPage } from "../../../src/api/banks";
 import type { Bank } from "../../../src/types/bank";
-import { listBranches } from "../../../src/api/branches";
-import { listCustomersPage } from "../../../src/api/customers";
 import { dmy, inr, todayISO } from "../../../src/lib/format";
 import type { CashMovement, Expense, GoldSale } from "../../../src/types/cash";
-import type { Branch } from "../../../src/types/branch";
-import type { Customer } from "../../../src/types/customer";
 import { isUserCancel, userMessage } from "../../../src/api/errors";
 import { shareMovementsPdf } from "../../../src/utils/ledgerExport";
-import { EXPENSE_CATEGORY_IDS_KEY, LedgerLink, expenseCategoryOf, modeLink, openLedger, openLoanByNumber, useExpenseCategoryIds } from "../../../src/components/staff/LedgerList";
+import { EXPENSE_CATEGORY_IDS_KEY, LedgerLink, modeLink, openLedger, useExpenseCategoryIds } from "../../../src/components/staff/LedgerList";
+import {
+  EMPTY_MOVEMENT_FILTERS,
+  MovementFilterSheet,
+  MovementRow,
+  movementFilterCount,
+  movementFilterStyles as fs,
+  runningBalances,
+  type MovementFilters,
+} from "../../../src/components/staff/MovementLedger";
 
 // Cash & Expenses — prototype #header-cash + #page-cash and the
 // cash-actions / add-cash (incl. the Gold Sale source) / record-expense
@@ -78,80 +81,7 @@ type CashAction = "addCash" | "expense" | null;
 const MOVE_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
 const EXPENSE_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
 
-// Mirrors backend/internal/cash/repository.go's Category* constants — same
-// list web's Cash.tsx/LedgerExportView.tsx Type filter offers.
-const MOVEMENT_TYPE_OPTIONS = [
-  { value: "loan", label: "Loan" },
-  { value: "auction", label: "Auction" },
-  { value: "collection", label: "Collection" },
-  { value: "personal loan", label: "Personal Loan" },
-  { value: "investment", label: "Investment" },
-  { value: "expenses", label: "Expenses" },
-];
-
-// The Movements tab's Branch/Customer/Type multi-select filter state,
-// server-applied via listCashMovementsPage's branchIds/customerIds/types
-// (mirrors web's FilterPanel on Cash.tsx). Kept as plain state in the
-// screen (not inside useServerList) since it's also read by the Customer
-// picker sheet to narrow its own options by the selected branches.
-type MovementFilters = { branchIds: number[]; customerIds: number[]; types: string[]; fromDate?: string; toDate?: string };
-const EMPTY_MOVEMENT_FILTERS: MovementFilters = { branchIds: [], customerIds: [], types: [] };
-
-const fs = StyleSheet.create({
-  filterBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: C.line,
-    backgroundColor: C.card,
-  },
-  filterBtnTxt: { fontSize: 13, fontWeight: "700", color: C.ink },
-  filterBadge: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 4,
-    backgroundColor: C.brandDeep,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterBadgeTxt: { fontSize: 10.5, fontWeight: "700", color: "#fff" },
-  filterTabWrap: { paddingHorizontal: 16, paddingTop: 4 },
-  filterList: { paddingHorizontal: 16, paddingTop: 8, gap: 2 },
-});
-
 const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
-
-// loanRefFor pulls the loan number back out of `purpose` — every
-// loan-related movement's Purpose carries it as a "… — LN-00049" suffix
-// (see cash.MovementService.RecordLoanDisbursementCashOut/
-// RecordLoanPaymentCashIn/etc) — same regex web's Cash.tsx uses. Falls back
-// to the transaction group id / movement id for a movement with no loan
-// number (manual top-ups, expenses, gold sales, …).
-const LOAN_NUMBER_RE = /—\s*(LN-\S+)\s*$/;
-function loanRefFor(m: CashMovement): string {
-  const match = m.purpose ? LOAN_NUMBER_RE.exec(m.purpose) : null;
-  return match?.[1] || m.transactionGroupId || String(m.id);
-}
-
-// Running balance over the currently loaded (paginated) page only — same
-// best-effort approach web's Cash.tsx/LedgerExportView.tsx use, not a true
-// running balance across the whole filtered set. Items are newest-first
-// (occurred_on desc from the backend), so this walks oldest→newest to
-// accumulate, then re-reverses to line back up with `items`' own order.
-function runningBalances(items: CashMovement[]): number[] {
-  const chronological = [...items].reverse();
-  let running = 0;
-  const balances = chronological.map((m) => {
-    running += m.type === "out" ? -m.amount : m.amount;
-    return running;
-  });
-  return balances.reverse();
-}
 
 export default function CashScreen() {
   const qc = useQueryClient();
@@ -172,9 +102,7 @@ export default function CashScreen() {
   const [action, setAction] = useState<CashAction>(null);
   const [movementFilters, setMovementFilters] = useState<MovementFilters>(EMPTY_MOVEMENT_FILTERS);
   const [movementFilterSheetOpen, setMovementFilterSheetOpen] = useState(false);
-  const movementFilterCount =
-    movementFilters.branchIds.length + movementFilters.customerIds.length + movementFilters.types.length +
-    (movementFilters.fromDate || movementFilters.toDate ? 1 : 0);
+  const filterCount = movementFilterCount(movementFilters);
   // Ledger page Download — PDF of every movement matching the filters.
   const [exporting, setExporting] = useState(false);
   async function onDownload() {
@@ -264,9 +192,9 @@ export default function CashScreen() {
             </View>
             <Pressable onPress={() => setMovementFilterSheetOpen(true)} style={fs.filterBtn}>
               <Txt style={fs.filterBtnTxt}>Filters</Txt>
-              {movementFilterCount > 0 ? (
+              {filterCount > 0 ? (
                 <View style={fs.filterBadge}>
-                  <Txt style={fs.filterBadgeTxt}>{movementFilterCount}</Txt>
+                  <Txt style={fs.filterBadgeTxt}>{filterCount}</Txt>
                 </View>
               ) : null}
             </Pressable>
@@ -294,39 +222,7 @@ export default function CashScreen() {
           header={header}
           keyOf={(m) => `m${m.id}`}
           emptyText={movements.search ? "No movements match your search." : "No movements yet."}
-          renderItem={(m, i) => {
-            const ref = loanRefFor(m);
-            const bankName = m.bankRef?.name || m.bank || "Bank";
-            const category = expenseCategoryOf(m.purpose);
-            const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
-            return (
-              <AccRow
-                defaultOpen={i === 0}
-                name={inr(m.amount)}
-                sub={m.purpose || m.source}
-                status={m.type === "in" ? "Cash in" : "Cash out"}
-                statusTone={m.type === "in" ? "active" : "due"}
-                details={[
-                  { k: "Date", v: dmy(m.occurredOn) },
-                  { k: "Ref No", v: ref.startsWith("LN-") ? <LedgerLink label={ref} onPress={() => openLoanByNumber(ref)} /> : ref },
-                  { k: "Mode", v: modeLink(m.mode) },
-                  { k: "Debit", v: m.type === "out" ? inr(m.amount) : "—" },
-                  { k: "Credit", v: m.type === "in" ? inr(m.amount) : "—" },
-                  { k: "Balance", v: inr(movementBalances[i] ?? 0) },
-                  m.bankId
-                    ? { k: "Bank", v: <LedgerLink label={bankName} onPress={() => openLedger("bank", m.bankId!, bankName)} /> }
-                    : m.bank
-                      ? { k: "Bank", v: m.bank }
-                      : { k: "Branch", v: m.branch?.name || "—" },
-                  ...(m.partyCustomerId
-                    ? [{ k: "Customer", v: <LedgerLink label={m.partyCustomer?.name || "Customer"} onPress={() => openLedger("customer", m.partyCustomerId!, m.partyCustomer?.name || "Customer")} /> }]
-                    : []),
-                  ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
-                  ...(m.status ? [{ k: "Status", v: m.status }] : []),
-                ]}
-              />
-            );
-          }}
+          renderItem={(m, i) => <MovementRow m={m} balance={movementBalances[i] ?? 0} categoryIds={categoryIds} defaultOpen={i === 0} />}
         />
       ) : tab === "expenses" ? (
         <ServerFlatList
@@ -765,118 +661,6 @@ function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
         loading={m.isPending}
         disabled={!category || !(Number(amount) > 0) || !description.trim() || !date || !branchId || (bankRequired && !fromBank)}
       />
-    </Sheet>
-  );
-}
-
-const FILTER_TABS = ["branch", "customer", "type", "date"] as const;
-type FilterTab = (typeof FILTER_TABS)[number];
-
-/** Movements tab's Branch/Customer/Type multi-select filter — mirrors web's
- * FilterPanel (Cash.tsx) as 3 tabs of checkable rows inside one sheet
- * (mobile has no direct FilterPanel equivalent). Selecting a Branch narrows
- * the Customer tab's own list to customers whose home branch is one of
- * those (a customer belongs to exactly one branch), same cross-filter rule
- * as web. Applies immediately (no separate "Apply" step) since each toggle
- * already re-queries the (debounced) list underneath via useServerList's
- * `filters`. */
-function MovementFilterSheet({
-  visible,
-  onClose,
-  value,
-  onChange,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  value: MovementFilters;
-  onChange: (next: MovementFilters) => void;
-}) {
-  const [filterTab, setFilterTab] = useState<FilterTab>("branch");
-  useEffect(() => {
-    if (visible) setFilterTab("branch");
-  }, [visible]);
-
-  const branches = useQuery({ queryKey: ["branches", "all"], queryFn: listBranches, enabled: visible });
-  const customers = useServerList<Customer, { branchIds?: number[] }>({
-    key: ["customers", "filter-picker"],
-    fetchPage: (p) => listCustomersPage(p),
-    filters: value.branchIds.length ? { branchIds: value.branchIds } : {},
-    enabled: visible && filterTab === "customer",
-  });
-
-  function toggleBranch(id: number) {
-    onChange({
-      ...value,
-      branchIds: value.branchIds.includes(id) ? value.branchIds.filter((b) => b !== id) : [...value.branchIds, id],
-    });
-  }
-  function toggleCustomer(id: number) {
-    onChange({
-      ...value,
-      customerIds: value.customerIds.includes(id) ? value.customerIds.filter((c) => c !== id) : [...value.customerIds, id],
-    });
-  }
-  function toggleType(v: string) {
-    onChange({ ...value, types: value.types.includes(v) ? value.types.filter((t) => t !== v) : [...value.types, v] });
-  }
-
-  const hasDate = !!(value.fromDate || value.toDate);
-  const count = value.branchIds.length + value.customerIds.length + value.types.length + (hasDate ? 1 : 0);
-
-  return (
-    <Sheet visible={visible} onClose={onClose} title="Filter Movements" maxHeightPct={80} scroll={false}>
-      <View style={fs.filterTabWrap}>
-        <PillTabs
-          tabs={FILTER_TABS}
-          value={filterTab}
-          onChange={setFilterTab}
-          labels={{ branch: `Branch${value.branchIds.length ? ` (${value.branchIds.length})` : ""}`, customer: `Customer${value.customerIds.length ? ` (${value.customerIds.length})` : ""}`, type: `Type${value.types.length ? ` (${value.types.length})` : ""}`, date: `Date${hasDate ? " (1)" : ""}` }}
-          inSheet
-        />
-      </View>
-      {filterTab === "branch" ? (
-        <View style={fs.filterList}>
-          {branches.isLoading ? (
-            <Buffering style={{ paddingVertical: 20 }} />
-          ) : (
-            (branches.data ?? []).map((b: Branch) => (
-              <CheckItem key={b.id} checked={value.branchIds.includes(b.id)} onPress={() => toggleBranch(b.id)} title={b.name} />
-            ))
-          )}
-        </View>
-      ) : filterTab === "type" ? (
-        <View style={fs.filterList}>
-          {MOVEMENT_TYPE_OPTIONS.map((o) => (
-            <CheckItem key={o.value} checked={value.types.includes(o.value)} onPress={() => toggleType(o.value)} title={o.label} />
-          ))}
-        </View>
-      ) : filterTab === "date" ? (
-        <View style={[fs.filterList, { flexDirection: "row", gap: 10 }]}>
-          <View style={{ flex: 1 }}>
-            <DateField label="From" value={value.fromDate} onChange={(v) => onChange({ ...value, fromDate: v || undefined })} max={value.toDate} clearable />
-          </View>
-          <View style={{ flex: 1 }}>
-            <DateField label="To" value={value.toDate} onChange={(v) => onChange({ ...value, toDate: v || undefined })} min={value.fromDate} clearable />
-          </View>
-        </View>
-      ) : (
-        <ServerFlatList
-          list={customers}
-          items={customers.items}
-          inSheet
-          keyOf={(c) => `c${c.id}`}
-          emptyText={value.branchIds.length ? "No customers in the selected branch(es)." : "No customers found."}
-          header={<SearchInput value={customers.search} onChangeText={customers.setSearch} placeholder="Search customer" style={{ paddingHorizontal: 16 }} />}
-          renderItem={(c) => (
-            <CheckItem checked={value.customerIds.includes(c.id)} onPress={() => toggleCustomer(c.id)} title={c.name} sub={c.code} />
-          )}
-        />
-      )}
-      {count > 0 ? (
-        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
-          <AccBtn label="Clear all filters" onPress={() => onChange(EMPTY_MOVEMENT_FILTERS)} />
-        </View>
-      ) : null}
     </Sheet>
   );
 }

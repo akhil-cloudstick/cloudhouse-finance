@@ -81,7 +81,7 @@ function localISO(d: Date): string {
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
 export function NewLoan({ customerId }: { customerId?: string } = {}) {
-  const { isAdmin, can } = useAuth();
+  const { isCrossBranch, can } = useAuth();
   // Single-branch business: the Branch picker is locked to its one branch.
   const { singleBranch } = useBranding();
   const { config: workflow } = useApprovalWorkflow();
@@ -745,10 +745,10 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
           </div>
           <div className="frow c2">
             <div><label className="f">Branch</label>
-              {/* Non-admins are confined to their own branch — the backend
-                  already scopes GET /branches to it, so this is a locked
-                  single-option field for them; admins get the full themed
-                  search like Customer/Scheme above. */}
+              {/* Locked unless there's a real choice: only cross-branch roles
+                  (Administrator, Management) may pick — the backend pins
+                  everyone else to their own branch (EnforceBranchOnWrite) —
+                  and only when more than one active branch exists. */}
               <SearchableSelect<BranchView>
                 value={branchLabel}
                 onChange={(id, item) => {
@@ -760,7 +760,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
-                disabled={!isAdmin || singleBranch}
+                disabled={!isCrossBranch || singleBranch || branches.length <= 1}
               /></div>
             <div><label className="f">Locker / Storage</label>
               {/* key={branchId}: SearchableSelect caches results per search

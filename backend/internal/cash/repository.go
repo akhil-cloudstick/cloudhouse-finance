@@ -836,9 +836,17 @@ func (r *ExpenseCategoryRepository) Create(ctx context.Context, c *ExpenseCatego
 	return r.db.WithContext(ctx).Create(c).Error
 }
 
+// loanCategoryOrder lists a bank loan's repayment category (the one named
+// after a loan cash source with its details captured) ahead of the plain
+// categories, so a freshly added loan sits at the top of the Expense
+// modal's Category picker instead of somewhere down its alphabetical pages.
+const loanCategoryOrder = `CASE WHEN EXISTS (SELECT 1 FROM cash_sources cs
+	WHERE cs.tenant_id = expense_categories.tenant_id AND cs.name ILIKE expense_categories.name
+	AND cs.principal_amount IS NOT NULL) THEN 0 ELSE 1 END, name asc`
+
 func (r *ExpenseCategoryRepository) FindAll(ctx context.Context, query string, limit, offset int) ([]ExpenseCategory, int64, error) {
 	var cats []ExpenseCategory
-	q := r.db.WithContext(ctx).Order("name asc")
+	q := r.db.WithContext(ctx).Order(loanCategoryOrder)
 	if query != "" {
 		q = q.Where("name ILIKE ?", "%"+query+"%")
 	}
@@ -851,6 +859,19 @@ func (r *ExpenseCategoryRepository) FindAll(ctx context.Context, query string, l
 	}
 	err := q.Find(&cats).Error
 	return cats, total, err
+}
+
+// MissingLoanCategoryNames returns every loan cash source with its details
+// captured that has no same-named expense category — a loan opened before
+// MovementService.Record started creating its repayment category.
+func (r *ExpenseCategoryRepository) MissingLoanCategoryNames(ctx context.Context) ([]string, error) {
+	var names []string
+	err := r.db.WithContext(ctx).Table("cash_sources cs").
+		Where("cs.principal_amount IS NOT NULL AND cs.name ILIKE ?", "loan%").
+		Where(`NOT EXISTS (SELECT 1 FROM expense_categories ec
+			WHERE ec.tenant_id = cs.tenant_id AND ec.name ILIKE cs.name)`).
+		Pluck("cs.name", &names).Error
+	return names, err
 }
 
 func (r *ExpenseCategoryRepository) FindByName(ctx context.Context, name string) (*ExpenseCategory, error) {

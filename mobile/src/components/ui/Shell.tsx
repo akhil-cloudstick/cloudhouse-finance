@@ -249,9 +249,10 @@ export function HeroHeader({
 // Focus is reported by each page itself (useIsFocused + the blur event),
 // not read off the root navigation state: that state doesn't always carry
 // a nested navigator's routes yet (first login, a module stack), and
-// looking pages up in it left the header blank. openPage() blanks the
-// header the moment a direct link is followed, so the old page's header
-// (e.g. the Dashboard hero) never lingers while the new page renders.
+// looking pages up in it left the header blank. Between a page blurring (or
+// openPage() starting a jump) and the next one taking focus, the outgoing
+// header is HELD rather than blanked — see publishHeader — so the header is
+// never seen empty mid-switch; NavCover hides the body during that gap.
 // ---------------------------------------------------------------------------
 // A page opened across tabs (openPage) reveals its tab first: that tab's
 // native stack still shows whatever it was left on (its list) for a frame or
@@ -313,10 +314,42 @@ const headerListeners = new Set<() => void>();
 let headerSeq = 0;
 let headerPending = false;
 let headerSnapshot: React.ReactNode = null;
+let headerHoldTimer: ReturnType<typeof setTimeout> | null = null;
+// How long the outgoing header is held for a page that never reports focus
+// (one not built on <Screen>) before giving up and blanking. Same budget as
+// the NavCover's own safety timeout.
+const HEADER_HOLD_MS = 1500;
 function publishHeader() {
   let best: HeaderEntry | null = null;
   for (const e of headerEntries.values()) if (e.focused && (!best || e.seq > best.seq)) best = e;
-  headerSnapshot = headerPending || !best ? BLANK_HEADER : best.node;
+  if (!headerPending && best) {
+    if (headerHoldTimer) clearTimeout(headerHoldTimer);
+    headerHoldTimer = null;
+    headerSnapshot = best.node;
+  } else if (headerSnapshot == null) {
+    headerSnapshot = BLANK_HEADER;
+  } else {
+    // Between pages — the old one has blurred (or openPage() has started a
+    // jump) and the new one hasn't reported focus yet. That gap is a frame or
+    // more: the destination is frozen (freezeOnBlur) until it re-renders. It
+    // used to publish BLANK_HEADER here, so every page switch showed the
+    // header empty for that gap — the Dashboard hero blinking out — and the
+    // tall→short curtain in HeaderHost then animated toward the BLANK
+    // header's height before the real header's text popped in on top. Holding
+    // the outgoing header instead means HeaderHost only ever sees real
+    // header → real header, and its curtain runs once, to the right height.
+    if (!headerHoldTimer) {
+      headerHoldTimer = setTimeout(() => {
+        headerHoldTimer = null;
+        headerPending = false;
+        let next: HeaderEntry | null = null;
+        for (const e of headerEntries.values()) if (e.focused && (!next || e.seq > next.seq)) next = e;
+        headerSnapshot = next ? next.node : BLANK_HEADER;
+        headerListeners.forEach((l) => l());
+      }, HEADER_HOLD_MS);
+    }
+    return;
+  }
   headerListeners.forEach((l) => l());
 }
 const headerStore = {
@@ -340,7 +373,8 @@ const headerStore = {
   remove: (key: string) => {
     if (headerEntries.delete(key)) publishHeader();
   },
-  /** A page switch is under way: blank until the next page takes focus. */
+  /** A page switch is under way: hold the current header until the next page
+   * takes focus (see publishHeader). */
   pending: () => {
     headerPending = true;
     coverStore.begin();
@@ -592,7 +626,26 @@ const FAB_MENU_W = 72;
  * a rounded panel rises out of it listing each action as an icon with its
  * name, and the chevron turns to fold it back. Tapping outside or picking
  * an action closes it. */
-export function FabMenu({ actions, label = "More actions" }: { actions: { label: string; icon: string; onPress: () => void }[]; label?: string }) {
+export type FabMenuAction = {
+  label: string;
+  icon: string;
+  onPress: () => void;
+  /** Highlights the item — when the menu switches what the page shows, the one on screen. */
+  active?: boolean;
+  /** Small gold dot on the item, e.g. unsaved changes there. */
+  dot?: boolean;
+};
+
+export function FabMenu({
+  actions,
+  label = "More actions",
+  raise = 0,
+}: {
+  actions: FabMenuAction[];
+  label?: string;
+  /** Extra lift, to clear an ActionsBar showing under the button. */
+  raise?: number;
+}) {
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [anim] = useState(() => new Animated.Value(0));
@@ -607,7 +660,7 @@ export function FabMenu({ actions, label = "More actions" }: { actions: { label:
       useNativeDriver: true,
     }).start();
   };
-  const bottom = 96 + FAB_CAPTION_H + tabBarLift(insets.bottom);
+  const bottom = 96 + FAB_CAPTION_H + tabBarLift(insets.bottom) + raise;
   return (
     <>
       {open ? <Pressable style={[StyleSheet.absoluteFill, { zIndex: 44 }]} onPress={() => toggle(false)} accessibilityLabel="Close actions" /> : null}
@@ -636,11 +689,13 @@ export function FabMenu({ actions, label = "More actions" }: { actions: { label:
               a.onPress();
             }}
             accessibilityLabel={a.label}
+            accessibilityState={a.active ? { selected: true } : undefined}
           >
-            <View style={s.fabMenuIc}>
-              <PIcon name={a.icon} color={C.brandDeep} />
+            <View style={[s.fabMenuIc, a.active && s.fabMenuIcOn]}>
+              <PIcon name={a.icon} color={a.active ? "#fff" : C.brandDeep} />
+              {a.dot ? <View style={s.fabMenuDot} /> : null}
             </View>
-            <Txt style={s.fabMenuLbl} numberOfLines={2}>
+            <Txt style={[s.fabMenuLbl, a.active && { color: C.brand }]} numberOfLines={2}>
               {a.label}
             </Txt>
           </Pressable>
@@ -1022,6 +1077,8 @@ const s = StyleSheet.create({
   },
   fabMenuItem: { alignItems: "center", width: "100%", paddingHorizontal: 6 },
   fabMenuIc: { width: 48, height: 48, borderRadius: 16, backgroundColor: C.brandFaint, alignItems: "center", justifyContent: "center" },
+  fabMenuIcOn: { backgroundColor: C.brand, borderWidth: 3, borderColor: C.brandPale },
+  fabMenuDot: { position: "absolute", top: -2, right: -2, width: 11, height: 11, borderRadius: 6, backgroundColor: C.accent, borderWidth: 2, borderColor: C.card },
   fabMenuLbl: { marginTop: 5, fontSize: 11, fontWeight: "700", color: C.ink, textAlign: "center" },
   fabWrap: { position: "absolute", zIndex: 45, width: 52, alignItems: "center", overflow: "visible" },
   fabInline: { position: "relative", right: undefined },

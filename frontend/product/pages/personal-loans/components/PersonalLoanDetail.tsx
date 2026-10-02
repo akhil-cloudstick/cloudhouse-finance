@@ -15,6 +15,7 @@ import { StatusChip } from "@/product/components/ui/StatusChip";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import {
   getPersonalLoan,
+  resolvePersonalLoanNumber,
   getPersonalLoanSchedulePage,
   getPersonalLoanHistoryPage,
   listPersonalLoanPaymentsPage,
@@ -115,7 +116,16 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   // was) in the chain, to show who rejected it and why.
   const [approvals, setApprovals] = useState<PersonalLoanApprovalRecord[]>([]);
 
-  const numericId = Number(id);
+  // `id` is the numeric id, or a loan number ("PL-00003") when reached from
+  // a ledger reference — resolved to the numeric id first.
+  const [resolvedId, setResolvedId] = useState(0);
+  const numericId = Number(id) || resolvedId;
+  useEffect(() => {
+    if (!id || Number(id)) return;
+    resolvePersonalLoanNumber(id)
+      .then(setResolvedId)
+      .catch((e) => { setError(e instanceof ApiError ? e.message : "Loan not found."); setLoading(false); });
+  }, [id]);
 
   const refreshLoan = useCallback(async () => {
     if (!numericId) return;

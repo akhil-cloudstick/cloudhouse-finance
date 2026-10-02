@@ -76,16 +76,17 @@ const script = `
     // never see another brand, not even for one frame — so the worst case
     // here is a blank tab icon for a moment instead of the wrong one.
     //
-    // Inserted as a fresh <link> after removing every baked-in one, for the
-    // reason applyFavicon's own comment gives: several browsers only re-fetch
-    // a favicon on element insertion, never on an href change.
+    // Appended as a fresh <link> at the end of <head>, for the reason
+    // applyFavicon's own comment gives: several browsers only re-fetch a
+    // favicon on element insertion, never on an href change. The baked-in
+    // metadata icon is left in place — React owns it, and removing it crashes
+    // React later (see applyFavicon); the last icon in tree order wins anyway.
     var logo = localStorage.getItem(${JSON.stringify(BRAND_LOGO_KEY_PREFIX)} + slug);
     if (logo) {
-      var links = document.querySelectorAll('link[rel="icon"]');
-      for (var j = 0; j < links.length; j++) links[j].parentNode.removeChild(links[j]);
       var el = document.createElement("link");
       el.rel = "icon";
       el.href = logo;
+      el.setAttribute("data-brand-icon", "");
       document.head.appendChild(el);
     }
   } catch (e) { /* storage blocked or malformed value — keep the default theme */ }

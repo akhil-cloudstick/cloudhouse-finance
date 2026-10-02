@@ -8,8 +8,7 @@ import (
 // pendingOtherApprovals lists the non-gold-loan items waiting on an approver
 // under the tenant's approval-workflow configuration: top-ups awaiting their
 // chain, personal loans awaiting sanction, and expenses awaiting approval.
-// Waiver/adjustment requests are loan_requests, so they already appear in
-// the requests feed. Each item is only ever Pending while its flow has an
+// Each item is only ever Pending while its flow has an
 // approval stage switched on, so an unconfigured tenant gets none of these.
 func (s *Service) pendingOtherApprovals(ctx context.Context, branchScope *uint, query string) ([]NeedsAttentionItem, error) {
 	like := "%" + strings.TrimSpace(query) + "%"

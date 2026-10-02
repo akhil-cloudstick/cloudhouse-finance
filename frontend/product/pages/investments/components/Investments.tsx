@@ -125,7 +125,7 @@ export function Investments() {
           {loading ? (
             <tr><td colSpan={5} className="empty">Loading investments…</td></tr>
           ) : investments.length === 0 ? (
-            <tr><td colSpan={5} className="empty">No investments in this category.</td></tr>
+            <tr><td colSpan={5} className="empty">No investments</td></tr>
           ) : investments.map((i) => <InvestmentRow investment={i} key={i.id} />)}
           {loadingMore && <tr><td colSpan={5} className="empty compact">Loading more…</td></tr>}
         </tbody>

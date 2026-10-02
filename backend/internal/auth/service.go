@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"strings"
 	"time"
@@ -40,6 +41,17 @@ var (
 	// and the caller did not say which one they are signing in to. Normally
 	// unreachable in the UI, where the code comes from the login URL.
 	ErrBusinessCodeRequired = httpx.NewBadRequest("please use your organisation's sign-in link, or enter your business code")
+	// ErrPhoneNotRegistered is returned by ForgotPassword when no employee
+	// of the business has that phone number, so the user can correct a
+	// mistyped number instead of waiting for a code that will never arrive.
+	ErrPhoneNotRegistered = httpx.NewNotFound("This phone number is not registered.")
+	// ErrResetCodeNotSent is returned by ForgotPassword when the code was
+	// generated but the SMS gateway failed to deliver it.
+	ErrResetCodeNotSent = httpx.NewUnavailable("Sending failed")
+	// ErrPhoneNoLogin is returned by ForgotPassword when the phone belongs to
+	// an employee who has no login (no password set) — there is no password
+	// to reset, so no code is sent.
+	ErrPhoneNoLogin = httpx.NewForbidden("This number has no login account.")
 )
 
 // resetOTPTTL is how long a texted reset code stays valid — short, since
@@ -176,24 +188,39 @@ func generateOTP() (string, error) {
 
 // ForgotPassword looks up the employee by phone; if found, generates a
 // 6-digit OTP, stores its SHA-256 hash + a 10-minute expiry, and texts the
-// raw code via platform.SMSSender. Returns ErrInvalidCredentials if no
-// employee has that phone — callers (the handler) should swallow that
-// specific case so the API response never reveals whether a phone number
-// is registered.
+// raw code via platform.SMSSender. Returns ErrPhoneNotRegistered if no
+// employee of the business has that phone (or the business code itself is
+// unknown), and ErrResetCodeNotSent if the SMS could not be delivered.
 func (s *Service) ForgotPassword(ctx context.Context, businessCode, phone string) error {
 	tenantID, err := s.resolveTenant(ctx, businessCode)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			return ErrPhoneNotRegistered
+		}
 		return err
 	}
 	ctx = platform.WithTenant(ctx, tenantID)
 
 	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return ErrPhoneNotRegistered
+	}
 	emp, err := s.employeeRepo.FindByPhone(ctx, phone)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrInvalidCredentials
+			return ErrPhoneNotRegistered
 		}
 		return err
+	}
+	// FindByPhone is tenant-scoped, but a row from another business must
+	// still never be the one a code is sent to.
+	if emp.TenantID != tenantID {
+		return ErrPhoneNotRegistered
+	}
+	// Same rule as Login's ErrAccountNotSetUp: an employee without a
+	// password cannot sign in, so a reset code would be meaningless.
+	if emp.PasswordHash == "" {
+		return ErrPhoneNoLogin
 	}
 
 	otp, err := generateOTP()
@@ -245,7 +272,11 @@ func (s *Service) ForgotPassword(ctx context.Context, businessCode, phone string
 		}
 		_ = s.commlogRepo.Create(ctx, logRec)
 	}
-	return sendErr
+	if sendErr != nil {
+		log.Printf("auth: reset code SMS to %q failed: %v", emp.Phone, sendErr)
+		return ErrResetCodeNotSent
+	}
+	return nil
 }
 
 // ResetPassword looks up the employee by phone, checks the given OTP

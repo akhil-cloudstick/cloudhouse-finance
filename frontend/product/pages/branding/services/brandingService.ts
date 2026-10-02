@@ -73,3 +73,16 @@ export function fetchMyBranding(): Promise<MyBranding> {
   // serve a cached response after a superadmin edit.
   return apiFetchEnveloped<MyBranding>("/branding", { cache: "no-store" });
 }
+
+/** A short-lived code that links the staff mobile app to this business —
+ * see backend/internal/branding/connect.go. */
+export type ConnectCode = {
+  code: string;
+  expiresAt: string;
+  /** Seconds until it expires, counted from when the server issued it. */
+  expiresIn: number;
+};
+
+export function createConnectCode(): Promise<ConnectCode> {
+  return apiFetchEnveloped<ConnectCode>("/branding/connect-code", { method: "POST", cache: "no-store" });
+}

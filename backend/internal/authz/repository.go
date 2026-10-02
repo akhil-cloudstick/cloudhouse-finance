@@ -138,7 +138,14 @@ func (r *Repository) BackfillGrants(ctx context.Context) (inserted int, err erro
 			if have[key] {
 				continue
 			}
-			toCreate = append(toCreate, RolePermission{RoleID: role.ID, PermissionID: perm.ID, Permission: true})
+			// TenantID copied off the role BY HAND: this runs under
+			// AllowCrossTenant at boot, where the stamp callback does not
+			// fire, so a row left to it lands at tenant_id = 0 and is later
+			// swept to the default tenant — out of sight of the business
+			// that owns the role. See CreateRole's same comment.
+			rp := RolePermission{RoleID: role.ID, PermissionID: perm.ID, Permission: true}
+			rp.TenantID = role.TenantID
+			toCreate = append(toCreate, rp)
 		}
 	}
 	if len(toCreate) == 0 {
@@ -209,7 +216,9 @@ func (r *Repository) BackfillCRUDSplitGrants(ctx context.Context, nouns []string
 						continue
 					}
 					copied := grant[[2]uint{role.ID, changePerm.ID}]
-					toCreate = append(toCreate, RolePermission{RoleID: role.ID, PermissionID: newPerm.ID, Permission: copied})
+					rp := RolePermission{RoleID: role.ID, PermissionID: newPerm.ID, Permission: copied}
+					rp.TenantID = role.TenantID // see BackfillGrants
+					toCreate = append(toCreate, rp)
 				}
 			}
 		}
@@ -313,7 +322,7 @@ func (r *Repository) ApplyRestrictions(ctx context.Context, restrictions []RoleR
 			allowed[name] = true
 		}
 		for _, role := range roles {
-			if err := r.upsertGrant(ctx, role.ID, perm.ID, allowed[role.Name]); err != nil {
+			if err := r.upsertGrant(ctx, role, perm.ID, allowed[role.Name]); err != nil {
 				return err
 			}
 		}
@@ -321,9 +330,9 @@ func (r *Repository) ApplyRestrictions(ctx context.Context, restrictions []RoleR
 	return nil
 }
 
-func (r *Repository) upsertGrant(ctx context.Context, roleID, permissionID uint, allowed bool) error {
+func (r *Repository) upsertGrant(ctx context.Context, role Role, permissionID uint, allowed bool) error {
 	var existing RolePermission
-	err := r.db.WithContext(ctx).Where("role_id = ? AND permission_id = ?", roleID, permissionID).First(&existing).Error
+	err := r.db.WithContext(ctx).Where("role_id = ? AND permission_id = ?", role.ID, permissionID).First(&existing).Error
 	if err == nil {
 		if existing.Permission == allowed {
 			return nil
@@ -334,7 +343,26 @@ func (r *Repository) upsertGrant(ctx context.Context, roleID, permissionID uint,
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	return r.db.WithContext(ctx).Create(&RolePermission{RoleID: roleID, PermissionID: permissionID, Permission: allowed}).Error
+	return createGrant(r.db.WithContext(ctx), role, permissionID, allowed)
+}
+
+// createGrant inserts one role_permissions row, stamped with the role's own
+// tenant (see BackfillGrants for why by hand).
+//
+// A deny needs a second statement: Permission carries `default:true`, and
+// GORM leaves a zero-valued field with a default out of the INSERT, so a
+// plain Create of Permission=false silently stores TRUE — a revocation that
+// grants.
+func createGrant(db *gorm.DB, role Role, permissionID uint, allowed bool) error {
+	rp := RolePermission{RoleID: role.ID, PermissionID: permissionID, Permission: allowed}
+	rp.TenantID = role.TenantID
+	if err := db.Create(&rp).Error; err != nil {
+		return err
+	}
+	if allowed {
+		return nil
+	}
+	return db.Model(&RolePermission{}).Where("id = ?", rp.ID).Update("permission", false).Error
 }
 
 // --- runtime checks (RequirePermission calls this) -----------------------
@@ -469,6 +497,10 @@ type RolePermissionUpdate struct {
 // role predates a permission and has no row for it yet (§4.2).
 func (r *Repository) UpdateRolePermissions(ctx context.Context, roleID uint, updates []RolePermissionUpdate) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var role Role
+		if err := tx.First(&role, roleID).Error; err != nil {
+			return err
+		}
 		for _, u := range updates {
 			var perm Permission
 			if err := tx.First(&perm, u.PermissionID).Error; err != nil {
@@ -489,7 +521,7 @@ func (r *Repository) UpdateRolePermissions(ctx context.Context, roleID uint, upd
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
-			if err := tx.Create(&RolePermission{RoleID: roleID, PermissionID: u.PermissionID, Permission: u.Permission}).Error; err != nil {
+			if err := createGrant(tx, role, u.PermissionID, u.Permission); err != nil {
 				return err
 			}
 		}
@@ -506,9 +538,15 @@ func IsPermissionNotFoundInCatalogue(err error) bool {
 }
 
 // SetAllForRole sets every permission for roleID to allowed, in one
-// transaction (§7.3's set-all endpoint).
+// transaction (§7.3's set-all endpoint). Creates any row the role is
+// missing first — an UPDATE alone does nothing for a role that has none.
 func (r *Repository) SetAllForRole(ctx context.Context, roleID uint, allowed bool) error {
-	return r.db.WithContext(ctx).Model(&RolePermission{}).Where("role_id = ?", roleID).Update("permission", allowed).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := NewRepository(tx).SetEveryGrant(ctx, roleID, allowed); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // --- role lifecycle --------------------------------------------------------
@@ -643,13 +681,27 @@ func (r *Repository) CountEmployeesWithRole(ctx context.Context, roleID uint) (i
 // instead. Not the fast path, but this runs once per business created, never
 // in a request hot path.
 func (r *Repository) GrantAllToRole(ctx context.Context, roleID uint) (int, error) {
+	return r.SetEveryGrant(ctx, roleID, true)
+}
+
+// SetEveryGrant gives roleID a row for every permission in the catalogue,
+// all set to allowed — creating any that are missing, not just flipping the
+// ones that exist. CreateBusiness calls it with false for the non-
+// Administrator roles: a locked-down role still needs its rows, or the
+// Roles & Permissions screen has nothing to list for it and the next boot's
+// BackfillGrants would default-grant them all TRUE.
+func (r *Repository) SetEveryGrant(ctx context.Context, roleID uint, allowed bool) (int, error) {
+	role, err := r.GetRole(ctx, roleID)
+	if err != nil {
+		return 0, err
+	}
 	var perms []Permission
 	if err := r.db.WithContext(ctx).Find(&perms).Error; err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, p := range perms {
-		if err := r.upsertGrant(ctx, roleID, p.ID, true); err != nil {
+		if err := r.upsertGrant(ctx, *role, p.ID, allowed); err != nil {
 			return n, err
 		}
 		n++

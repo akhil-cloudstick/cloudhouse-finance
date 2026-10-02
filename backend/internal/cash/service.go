@@ -1802,6 +1802,19 @@ func NewExpenseCategoryService(repo *ExpenseCategoryRepository) *ExpenseCategory
 }
 
 func (s *ExpenseCategoryService) List(ctx context.Context, query string, limit, offset int) ([]ExpenseCategory, int64, error) {
+	// Every bank loan's repayment category must be pickable — create any
+	// that a loan opened earlier never got.
+	if offset == 0 {
+		missing, err := s.repo.MissingLoanCategoryNames(ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, name := range missing {
+			if _, _, err := s.FindOrCreate(ctx, name); err != nil {
+				return nil, 0, err
+			}
+		}
+	}
 	return s.repo.FindAll(ctx, query, limit, offset)
 }
 

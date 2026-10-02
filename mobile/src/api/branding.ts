@@ -27,6 +27,13 @@ export function fetchPublicBranding(businessCode: string) {
   return apiRequest<PublicBranding>(`/public/branding/${encodeURIComponent(code)}`, { skipAuth: true });
 }
 
+// Pre-login: swaps the short connect code from the web dashboard's QR (or
+// typed by hand) for the business it was issued for. A 404 means the code is
+// wrong or has expired.
+export function redeemConnectCode(connectCode: string) {
+  return apiRequest<{ businessCode: string }>(`/public/connect/${encodeURIComponent(connectCode)}`, { skipAuth: true });
+}
+
 // Post-login: the business comes from the token, so there is no code param.
 export function fetchMyBranding() {
   return apiRequest<SelfBranding>("/branding");

@@ -16,7 +16,6 @@ export type FlowKey =
   | "auction_shortfall"
   | "expense"
   | "loan_topup"
-  | "loan_waiver"
   | "personal_loan";
 
 export type StageView = {
@@ -45,6 +44,49 @@ export type WorkflowConfig = FlowView[];
 
 export function fetchApprovalWorkflow() {
   return apiRequest<FlowView[]>("/approval-workflow");
+}
+
+// --- Admin screen (Roles & Permissions → Approval Workflow tab) -------------
+// Mirrors backend workflow.CategoryView / UpdateCategoryInput and the web's
+// approvalWorkflowService. Viewing needs "can view role and permission",
+// saving "can update role" — the routes enforce both.
+
+/** One approver in a chain: an active, non-system role of the business. */
+export type ChainRole = { roleId: number; name: string; active: boolean };
+
+export type CategoryFlowView = {
+  key: string;
+  label: string;
+  actionLabel: string;
+  finalAction: string;
+  offBehavior: string;
+  minEnabled: number;
+  /** 0 = no limit. */
+  maxSteps: number;
+  steps: ChainRole[];
+};
+
+/** A group of flows (Gold Loan, Personal Loan, Auction, Expense). With
+ * `shared` on, one chain (sharedSteps) serves every flow in it. */
+export type CategoryView = {
+  key: string;
+  label: string;
+  description: string;
+  shared: boolean;
+  sharedSteps: ChainRole[];
+  minEnabled: number;
+  maxSteps: number;
+  flows: CategoryFlowView[];
+};
+
+export type UpdateCategoryInput = { shared: true; steps: number[] } | { shared: false; flows: Record<string, number[]> };
+
+export async function fetchApprovalCategories(): Promise<CategoryView[]> {
+  return (await apiRequest<CategoryView[]>("/approval-workflow/categories")) ?? [];
+}
+
+export function updateApprovalCategory(category: string, body: UpdateCategoryInput) {
+  return apiRequest<CategoryView>(`/approval-workflow/categories/${category}`, { method: "PUT", body });
 }
 
 // --- Fallback defaults (backend workflow.Catalogue) -------------------------
@@ -125,17 +167,6 @@ export const DEFAULT_WORKFLOW: WorkflowConfig = [
     stages: [
       st("BranchManager", "PendingBranchManager", "Branch Manager", "Branch Manager", "can approve top-up branch manager stage", "Top-Up Approval", false),
       st("Management", "PendingManagement", "Management", "Management", "can approve top-up management stage", "Top-Up Approval", false),
-    ],
-  },
-  {
-    key: "loan_waiver",
-    label: "Waiver / adjustment",
-    finalAction: "posts",
-    offBehavior: "Waivers and adjustments are posted to the loan immediately.",
-    minEnabled: 0,
-    stages: [
-      st("BranchManager", "PendingBranchManager", "Branch Manager", "Branch Manager", "can approve waiver branch manager stage", "Waiver Approval", true),
-      st("Management", "PendingManagement", "Management", "Management", "can approve waiver management stage", "Waiver Approval", true),
     ],
   },
   {

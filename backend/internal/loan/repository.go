@@ -516,6 +516,13 @@ func (r *PaymentRepository) dbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
 	return r.db.WithContext(ctx)
 }
 
+// DeleteByLoanIDAndType removes every payment row of one type on a loan —
+// used to retract the Disbursement mirror row when an edit resubmits a
+// disbursed loan for sanction (see Service.UpdateLoan).
+func (r *PaymentRepository) DeleteByLoanIDAndType(ctx context.Context, loanID uint, paymentType string) error {
+	return r.db.WithContext(ctx).Where("loan_id = ? AND type = ?", loanID, paymentType).Delete(&LoanPayment{}).Error
+}
+
 func (r *PaymentRepository) FindByLoanID(ctx context.Context, loanID uint) ([]LoanPayment, error) {
 	var payments []LoanPayment
 	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("paid_on desc, id desc").Find(&payments).Error
@@ -932,7 +939,8 @@ type LoanRequestFilter struct {
 	LoanID uint
 
 	// Type, when set, matches LoanRequest.Type exactly (RequestTypeExtension
-	// / RequestTypeRelease).
+	// / RequestTypeRelease). The retired Waiver/Adjustment types are always
+	// left out.
 	Type string
 
 	// Query, when set, matches the parent loan's number or its customer's
@@ -969,6 +977,9 @@ func (r *LoanRequestRepository) FindAll(ctx context.Context, f LoanRequestFilter
 	if f.Type != "" {
 		q = q.Where("loan_requests.type = ?", f.Type)
 	}
+	// Retired request types (see RequestTypeWaiver) — a request left
+	// Pending when the feature was removed can no longer be acted on.
+	q = q.Where("loan_requests.type NOT IN ?", []string{RequestTypeWaiver, RequestTypeAdjustment})
 	if f.Status != "" {
 		q = q.Where("loan_requests.status = ?", f.Status)
 	}

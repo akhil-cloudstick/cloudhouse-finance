@@ -10,7 +10,7 @@ import { flowOf, isFinalStage, stageByPending, stageIndex, canActAtStage, steppe
  * stages, plus the item's own stage if it's parked on a disabled one), whose
  * turn it is, and — when the signed-in employee holds that stage's
  * permission — decision remarks with Reject / Approve. Shared by the
- * extension, waiver/adjustment, top-up and personal-loan reviews; the
+ * extension, top-up and personal-loan reviews; the
  * caller supplies the actual API call (`decide`) and what to do after.
  * Renders nothing but the rejection note when the flow has no stages. */
 export function ApprovalChainPanel({

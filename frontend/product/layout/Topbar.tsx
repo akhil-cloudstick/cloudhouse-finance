@@ -7,13 +7,11 @@ import { fmt } from "@/product/utils/format";
 import { TITLES, PARENT_ROUTE } from "@/product/utils/routes";
 import { useModal } from "@/product/components/Modal";
 import { RateModalContent } from "@/product/components/modals/RateModal";
-import { ConnectMobileModalContent } from "@/product/components/modals/ConnectMobileModal";
 import { Icon } from "@/product/components/Icon";
-import { useAuth } from "@/product/providers/auth-context";
-import { loginPath } from "@/product/services/tenantSession";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import GlobalSearch from "./GlobalSearch";
 import { BranchSwitcher } from "./BranchSwitcher";
+import { AccountMenu } from "./AccountMenu";
 import { routeHref } from "@/product/services/appRoutes";
 
 /* Ported from legacy/app.html's <header class="top"> + app.js's
@@ -22,30 +20,11 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
   const { latest, isTodaySet } = useGoldRates();
   const { customers } = useCustomers();
   const { openModal } = useModal();
-  const { employee, logout } = useAuth();
   // Was the hardcoded platform BRAND.name for every business — Sidebar.tsx
   // already gets this right via the same hook, this was the one place that
   // didn't.
   const { name: businessName } = useBranding();
   const [searchOpen, setSearchOpen] = useState(false);
-
-  function handleLogout(e: React.MouseEvent) {
-    e.preventDefault();
-    /* Drop the session and stop. The navigation belongs to app/app/layout.tsx,
-     * whose guard already watches for exactly this ("no token in the app
-     * shell → go to the sign-in page") and does it as a full document load,
-     * which is required: the console and the sign-in page are separate
-     * documents in the static export, and the business-first URL that reaches
-     * the latter (/ctfi/login) exists only as a dev rewrite and a server-side
-     * fallback that Next's client router knows nothing about.
-     *
-     * This handler used to navigate as well, and two replace() calls into the
-     * same transition is one too many — the second lands mid-flight and
-     * aborts the first. Leaving the move to the guard also means the
-     * sign-in link is resolved from the same state the guard sees, rather
-     * than from a value captured a moment earlier here. */
-    logout();
-  }
 
   const crumb =
     route === "customer"
@@ -95,23 +74,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
           </button>
         )}
       </a>
-      <button
-        type="button"
-        className="connect-mobile"
-        title="Connect mobile app"
-        aria-label="Connect mobile app"
-        onClick={() => openModal(<ConnectMobileModalContent />)}
-      >
-        <Icon name="smartphone" />
-      </button>
-      <span className="user">
-        <span className="av">{employee?.name ? employee.name.charAt(0).toUpperCase() : "—"}</span>
-        <span className="nm">
-          {employee?.name || "Not signed in"}
-          <small>{employee?.role || "No user session"}</small>
-        </span>
-      </span>
-      <a className="logout" href={loginPath()} onClick={handleLogout}>Sign out</a>
+      <AccountMenu />
     </header>
   );
 }

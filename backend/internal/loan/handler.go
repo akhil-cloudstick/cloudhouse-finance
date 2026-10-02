@@ -1540,12 +1540,8 @@ func (h *Handler) ListRequests(c *gin.Context) {
 		f.Type = RequestTypeExtension
 	case "release":
 		f.Type = RequestTypeRelease
-	case "waiver":
-		f.Type = RequestTypeWaiver
-	case "adjustment":
-		f.Type = RequestTypeAdjustment
 	default:
-		httpx.Fail(c, http.StatusBadRequest, "invalid type: expected extension, release, waiver or adjustment")
+		httpx.Fail(c, http.StatusBadRequest, "invalid type: expected extension or release")
 		return
 	}
 	if v := c.Query("loanId"); v != "" {
@@ -1808,19 +1804,6 @@ func (h *Handler) ApproveRequest(c *gin.Context) {
 			return
 		}
 		httpx.Success(c, http.StatusOK, rec)
-	case RequestTypeWaiver, RequestTypeAdjustment:
-		rec, err := h.svc.ApproveWaiverRequest(ctx, requestID, platform.GetBranchScope(c), WaiverApprovalInput{
-			Stage:           req.Stage,
-			Action:          req.Action,
-			ActorEmployeeID: actorEmployeeID,
-			ActorRoleID:     actorRoleID,
-			Remarks:         req.Remarks,
-		})
-		if err != nil {
-			httpx.FailErr(c, err)
-			return
-		}
-		httpx.Success(c, http.StatusOK, rec)
 	default:
 		httpx.FailErr(c, ErrInvalidRequestType)
 	}
@@ -1854,39 +1837,6 @@ func (h *Handler) ApproveTopUp(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
-}
-
-type waiverRequestBody struct {
-	Type   string  `json:"type" binding:"required"` // "Waiver" | "Adjustment"
-	Amount float64 `json:"amount" binding:"required"`
-	Reason string  `json:"reason" binding:"required"`
-}
-
-// CreateWaiverRequest backs POST /loans/:id/waiver-request.
-func (h *Handler) CreateWaiverRequest(c *gin.Context) {
-	ctx := platform.RequestContext(c)
-	loanID, err := httpx.IDParam(c, "id")
-	if err != nil {
-		httpx.FailErr(c, err)
-		return
-	}
-	var req waiverRequestBody
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
-		return
-	}
-	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.CreateWaiverRequest(ctx, loanID, platform.GetBranchScope(c), WaiverRequestInput{
-		Type:            req.Type,
-		Amount:          req.Amount,
-		Reason:          req.Reason,
-		ActorEmployeeID: actorEmployeeID,
-	})
-	if err != nil {
-		httpx.FailErr(c, err)
-		return
-	}
-	httpx.Success(c, http.StatusCreated, rec)
 }
 
 func (h *Handler) CompleteRelease(c *gin.Context) {
@@ -2360,10 +2310,9 @@ func (h *Handler) Statement(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", data)
 }
 
-// GetLedger backs GET /loans/:id/ledger — this one loan's payment ledger,
-// paginated like cash.MovementHandler.ListByBank/ByCustomer/ByBranch (limit/
-// offset, {items, total} envelope), read-gated and branch-scoped the same as
-// Get/Statement above.
+// GetLedger backs GET /loans/:id/ledger — one page of the loan's Payment
+// Ledger (limit/offset, optional from/to and a focusKey or focusDate +
+// focusAmount row to open on), read-gated and branch-scoped like Get.
 func (h *Handler) GetLedger(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
@@ -2371,15 +2320,25 @@ func (h *Handler) GetLedger(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	offset, _ := strconv.Atoi(c.Query("offset"))
-	if offset < 0 {
-		offset = 0
+	from := c.Query("from")
+	to := c.Query("to")
+	focusAmountParam := c.Query("focusAmount")
+	q := LoanLedgerQuery{From: from, To: to, FocusKey: c.Query("focusKey"), FocusDate: c.Query("focusDate")}
+	q.Limit, _ = strconv.Atoi(c.Query("limit"))
+	q.Offset, _ = strconv.Atoi(c.Query("offset"))
+	for _, d := range []string{from, to} {
+		if _, err := time.Parse("2006-01-02", d); d != "" && err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "Dates must be in YYYY-MM-DD format")
+			return
+		}
 	}
-	rows, total, err := h.svc.GetLoanLedger(ctx, loanID, platform.GetBranchScope(c), limit, offset)
+	if v, err := strconv.ParseFloat(focusAmountParam, 64); focusAmountParam != "" && err == nil {
+		q.FocusAmount = &v
+	}
+	page, err := h.svc.GetLoanLedger(ctx, loanID, platform.GetBranchScope(c), q)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rows, "total": total})
+	httpx.Success(c, http.StatusOK, page)
 }

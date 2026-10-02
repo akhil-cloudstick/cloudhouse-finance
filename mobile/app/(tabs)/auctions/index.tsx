@@ -1,9 +1,8 @@
 import React, { useState } from "react";
 import { View } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   AccRow,
-  AsyncSelect,
   C,
   Field,
   FilterChipRow,
@@ -16,15 +15,12 @@ import {
   ServerFlatList,
   Sheet,
   SubTabs,
-  Txt,
   openPage,
 } from "../../../src/components/ui";
 import { AuctionFlowSheet } from "../../../src/components/staff/AuctionFlowSheet";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { listLoansPage } from "../../../src/api/loans";
-import { getAuction, listConcludedAuctions, markAuctionEligible } from "../../../src/api/auctions";
-import { useAuth } from "../../../src/auth/AuthContext";
-import { ApiError } from "../../../src/api/client";
+import { getAuction, listConcludedAuctions } from "../../../src/api/auctions";
 import { inr } from "../../../src/lib/format";
 import type { Loan } from "../../../src/types/loan";
 import { AUCTION_OUTCOME_LABELS, pendingDecision, type AuctionRecord, type AuctionStage, type ConcludedAuctionRow } from "../../../src/types/auction";
@@ -38,7 +34,8 @@ const TABS = ["active", "history"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { active: "Active Cases", history: "Auction History" };
 
-const CASES = ["Auction Eligible", "Defaulted", "Auctioned - Balance Due"] as const;
+// In the order a case moves through them.
+const CASES = ["Defaulted", "Auction Eligible", "Auctioned - Balance Due"] as const;
 type CaseType = (typeof CASES)[number];
 const CASE_PARAM: Record<CaseType, string> = {
   "Auction Eligible": "eligible",
@@ -68,30 +65,11 @@ export default function AuctionsScreen() {
 
 function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
   const openLoan = useOpenLoan();
-  const qc = useQueryClient();
-  const { can } = useAuth();
-  const canAct = can("Loan_Management", "can_update_loan");
 
   const [caseType, setCaseType] = useState<CaseType>("Auction Eligible");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draft, setDraft] = useState<CaseType>(caseType);
   const [flowLoan, setFlowLoan] = useState<Loan | null>(null);
-
-  // "Mark a loan as Auction Eligible" — picker limited server-side to
-  // defaulted loans (the only ones the backend lets you mark).
-  const [markLoan, setMarkLoan] = useState<Loan | null>(null);
-  const [markMsg, setMarkMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const mark = useMutation({
-    mutationFn: (l: Loan) => markAuctionEligible(l.id),
-    onSuccess: (_r, l) => {
-      setMarkMsg({ ok: true, text: `${l.loanNumber} marked Auction Eligible.` });
-      setMarkLoan(null);
-      qc.invalidateQueries({ queryKey: ["loans"] });
-      qc.invalidateQueries({ queryKey: ["auction", String(l.id)] });
-      qc.invalidateQueries({ queryKey: ["loan", String(l.id)] });
-    },
-    onError: (err) => setMarkMsg({ ok: false, text: err instanceof ApiError ? err.message : "Could not mark the loan Auction Eligible." }),
-  });
 
   const list = useServerList<Loan, { auctionCase: string }>({
     key: ["loans", "auctions"],
@@ -118,7 +96,6 @@ function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
               style={{ marginTop: 0, marginBottom: 14 }}
               onPress={() => {
                 setDraft(caseType);
-                setMarkMsg(null);
                 setSheetOpen(true);
               }}
             />
@@ -133,33 +110,6 @@ function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
         <Field label="Case type">
           <FilterChipRow options={CASES} value={draft} onChange={setDraft} />
         </Field>
-        {canAct ? (
-          <>
-            <AsyncSelect<Loan>
-              label="Mark a loan as Auction Eligible"
-              placeholder="Search customer or LN number"
-              queryKey={["loans", "auction-mark-picker"]}
-              fetcher={async (q) => (await listLoansPage({ q: q || undefined, auctionCase: "defaulted", limit: 20, offset: 0 })).items ?? []}
-              selectedLabel={markLoan ? `${markLoan.loanNumber} · ${markLoan.customer?.name ?? ""}` : undefined}
-              onClear={() => setMarkLoan(null)}
-              onSelect={(l) => {
-                setMarkLoan(l);
-                setMarkMsg(null);
-              }}
-              keyOf={(l) => l.id}
-              renderItem={(l) => ({ title: `${l.loanNumber} · ${l.customer?.name ?? ""}`, sub: `${l.daysOverdue ?? 0} days overdue · ${inr(l.totalOutstandingBalance ?? l.outstandingAmount)}` })}
-            />
-            {markMsg ? <Txt style={{ fontSize: 12, color: markMsg.ok ? C.green : C.red, marginBottom: 10 }}>{markMsg.text}</Txt> : null}
-            <PrimaryButton
-              label="Mark Loan Auction Eligible"
-              variant="outline"
-              style={{ marginBottom: 14 }}
-              disabled={!markLoan}
-              loading={mark.isPending}
-              onPress={() => markLoan && mark.mutate(markLoan)}
-            />
-          </>
-        ) : null}
         <PrimaryButton
           label="Apply Filters"
           onPress={() => {
@@ -176,7 +126,8 @@ function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
 
 // The flow button names the step the case is on, read from its auction record
 // (same query the Auction Flow sheet uses, so opening it is instant).
-// Defaulted loans have no record yet — that's where the flow starts.
+// Defaulted loans have no record yet — marking them Auction Eligible is the
+// flow's first step, so that's what their button says.
 const NEXT_STEP: Partial<Record<AuctionStage, string>> = {
   AuctionEligible: "Issue Notice",
   NoticeIssued: "Schedule Auction",
@@ -186,7 +137,7 @@ const NEXT_STEP: Partial<Record<AuctionStage, string>> = {
 
 function flowLabel(l: Loan, rec: AuctionRecord | null | undefined, loading: boolean): string {
   if (l.status === "Auctioned - Balance Due") return "View Auction";
-  if (l.status !== "Auction Eligible") return "Start Auction Flow";
+  if (l.status !== "Auction Eligible") return "Mark Auction Eligible";
   if (loading || !rec) return "Auction Flow";
   if (pendingDecision(rec)) return "Decision Pending";
   if (rec.stage === "Settled" || rec.stage === "Withdrawn") return "View Auction";

@@ -147,7 +147,7 @@ export default function BillingScreen() {
   const [upgradedTo, setUpgradedTo] = useState<number | null>(null);
   const [target, setTarget] = useState<BillingPlan | null>(null);
 
-  const header = <FlatHeader title="Billing & Plan" subtitle="Your plan and branch limit" back />;
+  const header = <FlatHeader title="Billing & Plan" subtitle="Your plan and branch limit" />;
 
   if (!FEATURES.planUpgrade) {
     return <Screen header={header}><EmptyText>Plan upgrades aren&apos;t available yet.</EmptyText></Screen>;
@@ -156,7 +156,7 @@ export default function BillingScreen() {
     return <Screen header={header}><Buffering style={{ paddingVertical: 30 }} /></Screen>;
   }
   if (status.isError) {
-    return <Screen header={header}><EmptyText>Couldn&apos;t load your plan. Go back and open Billing &amp; Plan again.</EmptyText></Screen>;
+    return <Screen header={header}><EmptyText>Couldn&apos;t load your plan. Open Billing &amp; Plan again from More.</EmptyText></Screen>;
   }
 
   const cur = upgradedTo ?? findPlanIndex(status.data.tierName, quota.data?.quota);

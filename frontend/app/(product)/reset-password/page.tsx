@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import BrandLogo from "@/product/components/BrandLogo";
 import { useSearchParams } from "next/navigation";
 import "@/product/styles/login.css";
-import { resetPassword } from "@/product/services/authService";
+import { forgotPassword, resetPassword } from "@/product/services/authService";
 import { ApiError } from "@/product/services/httpClient";
 import {
   businessCodeForRequest,
@@ -43,6 +43,29 @@ function ResetPasswordForm() {
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /* How the forgot-password step's send went: "sent" or "failed". A failed
+   * send is reported here with a Resend option rather than back on the
+   * previous page, so the user is already where the code will be typed. */
+  const [sendStatus, setSendStatus] = useState<"sent" | "failed">(
+    searchParams.get("sent") === "failed" ? "failed" : "sent",
+  );
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+
+  async function handleResend() {
+    setResending(true);
+    setSendError(null);
+    try {
+      await forgotPassword(phone.trim(), businessCode);
+      setSendStatus("sent");
+    } catch (err) {
+      setSendStatus("failed");
+      setSendError(err instanceof ApiError && err.message ? err.message : null);
+    } finally {
+      setResending(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -107,6 +130,22 @@ function ResetPasswordForm() {
             </>
           ) : (
           <form noValidate onSubmit={handleSubmit}>
+            <div className={`status-box ${sendStatus === "sent" ? "ok" : "fail"}`} role="status" aria-live="polite">
+              {resending ? (
+                <div>
+                  <span className="spinner" aria-hidden="true" />
+                  Sending code…
+                </div>
+              ) : sendStatus === "sent" ? (
+                <div>A 6-digit reset code has been sent by SMS to {phone}.</div>
+              ) : (
+                <div>{sendError ?? "Sending failed"}</div>
+              )}
+              <button type="button" onClick={handleResend} disabled={resending}>
+                {sendStatus === "sent" ? "Resend code" : "Try again"}
+              </button>
+            </div>
+
             <div className="field">
               <input
                 type="tel"

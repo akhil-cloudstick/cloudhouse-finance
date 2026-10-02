@@ -169,6 +169,12 @@ export function getPersonalLoan(id: number): Promise<BackendPersonalLoan> {
   return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}`);
 }
 
+/* Resolves a loan number ("PL-00003") — what a ledger's Ref No links
+ * with — to the loan's numeric id. */
+export async function resolvePersonalLoanNumber(number: string): Promise<number> {
+  return (await apiFetch<{ id: number }>(`/personal-loans/by-number/${encodeURIComponent(number)}`)).id;
+}
+
 export const PERSONAL_LOAN_PAGE_SIZE = 10;
 
 /* Paginated schedule/payments — backs PersonalLoanDetail's infinite-scroll

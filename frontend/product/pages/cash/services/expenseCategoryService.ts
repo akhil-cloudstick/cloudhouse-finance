@@ -68,8 +68,8 @@ export async function getExpenseCategoryLedger(
 
 /* Present when the category is a loan source's repayment category — the
  * ledger is then the loan's own (backend/internal/cash/ledger.go's
- * ListLoanSourceLedger): principal opening, draws as debits, repayments as
- * credits, running balance capped at the principal. */
+ * ListLoanSourceLedger): draws as credits, repayments as debits, running
+ * balance = what is still owed (the principal once drawn in full). */
 export type LoanLedgerSummary = {
   sourceId: number;
   name: string;

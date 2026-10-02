@@ -1,6 +1,6 @@
 // Package workflow holds the per-tenant approval-workflow configuration:
 // for each approval flow (loan sanction, extension, release, expense,
-// auction decisions, top-up, waiver, personal loan) the ordered chain of
+// auction decisions, top-up, personal loan) the ordered chain of
 // roles that must approve it (ApprovalChain). Flows are grouped into
 // categories, and a category can share one chain across all of its flows
 // (ApprovalCategoryMode). Who may act at a stage is the stage's role, or
@@ -24,7 +24,6 @@ const (
 	FlowAuctionShortfall        = "auction_shortfall"
 	FlowExpense                 = "expense"
 	FlowLoanTopUp               = "loan_topup"
-	FlowLoanWaiver              = "loan_waiver"
 	FlowPersonalLoan            = "personal_loan"
 )
 
@@ -45,7 +44,7 @@ type CategoryDef struct {
 
 // Categories in the order the admin screen shows them.
 var Categories = []CategoryDef{
-	{CategoryGoldLoan, "Gold Loan", "Sanction, extension, release, top-up and waiver of gold loans."},
+	{CategoryGoldLoan, "Gold Loan", "Sanction, extension, release and top-up of gold loans."},
 	{CategoryPersonalLoan, "Personal Loan", "Sanction of personal loans."},
 	{CategoryAuction, "Auction", "Decisions taken while a loan is in auction."},
 	{CategoryExpense, "Expense", "Approval of recorded expenses before they post to the ledger."},
@@ -158,15 +157,6 @@ var Catalogue = []FlowDef{
 		Stages: []StageDef{
 			legacy("BranchManager", pendingBranchManager, "Branch Manager", "Branch Manager", "can approve top-up branch manager stage", "Top-Up Approval", false),
 			legacy("Management", pendingManagement, "Management", "Management", "can approve top-up management stage", "Top-Up Approval", false),
-		},
-	},
-	{
-		Key: FlowLoanWaiver, Label: "Waiver / adjustment", ActionLabel: "Waiver / adjustment", Category: CategoryGoldLoan,
-		FinalAction: "posts",
-		OffBehavior: "Waivers and adjustments are posted to the loan immediately.",
-		Stages: []StageDef{
-			legacy("BranchManager", pendingBranchManager, "Branch Manager", "Branch Manager", "can approve waiver branch manager stage", "Waiver Approval", true),
-			legacy("Management", pendingManagement, "Management", "Management", "can approve waiver management stage", "Waiver Approval", true),
 		},
 	},
 	{

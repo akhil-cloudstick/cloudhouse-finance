@@ -48,21 +48,37 @@ export async function getBusinessCode(): Promise<string> {
   return stored && isValidBusinessCode(stored) ? stored : "";
 }
 
-/* Reads the business code out of a scanned QR. The web encodes
- * `cloudhouse://connect?b=<code>` (the app's own scheme, so the phone camera
- * can open it too); a bare code is accepted as well, for a QR someone made
- * by hand. Anything else — a packet label, another app's QR — is null. */
+/* The connect code: a 6-character code the web dashboard's "Connect mobile
+ * app" modal issues fresh each time (WhatsApp "link a device" style — see
+ * backend/internal/branding/connect.go). The phone redeems it for the
+ * business code above; it expires after a few minutes. Same alphabet as the
+ * server: no 0/O, 1/I/L look-alikes. Typed input may be lowercase or carry a
+ * space/dash in the middle ("ABC 123"). */
+const CONNECT_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{6}$/;
+
+export function normalizeConnectCode(value: string): string {
+  return value.replace(/[\s-]/g, "").toUpperCase();
+}
+
+export function isValidConnectCode(value: string): boolean {
+  return CONNECT_CODE_PATTERN.test(value);
+}
+
+/* Reads the connect code out of a scanned QR. The web encodes
+ * `cloudhouse://connect?c=<code>` (the app's own scheme, so the phone camera
+ * can open it too); a bare code is accepted as well. Anything else — a
+ * packet label, another app's QR — is null. */
 export function parseConnectQr(scanned: string): string | null {
   const s = scanned.trim();
-  const m = s.match(/^cloudhouse:\/\/\/?connect\?(?:.*&)?b=([^&#\s]+)/i);
+  const m = s.match(/^cloudhouse:\/\/\/?connect\?(?:.*&)?c=([^&#\s]+)/i);
   let raw = m ? m[1] : s;
   try {
     raw = decodeURIComponent(raw);
   } catch {
     return null;
   }
-  const code = normalizeBusinessCode(raw);
-  return isValidBusinessCode(code) ? code : null;
+  const code = normalizeConnectCode(raw);
+  return isValidConnectCode(code) ? code : null;
 }
 
 export async function clearBusinessCode(): Promise<void> {

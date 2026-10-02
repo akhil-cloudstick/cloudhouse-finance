@@ -65,6 +65,18 @@ export function userMessage(err: unknown, fallback = "Something went wrong. Plea
   return msg && !looksTechnical(msg) ? msg : fallback;
 }
 
+/** What a list/detail shows when its fetch failed. `null` means "nothing
+ * there" (a 404 — show the screen's own empty message, not an error); a 403
+ * shows the server's reason (no permission / module off) since retrying
+ * won't help; anything else is a real failure worth retrying. */
+export function loadErrorText(err: unknown): string | null {
+  if (!err) return null;
+  const status = (err as { status?: unknown }).status;
+  if (status === 404) return null;
+  if (status === 401 || status === 403) return userMessage(err, "You don't have access to view this.");
+  return "Couldn't load. Pull down to retry.";
+}
+
 /** Backing out of the system print/share dialog rejects with "Printing did
  * not complete" or similar — the user's choice, not an error to show. */
 export function isUserCancel(err: unknown): boolean {

@@ -5,6 +5,7 @@ import { useAuth } from "@/product/providers/auth-context";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { fmt } from "@/product/utils/format";
+import { useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import {
   getInvestment,
@@ -122,6 +123,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
     }
   }, [numericId]);
   useEffect(() => { void refreshLedger(); }, [refreshLedger]);
+  useLedgerFocus("investment-ledger", !ledgerLoading, [ledger]);
 
   const refreshInvestment = useCallback(async () => {
     if (!numericId) return;
@@ -313,7 +315,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
           ) : null}
         </div>
         {ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
-        <div className="tbl-wrap"><table className="tbl">
+        <div className="tbl-wrap"><table className="tbl" data-ledger-scope="investment-ledger">
           <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
           <tbody>
             {ledgerLoading ? (
@@ -326,7 +328,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
                 r.interestAmount > 0 && `Interest ${fmt(r.interestAmount)}`,
               ].filter(Boolean).join(" · ");
               return (
-                <tr key={r.id}>
+                <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount}>
                   <td>{r.date.slice(0, 10)}</td>
                   <td>{r.reference || "—"}</td>
                   <td>

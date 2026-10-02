@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
 import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
 import { useModal } from "@/product/components/Modal";
@@ -21,13 +21,17 @@ import { appPath } from "@/product/services/tenantSession";
 import { rupeesInWords } from "@/product/utils/numberToWords";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
+import { modeCellFor } from "@/product/pages/cash/components/ledgerCells";
+import { ledgerFocusTarget, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import {
   getLoanByNumber,
   approveLoan,
   listTopUps,
   approveTopUp,
   type LoanTopUpView,
-  getAuctionHistory,
+  getLoanLedger,
+  type LoanLedgerEntry,
+  type LoanLedgerPage,
   type AuctionRecordView,
   releaseBankPledge,
   completeRelease,
@@ -59,22 +63,22 @@ import { DisburseLoanModalContent } from "@/product/components/modals/DisburseLo
 import { TopUpLoanModalContent } from "@/product/components/modals/TopUpLoanModal";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 
-/* Auction rows in the Payment Ledger. RecordAuctionSale writes an "Auction
- * Sale" payment (Reference = the auction reference) for the portion of the
- * net proceeds that settled debt; these helpers tie that payment back to its
- * auction case for the sale/expense breakdown, and date the sale/surplus
- * rows from the case's own audit events. */
-function auctionSalePaymentFor(a: AuctionRecordView, payments: LoanView["payments"]) {
-  return payments.find((p) => p.type === "Auction Sale" && (!a.auctionReferenceNumber || p.reference === a.auctionReferenceNumber));
-}
-function auctionSaleDate(a: AuctionRecordView) {
-  return a.events.find((e) => e.action === "SaleRecorded")?.createdAt || a.auctionDate || a.auctionEligibleDate;
-}
-function auctionSurplusDate(a: AuctionRecordView) {
-  return a.events.find((e) => e.action === "Settled")?.createdAt || auctionSaleDate(a);
-}
+// Payment Ledger rows per page.
+const LEDGER_PAGE_SIZE = 10;
+
+/* An auction case's sale/expense breakdown, shown under its Payment Ledger
+ * row (the backend ties each Auction Sale payment to its case). */
 function auctionBreakdown(a: AuctionRecordView) {
   return `Sold ${fmt(a.saleAmount)} · Expenses ${fmt(a.auctionExpenses)} · Net ${fmt(a.saleAmount - a.auctionExpenses)}`;
+}
+
+/* The Payment Ledger note on one mode's row of a split payment/payout. */
+function SplitPartNote({ part, total }: { part: { index: number; count: number }; total: number }) {
+  return (
+    <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>
+      Split {part.index + 1} of {part.count} · total {fmt(total)}
+    </div>
+  );
 }
 
 /* One row of the "Documents" dropdown below — either a click action
@@ -181,9 +185,6 @@ export function LoanDetail({ id }: { id?: string }) {
   // outstanding-keyed refetch below wouldn't notice it.
   const [topUpsVersion, setTopUpsVersion] = useState(0);
   const [decidingTopUp, setDecidingTopUp] = useState(false);
-  // Auction cases that reached a sale — their sale/expense breakdown and any
-  // surplus paid back to the customer are shown in the Payment Ledger.
-  const [auctions, setAuctions] = useState<AuctionRecordView[]>([]);
   // This loan's tracking packet — small, separate fetch (LoanView itself
   // carries no packet/locker info), used only to drive the "Gold Pledge /
   // Locker" release warning below.
@@ -193,13 +194,24 @@ export function LoanDetail({ id }: { id?: string }) {
   const [releasing, setReleasing] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [statementBusy, setStatementBusy] = useState(false);
-  // Payment Ledger's own date filter — narrows which sanction/top-up/payment
-  // rows are shown, purely client-side (this loan's full history is already
-  // in memory via `loan`/`topUps`, unlike the customer/branch ledgers which
-  // page against the backend).
+  // Payment Ledger — filtered and paged by the backend (getLoanLedger), one
+  // page held at a time. A date filter change goes back to page 1.
   const [ledgerFromDate, setLedgerFromDate] = useState("");
   const [ledgerToDate, setLedgerToDate] = useState("");
   const [ledgerExporting, setLedgerExporting] = useState(false);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledger, setLedger] = useState<LoanLedgerPage | null>(null);
+  const [ledgerError, setLedgerError] = useState(false);
+  // Opened from (or back from) another ledger, the first fetch asks for the
+  // page holding that row; the page it answers with is adopted, not refetched.
+  const ledgerFocusPending = useRef(true);
+  const ledgerAdoptedPage = useRef<number | null>(null);
+  useLedgerFocus("loan-ledger", !!ledger, [ledger]);
+  function setLedgerRange(from: string, to: string) {
+    setLedgerFromDate(from);
+    setLedgerToDate(to);
+    setLedgerPage(1);
+  }
   const [printingLabel, setPrintingLabel] = useState(false);
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingSlipAndLabel, setPrintingSlipAndLabel] = useState(false);
@@ -289,12 +301,46 @@ export function LoanDetail({ id }: { id?: string }) {
     listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
   }, [loan?.numericId, loan?.outstanding, topUpsVersion]);
 
+  // Refetched whenever the loan reloads (after a payment, top-up, auction
+  // step…) or a top-up is decided, as well as on a page/date-filter change.
   useEffect(() => {
     if (!loan) return;
-    getAuctionHistory(loan.numericId)
-      .then((recs) => setAuctions(recs.filter((r) => r.saleAmount > 0)))
-      .catch(() => setAuctions([]));
-  }, [loan?.numericId, loan?.status]);
+    if (ledgerAdoptedPage.current === ledgerPage) {
+      ledgerAdoptedPage.current = null;
+      return;
+    }
+    ledgerAdoptedPage.current = null;
+    const focus = ledgerFocusPending.current ? ledgerFocusTarget("loan-ledger") : null;
+    let cancelled = false;
+    getLoanLedger(loan.numericId, {
+      from: ledgerFromDate || undefined,
+      to: ledgerToDate || undefined,
+      limit: LEDGER_PAGE_SIZE,
+      offset: (ledgerPage - 1) * LEDGER_PAGE_SIZE,
+      ...(focus ? ("key" in focus ? { focusKey: focus.key } : { focusDate: focus.date, focusAmount: focus.amount }) : {}),
+    })
+      .then((page) => {
+        if (cancelled) return;
+        // Cleared only once a response lands — dev StrictMode cancels the
+        // first run, and the focus must survive into the second.
+        ledgerFocusPending.current = false;
+        setLedger(page);
+        setLedgerError(false);
+        // The server may answer with another page: the focused row's, or the
+        // last real one after the history shrank.
+        const served = Math.floor(page.offset / LEDGER_PAGE_SIZE) + 1;
+        if (served !== ledgerPage) {
+          ledgerAdoptedPage.current = served;
+          setLedgerPage(served);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLedgerError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loan, topUpsVersion, ledgerFromDate, ledgerToDate, ledgerPage]);
 
   // Re-fetched whenever bankPledgeStatus/status change, e.g. right after a
   // locker check-in/out or the bank pledge being released — the "Gold
@@ -399,10 +445,18 @@ export function LoanDetail({ id }: { id?: string }) {
   const canActOnStage = !!pendingStage && canUpdateLoans && canActAtStage({ role, isAdmin }, pendingStageView);
 
   // A top-up waiting in the loan_topup approval chain (only one per loan).
-  // Pending/Rejected rows paid nothing out, so only the others belong in the
-  // Payment Ledger below.
+  // Pending/Rejected rows paid nothing out, so the ledger leaves them out.
   const pendingTopUp = topUps.find((t) => t.status === "Pending") ?? null;
-  const ledgerTopUps = topUps.filter((t) => t.status !== "Pending" && t.status !== "Rejected");
+
+  const ledgerEntries = ledger?.items ?? [];
+  const ledgerTotal = ledger?.total ?? 0;
+  const ledgerTotalPages = Math.max(1, Math.ceil(ledgerTotal / LEDGER_PAGE_SIZE));
+  // The data-ledger-* attributes useLedgerFocus matches rows by.
+  const ledgerRowAttrs = (e: LoanLedgerEntry) => ({
+    "data-ledger-key": e.key,
+    "data-ledger-date": e.date,
+    "data-ledger-amount": e.amount,
+  });
   const topUpStageView = pendingTopUp ? stageByPending(workflow, "loan_topup", pendingTopUp.approvalStage) : null;
   const topUpChain = pendingTopUp ? chainFor(workflow, "loan_topup", pendingTopUp.approvalStage) : [];
   const topUpStageIndex = topUpStageView ? topUpChain.findIndex((s) => s.key === topUpStageView.key) : topUpChain.length;
@@ -1306,61 +1360,51 @@ export function LoanDetail({ id }: { id?: string }) {
             <div className="hd">
               <h3>Payment Ledger</h3>
               <div className="sp" />
-              <DatePicker value={ledgerFromDate} onChange={setLedgerFromDate} placeholder="From…" max={ledgerToDate || undefined} />
-              <DatePicker value={ledgerToDate} onChange={setLedgerToDate} placeholder="To…" min={ledgerFromDate || undefined} />
+              <DatePicker value={ledgerFromDate} onChange={(v) => setLedgerRange(v, ledgerToDate)} placeholder="From…" max={ledgerToDate || undefined} />
+              <DatePicker value={ledgerToDate} onChange={(v) => setLedgerRange(ledgerFromDate, v)} placeholder="To…" min={ledgerFromDate || undefined} />
               {(ledgerFromDate || ledgerToDate) && (
-                <button className="btn ghost sm" onClick={() => { setLedgerFromDate(""); setLedgerToDate(""); }}>Clear</button>
+                <button className="btn ghost sm" onClick={() => setLedgerRange("", "")}>Clear</button>
               )}
               <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>
             </div>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap"><table className="tbl" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
-                {l.disbursementDate && (!ledgerFromDate || l.disbursementDate >= ledgerFromDate) && (!ledgerToDate || l.disbursementDate <= ledgerToDate) && (
-                  <tr>
-                    <td>{l.disbursementDate}</td>
-                    <td>{l.loanNumber}</td>
-                    <td>
-                      Loan Sanctioned
-                      {l.sanctionedAmount !== l.disbursedAmount && (
-                        <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>
-                          Sanctioned {fmt(l.sanctionedAmount)} · ₹{fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge
-                        </div>
-                      )}
-                    </td>
-                    <td>—</td>
-                    <td className="num" style={{ color: "var(--red)" }}>{fmt(l.disbursedAmount)}</td>
-                    <td className="num">—</td>
-                    <td className="num">{fmt(l.sanctionedAmount)}</td>
-                  </tr>
-                )}
-                {l.payments.length === 0 && !l.disbursementDate && ledgerTopUps.length === 0 && auctions.length === 0 ? (
-                  <tr><td colSpan={7} className="empty">No ledger entries yet.</td></tr>
+                {ledgerError ? (
+                  <tr><td colSpan={7} className="empty">Couldn&apos;t load the ledger — refresh the page to try again.</td></tr>
+                ) : !ledger ? (
+                  <tr><td colSpan={7} className="empty">Loading ledger…</td></tr>
+                ) : ledgerEntries.length === 0 ? (
+                  <tr><td colSpan={7} className="empty">{ledgerFromDate || ledgerToDate ? "No ledger entries in this date range." : "No ledger entries yet."}</td></tr>
                 ) : (
-                  // Top-ups are additional disbursements, not repayments —
-                  // merged chronologically alongside l.payments (rather than
-                  // kept in their own separate "Top-Up History" card) so the
-                  // ledger reads as one continuous timeline of every cash
-                  // movement against the loan, sanction through settlement.
-                  [
-                    ...l.payments.map((p) => ({ kind: "payment" as const, date: p.paidOn, sortKey: p.paidOn, row: p })),
-                    ...ledgerTopUps.map((t) => ({ kind: "topup" as const, date: t.occurredOn.slice(0, 10), sortKey: t.occurredOn, row: t })),
-                    // A sale whose net proceeds settled nothing writes no
-                    // Auction Sale payment — still record that it happened.
-                    ...auctions
-                      .filter((a) => !auctionSalePaymentFor(a, l.payments))
-                      .map((a) => ({ kind: "auction-sale" as const, date: auctionSaleDate(a), sortKey: auctionSaleDate(a), row: a })),
-                    ...auctions
-                      .filter((a) => a.surplusPayableAmount > 0.01)
-                      .map((a) => ({ kind: "auction-surplus" as const, date: auctionSurplusDate(a), sortKey: `${auctionSurplusDate(a)}~`, row: a })),
-                  ]
-                    .filter((e) => (!ledgerFromDate || e.date >= ledgerFromDate) && (!ledgerToDate || e.date <= ledgerToDate))
-                    .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
-                    .map((entry) => {
+                  ledgerEntries.map((entry) => {
+                      if (entry.kind === "sanction") {
+                        const part = entry.part;
+                        return (
+                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
+                            <td>{entry.date}</td>
+                            <td>{l.loanNumber}</td>
+                            <td>
+                              Loan Sanctioned
+                              {part && <SplitPartNote part={part} total={l.disbursedAmount} />}
+                              {(!part || part.index === 0) && l.sanctionedAmount !== l.disbursedAmount && (
+                                <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>
+                                  Sanctioned {fmt(l.sanctionedAmount)} · ₹{fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge
+                                </div>
+                              )}
+                            </td>
+                            <td>{modeCellFor(part ? part.mode : entry.payment?.method)}</td>
+                            <td className="num" style={{ color: "var(--red)" }}>{fmt(part ? part.amount : l.disbursedAmount)}</td>
+                            <td className="num">—</td>
+                            <td className="num">{fmt(entry.balance)}</td>
+                          </tr>
+                        );
+                      }
+
                       if (entry.kind === "auction-sale") {
                         const a = entry.row;
                         return (
-                          <tr key={`auction-sale-${a.id}`}>
+                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td>{entry.date}</td>
                             <td>{a.auctionReferenceNumber || "—"}</td>
                             <td>
@@ -1382,7 +1426,7 @@ export function LoanDetail({ id }: { id?: string }) {
                           : a.surplusDisposition === "RecordedAsIncome" ? "Retained as income — no cash paid out"
                           : "Payable to customer — awaiting settlement";
                         return (
-                          <tr key={`auction-surplus-${a.id}`}>
+                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td>{entry.date}</td>
                             <td>{a.auctionReferenceNumber || "—"}</td>
                             <td>
@@ -1399,29 +1443,42 @@ export function LoanDetail({ id }: { id?: string }) {
 
                       if (entry.kind === "topup") {
                         const t = entry.row;
-                        const modeParts = [
-                          t.cashAmount > 0 && `Cash ${fmt(t.cashAmount)}`,
-                          t.upiAmount > 0 && `UPI ${fmt(t.upiAmount)}`,
-                          t.bankTransferAmount > 0 && `Bank Transfer ${fmt(t.bankTransferAmount)}`,
-                          t.chequeAmount > 0 && `Cheque ${fmt(t.chequeAmount)}`,
-                        ].filter(Boolean).join(" · ");
+                        const part = entry.part;
+                        // Each mode links to its own ledger, same as every other row.
+                        const modeParts = part ? [[part.mode, 0] as const] : ([
+                          ["Cash", t.cashAmount],
+                          ["UPI", t.upiAmount],
+                          ["Bank Transfer", t.bankTransferAmount],
+                          ["Cheque", t.chequeAmount],
+                        ] as const).filter(([, v]) => v > 0);
                         return (
-                          <tr key={`topup-${t.id}`}>
+                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td>{entry.date}</td>
                             <td>{t.reference || "—"}</td>
                             <td>
                               Loan Top-Up
-                              <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>Eligible at top-up {fmt(t.eligibleAmountAtTopUp)}</div>
+                              {part && <SplitPartNote part={part} total={t.amount} />}
+                              {(!part || part.index === 0) && (
+                                <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>Eligible at top-up {fmt(t.eligibleAmountAtTopUp)}</div>
+                              )}
                             </td>
-                            <td>{modeParts || "—"}</td>
-                            <td className="num" style={{ color: "var(--red)" }}>{fmt(t.amount)}</td>
+                            <td>
+                              {modeParts.length === 0 ? "—" : modeParts.map(([m, v], i) => (
+                                <Fragment key={m}>{i > 0 && " · "}{modeCellFor(m)}{v > 0 && ` ${fmt(v)}`}</Fragment>
+                              ))}
+                            </td>
+                            <td className="num" style={{ color: "var(--red)" }}>{fmt(part ? part.amount : t.amount)}</td>
                             <td className="num">—</td>
-                            <td className="num">—</td>
+                            <td className="num">{fmt(entry.balance)}</td>
                           </tr>
                         );
                       }
 
                       const p = entry.row;
+                      const part = entry.part;
+                      // The allocation breakdown is the whole payment's —
+                      // shown once, on its first part.
+                      const firstPart = !part || part.index === 0;
                       // Interest/Principal/Partial/Full Settlement/Waiver all
                       // reduce what's owed (credit); an Adjustment can go
                       // either way depending on what it corrected — shown as a
@@ -1440,35 +1497,43 @@ export function LoanDetail({ id }: { id?: string }) {
                         p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
                       ].filter(Boolean).join(" · ");
                       return (
-                        <tr key={p.id}>
+                        <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                           <td>{p.paidOn}</td>
                           <td>{p.reference || "—"}</td>
                           <td>
                             {p.type}
-                            {p.processingFee > 0 && (
+                            {part && <SplitPartNote part={part} total={p.amount} />}
+                            {firstPart && p.processingFee > 0 && (
                               <div style={{ fontSize: "0.85em", color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
                             )}
-                            {p.type === "Auction Sale" && (() => {
-                              const a = auctions.find((x) => auctionSalePaymentFor(x, [p]));
+                            {firstPart && p.type === "Auction Sale" && (() => {
+                              const a = entry.auction;
                               return a ? <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{auctionBreakdown(a)}</div> : null;
                             })()}
-                            {breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
-                            {p.bankId && (
+                            {firstPart && breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
+                            {p.bankId && part?.mode !== "Cash" && (
                               <div style={{ marginTop: 4 }}>
                                 <LedgerRefLink kind="bank" id={p.bankId} label={p.bankName || "Bank"} />
                               </div>
                             )}
                           </td>
-                          <td>{isCash ? p.method || "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
+                          <td>{isCash ? modeCellFor(part?.mode || p.method) : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
                           <td className="num">—</td>
-                          <td className="num" style={{ color: "var(--green)" }}>{fmt(p.amount)}</td>
-                          <td className="num">{fmt(p.runningBalance)}</td>
+                          <td className="num" style={{ color: "var(--green)" }}>{fmt(part ? part.amount : p.amount)}</td>
+                          <td className="num">{fmt(entry.balance)}</td>
                         </tr>
                       );
                     })
                 )}
               </tbody>
             </table></div>
+            {ledgerTotal > LEDGER_PAGE_SIZE && (
+              <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button className="btn plain sm" disabled={ledgerPage <= 1} onClick={() => setLedgerPage(Math.max(1, ledgerPage - 1))}>‹ Prev</button>
+                <span style={{ fontSize: 13 }}>Page {ledgerPage} of {ledgerTotalPages}</span>
+                <button className="btn plain sm" disabled={ledgerPage >= ledgerTotalPages} onClick={() => setLedgerPage(Math.min(ledgerTotalPages, ledgerPage + 1))}>Next ›</button>
+              </div>
+            )}
             {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
             </div>
 

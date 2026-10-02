@@ -102,7 +102,6 @@ func TestLegacyDefaults(t *testing.T) {
 		{FlowAuctionShortfall, []uint{7}},
 		{FlowExpense, nil},
 		{FlowLoanTopUp, nil},
-		{FlowLoanWaiver, []uint{5, 7}},
 		{FlowPersonalLoan, nil},
 	} {
 		f, _ := FindFlow(tc.flow)

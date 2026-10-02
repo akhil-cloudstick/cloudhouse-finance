@@ -6,6 +6,7 @@ import { SheetFlatList } from "../BottomSheetModal";
 import { Buffering, C, EmptyText, Txt, pullRefreshControl } from "./base";
 import { AccGroup, AccRowKey } from "./Rows";
 import { PCONTENT_BOTTOM, tabBarLift } from "../../theme/layout";
+import { loadErrorText } from "../../api/errors";
 
 /** .local-search-input — every page's search box (server `q`). */
 export function SearchInput({
@@ -83,6 +84,7 @@ export function ServerFlatList<T>({
   const { pullRefreshing, onPull } = usePullRefresh(list.isRefreshing, list.refetch);
   const reloading = (list.isLoading && items.length > 0) || pullRefreshing;
   const ListComp = (inSheet ? SheetFlatList : FlatList) as typeof FlatList;
+  const errorText = loadErrorText(list.error);
   return (
     // One row open at a time across the whole list.
     <AccGroup>
@@ -104,8 +106,8 @@ export function ServerFlatList<T>({
       ListEmptyComponent={
         list.isLoading ? (
           <Buffering block />
-        ) : list.error ? (
-          <EmptyText>Couldn't load. Pull down to retry.</EmptyText>
+        ) : errorText ? (
+          <EmptyText>{errorText}</EmptyText>
         ) : (
           <EmptyText>{emptyText}</EmptyText>
         )

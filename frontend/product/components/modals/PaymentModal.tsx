@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, Fragment, useState } from "react";
+import { createPortal } from "react-dom";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
@@ -112,9 +113,9 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
 // e.g. the top-up modal's "pay the interest first" redirect opens this on
 // "Interest". Ignored if it isn't one of ALLOCATION_MODES.
 //
-// Record Payment never posts straight away: it first swaps the form for a
-// confirmation summary (amount, where it lands, how it was paid), and only
-// that view's Confirm Payment actually records it.
+// Record Payment never posts straight away: it first pops a confirmation
+// summary (amount, where it lands, how it was paid) on top of the form, and
+// only that popup's Confirm Payment actually records it.
 export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId, initialMode }: { loan: LoanView; onSaved: () => void; releaseRequestId?: number; initialMode?: string }) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -227,9 +228,14 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   const err = errState.key === figuresKey ? errState.msg : "";
   const setErr = (msg: string) => setErrState({ msg, key: figuresKey });
   const [saving, setSaving] = useState(false);
-  // True while the confirmation summary is showing in place of the form.
-  // The form stays mounted (just hidden) underneath so going Back keeps
-  // everything entered, SplitPaymentInput's own lines included.
+  // Synchronous guard against a double post: `saving` only disables the
+  // button after a re-render, so a fast double-click or a held Enter on the
+  // focused Confirm button could call save() twice before that. "done"
+  // stays set after success — this component outlives closeModal (the
+  // shell only hides it), so nothing may record a second time.
+  const postRef = useRef<"idle" | "posting" | "done">("idle");
+  // True while the confirmation popup is open over the form. The form stays
+  // as-is underneath, so going Back keeps everything entered.
   const [confirming, setConfirming] = useState(false);
 
   // A fee entered here is added to the loan's owed fee BEFORE Amount is
@@ -260,6 +266,8 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     if (discountAmount < 0) { setErr("Discount cannot be negative."); return; }
     if (discountAmount > amount) { setErr("Discount cannot exceed the amount."); return; }
     if (!confirming) { setErr(""); setConfirming(true); return; }
+    if (postRef.current !== "idle") return;
+    postRef.current = "posting";
     setSaving(true);
     try {
       // The receiving employee is derived server-side from the logged-in
@@ -332,10 +340,18 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           interestOverride,
         });
       }
+      // closeModal only hides the shared shell — this component stays
+      // mounted, so the portalled popup has to be dropped explicitly.
+      postRef.current = "done";
+      setConfirming(false);
       onSaved();
       closeModal();
       toast(`Payment of ${fmt(amount)} recorded${processingFee ? ` (incl. ${fmt(processingFee)} processing fee charged)` : ""}`);
     } catch (e) {
+      // A throw after the post succeeded (e.g. from onSaved) must not
+      // re-open the door; only a rejected post allows a corrected retry.
+      if (postRef.current === "done") return;
+      postRef.current = "idle";
       setErr(e instanceof ApiError ? e.message : "Could not record the payment — try again.");
       // Back to the form so the rejected figures can be corrected.
       setConfirming(false);
@@ -384,44 +400,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       {/* `bd-scroll` caps the modal at the viewport and scrolls THIS body
         * instead of the page behind it (see app.css). Select's option list
         * is position:fixed, so the scrolling body can't clip it. */}
-      {confirming && (
-        <div className="bd bd-scroll">
-          <div style={{ textAlign: "center", marginBottom: 16 }}>
-            <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Amount to be paid</div>
-            <div style={{ fontSize: 26, fontWeight: 700 }}>{fmt(previewAmount)}</div>
-            <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{loan.id} · {loan.customerName}</div>
-          </div>
-          <div className="notice" style={{ marginBottom: 4, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 16px", fontSize: 13 }}>
-              {([
-                ["Apply payment to", modeLabel(mode)],
-                ["Payment date", fmtDate(date)],
-                ...paidBy.map(([label, v]) => [`Paid by ${label}`, fmt(v)]),
-                ...(+fee > 0 ? [["Additional charges", fmt(+fee)]] : []),
-                ...(+discount > 0 ? [["Discount", fmt(+discount)]] : []),
-                ...(reference.trim() ? [["Reference", reference.trim()]] : []),
-              ] as [string, string][]).map(([label, value]) => (
-                <Fragment key={label}>
-                  <span>{label}</span>
-                  <b style={{ textAlign: "right" }}>{value}</b>
-                </Fragment>
-              ))}
-            </div>
-          </div>
-          <div className="notice" style={{ marginTop: 12, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-            <div><Icon name="coin" /> Applied as:</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 16px", fontSize: 13 }}>
-              {allocRows.map(([label, value]) => (
-                <Fragment key={label}>
-                  <span>{label}</span>
-                  <b style={{ textAlign: "right" }}>{fmt(value)}</b>
-                </Fragment>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-      <div className="bd bd-scroll" style={confirming ? { display: "none" } : undefined}>
+      <div className="bd bd-scroll">
         <div className="pay-layout">
           <div className="pay-form">
             <div className="pay-sec">
@@ -500,19 +479,67 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           </aside>
         </div>
       </div>
-      {confirming ? (
-        <div className="ft">
-          <button className="btn ghost" onClick={() => setConfirming(false)} disabled={saving}>Back</button>
-          <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Recording…" : "Confirm Payment"}</button>
-        </div>
-      ) : (
-        <div className="ft">
-          {/* Never a silently disabled button: whatever is blocking Review
-            * (or the server's last rejection) is spelled out here. */}
-          <span className="pay-ft-msg">{err || (!splitBalanced && previewAmount > 0 ? `Payment breakdown is ${fmt(Math.abs(remaining))} ${remaining > 0 ? "short of" : "over"} the amount` : "")}</span>
-          <button className="btn ghost" onClick={closeModal}>Cancel</button>
-          <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
-        </div>
+      <div className="ft">
+        {/* Never a silently disabled button: whatever is blocking Review
+          * (or the server's last rejection) is spelled out here. */}
+        <span className="pay-ft-msg">{err || (!splitBalanced && previewAmount > 0 ? `Payment breakdown is ${fmt(Math.abs(remaining))} ${remaining > 0 ? "short of" : "over"} the amount` : "")}</span>
+        <button className="btn ghost" onClick={closeModal}>Cancel</button>
+        <button className="btn" onClick={save} disabled={saving || confirming}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
+      </div>
+      {/* Portalled to <body> so it stacks over the whole Record Payment modal
+        * as its own smaller popup instead of replacing its content. React
+        * events still bubble to the payment modal, so its shared Enter-to-
+        * submit handler sees the focused Confirm button and leaves it alone. */}
+      {confirming && createPortal(
+        <div
+          className="modal-bg open pay-confirm-bg"
+          onClick={(e) => { if (e.target === e.currentTarget && !saving) setConfirming(false); }}
+          onKeyDown={(e) => { if (e.key === "Escape" && !saving) setConfirming(false); }}
+        >
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="hd"><h3>Confirm Payment</h3><button className="x" onClick={() => setConfirming(false)} disabled={saving}>×</button></div>
+            <div className="bd bd-scroll">
+              <div style={{ textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Amount to be paid</div>
+                <div style={{ fontSize: 26, fontWeight: 700 }}>{fmt(previewAmount)}</div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{loan.id} · {loan.customerName}</div>
+              </div>
+              <div className="notice" style={{ marginBottom: 4, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 16px", fontSize: 13 }}>
+                  {([
+                    ["Apply payment to", modeLabel(mode)],
+                    ["Payment date", fmtDate(date)],
+                    ...paidBy.map(([label, v]) => [`Paid by ${label}`, fmt(v)]),
+                    ...(+fee > 0 ? [["Additional charges", fmt(+fee)]] : []),
+                    ...(+discount > 0 ? [["Discount", fmt(+discount)]] : []),
+                    ...(reference.trim() ? [["Reference", reference.trim()]] : []),
+                  ] as [string, string][]).map(([label, value]) => (
+                    <Fragment key={label}>
+                      <span>{label}</span>
+                      <b style={{ textAlign: "right" }}>{value}</b>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+              <div className="notice" style={{ marginTop: 12, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+                <div><Icon name="coin" /> Applied as:</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 16px", fontSize: 13 }}>
+                  {allocRows.map(([label, value]) => (
+                    <Fragment key={label}>
+                      <span>{label}</span>
+                      <b style={{ textAlign: "right" }}>{fmt(value)}</b>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="ft">
+              <button className="btn ghost" onClick={() => setConfirming(false)} disabled={saving}>Back</button>
+              <button className="btn" onClick={save} disabled={saving} autoFocus><Icon name="check" /> {saving ? "Recording…" : "Confirm Payment"}</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </>
   );

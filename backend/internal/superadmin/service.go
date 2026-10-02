@@ -215,7 +215,13 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 		t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
 		t.AppURL = strings.TrimSpace(in.AppURL)
 		t.SetModules(in.Modules)
-		t.SingleBranch = in.SingleBranch
+		// Single-branch mode follows the plan, not a separate switch — see
+		// singleBranchFor.
+		var tier tenant.Tier
+		if err := tx.First(&tier, in.TierID).Error; err != nil {
+			return ErrTierNotFound
+		}
+		t.SingleBranch = singleBranchFor(tier)
 		// Policy before languages: SetLanguages filters against the policy on
 		// the tenant, so the order here is what makes that filter see the
 		// new business's own family rather than the zero value.
@@ -226,10 +232,6 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 				return ErrDuplicateCode
 			}
 			return err
-		}
-		var tier tenant.Tier
-		if err := tx.First(&tier, in.TierID).Error; err != nil {
-			return ErrTierNotFound
 		}
 
 		// From here, every write is stamped tenant_id = t.ID by the
@@ -267,6 +269,22 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 		// this is a loop of single-row upserts rather than a batch insert.
 		if _, err := txAuthzRepo.GrantAllToRole(newCtx, adminRoleID); err != nil {
 			return fmt.Errorf("granting the new Administrator role full access: %w", err)
+		}
+		// "No grants" is written as explicit deny rows, not as no rows: the
+		// Roles & Permissions screen lists a role's rows, so a role with none
+		// showed an empty page with nothing to switch on — and the next boot's
+		// BackfillGrants would have filled the gap with grant-everything.
+		for _, roleName := range authz.StaffRoles {
+			if roleName == adminRoleName {
+				continue
+			}
+			roleID, err := txAuthzRepo.RoleIDByName(newCtx, roleName)
+			if err != nil {
+				return fmt.Errorf("looking up the new %s role: %w", roleName, err)
+			}
+			if _, err := txAuthzRepo.SetEveryGrant(newCtx, roleID, false); err != nil {
+				return fmt.Errorf("seeding the new %s role's permissions: %w", roleName, err)
+			}
 		}
 
 		// Not wrapped in tenant.Repository.ReserveBranchSlot: this is the
@@ -387,7 +405,24 @@ func (s *Service) ChangeTier(ctx context.Context, actor *SuperAdminUser, id, new
 		return nil, ErrBusinessNotFound
 	}
 	beforeTier := t.Tier.Name
+	newTier, err := s.tenantRepo.FindTierByID(ctx, newTierID)
+	if err != nil {
+		return nil, ErrTierNotFound
+	}
 	t.TierID = newTierID
+	single := singleBranchFor(*newTier)
+	if single && !t.SingleBranch {
+		// A downgrade never removes branches (the plan's own rule): a business
+		// still running more than one stays multi-branch, merely over its
+		// limit, rather than having every picker locked to Head Office while
+		// its other branches still hold loans.
+		active, err := s.tenantRepo.CountActiveBranches(platform.AllowCrossTenant(ctx), t.ID)
+		if err != nil {
+			return nil, err
+		}
+		single = active <= 1
+	}
+	t.SingleBranch = single
 	if err := s.tenantRepo.Update(ctx, t); err != nil {
 		return nil, err
 	}

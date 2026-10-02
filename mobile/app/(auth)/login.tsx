@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Alert, BackHandler, Keyboard, StyleSheet, View } from "react-native";
+import { BackHandler, Keyboard, StyleSheet, View } from "react-native";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ApiError } from "../../src/api/client";
 import { getBusinessCode, isValidBusinessCode, normalizeBusinessCode } from "../../src/auth/businessCode";
@@ -7,6 +7,7 @@ import { forgotPassword, resetPassword } from "../../src/api/auth";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import { ThemedText } from "../../src/components/ThemedText";
 import { Icon } from "../../src/components/Icon";
+import { ConfirmSheet } from "../../src/components/ui";
 import {
   AuthShell,
   AuthField,
@@ -36,7 +37,10 @@ import {
 // popped by hardware Back or by the "Back to sign in" / "Use a different
 // number" links. Nothing here can flash, because nothing is
 // ever un/remounted or handed to a native screen transition to swap.
-type Phase = "login" | "forgot" | "reset";
+// Resetting is two steps of its own — the SMS code ("otp"), then the new
+// password ("reset") — sent to the server together on the last one (there
+// is no separate verify-code call).
+type Phase = "login" | "forgot" | "otp" | "reset";
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
@@ -84,12 +88,9 @@ export default function LoginScreen() {
   const { businessCode, exitBusiness } = useAuth();
   const { businessName } = useTheme();
 
-  function confirmExitBusiness() {
-    Alert.alert("Exit business?", `You'll need to scan ${businessName}'s QR code again to sign in.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Exit business", style: "destructive", onPress: () => exitBusiness() },
-    ]);
-  }
+  // Confirmed in the app's own sheet — a native Alert showed Android's
+  // stock dialog here.
+  const [confirmExit, setConfirmExit] = useState(false);
 
   async function handleSignIn() {
     Keyboard.dismiss();
@@ -149,10 +150,6 @@ export default function LoginScreen() {
   async function handleResetPassword() {
     Keyboard.dismiss();
     setResetError(null);
-    if (!otp.trim()) {
-      setResetError("Please enter the code sent by SMS.");
-      return;
-    }
     if (newPassword.length < 8) {
       setResetError("Password must be at least 8 characters.");
       return;
@@ -179,10 +176,29 @@ export default function LoginScreen() {
     }
   }
 
+  if (phase === "otp") {
+    return (
+      <AuthShell eyebrow="Verify" title={"Enter the\ncode."} subtitle={`Enter the 6-digit code sent to ${phone.trim()}.`}>
+        <OtpInput value={otp} onChange={setOtp} />
+        <View style={styles.spacer} />
+        <KeyboardAnchor>
+          <AuthButton
+            title="Continue"
+            onPress={() => {
+              setResetError(null);
+              push("reset");
+            }}
+            disabled={otp.length < 6}
+          />
+        </KeyboardAnchor>
+        <AuthLink label="Back to sign in" onPress={goLogin} />
+      </AuthShell>
+    );
+  }
+
   if (phase === "reset") {
     return (
-      <AuthShell compact eyebrow="Verify & reset" title={"Set a new\npassword."} subtitle={`Enter the 6-digit code sent to ${phone.trim()}.`}>
-        <OtpInput value={otp} onChange={setOtp} />
+      <AuthShell eyebrow="Reset password" title={"Set a new\npassword."} subtitle="Choose a password with at least 8 characters.">
         <AuthField
           label="New password"
           icon="lock"
@@ -208,11 +224,12 @@ export default function LoginScreen() {
           <AuthButton
             title="Set new password"
             onPress={handleResetPassword}
-            disabled={!otp || !newPassword || !confirmPassword}
+            disabled={!newPassword || !confirmPassword}
             loading={resetting}
           />
         </KeyboardAnchor>
-        <AuthLink label="Back to sign in" onPress={goLogin} />
+        {/* A rejected reset is almost always a mistyped or expired code. */}
+        <AuthLink label={resetError ? "Re-enter the code" : "Back to sign in"} onPress={resetError ? pop : goLogin} />
       </AuthShell>
     );
   }
@@ -234,7 +251,7 @@ export default function LoginScreen() {
             </ThemedText>
           </View>
           <KeyboardAnchor>
-            <AuthButton title="Enter the code" onPress={() => push("reset")} />
+            <AuthButton title="Enter the code" onPress={() => push("otp")} />
           </KeyboardAnchor>
           <AuthLink label="Use a different number" onPress={() => setSent(false)} />
         </AuthShell>
@@ -293,9 +310,22 @@ export default function LoginScreen() {
         <AuthButton title="Sign in" onPress={handleSignIn} disabled={!identifier || !password} loading={loading} />
       </KeyboardAnchor>
 
-      <AuthLink label="Exit business" onPress={confirmExitBusiness} />
+      <AuthLink label="Exit business" onPress={() => setConfirmExit(true)} />
 
       <SecureNote />
+
+      <ConfirmSheet
+        visible={confirmExit}
+        onClose={() => setConfirmExit(false)}
+        title="Exit business?"
+        message={`You'll need to scan ${businessName}'s QR code (or enter its business code) again to sign in.`}
+        confirmLabel="Exit business"
+        danger
+        onConfirm={() => {
+          setConfirmExit(false);
+          exitBusiness();
+        }}
+      />
     </AuthShell>
   );
 }

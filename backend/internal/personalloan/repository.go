@@ -50,6 +50,20 @@ func (r *Repository) FindByID(ctx context.Context, id uint, branchID *uint) (*Pe
 	return &rec, nil
 }
 
+// FindIDByNumber resolves a loan number ("PL-00003") to its ID, branch-scoped
+// like FindByID — lets a ledger reference link straight to the loan.
+func (r *Repository) FindIDByNumber(ctx context.Context, number string, branchID *uint) (uint, error) {
+	var rec PersonalLoan
+	q := r.db.WithContext(ctx).Select("id").Where("loan_number = ?", number)
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	if err := q.First(&rec).Error; err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
 // LockByID is FindByID's row-locking counterpart, used by RecordPayment and
 // RenewLoan to serialize concurrent writers against the same loan. Must be
 // called within tx (a db.Transaction).

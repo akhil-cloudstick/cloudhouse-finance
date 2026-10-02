@@ -74,6 +74,122 @@ var ledgerNonCashPaymentTypes = map[string]bool{
 	"Renewal Rollover":  true,
 }
 
+// ledgerDisbursementPaymentType is loan.PaymentTypeDisbursement — the loan's
+// own ledger row mirroring its principal payout. Its money already reaches
+// these ledgers as the disbursement's cash-out CashMovement rows (one per
+// mode, Source ""), so the LoanPayment copy is skipped here: it would show
+// the same rupees a second time, and as a credit when they went out.
+const ledgerDisbursementPaymentType = "Disbursement"
+
+// splitParts is a payment's per-mode breakdown (LoanPayment/
+// PersonalLoanPayment's CashAmount/UpiAmount/BankTransferAmount/
+// ChequeAmount), in the fixed Cash → UPI → Bank Transfer → Cheque order.
+type splitParts struct {
+	Cash, Upi, BankTransfer, Cheque float64
+}
+
+func (s splitParts) components() []splitComponent {
+	var out []splitComponent
+	for _, c := range []splitComponent{
+		{CashModeCash, s.Cash},
+		{CashModeUPI, s.Upi},
+		{CashModeBankTransfer, s.BankTransfer},
+		{CashModeCheque, s.Cheque},
+	} {
+		if c.amount > 0 {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// splitModeColumn maps a payment mode to its per-mode amount column on
+// loan_payments/personal_loan_payments — "" for a mode with none.
+func splitModeColumn(mode string) string {
+	switch mode {
+	case CashModeCash:
+		return "cash_amount"
+	case CashModeUPI:
+		return "upi_amount"
+	case CashModeBankTransfer:
+		return "bank_transfer_amount"
+	case CashModeCheque:
+		return "cheque_amount"
+	}
+	return ""
+}
+
+// modePaymentFilter is the loan_payments/personal_loan_payments WHERE clause
+// (one "?" for mode) for a payment-mode ledger: a payment made wholly in mode,
+// or a split one with a share in it — whose Method is "Split"
+// (platform.DeriveMethod), so matching on Method alone would leave it out of
+// every mode's ledger. The column name comes from splitModeColumn's fixed
+// set, never from the caller.
+func modePaymentFilter(mode string) string {
+	col := splitModeColumn(mode)
+	if col == "" {
+		return "p.method = ?"
+	}
+	return "(p.method = ? OR (p.method = 'Split' AND p." + col + " > 0))"
+}
+
+// expandSplitPayment turns a payment received across several modes into one
+// ledger row per mode (Method = that mode, Amount = its share), the same
+// "one row per mode" shape the payment's own CashMovement rows have. A
+// single-mode (or legacy, no breakdown) payment comes back unchanged as one
+// row. Each part's RunningBalance is the balance after that part — the
+// payment's recorded balance plus whatever later parts still had to come
+// off — so the last part lands on the payment's own figure. The Cash part
+// carries no bank: only the UPI/Bank Transfer/Cheque share went to BankID.
+func expandSplitPayment(r ledgerSourceRow, parts splitParts) []ledgerSourceRow {
+	comps := parts.components()
+	if len(comps) < 2 {
+		return []ledgerSourceRow{r}
+	}
+	out := make([]ledgerSourceRow, len(comps))
+	later := 0.0
+	for i := len(comps) - 1; i >= 0; i-- {
+		p := r
+		p.Method = comps[i].mode
+		p.Amount = comps[i].amount
+		p.RunningBalance = r.RunningBalance + later
+		if comps[i].mode == CashModeCash {
+			p.BankID = nil
+			p.BankName = ""
+		}
+		later += comps[i].amount
+		out[i] = p
+	}
+	return out
+}
+
+// onlyMode keeps the rows whose Method is mode — used after
+// expandSplitPayment where a query matched a split payment by one of its
+// parts but should list only that part.
+func onlyMode(rows []ledgerSourceRow, mode string) []ledgerSourceRow {
+	out := rows[:0]
+	for _, r := range rows {
+		if r.Method == mode {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// withoutCashParts drops the Cash share of split payments from a bank's
+// ledger — that share never went through the bank, even though the payment
+// row carries the BankID its UPI/Bank Transfer/Cheque share used.
+func withoutCashParts(rows []ledgerSourceRow) []ledgerSourceRow {
+	out := rows[:0]
+	for _, r := range rows {
+		if (r.Kind == "loan_payment" || r.Kind == "personal_loan_payment") && r.Method == CashModeCash && r.BankID == nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // bankLedgerQuery/customerLedgerQuery build the four component queries (one
 // per source table) that make up the combined ledger — factored out so
 // ListCombinedLedgerByBank/ByCustomer only differ in which WHERE clause and
@@ -109,13 +225,13 @@ func (r *MovementRepository) combinedLedgerByBank(ctx context.Context, bankID ui
 	if err != nil {
 		return nil, err
 	}
-	rows = append(rows, lpRows...)
+	rows = append(rows, withoutCashParts(lpRows)...)
 
 	plpRows, err := scanPersonalLoanPaymentsForLedger(db, "p.bank_id = ?", bankID, fromDate, toDate)
 	if err != nil {
 		return nil, err
 	}
-	rows = append(rows, plpRows...)
+	rows = append(rows, withoutCashParts(plpRows)...)
 
 	gsRows, err := scanGoldSalesForLedger(db, "bank_id = ?", bankID, fromDate, toDate)
 	if err != nil {
@@ -230,7 +346,7 @@ func scanCashMovementsForLedger(db *gorm.DB, whereCol string, whereArg uint, fro
 // purposeRefRe matches the "… — LN-00049" / "… — INV-00003" suffix every
 // loan/investment movement's Purpose carries (see RecordLoan*/
 // RecordInvestment*/RecordAuction*), which has no dedicated column.
-var purposeRefRe = regexp.MustCompile(`—\s*((?:LN|INV)-\S+)\s*$`)
+var purposeRefRe = regexp.MustCompile(`—\s*((?:LN|PL|INV)-\S+)\s*$`)
 
 // refOrPurpose returns loanNumber (a loan-sourced Add Cash entry's linked
 // loan) when set, else the loan/investment number pulled back out of
@@ -245,27 +361,42 @@ func refOrPurpose(loanNumber, purpose string) string {
 	return ""
 }
 
+// personalLoanRef is a personal-loan payment row's Ref No: the loan's own
+// number ("PL-00003"), falling back to the payment's UTR/cheque reference
+// only for a row whose loan number is somehow blank.
+func personalLoanRef(loanNumber, reference string) string {
+	if loanNumber != "" {
+		return loanNumber
+	}
+	return reference
+}
+
 // scanLoanPaymentsForLedger reads loan_payments (joined to loans/customers)
 // matching whereCol/whereArg — either "p.bank_id = ?"/bankID (bank ledger) or
 // "l.customer_id = ?"/customerID (customer ledger). whereCol is always one of
 // those two fixed literals (never caller/user-supplied).
 func scanLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
-		ID             uint
-		PaidOn         time.Time
-		Description    string
-		Type           string
-		Method         string
-		Reference      string
-		Amount         float64
-		RunningBalance float64
-		BankID         *uint
-		BankName       string
-		CustomerID     uint
-		CustomerName   string
+		ID                 uint
+		PaidOn             time.Time
+		Description        string
+		Type               string
+		Method             string
+		Reference          string
+		Amount             float64
+		RunningBalance     float64
+		BankID             *uint
+		BankName           string
+		CustomerID         uint
+		CustomerName       string
+		CashAmount         float64
+		UpiAmount          float64
+		BankTransferAmount float64
+		ChequeAmount       float64
 	}
 	q := db.Table("loan_payments p").
 		Select(`p.id, p.paid_on, p.description, p.type, p.method, p.reference, p.amount, p.running_balance,
+			p.cash_amount, p.upi_amount, p.bank_transfer_amount, p.cheque_amount,
 			p.bank_id, bk.name as bank_name, l.customer_id, c.name as customer_name`).
 		Joins("LEFT JOIN loans l ON l.id = p.loan_id").
 		Joins("LEFT JOIN customers c ON c.id = l.customer_id").
@@ -283,10 +414,10 @@ func scanLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg uint, from
 	}
 	out := make([]ledgerSourceRow, 0, len(raw))
 	for _, p := range raw {
-		if ledgerNonCashPaymentTypes[p.Type] {
+		if ledgerNonCashPaymentTypes[p.Type] || p.Type == ledgerDisbursementPaymentType {
 			continue
 		}
-		out = append(out, ledgerSourceRow{
+		out = append(out, expandSplitPayment(ledgerSourceRow{
 			Kind:           "loan_payment",
 			ID:             p.ID,
 			Date:           p.PaidOn,
@@ -300,7 +431,7 @@ func scanLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg uint, from
 			BankName:       p.BankName,
 			CustomerID:     p.CustomerID,
 			CustomerName:   p.CustomerName,
-		})
+		}, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount})...)
 	}
 	return out, nil
 }
@@ -311,21 +442,27 @@ func scanLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg uint, from
 // ledger) — never caller/user-supplied.
 func scanPersonalLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
-		ID             uint
-		PaidOn         time.Time
-		Description    string
-		Method         string
-		Reference      string
-		Amount         float64
-		RunningBalance float64
-		BankID         *uint
-		BankName       string
-		CustomerID     uint
-		CustomerName   string
+		ID                 uint
+		PaidOn             time.Time
+		Description        string
+		Method             string
+		Reference          string
+		Amount             float64
+		RunningBalance     float64
+		BankID             *uint
+		BankName           string
+		CustomerID         uint
+		CustomerName       string
+		CashAmount         float64
+		UpiAmount          float64
+		BankTransferAmount float64
+		ChequeAmount       float64
+		LoanNumber         string
 	}
 	q := db.Table("personal_loan_payments p").
 		Select(`p.id, p.paid_on, p.description, p.method, p.reference, p.amount, p.running_balance,
-			p.bank_id, bk.name as bank_name, pl.customer_id, c.name as customer_name`).
+			p.cash_amount, p.upi_amount, p.bank_transfer_amount, p.cheque_amount,
+			p.bank_id, bk.name as bank_name, pl.customer_id, c.name as customer_name, pl.loan_number`).
 		Joins("LEFT JOIN personal_loans pl ON pl.id = p.personal_loan_id").
 		Joins("LEFT JOIN customers c ON c.id = pl.customer_id").
 		Joins("LEFT JOIN banks bk ON bk.id = p.bank_id").
@@ -345,21 +482,21 @@ func scanPersonalLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg ui
 		if ledgerNonCashPaymentTypes[p.Method] {
 			continue
 		}
-		out = append(out, ledgerSourceRow{
+		out = append(out, expandSplitPayment(ledgerSourceRow{
 			Kind:           "personal_loan_payment",
 			ID:             p.ID,
 			Date:           p.PaidOn,
 			Description:    p.Description,
 			Type:           "Collection",
 			Method:         p.Method,
-			Reference:      p.Reference,
+			Reference:      personalLoanRef(p.LoanNumber, p.Reference),
 			Amount:         p.Amount,
 			RunningBalance: p.RunningBalance,
 			BankID:         p.BankID,
 			BankName:       p.BankName,
 			CustomerID:     p.CustomerID,
 			CustomerName:   p.CustomerName,
-		})
+		}, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount})...)
 	}
 	return out, nil
 }
@@ -671,27 +808,32 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankID *uint, bran
 
 func scanLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
-		ID             uint
-		PaidOn         time.Time
-		Description    string
-		Type           string
-		Method         string
-		Reference      string
-		Amount         float64
-		RunningBalance float64
-		BankID         *uint
-		BankName       string
-		CustomerID     uint
-		CustomerName   string
-		LoanNumber     string
+		ID                 uint
+		PaidOn             time.Time
+		Description        string
+		Type               string
+		Method             string
+		Reference          string
+		Amount             float64
+		RunningBalance     float64
+		BankID             *uint
+		BankName           string
+		CustomerID         uint
+		CustomerName       string
+		CashAmount         float64
+		UpiAmount          float64
+		BankTransferAmount float64
+		ChequeAmount       float64
+		LoanNumber         string
 	}
 	q := db.Table("loan_payments p").
 		Select(`p.id, p.paid_on, p.description, p.type, p.method, p.reference, p.amount, p.running_balance,
+			p.cash_amount, p.upi_amount, p.bank_transfer_amount, p.cheque_amount,
 			p.bank_id, bk.name as bank_name, l.customer_id, c.name as customer_name, l.loan_number`).
 		Joins("LEFT JOIN loans l ON l.id = p.loan_id").
 		Joins("LEFT JOIN customers c ON c.id = l.customer_id").
 		Joins("LEFT JOIN banks bk ON bk.id = p.bank_id").
-		Where("p.method = ?", mode)
+		Where(modePaymentFilter(mode), mode)
 	if bankID != nil {
 		q = q.Where("p.bank_id = ?", *bankID)
 	}
@@ -708,14 +850,14 @@ func scanLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branc
 	}
 	out := make([]ledgerSourceRow, 0, len(raw))
 	for _, p := range raw {
-		if ledgerNonCashPaymentTypes[p.Type] {
+		if ledgerNonCashPaymentTypes[p.Type] || p.Type == ledgerDisbursementPaymentType {
 			continue
 		}
 		reference := p.Reference
 		if reference == "" {
 			reference = p.LoanNumber
 		}
-		out = append(out, ledgerSourceRow{
+		out = append(out, expandSplitPayment(ledgerSourceRow{
 			Kind:           "loan_payment",
 			ID:             p.ID,
 			Date:           p.PaidOn,
@@ -729,33 +871,38 @@ func scanLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branc
 			BankName:       p.BankName,
 			CustomerID:     p.CustomerID,
 			CustomerName:   p.CustomerName,
-		})
+		}, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount})...)
 	}
-	return out, nil
+	return onlyMode(out, mode), nil
 }
 
 func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
-		ID             uint
-		PaidOn         time.Time
-		Description    string
-		Method         string
-		Reference      string
-		Amount         float64
-		RunningBalance float64
-		BankID         *uint
-		BankName       string
-		CustomerID     uint
-		CustomerName   string
-		LoanNumber     string
+		ID                 uint
+		PaidOn             time.Time
+		Description        string
+		Method             string
+		Reference          string
+		Amount             float64
+		RunningBalance     float64
+		BankID             *uint
+		BankName           string
+		CustomerID         uint
+		CustomerName       string
+		CashAmount         float64
+		UpiAmount          float64
+		BankTransferAmount float64
+		ChequeAmount       float64
+		LoanNumber         string
 	}
 	q := db.Table("personal_loan_payments p").
 		Select(`p.id, p.paid_on, p.description, p.method, p.reference, p.amount, p.running_balance,
+			p.cash_amount, p.upi_amount, p.bank_transfer_amount, p.cheque_amount,
 			p.bank_id, bk.name as bank_name, pl.customer_id, c.name as customer_name, pl.loan_number`).
 		Joins("LEFT JOIN personal_loans pl ON pl.id = p.personal_loan_id").
 		Joins("LEFT JOIN customers c ON c.id = pl.customer_id").
 		Joins("LEFT JOIN banks bk ON bk.id = p.bank_id").
-		Where("p.method = ?", mode)
+		Where(modePaymentFilter(mode), mode)
 	if bankID != nil {
 		q = q.Where("p.bank_id = ?", *bankID)
 	}
@@ -775,27 +922,23 @@ func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uin
 		if ledgerNonCashPaymentTypes[p.Method] {
 			continue
 		}
-		reference := p.Reference
-		if reference == "" {
-			reference = p.LoanNumber
-		}
-		out = append(out, ledgerSourceRow{
+		out = append(out, expandSplitPayment(ledgerSourceRow{
 			Kind:           "personal_loan_payment",
 			ID:             p.ID,
 			Date:           p.PaidOn,
 			Description:    p.Description,
 			Type:           "Collection",
 			Method:         p.Method,
-			Reference:      reference,
+			Reference:      personalLoanRef(p.LoanNumber, p.Reference),
 			Amount:         p.Amount,
 			BankID:         p.BankID,
 			BankName:       p.BankName,
 			RunningBalance: p.RunningBalance,
 			CustomerID:     p.CustomerID,
 			CustomerName:   p.CustomerName,
-		})
+		}, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount})...)
 	}
-	return out, nil
+	return onlyMode(out, mode), nil
 }
 
 func scanGoldSalesForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
@@ -912,37 +1055,20 @@ func (r *MovementRepository) expenseLedgerByCategory(ctx context.Context, catego
 // ListLoanSourceLedger is a loan source's own ledger — backs GET
 // /cash-sources/:id/ledger and, for a loan source's same-named category, GET
 // /expense-categories/:id/ledger. Unlike the other ledgers it reads oldest
-// first with a real running balance: an opening row for the principal, each
-// Add Cash drawn from the loan as a debit (balance down) and each approved
-// repayment expense as a credit (balance back up, never above principal —
-// see MovementService.EnsureLoanRepayment). BankName is the "from" bank:
-// the lending bank for a draw, the paying account for a repayment. The
-// balance always runs over the whole loan; fromDate/toDate only narrow
-// which rows are returned.
+// first with a real running balance — what is owed on the loan: each Add
+// Cash drawn from it is a credit (balance up — a loan drawn in full stands
+// at its principal) and each approved repayment expense a debit (balance
+// down, never below zero — see MovementService.EnsureLoanRepayment).
+// BankName is the "from" bank: the lending bank for a draw, the paying
+// account for a repayment. The balance always runs over the whole loan;
+// fromDate/toDate only narrow which rows are returned.
 func (s *MovementService) ListLoanSourceLedger(ctx context.Context, src *CashSource, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	rows, err := s.repo.loanSourceLedgerRows(ctx, src)
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
-	principal := 0.0
-	if src.PrincipalAmount != nil {
-		principal = *src.PrincipalAmount
-	}
-	opened := src.CreatedAt
-	if src.LoanOpenedAt != nil {
-		opened = *src.LoanOpenedAt
-	}
-	bankName := ""
-	if src.Bank != nil {
-		bankName = src.Bank.Name
-	}
-	all := make([]LedgerRow, 0, len(rows)+1)
-	all = append(all, LedgerRow{
-		Date: opened, Description: "Opening — loan principal", Type: src.Name,
-		Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: principal,
-		RunningBalance: principal, BankID: src.BankID, BankName: bankName,
-	})
-	balance := principal
+	all := make([]LedgerRow, 0, len(rows))
+	balance := 0.0
 	for _, r := range rows {
 		if r.DebitOrCredit == "debit" {
 			balance -= r.Amount
@@ -1044,7 +1170,7 @@ func (r *MovementRepository) loanSourceLedgerRows(ctx context.Context, src *Cash
 		}
 		merged = append(merged, keyed{created: d.CreatedAt, row: LedgerRow{
 			ID: d.ID, Date: d.OccurredOn, Description: desc, Type: src.Name, Method: d.Mode,
-			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: d.Amount,
+			Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: d.Amount,
 			BankID: src.BankID, BankName: lendingBank,
 		}})
 	}
@@ -1055,7 +1181,7 @@ func (r *MovementRepository) loanSourceLedgerRows(ctx context.Context, src *Cash
 		}
 		merged = append(merged, keyed{created: e.CreatedAt, row: LedgerRow{
 			ID: e.ID, Date: e.OccurredOn, Description: desc, Type: src.Name, Method: e.Mode,
-			Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: e.Amount,
+			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: e.Amount,
 			BankID: e.FromBankID, BankName: e.FromBank,
 		}})
 	}

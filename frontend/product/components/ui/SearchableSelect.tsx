@@ -417,6 +417,9 @@ export function SearchableSelect<T>({
     setCreating(true);
     try {
       const created = await onCreate(query.trim());
+      // The loaded list predates the new row — forget it, so the next open
+      // refetches instead of reusing a list the created item is missing from.
+      loadedForRef.current = null;
       onChange(getId(created), created);
       setQuery(getLabel(created));
       setOpen(false);

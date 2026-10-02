@@ -25,10 +25,12 @@ type Service struct {
 	tenants    *tenant.Repository
 	files      *upload.Repository
 	uploadsDir string
+	// connect holds the short-lived mobile connect codes (see connect.go).
+	connect *connectStore
 }
 
 func NewService(tenants *tenant.Repository, files *upload.Repository, uploadsDir string) *Service {
-	return &Service{tenants: tenants, files: files, uploadsDir: uploadsDir}
+	return &Service{tenants: tenants, files: files, uploadsDir: uploadsDir, connect: newConnectStore()}
 }
 
 // PublicByCode answers the login page. It NEVER returns an error for an
