@@ -30,7 +30,7 @@ because this host's CSF firewall allowlists app subnets by IP — see
    bound to the host**, on `127.0.0.1:6789` — matches the CloudStick panel's
    nginx vhost for this app (`/etc/nginx-cs/vhosts.d/gold-app-demo.d/proxy.conf`,
    lives on the host, not in this repo) which proxies
-   `golddemo.cloudhousesupport.site` → `http://127.0.0.1:6789`.
+   `golddemo.cloudhousefinance.com` → `http://127.0.0.1:6789`.
 
 ## Dockerfiles
 
@@ -48,7 +48,7 @@ because this host's CSF firewall allowlists app subnets by IP — see
 - **`.env`** (repo root, next to `docker-compose.yml`) — the real secrets
   file used by `golddemo_migrate` and `golddemo_backend` via `env_file:`.
   Contains live DB credentials, JWT secret, encryption keys,
-  `FRONTEND_ORIGIN=https://golddemo.cloudhousesupport.site`, `PORT=6789`,
+  `FRONTEND_ORIGIN=https://golddemo.cloudhousefinance.com`, `PORT=6789`,
   `SUPERADMIN_PASSWORD`, and blank third-party API keys (Twilio/Setu/
   Cashfree/Razorpay). **Not shown here or copied to other branches** — it
   holds live secrets. If missing on a target branch/environment, recreate it
@@ -77,7 +77,7 @@ services). `golddemo_backend` is the only one that stays running.
 ## Things that live outside this repo (won't come with a branch switch)
 
 - The nginx vhost config: `/etc/nginx-cs/vhosts.d/gold-app-demo.d/proxy.conf`
-  on the host, proxying `golddemo.cloudhousesupport.site` → `127.0.0.1:6789`.
+  on the host, proxying `golddemo.cloudhousefinance.com` → `127.0.0.1:6789`.
 - The CSF firewall allowlist entry for the `172.31.0.0/16` subnet in
   `/etc/csf/csfpost.sh`.
 - The actual `.env` secrets file.

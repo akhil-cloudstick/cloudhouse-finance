@@ -6,9 +6,8 @@
   "build": {
     "base": {
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://golddemo.cloudhousesupport.site/api/v1",
-        "EXPO_PUBLIC_ENABLE_PLAN_UPGRADE": "false",
-        "EXPO_PUBLIC_BILLING_PLANS": ""
+        "EXPO_PUBLIC_API_BASE_URL": "https://golddemo.cloudhousefinance.com/api/v1",
+        "EXPO_PUBLIC_DEFAULT_BUSINESS_CODE": "default"
       }
     },
     "development": {

@@ -41,12 +41,12 @@ func NormalizeHost(v string) string {
 }
 
 // BaseDomain is the platform's shared domain that each business is given a
-// subdomain of (e.g. "ambika" -> ambika.cloudhousesupport.site). Set once at
+// subdomain of (e.g. "ambika" -> ambika.cloudhousefinance.com). Set once at
 // boot from platform.Config.BaseDomain (see SetBaseDomain) — a package
 // variable rather than a parameter threaded through every caller, since
 // SubdomainLabel is called from request-handling code that has no config
 // object of its own to carry it in.
-var BaseDomain = "cloudhousesupport.site"
+var BaseDomain = "cloudhousefinance.com"
 
 // SetBaseDomain overrides BaseDomain from the resolved app config. A blank
 // value is ignored, so BaseDomain always resolves to something usable.
@@ -69,11 +69,11 @@ var ReservedHostLabels = map[string]bool{
 }
 
 // SubdomainLabel reads a tenant code off a single-level subdomain of
-// BaseDomain: "ambika.cloudhousesupport.site" -> ("ambika", true).
+// BaseDomain: "ambika.cloudhousefinance.com" -> ("ambika", true).
 //
 // Returns ok=false when host does not end in "."+BaseDomain, when there is
 // more than one label in front of BaseDomain (e.g.
-// "a.b.cloudhousesupport.site" — not a single-level subdomain), or when the
+// "a.b.cloudhousefinance.com" — not a single-level subdomain), or when the
 // label is reserved (see ReservedHostLabels). Like FindByAppURL below, this
 // only ever NARROWS or REFUSES which business a request names — it is never
 // authorization.

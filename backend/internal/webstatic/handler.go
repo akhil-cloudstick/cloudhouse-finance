@@ -267,7 +267,7 @@ func isFile(p string) bool {
 }
 
 // isSuperAdminHost reports whether host IS the platform's own reserved
-// superadmin subdomain (e.g. "superadmin.cloudhousesupport.site").
+// superadmin subdomain (e.g. "superadmin.cloudhousefinance.com").
 //
 // tenant.SubdomainLabel cannot answer this: it deliberately returns ok=false
 // for every RESERVED label — "superadmin" included, see

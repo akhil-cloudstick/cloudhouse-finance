@@ -18,7 +18,7 @@ func TestNormalizeHost(t *testing.T) {
 		{"https://example.com", "example.com"},
 		{"https://Example.com/", "example.com"},
 		{"http://example.com:8080/app", "example.com"},
-		{"https://ambika.cloudhousesupport.site/login", "ambika.cloudhousesupport.site"},
+		{"https://ambika.cloudhousefinance.com/login", "ambika.cloudhousefinance.com"},
 		{"localhost:3000", "localhost"},
 		// An AppURL stored with a path must still match a bare Host header.
 		{"https://example.com/tenant/ambika", "example.com"},

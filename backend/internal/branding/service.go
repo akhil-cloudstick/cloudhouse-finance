@@ -49,7 +49,7 @@ func (s *Service) PublicByCode(ctx context.Context, code string) Public {
 
 // PublicByHost answers the login page when it is reached at a business's own
 // subdomain rather than a slugged /:code path — e.g.
-// https://ambika.cloudhousesupport.site. Mirrors PublicByCode exactly,
+// https://ambika.cloudhousefinance.com. Mirrors PublicByCode exactly,
 // including never returning an error for an unresolvable host (see the
 // package doc on enumeration): a host that names no business (the shared
 // domain, an IP, a reserved label) gets the same defaultPublic() an unknown

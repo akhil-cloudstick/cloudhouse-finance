@@ -15,7 +15,7 @@ import (
 func TestCorsMiddlewareWildcard(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	allowed := "https://demo.cloudhousesupport.site,https://superadmin.cloudhousesupport.site,https://*.cloudhousesupport.site"
+	allowed := "https://demo.cloudhousefinance.com,https://superadmin.cloudhousefinance.com,https://*.cloudhousefinance.com"
 
 	newRouter := func() *gin.Engine {
 		r := gin.New()
@@ -29,20 +29,20 @@ func TestCorsMiddlewareWildcard(t *testing.T) {
 		origin      string
 		wantAllowed bool
 	}{
-		{"exact match", "https://demo.cloudhousesupport.site", true},
-		{"another exact match", "https://superadmin.cloudhousesupport.site", true},
-		{"valid wildcard subdomain", "https://ambika.cloudhousesupport.site", true},
-		{"another valid wildcard subdomain", "https://ctfi.cloudhousesupport.site", true},
+		{"exact match", "https://demo.cloudhousefinance.com", true},
+		{"another exact match", "https://superadmin.cloudhousefinance.com", true},
+		{"valid wildcard subdomain", "https://ambika.cloudhousefinance.com", true},
+		{"another valid wildcard subdomain", "https://ctfi.cloudhousefinance.com", true},
 		{
 			// The dangerous case a plain strings.Contains would get wrong:
 			// no separating dot before the base domain, so this is NOT a
-			// subdomain of cloudhousesupport.site at all.
+			// subdomain of cloudhousefinance.com at all.
 			"lookalike domain without separating dot",
-			"https://evilcloudhousesupport.site",
+			"https://evilcloudhousefinance.com",
 			false,
 		},
 		{"unrelated domain", "https://evil.com", false},
-		{"unrelated domain containing the base domain as a path-like suffix", "https://attacker.com/cloudhousesupport.site", false},
+		{"unrelated domain containing the base domain as a path-like suffix", "https://attacker.com/cloudhousefinance.com", false},
 	}
 
 	for _, tc := range cases {

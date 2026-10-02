@@ -82,7 +82,7 @@ export function businessSlugFromPath(pathname?: string): string | null {
  * tenant.
  *
  * "demo" is NOT reserved: it is an ordinary tenant code like any other,
- * reachable at demo.cloudhousesupport.site same as any other business's
+ * reachable at demo.cloudhousefinance.com same as any other business's
  * subdomain. */
 const RESERVED_HOST_LABELS = new Set(["www", "app", "admin", "api", "superadmin"]);
 
@@ -96,7 +96,7 @@ const LOCAL_HOST_SUFFIXES = ["localhost", "lvh.me", "nip.io"];
 const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 /* businessSlugFromHost reads a subdomain the way production will resolve a
- * tenant on a real domain: https://ambika.cloudhousesupport.site/... names
+ * tenant on a real domain: https://ambika.cloudhousefinance.com/... names
  * "ambika" without any /login/<slug> path segment at all. Mirrors (on the
  * frontend, before any session exists) the same one-directional trust
  * backend/internal/tenant/host.go already documents for the Host header:
@@ -116,7 +116,7 @@ export function businessSlugFromHost(hostname?: string): string | null {
   if (!isValidSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
   const rest = labels.slice(1).join(".");
   if (LOCAL_HOST_SUFFIXES.includes(rest)) return candidate;
-  // A bare two-label apex ("cloudhousesupport.site") has no subdomain to
+  // A bare two-label apex ("cloudhousefinance.com") has no subdomain to
   // read at all — only three-or-more labels put something in front of it.
   return labels.length >= 3 ? candidate : null;
 }
@@ -152,7 +152,7 @@ export function activeBusinessSlug(): string | null {
  * way to tell "this came from an explicit /ctfi/... URL, keep showing it" from
  * "this came from the Host header, the address bar never had it". Getting
  * that wrong is exactly how a host-resolved tenant
- * (https://demo.cloudhousesupport.site/) ends up redirected to
+ * (https://demo.cloudhousefinance.com/) ends up redirected to
  * .../demo/login — a slug the visitor never typed, printed into the URL
  * anyway.
  *
