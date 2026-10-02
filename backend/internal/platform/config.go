@@ -50,7 +50,7 @@ type Config struct {
 	// on separate origins instead.
 	FrontendOrigin string
 	// BaseDomain is the platform's shared domain that each business is given
-	// a subdomain of (e.g. "ambika" -> ambika.cloudhousesupport.site) — see
+	// a subdomain of (e.g. "ambika" -> ambika.cloudhousefinance.com) — see
 	// tenant.SubdomainLabel, which strips this suffix off the request Host to
 	// find a tenant's code. Defaults to the domain this deployment actually
 	// runs on; override only for a differently-domained deployment.
@@ -185,7 +185,7 @@ func LoadConfig() Config {
 		// from this API). Not needed in production, where the built frontend
 		// is served from this same binary/origin.
 		FrontendOrigin: getEnv("FRONTEND_ORIGIN", "http://localhost:3000,http://localhost:3100"),
-		BaseDomain:     getEnv("BASE_DOMAIN", "cloudhousesupport.site"),
+		BaseDomain:     getEnv("BASE_DOMAIN", "cloudhousefinance.com"),
 		// No safe default here — internal/platform.NewSettingsCipher derives
 		// a fixed dev-only key when this is empty, rather than baking a
 		// literal fallback secret into this file.

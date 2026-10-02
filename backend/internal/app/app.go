@@ -73,9 +73,9 @@ import (
 // (see tenant.SubdomainLabel), which would otherwise mean listing every
 // tenant's origin here individually and editing this config on every new
 // signup. An entry containing "*." is instead treated as a wildcard covering
-// every subdomain of what follows it — "https://*.cloudhousesupport.site"
-// matches "https://ambika.cloudhousesupport.site",
-// "https://demo.cloudhousesupport.site", any number of labels deep, etc.
+// every subdomain of what follows it — "https://*.cloudhousefinance.com"
+// matches "https://ambika.cloudhousefinance.com",
+// "https://demo.cloudhousefinance.com", any number of labels deep, etc.
 // Exact entries (no "*.") keep matching by exact string equality, unchanged.
 func corsMiddleware(allowedOrigins string) gin.HandlerFunc {
 	var exact = map[string]bool{}
@@ -104,8 +104,8 @@ func corsMiddleware(allowedOrigins string) gin.HandlerFunc {
 		host := strings.ToLower(u.Hostname())
 		for _, suffix := range wildcardSuffixes {
 			// An anchored suffix match on a leading "." — NOT strings.Contains,
-			// which would let "evilcloudhousesupport.site" (no separating dot)
-			// through as if it were a subdomain of "cloudhousesupport.site".
+			// which would let "evilcloudhousefinance.com" (no separating dot)
+			// through as if it were a subdomain of "cloudhousefinance.com".
 			if strings.HasSuffix(host, suffix) {
 				return true
 			}

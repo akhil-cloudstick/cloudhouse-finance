@@ -87,7 +87,7 @@ export function parsePath(pathname?: string): ParsedPath {
  * THE SLUG ARGUMENT AND includeInUrl ARE INDEPENDENT. slug says which
  * business (or "current tab's business" when omitted); includeInUrl says
  * whether that business belongs in the URL AT ALL. The two are separate
- * because a host-resolved tenant (https://demo.cloudhousesupport.site/) has a
+ * because a host-resolved tenant (https://demo.cloudhousefinance.com/) has a
  * perfectly good slug — the login/session/QR code all still need it — but its
  * address bar never had that slug in it, and every link this app writes must
  * keep it that way. A path-resolved slug (/ctfi/login, typed by hand or

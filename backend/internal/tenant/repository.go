@@ -55,7 +55,7 @@ func (r *Repository) FindByCode(ctx context.Context, code string) (*Tenant, erro
 }
 
 // FindByHostLabel resolves the business named by a request's subdomain, e.g.
-// a request arriving at "ambika.cloudhousesupport.site" resolves to the
+// a request arriving at "ambika.cloudhousefinance.com" resolves to the
 // tenant coded "ambika". Delegates to FindByCode once SubdomainLabel has
 // picked the candidate code off the host, so it returns the same
 // gorm.ErrRecordNotFound "not found" convention FindByCode does — including

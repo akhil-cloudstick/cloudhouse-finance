@@ -1374,7 +1374,7 @@ function BusinessWizard({
                   <input
                     value={appUrl}
                     onChange={(e) => setAppUrl(e.target.value)}
-                    placeholder="https://acme.cloudhousesupport.site"
+                    placeholder="https://acme.cloudhousefinance.com"
                   />
                   <span className="sa-hint">
                     Only if this business has its own web address. Sign-in still uses the code above; when set, this

@@ -173,7 +173,7 @@ type Tenant struct {
 	Policy string `json:"policy" gorm:"size:20"`
 
 	// AppURL is where this business's own frontend is deployed, e.g.
-	// https://ambika.cloudhousesupport.site.
+	// https://ambika.cloudhousefinance.com.
 	//
 	// This DID say "nothing routes by this". It now does, deliberately and in
 	// one direction only (see FindByAppURL in host.go): the host a request

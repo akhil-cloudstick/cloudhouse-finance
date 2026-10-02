@@ -8,8 +8,8 @@ tenant (real subdomains), instead of only the `/login/<slug>` path fallback.
 ## Why this exists
 
 Production is meant to serve every business from **one deployment** —
-`https://ambika.cloudhousesupport.site`, `https://ctfi.cloudhousesupport.site`,
-`https://golddemo.cloudhousesupport.site` all hitting the same backend, same
+`https://ambika.cloudhousefinance.com`, `https://ctfi.cloudhousefinance.com`,
+`https://golddemo.cloudhousefinance.com` all hitting the same backend, same
 frontend build, same Postgres database, with the tenant resolved from the
 subdomain. Today each of those is still a separate Docker deployment (own
 clone, own DB) — this doc is about testing the *target* single-deployment,
@@ -101,7 +101,7 @@ DB_NAME=mt_probe PORT=8099 FRONTEND_DIR=/nonexistent go run .
 
 ## What this doc does NOT cover
 
-- **Real production subdomains** — wildcard DNS (`*.cloudhousesupport.site`)
+- **Real production subdomains** — wildcard DNS (`*.cloudhousefinance.com`)
   and a wildcard TLS cert in front of one Docker deployment, replacing the
   current per-tenant Docker Compose stacks. That's an infra change for
   whoever manages the server, not something this repo's code changes on its
