@@ -3,6 +3,7 @@ package superadmin
 import (
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -430,6 +431,15 @@ func (s *Service) SetBranchMode(ctx context.Context, actor *SuperAdminUser, id u
 // mode. The plan is the one control for how many branches a business has:
 // a 1-branch plan IS single-branch (Head Office only, Branch Management
 // hidden); anything larger, or unlimited, is multi-branch.
+// planRank orders plans by branch allowance for "plans only go up":
+// capped plans by their quota, Unlimited above all of them.
+func planRank(tier tenant.Tier) uint64 {
+	if tier.IsUnlimited() {
+		return math.MaxUint64
+	}
+	return uint64(tier.BranchQuota)
+}
+
 func singleBranchFor(tier tenant.Tier) bool {
 	return tier.BranchQuota == 1
 }

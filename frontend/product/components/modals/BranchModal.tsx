@@ -58,6 +58,7 @@ export function BranchModalContent({ branch: b, onSaved }: { branch?: BranchView
       setErr("Please enter a valid branch name (letters only, at least 2 characters).");
       return;
     }
+    if (!code.trim()) { setErr("Please enter a branch code."); return; }
     if (a.length < 3) { setErr("Please enter a branch address (at least 3 characters)."); return; }
     if (p && !PHONE_RE.test(p)) { setErr("Phone number must be exactly 10 digits."); return; }
 
@@ -91,7 +92,7 @@ export function BranchModalContent({ branch: b, onSaved }: { branch?: BranchView
               maxLength={80}
               autoComplete="off"
             /></div>
-          <div><label className="f">Branch Code</label>
+          <div><label className="f">Branch Code *</label>
             <input
               className="inp"
               placeholder="e.g. KOR01"

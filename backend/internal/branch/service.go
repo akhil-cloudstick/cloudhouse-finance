@@ -3,6 +3,7 @@ package branch
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -15,8 +16,10 @@ import (
 var (
 	ErrNotFound      = httpx.NewNotFound("branch not found")
 	ErrNameRequired  = httpx.NewBadRequest("name is required")
+	ErrCodeRequired  = httpx.NewBadRequest("branch code is required")
 	ErrAddressReq    = httpx.NewBadRequest("address is required")
 	ErrDuplicateName = httpx.NewConflict("a branch with this name already exists")
+	ErrDuplicateCode = httpx.NewConflict("a branch with this code already exists")
 	ErrInUse         = httpx.NewConflict("branch cannot be deactivated while it still has linked employees, expenses, cash movements, or customers")
 )
 
@@ -48,9 +51,12 @@ func NewService(repo *Repository, tenantRepo *tenant.Repository, auditRepo *audi
 	return &Service{repo: repo, tenantRepo: tenantRepo, auditRepo: auditRepo}
 }
 
-func validate(name, address string) error {
+func validate(name, code, address string) error {
 	if name == "" {
 		return ErrNameRequired
+	}
+	if code == "" {
+		return ErrCodeRequired
 	}
 	if address == "" {
 		return ErrAddressReq
@@ -81,11 +87,15 @@ func (s *Service) logAudit(ctx context.Context, a actor, action string, entityID
 }
 
 func (s *Service) Create(ctx context.Context, in CreateInput, by actor) (*Branch, error) {
-	if err := validate(in.Name, in.Address); err != nil {
+	in.Code = strings.ToUpper(strings.TrimSpace(in.Code))
+	if err := validate(in.Name, in.Code, in.Address); err != nil {
 		return nil, err
 	}
 	if existing, _ := s.repo.FindByName(ctx, in.Name); existing != nil {
 		return nil, ErrDuplicateName
+	}
+	if existing, _ := s.repo.FindByCode(ctx, in.Code); existing != nil {
+		return nil, ErrDuplicateCode
 	}
 
 	rec := &Branch{
@@ -157,7 +167,8 @@ func (s *Service) Get(ctx context.Context, id uint) (*Branch, error) {
 }
 
 func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, by actor) (*Branch, error) {
-	if err := validate(in.Name, in.Address); err != nil {
+	in.Code = strings.ToUpper(strings.TrimSpace(in.Code))
+	if err := validate(in.Name, in.Code, in.Address); err != nil {
 		return nil, err
 	}
 	rec, err := s.repo.FindByID(ctx, id)
@@ -166,6 +177,9 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, by actor)
 	}
 	if existing, _ := s.repo.FindByName(ctx, in.Name); existing != nil && existing.ID != id {
 		return nil, ErrDuplicateName
+	}
+	if existing, _ := s.repo.FindByCode(ctx, in.Code); existing != nil && existing.ID != id {
+		return nil, ErrDuplicateCode
 	}
 
 	// A branch coming back into service is the other path back over the

@@ -898,7 +898,9 @@ var tenantUniqueIndexes = []tenantUniqueIndex{
 	{"employees", "idx_employees_code", "uq_employees_tenant_code", "code", ""},
 	{"packets", "idx_packets_code", "uq_packets_tenant_code", "code", ""},
 	{"schemes", "idx_schemes_code", "uq_schemes_tenant_code", "code", ""},
-	{"branches", "idx_branches_code", "uq_branches_tenant_code", "code", ""},
+	// Branch code is optional on every form, so blank codes must stay exempt
+	// or a business's second code-less branch collides with its first.
+	{"branches", "idx_branches_code", "uq_branches_tenant_code", "code", "code <> ''"},
 	{"branches", "idx_branches_name", "uq_branches_tenant_name", "name", ""},
 	{"lockers", "idx_lockers_code", "uq_lockers_tenant_code", "code", ""},
 	{"banks", "idx_banks_name", "uq_banks_tenant_name", "name", ""},
@@ -964,6 +966,30 @@ func createTenantCompositeUniques(db *gorm.DB) error {
 			}
 			log.Printf("tenancy: dropped global unique index %s — %s.%s is now unique per tenant",
 				ix.OldIndex, ix.Table, ix.Columns)
+		}
+
+		// CREATE ... IF NOT EXISTS never alters an existing index, so one
+		// built before its predicate was added (or changed) is rebuilt here —
+		// otherwise the new WHERE never reaches a database that already has
+		// the index.
+		var existingPred *string
+		var exists bool
+		if err := db.Raw(`SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = ?)`, ix.NewIndex).Scan(&exists).Error; err != nil {
+			return fmt.Errorf("inspecting index %s: %w", ix.NewIndex, err)
+		}
+		if exists {
+			if err := db.Raw(`
+				SELECT pg_get_expr(ix.indpred, ix.indrelid) FROM pg_index ix
+				JOIN pg_class i ON i.oid = ix.indexrelid
+				WHERE i.relname = ?`, ix.NewIndex).Scan(&existingPred).Error; err != nil {
+				return fmt.Errorf("inspecting predicate of %s: %w", ix.NewIndex, err)
+			}
+			if (existingPred == nil) != (ix.Predicate == "") {
+				if err := db.Exec(fmt.Sprintf(`DROP INDEX IF EXISTS %s`, ix.NewIndex)).Error; err != nil {
+					return fmt.Errorf("dropping %s to change its predicate: %w", ix.NewIndex, err)
+				}
+				log.Printf("tenancy: rebuilding %s with predicate %q", ix.NewIndex, ix.Predicate)
+			}
 		}
 
 		stmt := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (tenant_id, %s)`,

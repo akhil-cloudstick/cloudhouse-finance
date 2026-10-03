@@ -388,14 +388,12 @@ func (s *Service) ReactivateBusiness(ctx context.Context, actor *SuperAdminUser,
 	return t, nil
 }
 
-// ChangeTier does NOT re-check the business's current branch count against
-// the new tier's quota, and that is deliberate, not an oversight: lowering a
-// tier below a business's current usage must not fail their next login or
-// block lending — see tenant.Tenant's StatusOverQuota, which exists
-// specifically so this is a billing conversation the superadmin has with the
-// business, not an outage the business discovers on their own. Enforcement
-// happens where it actually bites: branch.Service refuses to CREATE or
-// REACTIVATE a branch once the (possibly now-lower) quota is exceeded.
+// ChangeTier refuses a plan whose branch limit is below the business's
+// current active branches (409): the superadmin deactivates the extras
+// first. It never removes or deactivates branches itself. A business that is
+// already over quota (a tier's own quota lowered later — see tenant.Tenant's
+// StatusOverQuota) is not locked out; branch.Service only refuses to CREATE
+// or REACTIVATE a branch while the quota is exceeded.
 func (s *Service) ChangeTier(ctx context.Context, actor *SuperAdminUser, id, newTierID uint, reason string) (*tenant.Tenant, error) {
 	if err := validateReason(reason); err != nil {
 		return nil, err
@@ -409,20 +407,32 @@ func (s *Service) ChangeTier(ctx context.Context, actor *SuperAdminUser, id, new
 	if err != nil {
 		return nil, ErrTierNotFound
 	}
-	t.TierID = newTierID
-	single := singleBranchFor(*newTier)
-	if single && !t.SingleBranch {
-		// A downgrade never removes branches (the plan's own rule): a business
-		// still running more than one stays multi-branch, merely over its
-		// limit, rather than having every picker locked to Head Office while
-		// its other branches still hold loans.
+	// Plans only go up: never to a smaller branch allowance than the current
+	// plan (Unlimited ranks above every capped plan).
+	if planRank(*newTier) < planRank(t.Tier) {
+		return nil, httpx.NewConflict(fmt.Sprintf(
+			"A business cannot be moved to a smaller plan (%s to %s). Only the same or a larger plan is allowed.",
+			t.Tier.Name, newTier.Name))
+	}
+	// A plan never removes branches, so a business may not move to one whose
+	// branch limit is below the branches it already runs — that used to be
+	// accepted silently and leave it "multi-branch, over its limit" (still
+	// seeing every branch on a single-branch plan). Refused instead, the
+	// same way SetBranchMode refuses; the superadmin console also hides
+	// such plans from the picker.
+	if !newTier.IsUnlimited() {
 		active, err := s.tenantRepo.CountActiveBranches(platform.AllowCrossTenant(ctx), t.ID)
 		if err != nil {
 			return nil, err
 		}
-		single = active <= 1
+		if active > int64(newTier.BranchQuota) {
+			return nil, httpx.NewConflict(fmt.Sprintf(
+				"This business has %d active branches, more than %s allows (%d). Deactivate branches until it is within the limit, then change the plan.",
+				active, newTier.Name, newTier.BranchQuota))
+		}
 	}
-	t.SingleBranch = single
+	t.TierID = newTierID
+	t.SingleBranch = singleBranchFor(*newTier)
 	if err := s.tenantRepo.Update(ctx, t); err != nil {
 		return nil, err
 	}

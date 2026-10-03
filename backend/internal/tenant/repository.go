@@ -29,8 +29,12 @@ func (r *Repository) Create(ctx context.Context, t *Tenant) error {
 	return r.db.WithContext(ctx).Create(t).Error
 }
 
+// Update saves the tenant row only. Associations are omitted: FindByID
+// preloads Tier, and a plain Save would upsert that stale Tier and copy its ID
+// back into TierID — which silently undid every plan change (ChangeTier set
+// TierID, then Save reset it to the old plan's ID).
 func (r *Repository) Update(ctx context.Context, t *Tenant) error {
-	return r.db.WithContext(ctx).Save(t).Error
+	return r.db.WithContext(ctx).Omit(clause.Associations).Save(t).Error
 }
 
 // FindByID loads a tenant with its Tier preloaded — the quota is read

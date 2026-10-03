@@ -123,6 +123,42 @@ function sortedTiers(tiers: Tier[]): Tier[] {
   return [...tiers].sort((a, b) => rank(a.branchQuota) - rank(b.branchQuota));
 }
 
+/* Plans by branch allowance; Unlimited (branchQuota 0) above every capped one. */
+const planRank = (t: Tier) => (t.branchQuota === 0 ? Number.MAX_SAFE_INTEGER : t.branchQuota);
+
+/* Plans a business may move to — the server refuses the rest too (see
+ * superadmin.Service.ChangeTier):
+ *   - plans only go up: never a smaller allowance than its current plan, so a
+ *     business on Unlimited is offered Unlimited only;
+ *   - never a limit below the active branches it already runs.
+ * Its current plan always stays listed. A new business (no current plan) is
+ * offered every plan. Until the branch count is known only the first rule
+ * applies; the server still guards the second. */
+function plansFor(tiers: Tier[], activeBranches: number | undefined, currentTierId?: number): Tier[] {
+  const current = tiers.find((t) => t.id === currentTierId);
+  return sortedTiers(tiers).filter(
+    (t) =>
+      t.id === currentTierId ||
+      ((!current || planRank(t) >= planRank(current)) &&
+        (activeBranches === undefined || t.branchQuota === 0 || t.branchQuota >= activeBranches))
+  );
+}
+
+/* A business's active branch count, for plansFor. `known` (already fetched
+ * by the detail page) skips the request; null business (create) has none. */
+function useActiveBranches(businessId: number | null, known?: number): number | undefined {
+  const [fetched, setFetched] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (businessId === null || known !== undefined) return;
+    let live = true;
+    getBusinessOverview(businessId)
+      .then((o) => { if (live) setFetched(o.usage.branches); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [businessId, known]);
+  return known ?? fetched;
+}
+
 function planLabelFor(tiers: Tier[], id: number): string {
   const t = tiers.find((x) => x.id === id);
   return t ? planLabel(t) : `#${id}`;
@@ -906,6 +942,9 @@ function BusinessWizard({
   const [name, setName] = useState(business?.name ?? "");
   const [code, setCode] = useState("");
   const [tierId, setTierId] = useState(business?.tierId ?? sortedTiers(tiers)[0]?.id ?? 0);
+  const activeBranches = useActiveBranches(business?.id ?? null);
+  const planOptions = plansFor(tiers, activeBranches, business?.tierId);
+  const plansHidden = planOptions.length < tiers.length;
   /* Single-branch mode follows the plan: a 1-branch plan hides Branch
    * Management and locks every branch picker to Head Office. The server
    * derives it the same way on create and on a plan change. */
@@ -1423,15 +1462,19 @@ function BusinessWizard({
                   value={String(tierId)}
                   onChange={(v) => setTierId(Number(v))}
                   ariaLabel="Plan"
-                  options={sortedTiers(tiers).map((t) => ({ value: String(t.id), label: planLabel(t) }))}
+                  options={planOptions.map((t) => ({ value: String(t.id), label: planLabel(t) }))}
                 />
                 <span className="sa-hint">
                   {singleBranch
                     ? "Head Office only: Branch Management is hidden and every branch picker is locked to it."
                     : "Decides how many active branches this business may run. Enforced by the server."}
-                  {!isCreate &&
-                    " Takes effect on save and asks for a reason. Existing branches are never removed — a business above the new limit just cannot add or reactivate branches."}
+                  {!isCreate && " Takes effect on save and asks for a reason."}
                 </span>
+                {plansHidden && (
+                  <span className="sa-hint">
+                    Only the current plan or a larger one can be chosen — a business is never moved to a smaller plan.
+                  </span>
+                )}
               </div>
 
               {/* Deployment URL is optional, so it lives behind a disclosure — but
@@ -1949,13 +1992,11 @@ function BusinessActionModal({
         : kind === "delete"
           ? "Delete business permanently"
           : "Change plan";
-  const newTier = tiers.find((t) => t.id === tierId);
-  const overNewLimit =
-    kind === "tier" &&
-    activeBranches !== undefined &&
-    newTier !== undefined &&
-    newTier.branchQuota !== 0 &&
-    activeBranches > newTier.branchQuota;
+  // Plans below the business's active branch count aren't offered at all
+  // (the server refuses them too).
+  const branches = useActiveBranches(kind === "tier" ? business.id : null, activeBranches);
+  const planOptions = plansFor(tiers, branches, business.tierId);
+  const plansHidden = planOptions.length < tiers.length;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -2020,18 +2061,14 @@ function BusinessActionModal({
                   value={String(tierId)}
                   onChange={(v) => setTierId(Number(v))}
                   ariaLabel="New plan"
-                  options={sortedTiers(tiers).map((t) => ({ value: String(t.id), label: planLabel(t) }))}
+                  options={planOptions.map((t) => ({ value: String(t.id), label: planLabel(t) }))}
                 />
-                <span className="sa-hint">
-                  Takes effect immediately. Existing branches are never removed — a business above its plan&rsquo;s
-                  limit simply cannot add or reactivate branches until it is within it.
-                </span>
+                <span className="sa-hint">Takes effect immediately. Existing branches are never removed.</span>
               </div>
-              {overNewLimit && newTier && (
-                <p className="sa-modal-note danger">
-                  {business.name} already has {activeBranches} active branches, more than {newTier.name} allows (
-                  {newTier.branchQuota}). They keep working, but no new branch can be added until the business is
-                  within the limit.
+              {plansHidden && (
+                <p className="sa-modal-note">
+                  Only {business.name}&rsquo;s current plan or a larger one can be chosen — a business is never moved
+                  to a smaller plan.
                 </p>
               )}
             </>
