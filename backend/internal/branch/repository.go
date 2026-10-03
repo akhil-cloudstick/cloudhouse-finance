@@ -103,6 +103,17 @@ func (r *Repository) FindByName(ctx context.Context, name string) (*Branch, erro
 	return &b, nil
 }
 
+// FindByCode looks a non-blank code up the way uq_branches_tenant_code
+// sees it — soft-deleted rows included, since the index has no deleted_at
+// predicate and would still reject their code.
+func (r *Repository) FindByCode(ctx context.Context, code string) (*Branch, error) {
+	var b Branch
+	if err := r.db.WithContext(ctx).Unscoped().Where("code = ?", code).First(&b).Error; err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 func (r *Repository) Update(ctx context.Context, b *Branch) error {
 	return r.db.WithContext(ctx).Save(b).Error
 }
@@ -135,7 +146,9 @@ func (r *Repository) Exists(ctx context.Context, id uint) (bool, error) {
 func (r *Repository) FirstOrCreateByName(ctx context.Context, name string) (*Branch, error) {
 	var b Branch
 	err := r.db.WithContext(ctx).Where("name = ?", name).
-		Attrs(Branch{Name: name, Address: "Unknown", IsActive: true}).
+		// Code "HO": branch code is required, and a seeded branch must not be
+		// the one code-less row (Head Office is the only name seeded here).
+		Attrs(Branch{Name: name, Code: "HO", Address: "Unknown", IsActive: true}).
 		FirstOrCreate(&b).Error
 	if err != nil {
 		return nil, err

@@ -45,7 +45,7 @@ function BranchFormSheet({ visible, onClose, editing }: { visible: boolean; onCl
 
   const save = useMutation({
     mutationFn: () => {
-      const input = { name: name.trim(), code: code || undefined, address: address.trim(), phone: phone || undefined };
+      const input = { name: name.trim(), code: code.trim().toUpperCase(), address: address.trim(), phone: phone || undefined };
       return editing ? updateBranch(editing.id, { ...input, isActive: editing.isActive }) : createBranch(input);
     },
     onSuccess: () => {
@@ -59,7 +59,7 @@ function BranchFormSheet({ visible, onClose, editing }: { visible: boolean; onCl
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Branch" : "Add Branch"} maxHeightPct={85}>
       <TextField label="Branch name" value={name} onChangeText={setName} placeholder="e.g. MG Road" />
       <FieldRow>
-        <TextField label="Code" value={code} onChangeText={setCode} placeholder="Optional" autoCapitalize="characters" />
+        <TextField label="Code *" value={code} onChangeText={setCode} placeholder="e.g. KOR01" autoCapitalize="characters" />
         <TextField label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Optional" />
       </FieldRow>
       <TextField label="Address" value={address} onChangeText={setAddress} placeholder="Full address" multiline />
@@ -68,7 +68,7 @@ function BranchFormSheet({ visible, onClose, editing }: { visible: boolean; onCl
         label={editing ? "Save Changes" : "Add Branch"}
         onPress={() => save.mutate()}
         loading={save.isPending}
-        disabled={!name.trim() || !address.trim()}
+        disabled={!name.trim() || !code.trim() || !address.trim()}
       />
     </Sheet>
   );

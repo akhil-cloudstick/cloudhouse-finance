@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@/product/components/Icon";
 import { useModal } from "@/product/components/Modal";
 import {
   BILLING_PLANS,
-  branchLabel,
   findPlanIndex,
   formatRupees,
 } from "@/product/config/features";
@@ -13,24 +12,20 @@ import type { BillingStatus } from "@/product/pages/billing/services/billingServ
 import { getBranchQuota, type BranchQuota } from "@/product/pages/branches/services/branchService";
 import { UpgradePlanModal } from "./UpgradePlanModal";
 
-/* The current-plan card and the plan ladder, shown on Billing when
- * NEXT_PUBLIC_ENABLE_PLAN_UPGRADE is on. Plans come from the env file
- * (config/features.ts) and are branch-count tiers with a one-time price;
- * moving up a tier pays only the difference. The upgrade is simulated, so
- * the new plan lives in local state until the page is reloaded.
- *
- * `aside` is rendered beside the current-plan card (Billing passes its
- * sign-in link card) so the two share one row above the ladder. */
-export function PlanUpgrade({ status, aside }: { status: BillingStatus; aside?: React.ReactNode }) {
+/* The plan ladder, shown on Billing when NEXT_PUBLIC_ENABLE_PLAN_UPGRADE is
+ * on. Plans come from the env file (config/features.ts) and are branch-count
+ * tiers with a one-time price; moving up a tier pays only the difference. The
+ * upgrade is simulated, so the new plan lives in local state until the page
+ * is reloaded. */
+export function PlanUpgrade({ status }: { status: BillingStatus }) {
   const { openModal } = useModal();
   const [quota, setQuota] = useState<BranchQuota | null>(null);
   const [cur, setCur] = useState(() => findPlanIndex(status.tierName));
   const [justUpgraded, setJustUpgraded] = useState(-1);
-  const ladderRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Usage is a nice-to-have: a role that can manage billing but not read
-    // branches simply doesn't see the meter.
+    // The branch quota pins the current plan and feeds the upgrade modal's
+    // usage line; a role that can't read branches just goes without it.
     getBranchQuota()
       .then((q) => {
         setQuota(q);
@@ -41,8 +36,6 @@ export function PlanUpgrade({ status, aside }: { status: BillingStatus; aside?: 
 
   const plan = BILLING_PLANS[cur];
   const used = quota?.used ?? null;
-  const unlimited = plan.branches === 0;
-  const atLimit = !unlimited && used !== null && used >= plan.branches;
   const onTop = cur === BILLING_PLANS.length - 1;
 
   function openUpgrade(target: number) {
@@ -62,58 +55,15 @@ export function PlanUpgrade({ status, aside }: { status: BillingStatus; aside?: 
 
   return (
     <>
-      <div className="bill-top">
-        <div className="card">
-          <div className="hd">
-            <h3>Current plan</h3>
-            <span className="sp" />
-            <span className="chip green">Active</span>
-          </div>
-          <div className="bd">
-            <div className="bill-cur-name">{plan.name}</div>
-            <div className="bill-cur-sub">{unlimited ? "No limit on branches" : `Up to ${branchLabel(plan.branches)}`}</div>
-            {used !== null && (
-              <>
-                <div className="bill-use">
-                  <span>Branches in use</span>
-                  <b>{unlimited ? `${used} · no limit` : `${Math.min(used, plan.branches)} of ${plan.branches}`}</b>
-                </div>
-                {unlimited ? (
-                  <div className="bill-meter inf" />
-                ) : (
-                  <div className={`bill-meter${atLimit ? " full" : ""}`}>
-                    {Array.from({ length: plan.branches }, (_, i) => (
-                      <i key={i} className={i < used ? "f" : ""} />
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-            <div className="bill-row"><span>Paid</span><b>{formatRupees(plan.price)}</b></div>
-            <div className="bill-row"><span>Payment type</span><b>One-time · no renewal</b></div>
-            {atLimit && !onTop && (
-              <div className="bill-limit">
-                <Icon name="warning" />
-                <div>
-                  You&apos;re using every branch on this plan. Upgrade to open more branches.{" "}
-                  <a href="#plans" onClick={(e) => { e.preventDefault(); ladderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
-                    See plans
-                  </a>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        {aside}
-      </div>
-
-      <div className="bill-plans-h" ref={ladderRef}>
+      <div className="bill-plans-h">
         <h2>Plans</h2>
         <span>{onTop ? "You're on the highest plan." : "Pay once to move up a tier. You only pay the difference."}</span>
       </div>
       <div className="bill-ladder">
         {BILLING_PLANS.map((p, i) => {
           const isCur = i === cur;
+          // Plans below the current one stay listed but offer no action — a
+          // business never moves down a tier.
           const lower = i < cur;
           const extra = p.branches === 0 ? "No limit" : `+${Math.max(0, p.branches - plan.branches)} branches`;
           return (
@@ -121,7 +71,7 @@ export function PlanUpgrade({ status, aside }: { status: BillingStatus; aside?: 
               <div className="bill-plan-top">
                 <span className="bill-tier">Tier {i + 1}</span>
                 {isCur ? <span className="chip brand">Current plan</span>
-                  : lower ? <span className="chip gray">Included</span>
+                  : lower ? null
                   : <span className="chip green">{extra}</span>}
               </div>
               <div className="bill-plan-name">{p.name}</div>
@@ -136,7 +86,7 @@ export function PlanUpgrade({ status, aside }: { status: BillingStatus; aside?: 
                 </ul>
               )}
               {isCur ? <button className="btn" disabled>Your plan</button>
-                : lower ? <button className="btn ghost" disabled>Included in your plan</button>
+                : lower ? null
                 : <button className="btn" onClick={() => openUpgrade(i)}>Upgrade · pay {formatRupees(Math.max(0, p.price - plan.price))}</button>}
             </div>
           );
