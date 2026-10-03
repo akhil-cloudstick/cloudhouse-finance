@@ -84,22 +84,38 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
     <>
       <div className="hd"><h3>Repledge Gold to Bank — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll repledge-modal-bd">
-        <div className="notice" style={{ marginBottom: 12 }}>
-          <Icon name="bank" /> {fmtW(loan.totalNetWeight)} gold pledged against this loan
-        </div>
         {loan.ornaments.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
-            <label className="f">Gold/Ornaments Being Pledged</label>
-            <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 13 }}>
-              {loan.ornaments.map((o) => (
-                <li key={o.id}>
-                  {o.name} — {fmtW(o.netWeight)} net ({o.purity})
-                  {o.quantity > 1 ? ` × ${o.quantity}` : ""}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <section className="rp-sec">
+            <div className="rp-sec-h">
+              <span>Gold being pledged</span>
+              <span className="rp-sec-meta">{loan.ornaments.length} item{loan.ornaments.length > 1 ? "s" : ""} · {fmtW(loan.totalNetWeight)} net</span>
+            </div>
+            <div className="tbl-wrap rp-tbl"><table className="tbl tbl-tight">
+              <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Net Wt</th><th className="num">Value</th></tr></thead>
+              <tbody>
+                {loan.ornaments.map((o, i) => (
+                  <tr key={o.id ?? i}>
+                    <td className="rp-idx">{i + 1}</td>
+                    <td style={{ fontWeight: 500 }}>{o.name}</td>
+                    <td><span className="chip brand">{o.purity}</span></td>
+                    <td className="num">{o.quantity}</td>
+                    <td className="num">{fmtW(o.netWeight)}</td>
+                    <td className="num">{fmt(o.goldValue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {loan.ornaments.length > 1 && (
+                <tfoot><tr>
+                  <td colSpan={4}>Total</td>
+                  <td className="num">{fmtW(loan.totalNetWeight)}</td>
+                  <td className="num">{fmt(loan.totalGoldValue)}</td>
+                </tr></tfoot>
+              )}
+            </table></div>
+          </section>
         )}
+
+        <div className="rp-sec-h"><span>Bank pledge details</span></div>
         {/* Small screens pack all 6 fields into a tight 3-col x 2-row grid
          * (an explicit inline gridTemplateColumns, since `.frow.c3` collapses
          * to one column below the usual breakpoint — that collapse is right
@@ -109,7 +125,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
          * original, more spacious row grouping instead. */}
         {smallScreen ? (
           <>
-            <div className="frow" style={{ marginBottom: 24, gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
+            <div className="frow rp-grid rp-compact" style={{ gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
               <div><label className="f">Bank *</label>
                 <SearchableSelect<BackendBank>
                   value={bankLabel}
@@ -122,14 +138,14 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
               <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
               <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
             </div>
-            <div className="frow" style={{ marginBottom: 14, gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
+            <div className="frow rp-grid rp-compact" style={{ gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
               <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
               <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
               <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
             </div>
           </>
         ) : (
-          <div className="frow c3" style={{ marginBottom: 14 }}>
+          <div className="frow c3 rp-grid">
             <div><label className="f">Bank *</label>
               <SearchableSelect<BackendBank>
                 value={bankLabel}
@@ -150,10 +166,10 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
         {/* Cash treatment. Not every re-pledge brings money into the branch
           * till — some are purely book-keeping — so this is an explicit choice
           * per transaction rather than an assumption. */}
-        <div className="frow"><div>
-          <label className="f">Cash Treatment *</label>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-            <label className="cradio" style={{ fontSize: 13 }}>
+        <div className="rp-sec-h rp-after-grid"><span>Cash treatment *</span></div>
+        <div>
+          <div className="rp-opts">
+            <label className={"cradio rp-opt" + (cashTreatment === "RecordOnly" ? " on" : "")}>
               <input
                 type="radio"
                 name="cashTreatment"
@@ -161,9 +177,12 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
                 onChange={() => setCashTreatment("RecordOnly")}
               />
               <span className="mark" />
-              <span><strong>Record Only</strong> — no cash effect. Files the re-pledge record without touching Cash-in-Hand.</span>
+              <span>
+                <strong>Record only</strong>
+                <span className="rp-opt-d">No cash effect.</span>
+              </span>
             </label>
-            <label className="cradio" style={{ fontSize: 13 }}>
+            <label className={"cradio rp-opt" + (cashTreatment === "CashIn" ? " on" : "")}>
               <input
                 type="radio"
                 name="cashTreatment"
@@ -171,20 +190,13 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
                 onChange={() => setCashTreatment("CashIn")}
               />
               <span className="mark" />
-              <span><strong>Add to Cash-in-Hand</strong> — the bank&apos;s advance came into the branch till.</span>
+              <span>
+                <strong>Add to Cash-in-Hand</strong>
+                <span className="rp-opt-d">Bank money added to branch cash.</span>
+              </span>
             </label>
           </div>
-          {/* .notice is display:flex — keep the text in one child element. */}
-          <p className="notice" style={{ marginTop: 6, fontSize: 12.5 }}>
-            <Icon name="shield" />
-            <span>
-              {cashTreatment === "CashIn"
-                ? `${amt ? fmt(+amt) : "The pledged amount"} will be added to Cash-in-Hand now, and booked back out when the gold is released.`
-                : "No cash movement will be created, now or on release."}
-              {" "}This cannot be edited later — a wrong choice must be corrected by voiding the record.
-            </span>
-          </p>
-        </div></div>
+        </div>
 
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

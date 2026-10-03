@@ -37,15 +37,33 @@ export function login(identifier: string, password: string, businessCode = ""): 
  *
  * Both carry the business for a concrete reason: a phone number is unique
  * only WITHIN a business now, so without it the backend cannot tell which
- * employee is asking. */
-export function forgotPassword(phone: string, businessCode = ""): Promise<string> {
+ * employee is asking.
+ *
+ * Username and phone must belong to the same employee — the backend answers
+ * one "don't match any account" error for every mismatch. */
+export function forgotPassword(username: string, phone: string, businessCode = ""): Promise<string> {
   return apiFetch<string>("/auth/forgot-password", {
     method: "POST",
-    body: JSON.stringify({ phone, businessCode }),
+    body: JSON.stringify({ username, phone, businessCode }),
+  });
+}
+
+/* Checks the texted code before the new-password step without consuming it;
+ * resetPassword checks it again. Wrong codes are capped server-side. */
+export function verifyResetCode(
+  username: string,
+  phone: string,
+  otp: string,
+  businessCode = ""
+): Promise<string> {
+  return apiFetch<string>("/auth/verify-reset-code", {
+    method: "POST",
+    body: JSON.stringify({ username, phone, otp, businessCode }),
   });
 }
 
 export function resetPassword(
+  username: string,
   phone: string,
   otp: string,
   newPassword: string,
@@ -53,7 +71,7 @@ export function resetPassword(
 ): Promise<string> {
   return apiFetch<string>("/auth/reset-password", {
     method: "POST",
-    body: JSON.stringify({ phone, otp, newPassword, businessCode }),
+    body: JSON.stringify({ username, phone, otp, newPassword, businessCode }),
   });
 }
 

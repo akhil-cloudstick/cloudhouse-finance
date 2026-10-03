@@ -23,6 +23,5 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.POST("/:id/verify-pan", perms.Update, h.VerifyPAN)
 	rg.POST("/:id/verify-aadhaar/start", perms.Update, h.StartAadhaarVerify)
 	rg.POST("/:id/verify-aadhaar/check", perms.Update, h.CheckAadhaarVerify)
-	rg.DELETE("/:id", perms.Delete, h.Delete)
 	rg.DELETE("/:id/hard-delete", hardDeletePerm, h.HardDelete)
 }

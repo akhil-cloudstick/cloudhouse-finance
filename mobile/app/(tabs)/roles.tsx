@@ -44,7 +44,7 @@ import { userMessage } from "../../src/api/errors";
 // frontend/modules/roles/components/RolesPermissions.tsx restyled in the
 // prototype's language: a role picker sheet, SearchInput (server-side `search`),
 // per-module cards of CheckItem permission rows, and Sheets for new /
-// edit role. Same gates: can_view_role_and_permission on the page, plus
+// edit role. Same gates: can_view_role_and_permission_module on the page, plus
 // create / update / delete role; system roles are read-only.
 
 function ErrorText({ children }: { children: React.ReactNode }) {
@@ -181,7 +181,7 @@ type PageTab = (typeof PAGE_TABS)[number];
 
 export default function RolesPermissionsScreen() {
   const { employee, can } = useAuth();
-  const canView = can("Role_Management", "can_view_role_and_permission");
+  const canView = can("Role_Management", "can_view_role_and_permission_module");
   const canCreateRole = can("Role_Management", "can_create_role");
   const canUpdateRole = can("Role_Management", "can_update_role");
   const canDeleteRole = can("Role_Management", "can_delete_role");

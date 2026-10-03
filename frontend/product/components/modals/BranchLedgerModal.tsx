@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { Icon } from "@/product/components/Icon";
+import { useAuth } from "@/product/providers/auth-context";
 import { fmt } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import {
@@ -42,6 +43,8 @@ function Pager({ page, total, pageSize, onChange }: { page: number; total: numbe
  * drilldown but scoped by branch and rendered in-modal instead of as its own
  * routed page, per this feature's plan. */
 export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
+  const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
   const { closeModal } = useModal();
   const [items, setItems] = useState<CashMovementView[]>([]);
   const [total, setTotal] = useState(0);
@@ -131,7 +134,7 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
 
         <div className="hd" style={{ flexWrap: "wrap", rowGap: 10, columnGap: 16, padding: "0 0 14px", justifyContent: "flex-end" }}>
           <FilterPanel categories={categories} value={filters} onChange={setFilters} />
-          <button className="btn ghost sm" disabled={exporting} onClick={onExport}><Icon name="download" /> {exporting ? "Exporting…" : "Download"}</button>
+          {canExport && <button className="btn ghost sm" disabled={exporting} onClick={onExport}><Icon name="download" /> {exporting ? "Exporting…" : "Download"}</button>}
         </div>
 
         <div className="tbl-wrap tbl-scroll">

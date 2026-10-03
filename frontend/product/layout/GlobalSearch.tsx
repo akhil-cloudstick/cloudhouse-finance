@@ -8,7 +8,8 @@ import { useLoans } from "@/product/pages/loans/store/LoansProvider";
 import { Icon } from "@/product/components/Icon";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { fmt } from "@/product/utils/format";
-import { navigate, routeHref } from "@/product/services/appRoutes";
+import { navigate, parsePath, routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 type ResultRow = { href: string; ic: string; t: string; s: string; chip: string | null };
 type ResultGroup = [string, ResultRow[]];
@@ -35,12 +36,16 @@ export default function GlobalSearch({
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
+  // Only result groups the role can open: a hit is a link to that page, and
+  // the global search must not surface records outside the role's scope.
+  const canOpen = useCanOpenRoute();
+
   function searchAll(q: string): ResultGroup[] {
     const needle = q.toLowerCase();
     const hit = (s?: string) => (s || "").toLowerCase().includes(needle);
     const groups: ResultGroup[] = [];
 
-    const loanHits = loans
+    const loanHits = !canOpen("loan") ? [] : loans
       .filter((l) => hit(l.id) || hit(l.customerName) || hit(l.status))
       .slice(0, 5)
       .map((l) => ({
@@ -52,7 +57,7 @@ export default function GlobalSearch({
       }));
     if (loanHits.length) groups.push(["Loans", loanHits]);
 
-    const custs = customers
+    const custs = !canOpen("customer") ? [] : customers
       .filter((c) => hit(c.name) || hit(c.id) || hit(c.phone) || hit(c.address))
       .slice(0, 5)
       .map((c) => ({
@@ -64,7 +69,7 @@ export default function GlobalSearch({
       }));
     if (custs.length) groups.push(["Customers", custs]);
 
-    const schs = schemes
+    const schs = !canOpen("schemes") ? [] : schemes
       .filter((s) => hit(s.name) || hit(s.id))
       .slice(0, 4)
       .map((s) => ({
@@ -76,7 +81,7 @@ export default function GlobalSearch({
       }));
     if (schs.length) groups.push(["Schemes", schs]);
 
-    const pkts = db.packets
+    const pkts = !canOpen("packets") ? [] : db.packets
       .filter((p) => hit(p.id) || hit(p.qr) || hit(p.cust))
       .slice(0, 4)
       .map((p) => ({
@@ -88,7 +93,7 @@ export default function GlobalSearch({
       }));
     if (pkts.length) groups.push(["Gold Packets", pkts]);
 
-    const emps = db.employees
+    const emps = !canOpen("employees") ? [] : db.employees
       .filter((e) => hit(e.name) || hit(e.id) || hit(e.role))
       .slice(0, 4)
       .map((e) => ({
@@ -124,7 +129,9 @@ export default function GlobalSearch({
     } else if (e.key === "Enter") {
       const target = sel >= 0 ? flatItems[sel] : flatItems[0];
       if (target) {
-        navigate(target.href);
+        // href is a full path; navigate() takes a route + arg.
+        const { route: r, arg: a } = parsePath(target.href);
+        navigate(r, a);
         setQuery("");
         closeResults();
         setExpanded(false);

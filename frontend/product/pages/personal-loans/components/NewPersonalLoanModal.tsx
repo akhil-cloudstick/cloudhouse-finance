@@ -15,7 +15,7 @@ import {
   type InterestType,
 } from "@/product/pages/personal-loans/services/personalLoanService";
 import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
-import { useApprovalWorkflow } from "@/product/providers/auth-context";
+import { useApprovalWorkflow, useAuth } from "@/product/providers/auth-context";
 import { firstStage, isFlowOff } from "@/product/services/approvalWorkflowService";
 
 /* Client-side mirror of backend/internal/personalloan/service.go's
@@ -33,6 +33,7 @@ function computeInterest(principal: number, interestType: InterestType, value: n
  * form both creates the loan and (implicitly) hands the customer
  * DisbursedAmount in cash. */
 export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }) {
+  const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
   const { closeModal } = useModal();
   const toast = useToast();
 
@@ -138,7 +139,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
   return (
     <>
       <div className="hd"><h3>New Personal Loan</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll pl-modal">
         <div className="frow"><div><label className="f">Customer *</label>
           <SearchableSelect<CustomerView>
             value={customerLabel}
@@ -156,62 +157,64 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
             )}
             getId={(c) => c.id}
             placeholder="Search for a customer…"
-            onCreateNew={() => setCreatingCustomer(true)}
+            onCreateNew={canCreateCustomer ? () => setCreatingCustomer(true) : undefined}
             createNewLabel="+ Add new customer"
           /></div></div>
+        <div className="pl-sec-h">Loan terms</div>
         <div className="frow c2">
           <div><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
           <div><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} placeholder="e.g. 50" value={tenureCount} onChange={(e) => setTenureCount(e.target.value)} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Interest Type *</label>
-            <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
-              <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
-                <input type="radio" name="interestType" checked={interestType === "Flat"} onChange={() => setInterestType("Flat")} />
-                <span className="mark" /><span>Flat (₹)</span>
-              </label>
-              <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
-                <input type="radio" name="interestType" checked={interestType === "Percentage"} onChange={() => setInterestType("Percentage")} />
-                <span className="mark" /><span>Percentage (%)</span>
-              </label>
+            <div className="pl-seg" role="radiogroup">
+              {([["Flat", "Flat ₹"], ["Percentage", "Percent %"]] as [InterestType, string][]).map(([v, label]) => (
+                <button key={v} type="button" role="radio" aria-checked={interestType === v}
+                  className={interestType === v ? "on" : ""} onClick={() => setInterestType(v)}>{label}</button>
+              ))}
             </div>
           </div>
           <div><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => setInterestValue(e.target.value)} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Collection Frequency *</label>
-            <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
+            <div className="pl-seg" role="radiogroup">
               {(["Daily", "Weekly", "Monthly"] as Frequency[]).map((f) => (
-                <label key={f} className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
-                  <input type="radio" name="frequency" checked={frequency === f} onChange={() => setFrequency(f)} />
-                  <span className="mark" /><span>{f}</span>
-                </label>
+                <button key={f} type="button" role="radio" aria-checked={frequency === f}
+                  className={frequency === f ? "on" : ""} onClick={() => setFrequency(f)}>{f}</button>
               ))}
             </div>
           </div>
-          <div>
-            <label className="cradio" style={{ fontSize: 13, alignItems: "center", marginTop: 24 }}>
+          <div><label className="f">Disbursement</label>
+            <label className={"ccheck pl-opt" + (fullDisbursement ? " on" : "")}>
               <input type="checkbox" checked={fullDisbursement} onChange={(e) => setFullDisbursement(e.target.checked)} />
-              <span className="mark" /><span>Full Amount — disburse the full principal now, no interest withheld upfront</span>
+              <span className="mark" />
+              <span><strong>Full amount</strong> <span className="pl-opt-d">· no interest cut upfront</span></span>
             </label>
           </div>
         </div>
 
+        <div className="pl-sec-h">Late payment <span>optional</span></div>
         <div className="frow c2">
-          <div><label className="f">Penal Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="Defaults to the loan's own interest rate" value={penalInterestRate} onChange={(e) => setPenalInterestRate(e.target.value)} /></div>
+          <div><label className="f">Penal Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="Same as loan rate" value={penalInterestRate} onChange={(e) => setPenalInterestRate(e.target.value)} /></div>
           <div><label className="f">Grace Period (days)</label><input className="inp" type="number" min={0} placeholder="e.g. 5" value={gracePeriodDays} onChange={(e) => setGracePeriodDays(e.target.value)} /></div>
         </div>
 
-        {principalNum > 0 && tenureNum > 0 && (
-          <div className="notice" style={{ marginTop: 4 }}>
-            <div>Interest amount: <strong>{fmt(interestAmount)}</strong></div>
-            <div>Disbursed to customer: <strong>{fmt(disbursedAmount)}</strong></div>
-            <div>Installment amount: <strong>{fmt(installmentAmount)}</strong> / {frequency}</div>
-            <div>Repayment obligation: <strong>{fmt(obligation)}</strong></div>
-          </div>
-        )}
+        {/* Live preview — dashes until principal and installments are set. */}
+        {(() => {
+          const ready = principalNum > 0 && tenureNum > 0;
+          const v = (n: number) => (ready ? fmt(n) : "—");
+          return (
+            <div className="pl-sum">
+              <div><span>Interest</span><b>{v(interestAmount)}</b></div>
+              <div><span>Customer gets</span><b>{v(disbursedAmount)}</b></div>
+              <div><span>Per installment</span><b>{v(installmentAmount)}</b>{ready && <small>/ {frequency.toLowerCase()}</small>}</div>
+              <div><span>Total to repay</span><b>{v(obligation)}</b></div>
+            </div>
+          );
+        })()}
         {balanceInHand !== null && (
-          <p style={{ fontSize: 12.5, marginTop: 8, color: insufficient ? "var(--red)" : "var(--muted)" }}>
+          <p className={"pl-bal" + (insufficient ? " low" : "")}>
             Balance in hand: <strong>{fmt(balanceInHand)}</strong>
             {insufficient && " — not enough to disburse this loan. Add cash first."}
           </p>

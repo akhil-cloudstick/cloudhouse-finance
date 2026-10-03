@@ -8,7 +8,8 @@ import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
 import { fmt } from "../lib/format";
 import { rupeesInWords } from "../lib/numberToWords";
-import { Loan } from "../types/loan";
+import { Loan, LoanTopUp } from "../types/loan";
+import { listTopUps } from "../api/loans";
 import { listPackets } from "../api/packets";
 import { API_BASE_URL, API_ORIGIN } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
@@ -79,10 +80,30 @@ function fmtDate(d?: string | null) {
 // Ported from frontend/modules/loans/components/LoanDetail.tsx's
 // printPledgeSlip.
 export async function printPledgeSlip(l: Loan) {
-  await printDoc(`Pledge Slip — ${l.loanNumber}`, pledgeSlipBody(l));
+  const topUps = await listTopUps(l.id).catch(() => [] as LoanTopUp[]);
+  await printDoc(`Pledge Slip — ${l.loanNumber}`, pledgeSlipBody(l, topUps));
 }
 
-function pledgeSlipBody(l: Loan): string {
+// How the principal was advanced — the initial amount on the opening date,
+// then each later additional amount (paid-out top-ups), oldest first. Same
+// table as the web slip; empty when the loan was advanced in one go.
+function amountDistribution(l: Loan, topUps: LoanTopUp[]): string {
+  const extra = topUps
+    .filter((t) => t.status === "Active")
+    .sort((a, b) => a.occurredOn.localeCompare(b.occurredOn) || a.id - b.id);
+  if (!extra.length) return "";
+  const initial = Math.max(l.principalAmount - extra.reduce((s, t) => s + t.amount, 0), 0);
+  const rows = [
+    `<tr><td>${fmtDate(l.openedDate)}</td><td>Initial loan amount</td><td class="num">${fmt(initial)}</td></tr>`,
+    ...extra.map((t) => `<tr><td>${fmtDate(t.occurredOn)}</td><td>Additional loan amount</td><td class="num">${fmt(t.amount)}</td></tr>`),
+  ].join("");
+  return `<table>
+      <thead><tr><th>Date</th><th>Amount Distribution</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows}<tr><th colspan="2">Total</th><th class="num">${fmt(l.principalAmount)}</th></tr></tbody>
+    </table>`;
+}
+
+function pledgeSlipBody(l: Loan, topUps: LoanTopUp[]): string {
   const c = l.customer;
   const ornaments = l.ornaments ?? [];
   return (
@@ -108,6 +129,7 @@ function pledgeSlipBody(l: Loan): string {
       </tbody>
     </table>
     <p><b>Principal disbursed: ${fmt(l.principalAmount)}</b> <span class="muted">(eligible amount at pledge time: ${fmt(l.eligibleLoanAmount ?? 0)})</span></p>
+    ${amountDistribution(l, topUps)}
     <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`
   );
 }
@@ -116,7 +138,10 @@ function pledgeSlipBody(l: Loan): string {
  * a dashed cut-out box at the top, the full slip below — a single print job. */
 export async function printLabelAndSlipOnePage(l: Loan) {
   const C = printColors();
-  const label = await packetLabelParts(l);
+  const [label, topUps] = await Promise.all([
+    packetLabelParts(l),
+    listTopUps(l.id).catch(() => [] as LoanTopUp[]),
+  ]);
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Label &amp; Slip — ${l.loanNumber}</title><style>
     @page{size:A4;margin:12mm}
     ${docStyle()}
@@ -126,7 +151,7 @@ export async function printLabelAndSlipOnePage(l: Loan) {
     .cutout .hint{font-size:11px;color:${C.muted}}
   </style></head><body>
     <div class="cutout">${label.html}<div class="hint">✂ Cut along the dashed line and attach to the packet</div></div>
-    ${pledgeSlipBody(l)}
+    ${pledgeSlipBody(l, topUps)}
   </body></html>`;
   await Print.printAsync({ html });
 }

@@ -146,8 +146,9 @@ func (h *Handler) Create(c *gin.Context) {
 const StatusDueTodayFilter = "Due Today"
 
 // auctionCase values accepted by GET /loans (the mobile Auctions screen's
-// three buckets).
+// three buckets, plus "all" for their union).
 const (
+	AuctionCaseAll                 = "all"
 	AuctionCaseEligible            = "eligible"
 	AuctionCaseDefaulted           = "defaulted"
 	AuctionCaseAuctionedBalanceDue = "auctioned_balance_due"
@@ -168,11 +169,15 @@ func applyStatusParam(f *LoanFilter, status string) {
 
 // applyAuctionCase maps GET /loans's `auctionCase` onto f, replacing any
 // `status` — "eligible" and "auctioned_balance_due" are stored statuses,
-// "defaulted" is the read-time IsDefaulted flag (LoanFilter.OnlyDefaulted).
+// "defaulted" is the read-time IsDefaulted flag (LoanFilter.OnlyDefaulted),
+// "all" is any of the three (LoanFilter.AllAuctionCases).
 // Reports false for an unrecognised value; empty is a no-op.
 func applyAuctionCase(f *LoanFilter, auctionCase string) bool {
 	switch strings.ToLower(strings.TrimSpace(auctionCase)) {
 	case "":
+	case AuctionCaseAll:
+		f.Status, f.DueToday = "", false
+		f.AllAuctionCases = true
 	case AuctionCaseEligible:
 		f.Status, f.DueToday = StatusAuctionEligible, false
 	case AuctionCaseAuctionedBalanceDue:
@@ -200,7 +205,7 @@ func applyAuctionCase(f *LoanFilter, auctionCase string) bool {
 // `status` matches the stored Loan.Status verbatim (Pending Approval, Active,
 // Due Soon, Overdue, Closure Requested, Closed, Defaulted, Auction Eligible,
 // Auctioned, Auctioned - Balance Due, Rejected), plus one derived value,
-// "Due Today" (see LoanFilter.DueToday). `auctionCase` (eligible |
+// "Due Today" (see LoanFilter.DueToday). `auctionCase` (all | eligible |
 // defaulted | auctioned_balance_due) selects one of the mobile Auctions
 // screen's buckets and, when given, replaces `status` — see
 // applyAuctionCase.
@@ -209,7 +214,7 @@ func (h *Handler) List(c *gin.Context) {
 	f := LoanFilter{Query: strings.TrimSpace(c.Query("q"))}
 	applyStatusParam(&f, c.Query("status"))
 	if !applyAuctionCase(&f, c.Query("auctionCase")) {
-		httpx.Fail(c, http.StatusBadRequest, "invalid auctionCase: expected eligible, defaulted or auctioned_balance_due")
+		httpx.Fail(c, http.StatusBadRequest, "invalid auctionCase: expected all, eligible, defaulted or auctioned_balance_due")
 		return
 	}
 	f.ExcludeBankPledged = c.Query("excludeBankPledged") == "true"

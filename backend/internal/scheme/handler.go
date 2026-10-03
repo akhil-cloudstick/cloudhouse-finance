@@ -193,7 +193,7 @@ func (h *Handler) Delete(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.SuccessMessage(c, http.StatusOK, "Scheme deleted successfully")
+	httpx.SuccessMessage(c, http.StatusOK, "Scheme deleted permanently")
 }
 
 func (h *Handler) ToggleActive(c *gin.Context) {

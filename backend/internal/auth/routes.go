@@ -11,6 +11,7 @@ import "github.com/gin-gonic/gin"
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler, authMiddleware gin.HandlerFunc) {
 	rg.POST("/login", h.Login)
 	rg.POST("/forgot-password", h.ForgotPassword)
+	rg.POST("/verify-reset-code", h.VerifyResetCode)
 	rg.POST("/reset-password", h.ResetPassword)
 	rg.GET("/me", authMiddleware, h.Me)
 }

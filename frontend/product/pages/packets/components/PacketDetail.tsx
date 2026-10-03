@@ -17,6 +17,7 @@ import {
   type PacketView, type MovementView,
 } from "@/product/pages/packets/services/packetService";
 import { routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 /* Hardcoded actor id — this codebase has no auth/session yet, so every
  * staff-attributed action across the app (loan approvals, payments) uses
@@ -57,6 +58,7 @@ export function PacketDetail({ code }: { code?: string }) {
   const toast = useToast();
   const { openModal } = useModal();
   const { can } = useAuth();
+  const canOpen = useCanOpenRoute();
 
   const canCreateBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
   // Every packet movement (check-in, ready-for-release, released) writes to
@@ -198,7 +200,7 @@ export function PacketDetail({ code }: { code?: string }) {
           </div>
           <div className="ft">
             Sealed contents of packet {p.code}, taken from loan{" "}
-            <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> — ornament photos are on the loan page.
+            {canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber} — ornament photos are on the loan page.
           </div>
         </div>
 

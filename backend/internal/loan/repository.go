@@ -157,6 +157,12 @@ type LoanFilter struct {
 	// superset and paginates in Go afterwards.
 	OnlyDefaulted bool
 
+	// AllAuctionCases keeps every loan in any of the mobile Auctions
+	// screen's buckets: Auction Eligible, Auctioned - Balance Due, or
+	// IsDefaulted. Like OnlyDefaulted, SQL only narrows to a superset and
+	// Service.List applies the exact check and paginates in Go.
+	AllAuctionCases bool
+
 	// Limit/Offset paginate the result set; Limit <= 0 means "no limit"
 	// (the full listing every existing caller relies on). Ordering is by
 	// id desc, so paging is stable for a fixed filter.
@@ -242,6 +248,11 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if f.OnlyDefaulted {
 		q = q.Where("loans.status NOT IN ?", notDefaultableStatuses).
 			Where("loans.due_date < ?", time.Now().AddDate(0, 0, -defaultedAfterDays))
+	}
+	if f.AllAuctionCases {
+		q = q.Where("(loans.status IN ?) OR (loans.status NOT IN ? AND loans.due_date < ?)",
+			[]string{StatusAuctionEligible, StatusAuctionedBalanceDue},
+			notDefaultableStatuses, time.Now().AddDate(0, 0, -defaultedAfterDays))
 	}
 	return q
 }

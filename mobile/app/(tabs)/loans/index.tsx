@@ -165,7 +165,7 @@ export default function LoansScreen() {
               status={l.status}
               details={loanRowDetails(l)}
               actions={[
-                { label: "Collect Payment", disabled: closed, onPress: () => shell.openCollect(l.id) },
+                ...(can("Loan_Management", "can_update_loan") ? [{ label: "Collect Payment", disabled: closed, onPress: () => shell.openCollect(l.id) }] : []),
                 { label: "View Full Details", primary: true, onPress: () => router.push(`/loans/${l.id}` as never) },
               ]}
             />

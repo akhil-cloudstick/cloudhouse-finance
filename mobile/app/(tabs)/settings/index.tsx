@@ -20,6 +20,7 @@ import { deleteApiKey, listApiKeysPage, setApiKey } from "../../../src/api/setti
 import { API_KEY_CATEGORIES, type ApiKeyCategory, type ApiKeyView } from "../../../src/types/apiKey";
 import { ApiError } from "../../../src/api/client";
 import { dmy } from "../../../src/lib/format";
+import { useAuth } from "../../../src/auth/AuthContext";
 
 // Settings (API keys) — not drawn in the prototype; built from its list
 // language (FlatHeader back, SearchInput, server-paged AccRows, Sheets).
@@ -96,6 +97,10 @@ export default function SettingsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ApiKeyView | null>(null);
   const [deleting, setDeleting] = useState<ApiKeyView | null>(null);
+  const { can } = useAuth();
+  // Adding a key is a PUT too, so it rides on "can update setting".
+  const canUpdate = can("Settings_Management", "can_update_setting");
+  const canDelete = can("Settings_Management", "can_delete_setting");
 
   const list = useServerList<ApiKeyView>({ key: ["api-keys", "list"], fetchPage: (p) => listApiKeysPage(p) });
 
@@ -103,13 +108,15 @@ export default function SettingsScreen() {
     <Screen
       header={<FlatHeader title="Settings" subtitle="API keys & integrations" />}
       floating={
-        <FabCorner
-          label="Add API key"
-          onPress={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-        />
+        canUpdate ? (
+          <FabCorner
+            label="Add API key"
+            onPress={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          />
+        ) : undefined
       }
     >
       <ServerFlatList
@@ -129,15 +136,19 @@ export default function SettingsScreen() {
               { k: "Last updated", v: k.updatedAt ? dmy(k.updatedAt) : "—" },
             ]}
             actions={[
-              ...(k.configured ? [{ label: "Remove", danger: true, onPress: () => setDeleting(k) }] : []),
-              {
-                label: k.configured ? "Edit Key" : "Add Key",
-                primary: true,
-                onPress: () => {
-                  setEditing(k);
-                  setFormOpen(true);
-                },
-              },
+              ...(k.configured && canDelete ? [{ label: "Remove", danger: true, onPress: () => setDeleting(k) }] : []),
+              ...(canUpdate
+                ? [
+                    {
+                      label: k.configured ? "Edit Key" : "Add Key",
+                      primary: true,
+                      onPress: () => {
+                        setEditing(k);
+                        setFormOpen(true);
+                      },
+                    },
+                  ]
+                : []),
             ]}
           />
         )}

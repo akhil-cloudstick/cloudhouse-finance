@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { useAuth } from "@/product/providers/auth-context";
 import { listCustomers, type CustomerView } from "@/product/pages/customers/services/customerService";
 
 type CustomersState = { customers: CustomerView[]; loading: boolean; error: string; refresh: () => void };
@@ -14,17 +15,25 @@ const CustomersContext = createContext<CustomersState | null>(null);
  * context earns its keep here (see the Customer Module stage-1 plan).
  */
 export function CustomersProvider({ children }: { children: React.ReactNode }) {
+  // Loaded for every page, so only fetched when this role can view the
+  // module — otherwise it stays empty instead of failing with a 403.
+  const { can, permissionsLoaded } = useAuth();
+  const allowed = can("Customer_Management", "can_view_customer_module");
   const [customers, setCustomers] = useState<CustomerView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const refresh = useCallback(() => {
+    if (!allowed) {
+      setLoading(!permissionsLoaded);
+      return;
+    }
     setLoading(true);
     listCustomers()
       .then((list) => { setCustomers(list); setError(""); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customers."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [allowed, permissionsLoaded]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

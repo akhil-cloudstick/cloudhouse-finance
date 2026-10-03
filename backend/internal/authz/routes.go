@@ -12,7 +12,7 @@ import (
 // least a valid token; ByEmployee is auth-only, the rest also require the
 // role-and-permission permission).
 func RegisterRoutes(employeeGroup *gin.RouterGroup, roleGroup *gin.RouterGroup, h *Handler, checker platform.PermissionChecker) {
-	view := platform.RequirePermission(checker, "can view role and permission")
+	view := platform.RequirePermission(checker, "can view role and permission module")
 	createRole := platform.RequirePermission(checker, "can create role")
 	// Grant editing used to have its own "can change role permission"; that
 	// permission is gone with the rest of the "can change ..." set, so editing

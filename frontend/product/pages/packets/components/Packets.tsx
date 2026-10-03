@@ -12,6 +12,7 @@ import { Select } from "@/product/components/ui/Select";
 import { useAuth } from "@/product/providers/auth-context";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 import { navigate, routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 /* Mirrors packet.Status* in backend/internal/packet/model.go. */
 const PACKET_STATUS_OPTIONS = [
@@ -67,6 +68,17 @@ export function Packets() {
   // the packets stored in them — hidden, not disabled, when not granted
   // (see Customers.tsx).
   const { can } = useAuth();
+  const canOpen = useCanOpenRoute();
+  // A link inside a clickable row: stopping propagation keeps the row's own
+  // onClick from firing, but also keeps the click from AppShell's link
+  // interceptor — so navigate here (through the permission guard) instead of
+  // letting the browser do a full page load. Same rules as LedgerRefLink.
+  const cellLink = (to: string) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    navigate(to);
+  };
   const canCreateLockers = can("Locker_Management", "can_create_locker");
   const canUpdateLockers = can("Locker_Management", "can_update_locker");
 
@@ -197,8 +209,8 @@ export function Packets() {
                   const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.status;
                   return (
                     <tr key={p.id} className="click" onClick={() => { navigate(`packet/${p.code}`); }}>
-                      <td><a href={routeHref(`packet/${p.code}`)} className="id" onClick={(e) => e.stopPropagation()}>{p.code}</a></td>
-                      <td><a href={routeHref(`loan/${p.loanNumber}`)} onClick={(e) => e.stopPropagation()}>{p.loanNumber}</a></td>
+                      <td><a href={routeHref(`packet/${p.code}`)} className="id" onClick={cellLink(`packet/${p.code}`)}>{p.code}</a></td>
+                      <td>{canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)} onClick={cellLink(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
                       <td>{p.customerName}</td>
                       <td className="num">{p.itemCount}</td>
                       <td className="num">{fmtW(p.totalWeight)}</td>

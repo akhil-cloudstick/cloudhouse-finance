@@ -2,6 +2,7 @@
 
 import { navigate, routeHref } from "@/product/services/appRoutes";
 import { expenseCategoryOf } from "@/product/hooks/useExpenseCategoryIds";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 /* Category-ledger chip for an approved expense's ledger row ("Expense —
  * Rent"); renders nothing for any other row or an unknown category. */
@@ -28,6 +29,7 @@ export function LedgerRefLink({
   id: number | string;
   label: string;
 }) {
+  const canOpen = useCanOpenRoute();
   const route =
     kind === "loan" ? "loan"
     : kind === "personalloan" ? "personalloan"
@@ -35,6 +37,8 @@ export function LedgerRefLink({
     : kind === "customer" ? "ledger-customer"
     : kind === "category" ? "ledger-category"
     : "ledger-bank";
+  // A chip to a page this role can't open is just its label, not a link.
+  if (!canOpen(route)) return <span className={`ledger-ref-chip ledger-ref-chip-${kind}`}>{label}</span>;
   return (
     <a
       href={routeHref(route, id)}

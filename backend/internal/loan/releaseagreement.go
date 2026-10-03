@@ -291,7 +291,7 @@ p{margin:8px 0}
 .amt-table{width:auto;margin-left:auto;border:none;margin-top:6px}
 .amt-table td{border:none;padding:1px 0 1px 24px}
 .amt-table td:first-child{padding-left:0}
-table:not(.hd-table):not(.amt-table){margin-top:14px;border-collapse:separate;border-spacing:0}
+table:not(.hd-table):not(.amt-table){width:100%;margin-top:14px;border-collapse:separate;border-spacing:0}
 table:not(.hd-table):not(.amt-table) th,table:not(.hd-table):not(.amt-table) td{padding:6px 10px;border:1px solid #ccc}
 table:not(.hd-table):not(.amt-table) th{background:#ececec;font-size:12px}
 .terms{font-size:11px;color:#444;margin-top:16px}

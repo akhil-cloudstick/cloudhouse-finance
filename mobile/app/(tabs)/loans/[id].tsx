@@ -99,13 +99,16 @@ export default function LoanDetailScreen() {
   const { can, employee } = useAuth();
   const wf = useApprovalWorkflow();
   const canEditLoan = can("Loan_Management", "can_update_loan");
+  const canTopUp = can("Loan_Management", "can_top_up_loan");
   const canHardDeleteLoan = can("Loan_Management", "can_hard_delete_loan");
 
   const loan = useQuery({ queryKey: ["loan", id], queryFn: () => getLoan(loanId), enabled: !!id });
   // This loan's tracking packet — locker info / release warnings.
   const packetQuery = useQuery({ queryKey: ["loanPacket", id], queryFn: () => listPackets({ loanId }), enabled: !!id });
   const packet = packetQuery.data?.[0];
-  const auction = useQuery({ queryKey: ["auction", id], queryFn: () => getAuction(loanId), enabled: !!id, retry: false });
+  // Auction data and the Auction action need "can view auction module".
+  const canViewAuctions = can("Auction_Workflow", "can_view_auction_module");
+  const auction = useQuery({ queryKey: ["auction", id], queryFn: () => getAuction(loanId), enabled: !!id && canViewAuctions, retry: false });
   // All of this loan's extension / release requests: the Pending ones switch
   // the Extend / Release sheets to their review, the rest feed the timeline.
   const requests = useQuery({ queryKey: ["loanRequests", id], queryFn: () => listLoanRequests({ loanId }), enabled: !!id });
@@ -209,7 +212,7 @@ export default function LoanDetailScreen() {
   const approveLabel = isFinalSanction ? (isVerifyStage ? " Disburse" : "Disburse") : isVerifyStage ? "Verify" : "Approve";
 
   const alreadyAuctioned = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
-  const showAuction = !!auction.data || alreadyAuctioned || !!l.isDefaulted;
+  const showAuction = canViewAuctions && (!!auction.data || alreadyAuctioned || !!l.isDefaulted);
 
   const ornaments = l.ornaments ?? [];
   const weight = l.totalNetWeight ?? ornaments.reduce((s, o) => s + o.netWeight * (o.quantity || 1), 0);
@@ -410,15 +413,17 @@ export default function LoanDetailScreen() {
           const items: React.ReactNode[] = [];
           const add = (key: string, props: Omit<React.ComponentProps<typeof SheetListItem>, "first">) =>
             items.push(<SheetListItem key={key} first={items.length === 0} {...props} />);
+          // Collect / request / complete all POST behind "can update loan";
+          // a pending request can still be opened read-only to review it.
           if (!isFinished) {
-            add("collect", { icon: "card", title: "Collect Payment", sub: "Record an EMI or part payment", onPress: () => go("collect") });
-            add("extend", {
+            if (canEditLoan) add("collect", { icon: "card", title: "Collect Payment", sub: "Record an EMI or part payment", onPress: () => go("collect") });
+            if (canEditLoan || pendingExtension) add("extend", {
               icon: "calendar",
               title: pendingExtension ? "Review Extension" : "Extend Loan Tenure",
               sub: pendingExtension ? "Extension request awaiting approval" : "Push out the due date",
               onPress: () => go("extend"),
             });
-            add("release", {
+            if (canEditLoan || (pendingRelease && l.status !== "Closure Requested")) add("release", {
               icon: "coin",
               title: l.status === "Closure Requested" ? "Complete Release" : pendingRelease ? "Review Release" : "Gold Release",
               sub:
@@ -430,12 +435,12 @@ export default function LoanDetailScreen() {
               onPress: () => go("release"),
             });
           }
-          if (canEditLoan && TOP_UP_STATUSES.includes(l.status)) {
+          if (canTopUp && TOP_UP_STATUSES.includes(l.status)) {
             add("topup", { icon: "plus", title: "Top Up Loan", sub: "Disburse more against the pledged gold", onPress: () => go("topup") });
           }
           if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: "Scheme, principal, and ornament details", onPress: () => go("edit") });
           if (pendingStage && canActOnStage) add("docs", { icon: "doc", title: "Loan Documents", sub: "Statement, bond & eSign", onPress: () => go("documents") });
-          add("bank", {
+          if (can("Bank_Pledge_Management", "can_view_bank_pledge_module")) add("bank", {
             icon: "shield",
             title: "Bank Pledge",
             sub: l.bankPledges?.some((p) => p.status === "Active") ? "Pledged to a bank — release, delete or view history" : "Repledge to a bank · view history",
@@ -455,7 +460,8 @@ export default function LoanDetailScreen() {
         visible={open === "topup"}
         onClose={() => setOpen(null)}
         onAddOrnaments={canEditThis ? () => go("edit") : undefined}
-        onRecordPayment={() => go("collect")}
+        // Recording a payment is a loan update — top-up alone doesn't grant it.
+        onRecordPayment={canEditLoan ? () => go("collect") : undefined}
       />
       {pendingStage ? (
         <ConfirmSheet

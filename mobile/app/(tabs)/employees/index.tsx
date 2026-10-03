@@ -87,6 +87,10 @@ function EmployeeDetailSheet({
 }) {
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
+  const { can } = useAuth();
+  const canUpdate = can("Employee_Management", "can_update_employee");
+  const canDelete = can("Employee_Management", "can_delete_employee");
+  const canViewRoles = can("Role_Management", "can_view_role_and_permission_module");
   const q = useQuery({ queryKey: ["employee", String(id)], queryFn: () => getEmployee(id!), enabled: id != null });
 
   useEffect(() => setConfirm(false), [id]);
@@ -124,23 +128,28 @@ function EmployeeDetailSheet({
               { k: "Pending", v: String(e.pending ?? 0) },
             ]}
           />
-          <SheetListItem first icon="edit" title="Edit employee" sub="Name, phone and role" onPress={() => onEdit(e)} />
-          <SheetListItem
-            icon="shield"
-            title="Role permissions"
-            sub={`What a ${e.role} can do`}
-            onPress={() => {
-              onClose();
-              openPage("/roles");
-            }}
-          />
-          <PrimaryButton
-            label={confirm ? "Tap again to remove" : "Remove Employee"}
-            variant="reject"
-            loading={remove.isPending}
-            onPress={() => (confirm ? remove.mutate() : setConfirm(true))}
-            style={{ marginTop: 12 }}
-          />
+          {canUpdate ? <SheetListItem first icon="edit" title="Edit employee" sub="Name, phone and role" onPress={() => onEdit(e)} /> : null}
+          {canViewRoles ? (
+            <SheetListItem
+              first={!canUpdate}
+              icon="shield"
+              title="Role permissions"
+              sub={`What a ${e.role} can do`}
+              onPress={() => {
+                onClose();
+                openPage("/roles");
+              }}
+            />
+          ) : null}
+          {canDelete ? (
+            <PrimaryButton
+              label={confirm ? "Tap again to remove" : "Remove Employee"}
+              variant="reject"
+              loading={remove.isPending}
+              onPress={() => (confirm ? remove.mutate() : setConfirm(true))}
+              style={{ marginTop: 12 }}
+            />
+          ) : null}
           {remove.isError ? (
             <Txt style={{ color: C.red, fontSize: 12, marginTop: 8 }}>
               {remove.error instanceof ApiError ? remove.error.message : "Could not remove employee."}
@@ -156,6 +165,9 @@ export default function EmployeesScreen() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
+  const { can } = useAuth();
+  const canCreate = can("Employee_Management", "can_create_employee");
+  const canUpdate = can("Employee_Management", "can_update_employee");
 
   const list = useServerList<Employee>({ key: ["employees", "list"], fetchPage: (p) => listEmployeesPage(p) });
 
@@ -163,13 +175,15 @@ export default function EmployeesScreen() {
     <Screen
       header={<FlatHeader title="Employees" subtitle="Staff accounts & roles" />}
       floating={
-        <FabCorner
-          label="Add employee"
-          onPress={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-        />
+        canCreate ? (
+          <FabCorner
+            label="Add employee"
+            onPress={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          />
+        ) : undefined
       }
     >
       <ServerFlatList
@@ -198,15 +212,19 @@ export default function EmployeesScreen() {
               { k: "Loans processed", v: String(e.loansProcessed ?? 0) },
             ]}
             actions={[
-              { label: "View", onPress: () => setDetailId(e.id) },
-              {
-                label: "Edit Employee",
-                primary: true,
-                onPress: () => {
-                  setEditing(e);
-                  setFormOpen(true);
-                },
-              },
+              { label: "View", primary: !canUpdate, onPress: () => setDetailId(e.id) },
+              ...(canUpdate
+                ? [
+                    {
+                      label: "Edit Employee",
+                      primary: true,
+                      onPress: () => {
+                        setEditing(e);
+                        setFormOpen(true);
+                      },
+                    },
+                  ]
+                : []),
             ]}
           />
         )}

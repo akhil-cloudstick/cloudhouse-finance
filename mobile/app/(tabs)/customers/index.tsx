@@ -7,6 +7,7 @@ import { useServerList } from "../../../src/hooks/useServerList";
 import { useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { listCustomersPage } from "../../../src/api/customers";
 import type { Customer } from "../../../src/types/customer";
+import { useAuth } from "../../../src/auth/AuthContext";
 
 // Customers list — prototype #header-customers + #page-customers.
 // Search (name / customer ID / phone) is the server `q` on GET /customers;
@@ -16,15 +17,16 @@ export default function CustomersScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ register?: string }>();
   const [registerOpen, setRegisterOpen] = useState(false);
+  const canCreate = useAuth().can("Customer_Management", "can_create_customer");
 
   const list = useServerList<Customer>({ key: ["customers", "list"], fetchPage: (p) => listCustomersPage(p) });
 
   useEffect(() => {
     if (params.register === "1") {
-      setRegisterOpen(true);
+      if (canCreate) setRegisterOpen(true);
       router.setParams({ register: undefined } as never);
     }
-  }, [params.register, router]);
+  }, [params.register, router, canCreate]);
 
   useResetOnBlur(() => setRegisterOpen(false));
 
@@ -37,7 +39,7 @@ export default function CustomersScreen() {
           subtitle={total != null ? `${total} total` : undefined}
         />
       }
-      floating={<FabCorner onPress={() => setRegisterOpen(true)} label="Register customer" />}
+      floating={canCreate ? <FabCorner onPress={() => setRegisterOpen(true)} label="Register customer" /> : undefined}
     >
       <ServerFlatList
         list={list}

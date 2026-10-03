@@ -51,7 +51,7 @@ func (h *Handler) Login(c *gin.Context) {
 }
 
 // ForgotPassword tells the caller exactly what happened so the reset page can
-// react: 404 when the phone number is not registered with this business,
+// react: 404 when no employee of this business has that username + phone,
 // 403 when it belongs to an employee with no login, 503 when the code could
 // not be sent, 200 once the SMS is on its way.
 func (h *Handler) ForgotPassword(c *gin.Context) {
@@ -61,7 +61,7 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	if err := h.svc.ForgotPassword(ctx, in.BusinessCode, in.Phone); err != nil {
+	if err := h.svc.ForgotPassword(ctx, in.BusinessCode, in.Username, in.Phone); err != nil {
 		var se httpx.StatusedError
 		if !errors.As(err, &se) {
 			// An unexpected DB/driver failure: the code was not sent.
@@ -74,6 +74,23 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 	httpx.SuccessMessage(c, http.StatusOK, "A reset code has been sent by SMS.")
 }
 
+// VerifyResetCode lets the reset screens confirm the texted code before
+// showing the new-password step. 200 when the code is right; it is not
+// consumed — ResetPassword checks it again.
+func (h *Handler) VerifyResetCode(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	var in VerifyResetCodeInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	if err := h.svc.VerifyResetCode(ctx, in.BusinessCode, in.Username, in.Phone, in.OTP); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.SuccessMessage(c, http.StatusOK, "Code verified.")
+}
+
 func (h *Handler) ResetPassword(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	var in ResetPasswordInput
@@ -81,7 +98,7 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	if err := h.svc.ResetPassword(ctx, in.BusinessCode, in.Phone, in.OTP, in.NewPassword); err != nil {
+	if err := h.svc.ResetPassword(ctx, in.BusinessCode, in.Username, in.Phone, in.OTP, in.NewPassword); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}

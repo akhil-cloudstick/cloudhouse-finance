@@ -26,6 +26,7 @@ export function Branches() {
   const { can } = useAuth();
   const canCreateBranches = can("Branch_Management", "can_create_branch");
   const canUpdateBranches = can("Branch_Management", "can_update_branch");
+  const canViewBranchLedger = can("Branch_Management", "can_view_branch_ledger");
   const [branches, setBranches] = useState<BranchView[] | null>(null);
   const [error, setError] = useState("");
   const [quota, setQuota] = useState<BranchQuota | null>(null);
@@ -144,7 +145,7 @@ export function Branches() {
                     <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
                     <td>
                       <div style={{ display: "flex", gap: 12 }}>
-                        <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchLedgerModalContent branch={b} />, true); }}>Ledger</a>
+                        {canViewBranchLedger && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchLedgerModalContent branch={b} />, true); }}>Ledger</a>}
                         {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
                         {canUpdateBranches && b.isActive && (
                           <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>

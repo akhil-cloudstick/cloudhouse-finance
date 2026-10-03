@@ -6,6 +6,7 @@ import { createBank, listBanksPage } from "../../../api/banks";
 import type { Bank } from "../../../types/bank";
 import { inr, todayISO } from "../../../lib/format";
 import type { Loan } from "../../../types/loan";
+import { useAuth } from "../../../auth/AuthContext";
 import { ErrorText, PAYMENT_TYPES, PAYMENT_TYPE_LABELS, apiErr, invalidateLoan, type PaymentType } from "./common";
 
 // Amount a payment type normally settles; undefined for types with no
@@ -26,6 +27,7 @@ function autoAmount(l: Loan, t: PaymentType) {
 
 /** Prototype #act-collect — record an EMI / part payment with a mode split. */
 export function CollectPaymentSheet({ loan: l, visible, onClose }: { loan: Loan; visible: boolean; onClose: () => void }) {
+  const canCreateBank = useAuth().can("Bank_Management", "can_create_bank");
   const qc = useQueryClient();
   const [type, setType] = useState<PaymentType>("Interest");
   const [amount, setAmount] = useState("");
@@ -140,7 +142,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: { loan: Loan;
           onClear={() => setBank(null)}
           keyOf={(b) => b.id}
           renderItem={(b) => ({ title: b.name })}
-          onCreateNew={(name) => createBank({ name })}
+          onCreateNew={canCreateBank ? (name) => createBank({ name }) : undefined}
         />
       ) : null}
       <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} />

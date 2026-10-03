@@ -9,6 +9,7 @@ import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { Select } from "@/product/components/ui/Select";
 import { searchInvestorsPage, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { CreateInvestorModalContent } from "@/product/pages/investments/components/CreateInvestorModal";
+import { useAuth } from "@/product/providers/auth-context";
 import {
   createInvestment,
   listInvestmentPlans,
@@ -23,6 +24,7 @@ import {
  * schedule in one step (see backend/internal/investment/service.go's
  * CreateInvestment). */
 export function NewInvestmentModalContent({ onSaved }: { onSaved: () => void }) {
+  const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
   const { closeModal } = useModal();
   const toast = useToast();
 
@@ -98,7 +100,7 @@ export function NewInvestmentModalContent({ onSaved }: { onSaved: () => void }) 
             getLabel={(c) => `${c.name} (${c.code})`}
             getId={(c) => c.id}
             placeholder="Search for an investor…"
-            onCreateNew={() => setCreatingInvestor(true)}
+            onCreateNew={canCreateCustomer ? () => setCreatingInvestor(true) : undefined}
             createNewLabel="+ Add new investor"
           /></div></div>
         <div className="frow c2">

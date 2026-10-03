@@ -51,6 +51,7 @@ export function AuctionSheet({
   const wf = useApprovalWorkflow();
   const { can, employee } = useAuth();
   const canAct = can("Loan_Management", "can_update_loan");
+  const aw = (k: string) => canAct && can("Auction_Workflow", k);
   const [error, setError] = useState<string | null>(null);
   const [auctionDate, setAuctionDate] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
@@ -115,7 +116,7 @@ export function AuctionSheet({
         alreadyAuctioned ? (
           <Txt style={{ fontSize: 12.5, color: C.muted }}>This loan&apos;s gold was already sold at auction — see Auction History for the outcome.</Txt>
         ) : l.isDefaulted ? (
-          canAct ? (
+          aw("can_mark_loan_auction_eligible") ? (
             <>
               <NoticeBanner>This loan has defaulted and can be moved into the auction pipeline.</NoticeBanner>
               <ErrorText>{error}</ErrorText>
@@ -183,14 +184,14 @@ export function AuctionSheet({
             </NoticeBanner>
           ) : null}
 
-          {!frozen && canAct && rec.stage === "AuctionEligible" ? (
+          {!frozen && aw("can_issue_auction_notice") && rec.stage === "AuctionEligible" ? (
             <>
               <ErrorText>{error}</ErrorText>
               <PrimaryButton label="Issue Notice" onPress={() => notice.mutate()} loading={notice.isPending} />
             </>
           ) : null}
 
-          {!frozen && canAct && rec.stage === "NoticeIssued" ? (
+          {!frozen && aw("can_schedule_auction") && rec.stage === "NoticeIssued" ? (
             <>
               <DateField label="Auction date" value={auctionDate} onChange={setAuctionDate} min={todayISO()} />
               <TextField label="Reference number" value={referenceNumber} onChangeText={setReferenceNumber} placeholder="Optional" />
@@ -199,7 +200,7 @@ export function AuctionSheet({
             </>
           ) : null}
 
-          {!frozen && canAct && rec.stage === "AuctionScheduled" ? (
+          {!frozen && aw("can_record_auction_sale") && rec.stage === "AuctionScheduled" ? (
             <>
               <TextField label="Sale amount" keyboardType="decimal-pad" value={saleAmount} onChangeText={setSaleAmount} placeholder="0" />
               <TextField label="Auction expenses" keyboardType="decimal-pad" value={expenses} onChangeText={setExpenses} placeholder="0" />
@@ -215,7 +216,7 @@ export function AuctionSheet({
                 v={inr(Math.abs(rec.surplusShortfall ?? 0))}
                 tone={(rec.surplusShortfall ?? 0) >= 0 ? "green" : "red"}
               />
-              {!frozen && canAct && !balanceDue && hasUndisposedSurplus(rec) ? (
+              {!frozen && aw("can_settle_auction") && !balanceDue && hasUndisposedSurplus(rec) ? (
                 <>
                   <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
                     {inr(rec.surplusPayableAmount)} surplus is payable back to {l.customer?.name ?? "the customer"} and has not been disposed of yet.

@@ -22,6 +22,7 @@ import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
 import { ApiError } from "@/product/services/httpClient";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 import { routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 /* Roles permitted to void a re-pledge. Mirrors the server-side guard on
  * PUT /loans/:id/bank-pledge/:pledgeId/void — voiding rewrites booked cash
@@ -43,13 +44,14 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
   const { error, refresh } = useLoans();
   const { openModal, closeModal } = useModal();
   const { role, can } = useAuth();
+  const canOpen = useCanOpenRoute();
   const toast = useToast();
   // Recording a re-pledge (and adding the bank it goes to) is a create;
   // releasing or voiding one is an update. Whatever the role can't do is
   // hidden outright (see Customers.tsx).
   const canCreatePledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
-  const canViewBanks = can("Bank_Management", "can_view_bank");
+  const canViewBanks = can("Bank_Management", "can_view_bank_module");
   const pageSize = useResponsivePageSize(15, 15);
   const [tab, setTab] = useState<"active" | "history">("active");
   // One search box for both tabs, matching loan number, bank name, or
@@ -226,7 +228,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
                   const treatment = active?.cashTreatment ?? "CashIn";
                   return (
                     <tr key={l.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
-                      <td><a href={routeHref(`loan/${l.id}`)}>{l.id}</a></td>
+                      <td>{canOpen("loan") ? <a href={routeHref(`loan/${l.id}`)}>{l.id}</a> : l.id}</td>
                       <td>{l.customerName}</td>
                       <td>{active?.bankName || "—"}</td>
                       <td className="num">{fmtW(l.totalNetWeight)}</td>
@@ -300,7 +302,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
                   <tr><td colSpan={8} className="empty">No re-pledge records yet.</td></tr>
                 ) : history.map((r) => (
                   <tr key={r.id}>
-                    <td>{r.loanNumber ? <a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a> : `#${r.loanId}`}</td>
+                    <td>{r.loanNumber ? (canOpen("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber) : `#${r.loanId}`}</td>
                     <td>{r.customerName || "—"}</td>
                     <td>{r.bankName}</td>
                     <td className="num">{fmt(r.pledgedAmount)}</td>

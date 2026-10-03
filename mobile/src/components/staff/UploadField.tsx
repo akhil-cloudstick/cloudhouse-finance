@@ -5,6 +5,7 @@ import { fromCamera, fromFiles, fromLibrary, PermissionError } from "../Document
 import { uploadFile, type PickedFile } from "../../api/uploads";
 import { API_ORIGIN } from "../../api/config";
 import { ApiError } from "../../api/client";
+import { useAuth } from "../../auth/AuthContext";
 
 /** Prototype dashed upload tile ("Tap to add a photo" / "Tap to upload").
  * Uploads as soon as a file is picked; the value is the "/uploads/..." URL. */
@@ -25,6 +26,8 @@ export function UploadField({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
+  // POST /uploads is gated "can create upload" — without it the tile is inert.
+  const canUpload = useAuth().can("Upload_Management", "can_create_upload");
 
   async function pick(run: () => Promise<PickedFile | null>) {
     setChoosing(false);
@@ -46,18 +49,19 @@ export function UploadField({
   const isImage = !!value && !/\.pdf$/i.test(value);
   return (
     <Field label={label}>
-      <Pressable onPress={() => !busy && setChoosing(true)} style={[s.box, !!value && s.boxDone]}>
+      <Pressable onPress={() => canUpload && !busy && setChoosing(true)} disabled={!canUpload} style={[s.box, !!value && s.boxDone]}>
         {busy ? (
           <ActivityIndicator color={C.brandDeep} />
         ) : value ? (
           <View style={s.done}>
             {isImage ? <Image source={{ uri: value.startsWith("http") ? value : `${API_ORIGIN}${value}` }} style={s.thumb} /> : null}
             <Txt style={s.doneTxt} numberOfLines={1}>
-              {name ?? "Attached"} · Tap to replace
+              {name ?? "Attached"}
+              {canUpload ? " · Tap to replace" : ""}
             </Txt>
           </View>
         ) : (
-          <Txt style={s.empty}>{emptyText ?? (allowPdf ? "Tap to upload" : "Tap to add a photo")}</Txt>
+          <Txt style={s.empty}>{!canUpload ? "You don't have permission to upload files" : emptyText ?? (allowPdf ? "Tap to upload" : "Tap to add a photo")}</Txt>
         )}
       </Pressable>
       {value ? (

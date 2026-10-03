@@ -15,9 +15,42 @@ import {
   createRole,
   updateRole,
   deleteRole,
+  type PermissionRef,
   type PermissionRow,
   type Role,
 } from "@/product/services/permissionService";
+
+/* "can create loan" -> "create loan", for "cannot enable …" messages. */
+function actionLabel(name: string) {
+  return name.replace(/^can /, "");
+}
+
+/* Confirm before switching a parent off: everything below it goes too. */
+function CascadeOffModalContent({ row, dependents, onConfirm }: {
+  row: PermissionRow;
+  dependents: PermissionRef[];
+  onConfirm: () => void;
+}) {
+  const { closeModal } = useModal();
+  return (
+    <>
+      <div className="hd"><h3>Turn off {actionLabel(row.permissions.name)}?</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll">
+        <p style={{ fontSize: 13.5, marginTop: 0 }}>
+          These permissions need <b>{row.permissions.name}</b>, so they will be turned off too:
+        </p>
+        <ul style={{ fontSize: 13, margin: 0, paddingLeft: 18 }}>
+          {dependents.map((d) => <li key={d.permission_id}>{d.name}</li>)}
+        </ul>
+      </div>
+      <div className="ft" style={{ display: "flex", gap: 8 }}>
+        <div className="sp" />
+        <button className="btn ghost" onClick={closeModal}>Cancel</button>
+        <button className="btn" onClick={() => { onConfirm(); closeModal(); }}>Turn off {dependents.length + 1}</button>
+      </div>
+    </>
+  );
+}
 import { ApprovalWorkflowSettings } from "@/product/pages/roles/components/ApprovalWorkflowSettings";
 
 /* Rename/delete for one role, opened from the Edit button beside the role
@@ -195,9 +228,45 @@ export function RolesPermissions() {
     return out;
   }, [matrix, pending]);
 
+  // A related permission's on/off state including unsaved edits — it may be
+  // hidden by the search, so the server's granted flag is the fallback.
+  function isOn(ref: PermissionRef) {
+    return pending[ref.permission_id] ?? ref.granted;
+  }
+
+  // Parents still off — while any is, this permission can't be switched on.
+  function missingParents(row: PermissionRow) {
+    return (row.parents ?? []).filter((p) => !isOn(p));
+  }
+
+  function blockedMessage(row: PermissionRow) {
+    const missing = missingParents(row);
+    if (missing.length === 0) return "";
+    return `Enable ${missing.map((p) => p.label).join(", ")} first`;
+  }
+
   function toggle(row: PermissionRow) {
     if (!canUpdateRole || role?.isSystem) return;
-    setPending((p) => ({ ...p, [row.permission_id]: !(p[row.permission_id] ?? row.permission) }));
+    const current = pending[row.permission_id] ?? row.permission;
+    if (!current) {
+      if (missingParents(row).length > 0) {
+        toast(blockedMessage(row));
+        return;
+      }
+      setPending((p) => ({ ...p, [row.permission_id]: true }));
+      return;
+    }
+    const goingOff = (row.dependents ?? []).filter(isOn);
+    const turnOff = () => setPending((p) => {
+      const next = { ...p, [row.permission_id]: false };
+      for (const d of goingOff) next[d.permission_id] = false;
+      return next;
+    });
+    if (goingOff.length === 0) {
+      turnOff();
+      return;
+    }
+    openModal(<CascadeOffModalContent row={row} dependents={goingOff} onConfirm={turnOff} />);
   }
 
   async function save() {
@@ -274,7 +343,7 @@ export function RolesPermissions() {
     );
   }
 
-  if (!can("Role_Management", "can_view_role_and_permission")) {
+  if (!can("Role_Management", "can_view_role_and_permission_module")) {
     return (
       <div className="notice" style={{ maxWidth: 480, margin: "48px auto" }}>
         You do not have access to this page. Ask your administrator to grant the permission for it.
@@ -406,23 +475,39 @@ export function RolesPermissions() {
                   <div className="hd"><h3 style={{ fontSize: 15 }}>{mod}</h3></div>
                   <div className="bd" style={{ padding: 0 }}>
                     <div className="perm-list-rows">
-                      {rows.map((row) => (
-                        <label key={row.permission_id} className="ccheck perm-list-row">
-                          <input
-                            type="checkbox"
-                            checked={row.permission}
-                            onChange={() => toggle(row)}
-                            disabled={!canUpdateRole || role?.isSystem}
-                          />
-                          <span className="mark" />
-                          <span>
-                            <b style={{ fontSize: 13 }}>{row.permissions.name}</b>
-                            {row.permissions.description && (
-                              <span className="sub" style={{ display: "block", fontSize: 11.5 }}>{row.permissions.description}</span>
-                            )}
-                          </span>
-                        </label>
-                      ))}
+                      {rows.map((row) => {
+                        const blocked = !row.permission ? blockedMessage(row) : "";
+                        const softMissing = (row.soft_parents ?? []).filter((p) => !isOn(p));
+                        // Indented under a parent that lives in this same card.
+                        const nested = (row.parents ?? []).some((p) => rows.some((r) => r.permissions.name === p.name));
+                        return (
+                          <label
+                            key={row.permission_id}
+                            className={`ccheck perm-list-row${blocked ? " blocked" : ""}`}
+                            title={blocked || undefined}
+                            style={{ paddingLeft: nested ? 28 : undefined }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={row.permission}
+                              onChange={() => toggle(row)}
+                              disabled={!canUpdateRole || role?.isSystem || !!blocked}
+                            />
+                            <span className="mark" />
+                            <span>
+                              <b style={{ fontSize: 13 }}>{row.permissions.name}</b>
+                              {row.permissions.description && (
+                                <span className="sub" style={{ display: "block", fontSize: 11.5 }}>{row.permissions.description}</span>
+                              )}
+                              {!blocked && row.permission && softMissing.length > 0 && (
+                                <span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>
+                                  Works best with {softMissing.map((p) => p.label).join(", ")}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

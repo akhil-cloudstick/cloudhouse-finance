@@ -1,4 +1,4 @@
-import { apiFetchEnveloped } from "@/product/services/httpClient";
+import { apiFetchEnveloped, ApiError } from "@/product/services/httpClient";
 
 /* Shape returned by the Go backend (backend/internal/branch/model.go). */
 export type BranchView = {
@@ -82,7 +82,23 @@ export async function deactivateBranch(id: number): Promise<BranchView> {
 
 /* Only branches an admin should be able to pick from a dropdown when
  * assigning new records — excludes deactivated branches. */
+/* The signed-in employee's own branch (set by auth-context). A role without
+ * "can view branch module" still fills branch pickers with it: every role
+ * except Administrator/Management only ever works in its own branch, and the
+ * backend forces that on every write regardless. */
+let ownBranchFallback: BranchView | null = null;
+export function setOwnBranchFallback(branch: { id: number; name: string; code?: string } | null) {
+  ownBranchFallback = branch
+    ? { id: branch.id, name: branch.name, code: branch.code || "", address: "", phone: "", isActive: true }
+    : null;
+}
+
 export async function listActiveBranches(): Promise<BranchView[]> {
-  const all = await listBranches();
-  return all.filter((b) => b.isActive);
+  try {
+    const all = await listBranches();
+    return all.filter((b) => b.isActive);
+  } catch (e) {
+    if (ownBranchFallback && e instanceof ApiError && e.status === 403) return [ownBranchFallback];
+    throw e;
+  }
 }

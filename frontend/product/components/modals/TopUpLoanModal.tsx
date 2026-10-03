@@ -6,7 +6,7 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
-import { useApprovalWorkflow } from "@/product/providers/auth-context";
+import { useApprovalWorkflow, useAuth } from "@/product/providers/auth-context";
 import { isFlowOff } from "@/product/services/approvalWorkflowService";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { topUpLoan, getLoan, type LoanView } from "@/product/pages/loans/services/loanService";
@@ -36,6 +36,9 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
   const { openModal, closeModal } = useModal();
   const toast = useToast();
   const { config: workflow } = useApprovalWorkflow();
+  // Topping up is its own grant; the add-ornaments and pay-interest
+  // shortcuts below are loan edits/payments, so they need "can update loan".
+  const canUpdateLoans = useAuth().can("Loan_Management", "can_update_loan");
   const needsApproval = !isFlowOff(workflow, "loan_topup");
   const headroom = Math.max(0, loan.eligibleLoanAmount - loan.outstanding);
   const arrears = (loan.outstandingInterest ?? 0) + (loan.outstandingPenalInterest ?? 0);
@@ -98,7 +101,11 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
   async function save() {
     if (!amt || amt <= 0) { setErr("Please enter the top-up amount."); return; }
     if (!balanced) { setErr("The payment breakdown must add up to the amount."); return; }
-    if (hasArrears && settleMode === "require") { openPayInterest(); return; }
+    if (hasArrears && settleMode === "require") {
+      if (canUpdateLoans) openPayInterest();
+      else setErr("Interest must be paid before this top-up. Ask someone who can record loan payments.");
+      return;
+    }
     setSaving(true);
     setErr("");
     setShortfall(false);
@@ -172,14 +179,14 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
         {err && (
           <div className="notice" style={{ marginTop: 10 }}>
             {err}
-            {shortfall && (
+            {shortfall && canUpdateLoans && (
               <div style={{ marginTop: 8 }}>
                 <a href="#" onClick={(e) => { e.preventDefault(); openAddOrnaments(); }}>Add ornaments to raise the eligible amount →</a>
               </div>
             )}
           </div>
         )}
-        {needsPayment && (
+        {needsPayment && canUpdateLoans && (
           <div style={{ marginTop: 10 }}>
             <button className="btn ghost sm" onClick={openPayInterest}>
               <Icon name="coin" /> Record Payment

@@ -41,10 +41,15 @@ var (
 	// and the caller did not say which one they are signing in to. Normally
 	// unreachable in the UI, where the code comes from the login URL.
 	ErrBusinessCodeRequired = httpx.NewBadRequest("please use your organisation's sign-in link, or enter your business code")
-	// ErrPhoneNotRegistered is returned by ForgotPassword when no employee
-	// of the business has that phone number, so the user can correct a
-	// mistyped number instead of waiting for a code that will never arrive.
-	ErrPhoneNotRegistered = httpx.NewNotFound("This phone number is not registered.")
+	// ErrAccountNotMatched is returned by the reset flow when no employee of
+	// the business has BOTH that username and that phone number. One message
+	// for every case (unknown phone, unknown username, or the two belonging
+	// to different people), so the reset page can't be used to find out
+	// which half of a guessed pair is right.
+	ErrAccountNotMatched = httpx.NewNotFound("Username and phone number don't match any account.")
+	// ErrTooManyResetAttempts is returned once maxResetAttempts wrong codes
+	// have been entered — the code is discarded and a new one is needed.
+	ErrTooManyResetAttempts = httpx.NewBadRequest("Too many incorrect codes. Please request a new code.")
 	// ErrResetCodeNotSent is returned by ForgotPassword when the code was
 	// generated but the SMS gateway failed to deliver it.
 	ErrResetCodeNotSent = httpx.NewUnavailable("Sending failed")
@@ -58,6 +63,11 @@ var (
 // unlike an emailed link an SMS OTP is meant to be entered within a couple
 // of minutes of arriving.
 const resetOTPTTL = 10 * time.Minute
+
+// maxResetAttempts is how many wrong codes a reset code survives. There is no
+// request rate limiting in front of these public endpoints, so without a cap
+// a 6-digit code could be brute-forced inside its TTL.
+const maxResetAttempts = 5
 
 // Service implements login/forgot-password/reset-password on top of the
 // employee repository.
@@ -186,36 +196,77 @@ func generateOTP() (string, error) {
 	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
-// ForgotPassword looks up the employee by phone; if found, generates a
-// 6-digit OTP, stores its SHA-256 hash + a 10-minute expiry, and texts the
-// raw code via platform.SMSSender. Returns ErrPhoneNotRegistered if no
-// employee of the business has that phone (or the business code itself is
-// unknown), and ErrResetCodeNotSent if the SMS could not be delivered.
-func (s *Service) ForgotPassword(ctx context.Context, businessCode, phone string) error {
+// findResetAccount resolves the business and returns the employee who owns
+// BOTH username and phone, or ErrAccountNotMatched. Phone is unique per
+// business (uq_employees_tenant_phone), so it picks the row; the username
+// must then match it exactly — the same comparison Login uses.
+func (s *Service) findResetAccount(ctx context.Context, businessCode, username, phone string) (context.Context, *employee.Employee, error) {
 	tenantID, err := s.resolveTenant(ctx, businessCode)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
-			return ErrPhoneNotRegistered
+			return ctx, nil, ErrAccountNotMatched
 		}
-		return err
+		return ctx, nil, err
 	}
 	ctx = platform.WithTenant(ctx, tenantID)
 
+	username = strings.TrimSpace(username)
 	phone = strings.TrimSpace(phone)
-	if phone == "" {
-		return ErrPhoneNotRegistered
+	if username == "" || phone == "" {
+		return ctx, nil, ErrAccountNotMatched
 	}
 	emp, err := s.employeeRepo.FindByPhone(ctx, phone)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrPhoneNotRegistered
+			return ctx, nil, ErrAccountNotMatched
 		}
-		return err
+		return ctx, nil, err
 	}
 	// FindByPhone is tenant-scoped, but a row from another business must
 	// still never be the one a code is sent to.
-	if emp.TenantID != tenantID {
-		return ErrPhoneNotRegistered
+	if emp.TenantID != tenantID || emp.Username != username {
+		return ctx, nil, ErrAccountNotMatched
+	}
+	return ctx, emp, nil
+}
+
+// checkResetCode verifies otp against emp's stored reset code. A wrong code
+// counts against maxResetAttempts; the last allowed miss discards the code.
+func (s *Service) checkResetCode(ctx context.Context, emp *employee.Employee, otp string) error {
+	if emp.PasswordResetTokenHash == "" || emp.PasswordResetExpiresAt == nil || time.Now().After(*emp.PasswordResetExpiresAt) {
+		return ErrInvalidOrExpiredToken
+	}
+	hash := sha256.Sum256([]byte(strings.TrimSpace(otp)))
+	hashHex := hex.EncodeToString(hash[:])
+	if subtle.ConstantTimeCompare([]byte(hashHex), []byte(emp.PasswordResetTokenHash)) == 1 {
+		return nil
+	}
+
+	emp.PasswordResetAttempts++
+	tooMany := emp.PasswordResetAttempts >= maxResetAttempts
+	if tooMany {
+		emp.PasswordResetTokenHash = ""
+		emp.PasswordResetExpiresAt = nil
+	}
+	if err := s.employeeRepo.Update(ctx, emp); err != nil {
+		return err
+	}
+	if tooMany {
+		return ErrTooManyResetAttempts
+	}
+	return ErrInvalidOrExpiredToken
+}
+
+// ForgotPassword finds the employee owning both username and phone; if
+// found, generates a 6-digit OTP, stores its SHA-256 hash + a 10-minute
+// expiry, and texts the raw code via platform.SMSSender. Returns
+// ErrAccountNotMatched if no employee of the business has that username +
+// phone pair (or the business code itself is unknown), and
+// ErrResetCodeNotSent if the SMS could not be delivered.
+func (s *Service) ForgotPassword(ctx context.Context, businessCode, username, phone string) error {
+	ctx, emp, err := s.findResetAccount(ctx, businessCode, username, phone)
+	if err != nil {
+		return err
 	}
 	// Same rule as Login's ErrAccountNotSetUp: an employee without a
 	// password cannot sign in, so a reset code would be meaningless.
@@ -233,6 +284,7 @@ func (s *Service) ForgotPassword(ctx context.Context, businessCode, phone string
 	expiresAt := time.Now().Add(resetOTPTTL)
 	emp.PasswordResetTokenHash = hashHex
 	emp.PasswordResetExpiresAt = &expiresAt
+	emp.PasswordResetAttempts = 0
 	if err := s.employeeRepo.Update(ctx, emp); err != nil {
 		return err
 	}
@@ -246,6 +298,13 @@ func (s *Service) ForgotPassword(ctx context.Context, businessCode, phone string
 	// cannot silently charge the wrong business.
 	if tenantID, ok := platform.TenantFromContext(ctx); ok {
 		if err := platform.CheckAndRecordUsage(s.db, tenantID, platform.UsageSMS); err != nil {
+			// The person resetting is staff locked out of their account, not
+			// whoever manages the business's quota — they just see the send
+			// failed, same as a gateway error.
+			if errors.Is(err, platform.ErrUsageCapExceeded) {
+				log.Printf("auth: reset code not sent for tenant %d: %v", tenantID, err)
+				return ErrResetCodeNotSent
+			}
 			return err
 		}
 	}
@@ -279,34 +338,37 @@ func (s *Service) ForgotPassword(ctx context.Context, businessCode, phone string
 	return nil
 }
 
-// ResetPassword looks up the employee by phone, checks the given OTP
-// against the stored hash (and that it hasn't expired), bcrypt-hashes the
-// new password, and clears the reset fields so the OTP can't be reused.
-func (s *Service) ResetPassword(ctx context.Context, businessCode, phone, otp, newPassword string) error {
-	tenantID, terr := s.resolveTenant(ctx, businessCode)
-	if terr != nil {
-		return terr
-	}
-	ctx = platform.WithTenant(ctx, tenantID)
-
-	if len(newPassword) < 8 {
-		return httpx.NewBadRequest("password must be at least 8 characters")
-	}
-	phone = strings.TrimSpace(phone)
-	emp, err := s.employeeRepo.FindByPhone(ctx, phone)
+// VerifyResetCode checks the texted code for the username + phone pair
+// WITHOUT consuming it, so the reset screens can confirm the code before
+// asking for a new password. ResetPassword re-checks it on the final submit.
+func (s *Service) VerifyResetCode(ctx context.Context, businessCode, username, phone, otp string) error {
+	ctx, emp, err := s.findResetAccount(ctx, businessCode, username, phone)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, ErrAccountNotMatched) {
 			return ErrInvalidOrExpiredToken
 		}
 		return err
 	}
-	if emp.PasswordResetTokenHash == "" || emp.PasswordResetExpiresAt == nil || time.Now().After(*emp.PasswordResetExpiresAt) {
-		return ErrInvalidOrExpiredToken
+	return s.checkResetCode(ctx, emp, otp)
+}
+
+// ResetPassword finds the employee owning both username and phone, checks
+// the given OTP against the stored hash (and that it hasn't expired),
+// bcrypt-hashes the new password, and clears the reset fields so the OTP
+// can't be reused.
+func (s *Service) ResetPassword(ctx context.Context, businessCode, username, phone, otp, newPassword string) error {
+	if len(newPassword) < 8 {
+		return httpx.NewBadRequest("password must be at least 8 characters")
 	}
-	hash := sha256.Sum256([]byte(strings.TrimSpace(otp)))
-	hashHex := hex.EncodeToString(hash[:])
-	if subtle.ConstantTimeCompare([]byte(hashHex), []byte(emp.PasswordResetTokenHash)) != 1 {
-		return ErrInvalidOrExpiredToken
+	ctx, emp, err := s.findResetAccount(ctx, businessCode, username, phone)
+	if err != nil {
+		if errors.Is(err, ErrAccountNotMatched) {
+			return ErrInvalidOrExpiredToken
+		}
+		return err
+	}
+	if err := s.checkResetCode(ctx, emp, otp); err != nil {
+		return err
 	}
 
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost+2)
@@ -316,6 +378,7 @@ func (s *Service) ResetPassword(ctx context.Context, businessCode, phone, otp, n
 	emp.PasswordHash = string(newHash)
 	emp.PasswordResetTokenHash = ""
 	emp.PasswordResetExpiresAt = nil
+	emp.PasswordResetAttempts = 0
 	return s.employeeRepo.Update(ctx, emp)
 }
 

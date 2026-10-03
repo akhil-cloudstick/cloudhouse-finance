@@ -7,6 +7,7 @@ import { dmy, inr, todayISO } from "../../../lib/format";
 import type { Loan } from "../../../types/loan";
 import { ErrorText, apiErr, invalidateLoan } from "./common";
 import { BankPledgeForm, bankPledgeFormInit } from "./BankPledgeForm";
+import { useAuth } from "../../../auth/AuthContext";
 
 /** Bank pledge (repledge) for one loan, in the prototype's sheet style —
  * parity with frontend BankPledge.tsx: bank picker (bankId), interest rate +
@@ -33,6 +34,9 @@ export function BankPledgeSheet({
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const { can } = useAuth();
+  const canCreate = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  const canUpdate = can("Bank_Pledge_Management", "can_update_bank_pledge");
 
   useEffect(() => {
     if (visible) setError(null);
@@ -122,12 +126,14 @@ export function BankPledgeSheet({
               ]}
             />
             <ErrorText>{error}</ErrorText>
-            <BtnRow2 style={{ marginBottom: 12 }}>
-              <PrimaryButton label="Delete Entry" variant="reject" onPress={() => setVoidOpen(true)} />
-              <PrimaryButton label="Release from Bank" onPress={() => setConfirmRelease(true)} />
-            </BtnRow2>
+            {canUpdate ? (
+              <BtnRow2 style={{ marginBottom: 12 }}>
+                <PrimaryButton label="Delete Entry" variant="reject" onPress={() => setVoidOpen(true)} />
+                <PrimaryButton label="Release from Bank" onPress={() => setConfirmRelease(true)} />
+              </BtnRow2>
+            ) : null}
           </>
-        ) : !isFinished ? (
+        ) : !isFinished && canCreate ? (
           <BankPledgeForm value={form} onChange={setForm} fixedLoan={l} error={error} onSubmit={() => record.mutate()} submitting={record.isPending} />
         ) : (
           <Txt style={{ fontSize: 12.5, color: C.muted, marginBottom: 14 }}>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, Image, Keyboard, Pressable, ScrollView, StyleSheet, View, type ScrollViewProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router as globalRouter, useIsFocused, useNavigation, useRoute, useRouter } from "expo-router";
@@ -13,6 +13,8 @@ import { useAuth } from "../../auth/AuthContext";
 import { HEADER_LOGO } from "../../config/brand";
 import { usePullRefresh } from "../../hooks/usePullRefresh";
 import { useKeyboardVisible } from "../../hooks/useKeyboardVisible";
+import { canOpenPath, routeAllowed } from "../../config/routePermissions";
+import { toast } from "./Toast";
 
 // ---------------------------------------------------------------------------
 // Shell actions — one set of global openers (New Loan sheet, More sheet,
@@ -133,6 +135,12 @@ export function FlatHeader({
 /** Shown for the moment between leaving a page and the next one drawing. */
 const BLANK_HEADER = <FlatHeader title="" />;
 
+/** Set by HeaderHost while the hero collapses into (or grows back out of) a
+ * page's flat header. `p` runs 0 (hero open) → 1 (collapsed to the flat
+ * header's height); `lift` is the height difference between the two. */
+type HeroMorph = { p: Animated.Value; lift: Animated.Value };
+const HeroMorphContext = createContext<HeroMorph | null>(null);
+
 /** .a-header — Dashboard hero: identity row, cash in hand, gold rate row,
  * Overview / Activity segment. */
 export function HeroHeader({
@@ -161,7 +169,8 @@ export function HeroHeader({
   rateChange?: string;
   onRatePress?: () => void;
   onSearch: () => void;
-  onBell: () => void;
+  /** Omitted → no bell (the user can't view reminders). */
+  onBell?: () => void;
   bellDot?: boolean;
   onAvatar?: () => void;
   segments: string[];
@@ -170,18 +179,33 @@ export function HeroHeader({
 }) {
   const insets = useSafeAreaInsets();
   const searchBtn = useRef<View>(null);
+  // While collapsing, the logo stays where the flat header's logo sits, the
+  // name and icons fade as the page title fades in over them, and the body
+  // (cash, rates, segment) slides up under the rising bottom edge.
+  const morph = useContext(HeroMorphContext);
+  const fx = useMemo(
+    () =>
+      morph && {
+        top: { opacity: morph.p.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0], extrapolate: "clamp" }) },
+        body: {
+          opacity: morph.p.interpolate({ inputRange: [0, 0.6], outputRange: [1, 0], extrapolate: "clamp" }),
+          transform: [{ translateY: Animated.multiply(Animated.multiply(morph.p, morph.lift), -0.5) }],
+        },
+      },
+    [morph]
+  );
   return (
     <View style={[s.aHeader, { paddingTop: insets.top + 12 }]}>
       <HeroBackground />
       <View style={s.aTopRow}>
         <Pressable style={s.aId} onPress={onAvatar} hitSlop={4}>
           <Image source={HEADER_LOGO} style={s.flatLogo} resizeMode="contain" accessibilityLabel="CloudHouse" />
-          <View>
+          <Animated.View style={fx?.top}>
             <Txt style={s.aName}>{name}</Txt>
             {branch ? <Txt style={s.aBranch}>{branch}</Txt> : null}
-          </View>
+          </Animated.View>
         </Pressable>
-        <View style={s.aIcons}>
+        <Animated.View style={[s.aIcons, fx?.top]}>
           <Pressable
             ref={searchBtn}
             style={s.aIcBtn}
@@ -194,12 +218,15 @@ export function HeroHeader({
           >
             <PIcon name="search" color="#fff" />
           </Pressable>
-          <Pressable style={s.aIcBtn} onPress={onBell} accessibilityLabel="Reminders">
-            <PIcon name="bell" color="#fff" />
-            {bellDot ? <View style={s.aDot} /> : null}
-          </Pressable>
-        </View>
+          {onBell ? (
+            <Pressable style={s.aIcBtn} onPress={onBell} accessibilityLabel="Reminders">
+              <PIcon name="bell" color="#fff" />
+              {bellDot ? <View style={s.aDot} /> : null}
+            </Pressable>
+          ) : null}
+        </Animated.View>
       </View>
+      <Animated.View style={fx?.body}>
       <View style={s.aHero}>
         <Txt style={s.aHeroL}>{cashLabel}</Txt>
         <Txt style={s.aHeroV}>{cashValue}</Txt>
@@ -230,6 +257,7 @@ export function HeroHeader({
           );
         })}
       </View>
+      </Animated.View>
     </View>
   );
 }
@@ -393,62 +421,89 @@ export const HeaderHostContext = createContext(false);
 // off at the start nor stops dead at the end.
 const HEADER_MS = 380;
 const HEADER_EASE = Easing.bezier(0.4, 0, 0.2, 1);
-const HEADER_FADE_MS = 220;
 
-type Curtain = { h: number; content: React.ReactNode };
+/** The hero inside a clip whose bottom edge rises by `lift × p` while the
+ * hero itself stays put (the clip moves up, its content moves back down by
+ * the same amount). HeroHeader reads the same values to slide its body. */
+function HeroClip({
+  morph,
+  style,
+  pointerEvents = "box-none",
+  onLayout,
+  children,
+}: {
+  morph: HeroMorph;
+  style?: object;
+  pointerEvents?: "box-none" | "none";
+  onLayout?: (h: number) => void;
+  children: React.ReactNode;
+}) {
+  const shift = useMemo(() => {
+    const d = Animated.multiply(morph.p, morph.lift);
+    return { up: Animated.multiply(d, -1), down: d };
+  }, [morph]);
+  return (
+    <Animated.View
+      pointerEvents={pointerEvents}
+      style={[s.heroClip, style, { transform: [{ translateY: shift.up }] }]}
+      onLayout={onLayout && ((e) => onLayout(e.nativeEvent.layout.height))}
+    >
+      <Animated.View pointerEvents={pointerEvents} style={{ transform: [{ translateY: shift.down }] }}>
+        <HeroMorphContext.Provider value={morph}>{children}</HeroMorphContext.Provider>
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+type Morph = { dir: "collapse"; hero: React.ReactNode } | { dir: "expand"; flat: React.ReactNode };
 
 /** Mounted once by app/(tabs)/_layout.tsx, after the navigator.
  *
- * Leaving the Dashboard swaps its tall hero for a page's short flat header,
- * which used to happen in one frame and read as the header snapping
- * shorter. The swap is spotted during render (the node's type changes), so
- * in that same frame the hero's last content is kept as a "curtain" behind
- * the new header: it slides up to the new header's bottom edge while its
- * content fades, and the new header fades in on top. Coming back, the hero
- * mounts shifted up so only its bottom strip shows, then slides down.
- * Every animation here runs on the native driver, so a heavy page mounting
+ * Leaving the Dashboard, the hero collapses into the page's flat header: its
+ * bottom edge rises to the flat header's bottom while the cash / rates /
+ * segment body slides up under it and fades, the logo holds still (it sits
+ * in the same spot in both headers), and the page's title fades in over the
+ * hero's name. Coming back plays the same thing in reverse — the edge drops,
+ * the body slides down into view and the page header fades off the top.
+ * The swap is spotted during render (the node's type changes), so the
+ * outgoing header is kept in that same frame — no blank header between.
+ * Every animation runs on the native driver, so a heavy page mounting
  * underneath can't make the header stutter. */
 export function HeaderHost() {
   const node = useSyncExternalStore(headerStore.subscribe, headerStore.get, headerStore.get);
   const tall = React.isValidElement(node) && node.type === HeroHeader;
   // Last measured height of each kind of header (0 until first seen).
   const [heights, setHeights] = useState({ tall: 0, short: 0 });
-  // The most recent hero, kept so the curtain can carry its content away.
+  // The most recent header of each kind, kept to play the outgoing side.
   const [heroNode, setHeroNode] = useState<React.ReactNode>(tall ? node : null);
   if (tall && heroNode !== node) setHeroNode(node);
+  const [flatNode, setFlatNode] = useState<React.ReactNode>(tall ? null : node);
+  if (!tall && flatNode !== node) setFlatNode(node);
 
-  const [curtain, setCurtain] = useState<Curtain | null>(null);
-  const [curtainY] = useState(() => new Animated.Value(0));
-  const [curtainFade] = useState(() => new Animated.Value(1));
-  const [headerFade] = useState(() => new Animated.Value(1));
-  // Growing remounts the wrapper (new key) so it mounts already holding the
-  // shifted-up offset — a native value changed on a view that's already
-  // mounted can reach the screen a frame after the new hero does.
-  const [dropY] = useState(() => new Animated.Value(0));
-  const [growKey, setGrowKey] = useState(0);
-  const [growing, setGrowing] = useState(false);
+  const [morph] = useState<HeroMorph>(() => ({ p: new Animated.Value(0), lift: new Animated.Value(0) }));
+  // The flat header fades in over the back half of a collapse (and out over
+  // the front half of an expand).
+  const [flatFade] = useState(() => morph.p.interpolate({ inputRange: [0.2, 0.75], outputRange: [0, 1], extrapolate: "clamp" }));
+  const [running, setRunning] = useState<Morph | null>(null);
+  const started = useRef<Morph | null>(null);
 
+  // Each side mounts fresh on a swap (tall and short render different trees),
+  // so the values set here are already in place on the frame it first draws.
   const [prevTall, setPrevTall] = useState(tall);
   if (prevTall !== tall) {
     setPrevTall(tall);
-    if (!tall && heights.tall) {
-      curtainY.setValue(0);
-      curtainFade.setValue(1);
-      headerFade.setValue(0);
-      setCurtain({ h: heights.tall, content: heroNode });
-      setGrowing(false);
-      // Same reason as growing below: zeroing the fade on the wrapper that's
-      // already mounted can reach the screen a frame BEFORE the curtain that
-      // replaces the hero does — the header blinked out for that frame.
-      // Remounting makes the wrapper arrive already at 0, in the same commit
-      // as the curtain.
-      setGrowKey((k) => k + 1);
-    } else if (tall && heights.tall && heights.short) {
-      setCurtain(null);
-      headerFade.setValue(1);
-      dropY.setValue(heights.short - heights.tall);
-      setGrowKey((k) => k + 1);
-      setGrowing(true);
+    morph.p.stopAnimation();
+    if (!tall && heights.tall && heroNode) {
+      morph.p.setValue(0);
+      if (heights.short) morph.lift.setValue(heights.tall - heights.short);
+      setRunning({ dir: "collapse", hero: heroNode });
+    } else if (tall && heights.tall && heights.short && flatNode) {
+      morph.p.setValue(1);
+      morph.lift.setValue(heights.tall - heights.short);
+      setRunning({ dir: "expand", flat: flatNode });
+    } else {
+      morph.p.setValue(tall ? 0 : 1);
+      setRunning(null);
     }
   }
 
@@ -456,37 +511,45 @@ export function HeaderHost() {
     if (h <= 0) return;
     const kind = tall ? "tall" : "short";
     if (heights[kind] !== h) setHeights((prev) => ({ ...prev, [kind]: h }));
-    if (!tall && curtain != null) {
-      Animated.parallel([
-        Animated.timing(curtainY, { toValue: Math.min(0, h - curtain.h), duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }),
-        Animated.timing(curtainFade, { toValue: 0, duration: HEADER_FADE_MS, easing: HEADER_EASE, useNativeDriver: true }),
-        Animated.timing(headerFade, { toValue: 1, duration: HEADER_FADE_MS, delay: 60, easing: HEADER_EASE, useNativeDriver: true }),
-      ]).start(({ finished }) => {
-        if (finished) setCurtain(null);
-      });
-    } else if (tall && growing) {
-      Animated.timing(dropY, { toValue: 0, duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }).start(({ finished }) => {
-        if (finished) setGrowing(false);
-      });
-    }
+    // Starts once the incoming header has a height to aim for.
+    if (!running || started.current === running) return;
+    started.current = running;
+    const lift = tall ? h - heights.short : heights.tall - h;
+    morph.lift.setValue(Math.max(0, lift));
+    const ran = running;
+    Animated.timing(morph.p, { toValue: tall ? 0 : 1, duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }).start(({ finished }) => {
+      if (finished) setRunning((cur) => (cur === ran ? null : cur));
+    });
   };
 
   return (
     <View style={s.headerHost} pointerEvents="box-none">
-      {curtain != null ? (
-        <Animated.View pointerEvents="none" style={[s.headerCurtain, { height: curtain.h, transform: [{ translateY: curtainY }] }]}>
-          <HeroBackground />
-          <Animated.View style={{ opacity: curtainFade }}>{curtain.content}</Animated.View>
+      {tall ? (
+        <HeroClip key="tall" morph={morph} onLayout={onLayout}>
+          {node}
+        </HeroClip>
+      ) : (
+        <>
+          {running?.dir === "collapse" ? (
+            <HeroClip morph={morph} style={s.headerCurtain} pointerEvents="none">
+              {running.hero}
+            </HeroClip>
+          ) : null}
+          <Animated.View
+            key="short"
+            pointerEvents="box-none"
+            style={{ opacity: running?.dir === "collapse" ? flatFade : 1 }}
+            onLayout={(e) => onLayout(e.nativeEvent.layout.height)}
+          >
+            {node}
+          </Animated.View>
+        </>
+      )}
+      {tall && running?.dir === "expand" ? (
+        <Animated.View pointerEvents="none" style={[s.headerCurtain, { opacity: flatFade }]}>
+          {running.flat}
         </Animated.View>
       ) : null}
-      <Animated.View
-        key={growKey}
-        pointerEvents="box-none"
-        style={{ opacity: headerFade, transform: [{ translateY: growing ? dropY : 0 }] }}
-        onLayout={(e) => onLayout(e.nativeEvent.layout.height)}
-      >
-        {node}
-      </Animated.View>
     </View>
   );
 }
@@ -743,12 +806,13 @@ export function ActionsBar({
 // Bottom tab bar
 // ---------------------------------------------------------------------------
 
-type TabDef = { route: string; label: string; icon: string; fab?: boolean; module?: string; key?: string };
+type TabDef = { route: string; label: string; icon: string; fab?: boolean };
+// Each tab's permission comes from ROUTE_PERMISSIONS (routeAllowed below).
 const TABS: TabDef[] = [
   { route: "dashboard", label: "Dashboard", icon: "home" },
-  { route: "customers", label: "Customers", icon: "user", module: "Customer_Management", key: "can_view_customer" },
-  { route: "loans", label: "Loans", icon: "note", fab: true, module: "Loan_Management", key: "can_view_loan" },
-  { route: "schemes", label: "Schemes", icon: "layers", module: "Scheme_Management", key: "can_view_scheme" },
+  { route: "customers", label: "Customers", icon: "user" },
+  { route: "loans", label: "Loans", icon: "note", fab: true },
+  { route: "schemes", label: "Schemes", icon: "layers" },
 ];
 
 // How far the tab bar's fade reaches above the bar itself.
@@ -809,6 +873,13 @@ function parsePath(path: string) {
  * Back returns to the page it was opened from (the tabs keep a history).
  */
 export function openPage(path: string) {
+  // Every quick link, KPI tile and hyperlink lands here — refuse a page the
+  // user can't view (src/config/routePermissions.ts) instead of opening it
+  // onto a screen of 403s.
+  if (!canOpenPath(path)) {
+    toast.error("Access denied", "You don't have permission to open this page.");
+    return;
+  }
   const { nav, state } = tabsRef;
   const { tab, id, params } = parsePath(path);
   const targetIndex = state?.routes.findIndex((r) => r.name === tab) ?? -1;
@@ -906,7 +977,7 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
   // re-render, which is exactly the cascade the lint rule flags.
   if (pressed && pressed === navRoute) setPressed(null);
   const activeRoute = pressed && pressed !== navRoute ? pressed : navRoute;
-  const tabs = TABS.filter((t) => !t.module || can(t.module, t.key!));
+  const tabs = TABS.filter((t) => routeAllowed(t.route, can));
   const isPrimary = tabs.some((t) => t.route === activeRoute);
 
   function go(name: string) {
@@ -992,7 +1063,9 @@ const s = StyleSheet.create({
   headerSpacer: { opacity: 0 },
   headerHost: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 30 },
   // Same rounded bottom as the hero (aHeader) it stands in for.
-  headerCurtain: { position: "absolute", top: 0, left: 0, right: 0, borderBottomLeftRadius: 26, borderBottomRightRadius: 26, overflow: "hidden" },
+  headerCurtain: { position: "absolute", top: 0, left: 0, right: 0 },
+  // The hero's rounded bottom, on the clip whose edge rises / drops.
+  heroClip: { borderBottomLeftRadius: 26, borderBottomRightRadius: 26, overflow: "hidden" },
   body: { flex: 1 },
   headerFade: { position: "absolute", top: 0, left: 0, right: 0 },
 

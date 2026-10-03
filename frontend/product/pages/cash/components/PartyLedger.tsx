@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt } from "@/product/utils/format";
 import { Icon } from "@/product/components/Icon";
+import { useAuth } from "@/product/providers/auth-context";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { ApiError } from "@/product/services/httpClient";
 import { DatePicker } from "@/product/components/ui/DatePicker";
@@ -46,6 +47,8 @@ function Pager({ page, total, pageSize, onChange, children }: { page: number; to
  * CustomerDetail.tsx's own "Transactions" tab — one query, two entry
  * points, per the plan's design. */
 export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "category"; id?: string }) {
+  const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
   const numericId = Number(id);
   const categoryIds = useExpenseCategoryIds();
   const [label, setLabel] = useState("");
@@ -177,9 +180,11 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
           {!loan && <p>{`Every ${kind === "category" ? "expense recorded under this category" : `transaction ever recorded against this ${kind}`}`}</p>}
         </div>
         <div className="sp" />
-        <button className="btn ghost" disabled={exporting} onClick={onExport} title="PDF of every transaction in the selected date range">
-          <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
-        </button>
+        {canExport && (
+          <button className="btn ghost" disabled={exporting} onClick={onExport} title="PDF of every transaction in the selected date range">
+            <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
+          </button>
+        )}
       </div>
       <hr className="gold-rule" />
 
@@ -269,7 +274,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                   </td>
                   <td>
                     {loanRef ? (
-                      <a href={routeHref("loan", loanRef)} className="ledger-ref-chip ledger-ref-chip-loan">{r.reference || loanRef}</a>
+                      <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
                     ) : invRef ? (
                       <LedgerRefLink kind="investment" id={invRef} label={invRef} />
                     ) : plRef ? (

@@ -4,6 +4,7 @@ import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { expenseCategoryOf } from "@/product/hooks/useExpenseCategoryIds";
 import { MODE_LEDGER_ROUTE, type CashMovementView } from "@/product/pages/cash/services/cashService";
 import { routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 import { isLoanSource } from "@/product/pages/cash/services/cashSourceService";
 
 /* Clickable cells for a cash-movement ledger row — shared by Cash.tsx's
@@ -62,9 +63,16 @@ export function refCellFor(m: CashMovementView) {
   return ref;
 }
 
-// Every mode is a drill-down link to that mode's own ledger.
+// Every mode is a drill-down link to that mode's own ledger — plain text for
+// a role that can't open the Ledger (the cell also appears on Loan Detail and
+// Reports, which don't need cash view).
 export function modeCellFor(mode: string | undefined) {
   if (!mode) return "—";
   const route = MODE_LEDGER_ROUTE[mode];
-  return route ? <a href={routeHref(route)}>{mode}</a> : mode;
+  return route ? <ModeLink route={route} mode={mode} /> : mode;
+}
+
+function ModeLink({ route, mode }: { route: string; mode: string }) {
+  const canOpen = useCanOpenRoute();
+  return canOpen(route) ? <a href={routeHref(route)}>{mode}</a> : <>{mode}</>;
 }

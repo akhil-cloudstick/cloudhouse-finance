@@ -10,11 +10,12 @@ import { listActiveBranches, type BranchView } from "@/product/pages/branches/se
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { createEmployee, updateEmployee, type EmployeeView } from "@/product/pages/employees/services/employeeService";
 import { Select } from "@/product/components/ui/Select";
+import { fetchRoles } from "@/product/services/permissionService";
 
-/* Canonical role whitelist — MUST stay identical to `ValidRoles` in
- * backend/internal/employee/service.go. There is no shared codegen between
- * the two, so any edit here must be mirrored there. */
-const ROLES = [
+/* The seeded roles — the fallback list when the live one (GET /roles,
+ * which also carries custom roles) cannot be loaded because this user lacks
+ * the role-view permission. The backend accepts any role that exists. */
+const DEFAULT_ROLES = [
   "Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
   "Accountant", "Collection Staff", "Auction Administrator", "Auditor",
 ];
@@ -25,14 +26,15 @@ const ROLES = [
  * already granted full access), a business's own admin minting MORE
  * Administrators from this ordinary form is a mistake waiting to happen, not
  * a thing anyone needs. Hidden from the picker rather than removed from
- * ROLES: the role itself still exists server-side (backend/internal/authz's
+ * the list: the role itself still exists server-side (backend/internal/authz's
  * IsSystem protection, and every tenant's seeded admin still needs it), and
  * an employee who already holds it must still show correctly when editing
  * them — see the ROLE_OPTIONS fallback below. */
 const HIDDEN_ROLES = new Set(["Administrator"]);
 
-function roleOptionsFor(currentRole: string) {
-  const visible = ROLES.filter((r) => !HIDDEN_ROLES.has(r) || r === currentRole);
+function roleOptionsFor(roles: string[], currentRole: string) {
+  const all = currentRole && !roles.includes(currentRole) ? [...roles, currentRole] : roles;
+  const visible = all.filter((r) => !HIDDEN_ROLES.has(r) || r === currentRole);
   return visible.map((r) => ({ value: r, label: r }));
 }
 
@@ -71,6 +73,12 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
   const [name, setName] = useState(employee?.name || "");
   const [phone, setPhone] = useState(employee?.phone || "");
   const [role, setRole] = useState(employee?.role || "");
+  const [roleNames, setRoleNames] = useState<string[]>(DEFAULT_ROLES);
+  useEffect(() => {
+    fetchRoles()
+      .then((list) => setRoleNames(list.filter((r) => r.isActive).map((r) => r.name)))
+      .catch(() => { /* no role-view permission: keep the seeded list */ });
+  }, []);
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
@@ -116,7 +124,7 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
       setErr("Please enter the employee's full name (letters only, at least 3 characters).");
       return;
     }
-    if (!role || !ROLES.includes(role)) { setErr("Please select a role."); return; }
+    if (!role || !(roleNames.includes(role) || role === employee?.role)) { setErr("Please select a role."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
     if (p && !PHONE_RE.test(p)) { setErr("Phone number must be exactly 10 digits."); return; }
     const uname = username.trim();
@@ -181,7 +189,7 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
         </div>
         <div className="frow c2">
           <div><label className="f">Role *</label>
-            <Select options={roleOptionsFor(role)} value={role} onChange={setRole} placeholder="Select role…" /></div>
+            <Select options={roleOptionsFor(roleNames, role)} value={role} onChange={setRole} placeholder="Select role…" /></div>
           <div><label className="f">Branch *</label>
             {isAdmin ? (
               <Select

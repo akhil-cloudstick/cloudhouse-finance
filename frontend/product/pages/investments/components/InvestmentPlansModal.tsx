@@ -243,16 +243,13 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
           </>
         )}
       </div>
-      <div className="ft">
-        {editingId === null ? (
-          <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Close</button>
-        ) : (
-          <>
-            <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={() => setEditingId(null)}>Back</button>
-            <button className="btn" disabled={saving} onClick={save}>{saving ? "Saving…" : editingId ? "Save Changes" : "Create Plan"}</button>
-          </>
-        )}
-      </div>
+      {/* List view closes from the header × alone — no footer Close. */}
+      {editingId !== null && (
+        <div className="ft">
+          <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={() => setEditingId(null)}>Back</button>
+          <button className="btn" disabled={saving} onClick={save}>{saving ? "Saving…" : editingId ? "Save Changes" : "Create Plan"}</button>
+        </div>
+      )}
     </>
   );
 }

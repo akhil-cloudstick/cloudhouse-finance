@@ -20,7 +20,7 @@ var (
 	ErrNotFound      = httpx.NewNotFound("employee not found")
 	ErrNameRequired  = httpx.NewBadRequest("name is required")
 	ErrRoleRequired  = httpx.NewBadRequest("role is required")
-	ErrInvalidRole   = httpx.NewBadRequest("role must be one of the predefined roles")
+	ErrInvalidRole   = httpx.NewBadRequest("role does not exist")
 	ErrBranchReq     = httpx.NewBadRequest("branch is required")
 	ErrBranchInvalid = httpx.NewBadRequest("branch does not exist")
 	ErrPhoneInvalid  = httpx.NewBadRequest("phone must be a 10-digit number")
@@ -47,24 +47,6 @@ var (
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{3,60}$`)
 
 var emailRe = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
-
-// ValidRoles is the canonical role whitelist. Keep this list IDENTICAL to
-// the `ROLES` constant in frontend/components/modals/EmployeeModal.tsx —
-// there is no shared codegen between the two, so any edit to either list
-// must be mirrored in the other.
-var ValidRoles = []string{
-	"Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
-	"Accountant", "Collection Staff", "Auction Administrator", "Auditor",
-}
-
-func isValidRole(role string) bool {
-	for _, r := range ValidRoles {
-		if r == role {
-			return true
-		}
-	}
-	return false
-}
 
 // phoneRe mirrors the 10-digit numeric rule used by
 // frontend/components/modals/BranchModal.tsx (BranchModal's `PHONE_RE`) —
@@ -180,9 +162,6 @@ func validateCreate(in CreateInput) error {
 	if in.Role == "" {
 		return ErrRoleRequired
 	}
-	if !isValidRole(in.Role) {
-		return ErrInvalidRole
-	}
 	if in.BranchID == 0 {
 		return ErrBranchReq
 	}
@@ -223,6 +202,17 @@ func (s *Service) checkPhoneUnique(ctx context.Context, phone string, excludeID 
 		return err
 	}
 	return nil
+}
+
+// phoneConflict maps a uq_employees_tenant_phone violation to ErrPhoneTaken.
+// checkPhoneUnique can't see soft-deleted employees, but the index (which has
+// no deleted_at predicate) still holds their numbers — without this, reusing
+// a deleted employee's phone surfaced as a raw 500.
+func phoneConflict(err error) error {
+	if err != nil && strings.Contains(err.Error(), "uq_employees_tenant_phone") {
+		return ErrPhoneTaken
+	}
+	return err
 }
 
 // checkUsernameUnique mirrors checkPhoneUnique for Username.
@@ -281,7 +271,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput, actorEmployeeID ui
 		rec.PasswordHash = string(hash)
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
-		return nil, err
+		return nil, phoneConflict(err)
 	}
 	s.logAudit(ctx, actorEmployeeID, auditlog.ActionEmployeeCreated, rec.ID, rec.Name, "role="+rec.Role)
 	return s.repo.FindByID(ctx, rec.ID)
@@ -318,9 +308,6 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	}
 	if in.Role == "" {
 		return nil, ErrRoleRequired
-	}
-	if !isValidRole(in.Role) {
-		return nil, ErrInvalidRole
 	}
 	if in.BranchID == 0 {
 		return nil, ErrBranchReq
@@ -395,7 +382,7 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	}
 
 	if err := s.repo.Update(ctx, rec); err != nil {
-		return nil, err
+		return nil, phoneConflict(err)
 	}
 	detail := "role unchanged: " + rec.Role
 	if beforeRole != rec.Role {

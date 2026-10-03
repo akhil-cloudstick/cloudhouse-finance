@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { fmt } from "@/product/utils/format";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
+import { useAuth } from "@/product/providers/auth-context";
 import { ApiError } from "@/product/services/httpClient";
 import {
   listCashMovementsPage,
@@ -59,6 +60,8 @@ function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; b
  * currently shows. With no filters selected the preview shows every entry —
  * that default view can't be closed away, only narrowed. */
 export function LedgerExportView({ onBack }: { onBack: () => void }) {
+  const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: no branch filter — every row is its one branch.
@@ -154,12 +157,16 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
         </div>
         <div className="sp" />
         <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips size="md" />
-        <button className="btn ghost" disabled={exporting} onClick={() => onDownload("pdf")}>
-          <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
-        </button>
-        <button className="btn" disabled={exporting} onClick={() => onDownload("xlsx")}>
-          <Icon name="download" /> {exporting ? "Exporting…" : "Export Excel"}
-        </button>
+        {canExport && (
+          <>
+            <button className="btn ghost" disabled={exporting} onClick={() => onDownload("pdf")}>
+              <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
+            </button>
+            <button className="btn" disabled={exporting} onClick={() => onDownload("xlsx")}>
+              <Icon name="download" /> {exporting ? "Exporting…" : "Export Excel"}
+            </button>
+          </>
+        )}
       </div>
       <hr className="gold-rule" />
 

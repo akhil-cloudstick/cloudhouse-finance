@@ -13,6 +13,8 @@ import { getLoan } from "../../src/api/loans";
 import { toast } from "../../src/components/ui";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import { routeEnabled } from "../../src/config/tenantModules";
+import { routeAllowed, setRouteChecker } from "../../src/config/routePermissions";
+import { useAuth } from "../../src/auth/AuthContext";
 
 // Staff shell (ui-demos/staff-app-prototype.html): a persistent floating tab
 // bar — Dashboard / Customers / Loans (centre FAB) / Schemes / More — and
@@ -38,6 +40,28 @@ function useTenantModuleGuard() {
   }, [ready, route, hasModule, router]);
 }
 
+// The permission twin of the guard above (src/config/routePermissions.ts):
+// registers the checker openPage() uses, and bounces a deep link or a
+// router.push() that lands on a page this role can't view.
+function useRoutePermissionGuard() {
+  const segments = useSegments();
+  const router = useRouter();
+  const { can, permissionsLoaded } = useAuth();
+  const route = (segments as string[])[1] ?? "";
+
+  useEffect(() => {
+    setRouteChecker(permissionsLoaded ? can : null);
+    return () => setRouteChecker(null);
+  }, [can, permissionsLoaded]);
+
+  useEffect(() => {
+    if (permissionsLoaded && route && !routeAllowed(route, can)) {
+      toast.error("Access denied", "You don't have permission to open this page.");
+      router.replace("/(tabs)/dashboard");
+    }
+  }, [permissionsLoaded, route, can, router]);
+}
+
 type SheetName = "newLoan" | "more" | "search" | "gold" | "reminders" | "profile" | null;
 
 // Collect Payment opened from a list or the dashboard: fetch just this loan
@@ -56,6 +80,7 @@ function CollectLauncher({ loanId, onClose }: { loanId: number | null; onClose: 
 
 export default function TabsLayout() {
   useTenantModuleGuard();
+  useRoutePermissionGuard();
   const [open, setOpen] = useState<SheetName>(null);
   const close = useCallback(() => setOpen(null), []);
   const [collectLoanId, setCollectLoanId] = useState<number | null>(null);

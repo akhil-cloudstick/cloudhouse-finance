@@ -27,11 +27,24 @@ type LoginInput struct {
 }
 
 // ForgotPasswordInput is the JSON body accepted by POST /auth/forgot-password.
+// Username and Phone must both belong to the same employee — a phone number
+// alone is not enough to start a reset.
 type ForgotPasswordInput struct {
 	// BusinessCode — see LoginInput. A phone is only unique within a
 	// business, so a reset must know which one it is for.
 	BusinessCode string `json:"businessCode"`
+	Username     string `json:"username" binding:"required"`
 	Phone        string `json:"phone" binding:"required"`
+}
+
+// VerifyResetCodeInput is the JSON body accepted by POST
+// /auth/verify-reset-code — checks the texted code before the new-password
+// step, without consuming it.
+type VerifyResetCodeInput struct {
+	BusinessCode string `json:"businessCode"`
+	Username     string `json:"username" binding:"required"`
+	Phone        string `json:"phone" binding:"required"`
+	OTP          string `json:"otp" binding:"required"`
 }
 
 // ResetPasswordInput is the JSON body accepted by POST /auth/reset-password.
@@ -40,6 +53,7 @@ type ResetPasswordInput struct {
 	// BusinessCode — see LoginInput. A phone is only unique within a
 	// business, so a reset must know which one it is for.
 	BusinessCode string `json:"businessCode"`
+	Username     string `json:"username" binding:"required"`
 	Phone        string `json:"phone" binding:"required"`
 	OTP          string `json:"otp" binding:"required"`
 	NewPassword  string `json:"newPassword" binding:"required"`

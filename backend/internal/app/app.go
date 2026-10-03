@@ -526,11 +526,12 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// loan.SchemeStatement's own doc comment for why), mounted here to keep
 	// the URL scheme-shaped. Gated by "loans" read since it's loan/payment
 	// data being exported, same as the per-loan statement route.
-	protected.GET("/schemes/:id/statement", platform.CRUDPermissions(authzRepo, "loans").Read, loanHandler.SchemeStatement)
+	protected.GET("/schemes/:id/statement", platform.CRUDPermissions(authzRepo, "loans").Read, platform.CRUDPermissions(authzRepo, "loans").Export, loanHandler.SchemeStatement)
 	goldrate.RegisterRoutes(protected.Group("/gold-rates"), goldRateHandler, platform.CRUDPermissions(authzRepo, "goldrates"))
 	puritystandard.RegisterRoutes(protected.Group("/purity-standards"), purityStandardHandler, platform.CRUDPermissions(authzRepo, "puritystandards"))
 	employee.RegisterRoutes(protected.Group("/employees"), employeeHandler, platform.CRUDPermissions(authzRepo, "employees"))
-	cash.RegisterMovementRoutes(protected.Group("/cash-movements"), movementHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	cash.RegisterMovementRoutes(protected.Group("/cash-movements"), movementHandler, platform.CRUDPermissions(authzRepo, "cash"),
+		platform.RequirePermission(authzRepo, "can view branch ledger"))
 	cash.RegisterExpenseRoutes(protected.Group("/expenses"), expenseHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterCashRoutes(protected.Group("/cash"), openingBalanceHandler, summaryHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterGoldSaleRoutes(protected.Group("/gold-sales"), goldSaleHandler, platform.CRUDPermissions(authzRepo, "cash"))
@@ -538,7 +539,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	cash.RegisterExpenseCategoryRoutes(protected.Group("/expense-categories"), expenseCategoryHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	// Category ledger drill-down — same "cash" read permission as every
 	// other ledger drill-down (bank/customer/loan) this reuses.
-	protected.GET("/expense-categories/:id/ledger", platform.CRUDPermissions(authzRepo, "cash").Read, expenseCategoryHandler.GetLedger)
+	protected.GET("/expense-categories/:id/ledger", platform.CRUDPermissions(authzRepo, "cash").Read, platform.CRUDPermissions(authzRepo, "cash").ExportQuery, expenseCategoryHandler.GetLedger)
 	// Settings is an optional module and the page is self-contained, so the
 	// whole group is gated — reads included.
 	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"),
@@ -556,9 +557,9 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	protected.GET("/customers/:id/ornaments", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListOrnamentsForCustomer)
 	protected.GET("/customers/:id/payments", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListPaymentsForCustomer)
 	protected.GET("/customers/:id/bank-pledges", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListBankPledgesForCustomer)
-	protected.GET("/customers/:id/auction-history", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListAuctionHistoryForCustomer)
+	protected.GET("/customers/:id/auction-history", platform.CRUDPermissions(authzRepo, "customers").Read, platform.RequirePermission(authzRepo, "can view auction module"), loanHandler.ListAuctionHistoryForCustomer)
 	protected.GET("/customers/:id/personal-loans", platform.RequireTenantModule(tenantRepo, tenant.ModulePersonalLoans), platform.CRUDPermissions(authzRepo, "personalloans").Read, personalLoanHandler.ListLoansForCustomer)
-	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"), platform.RequirePermission(authzRepo, "can hard delete loan"))
+	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"), platform.RequirePermission(authzRepo, "can hard delete loan"), platform.RequirePermission(authzRepo, "can view auction module"), platform.RequirePermission(authzRepo, "can top up loan"))
 	dashboard.RegisterRoutes(protected.Group("/dashboard"), dashboardHandler, platform.CRUDPermissions(authzRepo, "loans"))
 	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
 	// No CRUDPermissions: every employee needs their business's logo, colour
@@ -573,7 +574,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// shape" precedent as loanHandler.GetCustomer360 under
 	// /customers/:id/profile360. Gated by "cash" read, same permission as
 	// every other Party Transactions drill-down this ledger reuses data from.
-	protected.GET("/banks/:id/ledger", platform.CRUDPermissions(authzRepo, "cash").Read, movementHandler.GetBankLedger)
+	protected.GET("/banks/:id/ledger", platform.CRUDPermissions(authzRepo, "cash").Read, platform.CRUDPermissions(authzRepo, "cash").ExportQuery, movementHandler.GetBankLedger)
 	locker.RegisterRoutes(protected.Group("/lockers"), lockerHandler, platform.CRUDPermissions(authzRepo, "lockers"))
 	packet.RegisterRoutes(protected.Group("/packets"), packetHandler, platform.CRUDPermissions(authzRepo, "packets"))
 	reminder.RegisterRoutes(protected.Group("/reminders"), reminderHandler, platform.CRUDPermissions(authzRepo, "reminders"))
@@ -616,7 +617,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// Approval workflow configuration — edited on the Roles & Permissions
 	// screen, so it takes the same view / "can update role" grants.
 	workflow.RegisterRoutes(protected.Group("/approval-workflow"), workflowHandler,
-		platform.RequirePermission(authzRepo, "can view role and permission"),
+		platform.RequirePermission(authzRepo, "can view role and permission module"),
 		platform.RequirePermission(authzRepo, "can update role"))
 
 	// This business's own subscription billing (Step 10) — one permission

@@ -3,6 +3,7 @@ package scheme
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"cloudhouse/backend/internal/branch"
 	"cloudhouse/backend/internal/platform/httpx"
@@ -223,9 +224,11 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	return rec, nil
 }
 
-// Delete removes the scheme identified by id. branchID (nil for
+// Delete permanently removes the scheme identified by id. branchID (nil for
 // Administrator) must match the scheme's current branch or ErrNotFound is
-// returned, same not-found-on-mismatch guard as Get/Update.
+// returned, same not-found-on-mismatch guard as Get/Update. Refused with a
+// 409 while any loan or loan draft still uses the scheme — deactivate it
+// instead in that case.
 func (s *Service) Delete(ctx context.Context, id uint, branchID *uint) error {
 	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -234,7 +237,29 @@ func (s *Service) Delete(ctx context.Context, id uint, branchID *uint) error {
 	if branchID != nil && rec.BranchID != *branchID {
 		return ErrNotFound
 	}
-	return s.repo.Delete(ctx, id)
+	loans, drafts, err := s.repo.CountReferences(ctx, id)
+	if err != nil {
+		return err
+	}
+	if loans > 0 || drafts > 0 {
+		return errSchemeInUse(loans, drafts)
+	}
+	return s.repo.HardDelete(ctx, id)
+}
+
+// errSchemeInUse names how many loans/drafts block a scheme delete.
+func errSchemeInUse(loans, drafts int64) error {
+	var parts []string
+	if loans > 0 {
+		parts = append(parts, fmt.Sprintf("%d loan(s)", loans))
+	}
+	if drafts > 0 {
+		parts = append(parts, fmt.Sprintf("%d loan draft(s)", drafts))
+	}
+	return httpx.NewConflict(fmt.Sprintf(
+		"Cannot delete this scheme — it is used by %s. Deactivate it instead.",
+		strings.Join(parts, " and "),
+	))
 }
 
 // ToggleActive flips IsActive — schemes have no date window anymore, so

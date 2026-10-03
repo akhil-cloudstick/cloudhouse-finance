@@ -289,7 +289,28 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		log.Printf("permissions seed: %d role_permissions row(s) re-filed under their role's business", res.RowsAffected)
 	}
 
-	if err := authzRepo.SeedCatalogue(ctx, authz.Catalogue); err != nil {
+	// Renames first, so each renamed permission keeps its row (and every
+	// role's grant of it) instead of being re-seeded fresh under the new name.
+	if _, err := authzRepo.RenamePermissions(ctx, authz.PermissionRenames); err != nil {
+		return err
+	}
+	seededNames, err := authzRepo.SeedCatalogue(ctx, authz.Catalogue)
+	if err != nil {
+		return err
+	}
+	seededNow := make(map[string]bool, len(seededNames))
+	for _, n := range seededNames {
+		seededNow[n] = true
+	}
+	var resyncDefs []authz.PermissionDef
+	for _, def := range authz.Catalogue {
+		for _, n := range authz.ResyncedDescriptions {
+			if def.Name == n {
+				resyncDefs = append(resyncDefs, def)
+			}
+		}
+	}
+	if _, err := authzRepo.RegroupModules(resyncDefs); err != nil {
 		return err
 	}
 	// Resyncs the approval -stage permissions' ModuleName back onto the four
@@ -339,12 +360,41 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 	log.Printf("permissions seed: %d legacy \"can change ...\" permission(s) purged", purged)
+	// A brand-new permission that splits off an existing one starts with that
+	// one's grants (see NewPermissionGrantCopies) — BEFORE BackfillGrants,
+	// which would otherwise default it to true for every role.
+	for _, cp := range authz.NewPermissionGrantCopies {
+		if _, err := authzRepo.CopyGrants(ctx, cp.To, cp.From); err != nil {
+			return err
+		}
+	}
+	if _, err := authzRepo.PurgePermissions(ctx, authz.RemovedPermissions); err != nil {
+		return err
+	}
 	inserted, err := authzRepo.BackfillGrants(ctx)
 	if err != nil {
 		return err
 	}
 	log.Printf("permissions seed: %d role_permissions row(s) back-filled", inserted)
-	if err := authzRepo.ApplyRestrictions(ctx, authz.Restrictions); err != nil {
+	// Restrictions are first-time defaults: applied only to permissions this
+	// boot just seeded, so an admin's edits on the Roles screen survive a
+	// restart instead of being reset to the hardcoded lists every time.
+	var newRestrictions []authz.RoleRestriction
+	for _, rr := range authz.Restrictions {
+		if seededNow[rr.PermissionName] {
+			newRestrictions = append(newRestrictions, rr)
+		}
+	}
+	if err := authzRepo.ApplyRestrictions(ctx, newRestrictions); err != nil {
+		return err
+	}
+	// Last: a child permission granted while its parent is off cannot work,
+	// so it is revoked (see authz/dependencies.go).
+	if _, err := authzRepo.EnforceDependencies(ctx); err != nil {
+		return err
+	}
+	// The Administrator of every business holds every permission, always.
+	if _, err := authzRepo.GrantAllToSystemRoles(ctx); err != nil {
 		return err
 	}
 
@@ -401,6 +451,9 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	}
 
 	if err := createTenantCompositeUniques(db); err != nil {
+		return err
+	}
+	if err := createCustomerPhoneUnique(db); err != nil {
 		return err
 	}
 
@@ -922,6 +975,65 @@ func createTenantCompositeUniques(db *gorm.DB) error {
 			return fmt.Errorf("creating %s: %w", ix.NewIndex, err)
 		}
 	}
+	return nil
+}
+
+// createCustomerPhoneUnique makes a customer's phone unique within its
+// business — phone is the customer's mobile login and OTP identifier (see
+// internal/customerauth), and customer.Repository.FindByPhone silently picks
+// one row when two share a number.
+//
+// Kept out of tenantUniqueIndexes because, unlike those, this constraint is
+// new to data that never enforced it, and two family members sharing one
+// number is a realistic pair of rows. A duplicate must not stop the server
+// booting: the index is skipped and the offending customers are logged, the
+// service-level check (customer.Service.checkPhoneUnique) still blocks NEW
+// duplicates, and the index lands on the first boot after cleanup.
+//
+// Soft-deleted customers are exempt so a deleted record never holds a number
+// hostage — FindByPhone ignores them too.
+func createCustomerPhoneUnique(db *gorm.DB) error {
+	const name = "uq_customers_tenant_phone"
+	var exists bool
+	if err := db.Raw(`SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = ?)`, name).Scan(&exists).Error; err != nil {
+		return fmt.Errorf("inspecting index %s: %w", name, err)
+	}
+	if exists {
+		return nil
+	}
+
+	var dups []struct {
+		TenantID uint
+		Phone    string
+		Codes    string
+	}
+	err := db.Raw(`
+		SELECT tenant_id, phone, string_agg(code, ', ' ORDER BY id) AS codes
+		FROM customers
+		WHERE phone <> '' AND deleted_at IS NULL
+		GROUP BY tenant_id, phone
+		HAVING count(*) > 1`).Scan(&dups).Error
+	if err != nil {
+		return fmt.Errorf("checking duplicate customer phones: %w", err)
+	}
+	if len(dups) > 0 {
+		log.Printf("WARNING: %s not created — %d phone number(s) are shared by more than one customer. "+
+			"New duplicates are still rejected; give each customer a distinct number and restart to enforce it in the database:", name, len(dups))
+		for _, d := range dups {
+			log.Printf("  tenant %d, phone %s: %s", d.TenantID, d.Phone, d.Codes)
+		}
+		return nil
+	}
+
+	// Under FORCE ROW LEVEL SECURITY with a non-superuser migration role the
+	// duplicate check above sees no rows, while the index build sees them all
+	// — so a failure here is reported, not fatal, for the same reason.
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ` + name + `
+		ON customers (tenant_id, phone) WHERE phone <> '' AND deleted_at IS NULL`).Error; err != nil {
+		log.Printf("WARNING: %s not created: %v", name, err)
+		return nil
+	}
+	log.Printf("tenancy: created %s — customer phone is now unique per tenant", name)
 	return nil
 }
 

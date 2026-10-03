@@ -140,6 +140,10 @@ func (h *Handler) UpdatePermissions(c *gin.Context) {
 			httpx.Fail(c, http.StatusBadRequest, "permission not found")
 			return
 		}
+		if msg, ok := IsParentDisabled(err); ok {
+			httpx.Fail(c, http.StatusConflict, msg)
+			return
+		}
 		httpx.FailErr(c, err)
 		return
 	}

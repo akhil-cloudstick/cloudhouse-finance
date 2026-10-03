@@ -70,7 +70,8 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
     const n = name.trim();
     const p = phone.trim();
     if (n.length < 3) { setErr("Please enter the customer’s full name."); return; }
-    if (p && !/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
+    if (!p) { setErr("Please enter the customer’s mobile number."); return; }
+    if (!/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
 
     setSaving(true);
@@ -124,7 +125,7 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
         <label className="f">Personal Details</label>
         <div className="frow c3">
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div><label className="f">Mobile Number</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
+          <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
           <div><label className="f">Branch *</label>
             <Select
               value={branchId === "" ? "" : String(branchId)}

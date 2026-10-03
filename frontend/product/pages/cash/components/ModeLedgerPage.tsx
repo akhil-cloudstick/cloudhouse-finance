@@ -9,6 +9,7 @@ import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { rememberedLedgerPage, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { getModeLedger, downloadLedger, PARTY_PAGE_SIZE, type LedgerMode, type LedgerRowView } from "@/product/pages/cash/services/cashService";
 import { Icon } from "@/product/components/Icon";
+import { useAuth } from "@/product/providers/auth-context";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
@@ -45,6 +46,8 @@ const MODE_DESCRIPTION: Record<LedgerMode, string> = {
  * here. Cash has no bank of record, so its own ledger never shows the Bank
  * filter; every other mode does. */
 export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
+  const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
   const categoryIds = useExpenseCategoryIds();
   const [items, setItems] = useState<LedgerRowView[]>([]);
   const [total, setTotal] = useState(0);
@@ -157,9 +160,11 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
           <p>{MODE_DESCRIPTION[mode]}</p>
         </div>
         <div className="sp" />
-        <button className="btn ghost" disabled={exporting} onClick={onDownload} title="PDF of every transaction matching the current filters">
-          <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
-        </button>
+        {canExport && (
+          <button className="btn ghost" disabled={exporting} onClick={onDownload} title="PDF of every transaction matching the current filters">
+            <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
+          </button>
+        )}
       </div>
       <hr className="gold-rule" />
 
@@ -238,7 +243,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                     )}
                     <td>
                       {loanRef ? (
-                        <a href={routeHref("loan", loanRef)} className="ledger-ref-chip ledger-ref-chip-loan">{r.reference || loanRef}</a>
+                        <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
                       ) : invRef ? (
                         <LedgerRefLink kind="investment" id={invRef} label={invRef} />
                       ) : plRef ? (

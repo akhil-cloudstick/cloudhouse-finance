@@ -47,7 +47,7 @@ export function LockerDetailSheet({
   const qc = useQueryClient();
   const { can } = useAuth();
   const canUpdate = can("Locker_Management", "can_update_locker");
-  const canDelete = can("Locker_Management", "can_delete_locker") || canUpdate;
+  const canDelete = can("Locker_Management", "can_delete_locker");
   const id = locker?.id ?? 0;
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);

@@ -70,6 +70,22 @@ func TestApplyFiltersDueTodayAndDefaulted(t *testing.T) {
 	if !strings.Contains(got, "loans.status NOT IN ('Closed','Rejected','Auctioned')") || !strings.Contains(got, "loans.due_date <") {
 		t.Errorf("OnlyDefaulted SQL unexpected:\n%s", got)
 	}
+	got = loanFilterSQL(t, LoanFilter{AllAuctionCases: true})
+	if !strings.Contains(got, "loans.status IN ('Auction Eligible','Auctioned - Balance Due')") ||
+		!strings.Contains(got, "loans.status NOT IN ('Closed','Rejected','Auctioned') AND loans.due_date <") {
+		t.Errorf("AllAuctionCases SQL unexpected:\n%s", got)
+	}
+}
+
+func TestIsAuctionCase(t *testing.T) {
+	for _, l := range []Loan{{Status: StatusAuctionEligible}, {Status: StatusAuctionedBalanceDue}, {Status: StatusOverdue, IsDefaulted: true}} {
+		if !isAuctionCase(&l) {
+			t.Errorf("%+v should be an auction case", l)
+		}
+	}
+	if isAuctionCase(&Loan{Status: StatusOverdue}) {
+		t.Error("plain overdue loan is not an auction case")
+	}
 }
 
 func TestApplyStatusParamAndAuctionCase(t *testing.T) {
@@ -98,6 +114,10 @@ func TestApplyStatusParamAndAuctionCase(t *testing.T) {
 			t.Errorf("%s: got %+v", in, f)
 		}
 	}
+	all := LoanFilter{Status: StatusActive, DueToday: true}
+	if !applyAuctionCase(&all, "all") || !all.AllAuctionCases || all.Status != "" || all.DueToday {
+		t.Errorf("all: got %+v", all)
+	}
 	if applyAuctionCase(&LoanFilter{}, "bogus") {
 		t.Error("unknown auctionCase accepted")
 	}
@@ -106,17 +126,17 @@ func TestApplyStatusParamAndAuctionCase(t *testing.T) {
 	}
 }
 
-func TestPageDefaulted(t *testing.T) {
+func TestPageKept(t *testing.T) {
 	loans := []Loan{{ID: 1, IsDefaulted: true}, {ID: 2}, {ID: 3, IsDefaulted: true}, {ID: 4, IsDefaulted: true}}
-	page, total := pageDefaulted(append([]Loan(nil), loans...), 2, 1)
+	page, total := pageKept(append([]Loan(nil), loans...), 2, 1, func(l *Loan) bool { return l.IsDefaulted })
 	if total != 3 || len(page) != 2 || page[0].ID != 3 || page[1].ID != 4 {
 		t.Fatalf("got total=%d page=%+v", total, page)
 	}
-	all, total := pageDefaulted(append([]Loan(nil), loans...), 0, 0)
+	all, total := pageKept(append([]Loan(nil), loans...), 0, 0, func(l *Loan) bool { return l.IsDefaulted })
 	if total != 3 || len(all) != 3 {
 		t.Fatalf("unpaged: total=%d len=%d", total, len(all))
 	}
-	empty, total := pageDefaulted(append([]Loan(nil), loans...), 5, 10)
+	empty, total := pageKept(append([]Loan(nil), loans...), 5, 10, func(l *Loan) bool { return l.IsDefaulted })
 	if total != 3 || len(empty) != 0 {
 		t.Fatalf("past end: total=%d len=%d", total, len(empty))
 	}

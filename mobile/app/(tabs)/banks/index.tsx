@@ -64,7 +64,8 @@ export default function BankPledgeScreen() {
   const canCreatePledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canVoid = canUpdatePledges && !!employee?.role && VOID_ROLES.includes(employee.role);
-  const canViewBanks = can("Bank_Management", "can_view_bank");
+  const canViewBanks = can("Bank_Management", "can_view_bank_module");
+  const canViewLoans = can("Loan_Management", "can_view_loan_module");
 
   const [tab, setTab] = useState<Tab>("active");
   const [addPledge, setAddPledge] = useState(false);
@@ -177,7 +178,7 @@ export default function BankPledgeScreen() {
                         },
                       ]
                     : []),
-                  ...(!target || (!canUpdatePledges && !canVoid) ? [{ label: "View Loan", onPress: () => openLoan(l.id) }] : []),
+                  ...(canViewLoans && (!target || (!canUpdatePledges && !canVoid)) ? [{ label: "View Loan", onPress: () => openLoan(l.id) }] : []),
                 ]}
               />
             );
@@ -210,7 +211,7 @@ export default function BankPledgeScreen() {
                 { k: "Released", v: dmy(r.releaseDate) },
                 ...(r.status === "Voided" ? [{ k: "Delete reason", v: or(r.voidReason) }] : []),
               ]}
-              actions={[{ label: "View Loan", onPress: () => openLoan(r.loanId) }]}
+              actions={canViewLoans ? [{ label: "View Loan", onPress: () => openLoan(r.loanId) }] : undefined}
             />
           )}
         />

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { useAuth } from "@/product/providers/auth-context";
 import { ApiError } from "@/product/services/httpClient";
 import { listGoldRates, getLatestGoldRate, type GoldRateView } from "@/product/pages/gold-rates/services/goldRateService";
 
@@ -28,12 +29,20 @@ const GoldRatesContext = createContext<GoldRatesState | null>(null);
  * ever been published yet (backend returns 404 for /gold-rates/latest).
  */
 export function GoldRatesProvider({ children }: { children: React.ReactNode }) {
+  // Loaded for every page, so only fetched when this role can view the
+  // module — otherwise it stays empty instead of failing with a 403.
+  const { can, permissionsLoaded } = useAuth();
+  const allowed = can("Gold_Rate_Management", "can_view_gold_rate_module");
   const [latest, setLatest] = useState<GoldRateView>(EMPTY_RATE);
   const [history, setHistory] = useState<GoldRateView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const refresh = useCallback(() => {
+    if (!allowed) {
+      setLoading(!permissionsLoaded);
+      return;
+    }
     setLoading(true);
     Promise.all([
       getLatestGoldRate().catch((e) => {
@@ -50,7 +59,7 @@ export function GoldRatesProvider({ children }: { children: React.ReactNode }) {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load gold rates."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [allowed, permissionsLoaded]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

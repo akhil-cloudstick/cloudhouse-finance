@@ -17,7 +17,6 @@ import {
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { Icon } from "@/product/components/Icon";
 import { fmt, fmtW } from "@/product/utils/format";
-import { appPath } from "@/product/services/tenantSession";
 import { rupeesInWords } from "@/product/utils/numberToWords";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
@@ -59,6 +58,7 @@ import { EsignLanguageModalContent, type EsignDeliverBy } from "@/product/compon
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/product/components/modals/RequestExtensionModal";
 import { EditLoanModalContent } from "@/product/components/modals/EditLoanModal";
 import { navigate, routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 import { DisburseLoanModalContent } from "@/product/components/modals/DisburseLoanModal";
 import { TopUpLoanModalContent } from "@/product/components/modals/TopUpLoanModal";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
@@ -154,6 +154,8 @@ function DocumentsMenu({ items }: { items: DocMenuItem[] }) {
  * (e.g. "LN-00001"), matching how LoanRow/Loans link to #loan/<loanNumber>. */
 export function LoanDetail({ id }: { id?: string }) {
   const { openModal, closeModal } = useModal();
+  // Links off this page only to pages the role can open.
+  const canOpen = useCanOpenRoute();
   const toast = useToast();
   // Approving/paying/repledging updates this page's own `loan` state
   // directly from the API response, but Loans.tsx/Dashboard.tsx/
@@ -162,6 +164,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // pre-change status until a full page reload re-fetched everything.
   const { refresh: refreshLoans } = useLoans();
   const { can, role, isAdmin } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
   // Which sanction/top-up stages apply is per-business configuration — see
   // approvalWorkflowService.ts.
   const { config: workflow } = useApprovalWorkflow();
@@ -170,6 +173,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // deliberately not gated — they only render what the viewer can already
   // see. Bank pledging is its own module, so it takes its own grants.
   const canUpdateLoans = can("Loan_Management", "can_update_loan");
+  const canTopUpLoans = can("Loan_Management", "can_top_up_loan");
   const canCreateBankPledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdateBankPledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   // Independent from "can_update_loan"/"can_delete_loan" — locking down the
@@ -496,8 +500,15 @@ export function LoanDetail({ id }: { id?: string }) {
   // re-running the whole chain. Gated the same as the Loan Actions menu's
   // own Edit Loan entry: plain "can update loan", not the stage-specific
   // verify/approve/sanction permission.
+  // The edit form picks a scheme and a purity standard, so it can only open
+  // with both modules viewable — disabled with the reason rather than hidden.
+  const editLoanBlocked = !can("Scheme_Management", "can_view_scheme_module")
+    ? "Scheme module is disabled"
+    : !can("Purity_Standard_Management", "can_view_purity_standard_module")
+      ? "Purity standard module is disabled"
+      : "";
   const editLoanButton = canUpdateLoans && !isFinished && l.status !== "Auctioned" ? (
-    <button className="btn ghost" onClick={() => openModal(<EditLoanModalContent loan={l} onSaved={load} />, true)}>
+    <button className="btn ghost" title={editLoanBlocked || undefined} disabled={!!editLoanBlocked} onClick={() => openModal(<EditLoanModalContent loan={l} onSaved={load} />, true)}>
       <Icon name="edit" /> Edit Loan
     </button>
   ) : null;
@@ -699,7 +710,26 @@ export function LoanDetail({ id }: { id?: string }) {
         </tbody>
       </table>
       <p><b>Principal disbursed: ${fmt(l.principal)}</b> &nbsp;<span class="muted">(eligible amount at pledge time: ${fmt(l.eligibleLoanAmount)})</span></p>
+      ${amountDistributionHTML()}
       <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`;
+  }
+
+  /* How the principal was advanced — the initial amount on the opening
+   * date, then each later additional amount (paid-out top-ups), oldest
+   * first. Empty when the loan was advanced in one go. */
+  function amountDistributionHTML(): string {
+    const extra = topUps.filter((t) => t.status === "Active")
+      .sort((a, b) => a.occurredOn.localeCompare(b.occurredOn) || a.id - b.id);
+    if (!extra.length) return "";
+    const initial = Math.max(l.principal - extra.reduce((s, t) => s + t.amount, 0), 0);
+    const rows = [
+      `<tr><td>${l.opened}</td><td>Initial loan amount</td><td class="num">${fmt(initial)}</td></tr>`,
+      ...extra.map((t) => `<tr><td>${new Date(t.occurredOn).toLocaleDateString("en-IN")}</td><td>Additional loan amount</td><td class="num">${fmt(t.amount)}</td></tr>`),
+    ].join("");
+    return `<table>
+        <thead><tr><th>Date</th><th>Amount Distribution</th><th class="num">Amount</th></tr></thead>
+        <tbody>${rows}<tr><th colspan="2">Total</th><th class="num">${fmt(l.principal)}</th></tr></tbody>
+      </table>`;
   }
 
   async function printPledgeSlip() {
@@ -811,12 +841,12 @@ export function LoanDetail({ id }: { id?: string }) {
     ]);
     const packet = packets[0];
     const packetLabel = packet?.code || "PKT-" + l.numericId;
-    // appPath keeps the business slug, so a scanned label opens the right
+    // routeHref keeps the business slug, so a scanned label opens the right
     // organisation's app rather than a bare /app that has forgotten which
     // business the reader belongs to.
     const url = packet
-      ? location.origin + appPath(undefined, "#packet/" + packet.code)
-      : location.origin + appPath(undefined, "#loan/" + l.id);
+      ? location.origin + routeHref(`packet/${packet.code}`)
+      : location.origin + routeHref(`loan/${l.id}`);
     let qr: string;
     try {
       qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
@@ -1038,7 +1068,7 @@ export function LoanDetail({ id }: { id?: string }) {
           {!l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
           </h1>
-          <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><a href={routeHref(`customer/${l.customerId}`)} style={{ fontSize: 15, fontWeight: 600 }}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
+          <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{canOpen("customer") ? <a href={routeHref(`customer/${l.customerId}`)} style={{ fontSize: 15, fontWeight: 600 }}>{l.customerName}</a> : <span style={{ fontSize: 15, fontWeight: 600 }}>{l.customerName}</span>} · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
         {/* Everything from here down is one right-aligned group rather than
          * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
          * only right-aligns this whole cluster while it fits on the title's
@@ -1099,11 +1129,11 @@ export function LoanDetail({ id }: { id?: string }) {
                     </a>
                   )}
                 {!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
-                  <a href="#" title="Edit Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<EditLoanModalContent loan={l} onSaved={load} />, true); }}>
+                  <a href="#" title={editLoanBlocked || "Edit Loan"} aria-disabled={!!editLoanBlocked} style={editLoanBlocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={(e) => { e.preventDefault(); if (editLoanBlocked) return; setLoanActionsMenuOpen(false); openModal(<EditLoanModalContent loan={l} onSaved={load} />, true); }}>
                     <Icon name="edit" /><span className="tx">Edit Loan</span>
                   </a>
                 )}
-                {l.status === "Active" && canUpdateLoans && (
+                {l.status === "Active" && canTopUpLoans && (
                   <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={() => { load(); setTopUpsVersion((v) => v + 1); }} />); }}>
                     <Icon name="coin" /><span className="tx">Top Up</span>
                   </a>
@@ -1181,9 +1211,11 @@ export function LoanDetail({ id }: { id?: string }) {
                 <a href="#" title="Print Slip + Label" className={printingSlipAndLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlipAndLabel) return; setDocsMenuOpen(false); printSlipAndLabel(); }}>
                   <Icon name="doc" /><span className="tx">{printingSlipAndLabel ? "Preparing…" : "Print Slip + Label"}</span>
                 </a>
-                <a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
-                  <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
-                </a>
+                {canExport && (
+                  <a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
+                    <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
+                  </a>
+                )}
                 <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openPrintBondLanguagePicker(); }}>
                   <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
                 </a>
@@ -1365,7 +1397,7 @@ export function LoanDetail({ id }: { id?: string }) {
               {(ledgerFromDate || ledgerToDate) && (
                 <button className="btn ghost sm" onClick={() => setLedgerRange("", "")}>Clear</button>
               )}
-              <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>
+              {canExport && <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>}
             </div>
             <div className="tbl-wrap"><table className="tbl" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
@@ -1571,8 +1603,8 @@ export function LoanDetail({ id }: { id?: string }) {
                       {releasing ? "Releasing…" : "Release from Bank"}
                     </button>
                   )}
-                  {packet?.status === "Locker Stored" && (
-                    <a className="btn ghost sm" style={{ marginTop: 12, marginLeft: 8, display: "inline-flex" }} href={appPath(undefined, "#packet/" + packet.code)}>
+                  {packet?.status === "Locker Stored" && canOpen("packet") && (
+                    <a className="btn ghost sm" style={{ marginTop: 12, marginLeft: 8, display: "inline-flex" }} href={routeHref(`packet/${packet.code}`)}>
                       Go to Packet
                     </a>
                   )}
@@ -1591,9 +1623,11 @@ export function LoanDetail({ id }: { id?: string }) {
                       ) : (
                         <p style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 8 }}>Gold is currently held in a locker.</p>
                       )}
-                      <a className="btn ghost sm" style={{ marginTop: 12, display: "inline-flex" }} href={appPath(undefined, "#packet/" + packet.code)}>
-                        Go to Packet
-                      </a>
+                      {canOpen("packet") && (
+                        <a className="btn ghost sm" style={{ marginTop: 12, display: "inline-flex" }} href={routeHref(`packet/${packet.code}`)}>
+                          Go to Packet
+                        </a>
+                      )}
                     </>
                   )}
                 </>

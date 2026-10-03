@@ -86,9 +86,9 @@ const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 export default function CashScreen() {
   const qc = useQueryClient();
   const { employee, can } = useAuth();
-  // Approving / rejecting a Pending expense is the "expense" workflow stage's
-  // own permission (checked server-side too), not a role-name match.
-  const canApproveExpense = can("Expense_Approval", "can_approve_expense");
+  // Approve / reject hit PATCH /expenses/:id/approve|reject, gated "can update
+  // cash"; the workflow stage itself is role-checked server-side.
+  const canApproveExpense = can("Cash_Management", "can_update_cash");
   const today = todayISO();
 
   const [tab, setTab] = useState<Tab>("movements");
@@ -181,7 +181,7 @@ export default function CashScreen() {
       </Card>
       <ClosingCard k="Closing Balance (Expected Cash in Hand)" v={s ? inr(s.expectedCash) : "—"} formula="Opening + Cash in − Cash out − Expenses" />
       <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
-        <PrimaryButton label="Cash Actions" onPress={() => setActionsOpen(true)} />
+        {can("Cash_Management", "can_create_cash") ? <PrimaryButton label="Cash Actions" onPress={() => setActionsOpen(true)} /> : null}
       </View>
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />
       <View style={{ paddingTop: 12 }}>
@@ -242,7 +242,7 @@ export default function CashScreen() {
                 {
                   k: "Category",
                   v: categoryIds[e.category.toLowerCase()] ? (
-                    <LedgerLink label={e.category} onPress={() => openLedger("category", categoryIds[e.category.toLowerCase()], e.category)} />
+                    <LedgerLink label={e.category} to="/cash" onPress={() => openLedger("category", categoryIds[e.category.toLowerCase()], e.category)} />
                   ) : (
                     e.category
                   ),
@@ -290,7 +290,7 @@ export default function CashScreen() {
                 { k: "Cost amount", v: inr(g.costAmount) },
                 { k: "Mode", v: modeLink(g.mode || "Cash") },
                 ...(g.bankId
-                  ? [{ k: "Bank", v: <LedgerLink label={g.bankRef?.name || "Bank"} onPress={() => openLedger("bank", g.bankId!, g.bankRef?.name || "Bank")} /> }]
+                  ? [{ k: "Bank", v: <LedgerLink label={g.bankRef?.name || "Bank"} to="/cash" onPress={() => openLedger("bank", g.bankId!, g.bankRef?.name || "Bank")} /> }]
                   : []),
                 { k: "Remarks", v: g.remarks || "—" },
                 { k: "Date", v: dmy(g.soldOn) },
@@ -302,7 +302,7 @@ export default function CashScreen() {
       )}
 
       {/* Same floating Download corner button as the drill-down ledgers (LedgerList). */}
-      {tab === "movements" && movements.items.length > 0 ? <FabCorner icon="download" label="Download ledger PDF" onPress={onDownload} /> : null}
+      {tab === "movements" && movements.items.length > 0 && can("Ledger_Export", "can_export_ledger") ? <FabCorner icon="download" label="Download ledger PDF" onPress={onDownload} /> : null}
 
       <Sheet visible={actionsOpen} onClose={() => setActionsOpen(false)} title="Cash Actions" maxHeightPct={60}>
         {(
@@ -366,6 +366,7 @@ async function fetchSourcesWithGoldSale(q: string): Promise<CashSource[]> {
 
 // prototype #add-cash-modal (+ #gold-sale-modal, now a source of Add Cash)
 function MovementSheet({ visible, onClose, branchId }: FormProps) {
+  const canCreateBank = useAuth().can("Bank_Management", "can_create_bank");
   const qc = useQueryClient();
   const [source, setSource] = useState<CashSource | null>(null);
   const [purpose, setPurpose] = useState("");
@@ -513,7 +514,7 @@ function MovementSheet({ visible, onClose, branchId }: FormProps) {
           onClear={() => setBank(null)}
           keyOf={(b) => b.id}
           renderItem={(b) => ({ title: b.name })}
-          onCreateNew={(name) => createBank({ name })}
+          onCreateNew={canCreateBank ? (name) => createBank({ name }) : undefined}
         />
       ) : null}
       {isGoldSale ? (
@@ -538,7 +539,7 @@ function MovementSheet({ visible, onClose, branchId }: FormProps) {
             onClear={() => setLoanBank(null)}
             keyOf={(b) => b.id}
             renderItem={(b) => ({ title: b.name })}
-            onCreateNew={(name) => createBank({ name })}
+            onCreateNew={canCreateBank ? (name) => createBank({ name }) : undefined}
           />
           <Field label="Loan Number">
             <Input placeholder="e.g. LN-00049" value={loanNumber} onChangeText={setLoanNumber} />
@@ -565,6 +566,7 @@ function MovementSheet({ visible, onClose, branchId }: FormProps) {
 
 // prototype #record-expense-modal
 function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
+  const canCreateBank = useAuth().can("Bank_Management", "can_create_bank");
   const qc = useQueryClient();
   const [category, setCategory] = useState<ExpenseCategory | null>(null);
   const [amount, setAmount] = useState("");
@@ -650,7 +652,7 @@ function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
           onClear={() => setFromBank(null)}
           keyOf={(b) => b.id}
           renderItem={(b) => ({ title: b.name })}
-          onCreateNew={(name) => createBank({ name })}
+          onCreateNew={canCreateBank ? (name) => createBank({ name }) : undefined}
         />
       ) : null}
       <UploadField label="Receipt / Bill Image" value={receiptImage} onChange={setReceiptImage} allowPdf={false} />
