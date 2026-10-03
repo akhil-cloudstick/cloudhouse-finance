@@ -157,9 +157,10 @@ var routeManifest = map[string]routeSpec{
 	// ---------------------------------------------------------------- auth
 	// The three unauthenticated endpoints. Login is also the one query that
 	// legitimately precedes a tenant, because it establishes one.
-	"POST /api/v1/auth/login":           public("establishes the session; the AllowCrossTenant lookup in auth.Service"),
-	"POST /api/v1/auth/forgot-password": public("pre-session by nature; must not reveal whether an identifier exists"),
-	"POST /api/v1/auth/reset-password":  public("pre-session, gated by the reset token rather than a JWT"),
+	"POST /api/v1/auth/login":             public("establishes the session; the AllowCrossTenant lookup in auth.Service"),
+	"POST /api/v1/auth/forgot-password":   public("pre-session by nature; must not reveal whether an identifier exists"),
+	"POST /api/v1/auth/reset-password":    public("pre-session, gated by the reset token rather than a JWT"),
+	"POST /api/v1/auth/verify-reset-code": public("pre-session, gated by the reset token rather than a JWT; wrong codes are capped"),
 
 	// Razorpay's own server calling in, not a logged-in employee/borrower —
 	// deliberately unauthenticated by the employee JWT scheme (see
@@ -262,7 +263,6 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/customers":                          list(),
 	"GET /api/v1/customers/:id":                       probe("id=customers"),
 	"PUT /api/v1/customers/:id":                       probe("id=customers"),
-	"DELETE /api/v1/customers/:id":                    probe("id=customers"),
 	"DELETE /api/v1/customers/:id/hard-delete":        probe("id=customers"),
 	"GET /api/v1/customers/:id/profile360":            probe("id=customers"),
 	"GET /api/v1/customers/:id/loans":                 probe("id=customers"),
@@ -544,17 +544,17 @@ var routeManifest = map[string]routeSpec{
 
 	// Branding and entitlements. Vendor levers over another business's
 	// identity and feature grants, so the same class as everything above.
-	"PUT /api/v1/superadmin/businesses/:id/profile":   superAdminRoute("sets the name/legal identity printed on a business's own customer documents"),
-	"PUT /api/v1/superadmin/businesses/:id/branding":  superAdminRoute("sets the one colour the frontend derives a business's whole palette from"),
-	"POST /api/v1/superadmin/businesses/:id/logo":     superAdminRoute("stores a logo AS that business — the write runs under platform.WithTenant, so the uploaded_files row is stamped to it, not to the vendor"),
+	"PUT /api/v1/superadmin/businesses/:id/profile":      superAdminRoute("sets the name/legal identity printed on a business's own customer documents"),
+	"PUT /api/v1/superadmin/businesses/:id/branding":     superAdminRoute("sets the one colour the frontend derives a business's whole palette from"),
+	"POST /api/v1/superadmin/businesses/:id/logo":        superAdminRoute("stores a logo AS that business — the write runs under platform.WithTenant, so the uploaded_files row is stamped to it, not to the vendor"),
 	"POST /api/v1/superadmin/businesses/:id/signature":   superAdminRoute("stores the lender signature AS that business (platform.WithTenant), embedded on its own printed documents"),
 	"GET /api/v1/superadmin/businesses/:id/signature":    superAdminRoute("streams that business's own lender signature, resolved from its tenant row — never a caller-supplied key"),
 	"DELETE /api/v1/superadmin/businesses/:id/signature": superAdminRoute("clears the lender signature pointer; documents fall back to a blank wet-ink line"),
-	"PUT /api/v1/superadmin/businesses/:id/modules": superAdminRoute("grants/revokes optional modules; enforced per request by platform.RequireTenantModule"),
-	"PUT /api/v1/superadmin/businesses/:id/languages": superAdminRoute("grants/revokes the languages a business may issue customer documents in"),
-	"PUT /api/v1/superadmin/businesses/:id/branch-mode": superAdminRoute("switches one business between single-branch and multi-branch"),
-	"GET /api/v1/superadmin/businesses/:id/admin":     superAdminRoute("reads the business's Administrator login (never the password hash) under that business's tenant tx — see superadmin.inTenantTx"),
-	"PUT /api/v1/superadmin/businesses/:id/admin":     superAdminRoute("vendor-side reset of the Administrator's name/username/password, for an owner locked out with no phone for the SMS reset"),
+	"PUT /api/v1/superadmin/businesses/:id/modules":      superAdminRoute("grants/revokes optional modules; enforced per request by platform.RequireTenantModule"),
+	"PUT /api/v1/superadmin/businesses/:id/languages":    superAdminRoute("grants/revokes the languages a business may issue customer documents in"),
+	"PUT /api/v1/superadmin/businesses/:id/branch-mode":  superAdminRoute("switches one business between single-branch and multi-branch"),
+	"GET /api/v1/superadmin/businesses/:id/admin":        superAdminRoute("reads the business's Administrator login (never the password hash) under that business's tenant tx — see superadmin.inTenantTx"),
+	"PUT /api/v1/superadmin/businesses/:id/admin":        superAdminRoute("vendor-side reset of the Administrator's name/username/password, for an owner locked out with no phone for the SMS reset"),
 
 	"GET /api/v1/superadmin/catalogue": superAdminRoute("the closed sets of toggleable modules/languages — a static vocabulary, no business's data at all"),
 
@@ -611,14 +611,13 @@ var routeManifest = map[string]routeSpec{
 
 	// Configurable approval workflow (internal/workflow) and the approval
 	// endpoints of the flows it made configurable.
-	"GET /api/v1/approval-workflow":               list(),
+	"GET /api/v1/approval-workflow":                      list(),
 	"GET /api/v1/approval-workflow/categories":           list(),
 	"PUT /api/v1/approval-workflow/categories/:category": list(),
-	"POST /api/v1/loans/topups/:topUpId/approve":  probe("topUpId=loan_top_ups"),
-	"POST /api/v1/loans/:id/waiver-request":       probe("id=loans"),
-	"POST /api/v1/personal-loans/:id/approve":     probe("id=personal_loans"),
-	"GET /api/v1/personal-loans/:id/approvals":    probe("id=personal_loans"),
-	"GET /api/v1/schemes/:id/statement":      probe("id=schemes"),
+	"POST /api/v1/loans/topups/:topUpId/approve":         probe("topUpId=loan_top_ups"),
+	"POST /api/v1/personal-loans/:id/approve":            probe("id=personal_loans"),
+	"GET /api/v1/personal-loans/:id/approvals":           probe("id=personal_loans"),
+	"GET /api/v1/schemes/:id/statement":                  probe("id=schemes"),
 
 	"GET /api/v1/investments/:id/transactions":  probe("id=investments"),
 	"GET /api/v1/investments/:id/bond/pdf":      probe("id=investments"),

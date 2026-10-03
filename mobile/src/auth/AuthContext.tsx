@@ -29,7 +29,7 @@ type AuthState = {
   permissionsFailed: boolean;
   // can(module, key) — `=== true` so a missing module/key/loading state all
   // deny (§10). Module/key names use the underscored form the backend
-  // derives (e.g. "Loan_Management", "can_view_loan").
+  // derives (e.g. "Loan_Management", "can_view_loan_module").
   can: (moduleKey: string, permissionKey: string) => boolean;
 };
 

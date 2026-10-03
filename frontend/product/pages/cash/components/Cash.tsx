@@ -155,6 +155,7 @@ export function Cash() {
   // Recording cash movements and expenses is a create; closing a loan movement is an update.
   // Whatever the role can't do is hidden outright (see Customers.tsx).
   const { can, role, isAdmin } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
   const { singleBranch } = useBranding();
   const { config: workflow } = useApprovalWorkflow();
   const canCreateCash = can("Cash_Management", "can_create_cash");
@@ -487,9 +488,11 @@ export function Cash() {
                 }}
                 hideChips
               />
-              <button className="btn ghost sm" onClick={downloadMovements} disabled={downloadingMovements} title="Download every row matching the current filters">
-                <Icon name="download" /> {downloadingMovements ? "Preparing…" : "Download"}
-              </button>
+              {canExport && (
+                <button className="btn ghost sm" onClick={downloadMovements} disabled={downloadingMovements} title="Download every row matching the current filters">
+                  <Icon name="download" /> {downloadingMovements ? "Preparing…" : "Download"}
+                </button>
+              )}
             </div>
           </div>
           <div className="tbl-wrap tbl-scroll">
@@ -522,9 +525,11 @@ export function Cash() {
           <div className="hd">
             <h3>Expense Register</h3>
             <div className="sp" />
-            <button className="btn ghost sm" onClick={downloadExpenses} disabled={downloadingExpenses} title="Download every expense row">
-              <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
-            </button>
+            {canExport && (
+              <button className="btn ghost sm" onClick={downloadExpenses} disabled={downloadingExpenses} title="Download every expense row">
+                <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
+              </button>
+            )}
             <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 12 }}>Total {fmt(expenseSum)}</span>
           </div>
           <div className="tbl-wrap tbl-scroll">

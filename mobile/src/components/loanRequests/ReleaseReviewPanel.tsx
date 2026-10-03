@@ -32,6 +32,7 @@ import {
 } from "../ui";
 import { inr, todayISO } from "../../lib/format";
 import { useAuth } from "../../auth/AuthContext";
+import { useCanOpen } from "../../config/routePermissions";
 import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest } from "../../api/loans";
 import { isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "../../api/approvalWorkflow";
 import { listPackets } from "../../api/packets";
@@ -63,6 +64,10 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
   const { can, employee } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
+  const canOpen = useCanOpen();
+  // The "Go to …" shortcuts below only when the user may open where they lead.
+  const canGoBankPledge = canOpen("/loans") && can("Bank_Pledge_Management", "can_view_bank_pledge_module");
+  const canGoPackets = canOpen("/packets");
   // Tenant-configured "loan_release" chain. An empty approvalStage is the
   // PendingManager position (it doubles as "awaiting payment"), which the
   // request can sit on even when the Manager stage is switched off.
@@ -286,7 +291,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
         value={charges}
         onChangeText={setCharges}
         onBlur={() => saveVerification.mutate({ charges: +charges || 0 })}
-        editable={canDecide && isPending && canRecordPayment}
+        editable={canDecide && canVerifyChecklist && isPending && canRecordPayment}
       />
       <TextField
         label="Verification notes"
@@ -294,7 +299,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
         value={notes}
         onChangeText={setNotes}
         onBlur={() => saveVerification.mutate({ verificationNotes: notes })}
-        editable={canDecide && isPending}
+        editable={canDecide && canVerifyChecklist && isPending}
       />
 
       <View style={sawGoldDisabled ? { opacity: 0.6 } : null}>
@@ -319,10 +324,10 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
           {bankPledged ? (
             onThisLoanPage ? (
               <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>Use Loan Actions → Bank Pledge on this page.</Txt>
-            ) : (
+            ) : !canGoBankPledge ? null : (
               <AccBtn label="Go to Bank Pledge" onPress={() => openPage(`/loans/${loan.id}?action=bank`)} style={{ marginBottom: 14 }} />
             )
-          ) : (
+          ) : !canGoPackets ? null : (
             <AccBtn
               label={packetRecord ? `Go to Packet ${packetRecord.code}` : "Go to Lockers"}
               onPress={() => (packetRecord ? openPage(`/packets/${packetRecord.id}`) : openPage("/packets?tab=lockers"))}
@@ -340,7 +345,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
           Already recorded: {inr(request.recordedDiscount)} discount + {inr(request.recordedPayment)} payment.
         </Txt>
       ) : null}
-      {canRecordPayment && isPending ? (
+      {canDecide && canRecordPayment && isPending ? (
         <View style={{ marginBottom: 6 }}>
           <FieldRow>
             <Field label="Discount (₹)">

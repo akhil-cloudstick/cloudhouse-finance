@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import BrandLogo from "@/product/components/BrandLogo";
 import { useSearchParams } from "next/navigation";
 import "@/product/styles/login.css";
-import { forgotPassword, resetPassword } from "@/product/services/authService";
+import { forgotPassword, resetPassword, verifyResetCode } from "@/product/services/authService";
 import { ApiError } from "@/product/services/httpClient";
 import {
   businessCodeForRequest,
@@ -13,18 +13,25 @@ import {
   resolveActiveSlug,
 } from "@/product/services/tenantSession";
 
+function EyeIcon({ visible }: { visible: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
+      {visible ? <path d="M4 4l16 16" /> : <circle cx="12" cy="12" r="2.8" />}
+    </svg>
+  );
+}
+
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
 
-  // The phone number is fixed to whatever "Forgot password" requested a code
-  // for — it must NOT be re-typable here. Previously this field was
-  // pre-filled from the query param but still a free-text input, so anyone
-  // could request a code for one number, then swap in a *different* target
-  // phone number on this page and submit an OTP against that account
-  // instead — turning "forgot my own password" into "reset anyone's
-  // password, given their phone number and a leaked/guessed code". Locking
-  // it read-only means this page can only ever act on the number the user
-  // actually requested a code for.
+  // The username and phone number are fixed to whatever "Forgot password"
+  // requested a code for — they must NOT be re-typable here. A free-text
+  // field would let anyone request a code for one account, then swap in a
+  // *different* target before submitting an OTP against it — turning
+  // "forgot my own password" into "reset anyone's password, given their
+  // details and a leaked/guessed code".
+  const username = searchParams.get("u") || "";
   const phone = searchParams.get("phone") || "";
 
   /* The business is carried through the whole reset flow, because a phone
@@ -36,6 +43,12 @@ function ResetPasswordForm() {
    * fallback, but not for one that only came from a host-resolved subdomain. */
   const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
   const loginIncludesSlug = isValidBusinessSlug(linkedCode) || resolvedSlug === null || fromPath;
+  const forgotHref = businessCode ? `/forgot-password?b=${encodeURIComponent(businessCode)}` : "/forgot-password";
+
+  /* Two steps on one route: the code is verified first, then the new password
+   * gets a screen of its own. The code lives only in component state — never
+   * in the URL — so a refresh on the password step returns to the code step. */
+  const [step, setStep] = useState<"code" | "password">("code");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -44,21 +57,20 @@ function ResetPasswordForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /* How the forgot-password step's send went: "sent" or "failed". A failed
-   * send is reported here with a Resend option rather than back on the
-   * previous page, so the user is already where the code will be typed. */
-  const [sendStatus, setSendStatus] = useState<"sent" | "failed">(
-    searchParams.get("sent") === "failed" ? "failed" : "sent",
-  );
+  /* The forgot-password page only navigates here once a code has gone out,
+   * so this starts "sent"; it turns "failed" only if a Resend fails. */
+  const [sendStatus, setSendStatus] = useState<"sent" | "failed">("sent");
   const [sendError, setSendError] = useState<string | null>(null);
   const [resending, setResending] = useState(false);
 
   async function handleResend() {
     setResending(true);
     setSendError(null);
+    setError(null);
     try {
-      await forgotPassword(phone.trim(), businessCode);
+      await forgotPassword(username, phone, businessCode);
       setSendStatus("sent");
+      setOtp("");
     } catch (err) {
       setSendStatus("failed");
       setSendError(err instanceof ApiError && err.message ? err.message : null);
@@ -67,18 +79,27 @@ function ResetPasswordForm() {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!/^\d{6}$/.test(otp.trim())) {
+      setError("Please enter the 6-digit code sent by SMS.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await verifyResetCode(username, phone, otp.trim(), businessCode);
+      setStep("password");
+    } catch (err) {
+      setError(err instanceof ApiError && err.message ? err.message : "This code is invalid or has expired.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
-    if (!phone.trim()) {
-      setError("No phone number to reset — go back and request a code first.");
-      return;
-    }
-    if (!otp.trim()) {
-      setError("Please enter the code sent by SMS.");
-      return;
-    }
+  async function handleReset(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
     if (password.length < 8) {
       setError("Password must be at least 8 characters.");
       return;
@@ -90,7 +111,7 @@ function ResetPasswordForm() {
 
     setSubmitting(true);
     try {
-      await resetPassword(phone.trim(), otp.trim(), password, businessCode);
+      await resetPassword(username, phone, otp.trim(), password, businessCode);
       /* A real navigation, not router.push: the console is a separate
        * document in the static export and the business-first URL that
        * reaches it exists only as a server-side fallback, which Next's
@@ -98,178 +119,137 @@ function ResetPasswordForm() {
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign(`${loginPath(businessCode || null, loginIncludesSlug)}?reset=success`);
     } catch (err) {
-      const text =
-        err instanceof ApiError
-          ? err.message || "This code is invalid or has expired."
-          : "This code is invalid or has expired.";
-      setError(text);
+      setError(err instanceof ApiError && err.message ? err.message : "This code is invalid or has expired.");
       setSubmitting(false);
     }
   }
+
+  const backToLogin = (
+    <div className="aux" style={{ justifyContent: "center" }}>
+      <a href={loginPath(businessCode || null, loginIncludesSlug)}>← Back to login</a>
+    </div>
+  );
 
   return (
     <div className="login-page">
       <div className="wrap">
         <main className="card">
-
           <div className="brand">
             <BrandLogo size={104} scalable={false} />
-            <h1>
-              Set a new password
-            </h1>
+            <h1>{step === "code" ? "Enter the code" : "Set a new password"}</h1>
           </div>
 
-          {!phone.trim() ? (
+          {!username.trim() || !phone.trim() ? (
             <>
               <p className="msg show" role="alert" style={{ position: "static", textAlign: "center" }}>
-                No phone number to reset — request a code first.
+                Nothing to reset — request a code first.
               </p>
               <div className="aux" style={{ justifyContent: "center", marginTop: 18 }}>
-                <a href={businessCode ? `/forgot-password?b=${encodeURIComponent(businessCode)}` : "/forgot-password"}>← Request a reset code</a>
+                <a href={forgotHref}>← Request a reset code</a>
               </div>
             </>
+          ) : step === "code" ? (
+            <form noValidate onSubmit={handleVerify}>
+              <div className={`status-box ${sendStatus === "sent" ? "ok" : "fail"}`} role="status" aria-live="polite">
+                {resending ? (
+                  <div>
+                    <span className="spinner" aria-hidden="true" />
+                    Sending code…
+                  </div>
+                ) : sendStatus === "sent" ? (
+                  <div>A 6-digit code has been sent by SMS to {phone}.</div>
+                ) : (
+                  <div>{sendError ?? "Sending failed"}</div>
+                )}
+                <button type="button" onClick={handleResend} disabled={resending}>
+                  {sendStatus === "sent" ? "Resend code" : "Try again"}
+                </button>
+              </div>
+
+              <div className="field">
+                <input
+                  type="text"
+                  id="otp"
+                  placeholder=" "
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  required
+                  autoFocus
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                />
+                <label htmlFor="otp">6-digit code</label>
+                <span className="bar"></span>
+              </div>
+
+              <button type="submit" className="btn" disabled={submitting} aria-busy={submitting}>
+                {submitting ? "Verifying…" : "Verify code"}
+              </button>
+              <p className={`msg${error ? " show" : ""}`} role="alert">
+                {error ?? ""}
+              </p>
+
+              <div className="aux" style={{ justifyContent: "center" }}>
+                <a href={forgotHref}>Use a different account</a>
+              </div>
+            </form>
           ) : (
-          <form noValidate onSubmit={handleSubmit}>
-            <div className={`status-box ${sendStatus === "sent" ? "ok" : "fail"}`} role="status" aria-live="polite">
-              {resending ? (
-                <div>
-                  <span className="spinner" aria-hidden="true" />
-                  Sending code…
-                </div>
-              ) : sendStatus === "sent" ? (
-                <div>A 6-digit reset code has been sent by SMS to {phone}.</div>
-              ) : (
-                <div>{sendError ?? "Sending failed"}</div>
-              )}
-              <button type="button" onClick={handleResend} disabled={resending}>
-                {sendStatus === "sent" ? "Resend code" : "Try again"}
+            <form noValidate onSubmit={handleReset}>
+              <div className="field">
+                <input
+                  type={passVisible ? "text" : "password"}
+                  id="password"
+                  placeholder=" "
+                  autoComplete="new-password"
+                  required
+                  autoFocus
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <label htmlFor="password">New password</label>
+                <button
+                  type="button"
+                  className="eye"
+                  aria-label={passVisible ? "Hide password" : "Show password"}
+                  onClick={() => setPassVisible((v) => !v)}
+                >
+                  <EyeIcon visible={passVisible} />
+                </button>
+                <span className="bar"></span>
+              </div>
+
+              <div className="field">
+                <input
+                  type={confirmVisible ? "text" : "password"}
+                  id="confirm"
+                  placeholder=" "
+                  autoComplete="new-password"
+                  required
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                />
+                <label htmlFor="confirm">Confirm new password</label>
+                <button
+                  type="button"
+                  className="eye"
+                  aria-label={confirmVisible ? "Hide password" : "Show password"}
+                  onClick={() => setConfirmVisible((v) => !v)}
+                >
+                  <EyeIcon visible={confirmVisible} />
+                </button>
+                <span className="bar"></span>
+              </div>
+
+              <button type="submit" className="btn" disabled={submitting} aria-busy={submitting}>
+                {submitting ? "Saving…" : "Reset password"}
               </button>
-            </div>
+              <p className={`msg${error ? " show" : ""}`} role="alert">
+                {error ?? ""}
+              </p>
 
-            <div className="field">
-              <input
-                type="tel"
-                id="phone"
-                placeholder=" "
-                autoComplete="tel"
-                required
-                value={phone}
-                disabled
-                readOnly
-                title="This is the number the code was sent to and can't be changed here — go back to request a code for a different number."
-              />
-              <label htmlFor="phone">Phone number</label>
-              <span className="bar"></span>
-            </div>
-
-            <div className="field">
-              <input
-                type="text"
-                id="otp"
-                placeholder=" "
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-              />
-              <label htmlFor="otp">6-digit code</label>
-              <span className="bar"></span>
-            </div>
-
-            <div className="field">
-              <input
-                type={passVisible ? "text" : "password"}
-                id="password"
-                placeholder=" "
-                autoComplete="new-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <label htmlFor="password">New password</label>
-              <button
-                type="button"
-                className="eye"
-                aria-label={passVisible ? "Hide password" : "Show password"}
-                onClick={() => setPassVisible((v) => !v)}
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  style={{ display: passVisible ? "none" : "block" }}
-                >
-                  <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
-                  <circle cx="12" cy="12" r="2.8" />
-                </svg>
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  style={{ display: passVisible ? "block" : "none" }}
-                >
-                  <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
-                  <path d="M4 4l16 16" />
-                </svg>
-              </button>
-              <span className="bar"></span>
-            </div>
-
-            <div className="field">
-              <input
-                type={confirmVisible ? "text" : "password"}
-                id="confirm"
-                placeholder=" "
-                autoComplete="new-password"
-                required
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-              />
-              <label htmlFor="confirm">Confirm new password</label>
-              <button
-                type="button"
-                className="eye"
-                aria-label={confirmVisible ? "Hide password" : "Show password"}
-                onClick={() => setConfirmVisible((v) => !v)}
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  style={{ display: confirmVisible ? "none" : "block" }}
-                >
-                  <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
-                  <circle cx="12" cy="12" r="2.8" />
-                </svg>
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  style={{ display: confirmVisible ? "block" : "none" }}
-                >
-                  <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
-                  <path d="M4 4l16 16" />
-                </svg>
-              </button>
-              <span className="bar"></span>
-            </div>
-
-            <button type="submit" className="btn" disabled={submitting}>
-              {submitting ? "Saving…" : "Reset password"}
-            </button>
-            <p className={`msg${error ? " show" : ""}`} role="alert">
-              {error ?? ""}
-            </p>
-
-            <div className="aux" style={{ justifyContent: "center" }}>
-              <a href={loginPath(businessCode || null, loginIncludesSlug)}>← Back to login</a>
-            </div>
-          </form>
+              {backToLogin}
+            </form>
           )}
         </main>
       </div>

@@ -91,8 +91,28 @@ func (r *Repository) Update(ctx context.Context, s *Scheme) error {
 	return r.db.WithContext(ctx).Save(s).Error
 }
 
-func (r *Repository) Delete(ctx context.Context, id uint) error {
-	return r.db.WithContext(ctx).Delete(&Scheme{}, id).Error
+// HardDelete permanently removes the scheme row (bypassing the soft-delete
+// DeletedAt column). Callers must first confirm nothing references it — see
+// CountReferences.
+func (r *Repository) HardDelete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Unscoped().Delete(&Scheme{}, id).Error
+}
+
+// CountReferences returns how many loans and loan drafts point at the
+// scheme. Soft-deleted loans are counted too (their rows still exist and
+// still carry the scheme_id foreign key). Raw SQL rather than the loan
+// models since loan already imports scheme (import cycle); the GORM tenant
+// filter doesn't apply to raw queries, but scheme ids are globally unique
+// so the id alone is enough.
+func (r *Repository) CountReferences(ctx context.Context, id uint) (loans, drafts int64, err error) {
+	db := r.db.WithContext(ctx)
+	if err = db.Raw("SELECT COUNT(*) FROM loans WHERE scheme_id = ?", id).Scan(&loans).Error; err != nil {
+		return 0, 0, err
+	}
+	if err = db.Raw("SELECT COUNT(*) FROM loan_drafts WHERE scheme_id = ?", id).Scan(&drafts).Error; err != nil {
+		return 0, 0, err
+	}
+	return loans, drafts, nil
 }
 
 // CountAll returns the total number of schemes ever created (including

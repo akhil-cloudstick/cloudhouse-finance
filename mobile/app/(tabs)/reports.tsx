@@ -65,6 +65,7 @@ import {
 } from "../../src/api/reports";
 import { dmy, inr, todayISO } from "../../src/lib/format";
 import { isUserCancel, userMessage } from "../../src/api/errors";
+import { useCanOpen } from "../../src/config/routePermissions";
 
 // Reports — prototype #header-reports + #page-reports (grouped report rows)
 // and #report-table-modal. Tapping a report opens its table in a sheet:
@@ -409,7 +410,9 @@ export default function ReportsScreen() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<ReportDef | null>(null);
 
-  const available = REPORTS.filter((r) => !r.tenantModule || hasModule(r.tenantModule));
+  const canOpen = useCanOpen();
+  // A "link" row (e.g. Ledger / Statement) only when its page may be opened.
+  const available = REPORTS.filter((r) => (!r.tenantModule || hasModule(r.tenantModule)) && (r.kind !== "link" || !r.href || canOpen(r.href)));
   // Static list of report titles (not data) — filtered locally.
   const needle = search.trim().toLowerCase();
   const shown = needle ? available.filter((r) => r.title.toLowerCase().includes(needle)) : available;

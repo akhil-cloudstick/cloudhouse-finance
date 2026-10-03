@@ -27,17 +27,18 @@ import { AUCTION_OUTCOME_LABELS, pendingDecision, type AuctionRecord, type Aucti
 
 // Auctions — prototype #header-auctions + #page-auctions, the auction filter
 // sheet and the Auction Flow sheet. Active Cases are loans bucketed
-// server-side by `auctionCase` (eligible | defaulted | auctioned_balance_due);
+// server-side by `auctionCase` (all | eligible | defaulted | auctioned_balance_due);
 // Auction History is GET /loans/auctions/concluded split by `hasSale`.
 
 const TABS = ["active", "history"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { active: "Active Cases", history: "Auction History" };
 
-// In the order a case moves through them.
-const CASES = ["Defaulted", "Auction Eligible", "Auctioned - Balance Due"] as const;
+// "All" first (the default), then in the order a case moves through them.
+const CASES = ["All", "Defaulted", "Auction Eligible", "Auctioned - Balance Due"] as const;
 type CaseType = (typeof CASES)[number];
 const CASE_PARAM: Record<CaseType, string> = {
+  All: "all",
   "Auction Eligible": "eligible",
   Defaulted: "defaulted",
   "Auctioned - Balance Due": "auctioned_balance_due",
@@ -66,7 +67,7 @@ export default function AuctionsScreen() {
 function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
   const openLoan = useOpenLoan();
 
-  const [caseType, setCaseType] = useState<CaseType>("Auction Eligible");
+  const [caseType, setCaseType] = useState<CaseType>("All");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draft, setDraft] = useState<CaseType>(caseType);
   const [flowLoan, setFlowLoan] = useState<Loan | null>(null);
@@ -91,8 +92,8 @@ function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
             {tabs}
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
             <FiltersBar
-              count={1}
-              summary={`${caseType} · ${list.total ?? list.items.length}`}
+              count={caseType === "All" ? 0 : 1}
+              summary={`${caseType === "All" ? "All cases" : caseType} ·${list.total ?? list.items.length}`}
               style={{ marginTop: 0, marginBottom: 14 }}
               onPress={() => {
                 setDraft(caseType);

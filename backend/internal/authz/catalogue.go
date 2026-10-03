@@ -24,58 +24,65 @@ type PermissionDef struct {
 // internal/migrate's seed step and Repository.PurgeLegacyChangePermissions).
 // Role grant editing, previously its own "can change role permission",
 // now rides on "can update role".
+//
+// Every module's view permission is named "can view <noun> module" and is the
+// PARENT of that module's other permissions (see dependencies.go): while a
+// role lacks it, the module's create/update/delete grants cannot be switched
+// on. Permissions nothing enforced were dropped (see RemovedPermissions).
 var Catalogue = []PermissionDef{
-	{"can view branch", "View branches", "Branch Management"},
+	{"can view branch module", "View branches", "Branch Management"},
 	{"can create branch", "Create branches", "Branch Management"},
 	{"can update branch", "Update branches", "Branch Management"},
 	{"can delete branch", "Delete branches", "Branch Management"},
+	{"can view branch ledger", "View and download a branch's ledger", "Branch Management"},
 
-	{"can view scheme", "View loan schemes", "Scheme Management"},
+	{"can view scheme module", "View loan schemes", "Scheme Management"},
 	{"can create scheme", "Create loan schemes", "Scheme Management"},
 	{"can update scheme", "Update loan schemes", "Scheme Management"},
 	{"can delete scheme", "Delete loan schemes", "Scheme Management"},
 
-	{"can view gold rate", "View gold rate history", "Gold Rate Management"},
+	{"can view gold rate module", "View gold rate history", "Gold Rate Management"},
 	{"can create gold rate", "Record a new gold rate", "Gold Rate Management"},
-	{"can update gold rate", "Update a gold rate record", "Gold Rate Management"},
-	{"can delete gold rate", "Delete a gold rate record", "Gold Rate Management"},
 
-	{"can view purity standard", "View gold purity standards", "Purity Standard Management"},
+	{"can view purity standard module", "View gold purity standards", "Purity Standard Management"},
 	{"can create purity standard", "Create purity standards", "Purity Standard Management"},
-	{"can update purity standard", "Update purity standards", "Purity Standard Management"},
-	{"can delete purity standard", "Delete purity standards", "Purity Standard Management"},
 
-	{"can view employee", "View employees", "Employee Management"},
+	{"can view employee module", "View employees", "Employee Management"},
 	{"can create employee", "Create employees", "Employee Management"},
 	{"can update employee", "Update employees", "Employee Management"},
 	{"can delete employee", "Delete employees", "Employee Management"},
 
-	{"can view cash", "View cash movements, expenses and opening balance", "Cash Management"},
+	{"can view cash module", "View cash movements, expenses and opening balance", "Cash Management"},
 	{"can create cash", "Record cash movements and expenses", "Cash Management"},
-	{"can update cash", "Update cash movements and expenses", "Cash Management"},
-	{"can delete cash", "Delete cash movements and expenses", "Cash Management"},
+	{"can update cash", "Update cash movements and approve or reject expenses", "Cash Management"},
 
-	{"can view setting", "View integration API key settings", "Settings Management"},
-	{"can create setting", "Create integration API key settings", "Settings Management"},
+	// Every ledger / statement download (cash, party, mode, loan and
+	// investment statements). Each download also needs its own module's view
+	// permission — this only decides whether the file may leave the screen.
+	{"can export ledger", "Download ledgers and statements as PDF or Excel", "Ledger Export"},
+
+	{"can view setting module", "View integration API key settings", "Settings Management"},
 	{"can update setting", "Update integration API key settings", "Settings Management"},
 	{"can delete setting", "Delete integration API key settings", "Settings Management"},
 
-	{"can view customer", "View customers and KYC", "Customer Management"},
+	{"can view customer module", "View customers and KYC", "Customer Management"},
 	{"can create customer", "Create customers", "Customer Management"},
 	{"can update customer", "Update customers", "Customer Management"},
-	{"can delete customer", "Delete customers", "Customer Management"},
-	// Deliberately separate from "can delete customer" above — hard-deleting
-	// a customer permanently removes them and every one of their loans (plus
-	// every record tied to each of those loans), their login/device
-	// credentials and their notifications, with no soft-delete/undo. Locking
-	// this down independently of ordinary delete rights is the whole point,
-	// same reasoning as "can hard delete loan" below.
+	// Hard-deleting a customer permanently removes them and every one of their
+	// loans (plus every record tied to each of those loans), their login/device
+	// credentials and their notifications, with no soft-delete/undo. It is the
+	// only customer delete there is.
 	{"can hard delete customer", "Permanently and irreversibly delete a customer and every record tied to them", "Customer Management"},
 
-	{"can view loan", "View loans, ornaments, approvals, payments, requests and auctions", "Loan Management"},
+	{"can view loan module", "View loans, ornaments, approvals, payments, requests and auctions", "Loan Management"},
 	{"can create loan", "Create loans, ornaments, drafts, requests and payments", "Loan Management"},
 	{"can update loan", "Update and act on loans, ornaments, approvals, payments, requests and auctions", "Loan Management"},
-	{"can delete loan", "Delete loans, ornaments, drafts, requests and payments", "Loan Management"},
+	{"can delete loan", "Delete loan drafts", "Loan Management"},
+	// Disbursing more against a loan's pledged gold — its own grant rather
+	// than riding on "can update loan", and independent of it: only "can view
+	// loan module" is its parent (see dependencies.go).
+	// Who may APPROVE a top-up is the Top-Up Approval stage, not this.
+	{"can top up loan", "Top up a loan — disburse more against its pledged gold", "Loan Management"},
 	// Deliberately separate from "can delete loan" above — hard-deleting a
 	// loan permanently removes it and every record tied to it (ornaments,
 	// payments, approvals, requests, auctions, bank pledges, packets,
@@ -83,57 +90,47 @@ var Catalogue = []PermissionDef{
 	// down independently of ordinary delete rights is the whole point.
 	{"can hard delete loan", "Permanently and irreversibly delete a loan and every record tied to it", "Loan Management"},
 
-	{"can view personal loan", "View personal loans, schedules and payments", "Personal Loan Management"},
+	{"can view personal loan module", "View personal loans, schedules and payments", "Personal Loan Management"},
 	{"can create personal loan", "Create personal loans", "Personal Loan Management"},
 	{"can update personal loan", "Record payments, renew and manage personal loans", "Personal Loan Management"},
-	{"can delete personal loan", "Delete personal loans", "Personal Loan Management"},
 
-	{"can view investment", "View investment plans, investments, schedules and payouts", "Investment Management"},
+	{"can view investment module", "View investment plans, investments, schedules and payouts", "Investment Management"},
 	{"can create investment", "Create investment plans and investments", "Investment Management"},
 	{"can update investment", "Update investment plans, mark payouts paid and apply maturity decisions", "Investment Management"},
-	{"can delete investment", "Delete investments", "Investment Management"},
 
-	{"can view bank pledge", "View bank pledge records", "Bank Pledge Management"},
-	{"can create bank pledge", "Create bank pledges", "Bank Pledge Management"},
-	{"can update bank pledge", "Update, release and void bank pledges", "Bank Pledge Management"},
-	{"can delete bank pledge", "Delete bank pledges", "Bank Pledge Management"},
+	{"can view bank pledge module", "View bank pledge records", "Bank Pledge Management"},
+	{"can create bank pledge", "Re-pledge a loan's gold to a bank", "Bank Pledge Management"},
+	{"can update bank pledge", "Release and void bank pledges", "Bank Pledge Management"},
 
-	{"can view upload", "View uploaded files", "Upload Management"},
-	{"can create upload", "Upload files", "Upload Management"},
-	{"can update upload", "Update uploaded files", "Upload Management"},
-	{"can delete upload", "Delete uploaded files", "Upload Management"},
+	{"can create upload", "Upload files (KYC documents, ornament photos, receipts)", "Upload Management"},
 
-	{"can view ornament type", "View ornament types", "Ornament Type Management"},
+	{"can view ornament type module", "View ornament types", "Ornament Type Management"},
 	{"can create ornament type", "Create ornament types", "Ornament Type Management"},
-	{"can update ornament type", "Update ornament types", "Ornament Type Management"},
-	{"can delete ornament type", "Delete ornament types", "Ornament Type Management"},
 
-	{"can view bank", "View banks (gold re-pledging counterparties)", "Bank Management"},
+	{"can view bank module", "View banks (gold re-pledging counterparties)", "Bank Management"},
 	{"can create bank", "Create banks", "Bank Management"},
 	{"can update bank", "Update banks", "Bank Management"},
 	{"can delete bank", "Delete banks", "Bank Management"},
 
-	{"can view locker", "View lockers", "Locker Management"},
+	{"can view locker module", "View lockers", "Locker Management"},
 	{"can create locker", "Create lockers", "Locker Management"},
 	{"can update locker", "Update lockers", "Locker Management"},
 	{"can delete locker", "Delete lockers", "Locker Management"},
 
-	{"can view packet", "View gold packets", "Packet Management"},
-	{"can create packet", "Create gold packets", "Packet Management"},
-	{"can update packet", "Update gold packets", "Packet Management"},
-	{"can delete packet", "Delete gold packets", "Packet Management"},
+	{"can view packet module", "View gold packets", "Packet Management"},
+	{"can update packet", "Move gold packets", "Packet Management"},
 
-	{"can view reminder", "View reminders", "Reminder Management"},
+	{"can view reminder module", "View reminders", "Reminder Management"},
 	{"can create reminder", "Create reminders", "Reminder Management"},
 	{"can update reminder", "Update reminders", "Reminder Management"},
 	{"can delete reminder", "Delete reminders", "Reminder Management"},
 
-	{"can view report", "View and export management reports", "Report Management"},
+	{"can view report module", "View and export management reports", "Report Management"},
 
 	// Multi-tenancy plan, Step 11 — this business's own record of its
 	// staff's privileged actions (internal/auditlog), distinct from the
 	// superadmin console's cross-business one.
-	{"can view audit log", "View the record of employee and branch changes", "Audit Log"},
+	{"can view audit log module", "View the record of employee and branch changes", "Audit Log"},
 
 	// Multi-tenancy plan, Step 10 — subscribing/renewing this business's own
 	// plan via Razorpay. Administrator-only (see Restrictions below): the
@@ -141,9 +138,9 @@ var Catalogue = []PermissionDef{
 	// something every role should be able to touch.
 	{"can manage billing", "Subscribe to or renew this business's plan, and view billing status", "Billing"},
 
-	{"can view role and permission", "View roles and their permission grants", "Role Management"},
+	{"can view role and permission module", "View roles and their permission grants", "Role Management"},
 	{"can create role", "Create new roles", "Role Management"},
-	{"can update role", "Rename roles and edit their descriptions", "Role Management"},
+	{"can update role", "Rename roles, edit their grants and the approval workflow", "Role Management"},
 	{"can delete role", "Delete roles", "Role Management"},
 
 	// Approval-stage permissions: a deliberate exception to this catalogue's
@@ -159,7 +156,7 @@ var Catalogue = []PermissionDef{
 	// role at all — just the blanket "can update loan". Moving these into
 	// the catalogue lets an admin grant "who may approve at this stage" to
 	// any role, not just an employee whose Role string happens to
-	// literally match one of the 9 fixed ValidRoles names.
+	// literally match one of the 9 seeded role names.
 	//
 	// Split into four separate modules (one per approval chain/workflow)
 	// rather than one combined "Approval Workflow" bucket, so each shows as
@@ -176,6 +173,10 @@ var Catalogue = []PermissionDef{
 	{"can approve release manager stage", "Approve a gold release request at the Manager stage", "Release Approval"},
 	{"can approve release management stage", "Approve a gold release request at the Management stage", "Release Approval"},
 
+	// Seeing auctions at all — the Auctions page, the auction section of a
+	// loan and a customer's auction history. Parent of every other Auction
+	// Workflow permission (dependencies.go).
+	{"can view auction module", "View auction cases, notices, sales and auction history", "Auction Workflow"},
 	{"can decide auction partial repayment", "Decide whether a loan stays in or is removed from auction after a partial repayment", "Auction Workflow"},
 	{"can decide auction shortfall", "Decide whether an auction shortfall is pursued or written off", "Auction Workflow"},
 	{"can mark loan auction eligible", "Mark a defaulted loan eligible for auction", "Auction Workflow"},
@@ -210,8 +211,8 @@ var ApprovalModuleNames = []string{
 }
 
 // StaffRoles is the canonical role list, seeded into the roles table by
-// internal/migrate. Kept IDENTICAL to employee.ValidRoles — see that var's
-// doc comment for the full list of places this must stay mirrored.
+// internal/migrate. Employees may also hold custom roles created on the
+// Roles & Permissions screen.
 var StaffRoles = []string{
 	"Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
 	"Accountant", "Collection Staff", "Auction Administrator", "Auditor",
@@ -237,7 +238,7 @@ var Restrictions = []RoleRestriction{
 	{"can create branch", []string{"Administrator"}},
 	{"can update branch", []string{"Administrator"}},
 	{"can delete branch", []string{"Administrator"}},
-	{"can view report", []string{"Administrator", "Management", "Branch Manager", "Auditor"}},
+	{"can view report module", []string{"Administrator", "Management", "Branch Manager", "Auditor"}},
 
 	// Approval-stage defaults (Loan Sanction / Loan Extension Approval /
 	// Release Approval / Auction Workflow modules) — without these,
@@ -276,7 +277,7 @@ var Restrictions = []RoleRestriction{
 	{"can schedule auction", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
 	{"can record auction sale", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
 	{"can settle auction", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
-	{"can view audit log", []string{"Administrator", "Management", "Auditor"}},
+	{"can view audit log module", []string{"Administrator", "Management", "Auditor"}},
 	{"can manage billing", []string{"Administrator"}},
 
 	// Configurable approval flows (internal/workflow) — each stage defaults
@@ -301,4 +302,82 @@ var CRUDSplitNouns = []string{
 	"branch", "scheme", "gold rate", "purity standard", "employee", "cash",
 	"setting", "customer", "loan", "bank pledge", "upload", "ornament type",
 	"bank", "locker", "packet", "reminder",
+}
+
+// PermissionRenames maps a permission's old name to its current one. Applied
+// in place (the row keeps its id, so every role's grant survives) by
+// Repository.RenamePermissions, which internal/migrate runs BEFORE
+// SeedCatalogue — otherwise the seed would insert the new name as a fresh,
+// default-granted row next to the old one. Old names are never reused.
+var PermissionRenames = map[string]string{
+	"can view branch":              "can view branch module",
+	"can view scheme":              "can view scheme module",
+	"can view gold rate":           "can view gold rate module",
+	"can view purity standard":     "can view purity standard module",
+	"can view employee":            "can view employee module",
+	"can view cash":                "can view cash module",
+	"can view setting":             "can view setting module",
+	"can view customer":            "can view customer module",
+	"can view loan":                "can view loan module",
+	"can view personal loan":       "can view personal loan module",
+	"can view investment":          "can view investment module",
+	"can view bank pledge":         "can view bank pledge module",
+	"can view ornament type":       "can view ornament type module",
+	"can view bank":                "can view bank module",
+	"can view locker":              "can view locker module",
+	"can view packet":              "can view packet module",
+	"can view reminder":            "can view reminder module",
+	"can view report":              "can view report module",
+	"can view audit log":           "can view audit log module",
+	"can view role and permission": "can view role and permission module",
+}
+
+// RemovedPermissions were in the catalogue but nothing checked them — no
+// route, no service call — so ticking them on the Roles screen did nothing.
+// Repository.PurgePermissions deletes them and their grants on boot.
+// "can delete customer" did have a route (a soft delete), but no screen used
+// it; the route went with it and "can hard delete customer" is the only
+// customer delete.
+var RemovedPermissions = []string{
+	"can update gold rate", "can delete gold rate",
+	"can update purity standard", "can delete purity standard",
+	"can update ornament type", "can delete ornament type",
+	"can delete customer",
+	"can delete cash",
+	"can create setting",
+	"can delete personal loan",
+	"can delete investment",
+	"can delete bank pledge",
+	"can view upload", "can update upload", "can delete upload",
+	"can create packet", "can delete packet",
+	// The waiver/adjustment approval flow was retired; its two stage
+	// permissions ("Waiver Approval") left the catalogue with it.
+	"can approve waiver branch manager stage", "can approve waiver management stage",
+}
+
+// GrantCopy seeds a NEW permission's grants from an existing one, per role,
+// so the boot that introduces it changes nobody's access: whoever could do
+// the thing before (under the old permission) still can.
+type GrantCopy struct {
+	To   string
+	From string
+}
+
+// NewPermissionGrantCopies — the first two were previously covered by the
+// cash view permission (the branch ledger and every ledger download read
+// cash data); auction viewing was covered by the loan view permission, and
+// topping up by the loan update permission.
+var NewPermissionGrantCopies = []GrantCopy{
+	{To: "can view branch ledger", From: "can view cash module"},
+	{To: "can export ledger", From: "can view cash module"},
+	{To: "can view auction module", From: "can view loan module"},
+	{To: "can top up loan", From: "can update loan"},
+}
+
+// ResyncedDescriptions are permissions whose description changed alongside
+// the rename/removal above. SeedCatalogue never touches an existing row, so
+// internal/migrate pushes these through RegroupModules once.
+var ResyncedDescriptions = []string{
+	"can update cash", "can delete loan", "can create bank pledge", "can update bank pledge",
+	"can create upload", "can update packet", "can update role",
 }

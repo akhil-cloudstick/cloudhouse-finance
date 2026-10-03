@@ -74,7 +74,7 @@ export function loadErrorText(err: unknown): string | null {
   const status = (err as { status?: unknown }).status;
   if (status === 404) return null;
   if (status === 401 || status === 403) return userMessage(err, "You don't have access to view this.");
-  return "Couldn't load. Pull down to retry.";
+  return "Couldn't load.";
 }
 
 /** Backing out of the system print/share dialog rejects with "Printing did

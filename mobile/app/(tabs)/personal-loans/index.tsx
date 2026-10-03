@@ -593,6 +593,7 @@ function PersonalLoanDetailSheet({
 // Collect Payment (prototype #pl-collect-modal)
 // ---------------------------------------------------------------------------
 function CollectSheet({ loan, onClose }: { loan: PersonalLoan | null; onClose: () => void }) {
+  const canCreateBank = useAuth().can("Bank_Management", "can_create_bank");
   const qc = useQueryClient();
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<(typeof PAYMENT_METHODS)[number]>("Cash");
@@ -658,7 +659,7 @@ function CollectSheet({ loan, onClose }: { loan: PersonalLoan | null; onClose: (
           onClear={() => setBank(null)}
           keyOf={(b) => b.id}
           renderItem={(b) => ({ title: b.name })}
-          onCreateNew={(name) => createBank({ name })}
+          onCreateNew={canCreateBank ? (name) => createBank({ name }) : undefined}
         />
       ) : null}
       <Field label="Reference">

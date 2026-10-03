@@ -191,6 +191,8 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
   const balanceDue = loan.status === "Auctioned - Balance Due";
   const alreadyAuctioned = loan.status === "Auctioned" || balanceDue;
   const actionable = canAct && !frozen;
+  // Each step is also service-checked against its own Auction Workflow permission.
+  const can_ = (k: string) => actionable && can("Auction_Workflow", k);
   const days = loan.daysOverdue ?? 0;
   const isDefaulted = !!loan.isDefaulted;
   const customer = loan.customer?.name ?? "The customer";
@@ -271,7 +273,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
               <DateField label="Notice date" value={noticeDate} onChange={setNoticeDate} max={todayISO()} />
               <DateField label="Response deadline" value={deadline} onChange={setDeadline} min={noticeDate || undefined} clearable />
               {errText(frozen ? null : error)}
-              <PrimaryButton label="Issue Notice & Continue--" onPress={() => notice.mutate()} loading={notice.isPending} disabled={!actionable} />
+              <PrimaryButton label="Issue Notice & Continue--" onPress={() => notice.mutate()} loading={notice.isPending} disabled={!can_("can_issue_auction_notice")} />
             </>
           )}
         </>
@@ -308,7 +310,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
               {errText(frozen ? null : error)}
               <BtnRow2>
                 {backBtn}
-                <PrimaryButton label="Schedule & Continue" onPress={() => schedule.mutate()} loading={schedule.isPending} disabled={!actionable || !auctionDate} />
+                <PrimaryButton label="Schedule & Continue" onPress={() => schedule.mutate()} loading={schedule.isPending} disabled={!can_("can_schedule_auction") || !auctionDate} />
               </BtnRow2>
             </>
           )}
@@ -348,7 +350,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
               {errText(frozen ? null : error)}
               <BtnRow2>
                 {backBtn}
-                <PrimaryButton label="Record Sale & Continue" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!actionable || !(Number(saleAmount) > 0)} />
+                <PrimaryButton label="Record Sale & Continue" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!can_("can_record_auction_sale") || !(Number(saleAmount) > 0)} />
               </BtnRow2>
             </>
           )}
@@ -398,7 +400,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
                 label="Settle & Close Case"
                 onPress={() => settle.mutate()}
                 loading={settle.isPending}
-                disabled={!actionable || (disposition === "RecordedAsIncome" && !dispRemarks.trim())}
+                disabled={!can_("can_settle_auction") || (disposition === "RecordedAsIncome" && !dispRemarks.trim())}
               />
             </BtnRow2>
           </>

@@ -34,6 +34,7 @@ import {
   type StandalonePage,
 } from "@/product/config/routes";
 import { activeBusinessSlug, isValidBusinessSlug, resolveActiveSlug } from "@/product/services/tenantSession";
+import { navigationAllowed } from "@/product/config/routePermissions";
 
 export type ParsedPath = {
   /** The business named by the URL, or null on a bare path. */
@@ -176,7 +177,13 @@ export const ROUTE_CHANGE_EVENT = "cloudhouse:routechange";
  */
 export function navigate(route: string, arg?: string | number, slug?: string | null): void {
   if (typeof window === "undefined") return;
-  window.history.pushState(null, "", routeHref(route, arg, slug));
+  // Every link, button and KPI card lands here (directly or through
+  // AppShell's link interceptor) — refuse a page the role can't open
+  // instead of landing on its NoAccess screen. See config/routePermissions.ts.
+  // Checked on the parsed target, since some callers pass a full href.
+  const href = routeHref(route, arg, slug);
+  if (!navigationAllowed(parsePath(href).route)) return;
+  window.history.pushState(null, "", href);
   window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT));
 }
 

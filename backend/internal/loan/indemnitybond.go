@@ -79,6 +79,28 @@ type BondData struct {
 	// LenderSignature is the business's uploaded lender signature as an inline
 	// <img> (see Service.lenderSignature). Empty prints a blank wet-ink line.
 	LenderSignature template.HTML
+
+	// Disbursements is how PrincipalAmount was advanced: the initial amount
+	// on the opening date, then each later additional amount drawn against
+	// the same pledge, oldest first. Empty when the loan was advanced in one
+	// go, in which case the bond shows only the single total as before.
+	Disbursements []BondDisbursement
+}
+
+// BondDisbursement is one row of the bond's amount distribution — see
+// BondData.Disbursements. Initial marks the opening advance; every other
+// row is an additional amount advanced later.
+type BondDisbursement struct {
+	Date    time.Time
+	Amount  float64
+	Initial bool
+}
+
+// bondDistRow is a BondDisbursement pre-formatted for the templates.
+type bondDistRow struct {
+	Date    string
+	Amount  string
+	Initial bool
 }
 
 // blank is the placeholder used wherever a field on the printed document has
@@ -548,6 +570,10 @@ type bondTemplateData struct {
 	ItemNames   string
 	ItemWeights string
 	AmountWords string
+	// Distribution backs the amount-distribution table every bond template
+	// prints when the loan was advanced in more than one instalment — see
+	// BondData.Disbursements.
+	Distribution []bondDistRow
 }
 
 // BondLangEnglish/BondLangMalayalam/BondLangGujarati are the pledge-agreement
@@ -657,6 +683,13 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		DueDate:            dueDateOrBlank(data.DueDate),
 	}
 	td.CustomerName = orBlank(data.CustomerName)
+	for _, d := range data.Disbursements {
+		td.Distribution = append(td.Distribution, bondDistRow{
+			Date:    d.Date.Format("02/01/2006"),
+			Amount:  fmt.Sprintf("%.0f", d.Amount),
+			Initial: d.Initial,
+		})
+	}
 
 	var sb strings.Builder
 	if err := tmpl.Execute(&sb, td); err != nil {

@@ -19,6 +19,7 @@ import { createBranch, deactivateBranch, listBranchesPage, updateBranch } from "
 import type { Branch } from "../../../src/types/branch";
 import { ApiError } from "../../../src/api/client";
 import { dmy } from "../../../src/lib/format";
+import { useAuth } from "../../../src/auth/AuthContext";
 
 // Branches — not drawn in the prototype; built from its list language
 // (FlatHeader back, SearchInput, server-paged AccRows, FabCorner → form
@@ -103,6 +104,10 @@ export default function BranchesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Branch | null>(null);
   const [deactivating, setDeactivating] = useState<Branch | null>(null);
+  const { can } = useAuth();
+  const canCreate = can("Branch_Management", "can_create_branch");
+  const canUpdate = can("Branch_Management", "can_update_branch");
+  const canDelete = can("Branch_Management", "can_delete_branch");
 
   const list = useServerList<Branch>({ key: ["branches", "list"], fetchPage: (p) => listBranchesPage(p) });
 
@@ -110,13 +115,15 @@ export default function BranchesScreen() {
     <Screen
       header={<FlatHeader title="Branches" subtitle={list.total != null ? `${list.total} branches` : "Branch details"} />}
       floating={
-        <FabCorner
-          label="Add branch"
-          onPress={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-        />
+        canCreate ? (
+          <FabCorner
+            label="Add branch"
+            onPress={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          />
+        ) : undefined
       }
     >
       <ServerFlatList
@@ -138,15 +145,19 @@ export default function BranchesScreen() {
               { k: "Address", v: b.address || "—" },
             ]}
             actions={[
-              ...(b.isActive ? [{ label: "Deactivate", danger: true, onPress: () => setDeactivating(b) }] : []),
-              {
-                label: "Edit Branch",
-                primary: true,
-                onPress: () => {
-                  setEditing(b);
-                  setFormOpen(true);
-                },
-              },
+              ...(b.isActive && canDelete ? [{ label: "Deactivate", danger: true, onPress: () => setDeactivating(b) }] : []),
+              ...(canUpdate
+                ? [
+                    {
+                      label: "Edit Branch",
+                      primary: true,
+                      onPress: () => {
+                        setEditing(b);
+                        setFormOpen(true);
+                      },
+                    },
+                  ]
+                : []),
             ]}
           />
         )}

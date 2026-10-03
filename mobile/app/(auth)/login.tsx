@@ -3,7 +3,7 @@ import { BackHandler, Keyboard, StyleSheet, View } from "react-native";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ApiError } from "../../src/api/client";
 import { getBusinessCode, isValidBusinessCode, normalizeBusinessCode } from "../../src/auth/businessCode";
-import { forgotPassword, resetPassword } from "../../src/api/auth";
+import { forgotPassword, resetPassword, verifyResetCode } from "../../src/api/auth";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import { ThemedText } from "../../src/components/ThemedText";
 import { Icon } from "../../src/components/Icon";
@@ -111,24 +111,30 @@ export default function LoginScreen() {
   }
 
   // ---- Forgot password ------------------------------------------------------
-  // Mirrors frontend/app/forgot-password/page.tsx: the backend never reveals
-  // whether a phone number is registered (see backend/internal/auth/handler.go's
-  // ForgotPassword comment), so this always shows the same generic "sent"
-  // message regardless of the actual result — never surface the request's
-  // error to the user, for the same reason the web version swallows it.
+  // Mirrors frontend/app/(product)/forgot-password/page.tsx: username and
+  // phone must belong to the same employee. The backend answers one "don't
+  // match any account" error for any mismatch (see auth.ErrAccountNotMatched),
+  // which is shown here so a typo can be fixed instead of waiting for a code
+  // that will never arrive.
+  const [resetUsername, setResetUsername] = useState("");
   const [phone, setPhone] = useState("");
   const [sendingCode, setSendingCode] = useState(false);
   const [sent, setSent] = useState(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
 
   async function handleSendCode() {
     Keyboard.dismiss();
+    setForgotError(null);
     setSendingCode(true);
     try {
       const code = await getBusinessCode();
-      await forgotPassword(phone.trim(), code).catch(() => {});
+      await forgotPassword(resetUsername.trim(), phone.trim(), code);
+      setOtp("");
+      setSent(true);
+    } catch (err) {
+      setForgotError(err instanceof ApiError ? err.message : "Could not send code.");
     } finally {
       setSendingCode(false);
-      setSent(true);
     }
   }
 
@@ -146,6 +152,26 @@ export default function LoginScreen() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+
+  // The code is checked before the new-password step, so a mistyped code is
+  // caught here rather than after both passwords have been typed.
+  async function handleVerifyCode() {
+    Keyboard.dismiss();
+    setOtpError(null);
+    setVerifying(true);
+    try {
+      const code = await getBusinessCode();
+      await verifyResetCode(resetUsername.trim(), phone.trim(), otp.trim(), code);
+      setResetError(null);
+      push("reset");
+    } catch (err) {
+      setOtpError(err instanceof ApiError ? err.message || "This code is invalid or has expired." : "Could not reach the server. Check your connection and try again.");
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   async function handleResetPassword() {
     Keyboard.dismiss();
@@ -161,7 +187,7 @@ export default function LoginScreen() {
     setResetting(true);
     try {
       const code = await getBusinessCode();
-      await resetPassword(phone.trim(), otp.trim(), newPassword, code);
+      await resetPassword(resetUsername.trim(), phone.trim(), otp.trim(), newPassword, code);
       // Land back on Login (with the fields it had before) to sign in with
       // the new password — same place the old dismissTo("/login") did.
       setOtp("");
@@ -169,6 +195,7 @@ export default function LoginScreen() {
       setConfirmPassword("");
       setSent(false);
       setPhone("");
+      setResetUsername("");
       goLogin();
     } catch (err) {
       setResetError(err instanceof ApiError ? err.message || "This code is invalid or has expired." : "This code is invalid or has expired.");
@@ -180,16 +207,10 @@ export default function LoginScreen() {
     return (
       <AuthShell eyebrow="Verify" title={"Enter the\ncode."} subtitle={`Enter the 6-digit code sent to ${phone.trim()}.`}>
         <OtpInput value={otp} onChange={setOtp} />
+        <AuthError message={otpError} />
         <View style={styles.spacer} />
         <KeyboardAnchor>
-          <AuthButton
-            title="Continue"
-            onPress={() => {
-              setResetError(null);
-              push("reset");
-            }}
-            disabled={otp.length < 6}
-          />
+          <AuthButton title="Verify code" onPress={handleVerifyCode} disabled={otp.length < 6} loading={verifying} />
         </KeyboardAnchor>
         <AuthLink label="Back to sign in" onPress={goLogin} />
       </AuthShell>
@@ -243,17 +264,23 @@ export default function LoginScreen() {
               <Icon name="check" size={22} color={colors.green} />
             </View>
             <ThemedText variant="body" color={colors.ink} style={styles.sentText}>
-              If{" "}
+              A 6-digit reset code has been sent by SMS to{" "}
               <ThemedText variant="body" color={colors.ink} style={styles.bold}>
                 {phone.trim()}
-              </ThemedText>{" "}
-              is registered, a 6-digit reset code has been sent by SMS.
+              </ThemedText>
+              .
             </ThemedText>
           </View>
           <KeyboardAnchor>
-            <AuthButton title="Enter the code" onPress={() => push("otp")} />
+            <AuthButton
+              title="Enter the code"
+              onPress={() => {
+                setOtpError(null);
+                push("otp");
+              }}
+            />
           </KeyboardAnchor>
-          <AuthLink label="Use a different number" onPress={() => setSent(false)} />
+          <AuthLink label="Use a different account" onPress={() => setSent(false)} />
         </AuthShell>
       );
     }
@@ -262,19 +289,35 @@ export default function LoginScreen() {
       <AuthShell
         eyebrow="Account recovery"
         title={"Forgot your\npassword?"}
-        subtitle="Enter your registered phone number and we'll text you a reset code."
+        subtitle="Enter your username and registered phone number and we'll text you a reset code."
       >
+        <AuthField
+          label="Username"
+          icon="user"
+          placeholder="Enter your username"
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={resetUsername}
+          onChangeText={setResetUsername}
+        />
         <AuthField
           label="Phone number"
           icon="phone"
           placeholder="Enter your phone number"
           keyboardType="phone-pad"
+          maxLength={10}
           value={phone}
-          onChangeText={setPhone}
+          onChangeText={(v) => setPhone(v.replace(/\D/g, ""))}
         />
+        <AuthError message={forgotError} />
         <View style={styles.spacer} />
         <KeyboardAnchor>
-          <AuthButton title="Send reset code" onPress={handleSendCode} disabled={!phone.trim()} loading={sendingCode} />
+          <AuthButton
+            title="Send reset code"
+            onPress={handleSendCode}
+            disabled={!resetUsername.trim() || !phone.trim()}
+            loading={sendingCode}
+          />
         </KeyboardAnchor>
         <AuthLink label="Back to sign in" onPress={pop} />
       </AuthShell>

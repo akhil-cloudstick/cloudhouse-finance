@@ -31,6 +31,7 @@ import {
   openPage,
 } from "../../src/components/ui";
 import { useAuth } from "../../src/auth/AuthContext";
+import { useCanOpen } from "../../src/config/routePermissions";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 import {
   getDashboardSummary,
@@ -66,9 +67,11 @@ export default function DashboardScreen() {
 
   const summary = useQuery({ queryKey: ["dashboard", "summary"], queryFn: getDashboardSummary });
   const rate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate });
+  const canViewReminders = can("Reminder_Management", "can_view_reminder_module");
   const todayReminders = useQuery({
     queryKey: ["reminders", "today-count"],
     queryFn: () => listCalendarEventsPage({ limit: 1, offset: 0, from: todayISO(), to: todayISO() }),
+    enabled: canViewReminders,
   });
   useRefetchOnFocus(summary.refetch, rate.refetch, todayReminders.refetch);
 
@@ -94,9 +97,9 @@ export default function DashboardScreen() {
             { k: "18K / g", v: inr(Math.round(r18)) },
           ]}
           rateChange={changeLabel}
-          onRatePress={shell.openGoldRate}
+          onRatePress={can("Gold_Rate_Management", "can_view_gold_rate_module") ? shell.openGoldRate : undefined}
           onSearch={shell.openSearch}
-          onBell={shell.openReminders}
+          onBell={canViewReminders ? shell.openReminders : undefined}
           bellDot={(todayReminders.data?.total ?? 0) > 0}
           onAvatar={shell.openProfile}
           segments={["Overview", "Activity"]}
@@ -118,7 +121,9 @@ export default function DashboardScreen() {
               {can("Customer_Management", "can_create_customer") ? (
                 <QuickAction icon="user" label={"Register\nCustomer"} tone="cust" onPress={() => openPage("/customers?register=1")} />
               ) : null}
-              <QuickAction icon="card" label={"Collect\nPayment"} tone="pay" onPress={() => setCollectOpen(true)} />
+              {can("Loan_Management", "can_update_loan") ? (
+                <QuickAction icon="card" label={"Collect\nPayment"} tone="pay" onPress={() => setCollectOpen(true)} />
+              ) : null}
             </View>
 
             <SectionTitle>Today</SectionTitle>
@@ -129,7 +134,7 @@ export default function DashboardScreen() {
             ) : (
               <SummaryCard
                 title="Today's summary"
-                onPress={can("Report_Management", "can_view_report") ? () => openPage("/reports") : undefined}
+                onPress={can("Report_Management", "can_view_report_module") ? () => openPage("/reports") : undefined}
                 stats={[
                   { n: String(s?.today.loansIssued ?? 0), l: "Loans issued" },
                   { n: inrShort(s?.today.collections ?? 0), l: "Collections" },
@@ -180,11 +185,23 @@ function NeedsAttention() {
     auctions: `Auctions${first ? ` · ${first.auctionsCount}` : ""}`,
   };
 
+  const canOpen = useCanOpen();
+  // `t` re-applies a deep link that targets an already-open page; only
+  // stamped when actually opening, never while rendering.
+  const targetOf = (it: NeedsAttentionItem, t = ""): string | null => {
+    if (it.kind === "approval" && it.flow === "personal_loan" && it.entityId) return `/personal-loans?id=${it.entityId}&t=${t}`;
+    if (it.kind === "approval" && it.flow === "expense") return `/cash?tab=expenses&t=${t}`;
+    if (it.kind === "request") return `/requests?requestId=${it.requestId}${it.loanId ? `&loanId=${it.loanId}` : ""}`;
+    return it.loanId ? `/loans/${it.loanId}` : null;
+  };
+  // Review / View Loan only when the user can open where it leads.
+  const openable = (it: NeedsAttentionItem) => {
+    const to = targetOf(it);
+    return !!to && canOpen(to);
+  };
   const open = (it: NeedsAttentionItem) => {
-    if (it.kind === "approval" && it.flow === "personal_loan" && it.entityId) return openPage(`/personal-loans?id=${it.entityId}&t=${Date.now()}`);
-    if (it.kind === "approval" && it.flow === "expense") return openPage(`/cash?tab=expenses&t=${Date.now()}`);
-    if (it.kind === "request") openPage(`/requests?requestId=${it.requestId}${it.loanId ? `&loanId=${it.loanId}` : ""}`);
-    else if (it.loanId) openPage(`/loans/${it.loanId}`);
+    const to = targetOf(it, String(Date.now()));
+    if (to) openPage(to);
   };
 
   return (
@@ -228,7 +245,7 @@ function NeedsAttention() {
                         { k: "Outstanding", v: inr(it.outstanding), color: C.red },
                       ]
               }
-              actions={[{ label: it.kind === "auction" ? "View Loan" : "Review", primary: true, onPress: () => open(it) }]}
+              actions={openable(it) ? [{ label: it.kind === "auction" ? "View Loan" : "Review", primary: true, onPress: () => open(it) }] : undefined}
             />
           ))}
           </AccGroup>
@@ -241,6 +258,7 @@ function NeedsAttention() {
 
 // ---- Activity tab ----------------------------------------------------------
 function ActivityFeed() {
+  const canViewLoans = useCanOpen()("/loans");
   const query = useInfiniteQuery({
     queryKey: ["dashboard", "activity"],
     initialPageParam: 0,
@@ -269,7 +287,7 @@ function ActivityFeed() {
                 sub={[a.loanNumber, a.label, dmy(a.date)].filter(Boolean).join(" · ")}
                 amount={`${type.includes("payment") ? "+" : ""}${inr(a.amount)}`}
                 amountColor={color}
-                onPress={a.loanId ? () => openPage(`/loans/${a.loanId}`) : undefined}
+                onPress={a.loanId && canViewLoans ? () => openPage(`/loans/${a.loanId}`) : undefined}
               />
             );
           })

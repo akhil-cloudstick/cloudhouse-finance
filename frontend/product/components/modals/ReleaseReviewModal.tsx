@@ -12,7 +12,8 @@ import { ApiError } from "@/product/services/httpClient";
 import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import { canActAtStage, chainFor, flowOf, isFlowOff, stageByPending, trackerLabels } from "@/product/services/approvalWorkflowService";
 import { StageTracker } from "@/product/components/ui/StageTracker";
-import { appPath } from "@/product/services/tenantSession";
+import { routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
 // no-buffer check ApproveReleaseRequest re-runs at Manager/Management
@@ -40,6 +41,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   // toggles stay locked and the approve/reject pair never renders (see
   // Requests.tsx, which labels the row button View in that case).
   const { can, role, isAdmin } = useAuth();
+  const canOpen = useCanOpenRoute();
   const canDecide = can("Loan_Management", "can_update_loan");
   // Checklist verification and the two Manager/Management approval stages
   // each need their own "Release Approval" permission on top of the
@@ -248,10 +250,18 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
             <p className="notice" style={{ marginTop: 8, color: "var(--red)" }}>
               <Icon name="shield" />{" "}
               This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
+              {/* Real route links (the old "#bankpledge/…" hash form opened the
+                * dashboard), and plain text for a role that can't open them. */}
               {loan.bankPledgeStatus === "Bank Pledged" ? (
-                <a href={appPath(undefined, "#bankpledge/" + loan.id)} onClick={closeModal}>Bank &amp; Gold Re-Pledge</a>
+                canOpen("bankpledge") ? (
+                  <a href={routeHref(`bankpledge/${loan.id}`)} onClick={closeModal}>Bank &amp; Gold Re-Pledge</a>
+                ) : (
+                  "Bank & Gold Re-Pledge"
+                )
+              ) : canOpen("packet") && packet?.code ? (
+                <a href={routeHref(`packet/${packet.code}`)} onClick={closeModal}>Packet {packet.code}</a>
               ) : (
-                <a href={appPath(undefined, "#packet/" + packet?.code)} onClick={closeModal}>Packet {packet?.code}</a>
+                `Packet ${packet?.code ?? ""}`
               )}
               {" "}first.
             </p>

@@ -119,20 +119,20 @@ export function MovementRow({
       statusTone={m.type === "in" ? "active" : "due"}
       details={[
         { k: "Date", v: dmy(m.occurredOn) },
-        { k: "Ref No", v: ref.startsWith("LN-") ? <LedgerLink label={ref} onPress={() => openLoanByNumber(ref)} /> : ref },
+        { k: "Ref No", v: ref.startsWith("LN-") ? <LedgerLink label={ref} to="/loans" onPress={() => openLoanByNumber(ref)} /> : ref },
         { k: "Mode", v: modeLink(m.mode) },
         { k: "Debit", v: m.type === "out" ? inr(m.amount) : "—" },
         { k: "Credit", v: m.type === "in" ? inr(m.amount) : "—" },
         { k: "Balance", v: inr(balance) },
         m.bankId
-          ? { k: "Bank", v: <LedgerLink label={bankName} onPress={() => openLedger("bank", m.bankId!, bankName)} /> }
+          ? { k: "Bank", v: <LedgerLink label={bankName} to="/cash" onPress={() => openLedger("bank", m.bankId!, bankName)} /> }
           : m.bank
             ? { k: "Bank", v: m.bank }
             : { k: "Branch", v: m.branch?.name || "—" },
         ...(m.partyCustomerId
-          ? [{ k: "Customer", v: <LedgerLink label={m.partyCustomer?.name || "Customer"} onPress={() => openLedger("customer", m.partyCustomerId!, m.partyCustomer?.name || "Customer")} /> }]
+          ? [{ k: "Customer", v: <LedgerLink label={m.partyCustomer?.name || "Customer"} to="/cash" onPress={() => openLedger("customer", m.partyCustomerId!, m.partyCustomer?.name || "Customer")} /> }]
           : []),
-        ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
+        ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
         ...(m.status ? [{ k: "Status", v: m.status }] : []),
       ]}
     />

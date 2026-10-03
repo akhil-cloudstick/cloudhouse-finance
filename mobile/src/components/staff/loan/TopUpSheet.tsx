@@ -141,6 +141,9 @@ export function TopUpSheet({
       <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={(v) => setReference(v.slice(0, 80))} />
       {shortfall && onAddOrnaments ? <AccBtn label="Add ornaments to raise the eligible amount" onPress={onAddOrnaments} style={{ marginBottom: 12 }} /> : null}
       {needsPayment && onRecordPayment ? <AccBtn label="Record Payment to clear the arrears" onPress={onRecordPayment} style={{ marginBottom: 12 }} /> : null}
+      {needsPayment && !onRecordPayment ? (
+        <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>Ask someone who can record loan payments to clear the arrears first.</Txt>
+      ) : null}
       <ErrorText>{error}</ErrorText>
       <PrimaryButton
         label={needsApproval ? "Submit for Approval" : "Top Up"}

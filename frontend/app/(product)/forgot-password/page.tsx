@@ -16,6 +16,7 @@ import {
 function ForgotPasswordInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [username, setUsername] = useState("");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,38 +45,39 @@ function ForgotPasswordInner() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const user = username.trim();
     const trimmed = phone.trim();
+    if (!user) {
+      setError("Please enter your username.");
+      return;
+    }
     if (!trimmed) {
       setError("Please enter your phone number.");
       return;
     }
     setSubmitting(true);
     try {
-      await forgotPassword(trimmed, businessCode);
-      router.push(resetHref(trimmed, "sent"));
+      await forgotPassword(user, trimmed, businessCode);
+      router.push(resetHref(user, trimmed));
     } catch (err) {
-      // A number that isn't registered (404) or belongs to an employee with
-      // no login (403) stays here so it can be corrected; any other failure
-      // means the code didn't go out, which the code entry page reports
-      // with a "Try again" option.
-      if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
-        setError(
-          err.message ||
-            (err.status === 404
-              ? "This phone number is not registered."
-              : "This number has no login account."),
-        );
-        setSubmitting(false);
-        return;
-      }
-      router.push(resetHref(trimmed, "failed"));
+      // Only a code that actually went out moves on to the code page. A
+      // username + number that don't match an account (404), an employee with
+      // no login (403), or a failed send all stay here, so the user can fix
+      // the details or retry without landing on a page waiting for a code
+      // that was never sent.
+      setError(
+        err instanceof ApiError && err.message
+          ? err.message
+          : "Could not send the code. Check your connection and try again.",
+      );
+      setSubmitting(false);
     }
   }
 
   /* The onward link keeps the business, or the reset step would have to ask
    * for a code the employee was never given. */
-  function resetHref(number: string, status: "sent" | "failed") {
-    const params = new URLSearchParams({ phone: number, sent: status });
+  function resetHref(user: string, number: string) {
+    const params = new URLSearchParams({ u: user, phone: number });
     if (businessCode) params.set("b", businessCode);
     return `/reset-password?${params.toString()}`;
   }
@@ -92,15 +94,17 @@ function ForgotPasswordInner() {
           <form noValidate onSubmit={handleSubmit}>
             <div className="field">
               <input
-                type="tel"
-                id="phone"
+                type="text"
+                id="username"
                 placeholder=" "
-                autoComplete="tel"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
                 required
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
               />
-              <label htmlFor="phone">Phone number</label>
+              <label htmlFor="username">Username</label>
               <span className="icon" aria-hidden="true">
                 <svg
                   viewBox="0 0 24 24"
@@ -110,6 +114,32 @@ function ForgotPasswordInner() {
                 >
                   <circle cx="12" cy="8" r="4" />
                   <path d="M4 20c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" />
+                </svg>
+              </span>
+              <span className="bar"></span>
+            </div>
+
+            <div className="field">
+              <input
+                type="tel"
+                id="phone"
+                placeholder=" "
+                autoComplete="tel"
+                inputMode="numeric"
+                maxLength={10}
+                required
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+              />
+              <label htmlFor="phone">Phone number</label>
+              <span className="icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                >
+                  <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1Z" />
                 </svg>
               </span>
               <span className="bar"></span>

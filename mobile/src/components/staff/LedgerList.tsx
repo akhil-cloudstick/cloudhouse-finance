@@ -8,6 +8,8 @@ import { listLoansPage } from "../../api/loans";
 import { dmy, inr } from "../../lib/format";
 import { isUserCancel, userMessage } from "../../api/errors";
 import { shareLedgerPdf } from "../../utils/ledgerExport";
+import { useAuth } from "../../auth/AuthContext";
+import { useCanOpen } from "../../config/routePermissions";
 
 // Mobile counterpart of the web ledger drill-downs (PartyLedger.tsx,
 // ModeLedgerPage.tsx): every bank / customer / payment mode / expense
@@ -59,8 +61,11 @@ export function useExpenseCategoryIds(): Record<string, number> {
   return q.data ?? {};
 }
 
-/** Tappable ledger-link text for an AccRow detail value. */
-export function LedgerLink({ label, onPress }: { label: string; onPress: () => void }) {
+/** An in-row hyperlink. `to` is the page it opens ("/cash", "/loans"): when
+ * the user can't open that page it renders as plain text. */
+export function LedgerLink({ label, onPress, to }: { label: string; onPress: () => void; to: string }) {
+  const canOpen = useCanOpen();
+  if (!canOpen(to)) return <Txt style={{ fontSize: 13, fontWeight: "600" }}>{label}</Txt>;
   return (
     <Txt onPress={onPress} style={{ fontSize: 13, fontWeight: "600", color: C.brandDeep, textDecorationLine: "underline" }}>
       {label}
@@ -68,7 +73,7 @@ export function LedgerLink({ label, onPress }: { label: string; onPress: () => v
   );
 }
 
-export const modeLink = (mode?: string) => (isMode(mode) ? <LedgerLink label={mode} onPress={() => openLedger("mode", mode, `${mode} Ledger`)} /> : mode || "—");
+export const modeLink = (mode?: string) => (isMode(mode) ? <LedgerLink label={mode} to="/cash" onPress={() => openLedger("mode", mode, `${mode} Ledger`)} /> : mode || "—");
 
 export const loanRefOf = (text?: string) => (text ? text.match(/^LN-\d+/i)?.[0] || text.match(/—\s*(LN-\S+)\s*$/i)?.[1] || null : null);
 
@@ -83,11 +88,11 @@ function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds }: { r: LedgerRo
 
   const details: AccDetail[] = [
     { k: "Date", v: dmy(r.date) },
-    { k: "Ref No", v: loanRef ? <LedgerLink label={r.reference || loanRef} onPress={() => openLoanByNumber(loanRef)} /> : r.reference || "—" },
+    { k: "Ref No", v: loanRef ? <LedgerLink label={r.reference || loanRef} to="/loans" onPress={() => openLoanByNumber(loanRef)} /> : r.reference || "—" },
     { k: "Mode", v: sameMode ? r.method : modeLink(r.method) },
-    ...(r.bankId && !sameBank ? [{ k: "Bank", v: <LedgerLink label={r.bankName || "Bank"} onPress={() => openLedger("bank", r.bankId!, r.bankName || "Bank")} /> }] : []),
-    ...(r.customerId && !sameCustomer ? [{ k: "Customer", v: <LedgerLink label={r.customerName || "Customer"} onPress={() => openLedger("customer", r.customerId!, r.customerName || "Customer")} /> }] : []),
-    ...(categoryId && kind !== "category" ? [{ k: "Category", v: <LedgerLink label={category!} onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
+    ...(r.bankId && !sameBank ? [{ k: "Bank", v: <LedgerLink label={r.bankName || "Bank"} to="/cash" onPress={() => openLedger("bank", r.bankId!, r.bankName || "Bank")} /> }] : []),
+    ...(r.customerId && !sameCustomer ? [{ k: "Customer", v: <LedgerLink label={r.customerName || "Customer"} to="/cash" onPress={() => openLedger("customer", r.customerId!, r.customerName || "Customer")} /> }] : []),
+    ...(categoryId && kind !== "category" ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
     { k: "Debit", v: isDebit ? inr(r.amount) : "—", color: isDebit ? C.red : C.muted },
     { k: "Credit", v: isDebit ? "—" : inr(r.amount), color: isDebit ? C.muted : C.green },
     { k: "Balance", v: inr(r.runningBalance), color: C.brandDeep },
@@ -114,6 +119,7 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: { kind: Led
   const [fromDate, setFromDate] = useState<string | undefined>();
   const [toDate, setToDate] = useState<string | undefined>();
   const categoryIds = useExpenseCategoryIds();
+  const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
   // Server-side sums over every row matching the date filter, not just the
   // pages loaded so far.
   const [totals, setTotals] = useState<{ debit: number; credit: number } | null>(null);
@@ -180,7 +186,7 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: { kind: Led
         Rendered here (not via Screen's `floating`) so every screen hosting
         this list gets it; the list's body view ends where the screen does,
         so it lands in the same spot. */}
-    {list.items.length > 0 ? <FabCorner icon="download" label="Download ledger PDF" onPress={onDownload} /> : null}
+    {list.items.length > 0 && canExport ? <FabCorner icon="download" label="Download ledger PDF" onPress={onDownload} /> : null}
     </>
   );
 }

@@ -49,6 +49,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: { packetId: number; o
   const { employee, can } = useAuth();
   const canMove = can("Packet_Management", "can_update_packet");
   const canBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  const canViewLoans = can("Loan_Management", "can_view_loan_module");
   const key = String(packetId);
 
   const packet = useQuery({ queryKey: ["packet", key], queryFn: () => getPacket(packetId), enabled: packetId > 0 });
@@ -242,7 +243,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: { packetId: number; o
           <Txt style={{ fontSize: 12, color: C.muted, paddingVertical: 10 }}>No movements yet.</Txt>
         )}
       </Card>
-      <PrimaryButton label="View Loan" variant="outline" onPress={() => onOpenLoan(p.loanId)} />
+      {canViewLoans ? <PrimaryButton label="View Loan" variant="outline" onPress={() => onOpenLoan(p.loanId)} /> : null}
 
       <Sheet visible={checkInOpen} onClose={() => setCheckInOpen(false)} title="Check In to Locker" maxHeightPct={75}>
         {branchId == null ? <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 10 }}>This loan has no branch.</Txt> : null}

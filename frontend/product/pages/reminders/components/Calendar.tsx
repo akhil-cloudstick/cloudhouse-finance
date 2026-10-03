@@ -9,6 +9,7 @@ import { completeReminder, deleteReminder, getCalendarEvents, type CalendarEvent
 import { useAuth } from "@/product/providers/auth-context";
 import { useIsSmallScreen } from "@/product/utils/responsive";
 import { routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -53,6 +54,7 @@ export function Calendar() {
   // Adding, completing and deleting reminders each need their own grant;
   // the calendar itself stays readable either way (see Customers.tsx).
   const { can } = useAuth();
+  const canOpen = useCanOpenRoute();
   const smallScreen = useIsSmallScreen();
   const canCreateReminders = can("Reminder_Management", "can_create_reminder");
   const canUpdateReminders = can("Reminder_Management", "can_update_reminder");
@@ -242,9 +244,9 @@ export function Calendar() {
                         {canDeleteReminders && <button className="btn sm ghost" onClick={() => onDelete(e.reminderId!)}>Delete</button>}
                       </span>
                     )}
-                    {e.personalLoanId != null ? (
+                    {e.personalLoanId != null && canOpen("personalloan") ? (
                       <span className="rt"><a className="btn sm ghost" href={routeHref(`personalloan/${e.personalLoanId}`)}>Open loan</a></span>
-                    ) : e.loanNumber ? (
+                    ) : e.loanNumber && canOpen("loan") ? (
                       <span className="rt"><a className="btn sm ghost" href={routeHref(`loan/${e.loanNumber}`)}>Open loan</a></span>
                     ) : null}
                   </li>

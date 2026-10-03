@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -55,8 +56,9 @@ func (r *Repository) SeedRoles(ctx context.Context, names []string) error {
 // doesn't already exist by name. Never overwrites an existing row's
 // description/module, only the description text may change in a later
 // catalogue edit — see the standard's renaming rules (a name is never
-// reused for a different permission).
-func (r *Repository) SeedCatalogue(ctx context.Context, defs []PermissionDef) error {
+// reused for a different permission). Returns the names it inserted, so the
+// caller can apply first-time-only defaults (Restrictions) to just those.
+func (r *Repository) SeedCatalogue(ctx context.Context, defs []PermissionDef) (inserted []string, err error) {
 	quietDB := r.db.WithContext(ctx).Session(&gorm.Session{Logger: r.db.WithContext(ctx).Logger.LogMode(logger.Silent)})
 	for _, def := range defs {
 		var existing Permission
@@ -65,14 +67,193 @@ func (r *Repository) SeedCatalogue(ctx context.Context, defs []PermissionDef) er
 			continue
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
+			return inserted, err
 		}
 		p := Permission{Name: def.Name, Description: def.Description, ModuleName: def.ModuleName, IsActive: true}
 		if err := r.db.WithContext(ctx).Create(&p).Error; err != nil {
-			return err
+			return inserted, err
+		}
+		inserted = append(inserted, def.Name)
+	}
+	return inserted, nil
+}
+
+// RenamePermissions renames permissions in place (old -> new), keeping each
+// row's id so every role_permissions grant follows it. Must run BEFORE
+// SeedCatalogue, or the seed inserts the new name as a fresh row. Skips a
+// pair whose new name already exists (already renamed). Idempotent.
+func (r *Repository) RenamePermissions(ctx context.Context, renames map[string]string) (renamed int, err error) {
+	for oldName, newName := range renames {
+		res := r.db.WithContext(ctx).Exec(
+			`UPDATE permissions SET name = ? WHERE name = ? AND NOT EXISTS (SELECT 1 FROM permissions WHERE name = ?)`,
+			newName, oldName, newName)
+		if res.Error != nil {
+			return renamed, res.Error
+		}
+		renamed += int(res.RowsAffected)
+	}
+	if renamed > 0 {
+		log.Printf("authz: renamed %d permission(s)", renamed)
+	}
+	return renamed, nil
+}
+
+// CopyGrants gives every role a row for permission `to`, copied from that
+// role's grant of `from` (false where it has none). Only fills missing rows,
+// so it is idempotent and never overrides a later admin edit. Must run
+// BEFORE BackfillGrants, which would otherwise default every missing row to
+// true.
+func (r *Repository) CopyGrants(ctx context.Context, to, from string) (inserted int, err error) {
+	var toPerm, fromPerm Permission
+	if err := r.db.WithContext(ctx).Where("name = ?", to).First(&toPerm).Error; err != nil {
+		return 0, err
+	}
+	if err := r.db.WithContext(ctx).Where("name = ?", from).First(&fromPerm).Error; err != nil {
+		return 0, err
+	}
+	var roles []Role
+	if err := r.db.WithContext(ctx).Find(&roles).Error; err != nil {
+		return 0, err
+	}
+	var rows []RolePermission
+	if err := r.db.WithContext(ctx).Where("permission_id IN ?", []uint{toPerm.ID, fromPerm.ID}).Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	has := map[uint]bool{}
+	source := map[uint]bool{}
+	for _, rp := range rows {
+		if rp.PermissionID == toPerm.ID {
+			has[rp.RoleID] = true
+		} else {
+			source[rp.RoleID] = rp.Permission
 		}
 	}
-	return nil
+	for _, role := range roles {
+		if has[role.ID] {
+			continue
+		}
+		if err := createGrant(r.db.WithContext(ctx), role, toPerm.ID, source[role.ID]); err != nil {
+			return inserted, err
+		}
+		inserted++
+	}
+	return inserted, nil
+}
+
+// PurgePermissions deletes the named permissions and every grant of them.
+// Idempotent: names already gone are skipped.
+func (r *Repository) PurgePermissions(ctx context.Context, names []string) (deleted int, err error) {
+	return deleted, r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var perms []Permission
+		if err := tx.Where("name IN ?", names).Find(&perms).Error; err != nil {
+			return err
+		}
+		if len(perms) == 0 {
+			return nil
+		}
+		ids := make([]uint, 0, len(perms))
+		for _, p := range perms {
+			ids = append(ids, p.ID)
+		}
+		if err := tx.Where("permission_id IN ?", ids).Delete(&RolePermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id IN ?", ids).Delete(&Permission{}).Error; err != nil {
+			return err
+		}
+		deleted = len(ids)
+		log.Printf("authz: purged %d unused permission(s)", deleted)
+		return nil
+	})
+}
+
+// GrantAllToSystemRoles gives every IsSystem role (the Administrator of every
+// business) every permission in the catalogue — creating missing rows and
+// flipping any false ones. Run on boot after every other grant step, so a new
+// permission, a restriction or the dependency repair can never leave an
+// Administrator short. Idempotent.
+func (r *Repository) GrantAllToSystemRoles(ctx context.Context) (changed int, err error) {
+	var roles []Role
+	if err := r.db.WithContext(ctx).Where("is_system = ?", true).Find(&roles).Error; err != nil {
+		return 0, err
+	}
+	var perms []Permission
+	if err := r.db.WithContext(ctx).Find(&perms).Error; err != nil {
+		return 0, err
+	}
+	for _, role := range roles {
+		var rows []RolePermission
+		if err := r.db.WithContext(ctx).Where("role_id = ?", role.ID).Find(&rows).Error; err != nil {
+			return changed, err
+		}
+		have := make(map[uint]RolePermission, len(rows))
+		for _, rp := range rows {
+			have[rp.PermissionID] = rp
+		}
+		for _, p := range perms {
+			rp, ok := have[p.ID]
+			if ok && rp.Permission {
+				continue
+			}
+			if ok {
+				if err := r.db.WithContext(ctx).Model(&RolePermission{}).Where("id = ?", rp.ID).Update("permission", true).Error; err != nil {
+					return changed, err
+				}
+			} else if err := createGrant(r.db.WithContext(ctx), role, p.ID, true); err != nil {
+				return changed, err
+			}
+			changed++
+		}
+	}
+	if changed > 0 {
+		log.Printf("authz: granted %d missing permission(s) to system roles", changed)
+	}
+	return changed, nil
+}
+
+// EnforceDependencies revokes, for every role, each granted permission whose
+// parents (see dependencies.go) are not all granted — a child that cannot
+// work without them. Run on boot after every other grant step, so a database
+// from before the hierarchy existed starts consistent. Never grants.
+func (r *Repository) EnforceDependencies(ctx context.Context) (revoked int, err error) {
+	var perms []Permission
+	if err := r.db.WithContext(ctx).Find(&perms).Error; err != nil {
+		return 0, err
+	}
+	nameByID := make(map[uint]string, len(perms))
+	for _, p := range perms {
+		nameByID[p.ID] = p.Name
+	}
+	var rows []RolePermission
+	if err := r.db.WithContext(ctx).Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	granted := map[uint]map[string]bool{}
+	for _, rp := range rows {
+		if granted[rp.RoleID] == nil {
+			granted[rp.RoleID] = map[string]bool{}
+		}
+		granted[rp.RoleID][nameByID[rp.PermissionID]] = rp.Permission
+	}
+	for _, rp := range rows {
+		if !rp.Permission {
+			continue
+		}
+		state := granted[rp.RoleID]
+		for _, p := range AllParents(nameByID[rp.PermissionID]) {
+			if !state[p] {
+				if err := r.db.WithContext(ctx).Model(&RolePermission{}).Where("id = ?", rp.ID).Update("permission", false).Error; err != nil {
+					return revoked, err
+				}
+				revoked++
+				break
+			}
+		}
+	}
+	if revoked > 0 {
+		log.Printf("authz: revoked %d grant(s) whose parent permission was off", revoked)
+	}
+	return revoked, nil
 }
 
 // RegroupModules resyncs an EXPLICIT, narrow list of permission names'
@@ -300,13 +481,11 @@ func (r *Repository) PurgeLegacyChangePermissions(ctx context.Context) (deleted 
 	})
 }
 
-// ApplyRestrictions re-applies every RoleRestriction: AllowedRoles get
-// Permission=true, every other seeded role gets Permission=false. Runs after
-// BackfillGrants on every boot, so it always reflects the current
-// Restrictions list even if an administrator's manual edit had drifted from
-// it (this is the one place authz still enforces a hardcoded default — every
-// other role change goes through UpdateRolePermissions and is never
-// re-applied at startup).
+// ApplyRestrictions applies every given RoleRestriction: AllowedRoles get
+// Permission=true, every other seeded role gets Permission=false.
+// internal/migrate passes only the restrictions on permissions it seeded in
+// this boot, so these are first-time defaults: an administrator's later edit
+// on the Roles screen is never reverted by a restart.
 func (r *Repository) ApplyRestrictions(ctx context.Context, restrictions []RoleRestriction) error {
 	var roles []Role
 	if err := r.db.WithContext(ctx).Find(&roles).Error; err != nil {
@@ -439,19 +618,86 @@ func underscored(s string) string {
 
 // --- admin matrix (GET/PATCH .../permissions) ------------------------------
 
-// RolePermissionRow is one row of the admin matrix response (§7.2).
+// RolePermissionRow is one row of the admin matrix response (§7.2), plus the
+// permission hierarchy the Roles screen needs to grey out a child whose
+// parent is off and to cascade a parent's revocation. Parents and
+// Dependents are resolved against the role's FULL grant set, so they are
+// right even when a search hides the related rows.
 type RolePermissionRow struct {
-	ID           uint       `json:"id"`
-	RoleID       uint       `json:"role_id"`
-	PermissionID uint       `json:"permission_id"`
-	Permission   bool       `json:"permission"`
-	Permissions  Permission `json:"permissions"`
+	ID           uint            `json:"id"`
+	RoleID       uint            `json:"role_id"`
+	PermissionID uint            `json:"permission_id"`
+	Permission   bool            `json:"permission"`
+	Permissions  Permission      `json:"permissions"`
+	Parents      []PermissionRef `json:"parents"`
+	SoftParents  []PermissionRef `json:"soft_parents"`
+	Dependents   []PermissionRef `json:"dependents"`
+}
+
+// PermissionRef names a related permission and whether this role holds it.
+type PermissionRef struct {
+	PermissionID uint   `json:"permission_id"`
+	Name         string `json:"name"`
+	Label        string `json:"label"`
+	Granted      bool   `json:"granted"`
+}
+
+// ParentDisabledError refuses a grant whose parent permission is off.
+type ParentDisabledError struct {
+	Parent string
+	Child  string
+}
+
+func (e *ParentDisabledError) Error() string {
+	return fmt.Sprintf("%s is disabled, cannot enable %s", PermissionLabel(e.Parent), strings.TrimPrefix(e.Child, "can "))
+}
+
+// roleGrantState loads every permission and roleID's grant of each (false
+// when the role has no row).
+func roleGrantState(db *gorm.DB, roleID uint) (perms []Permission, granted map[string]bool, err error) {
+	if err := db.Order("id asc").Find(&perms).Error; err != nil {
+		return nil, nil, err
+	}
+	var rows []RolePermission
+	if err := db.Where("role_id = ?", roleID).Find(&rows).Error; err != nil {
+		return nil, nil, err
+	}
+	nameByID := make(map[uint]string, len(perms))
+	for _, p := range perms {
+		nameByID[p.ID] = p.Name
+	}
+	granted = make(map[string]bool, len(rows))
+	for _, rp := range rows {
+		granted[nameByID[rp.PermissionID]] = rp.Permission
+	}
+	return perms, granted, nil
+}
+
+func permissionRefs(names []string, idByName map[string]uint, granted map[string]bool) []PermissionRef {
+	refs := make([]PermissionRef, 0, len(names))
+	for _, n := range names {
+		id, ok := idByName[n]
+		if !ok {
+			continue
+		}
+		refs = append(refs, PermissionRef{PermissionID: id, Name: n, Label: PermissionLabel(n), Granted: granted[n]})
+	}
+	return refs
 }
 
 // AdminMatrix returns every permission grouped by module for roleID, in the
 // display shape the standard's §7.2 specifies, optionally filtered by a
 // case-insensitive substring match against the permission name.
 func (r *Repository) AdminMatrix(ctx context.Context, roleID uint, search string) (map[string][]RolePermissionRow, error) {
+	allPerms, granted, err := roleGrantState(r.db.WithContext(ctx), roleID)
+	if err != nil {
+		return nil, err
+	}
+	idByName := make(map[string]uint, len(allPerms))
+	for _, p := range allPerms {
+		idByName[p.Name] = p.ID
+	}
+
 	q := r.db.WithContext(ctx).Table("role_permissions AS rp").
 		Select("rp.id, rp.role_id, rp.permission_id, rp.permission, p.id AS p_id, p.name AS p_name, p.description AS p_description, p.module_name AS p_module_name, p.is_active AS p_is_active").
 		Joins("JOIN permissions p ON p.id = rp.permission_id").
@@ -480,6 +726,9 @@ func (r *Repository) AdminMatrix(ctx context.Context, roleID uint, search string
 		out[row.PModuleName] = append(out[row.PModuleName], RolePermissionRow{
 			ID: row.ID, RoleID: row.RoleID, PermissionID: row.PermissionID, Permission: row.Permission,
 			Permissions: Permission{ID: row.PID, Name: row.PName, Description: row.PDescription, ModuleName: row.PModuleName, IsActive: row.PIsActive},
+			Parents:     permissionRefs(Parents(row.PName), idByName, granted),
+			SoftParents: permissionRefs(SoftParents(row.PName), idByName, granted),
+			Dependents:  permissionRefs(Dependents(row.PName), idByName, granted),
 		})
 	}
 	return out, nil
@@ -495,25 +744,72 @@ type RolePermissionUpdate struct {
 // UpdateRolePermissions applies every update in one transaction — either all
 // apply or none do (§7.3). Creates the role_permissions row on demand if a
 // role predates a permission and has no row for it yet (§4.2).
+//
+// The permission hierarchy (dependencies.go) is enforced on the resulting
+// state: revoking a permission also revokes everything below it, and a grant
+// whose parent ends up off is refused with *ParentDisabledError.
 func (r *Repository) UpdateRolePermissions(ctx context.Context, roleID uint, updates []RolePermissionUpdate) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var role Role
 		if err := tx.First(&role, roleID).Error; err != nil {
 			return err
 		}
+		perms, before, err := roleGrantState(tx, roleID)
+		if err != nil {
+			return err
+		}
+		nameByID := make(map[uint]string, len(perms))
+		idByName := make(map[string]uint, len(perms))
+		for _, p := range perms {
+			nameByID[p.ID] = p.Name
+			idByName[p.Name] = p.ID
+		}
+
+		after := make(map[string]bool, len(before))
+		for n, v := range before {
+			after[n] = v
+		}
 		for _, u := range updates {
-			var perm Permission
-			if err := tx.First(&perm, u.PermissionID).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return errPermissionNotFoundInCatalogue
+			name, ok := nameByID[u.PermissionID]
+			if !ok {
+				return errPermissionNotFoundInCatalogue
+			}
+			after[name] = u.Permission
+		}
+		for _, u := range updates {
+			if u.Permission {
+				continue
+			}
+			for _, d := range Dependents(nameByID[u.PermissionID]) {
+				after[d] = false
+			}
+		}
+		for _, p := range perms {
+			if !after[p.Name] {
+				continue
+			}
+			for _, parent := range Parents(p.Name) {
+				if !after[parent] {
+					return &ParentDisabledError{Parent: parent, Child: p.Name}
 				}
-				return err
+			}
+		}
+
+		touched := map[string]bool{}
+		for _, u := range updates {
+			touched[nameByID[u.PermissionID]] = true
+		}
+		for _, p := range perms {
+			if after[p.Name] == before[p.Name] && !touched[p.Name] {
+				continue
 			}
 			var existing RolePermission
-			err := tx.Where("role_id = ? AND permission_id = ?", roleID, u.PermissionID).First(&existing).Error
+			err := tx.Where("role_id = ? AND permission_id = ?", roleID, p.ID).First(&existing).Error
 			if err == nil {
-				existing.Permission = u.Permission
-				if err := tx.Save(&existing).Error; err != nil {
+				if existing.Permission == after[p.Name] {
+					continue
+				}
+				if err := tx.Model(&RolePermission{}).Where("id = ?", existing.ID).Update("permission", after[p.Name]).Error; err != nil {
 					return err
 				}
 				continue
@@ -521,12 +817,22 @@ func (r *Repository) UpdateRolePermissions(ctx context.Context, roleID uint, upd
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
-			if err := createGrant(tx, role, u.PermissionID, u.Permission); err != nil {
+			if err := createGrant(tx, role, p.ID, after[p.Name]); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// IsParentDisabled reports whether err refused a grant whose parent is off,
+// returning the user-facing message.
+func IsParentDisabled(err error) (string, bool) {
+	var pe *ParentDisabledError
+	if errors.As(err, &pe) {
+		return pe.Error(), true
+	}
+	return "", false
 }
 
 var errPermissionNotFoundInCatalogue = errors.New("permission not found")

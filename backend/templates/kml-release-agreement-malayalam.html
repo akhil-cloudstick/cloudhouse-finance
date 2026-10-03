@@ -1,12 +1,12 @@
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>FORM 7 — Release — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
-<h1>FORM 7</h1>
+<!DOCTYPE html><html lang="ml"><head><meta charset="UTF-8"><title>ഫോറം 7 — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>ഫോറം 7</h1>
 <table class="hd-table">
   <tr>
     <td style="width:65%">
       <b style="font-size:15px">{{.LenderName}}</b><br>
       {{.LenderAddress}}<br>
-      PHONE: {{.LenderPhone}} &nbsp; EMAIL: {{.LenderEmail}}<br>
-      KML Reg No: {{.LenderKMLRegNo}}
+      ഫോൺ: {{.LenderPhone}} &nbsp; ഇമെയിൽ: {{.LenderEmail}}<br>
+      കെ.എം.എൽ. രജിസ്റ്റർ നമ്പർ: {{.LenderKMLRegNo}}
     </td>
     <td style="text-align:right">
       <b>സ്വർണ്ണ വായ്പ</b><br>
@@ -29,11 +29,11 @@
 <p>({{.AmountWordsLine}})</p>
 
 <table>
-  <thead><tr><th>ഇനത്തിന്റെ പേര്</th><th class="num">എണ്ണം</th><th>ലോഹം</th><th class="num">GSWT</th><th class="num">NTWT</th><th class="num">FNWT</th><th class="num">വിലയിരുത്തൽ</th></tr></thead>
+  <thead><tr><th>ഇനത്തിന്റെ പേര്</th><th class="num">എണ്ണം</th><th>ലോഹം</th><th class="num">ആകെ തൂക്കം</th><th class="num">അറ്റ തൂക്കം</th><th class="num">തനി തൂക്കം</th><th class="num">മൂല്യം</th></tr></thead>
   <tbody>
   {{range .Ornaments}}<tr><td>{{.Name}}</td><td class="num">{{.Quantity}}</td><td>സ്വർണ്ണം</td>
-    <td class="num">{{printf "%.2f" .GrossWeight}} GM</td><td class="num">{{printf "%.2f" .NetWeight}} GM</td>
-    <td class="num">{{printf "%.2f" .FineWeight}} GM</td><td class="num">{{.Value}}</td></tr>
+    <td class="num">{{printf "%.2f" .GrossWeight}} ഗ്രാം</td><td class="num">{{printf "%.2f" .NetWeight}} ഗ്രാം</td>
+    <td class="num">{{printf "%.2f" .FineWeight}} ഗ്രാം</td><td class="num">{{.Value}}</td></tr>
   {{else}}<tr><td colspan="7" style="text-align:center;color:#777">{{.Blank}}</td></tr>
   {{end}}
   </tbody>
@@ -51,6 +51,6 @@
   <div><span class="sig-line">&nbsp;</span><br>സാക്ഷി</div>
 </div>
 <div class="sig-row">
-  <div><span class="sig-line">&nbsp;</span><br>ഉടമയുടെ ഒപ്പ്</div>
+  <div class="owner-sig"><div class="slot">{{.LenderSignature}}</div><span class="sig-line">&nbsp;</span><br>ഉടമയുടെ ഒപ്പ്</div>
 </div>
 </body></html>

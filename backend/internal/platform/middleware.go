@@ -242,6 +242,10 @@ type CRUDMiddlewares struct {
 	Read   gin.HandlerFunc
 	Update gin.HandlerFunc
 	Delete gin.HandlerFunc
+	// Export gates a download route ("can export ledger"); ExportQuery does
+	// the same only when the request carries ?export=.
+	Export      gin.HandlerFunc
+	ExportQuery gin.HandlerFunc
 }
 
 // resourceNouns maps a route-group resource key (as used in main.go's
@@ -293,18 +297,37 @@ func ResourceNoun(resource string) string {
 // call .Create/.Update/.Delete for either read-only resource.
 func CRUDPermissions(checker PermissionChecker, resource string) CRUDMiddlewares {
 	noun := ResourceNoun(resource)
-	view := RequirePermission(checker, "can view "+noun)
+	view := RequirePermission(checker, "can view "+noun+" module")
 	var create, update, deleteMw gin.HandlerFunc
 	if resource != "reports" && resource != "audit-log" {
 		create = RequirePermission(checker, "can create "+noun)
 		update = RequirePermission(checker, "can update "+noun)
 		deleteMw = RequirePermission(checker, "can delete "+noun)
 	}
+	export := RequirePermission(checker, ExportLedgerPermission)
 	return CRUDMiddlewares{
-		Create: create,
-		Read:   view,
-		Update: update,
-		Delete: deleteMw,
+		Create:      create,
+		Read:        view,
+		Update:      update,
+		Delete:      deleteMw,
+		Export:      export,
+		ExportQuery: whenExportQuery(export),
+	}
+}
+
+// ExportLedgerPermission gates every ledger/statement download, on top of
+// the route's own view permission.
+const ExportLedgerPermission = "can export ledger"
+
+// whenExportQuery runs gate only for a ?export=… request — the ledger
+// drill-downs serve their PDF from the same URL as the on-screen page.
+func whenExportQuery(gate gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Query("export") == "" {
+			c.Next()
+			return
+		}
+		gate(c)
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 // hardDeletePerm gates ONLY the hard-delete route, independently of the
 // ordinary "can delete loan" grant above — see authz.Catalogue's own
 // comment on "can hard delete loan" for why this is deliberately separate.
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares, bankPledgePerms platform.CRUDMiddlewares, hardDeletePerm gin.HandlerFunc) {
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares, bankPledgePerms platform.CRUDMiddlewares, hardDeletePerm gin.HandlerFunc, auctionView gin.HandlerFunc, topUpPerm gin.HandlerFunc) {
 	rg.POST("", perms.Create, h.Create)
 	rg.GET("", perms.Read, h.List)
 
@@ -46,7 +46,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.PATCH("/:id", perms.Update, h.UpdateLoan)
 	// Customer-facing account statement PDF. Read-gated: it shows nothing
 	// the loan detail screen does not already show.
-	rg.GET("/:id/statement", perms.Read, h.Statement)
+	rg.GET("/:id/statement", perms.Read, perms.Export, h.Statement)
 	// Single-loan payment ledger drill-down — the universal-ledger pattern's
 	// loan-scoped counterpart of cash's /transactions/bank|customer|branch
 	// routes, but querying LoanPayment rows for this one loan rather than
@@ -78,32 +78,31 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 
 	// Top-up is a mutation on an existing loan resource, not a new one — no
 	// new catalogue entry, same "can update loan" permission as payments.
-	rg.POST("/:id/topup", perms.Update, h.TopUpLoan)
+	// Its own "can top up loan" grant — deliberately not "can update loan".
+	rg.POST("/:id/topup", perms.Read, topUpPerm, h.TopUpLoan)
 	rg.GET("/:id/topups", perms.Read, h.ListTopUps)
 	// Which stage (if any) a Pending top-up needs is per-tenant configuration
 	// (workflow.FlowLoanTopUp); the stage permission is checked in the service.
 	rg.POST("/topups/:topUpId/approve", perms.Update, h.ApproveTopUp)
 
-	// Auctions are gated by the same "can view/create/update/delete loan" set
-	// as every other loan sub-resource — the house role-permission standard
-	// deliberately collapses what used to be a hardcoded role allowlist
-	// (Administrator/Management/Branch Manager/Auction Administrator) into
-	// this one on/off grant per role, editable from the permissions admin
-	// screen instead of a code change.
-	rg.GET("/auctions/concluded", perms.Read, h.ListConcludedAuctions)
-	rg.GET("/auctions/decisions/pending", perms.Read, h.ListPendingAuctionDecisions)
+	// Auctions ride on the loan permission set like every other loan
+	// sub-resource, plus "can view auction module" (auctionView) so a role can
+	// see loans without seeing auction cases. Each step is additionally
+	// service-checked against its own Auction Workflow permission.
+	rg.GET("/auctions/concluded", perms.Read, auctionView, h.ListConcludedAuctions)
+	rg.GET("/auctions/decisions/pending", perms.Read, auctionView, h.ListPendingAuctionDecisions)
 
-	rg.GET("/:id/auction", perms.Read, h.GetAuction)
-	rg.GET("/:id/auction/history", perms.Read, h.GetAuctionHistory)
-	rg.POST("/:id/auction/eligible", perms.Update, h.MarkAuctionEligible)
-	rg.POST("/:id/auction/notice", perms.Update, h.IssueAuctionNotice)
-	rg.POST("/:id/auction/schedule", perms.Update, h.ScheduleAuction)
-	rg.POST("/:id/auction/sale", perms.Update, h.RecordAuctionSale)
-	rg.POST("/:id/auction/settle", perms.Update, h.SettleAuction)
+	rg.GET("/:id/auction", perms.Read, auctionView, h.GetAuction)
+	rg.GET("/:id/auction/history", perms.Read, auctionView, h.GetAuctionHistory)
+	rg.POST("/:id/auction/eligible", perms.Update, auctionView, h.MarkAuctionEligible)
+	rg.POST("/:id/auction/notice", perms.Update, auctionView, h.IssueAuctionNotice)
+	rg.POST("/:id/auction/schedule", perms.Update, auctionView, h.ScheduleAuction)
+	rg.POST("/:id/auction/sale", perms.Update, auctionView, h.RecordAuctionSale)
+	rg.POST("/:id/auction/settle", perms.Update, auctionView, h.SettleAuction)
 	// Which roles may actually DECIDE is enforced in the service, because it
 	// differs per escalation kind: an Auction Administrator may resolve a
 	// part-payment decision but not a shortfall write-off.
-	rg.POST("/:id/auction/decision", perms.Update, h.ResolveAuctionDecision)
+	rg.POST("/:id/auction/decision", perms.Update, auctionView, h.ResolveAuctionDecision)
 
 	// Bank pledge routes are gated by their own "can view/create/update/delete bank
 	// change bank pledge" pair, a distinct module in the permission
@@ -111,7 +110,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	// used to carry an extra hardcoded role allowlist; that authority is now
 	// just "can update bank pledge" for the role, same as create/release.
 	rg.GET("/bank-pledges/history", bankPledgePerms.Read, h.ListBankPledgeHistory)
-	rg.POST("/:id/bank-pledge", bankPledgePerms.Update, h.RecordBankPledge)
+	rg.POST("/:id/bank-pledge", bankPledgePerms.Create, h.RecordBankPledge)
 	rg.GET("/:id/bank-pledge/history", bankPledgePerms.Read, h.GetBankPledgeHistory)
 	rg.PUT("/:id/bank-pledge/:pledgeId/release", bankPledgePerms.Update, h.ReleaseBankPledge)
 	rg.PUT("/:id/bank-pledge/:pledgeId/void", bankPledgePerms.Update, h.VoidBankPledge)

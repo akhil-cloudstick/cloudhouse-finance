@@ -52,8 +52,8 @@ const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
 export default function PacketsScreen() {
   const params = useLocalSearchParams<{ tab?: string; lockerId?: string }>();
   const { can } = useAuth();
-  const canViewPackets = can("Packet_Management", "can_view_packet");
-  const canViewLockers = can("Locker_Management", "can_view_locker");
+  const canViewPackets = can("Packet_Management", "can_view_packet_module");
+  const canViewLockers = can("Locker_Management", "can_view_locker_module");
   const canCreateLocker = can("Locker_Management", "can_create_locker");
 
   const [tab, setTab] = useState<Tab>(params.tab === "lockers" || !canViewPackets ? "lockers" : "packets");

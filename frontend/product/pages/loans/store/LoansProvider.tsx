@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { useAuth } from "@/product/providers/auth-context";
 import { listLoans, type LoanView } from "@/product/pages/loans/services/loanService";
 
 type LoansState = { loans: LoanView[]; loading: boolean; error: string; refresh: () => void };
@@ -14,17 +15,25 @@ const LoansContext = createContext<LoansState | null>(null);
  * BankPledge.tsx) filter client-side, matching the old mock db.loans usage.
  */
 export function LoansProvider({ children }: { children: React.ReactNode }) {
+  // Loaded for every page, so only fetched when this role can view the
+  // module — otherwise it stays empty instead of failing with a 403.
+  const { can, permissionsLoaded } = useAuth();
+  const allowed = can("Loan_Management", "can_view_loan_module");
   const [loans, setLoans] = useState<LoanView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const refresh = useCallback(() => {
+    if (!allowed) {
+      setLoading(!permissionsLoaded);
+      return;
+    }
     setLoading(true);
     listLoans()
       .then((list) => { setLoans(list); setError(""); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load loans."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [allowed, permissionsLoaded]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

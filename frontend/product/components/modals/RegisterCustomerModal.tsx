@@ -11,6 +11,7 @@ import { createCustomer, uploadFile, type CustomerView } from "@/product/pages/c
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { navigate } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 /* Ported from legacy/app.js's `openCustomerModal()` / `saveCustomer()`. Now
  * calls the Go backend (`POST /api/v1/customers`) instead of writing to the
@@ -40,6 +41,7 @@ export function RegisterCustomerModalContent({
   onCreated?: (customer: CustomerView) => void;
 }) {
   const { closeModal } = useModal();
+  const canOpen = useCanOpenRoute();
   const toast = useToast();
 
   const [name, setName] = useState("");
@@ -88,7 +90,8 @@ export function RegisterCustomerModalContent({
     // Exactly 10 digits — the input is digit-filtered and capped at 10, and
     // this matches what the mobile register screen enforces. The old
     // /^\d[\d ]{8,}$/ let 9-digit and space-separated numbers through.
-    if (p && !/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
+    if (!p) { setErr("Please enter the customer’s mobile number."); return; }
+    if (!/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
 
     setSaving(true);
@@ -132,7 +135,9 @@ export function RegisterCustomerModalContent({
       onSaved?.();
       closeModal();
       toast(`${n} registered — ${c.code} · KYC auto-verified (stage 1 — no live verification yet)`);
-      navigate("customer/" + c.id);
+      // Open the new record only for a role that may view customers (a
+      // create-only role stays put rather than hitting the refusal toast).
+      if (canOpen("customer")) navigate("customer/" + c.id);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to register customer.");
     } finally {
@@ -150,7 +155,7 @@ export function RegisterCustomerModalContent({
           {/* Digit-filtered on input like Aadhaar below (and like the mobile
               app's register screen), so letters/spaces/punctuation can't be
               typed at all rather than being caught only on save. */}
-          <div><label className="f">Mobile Number</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
+          <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
           <div><label className="f">Branch *</label>
             <Select
               value={branchId === "" ? "" : String(branchId)}

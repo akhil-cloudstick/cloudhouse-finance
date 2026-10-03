@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useModal } from "@/product/components/Modal";
+import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { SchemeModalContent } from "@/product/components/modals/SchemeModal";
 import { SchemeStatementModalContent } from "@/product/components/modals/SchemeStatementModal";
-import { listSchemes, type SchemeView } from "@/product/pages/schemes/services/schemeService";
+import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
+import { deleteScheme, listSchemes, type SchemeView } from "@/product/pages/schemes/services/schemeService";
 import { useAuth } from "@/product/providers/auth-context";
 import { useIsSmallScreen } from "@/product/utils/responsive";
 
@@ -20,6 +22,10 @@ export function Schemes() {
   const smallScreen = useIsSmallScreen();
   const canCreateSchemes = can("Scheme_Management", "can_create_scheme");
   const canUpdateSchemes = can("Scheme_Management", "can_update_scheme");
+  const canDeleteSchemes = can("Scheme_Management", "can_delete_scheme");
+  const toast = useToast();
+  // The statement lists the scheme's loans and is a download.
+  const canDownloadStatement = can("Loan_Management", "can_view_loan_module") && can("Ledger_Export", "can_export_ledger");
   const [schemes, setSchemes] = useState<SchemeView[] | null>(null);
   const [error, setError] = useState("");
 
@@ -36,6 +42,27 @@ export function Schemes() {
 
   function onSaved() {
     load();
+  }
+
+  // Permanent delete — the backend refuses (409) while any loan or loan
+  // draft still uses the scheme, and that message shows inside the modal.
+  function onDelete(s: SchemeView) {
+    openModal(
+      <ConfirmModalContent
+        title="Delete Scheme"
+        confirmLabel="Delete"
+        busyLabel="Deleting…"
+        onConfirm={async () => {
+          await deleteScheme(s.id);
+          toast(`Scheme "${s.name}" deleted`);
+          load();
+        }}
+      >
+        <p style={{ fontSize: 13.5, margin: 0 }}>
+          Permanently delete scheme &quot;{s.name}&quot; ({s.code})? This cannot be undone.
+        </p>
+      </ConfirmModalContent>
+    );
   }
 
   return (
@@ -105,9 +132,10 @@ export function Schemes() {
               <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: smallScreen ? 4 : 12, borderTop: "1px dashed var(--line)", paddingTop: smallScreen ? 4 : 10, height: smallScreen ? 28 : 60, overflow: "hidden" }}>{s.cond || "—"}</p>
             </div>
             <div className="ft" style={{ display: "flex", gap: 8, padding: smallScreen ? "6px 12px" : undefined }}>
-              <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeStatementModalContent scheme={s} />, true); }}>Download Statement</a>
+              {canDownloadStatement && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeStatementModalContent scheme={s} />, true); }}>Download Statement</a>}
               <span style={{ flex: 1 }} />
               {canUpdateSchemes && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeModalContent scheme={s} onSaved={onSaved} />); }}>Edit</a>}
+              {canDeleteSchemes && <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDelete(s); }}>Delete</a>}
             </div>
           </div>
         ))}

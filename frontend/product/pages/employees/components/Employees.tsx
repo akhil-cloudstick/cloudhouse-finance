@@ -19,7 +19,7 @@ export function Employees() {
   const toast = useToast();
   const { can } = useAuth();
   const pageSize = useResponsivePageSize(15, 15);
-  const canViewRoles = can("Role_Management", "can_view_role_and_permission");
+  const canViewRoles = can("Role_Management", "can_view_role_and_permission_module");
   const canCreateEmployees = can("Employee_Management", "can_create_employee");
   const canUpdateEmployees = can("Employee_Management", "can_update_employee");
   const canDeleteEmployees = can("Employee_Management", "can_delete_employee");

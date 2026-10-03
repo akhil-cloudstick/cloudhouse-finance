@@ -16,6 +16,7 @@ import {
   type MovementFilters,
 } from "../../src/components/staff/MovementLedger";
 import type { CashMovement } from "../../src/types/cash";
+import { useAuth } from "../../src/auth/AuthContext";
 
 // Reports → "Ledger / Statement Export" — the web's LedgerExportView as its
 // own page, opened from the Reports list (it used to jump to the Ledger
@@ -50,6 +51,7 @@ export default function LedgerStatementScreen() {
   const categoryIds = useExpenseCategoryIds();
 
   const [exporting, setExporting] = useState(false);
+  const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
   async function onExport(format: "pdf" | "xlsx") {
     if (exporting) return;
     setExporting(true);
@@ -68,7 +70,7 @@ export default function LedgerStatementScreen() {
     <Screen
       header={<FlatHeader title="Ledger / Statement" subtitle="Reports · Financial Statements" back />}
       floating={
-        list.items.length > 0 ? (
+        list.items.length > 0 && canExport ? (
           <FabMenu
             label="Export statement"
             actions={[

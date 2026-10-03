@@ -7,12 +7,14 @@ import { fmt } from "@/product/utils/format";
 import { TITLES, PARENT_ROUTE } from "@/product/utils/routes";
 import { useModal } from "@/product/components/Modal";
 import { RateModalContent } from "@/product/components/modals/RateModal";
+import { useAuth } from "@/product/providers/auth-context";
 import { Icon } from "@/product/components/Icon";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import GlobalSearch from "./GlobalSearch";
 import { BranchSwitcher } from "./BranchSwitcher";
 import { AccountMenu } from "./AccountMenu";
 import { routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 /* Ported from legacy/app.html's <header class="top"> + app.js's
  * `refreshRateChip()` / breadcrumb logic in `router()`. */
@@ -20,6 +22,9 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
   const { latest, isTodaySet } = useGoldRates();
   const { customers } = useCustomers();
   const { openModal } = useModal();
+  const { can } = useAuth();
+  const canPublishRate = can("Gold_Rate_Management", "can_create_gold_rate");
+  const canOpen = useCanOpenRoute();
   // Was the hardcoded platform BRAND.name for every business — Sidebar.tsx
   // already gets this right via the same hook, this was the one place that
   // didn't.
@@ -33,7 +38,11 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
   // The crumb links back to the section it drills down from (e.g. a
   // personal loan's detail page links to the Personal Loans list) — routes
   // with no parent (top-level sections) just re-link to themselves.
-  const crumbHref = "#" + (PARENT_ROUTE[route] || route || "dashboard");
+  // (It was a "#route" link, which this path router never followed.) No
+  // link when the role can't open the parent — e.g. New Loan for a
+  // create-only role, whose parent is the Loans list.
+  const crumbRoute = PARENT_ROUTE[route] || route || "dashboard";
+  const crumbHref = canOpen(crumbRoute) ? routeHref(crumbRoute) : undefined;
 
   return (
     <header className={`top${searchOpen ? " search-open" : ""}`}>
@@ -51,7 +60,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
       <a
         className={`rate-chip${searchOpen ? " rate-chip-shrunk" : ""}`}
         id="rateChip"
-        href={routeHref("goldrates")}
+        href={canOpen("goldrates") ? routeHref("goldrates") : undefined}
         title="22K is computed from the published 24K rate, not separately published"
         style={{ textDecoration: "none", color: "inherit" }}
       >
@@ -67,7 +76,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
             type="button"
             title="Today's gold rate has not been set"
             aria-label="Today's gold rate has not been set"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openModal(<RateModalContent />); }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (canPublishRate) openModal(<RateModalContent />); }}
             style={{ color: "var(--red)", background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", marginLeft: 6, padding: 0 }}
           >
             <Icon name="warning" />

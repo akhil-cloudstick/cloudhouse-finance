@@ -217,6 +217,7 @@ const BLANK_PLAN: PlanForm = {
 };
 
 function PlansSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const canCreatePlan = useAuth().can("Investment_Management", "can_create_investment");
   const [form, setForm] = useState<PlanForm | null>(null);
   const list = useServerList<InvestmentPlan>({
     key: ["investmentPlans", "page"],
@@ -269,9 +270,11 @@ function PlansSheet({ visible, onClose }: { visible: boolean; onClose: () => voi
             />
           )}
         />
-        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 }}>
-          <PrimaryButton label="+ Add Plan" onPress={() => setForm({ ...BLANK_PLAN })} />
-        </View>
+        {canCreatePlan ? (
+          <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 }}>
+            <PrimaryButton label="+ Add Plan" onPress={() => setForm({ ...BLANK_PLAN })} />
+          </View>
+        ) : null}
       </Sheet>
       <PlanFormSheet form={form} setForm={setForm} />
     </>

@@ -14,6 +14,7 @@ import {
 } from "../../../utils/loanPrint";
 import type { Loan } from "../../../types/loan";
 import { ErrorText, apiErr, invalidateLoan } from "./common";
+import { useAuth } from "../../../auth/AuthContext";
 
 const BOND_LANGS = ["en", "ml", "gu"] as const;
 const BOND_LANG_NAMES: Record<BondLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati" };
@@ -39,6 +40,9 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: L
   const [esignOpen, setEsignOpen] = useState(false);
   const [esignLang, setEsignLang] = useState<BondLang>("en");
   const [notice, setNotice] = useState<string | null>(null);
+  const { can } = useAuth();
+  const canSendEsign = can("Loan_Management", "can_update_loan");
+  const canExport = can("Ledger_Export", "can_export_ledger");
 
   // Each opening starts clean — a failure from an earlier print shouldn't
   // greet the next visit to this sheet.
@@ -102,8 +106,11 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: L
   return (
     <>
       <Sheet visible={visible} onClose={onClose} title="Loan Documents">
-        <SheetListItem first icon="note" title="Statement" sub={sub("statement", "Statement of account for this loan")} onPress={() => run("statement", () => printStatement(l), "Could not print the statement — try again.")} />
+        {canExport ? (
+          <SheetListItem first icon="note" title="Statement" sub={sub("statement", "Statement of account for this loan")} onPress={() => run("statement", () => printStatement(l), "Could not print the statement — try again.")} />
+        ) : null}
         <SheetListItem
+          first={!canExport}
           icon="doc"
           title="Indemnity Bond"
           sub="View / download the pledge agreement"
@@ -141,9 +148,9 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: L
                 sub={check.isPending ? "Checking…" : "Initiated — awaiting the customer's Aadhaar + OTP signature"}
                 onPress={() => !check.isPending && check.mutate()}
               />
-              <SheetListItem icon="edit" title="Send Bond for eSign Again" sub="Aadhaar eSign · resend the signing link" onPress={openEsign} />
+              {canSendEsign ? <SheetListItem icon="edit" title="Send Bond for eSign Again" sub="Aadhaar eSign · resend the signing link" onPress={openEsign} /> : null}
             </>
-          ) : (
+          ) : !canSendEsign ? null : (
             <SheetListItem
               icon="edit"
               title="Send Bond for eSign"

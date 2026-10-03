@@ -38,13 +38,11 @@ const COMPUTED_CATS: Partial<Record<string, (l: LoanView) => boolean>> = {
  * COMPUTED_CATS). */
 export function Loans() {
   const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
-  const { role } = useAuth();
+  const { can } = useAuth();
   const pageSize = useResponsivePageSize(15, 15);
   const smallScreen = useIsSmallScreen();
-  // Cashier is outside the loan creation/approval flow — the backend
-  // already 403s a Cashier's POST /loans, so hide the button rather than
-  // let them click into a form that can only ever fail.
-  const canCreateLoans = role !== "Cashier";
+  // Hidden rather than shown as a form that can only fail with a 403.
+  const canCreateLoans = can("Loan_Management", "can_create_loan");
   // Dashboard KPI cards ("Active Loans", "Due Soon", etc.) link here as
   // `#loans/<category>` so the tab they promise is the tab that's actually
   // open on arrival, instead of always landing on "All".

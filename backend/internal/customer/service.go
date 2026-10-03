@@ -2,7 +2,10 @@ package customer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -16,8 +19,13 @@ var (
 	ErrNotFound      = httpx.NewNotFound("customer not found")
 	ErrNameRequired  = httpx.NewBadRequest("name is required")
 	ErrPhoneRequired = httpx.NewBadRequest("phone is required")
+	ErrPhoneInvalid  = httpx.NewBadRequest("phone must be a 10-digit number")
 	ErrBranchReq     = httpx.NewBadRequest("branch is required")
 	ErrBranchInvalid = httpx.NewBadRequest("branch does not exist")
+	// ErrPhoneTaken — phone is the customer's mobile-app login and OTP
+	// identifier (see internal/customerauth), so it must be unique within a
+	// business. Two businesses may still hold the same borrower's number.
+	ErrPhoneTaken = httpx.NewConflict("phone number is already registered to another customer")
 
 	ErrInvalidCustomerType = httpx.NewBadRequest("customer type must be Borrower or Investor")
 	ErrBankDetailsRequired = httpx.NewBadRequest("bank account name, number and IFSC are required for an investor")
@@ -101,9 +109,20 @@ func NewService(db *gorm.DB, repo *Repository, branchRepo *branch.Repository, aa
 	return &Service{db: db, repo: repo, branchRepo: branchRepo, aadhaarCipher: aadhaarCipher, setu: setu, digilocker: digilocker}
 }
 
+var phoneRe = regexp.MustCompile(`^\d{10}$`)
+
 func validate(in CreateInput) error {
 	if in.Name == "" {
 		return ErrNameRequired
+	}
+	// Phone is the customer's mobile-app login and OTP identifier (see
+	// internal/customerauth), so every customer needs one — the same
+	// 10-digit rule every client form already enforces.
+	if in.Phone == "" {
+		return ErrPhoneRequired
+	}
+	if !phoneRe.MatchString(in.Phone) {
+		return ErrPhoneInvalid
 	}
 	if in.BranchID == 0 {
 		return ErrBranchReq
@@ -135,6 +154,33 @@ func (s *Service) checkBranch(ctx context.Context, id uint) error {
 	return nil
 }
 
+// checkPhoneUnique reports ErrPhoneTaken if phone is non-blank and already
+// used by a different customer in this business (excludeID — 0 when
+// creating). FindByPhone is tenant-scoped via ctx and ignores soft-deleted
+// customers, matching the uq_customers_tenant_phone index predicate.
+func (s *Service) checkPhoneUnique(ctx context.Context, phone string, excludeID uint) error {
+	if phone == "" {
+		return nil
+	}
+	existing, err := s.repo.FindByPhone(ctx, phone)
+	if err == nil && existing.ID != excludeID {
+		return ErrPhoneTaken
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return nil
+}
+
+// phoneConflict turns a uq_customers_tenant_phone violation — two requests
+// racing past checkPhoneUnique with the same number — into ErrPhoneTaken
+// instead of a raw 500.
+func phoneConflict(err error) error {
+	if err != nil && strings.Contains(err.Error(), "uq_customers_tenant_phone") {
+		return ErrPhoneTaken
+	}
+	return err
+}
+
 // aadhaarLast4 returns the last 4 characters of the given Aadhaar number
 // (or the whole string if shorter — defensive, shouldn't happen with real
 // 12-digit Aadhaar numbers).
@@ -146,10 +192,14 @@ func aadhaarLast4(aadhaar string) string {
 }
 
 func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error) {
+	in.Phone = strings.TrimSpace(in.Phone)
 	if err := validate(in); err != nil {
 		return nil, err
 	}
 	if err := s.checkBranch(ctx, in.BranchID); err != nil {
+		return nil, err
+	}
+	if err := s.checkPhoneUnique(ctx, in.Phone, 0); err != nil {
 		return nil, err
 	}
 
@@ -216,7 +266,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error)
 		AadhaarStatus: "Pending",
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
-		return nil, err
+		return nil, phoneConflict(err)
 	}
 	return s.repo.FindByID(ctx, rec.ID)
 }
@@ -265,6 +315,7 @@ func (s *Service) DecryptAadhaar(ctx context.Context, id uint, branchID *uint) (
 }
 
 func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID *uint) (*Customer, error) {
+	in.Phone = strings.TrimSpace(in.Phone)
 	if err := validate(in); err != nil {
 		return nil, err
 	}
@@ -277,6 +328,13 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
+	}
+	// Only when the number actually changes: a customer who already shares
+	// a number from before uniqueness was enforced must still be editable.
+	if in.Phone != rec.Phone {
+		if err := s.checkPhoneUnique(ctx, in.Phone, rec.ID); err != nil {
+			return nil, err
+		}
 	}
 
 	rec.Name = in.Name
@@ -318,7 +376,7 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	}
 
 	if err := s.repo.Update(ctx, rec); err != nil {
-		return nil, err
+		return nil, phoneConflict(err)
 	}
 	return s.repo.FindByID(ctx, rec.ID)
 }

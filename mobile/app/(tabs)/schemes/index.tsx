@@ -5,6 +5,7 @@ import { useServerList } from "../../../src/hooks/useServerList";
 import { useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { listSchemesPage } from "../../../src/api/schemes";
 import type { Scheme } from "../../../src/types/scheme";
+import { useAuth } from "../../../src/auth/AuthContext";
 
 // Schemes tab — prototype #header-schemes + #page-schemes. Search (scheme
 // name / code) is the server `q` on GET /schemes; rows page in 10 at a time.
@@ -23,6 +24,9 @@ export default function SchemesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [statementFor, setStatementFor] = useState<Scheme | null>(null);
   const [statementOpen, setStatementOpen] = useState(false);
+  const { can } = useAuth();
+  const canCreate = can("Scheme_Management", "can_create_scheme");
+  const canUpdate = can("Scheme_Management", "can_update_scheme");
 
   useResetOnBlur(() => {
     setFormOpen(false);
@@ -33,13 +37,15 @@ export default function SchemesScreen() {
     <Screen
       header={<FlatHeader title="Schemes" subtitle="Interest, LTV & scheme rules" />}
       floating={
-        <FabCorner
-          label="New scheme"
-          onPress={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-        />
+        canCreate ? (
+          <FabCorner
+            label="New scheme"
+            onPress={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          />
+        ) : undefined
       }
     >
       <ServerFlatList
@@ -72,14 +78,18 @@ export default function SchemesScreen() {
                     setStatementOpen(true);
                   },
                 },
-                {
-                  label: "Edit Scheme",
-                  primary: true,
-                  onPress: () => {
-                    setEditing(sc);
-                    setFormOpen(true);
-                  },
-                },
+                ...(canUpdate
+                  ? [
+                      {
+                        label: "Edit Scheme",
+                        primary: true,
+                        onPress: () => {
+                          setEditing(sc);
+                          setFormOpen(true);
+                        },
+                      },
+                    ]
+                  : []),
               ]}
             />
           );

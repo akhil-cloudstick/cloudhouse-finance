@@ -19,7 +19,6 @@ import {
   type InvestmentLedgerRow,
 } from "@/product/pages/investments/services/investmentService";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
-import { MODE_LEDGER_ROUTE } from "@/product/pages/cash/services/cashService";
 import { MaturityModalContent } from "@/product/pages/investments/components/MaturityModal";
 import { MarkPayoutPaidModalContent } from "@/product/components/modals/MarkPayoutPaidModal";
 import { AddInvestmentCashModalContent } from "@/product/components/modals/AddInvestmentCashModal";
@@ -28,6 +27,7 @@ import { useModal } from "@/product/components/Modal";
 import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
 import { Icon } from "@/product/components/Icon";
 import { routeHref } from "@/product/services/appRoutes";
+import { modeCellFor } from "@/product/pages/cash/components/ledgerCells";
 
 /* Same click-paginated table pattern as personal-loans/components/
  * PersonalLoanDetail.tsx's usePagedTable + Pager. */
@@ -71,6 +71,7 @@ function Pager({ page, totalPages, onChange }: { page: number; totalPages: numbe
 
 export function InvestmentDetail({ id }: { id?: string }) {
   const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
   const { openModal, closeModal } = useModal();
   const toast = useToast();
   const canUpdate = can("Investment_Management", "can_update_investment");
@@ -251,9 +252,11 @@ export function InvestmentDetail({ id }: { id?: string }) {
               <a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
                 <Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
               </a>
-              <a href="#" title="Print Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); void handlePrintStatement(); }}>
-                <Icon name="doc" /><span className="tx">{printingStatement ? "Opening…" : "Print Statement"}</span>
-              </a>
+              {canExport && (
+                <a href="#" title="Print Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); void handlePrintStatement(); }}>
+                  <Icon name="doc" /><span className="tx">{printingStatement ? "Opening…" : "Print Statement"}</span>
+                </a>
+              )}
             </div>
           )}
         </div>
@@ -336,9 +339,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
                     {split && r.debitOrCredit === "debit" && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{split}</div>}
                   </td>
                   <td>
-                    {!r.method ? "—"
-                      : MODE_LEDGER_ROUTE[r.method] ? <a href={routeHref(MODE_LEDGER_ROUTE[r.method])}>{r.method}</a>
-                      : r.method}
+                    {modeCellFor(r.method)}
                   </td>
                   <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                   <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>

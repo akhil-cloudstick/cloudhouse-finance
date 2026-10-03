@@ -67,10 +67,17 @@ Residing at :- <b>{{.LenderAddress}}</b>
 </table>
 <p><b>Total Estimated Value :- Rs. {{.TotalValue}}/-</b></p>
 <p><b>Total Loan Advanced :- Rs. {{.PrincipalAmount}}/-</b></p>
+{{if .Distribution}}<table style="margin:4px 0 10px">
+<thead><tr><th>Date</th><th>Particulars</th><th class="num">Amount (Rs.)</th></tr></thead>
+<tbody>
+{{range .Distribution}}<tr><td>{{.Date}}</td><td>{{if .Initial}}Initial loan amount{{else}}Additional loan amount{{end}}</td><td class="num">{{.Amount}}</td></tr>
+{{end}}<tr><th colspan="2">Total</th><th class="num">{{.PrincipalAmount}}</th></tr>
+</tbody>
+</table>{{end}}
 <p>Place :- {{.Blank}}</p>
 <p>Date :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
 
-<div class="sig-page">
+<div class="sig-page" style="break-inside:avoid">
 <p><b>IN WITNESS WHEREOF Etc.</b></p>
 <div class="sig">
 <div><span>Name: {{.Blank}}<br>Residing at</span></div>
@@ -83,7 +90,7 @@ Residing at :- <b>{{.LenderAddress}}</b>
      bottom, not a specific line. */}}
 <div class="sig">
 <div>The Borrower<span>Name: {{.CustomerName}}</span></div>
-<div>The Lender<div class="lender-sig">{{.LenderSignatureSVG}}</div><span>{{.LenderName}}</span></div>
+<div>The Lender{{with .LenderSignature}}<div class="lender-sig">{{.}}</div>{{end}}<span>{{.LenderName}}</span></div>
 </div>
 </div>
 </body></html>

@@ -67,6 +67,13 @@
 </table>
 <p><b>કુલ અંદાજિત રકમ :- રૂ. {{.TotalValue}}/-</b></p>
 <p><b>કુલ ધિરાણ રકમ :- રૂ. {{.PrincipalAmount}}/-</b></p>
+{{if .Distribution}}<table style="margin:4px 0 10px">
+<thead><tr><th>તારીખ</th><th>વિગત</th><th class="num">રકમ (રૂ.)</th></tr></thead>
+<tbody>
+{{range .Distribution}}<tr><td>{{.Date}}</td><td>{{if .Initial}}પ્રારંભિક ધિરાણ રકમ{{else}}વધારાની ધિરાણ રકમ{{end}}</td><td class="num">{{.Amount}}</td></tr>
+{{end}}<tr><th colspan="2">કુલ</th><th class="num">{{.PrincipalAmount}}</th></tr>
+</tbody>
+</table>{{end}}
 <p>સ્થળ: {{.BranchName}}</p>
 <p>તારીખ: {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
 <div class="sig-page">
@@ -80,7 +87,7 @@
      stamp lands on it instead of the witness placeholder. */}}
 <div class="sig">
 <div>આડગીરો મૂકનાર<span>નામ: {{.CustomerName}}</span></div>
-<div>આડગીરો લેનાર<div class="lender-sig">{{.LenderSignatureSVG}}</div><span>{{.LenderName}}</span></div>
+<div>આડગીરો લેનાર{{with .LenderSignature}}<div class="lender-sig">{{.}}</div>{{end}}<span>{{.LenderName}}</span></div>
 </div>
 </div>
 </body></html>

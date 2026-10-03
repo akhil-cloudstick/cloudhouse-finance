@@ -21,6 +21,7 @@ import {
   writeSession,
 } from "@/product/services/tenantSession";
 import { clearSelectedBranch, getSelectedBranchId, setSelectedBranchId } from "@/product/services/branchSelection";
+import { setOwnBranchFallback } from "@/product/pages/branches/services/branchService";
 
 /* The session (token, employee, and the sessionStorage mirror of the
  * permission map) is stored per business by tenantSession, not under one
@@ -112,7 +113,7 @@ type AuthContextValue = {
   // can(module, key) is the one lookup every gate/guard/nav-filter in this
   // app uses — `=== true` so a missing module/key/loading state all deny
   // (§10). Module/key names use the underscored form the backend already
-  // derives (e.g. "Loan_Management", "can_view_loan").
+  // derives (e.g. "Loan_Management", "can_view_loan_module").
   can: (moduleKey: string, permissionKey: string) => boolean;
   refetchPermissions: () => void;
   // This business's approval-workflow configuration (which stages of each
@@ -320,6 +321,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const fromToken = decodeJwtPayload(token || "")?.branchId;
     return typeof fromToken === "number" ? fromToken : null;
   }, [employee, token]);
+
+  // Branch pickers fall back to this when the role cannot list branches.
+  useLayoutEffect(() => {
+    setOwnBranchFallback(employee?.branch ?? null);
+  }, [employee]);
 
   const isAdmin = role === ADMIN_ROLE;
   const isCrossBranch = !!role && CROSS_BRANCH_ROLES.has(role);

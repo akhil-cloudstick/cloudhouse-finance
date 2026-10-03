@@ -19,6 +19,7 @@ import { useServerList } from "../../src/hooks/useServerList";
 import { getCalendarEvents, listCalendarEventsPage } from "../../src/api/reminders";
 import { todayISO } from "../../src/lib/format";
 import type { CalendarEvent } from "../../src/types/reminder";
+import { useAuth } from "../../src/auth/AuthContext";
 
 // Reminders — prototype #header-reminders + #page-reminders: month header
 // with prev/next, calendar grid with per-day dots (one bounded month query),
@@ -47,6 +48,9 @@ export default function RemindersScreen() {
   const [month, setMonth] = useState(() => new Date(+today.slice(0, 4), +today.slice(5, 7) - 1, 1));
   const [selected, setSelected] = useState(today);
   const [adding, setAdding] = useState(false);
+  const { can } = useAuth();
+  const canCreate = can("Reminder_Management", "can_create_reminder");
+  const canViewLoans = can("Loan_Management", "can_view_loan_module");
 
   const y = month.getFullYear();
   const m = month.getMonth();
@@ -112,7 +116,7 @@ export default function RemindersScreen() {
   return (
     <Screen
       header={<FlatHeader title="Reminders" subtitle="Follow-ups & promise-to-pay" />}
-      floating={<FabCorner onPress={() => setAdding(true)} label="Add reminder" />}
+      floating={canCreate ? <FabCorner onPress={() => setAdding(true)} label="Add reminder" /> : undefined}
     >
       <ServerFlatList
         list={{ ...list, refetch: () => (monthEvents.refetch(), list.refetch()) }}
@@ -142,7 +146,7 @@ export default function RemindersScreen() {
               ev={e}
               first={i === 0}
               showDate={searching}
-              onPress={e.loanId ? () => openPage(`/loans/${e.loanId}`) : undefined}
+              onPress={e.loanId && canViewLoans ? () => openPage(`/loans/${e.loanId}`) : undefined}
             />
           </View>
         )}

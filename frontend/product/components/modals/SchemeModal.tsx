@@ -23,8 +23,8 @@ const CHARGE_TYPE_OPTIONS: { value: ServiceChargeType; label: string }[] = [
   { value: "Percent", label: "Percentage of principal" },
 ];
 const CHARGE_MODE_OPTIONS: { value: ServiceChargeMode; label: string }[] = [
-  { value: "WithheldFromPayout", label: "Withhold from payout — deducted from what's disbursed" },
-  { value: "AddedToPrincipal", label: "Added to principal — borrowed and repaid like the rest of the loan" },
+  { value: "WithheldFromPayout", label: "Deduct from loan amount" },
+  { value: "AddedToPrincipal", label: "Add to loan amount" },
 ];
 
 /* Ported from legacy/app.js's `openSchemeModal(id)` / `saveScheme(id)`

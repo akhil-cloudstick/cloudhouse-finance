@@ -9,6 +9,7 @@ import {
   ChipToggle,
   ConfirmSheet,
   DateField,
+  EmptyText,
   Field,
   FilterChipRow,
   GrmTabs,
@@ -39,6 +40,7 @@ import { createReminder, listCalendarEventsPage } from "../../api/reminders";
 import { useAuth } from "../../auth/AuthContext";
 import { useTheme } from "../../theme/ThemeProvider";
 import { routeEnabled } from "../../config/tenantModules";
+import { routeAllowed, useCanOpen } from "../../config/routePermissions";
 import { FEATURES } from "../../config/features";
 import { addDaysISO, dmy, inr, todayISO } from "../../lib/format";
 import { finenessForKarat, rateForFineness } from "../../lib/purity";
@@ -77,8 +79,10 @@ const clampFineness = (v: string) => (v !== "" && +v > 100 ? "100" : v);
 
 export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const qc = useQueryClient();
-  const { employee } = useAuth();
-  const [tab, setTab] = useState<"set" | "history">("set");
+  const { employee, can } = useAuth();
+  // Without "can create gold rate" the modal is history-only.
+  const canSetRate = can("Gold_Rate_Management", "can_create_gold_rate");
+  const [tab, setTab] = useState<"set" | "history">(canSetRate ? "set" : "history");
   const latest = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible });
   const now: Record<Karat, number> = { 24: latest.data?.k24 ?? 0, 22: latest.data?.k22 ?? 0, 18: latest.data?.k18 ?? 0 };
 
@@ -104,9 +108,9 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
 
   useEffect(() => {
     if (!visible) return;
-    setTab("set");
+    setTab(canSetRate ? "set" : "history");
     if (latest.data) resetAuto(latest.data.k24 || 0);
-  }, [visible, latest.data]);
+  }, [visible, latest.data, canSetRate]);
 
   const switchMode = (m: RateMode) => {
     if (m === "Auto") resetAuto(ref24 || now[24]);
@@ -197,8 +201,8 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
 
   return (
     <CenterModal visible={visible} onClose={onClose} title="Gold Rate">
-      <GrmTabs tabs={["set", "history"] as const} value={tab} onChange={setTab} labels={{ set: "Set Rate", history: "History" }} />
-      {tab === "set" ? (
+      {canSetRate ? <GrmTabs tabs={["set", "history"] as const} value={tab} onChange={setTab} labels={{ set: "Set Rate", history: "History" }} /> : null}
+      {tab === "set" && canSetRate ? (
         latest.isLoading ? (
           <Buffering block />
         ) : (
@@ -277,10 +281,18 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
 // ---------------------------------------------------------------------------
 // Global search (prototype #search-modal) — slides down from the top.
 // ---------------------------------------------------------------------------
-type SearchScope = "All" | "Customers" | "Loan No." | "Scheme";
+const SEARCH_SCOPES = ["All", "Customers", "Loan No.", "Scheme"] as const;
+type SearchScope = (typeof SEARCH_SCOPES)[number];
 
 export function SearchModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const [scope, setScope] = useState<SearchScope>("All");
+  const [picked, setScope] = useState<SearchScope>("All");
+  // Only the scopes whose results the user can open: customers → Customers,
+  // loans → All / Loan No., and a scheme hit opens the loan list filtered by it.
+  const canOpen = useCanOpen();
+  const scopes = SEARCH_SCOPES.filter((sc) =>
+    sc === "Customers" ? canOpen("/customers") : sc === "Scheme" ? canOpen("/schemes") && canOpen("/loans") : canOpen("/loans")
+  );
+  const scope: SearchScope | undefined = scopes.includes(picked) ? picked : scopes[0];
   // Nothing heavy happens while the panel slides in: the result lists
   // mount (and start fetching) and the keyboard rises only once it has
   // finished — doing either mid-slide is what made the opening stutter.
@@ -324,7 +336,9 @@ export function SearchModal({ visible, onClose }: { visible: boolean; onClose: (
     openPage(path);
   };
 
-  const body =
+  const body = !scope ? (
+    <EmptyText>You don&apos;t have permission to search customers, loans or schemes.</EmptyText>
+  ) :
     scope === "Customers" ? (
       <ServerFlatList
         list={custList}
@@ -390,7 +404,7 @@ export function SearchModal({ visible, onClose }: { visible: boolean; onClose: (
         </Pressable>
       </View>
       <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: 4 }}>
-        <FilterChipRow options={["All", "Customers", "Loan No.", "Scheme"] as const} value={scope} onChange={setScope} style={{ marginBottom: 0 }} />
+        {scopes.length > 1 && scope ? <FilterChipRow options={scopes} value={scope} onChange={setScope} style={{ marginBottom: 0 }} /> : null}
       </View>
       {/* Fixed-height placeholder while sliding, so the panel doesn't
           change size (or render the lists) mid-animation. */}
@@ -455,6 +469,8 @@ function rangeFor(scope: RemScope): { from: string; to: string } {
 export function RemindersModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [scope, setScope] = useState<RemScope>("Today");
   const [adding, setAdding] = useState(false);
+  const canCreate = useAuth().can("Reminder_Management", "can_create_reminder");
+  const canViewLoans = useCanOpen()("/loans");
   const range = rangeFor(scope);
   const list = useServerList<CalendarEvent, { from: string; to: string }>({
     key: ["reminders", "modal"],
@@ -492,7 +508,7 @@ export function RemindersModal({ visible, onClose }: { visible: boolean; onClose
               first={i === 0}
               showDate={scope !== "Today"}
               onPress={
-                e.loanId
+                e.loanId && canViewLoans
                   ? () => {
                       onClose();
                       openPage(`/loans/${e.loanId}`);
@@ -503,9 +519,11 @@ export function RemindersModal({ visible, onClose }: { visible: boolean; onClose
           )}
           header={null}
         />
-        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
-          <PrimaryButton label="Add Reminder" onPress={() => setAdding(true)} />
-        </View>
+        {canCreate ? (
+          <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+            <PrimaryButton label="Add Reminder" onPress={() => setAdding(true)} />
+          </View>
+        ) : null}
       </Sheet>
       <ReminderCreateSheet visible={visible && adding} onClose={() => setAdding(false)} />
     </>
@@ -649,33 +667,38 @@ export function ProfileSheet({ visible, onClose }: { visible: boolean; onClose: 
 // ---------------------------------------------------------------------------
 // More (prototype #more-modal) + the modules the prototype doesn't list.
 // ---------------------------------------------------------------------------
-type MoreRow = { key: string; route?: string; title: string; sub: string; icon: string; perms: [string, string][]; action?: "gold" };
+// A route row's permission is its page's ROUTE_PERMISSIONS entry; `perms` is only
+// for rows that open a sheet instead of a page.
+type MoreRow = { key: string; route?: string; title: string; sub: string; icon: string; perms?: [string, string][]; action?: "gold" };
 
 const MORE_ROWS: MoreRow[] = [
-  { key: "auctions", route: "auctions", title: "Auctions", sub: "Active cases & auction history", icon: "gavel", perms: [["Loan_Management", "can_view_loan"]] },
-  { key: "packets", route: "packets", title: "Packets & Lockers", sub: "Ornament custody tracking", icon: "doc", perms: [["Packet_Management", "can_view_packet"], ["Locker_Management", "can_view_locker"]] },
-  { key: "banks", route: "banks", title: "Bank Pledges", sub: "Loans pledged to a bank", icon: "card", perms: [["Bank_Pledge_Management", "can_view_bank_pledge"]] },
-  { key: "requests", route: "requests", title: "Releases", sub: "Loan extensions & gold release", icon: "edit", perms: [["Loan_Management", "can_view_loan"]] },
-  { key: "cash", route: "cash", title: "Ledger", sub: "Movements, expenses & gold sales", icon: "coin", perms: [["Cash_Management", "can_view_cash"]] },
-  { key: "personal-loans", route: "personal-loans", title: "Personal Loans", sub: "Non-gold loans & collections", icon: "card", perms: [["Personal_Loan_Management", "can_view_personal_loan"]] },
-  { key: "investments", route: "investments", title: "Investments", sub: "Deposits, plans & payouts", icon: "coin", perms: [["Investment_Management", "can_view_investment"]] },
-  { key: "reminders", route: "reminders", title: "Reminders", sub: "Follow-ups & promise-to-pay", icon: "calendar", perms: [["Reminder_Management", "can_view_reminder"]] },
-  { key: "reports", route: "reports", title: "Reports", sub: "Branch reports & summaries", icon: "note", perms: [["Report_Management", "can_view_report"]] },
-  { key: "loan-risk", route: "loan-risk", title: "Loan Risk", sub: "Risk assessment across active loans", icon: "chart", perms: [["Loan_Management", "can_view_loan"]] },
-  { key: "gold-rates", title: "Gold Rates", sub: "Set today's rate & view history", icon: "coin", perms: [["Gold_Rate_Management", "can_view_gold_rate"]], action: "gold" },
-  { key: "employees", route: "employees", title: "Employees", sub: "Staff accounts & roles", icon: "user", perms: [["Employee_Management", "can_view_employee"]] },
-  { key: "branches", route: "branches", title: "Branches", sub: "Branch details & lockers", icon: "home", perms: [["Branch_Management", "can_view_branch"]] },
-  { key: "roles", route: "roles", title: "Roles & Permissions", sub: "What each role can do", icon: "shield", perms: [["Role_Management", "can_view_role_and_permission"]] },
+  { key: "auctions", route: "auctions", title: "Auctions", sub: "Active cases & auction history", icon: "gavel" },
+  { key: "packets", route: "packets", title: "Packets & Lockers", sub: "Ornament custody tracking", icon: "doc" },
+  { key: "banks", route: "banks", title: "Bank Pledges", sub: "Loans pledged to a bank", icon: "card" },
+  { key: "requests", route: "requests", title: "Releases", sub: "Loan extensions & gold release", icon: "edit" },
+  { key: "cash", route: "cash", title: "Ledger", sub: "Movements, expenses & gold sales", icon: "coin" },
+  { key: "personal-loans", route: "personal-loans", title: "Personal Loans", sub: "Non-gold loans & collections", icon: "card" },
+  { key: "investments", route: "investments", title: "Investments", sub: "Deposits, plans & payouts", icon: "coin" },
+  { key: "reminders", route: "reminders", title: "Reminders", sub: "Follow-ups & promise-to-pay", icon: "calendar" },
+  { key: "reports", route: "reports", title: "Reports", sub: "Branch reports & summaries", icon: "note" },
+  { key: "loan-risk", route: "loan-risk", title: "Loan Risk", sub: "Risk assessment across active loans", icon: "chart" },
+  { key: "gold-rates", title: "Gold Rates", sub: "Set today's rate & view history", icon: "coin", perms: [["Gold_Rate_Management", "can_view_gold_rate_module"]], action: "gold" },
+  { key: "employees", route: "employees", title: "Employees", sub: "Staff accounts & roles", icon: "user" },
+  { key: "branches", route: "branches", title: "Branches", sub: "Branch details & lockers", icon: "home" },
+  { key: "roles", route: "roles", title: "Roles & Permissions", sub: "What each role can do", icon: "shield" },
   // Shown only with EXPO_PUBLIC_ENABLE_PLAN_UPGRADE on (filtered in MoreSheet).
-  { key: "billing", route: "billing", title: "Billing & Plan", sub: "Your plan, branch limit & upgrades", icon: "card", perms: [["Billing", "can_manage_billing"]] },
-  { key: "settings", route: "settings", title: "Settings", sub: "Branch, staff, and app settings", icon: "dots", perms: [["Settings_Management", "can_view_setting"]] },
+  { key: "billing", route: "billing", title: "Billing & Plan", sub: "Your plan, branch limit & upgrades", icon: "card" },
+  { key: "settings", route: "settings", title: "Settings", sub: "Branch, staff, and app settings", icon: "dots" },
 ];
 
 export function MoreSheet({ visible, onClose, onGoldRate }: { visible: boolean; onClose: () => void; onGoldRate: () => void }) {
   const { can } = useAuth();
   const { hasModule } = useTheme();
   const rows = MORE_ROWS.filter(
-    (r) => r.perms.some(([m, k]) => can(m, k)) && (!r.route || routeEnabled(r.route, hasModule)) && (r.key !== "billing" || FEATURES.planUpgrade)
+    (r) =>
+      (r.route ? routeAllowed(r.route, can) : (r.perms ?? []).some(([m, k]) => can(m, k))) &&
+      (!r.route || routeEnabled(r.route, hasModule)) &&
+      (r.key !== "billing" || FEATURES.planUpgrade)
   );
   return (
     <Sheet visible={visible} onClose={onClose} title="More" maxHeightPct={80}>

@@ -39,6 +39,7 @@ import {
 } from "@/product/components/modals/RequestExtensionModal";
 import { EditCustomerModalContent } from "@/product/components/modals/EditCustomerModal";
 import { navigate, routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 import { listCashMovementsByCustomer, exportPartyStatementByCustomer, type LedgerRowView } from "@/product/pages/cash/services/cashService";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
@@ -123,13 +124,15 @@ function ProofLink({ label, url }: { label: string; url: string }) {
 export function CustomerDetail({ id }: { id?: string }) {
   const { openModal } = useModal();
   const toast = useToast();
-  const { role, can } = useAuth();
+  const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
   const smallScreen = useIsSmallScreen();
-  // Cashier is outside the loan creation/approval flow — the backend
-  // already 403s a Cashier's POST /loans, hide the button rather than let
-  // them click into a form that can only ever fail. The permission grant
-  // has to hold too.
-  const canCreateLoans = role !== "Cashier" && can("Loan_Management", "can_create_loan");
+  // Hidden rather than shown as a form that can only fail with a 403.
+  const canCreateLoans = can("Loan_Management", "can_create_loan");
+  // Loan numbers link to the loan only for a role that can open it.
+  const canOpen = useCanOpenRoute();
+  const canViewLoans = canOpen("loan");
+  const canViewAuctions = canOpen("auctions");
   // KYC verification writes back to the customer record, so it's an update;
   // logging an extension/release request against a loan is a loan update.
   // Anything not granted is hidden, not disabled (see Customers.tsx).
@@ -304,7 +307,8 @@ export function CustomerDetail({ id }: { id?: string }) {
   const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
   const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
   const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
-  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id);
+  // Auction history needs "can view auction module" — not fetched without it.
+  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id && canViewAuctions);
   const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id);
   useEffect(() => { transactionPager.setPage(1); }, [JSON.stringify(ledgerLoanFilters)]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -669,9 +673,11 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <>
                   <div className="sp" />
                   <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips />
-                  <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>
-                    <Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}
-                  </button>
+                  {canExport && (
+                    <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>
+                      <Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}
+                    </button>
+                  )}
                 </>
               ) : (
                 <>
@@ -709,7 +715,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr><td colSpan={5} className="empty compact">No pledged ornaments yet.</td></tr>
                     ) : ornamentPager.items.map((o) => (
                       <tr key={o.loanId + "-" + o.id}>
-                        <td><a href={routeHref(`loan/${o.loanNumber}`)}>{o.loanNumber}</a></td>
+                        <td>{canViewLoans ? <a href={routeHref(`loan/${o.loanNumber}`)}>{o.loanNumber}</a> : o.loanNumber}</td>
                         <td>{o.name}</td>
                         <td><span className="chip brand">{o.purity}</span></td>
                         <td className="num">{fmtW(o.netWeight)}</td>
@@ -729,7 +735,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr><td colSpan={5} className="empty compact">No payments recorded yet.</td></tr>
                     ) : paymentPager.items.map((p) => (
                       <tr key={p.loanId + "-" + p.id}>
-                        <td><a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a></td>
+                        <td>{canViewLoans ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
                         <td>{p.paidOn}</td>
                         <td>{p.type}</td>
                         <td className="num">{fmt(p.amount)}</td>
@@ -749,7 +755,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr><td colSpan={5} className="empty compact">No bank pledges yet.</td></tr>
                     ) : bankPledgePager.items.map((p) => (
                       <tr key={p.loanId + "-" + p.id}>
-                        <td><a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a></td>
+                        <td>{canViewLoans ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
                         <td>{p.bankName}</td>
                         <td className="num">{fmt(p.pledgedAmount)}</td>
                         <td>{p.pledgeDate}</td>
@@ -765,11 +771,13 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                   <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
                   <tbody>
-                    {auctionPager.items.length === 0 ? (
+                    {!canViewAuctions ? (
+                      <tr><td colSpan={5} className="empty compact">You don't have permission to view auction history.</td></tr>
+                    ) : auctionPager.items.length === 0 ? (
                       <tr><td colSpan={5} className="empty compact">No auction records yet.</td></tr>
                     ) : auctionPager.items.map((a) => (
                       <tr key={a.id}>
-                        <td><a href={routeHref(`loan/${a.loanNumber}`)}>{a.loanNumber}</a></td>
+                        <td>{canViewLoans ? <a href={routeHref(`loan/${a.loanNumber}`)}>{a.loanNumber}</a> : a.loanNumber}</td>
                         <td><StatusChip status={a.stage} /></td>
                         <td>{a.auctionDate || "—"}</td>
                         <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
@@ -787,8 +795,10 @@ export function CustomerDetail({ id }: { id?: string }) {
                   <tbody>
                     {transactionPager.items.length === 0 ? (
                       <tr><td colSpan={7} className="empty compact">No ledger entries recorded yet.</td></tr>
-                    ) : transactionPager.items.map((r) => (
-                      <tr key={r.id}>
+                    ) : transactionPager.items.map((r, i) => (
+                      // A split payment yields one row per method, all sharing
+                      // the movement's id — so the id alone isn't unique.
+                      <tr key={`${r.type}-${r.id}-${r.method}-${i}`}>
                         <td>{r.d}</td>
                         <td>
                           {r.description || r.type}

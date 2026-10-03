@@ -1103,9 +1103,271 @@ h3,
  * label pushed just that one input down out of line with the other two.
  * Reserving two lines of height on every label in this row (not just the
  * one that wraps) keeps all three inputs starting at the same y regardless
- * of which label happens to wrap at a given width. */
-.repledge-modal-bd label.f {
-  min-height: 28px
+ * of which label happens to wrap at a given width. The text sits at the
+ * bottom of that space, so a one-line label stays tight to its input. */
+.repledge-modal-bd .rp-compact label.f {
+  min-height: 28px;
+  display: flex;
+  align-items: flex-end
+}
+
+/* Bank pledge details grid — its own even rhythm (16px between rows, 14px
+ * between columns) instead of the generic modal row margins, which stacked
+ * up with the label min-height above into oversized gaps. Three classes so
+ * it outranks `.modal .frow` and the short-screen override. */
+.modal .repledge-modal-bd .frow.rp-grid {
+  row-gap: 16px;
+  column-gap: 14px;
+  margin: 0 0 16px
+}
+
+.repledge-modal-bd .rp-sec-h.rp-after-grid {
+  margin-top: 26px
+}
+
+/* RepledgeModal.tsx's three sections (pledged gold, bank details, cash
+ * treatment) — a small uppercase heading with a hairline rule, the pledged
+ * ornaments as a compact .tbl, and the cash choice as two selectable cards. */
+.repledge-modal-bd .rp-sec {
+  margin-bottom: 22px
+}
+
+.repledge-modal-bd .rp-sec-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink)
+}
+
+.repledge-modal-bd .rp-sec-meta {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted)
+}
+
+.repledge-modal-bd .rp-tbl {
+  border: 1px solid var(--line);
+  max-height: 220px
+}
+
+.repledge-modal-bd .rp-tbl table.tbl {
+  min-width: 0
+}
+
+.repledge-modal-bd .rp-tbl .rp-idx {
+  color: var(--muted);
+  width: 36px
+}
+
+.repledge-modal-bd .rp-tbl tfoot td {
+  padding: 10px 14px;
+  font-weight: 600;
+  border-top: 1px solid var(--brand-pale);
+  background: var(--brand-faint)
+}
+
+.repledge-modal-bd .rp-tbl tfoot td:first-child {
+  padding-left: 18px
+}
+
+.repledge-modal-bd .rp-tbl tfoot td:last-child {
+  padding-right: 18px
+}
+
+.repledge-modal-bd .rp-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px
+}
+
+.repledge-modal-bd .rp-opt {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 13px;
+  transition: border-color .15s, background .15s, box-shadow .15s
+}
+
+.repledge-modal-bd .rp-opt:hover {
+  border-color: var(--brand-pale)
+}
+
+.repledge-modal-bd .rp-opt.on {
+  border-color: var(--brand);
+  background: var(--brand-faint);
+  box-shadow: 0 0 0 3px var(--brand-pale)
+}
+
+.repledge-modal-bd .rp-opt-d {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted)
+}
+
+@media (max-width: 640px) {
+  .repledge-modal-bd .rp-opts {
+    grid-template-columns: 1fr
+  }
+}
+
+/* NewPersonalLoanModal.tsx — section headings, input-height segmented
+ * pickers (interest type, frequency), the Full-amount option card, and the
+ * four-figure live summary strip. */
+.pl-modal .pl-sec-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink)
+}
+
+.pl-modal .pl-sec-h span {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted)
+}
+
+.pl-modal .pl-seg {
+  display: flex;
+  height: 38px;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--brand-faint)
+}
+
+.pl-modal .pl-seg button {
+  flex: 1;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .15s, color .15s, box-shadow .15s
+}
+
+.pl-modal .pl-seg button:hover {
+  color: var(--ink)
+}
+
+.pl-modal .pl-seg button.on {
+  background: var(--card);
+  color: var(--brand);
+  font-weight: 600;
+  box-shadow: 0 1px 3px oklch(0.18 0.02 285 / .12), 0 0 0 1px var(--brand-pale)
+}
+
+.pl-modal .pl-opt {
+  height: 38px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 13px;
+  transition: border-color .15s, background .15s
+}
+
+.pl-modal .pl-opt .mark {
+  margin-top: 0
+}
+
+.pl-modal .pl-opt.on {
+  border-color: var(--brand);
+  background: var(--brand-faint)
+}
+
+.pl-modal .pl-opt-d {
+  color: var(--muted)
+}
+
+.pl-modal .pl-sum {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 6px;
+  border: 1px solid var(--brand-pale);
+  border-radius: 10px;
+  background: var(--brand-faint);
+  overflow: hidden
+}
+
+.pl-modal .pl-sum > div {
+  padding: 12px 14px;
+  border-left: 1px solid var(--brand-pale);
+  font-variant-numeric: tabular-nums
+}
+
+.pl-modal .pl-sum > div:first-child {
+  border-left: 0
+}
+
+.pl-modal .pl-sum span {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted)
+}
+
+.pl-modal .pl-sum b {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink)
+}
+
+.pl-modal .pl-sum small {
+  margin-left: 4px;
+  font-size: 11.5px;
+  color: var(--muted)
+}
+
+.pl-modal .pl-bal {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--muted)
+}
+
+.pl-modal .pl-bal.low {
+  color: var(--red)
+}
+
+@media (max-width: 640px) {
+  .pl-modal .pl-sum {
+    grid-template-columns: 1fr 1fr
+  }
+
+  .pl-modal .pl-sum > div:nth-child(3) {
+    border-left: 0
+  }
+
+  .pl-modal .pl-sum > div:nth-child(n+3) {
+    border-top: 1px solid var(--brand-pale)
+  }
 }
 
 /* Cash.tsx's Cash Movements filter row — the Type/From/To fields' own
@@ -5438,6 +5700,42 @@ table.tbl {
 .perm-list-row b {
   display: block;
   line-height: 16px
+}
+
+/* A row whose parent permission is off: dimmed; the reason is its title,
+ * shown by the app-wide tooltip (.tip-layer). */
+.perm-list-row.blocked {
+  opacity: .55;
+  cursor: not-allowed
+}
+
+/* The app-wide tooltip — product/components/Tooltip.tsx renders every
+ * element's `title` with this instead of the browser's native box. */
+.tip-layer {
+  position: fixed;
+  z-index: 10001;
+  max-width: 260px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: var(--nav);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  box-shadow: 0 4px 14px -4px rgba(0, 0, 0, .3);
+  pointer-events: none;
+  transform: translateY(-100%);
+  animation: tip-in .12s ease-out
+}
+
+.tip-layer.below {
+  transform: none
+}
+
+@keyframes tip-in {
+  from { opacity: 0 }
 }
 
 .cradio,

@@ -82,6 +82,7 @@ function localISO(d: Date): string {
  * list or a localStorage-backed type list. */
 export function NewLoan({ customerId }: { customerId?: string } = {}) {
   const { isCrossBranch, can } = useAuth();
+  const canPublishRate = can("Gold_Rate_Management", "can_create_gold_rate");
   // Single-branch business: the Branch picker is locked to its one branch.
   const { singleBranch } = useBranding();
   const { config: workflow } = useApprovalWorkflow();
@@ -679,16 +680,22 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--red)" }}>
             <Icon name="warning" /> <b>Today&apos;s gold rate must be set before creating a loan.</b>
           </div>
-          <div className="frow"><div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" onWheel={blurOnWheel} value={rateR24} onChange={(e) => setRateR24(e.target.value)} /></div></div>
-          <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
-            Only the 24K benchmark needs to be set — other purities are resolved per-ornament when pledged.
-          </p>
-          {rateErr && <p style={{ color: "var(--red)", fontSize: 12.5, margin: 0 }}>{rateErr}</p>}
-          <div>
-            <button className="btn" onClick={saveTodayRate} disabled={rateSaving}>
-              <Icon name="check" /> {rateSaving ? "Saving…" : "Save Rate"}
-            </button>
-          </div>
+          {canPublishRate ? (
+            <>
+              <div className="frow"><div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" onWheel={blurOnWheel} value={rateR24} onChange={(e) => setRateR24(e.target.value)} /></div></div>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+                Only the 24K benchmark needs to be set — other purities are resolved per-ornament when pledged.
+              </p>
+              {rateErr && <p style={{ color: "var(--red)", fontSize: 12.5, margin: 0 }}>{rateErr}</p>}
+              <div>
+                <button className="btn" onClick={saveTodayRate} disabled={rateSaving}>
+                  <Icon name="check" /> {rateSaving ? "Saving…" : "Save Rate"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p style={{ fontSize: 12.5, margin: 0 }}>Ask someone who can publish gold rates to set today&apos;s rate.</p>
+          )}
         </div>
       )}
       {/* .cols21's shared 2fr:1fr ratio (app.css) is used by three other

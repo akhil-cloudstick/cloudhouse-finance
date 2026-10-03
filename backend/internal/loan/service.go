@@ -1088,8 +1088,10 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 	// OnlyDefaulted), so the SQL candidate set is fetched in full, enriched,
 	// narrowed to IsDefaulted, and only then paginated — the same
 	// fetch-classify-then-page approach ListLoanRiskAssessment uses.
+	// AllAuctionCases works the same way, keeping IsDefaulted loans plus the
+	// stored Auction Eligible / Auctioned - Balance Due statuses.
 	limit, offset := f.Limit, f.Offset
-	if f.OnlyDefaulted {
+	if f.OnlyDefaulted || f.AllAuctionCases {
 		f.Limit, f.Offset = 0, 0
 	}
 	loans, total, err := s.repo.FindAll(ctx, f)
@@ -1112,18 +1114,27 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 		s.enrich(ctx, l)
 	}
 	if f.OnlyDefaulted {
-		loans, total = pageDefaulted(loans, limit, offset)
+		loans, total = pageKept(loans, limit, offset, func(l *Loan) bool { return l.IsDefaulted })
+	} else if f.AllAuctionCases {
+		loans, total = pageKept(loans, limit, offset, isAuctionCase)
 	}
 	return loans, total, nil
 }
 
-// pageDefaulted keeps only the IsDefaulted loans (already enriched) and
+// isAuctionCase reports whether an enriched loan belongs to any of the mobile
+// Auctions screen's buckets (see LoanFilter.AllAuctionCases).
+func isAuctionCase(l *Loan) bool {
+	return l.Status == StatusAuctionEligible || l.Status == StatusAuctionedBalanceDue || l.IsDefaulted
+}
+
+// pageKept keeps only the loans (already enriched) matching keep and
 // returns the requested page of them plus the total match count. limit <= 0
 // returns every match (total is still reported).
-func pageDefaulted(loans []Loan, limit, offset int) ([]Loan, int64) {
+func pageKept(loans []Loan, limit, offset int, keep func(*Loan) bool) ([]Loan, int64) {
 	kept := loans[:0]
-	for _, l := range loans {
-		if l.IsDefaulted {
+	for i := range loans {
+		l := loans[i]
+		if keep(&l) {
 			kept = append(kept, l)
 		}
 	}
@@ -5658,7 +5669,30 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		Policy:          policy,
 		DueDate:         l.DueDate,
 		LenderSignature: s.lenderSignature(ctx),
+		Disbursements:   s.bondDisbursements(ctx, l),
 	}
+}
+
+// bondDisbursements splits l.PrincipalAmount into the initial advance and
+// each later additional advance (the loan's Active top-ups), oldest first,
+// for the bond's amount-distribution table. Returns nil when there were no
+// additional advances — or the lookup fails — so the bond falls back to
+// printing the single total.
+func (s *Service) bondDisbursements(ctx context.Context, l *Loan) []BondDisbursement {
+	ups, err := s.topUpRepo.FindActiveByLoanID(ctx, l.ID)
+	if err != nil || len(ups) == 0 {
+		return nil
+	}
+	initial := l.PrincipalAmount
+	for _, t := range ups {
+		initial -= t.Amount
+	}
+	out := []BondDisbursement{{Date: l.OpenedDate, Amount: math.Max(platform.RoundMoney(initial), 0), Initial: true}}
+	// FindActiveByLoanID returns newest first.
+	for i := len(ups) - 1; i >= 0; i-- {
+		out = append(out, BondDisbursement{Date: ups[i].OccurredOn, Amount: ups[i].Amount})
+	}
+	return out
 }
 
 // FillLenderProfile stamps the current business's own lender particulars and

@@ -36,6 +36,8 @@ import {
 import { listLoansPage } from "../../../src/api/loans";
 import { LedgerList } from "../../../src/components/staff/LedgerList";
 import { ApiError } from "../../../src/api/client";
+import { useAuth } from "../../../src/auth/AuthContext";
+import { useCanOpen } from "../../../src/config/routePermissions";
 import { dmy, inr } from "../../../src/lib/format";
 import type { Customer } from "../../../src/types/customer";
 import type { CustomerAuctionRow, CustomerBankPledgeRow, CustomerOrnamentRow, CustomerPaymentRow, Loan } from "../../../src/types/loan";
@@ -77,6 +79,7 @@ function HeaderCard({ c, onEdit }: { c: Customer; onEdit: () => void }) {
   const [aadhaarFull, setAadhaarFull] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
   const [revealError, setRevealError] = useState<string | null>(null);
+  const canUpdate = useAuth().can("Customer_Management", "can_update_customer");
 
   async function reveal() {
     if (aadhaarFull) return setAadhaarFull(null);
@@ -141,9 +144,11 @@ function HeaderCard({ c, onEdit }: { c: Customer; onEdit: () => void }) {
                     <Txt style={s.v}>{aadhaarFull ? fmtAadhaar(aadhaarFull) : `×××× ×××× ${c.aadhaarLast4}`}</Txt>
                     <StatusBadge status={c.aadhaarStatus} />
                   </View>
-                  <Pressable onPress={reveal} hitSlop={6} disabled={revealing} style={{ marginTop: 4 }}>
-                    <Txt style={s.reveal}>{revealing ? "Loading…" : aadhaarFull ? "Hide" : "Show full"}</Txt>
-                  </Pressable>
+                  {canUpdate ? (
+                    <Pressable onPress={reveal} hitSlop={6} disabled={revealing} style={{ marginTop: 4 }}>
+                      <Txt style={s.reveal}>{revealing ? "Loading…" : aadhaarFull ? "Hide" : "Show full"}</Txt>
+                    </Pressable>
+                  ) : null}
                   {revealError ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 2 }}>{revealError}</Txt> : null}
                 </View>
               ) : (
@@ -152,7 +157,7 @@ function HeaderCard({ c, onEdit }: { c: Customer; onEdit: () => void }) {
             }
           />
           <DetailRow k="KYC status" v={c.kycStatus ? <StatusBadge status={c.kycStatus} /> : "—"} />
-          <PrimaryButton label="Edit Customer" onPress={onEdit} style={{ marginTop: 12 }} />
+          {canUpdate ? <PrimaryButton label="Edit Customer" onPress={onEdit} style={{ marginTop: 12 }} /> : null}
         </View>
       ) : null}
     </View>
@@ -221,6 +226,10 @@ export default function CustomerDetailScreen() {
   useResetOnBlur(() => setEditOpen(false));
 
   const viewLoan = (loanId: number) => openPage(`/loans/${loanId}`);
+  const canOpen = useCanOpen();
+  const canViewLoans = canOpen("/loans");
+  // The Auctions tab needs "can view auction module".
+  const visibleTabs = canOpen("/auctions") ? TABS : TABS.filter((t) => t !== "Auctions");
 
   const header = (
     <FlatHeader
@@ -247,7 +256,7 @@ export default function CustomerDetailScreen() {
           <DetailRow k="Mobile" v={data.nomineePhone || "—"} />
         </Card>
       ) : null}
-      <PillTabs tabs={TABS} value={tab} onChange={setTab} />
+      <PillTabs tabs={visibleTabs} value={tab} onChange={setTab} />
     </>
   );
 
@@ -275,7 +284,7 @@ export default function CustomerDetailScreen() {
                 { k: "Opened", v: dmy(l.openedDate) },
                 { k: "Due", v: dmy(l.dueDate) },
               ]}
-              actions={[{ label: "View Loan", primary: true, onPress: () => viewLoan(l.id) }]}
+              actions={canViewLoans ? [{ label: "View Loan", primary: true, onPress: () => viewLoan(l.id) }] : undefined}
             />
           )}
         />
@@ -301,7 +310,7 @@ export default function CustomerDetailScreen() {
                 { k: "Gold value", v: inr(o.goldValue) },
                 ...(o.quantity > 1 ? [{ k: "Quantity", v: String(o.quantity) }] : []),
               ]}
-              actions={[{ label: "View Loan", onPress: () => viewLoan(o.loanId) }]}
+              actions={canViewLoans ? [{ label: "View Loan", onPress: () => viewLoan(o.loanId) }] : undefined}
             />
           )}
         />
@@ -326,7 +335,7 @@ export default function CustomerDetailScreen() {
                 { k: "Method", v: p.method || "—" },
                 ...(p.reference ? [{ k: "Reference", v: p.reference }] : []),
               ]}
-              actions={[{ label: "View Loan", onPress: () => viewLoan(p.loanId) }]}
+              actions={canViewLoans ? [{ label: "View Loan", onPress: () => viewLoan(p.loanId) }] : undefined}
             />
           )}
         />
@@ -353,7 +362,7 @@ export default function CustomerDetailScreen() {
                 ...(b.referenceNumber ? [{ k: "Reference", v: b.referenceNumber }] : []),
                 ...(hasDate(b.releaseDate) ? [{ k: "Released on", v: dmy(b.releaseDate) }] : []),
               ]}
-              actions={[{ label: "View Loan", onPress: () => viewLoan(b.loanId) }]}
+              actions={canViewLoans ? [{ label: "View Loan", onPress: () => viewLoan(b.loanId) }] : undefined}
             />
           )}
         />
@@ -385,7 +394,7 @@ export default function CustomerDetailScreen() {
                     color: a.saleAmount ? (surplus >= 0 ? C.green : C.red) : undefined,
                   },
                 ]}
-                actions={[{ label: "View Loan", onPress: () => viewLoan(a.loanId) }]}
+                actions={canViewLoans ? [{ label: "View Loan", onPress: () => viewLoan(a.loanId) }] : undefined}
               />
             );
           }}

@@ -2,7 +2,7 @@
 <h1>{{.LenderName}}</h1>
 <h2>{{.LenderAddressShort}}<br>KML Reg No: {{.LenderRegNo}}</h2>
 
-<table style="border:none;margin:16px 0">
+<table style="border:none;margin:8px 0">
 <tr>
 <td style="border:none;width:50%">ITEM NAME: {{.ItemNames}}<br>ITEM Weight: {{.ItemWeights}}</td>
 <td style="border:none">Loan No. {{.LoanNumber}}<br>Date: {{.DateDisplay}}</td>
@@ -11,13 +11,20 @@
 
 <p>CUSTOMER NAME: {{.CustomerName}}<br>CUSTOMER MOB NO: {{.Mobile}}</p>
 <p>AMOUNT: {{.PrincipalAmount}}</p>
+{{if .Distribution}}<table style="margin:4px 0 10px">
+<thead><tr><th>Date</th><th>Particulars</th><th class="num">Amount (Rs.)</th></tr></thead>
+<tbody>
+{{range .Distribution}}<tr><td>{{.Date}}</td><td>{{if .Initial}}Initial loan amount{{else}}Additional loan amount{{end}}</td><td class="num">{{.Amount}}</td></tr>
+{{end}}<tr><th colspan="2">Total</th><th class="num">{{.PrincipalAmount}}</th></tr>
+</tbody>
+</table>{{end}}
 
 <p>
 I, <b>{{.CustomerName}}</b>, declare that the gold ornaments shown above are my own property and no one else has any claim to them. I have pledged these ornaments with your establishment, <b>{{.LenderName}}</b>, and hereby humbly request that a loan of Rs. <b>{{.PrincipalAmount}}</b> ( {{.AmountWords}} only ), equal to the appraised value of the ornaments, be granted to me at monthly interest.
 </p>
 <p>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
 
-<h3 style="text-align:center;margin-top:30px">DECLARATION</h3>
+<h3 style="text-align:center;margin:16px 0 8px">DECLARATION</h3>
 
 <p>
 I, <b>{{.CustomerName}}</b>, undertake to pay the interest on the loan of Rs. <b>{{.PrincipalAmount}}</b> availed by me every month without fail, and assure that I will close the loan by repaying the full amount along with interest within one year. If for any reason I am unable to repay the borrowed money with interest, I hereby agree that the owner of <b>{{.LenderName}}</b> shall have the right to auction or sell these ornaments to recover any loss incurred by the establishment, and that I will not raise any claim regarding this thereafter.
@@ -27,10 +34,12 @@ I, <b>{{.CustomerName}}</b>, undertake to pay the interest on the loan of Rs. <b
 <p>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
 <p style="margin-top:18px"><b>Loan Sanctioned.</b></p>
 <p>Date: {{.DateDisplay}}</p>
+{{/* Lender signs the sanction — see kml-bond-malayalam.html. */}}
+<div class="sanction-sig"><div class="slot">{{.LenderSignature}}</div><span>Owner Signature<br>{{.LenderName}}</span></div>
 
-<hr style="margin-top:40px;border:none;border-top:1px solid #999">
-<p style="margin-top:24px"><b>Signature of the person who receives the jewellery back</b></p>
+<hr style="margin-top:14px;border:none;border-top:1px solid #999">
+<p style="margin-top:12px"><b>Signature of the person who receives the jewellery back</b></p>
 <p>Ornaments received back without any damage.</p>
-<p>Date: {{.Blank}}<br>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
+<p>Date: {{.Blank}} &nbsp; Name: {{.CustomerName}} &nbsp; Signature: {{.Blank}}</p>
 </div>
 </body></html>

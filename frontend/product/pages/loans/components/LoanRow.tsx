@@ -4,6 +4,7 @@ import { fmt } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import type { LoanView } from "@/product/pages/loans/services/loanService";
 import { navigate } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 /* Ported from legacy/app.js's `loanRow(l)` — the shared row-builder used by
  * both the Customer 360° loan history table and the Loans page. Now reads
@@ -31,8 +32,11 @@ function displayStatus(l: LoanView): string {
 }
 
 export function LoanRow({ loan: l }: { loan: LoanView }) {
+  // Not clickable for a role that can't open the loan (Customer Detail
+  // shows these rows without needing loan view).
+  const canOpen = useCanOpenRoute()("loan");
   return (
-    <tr className="click" onClick={() => { navigate("loan/" + l.id); }}>
+    <tr className={canOpen ? "click" : undefined} onClick={canOpen ? () => navigate("loan/" + l.id) : undefined}>
       <td><span className="id">{l.id}</span><span className="sub">{l.customerName}</span></td>
       <td>{l.schemeName}</td>
       <td>{l.opened}<span className="sub">due {l.due}</span></td>

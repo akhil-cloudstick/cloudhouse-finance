@@ -9,6 +9,7 @@ import { LoansProvider } from "@/product/pages/loans/store/LoansProvider";
 import { GoldRatesProvider } from "@/product/pages/gold-rates/store/GoldRatesProvider";
 import { ModalProvider } from "@/product/components/Modal";
 import { ToastProvider } from "@/product/components/Toast";
+import { TooltipLayer } from "@/product/components/Tooltip";
 import { Sidebar } from "@/product/layout/Sidebar";
 import { Topbar } from "@/product/layout/Topbar";
 import { useAppRoute } from "@/product/hooks/useAppRoute";
@@ -44,52 +45,9 @@ import { RolesPermissions } from "@/product/pages/roles/components/RolesPermissi
 import { Billing } from "@/product/pages/billing/components/Billing";
 import { useAuth } from "@/product/providers/auth-context";
 import { ModeLedgerPage } from "@/product/pages/cash/components/ModeLedgerPage";
-
-/* Every route the router can reach, mapped to the permission that
- * gates it — the same module/key pairs Sidebar.tsx filters its nav on (see
- * that file's NAV array). module: null means always reachable (Dashboard).
- * This is what actually enforces access to a page: the nav filter only
- * stops a user from *finding* a page, this stops them *reaching* it by
- * typed/bookmarked URL — including detail routes (a customer/loan/packet
- * id), which need the same permission as their list page (§11). */
-const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string; tenantModule?: string }> = {
-  dashboard: { module: null },
-  customers: { module: "Customer_Management", key: "can_view_customer" },
-  customer: { module: "Customer_Management", key: "can_view_customer" },
-  loans: { module: "Loan_Management", key: "can_view_loan" },
-  loan: { module: "Loan_Management", key: "can_view_loan" },
-  newloan: { module: "Loan_Management", key: "can_create_loan" },
-  schemes: { module: "Scheme_Management", key: "can_view_scheme" },
-  goldrates: { module: "Gold_Rate_Management", key: "can_view_gold_rate" },
-  requests: { module: "Loan_Management", key: "can_view_loan" },
-  loanrisk: { module: "Loan_Management", key: "can_view_loan" },
-  personalloans: { module: "Personal_Loan_Management", key: "can_view_personal_loan", tenantModule: "personal_loans" },
-  personalloan: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
-  investments: { module: "Investment_Management", key: "can_view_investment", tenantModule: "investments" },
-  investment: { module: "Investment_Management", key: "can_view_investment" },
-  ledger: { module: "Cash_Management", key: "can_view_cash" },
-  auctions: { module: "Loan_Management", key: "can_view_loan" },
-  packets: { module: "Packet_Management", key: "can_view_packet" },
-  packet: { module: "Packet_Management", key: "can_view_packet" },
-  bankpledge: { module: "Bank_Pledge_Management", key: "can_view_bank_pledge" },
-  reports: { module: "Report_Management", key: "can_view_report" },
-  employees: { module: "Employee_Management", key: "can_view_employee" },
-  calendar: { module: "Reminder_Management", key: "can_view_reminder" },
-  branches: { module: "Branch_Management", key: "can_view_branch", tenantModule: "branches" },
-  banks: { module: "Bank_Management", key: "can_view_bank" },
-  // Drill-down-only routes off the Cash & Expenses page — reuse can_view_cash
-  // (viewing a party's ledger is a drill-down of data the user can already
-  // see there, not a new resource) rather than a new permission.
-  "ledger-bank": { module: "Cash_Management", key: "can_view_cash" },
-  "ledger-customer": { module: "Cash_Management", key: "can_view_cash" },
-  "ledger-category": { module: "Cash_Management", key: "can_view_cash" },  "cash-ledger": { module: "Cash_Management", key: "can_view_cash" },
-  "upi-ledger": { module: "Cash_Management", key: "can_view_cash" },
-  "bank-transfer-ledger": { module: "Cash_Management", key: "can_view_cash" },
-  "cheque-ledger": { module: "Cash_Management", key: "can_view_cash" },
-  "roles-permissions": { module: "Role_Management", key: "can_view_role_and_permission" },
-  billing: { module: "Billing", key: "can_manage_billing" },
-  settings: { module: "Settings_Management", key: "can_view_setting", tenantModule: "settings" },
-};
+import { ROUTE_ALIASES } from "@/product/config/routes";
+import { ROUTE_PERMISSIONS, baseRoute, routeAllowed, setNavigationGuard } from "@/product/config/routePermissions";
+import { useToast } from "@/product/components/Toast";
 
 function NoAccess() {
   return (
@@ -223,6 +181,24 @@ function AppShellInner() {
   // genuine route change already does.
   const [reloadSeq, setReloadSeq] = useState(0);
 
+  // The navigation guard navigate() consults (config/routePermissions.ts):
+  // a link, button or KPI card to a page this role can't open is refused
+  // with a toast and the user stays put, rather than being taken to the
+  // NoAccess screen View would render there.
+  const { can, permissionsLoaded } = useAuth();
+  const { hasModule } = useBranding();
+  const toast = useToast();
+  useEffect(() => {
+    if (!permissionsLoaded || !brandingLoaded) return;
+    setNavigationGuard((target) => {
+      const r = baseRoute(target);
+      if (routeAllowed(ROUTE_ALIASES[r] ?? r, can, hasModule)) return true;
+      toast("You don't have permission to open this page.");
+      return false;
+    });
+    return () => setNavigationGuard(null);
+  }, [permissionsLoaded, brandingLoaded, can, hasModule, toast]);
+
   /* In-app links navigate WITHOUT a full page load.
    *
    * Every route link in the console is a plain <a href="/ctfi/loan/GL-1001">,
@@ -335,6 +311,7 @@ export function AppShell() {
               <ToastProvider>
                 <ModalProvider>
                   <AppShellInner />
+                  <TooltipLayer />
                 </ModalProvider>
               </ToastProvider>
             </GoldRatesProvider>

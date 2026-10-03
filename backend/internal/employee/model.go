@@ -52,11 +52,15 @@ type Employee struct {
 	// hash of a 6-digit SMS OTP (10-minute TTL) rather than a 32-byte
 	// emailed link token — same fields, shorter-lived, see
 	// internal/auth/service.go's ForgotPassword/ResetPassword.
-	PasswordResetTokenHash string         `json:"-" gorm:"size:64"`
-	PasswordResetExpiresAt *time.Time     `json:"-"`
-	CreatedAt              time.Time      `json:"createdAt"`
-	UpdatedAt              time.Time      `json:"updatedAt"`
-	DeletedAt              gorm.DeletedAt `json:"-" gorm:"index"`
+	PasswordResetTokenHash string     `json:"-" gorm:"size:64"`
+	PasswordResetExpiresAt *time.Time `json:"-"`
+	// PasswordResetAttempts counts wrong codes against the current reset
+	// code; at the limit (see auth.maxResetAttempts) the code is discarded
+	// so a 6-digit code can't be brute-forced within its 10 minutes.
+	PasswordResetAttempts int            `json:"-" gorm:"not null;default:0"`
+	CreatedAt             time.Time      `json:"createdAt"`
+	UpdatedAt             time.Time      `json:"updatedAt"`
+	DeletedAt             gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 func (Employee) TableName() string {

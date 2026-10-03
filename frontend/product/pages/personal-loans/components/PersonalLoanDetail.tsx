@@ -319,10 +319,10 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         <div className="kpis-strip-item"><span className="l">Status</span><StatusChip status={loan.status} /></div>
         <div className="kpis-strip-item"><span className="l">Frequency</span><span className="v">{loan.frequency}</span></div>
         {loan.renewedFromLoanId && (
-          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={`#personalloan/${loan.renewedFromLoanId}`}>Loan #{loan.renewedFromLoanId}</a></div>
+          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={routeHref(`personalloan/${loan.renewedFromLoanId}`)}>Loan #{loan.renewedFromLoanId}</a></div>
         )}
         {loan.renewedToLoanId && (
-          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={`#personalloan/${loan.renewedToLoanId}`}>Loan #{loan.renewedToLoanId}</a></div>
+          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={routeHref(`personalloan/${loan.renewedToLoanId}`)}>Loan #{loan.renewedToLoanId}</a></div>
         )}
         {loan.penalCycleCount > 0 && (
           <div className="kpis-strip-item"><span className="l">Penal Interest</span><span className="v">{fmt(loan.totalPenalInterestCharged)}</span><span className="s">(cycle {loan.penalCycleCount})</span></div>
@@ -385,7 +385,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
                       <td className="pl-history-detail" title={hEntry.detail}>
                         {hEntry.detail}
                         {hEntry.relatedLoanId && (
-                          <> · <a href={`#personalloan/${hEntry.relatedLoanId}`}>View loan</a></>
+                          <> · <a href={routeHref(`personalloan/${hEntry.relatedLoanId}`)}>View loan</a></>
                         )}
                       </td>
                       <td className="num">{hEntry.amount ? fmt(hEntry.amount) : ""}</td>

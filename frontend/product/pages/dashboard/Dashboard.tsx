@@ -22,6 +22,7 @@ import { getCalendarEventsPage, type CalendarEvent } from "@/product/pages/remin
 import { listLoanRequests, getInterestCollected, type RequestView } from "@/product/pages/loans/services/loanService";
 import { getNeedsAttentionPage, type NeedsAttentionItem } from "@/product/pages/dashboard/services/dashboardService";
 import { routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 function Kpi({ l, v, s, cls, href }: { l: string; v: string | number; s?: string; cls?: string; href?: string }) {
   const body = (
@@ -106,6 +107,13 @@ export function Dashboard() {
   const canCreateLoans = can("Loan_Management", "can_create_loan");
   const canCreateRates = can("Gold_Rate_Management", "can_create_gold_rate");
   const canCreateCustomers = can("Customer_Management", "can_create_customer");
+  // Links, KPI tiles and buttons only to pages this role can open.
+  const canOpen = useCanOpenRoute();
+  const link = (r: string) => (canOpen(r) ? routeHref(r) : undefined);
+  // Each panel only loads what this role may view — the rest stay empty.
+  const canViewLoans = can("Loan_Management", "can_view_loan_module");
+  const canViewCash = can("Cash_Management", "can_view_cash_module");
+  const canViewReminders = can("Reminder_Management", "can_view_reminder_module");
   const { latest } = useGoldRates();
   const { openModal } = useModal();
 
@@ -114,15 +122,18 @@ export function Dashboard() {
   const [pendingReq, setPendingReq] = useState<RequestView[]>([]);
   const [interestCollected, setInterestCollected] = useState(0);
   useEffect(() => {
-    listCashMovements().then(setCashMovements).catch(() => setCashMovements([]));
-    listExpenses().then(setExpenses).catch(() => setExpenses([]));
+    if (canViewCash) {
+      listCashMovements().then(setCashMovements).catch(() => setCashMovements([]));
+      listExpenses().then(setExpenses).catch(() => setExpenses([]));
+    }
+    if (!canViewLoans) return;
     // Real replacements for the old always-empty db.requests/db.ledger
     // mock data — see documents/change_log.md. Kept as a full (unpaginated)
     // fetch: the "Extension Requests"/"Gold Release Requests" KPI tiles
     // below need the true counts by type, not one page of them.
     listLoanRequests({ status: "Pending" }).then(setPendingReq).catch(() => setPendingReq([]));
     getInterestCollected().then(setInterestCollected).catch(() => setInterestCollected(0));
-  }, []);
+  }, [canViewCash, canViewLoans]);
 
   const today = new Date().toISOString().slice(0, 10);
   const todayLabel = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -181,10 +192,11 @@ export function Dashboard() {
   const [needsAttentionItems, setNeedsAttentionItems] = useState<NeedsAttentionItem[]>([]);
   const [needsAttentionTotal, setNeedsAttentionTotal] = useState(0);
   useEffect(() => {
+    if (!canViewLoans) return;
     getNeedsAttentionPage(needsAttentionPage)
       .then((res) => { setNeedsAttentionItems(res.items); setNeedsAttentionTotal(res.totalCount); })
       .catch(() => { setNeedsAttentionItems([]); setNeedsAttentionTotal(0); });
-  }, [needsAttentionPage]);
+  }, [needsAttentionPage, canViewLoans]);
   const needsAttentionPages = Math.max(1, Math.ceil(needsAttentionTotal / NEEDS_ATTENTION_PAGE_SIZE));
   const needsAttentionPageItems = needsAttentionItems;
 
@@ -197,12 +209,13 @@ export function Dashboard() {
   const [reminderPageItems, setReminderPageItems] = useState<CalendarEvent[]>([]);
   const [reminderTotal, setReminderTotal] = useState(0);
   useEffect(() => {
+    if (!canViewReminders) return;
     const from = new Date().toISOString().slice(0, 10);
     const to = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
     getCalendarEventsPage(from, to, reminderPage, REMINDERS_PAGE_SIZE)
       .then((res) => { setReminderPageItems(res.events); setReminderTotal(res.totalCount); })
       .catch(() => { setReminderPageItems([]); setReminderTotal(0); });
-  }, [reminderPage]);
+  }, [reminderPage, canViewReminders]);
   const reminderPages = Math.max(1, Math.ceil(reminderTotal / REMINDERS_PAGE_SIZE));
 
   const [calcW, setCalcW] = useState("10");
@@ -260,22 +273,22 @@ export function Dashboard() {
            * instead ("Total Amount"'s longer value rendering visibly
            * wider than "Loans"' short one). */}
           <div className="kpis dashboard-kpis">
-            <Kpi l="Cash in Hand" v={fmt(cashInHand)} cls="ok" href={routeHref("ledger")} />
-            <Kpi l="Loans Opened Today" v={openedToday} href={routeHref("loans")} />
-            <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} href={routeHref("loans/Active")} />
-            <Kpi l="Due Soon" v={dueSoon.length} s="within 14 days" cls={dueSoon.length ? "warn" : ""} href={routeHref(`loans/${encodeURIComponent("Due Soon")}`)} />
-            <Kpi l="Overdue Loans" v={overdue.length} s={fmt(overdue.reduce((s, l) => s + l.outstanding, 0)) + " at risk"} cls={overdue.length ? "warn" : ""} href={routeHref("loans/Overdue")} />
-            <Kpi l="Pending Approvals" v={pendingApprovalLoans.length} s="awaiting sanction" cls={pendingApprovalLoans.length ? "warn" : ""} href={routeHref(`loans/${encodeURIComponent("Pending Approval")}`)} />
-            <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="from mobile app" href={routeHref("requests")} />
-            <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" href={routeHref("requests")} />
-            <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} href={routeHref("bankpledge")} />
-            <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href={routeHref("auctions")} />
-            <Kpi l="Today's Expenses" v={fmt(expToday)} href={routeHref("ledger")} />
-            <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={routeHref("reports")} />
+            <Kpi l="Cash in Hand" v={fmt(cashInHand)} cls="ok" href={link("ledger")} />
+            <Kpi l="Loans Opened Today" v={openedToday} href={link("loans")} />
+            <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} href={link("loans/Active")} />
+            <Kpi l="Due Soon" v={dueSoon.length} s="within 14 days" cls={dueSoon.length ? "warn" : ""} href={link(`loans/${encodeURIComponent("Due Soon")}`)} />
+            <Kpi l="Overdue Loans" v={overdue.length} s={fmt(overdue.reduce((s, l) => s + l.outstanding, 0)) + " at risk"} cls={overdue.length ? "warn" : ""} href={link("loans/Overdue")} />
+            <Kpi l="Pending Approvals" v={pendingApprovalLoans.length} s="awaiting sanction" cls={pendingApprovalLoans.length ? "warn" : ""} href={link(`loans/${encodeURIComponent("Pending Approval")}`)} />
+            <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="from mobile app" href={link("requests")} />
+            <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" href={link("requests")} />
+            <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} href={link("bankpledge")} />
+            <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href={link("auctions")} />
+            <Kpi l="Today's Expenses" v={fmt(expToday)} href={link("ledger")} />
+            <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={link("reports")} />
           </div>
 
           <div className="card gtop">
-            <div className="hd"><h3>Loan Portfolio — Disbursement (last 6 months)</h3><div className="sp" /><a href={routeHref("reports")} style={{ fontSize: 12.5 }}>All reports →</a></div>
+            <div className="hd"><h3>Loan Portfolio — Disbursement (last 6 months)</h3><div className="sp" />{canOpen("reports") ? <a href={routeHref("reports")} style={{ fontSize: 12.5 }}>All reports →</a> : null}</div>
             <div className="bd">
               <div className="bars">
                 {monthBuckets.map(([m, v], i) => (
@@ -286,7 +299,7 @@ export function Dashboard() {
           </div>
 
           <div className="card">
-            <div className="hd"><h3>Needs Attention</h3><div className="sp" /><a href={routeHref("requests")} style={{ fontSize: 12.5 }}>View all →</a></div>
+            <div className="hd"><h3>Needs Attention</h3><div className="sp" />{canOpen("requests") ? <a href={routeHref("requests")} style={{ fontSize: 12.5 }}>View all →</a> : null}</div>
             <div className="bd" style={{ paddingTop: 6 }}>
               <ul className="mini-list">
                 {needsAttentionPageItems.length === 0 && (
@@ -303,7 +316,7 @@ export function Dashboard() {
                         <li key={"appr-exp-" + item.entityId}>
                           <span className="ic"><Icon name="stamp" /></span>
                           <span className="tx"><b>Expense approval — {item.detail || "Expense"}</b><small>{item.customerName} · {fmt(item.principal)}</small></span>
-                          <span className="rt"><a className="btn sm" href={routeHref("ledger")}>Review</a></span>
+                          {canOpen("ledger") ? <span className="rt"><a className="btn sm" href={routeHref("ledger")}>Review</a></span> : null}
                         </li>
                       );
                     }
@@ -312,7 +325,7 @@ export function Dashboard() {
                         <li key={"appr-pl-" + item.entityId}>
                           <span className="ic"><Icon name="stamp" /></span>
                           <span className="tx"><b>Personal loan approval — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.principal)} · at {stage} stage</small></span>
-                          <span className="rt"><a className="btn sm" href={routeHref(`personalloan/${item.entityId}`)}>Review</a></span>
+                          {canOpen(`personalloan/${item.entityId}`) ? <span className="rt"><a className="btn sm" href={routeHref(`personalloan/${item.entityId}`)}>Review</a></span> : null}
                         </li>
                       );
                     }
@@ -320,7 +333,7 @@ export function Dashboard() {
                       <li key={`appr-${item.flow}-${item.entityId}`}>
                         <span className="ic"><Icon name="stamp" /></span>
                         <span className="tx"><b>{item.flow === "loan_topup" ? "Top-up approval" : "Loan approval"} — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.principal)} · at {stage} stage</small></span>
-                        <span className="rt"><a className="btn sm" href={routeHref(`loan/${item.loanNumber}`)}>Review</a></span>
+                        {canOpen(`loan/${item.loanNumber}`) ? <span className="rt"><a className="btn sm" href={routeHref(`loan/${item.loanNumber}`)}>Review</a></span> : null}
                       </li>
                     );
                   }
@@ -329,7 +342,7 @@ export function Dashboard() {
                       <li key={"req-" + item.requestId}>
                         <span className="ic"><Icon name={item.requestType === "Extension" ? "clock" : item.requestType === "Release" ? "unlock" : "edit"} /></span>
                         <span className="tx"><b>{item.requestType} request — {item.loanNumber}</b><small>{item.customerName} · {item.detail}</small></span>
-                        <span className="rt"><a className="btn sm ghost" href={routeHref("requests")}>Open</a></span>
+                        {canOpen("requests") ? <span className="rt"><a className="btn sm ghost" href={routeHref("requests")}>Open</a></span> : null}
                       </li>
                     );
                   }
@@ -337,7 +350,7 @@ export function Dashboard() {
                     <li key={"auc-" + item.loanId}>
                       <span className="ic" style={{ background: "var(--red-bg)", color: "var(--red)" }}><Icon name="gavel" /></span>
                       <span className="tx"><b>Auction case — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.outstanding)} outstanding · {item.status}</small></span>
-                      <span className="rt"><a className="btn sm ghost" href={routeHref("auctions")}>Open</a></span>
+                      {canOpen("auctions") ? <span className="rt"><a className="btn sm ghost" href={routeHref("auctions")}>Open</a></span> : null}
                     </li>
                   );
                 })}
@@ -402,7 +415,7 @@ export function Dashboard() {
          
 
           <div className="card">
-            <div className="hd"><h3>Upcoming Reminders</h3><div className="sp" /><a href={routeHref("calendar")} style={{ fontSize: 12.5 }}>Calendar →</a></div>
+            <div className="hd"><h3>Upcoming Reminders</h3><div className="sp" />{canOpen("calendar") ? <a href={routeHref("calendar")} style={{ fontSize: 12.5 }}>Calendar →</a> : null}</div>
             <div className="bd" style={{ paddingTop: 6 }}>
               <ul className="mini-list">
                 {reminderPageItems.length ? reminderPageItems.map((e, i) => (
