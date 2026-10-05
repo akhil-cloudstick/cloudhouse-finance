@@ -97,6 +97,8 @@
   --select-caret: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236054bf' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --sidebar-w: 248px;
+  --app-h: 100vh;
+  --titlebar-h: 0px;
 
   /* Per-business typography (multi-tenant theming) — defaults matching
      theme.ts's DEFAULT_FONT_FAMILY/DEFAULT_FONT_SCALE, overwritten by
@@ -122,7 +124,7 @@ body {
   font-size: calc(1em * var(--brand-font-scale));
   color: var(--ink);
   background: var(--bg);
-  min-height: 100vh;
+  min-height: var(--app-h);
 }
 
 body::before {
@@ -152,7 +154,7 @@ h3,
  * direction. All scrolling that IS needed happens inside .page (below). */
 .shell {
   display: flex;
-  height: 100vh;
+  height: var(--app-h);
   overflow: hidden;
   position: relative;
   z-index: 1
@@ -168,7 +170,7 @@ h3,
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  height: var(--app-h);
   background: #f6f5f8;
 }
 .shell-loading-spinner {
@@ -232,7 +234,7 @@ h3,
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: 0;
+  top: var(--titlebar-h);
   bottom: 0;
   left: 0;
   z-index: 40;
@@ -7527,3 +7529,51 @@ table.tbl {
 .tbl tr.ledger-row-focus > td:first-child {
   box-shadow: inset 3px 0 0 var(--brand);
 }
+
+/* Desktop window title bar (components/DesktopTitleBar.tsx). Only present in the
+ * packaged app, which has no native frame; the class below reserves its height. */
+html.has-titlebar {
+  --titlebar-h: 32px;
+  --app-h: calc(100vh - 32px);
+}
+html.has-titlebar body {
+  padding-top: var(--titlebar-h);
+}
+.dtb {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  z-index: 2147483000;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  background: var(--nav);
+  color: oklch(0.95 0.006 290);
+  font-size: 12px;
+  user-select: none;
+  --wails-draggable: drag;
+}
+.dtb-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  min-width: 0;
+}
+.dtb-title img { width: 16px; height: 16px; flex-shrink: 0; }
+.dtb-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtb-btns { display: flex; --wails-draggable: no-drag; }
+.dtb-btn {
+  width: 46px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: default;
+}
+.dtb-btn:hover { background: oklch(1 0 0 / .12); }
+.dtb-btn.close:hover { background: #c42b1c; color: #fff; }
+.dtb-btn svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1; }

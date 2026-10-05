@@ -30,6 +30,9 @@ const SLUG = "((?!_next|api|uploads|assets|static|favicon\.ico)[a-z0-9][a-z0-9-]
 const nextConfig: NextConfig = {
   output: "export",
 
+  // Set only by scripts/build-desktop.cjs, so the web build keeps writing to out/.
+  distDir: process.env.DESKTOP_BUILD ? "dist-desktop" : undefined,
+
   async rewrites() {
     return [
       { source: "/api/v1/:path*", destination: `${BACKEND_ORIGIN}/api/v1/:path*` },

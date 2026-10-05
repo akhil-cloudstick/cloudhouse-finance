@@ -1,31 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useModal } from "@/product/components/Modal";
 import { ConnectMobileModalContent } from "@/product/components/modals/ConnectMobileModal";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { useBranding } from "@/product/providers/BrandingProvider";
-import { FEATURES } from "@/product/config/features";
+import {
+  checkForUpdate,
+  downloadUpdate,
+  installUpdate,
+  isDesktop,
+  onUpdateEvent,
+} from "@/product/services/desktopBridge";
 
-type UpdateState = "idle" | "checking" | "uptodate" | "available" | "downloading" | "ready";
+type UpdateState = "idle" | "checking" | "uptodate" | "available" | "downloading" | "ready" | "error";
 
 const RING_C = 2 * Math.PI * 7;
-const storageKey = () => `cloudhouse.updateNotice.${FEATURES.updateId}`;
-
-function updateSeen(): boolean {
-  try { return localStorage.getItem(storageKey()) === "1"; } catch { return false; }
-}
+const subscribeNever = () => () => {};
 
 /* The header's name chip, opening a small dropdown that holds what used to
  * be three separate things: the Connect mobile app button, the sidebar's
  * update card (formerly layout/UpdateNotice.tsx) and the Sign out link.
  *
- * Updates stay UI-only, as before: "Check for updates" finds one only when
- * NEXT_PUBLIC_ENABLE_UPDATE_NOTICE is on and this update (keyed by its notes
- * text) hasn't been installed yet; the download is a progress animation and
- * "Restart" remembers the update and reloads. Every update state fits the
- * same row height — the icon slot swaps for a spinner or a progress ring.
+ * The "Check for updates" row exists only in the desktop app, where it drives
+ * the native updater (see desktopBridge); the web build never shows it. Every
+ * update state fits the same row height — the icon slot swaps for a spinner
+ * or a progress ring.
  *
  * The update state lives here rather than in the dropdown, so closing the
  * menu (or moving between pages — Topbar stays mounted) doesn't stop a
@@ -37,14 +38,22 @@ export function AccountMenu() {
   const [open, setOpen] = useState(false);
   const [upd, setUpd] = useState<UpdateState>("idle");
   const [progress, setProgress] = useState(0);
+  const [updError, setUpdError] = useState("");
+  const desktop = useSyncExternalStore(subscribeNever, isDesktop, () => false);
   const root = useRef<HTMLDivElement>(null);
-  const timers = useRef<number[]>([]);
-  const tick = useRef(0);
 
   useEffect(() => {
-    const pending = timers.current;
-    return () => pending.forEach((t) => { window.clearTimeout(t); window.clearInterval(t); });
-  }, []);
+    if (!desktop) return;
+    const unsubscribe = [
+      onUpdateEvent("checking", () => setUpd("checking")),
+      onUpdateEvent("available", () => setUpd("available")),
+      onUpdateEvent("not-available", () => setUpd("uptodate")),
+      onUpdateEvent("progress", (p) => { setUpd("downloading"); setProgress(p.percent ?? 0); }),
+      onUpdateEvent("downloaded", () => setUpd("ready")),
+      onUpdateEvent("error", (p) => { setUpdError(p.message ?? "Update failed"); setUpd("error"); }),
+    ];
+    return () => unsubscribe.forEach((off) => off());
+  }, [desktop]);
 
   // Close on a click outside or Escape.
   useEffect(() => {
@@ -63,41 +72,13 @@ export function AccountMenu() {
     };
   }, [open]);
 
-  function check() {
-    setUpd("checking");
-    timers.current.push(window.setTimeout(() => {
-      setUpd(FEATURES.updateNotice && !updateSeen() ? "available" : "uptodate");
-    }, 1200));
-  }
-
-  function download() {
-    setUpd("downloading");
-    setProgress(0);
-    const id = window.setInterval(() => {
-      setProgress((p) => Math.min(100, p + 1 + Math.random() * 2.4));
-    }, 110);
-    tick.current = id;
-    timers.current.push(id);
-  }
-
-  // Completion lives here rather than inside the setProgress updater, which
-  // must stay pure (Strict Mode runs updaters twice).
-  useEffect(() => {
-    if (upd !== "downloading" || progress < 100) return;
-    window.clearInterval(tick.current);
-    const t = window.setTimeout(() => setUpd("ready"), 350);
-    return () => window.clearTimeout(t);
-  }, [upd, progress]);
-
-  function restart() {
-    try { localStorage.setItem(storageKey(), "1"); } catch { /* not persisted; offered again next load */ }
-    window.location.reload();
-  }
-
   function onUpdateRow() {
-    if (upd === "idle" || upd === "uptodate") check();
-    else if (upd === "available") download();
-    else if (upd === "ready") restart();
+    if (upd === "idle" || upd === "uptodate" || upd === "error") void checkForUpdate();
+    else if (upd === "available") {
+      setUpd("downloading");
+      setProgress(0);
+      void downloadUpdate();
+    } else if (upd === "ready") void installUpdate();
   }
 
   function connectMobile() {
@@ -147,6 +128,9 @@ export function AccountMenu() {
     updIcon = <Icon name="check" />;
     updLabel = "Update ready · Restart";
     updEnd = <span className="acct-ibtn" title="Restart to install"><Icon name="refresh" /></span>;
+  } else if (upd === "error") {
+    updIcon = <Icon name="refresh" />;
+    updLabel = "Update failed · Retry";
   } else {
     updIcon = <Icon name="refresh" />;
     updLabel = "Check for updates";
@@ -163,7 +147,7 @@ export function AccountMenu() {
       >
         <span className="av">
           {initial}
-          {waiting && <span className="acct-badge" aria-label="Update available" />}
+          {desktop && waiting && <span className="acct-badge" aria-label="Update available" />}
         </span>
         <span className="nm">
           {employee?.name || "Not signed in"}
@@ -188,18 +172,21 @@ export function AccountMenu() {
             <span className="i"><Icon name="smartphone" /></span>
             <span className="lbl">Connect mobile app</span>
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={`acct-item${busy ? " busy" : ""}${upd === "available" ? " new" : ""}${upd === "uptodate" || upd === "ready" ? " ok" : ""}`}
-            onClick={onUpdateRow}
-            disabled={busy}
-            aria-live="polite"
-          >
-            <span className="i">{updIcon}</span>
-            <span className="lbl">{updLabel}</span>
-            {updEnd}
-          </button>
+          {desktop && (
+            <button
+              type="button"
+              role="menuitem"
+              className={`acct-item${busy ? " busy" : ""}${upd === "available" ? " new" : ""}${upd === "uptodate" || upd === "ready" ? " ok" : ""}`}
+              onClick={onUpdateRow}
+              disabled={busy}
+              title={upd === "error" ? updError : undefined}
+              aria-live="polite"
+            >
+              <span className="i">{updIcon}</span>
+              <span className="lbl">{updLabel}</span>
+              {updEnd}
+            </button>
+          )}
           <div className="acct-sep" />
           <button type="button" role="menuitem" className="acct-item danger" onClick={signOut}>
             <span className="i"><Icon name="logout" /></span>

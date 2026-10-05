@@ -16,7 +16,7 @@
   font-family: var(--brand-font-family), var(--font-sans), 'Inter', sans-serif;
   font-size: calc(1em * var(--brand-font-scale));
   color: var(--ink);
-  min-height: 100vh;
+  min-height: var(--app-h);
   background: var(--bg);
   display: flex;
   align-items: center;

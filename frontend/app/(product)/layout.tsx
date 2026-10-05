@@ -3,6 +3,8 @@ import localFont from "next/font/local";
 import "./globals.css";
 import "@/product/styles/app.css";
 import { AuthProvider } from "@/product/providers/auth-context";
+import { DesktopTitleBar } from "@/product/components/DesktopTitleBar";
+import { DESKTOP_RUNTIME_LOADER } from "@/product/services/desktopBridge";
 import { BrandingProvider } from "@/product/providers/BrandingProvider";
 import { BrandPreload } from "./brand-preload";
 import { NEUTRAL_DOCUMENT_TITLE } from "@/product/config/theme";
@@ -90,12 +92,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             before the first frame. See BrandPreload for why a static
             export leaves no other place to do this. */}
         <BrandPreload />
+        {/* Last in <head>: the scripts it writes sit after every node React hydrates. */}
+        <script dangerouslySetInnerHTML={{ __html: DESKTOP_RUNTIME_LOADER }} />
       </head>
       <body>
         {/* BrandingProvider wraps AuthProvider: the sign-in page itself needs
             the business's logo and colour, and that is rendered before any
             session exists. */}
         <BrandingProvider>
+          <DesktopTitleBar />
           <AuthProvider>{children}</AuthProvider>
         </BrandingProvider>
       </body>
