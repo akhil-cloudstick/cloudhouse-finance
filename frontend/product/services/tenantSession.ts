@@ -95,6 +95,9 @@ const LOCAL_HOST_SUFFIXES = ["localhost", "lvh.me", "nip.io"];
 
 const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
 
+// The desktop app's own origin (Wails); it names no business.
+const DESKTOP_HOST = "wails.localhost";
+
 /* businessSlugFromHost reads a subdomain the way production will resolve a
  * tenant on a real domain: https://ambika.cloudhousefinance.com/... names
  * "ambika" without any /login/<slug> path segment at all. Mirrors (on the
@@ -109,7 +112,7 @@ const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
  * alone, a raw IP, or a reserved label — see the two lists above. */
 export function businessSlugFromHost(hostname?: string): string | null {
   const host = (hostname ?? (typeof window === "undefined" ? "" : window.location.hostname)).toLowerCase();
-  if (!host || IPV4_PATTERN.test(host)) return null;
+  if (!host || IPV4_PATTERN.test(host) || host === DESKTOP_HOST) return null;
   const labels = host.split(".");
   if (labels.length < 2) return null; // "localhost" alone, or an unqualified host
   const candidate = labels[0];

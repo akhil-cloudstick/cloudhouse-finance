@@ -415,7 +415,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
+  minHeight: "var(--app-h)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",

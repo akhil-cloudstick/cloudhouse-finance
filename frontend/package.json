@@ -5,7 +5,15 @@
   "scripts": {
     "dev": "concurrently -n frontend,openwa -c blue,green \"next dev\" \"npm run dev:embedded --prefix ../OpenWA\"",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/start-desktop.cjs",
+    "start:web": "next start",
+    "dist": "npm run dist:win",
+    "dist:win": "node scripts/package-win.cjs",
+    "release": "npm run release:win",
+    "release:win": "npm run dist:win && npm run upload && npm run download",
+    "upload": "node scripts/upload.js",
+    "download": "node scripts/download.js",
+    "tag": "node scripts/tag.cjs",
     "lint": "eslint"
   },
   "dependencies": {
@@ -15,6 +23,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
