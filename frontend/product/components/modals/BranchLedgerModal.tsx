@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import {
   listCashMovementsByBranch,
@@ -68,6 +68,7 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
       key: "customer",
       label: "Customer",
       kind: "async",
+      searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search, p) =>
         listCustomersPage(search, p, undefined, 20).then((res) => ({
           items: res.items.map((c: CustomerView) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
@@ -156,7 +157,7 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
                 });
                 return withBalance.reverse().map(({ m, balance }) => (
                   <tr key={m.id}>
-                    <td>{m.d}</td>
+                    <td>{fmtDate(m.d)}</td>
                     <td className="ledger-ref" title={String(m.transactionGroupId || m.id)}>{m.transactionGroupId || m.id}</td>
                     <td>{m.purpose || m.source || "—"}</td>
                     <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>

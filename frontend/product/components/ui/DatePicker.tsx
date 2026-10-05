@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/product/components/Icon";
+import { fmtDate } from "@/product/utils/format";
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTHS = [
@@ -153,7 +154,7 @@ export function DatePicker({
         onClick={() => setOpen((o) => !o)}
       >
         <span style={{ color: value ? "var(--nav)" : "var(--muted)" }}>
-          {selected ? selected.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : placeholder}
+          {selected ? fmtDate(toISO(selected)) : placeholder}
         </span>
         <Icon name="cal" className="cal-ic" />
       </button>

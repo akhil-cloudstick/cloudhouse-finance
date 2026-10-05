@@ -4,6 +4,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Buffering, C, ChipToggle, Field, FieldGrid, NoticeBanner, PrimaryButton, SectionTitle, Sheet, SheetListItem, Txt } from "../../ui";
 import { checkIndemnityBondEsign, startIndemnityBondEsign, type BondDeliverBy, type BondLang } from "../../../api/loans";
 import {
+  printLabelAndSlipOnePage,
+  printPacketLabel,
+  printPledgeSlip,
   printPledgeAgreementPdf,
   printReleaseAgreementPdf,
   printStatement,
@@ -28,7 +31,7 @@ function esignStatusText(l: Loan) {
 }
 
 /** Prototype #documents-modal plus #doc-agreement and #esign-modal. Every
- * print flow (statement, pledge /
+ * print flow (packet label, pledge slip, statement, pledge /
  * release agreements) and the Aadhaar eSign of the indemnity bond. */
 export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: Loan; visible: boolean; onClose: () => void; onOpen: () => void }) {
   const qc = useQueryClient();
@@ -106,11 +109,15 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: L
   return (
     <>
       <Sheet visible={visible} onClose={onClose} title="Loan Documents">
+        {/* Same set and order as the web loan page's Documents menu: label and
+            slip for everyone, the statement only with ledger export. */}
+        <SheetListItem first icon="layers" title="Print Label" sub={sub("label", "Packet label with QR code")} onPress={() => run("label", () => printPacketLabel(l), "Could not print the label — try again.")} />
+        <SheetListItem icon="doc" title="Print Slip" sub={sub("slip", "Pledge slip for the customer")} onPress={() => run("slip", () => printPledgeSlip(l), "Could not print the slip — try again.")} />
+        <SheetListItem icon="doc" title="Print Slip + Label" sub={sub("slipLabel", "Both on one A4 page")} onPress={() => run("slipLabel", () => printLabelAndSlipOnePage(l), "Could not print the slip and label — try again.")} />
         {canExport ? (
-          <SheetListItem first icon="note" title="Statement" sub={sub("statement", "Statement of account for this loan")} onPress={() => run("statement", () => printStatement(l), "Could not print the statement — try again.")} />
+          <SheetListItem icon="note" title="Statement" sub={sub("statement", "Statement of account for this loan")} onPress={() => run("statement", () => printStatement(l), "Could not print the statement — try again.")} />
         ) : null}
         <SheetListItem
-          first={!canExport}
           icon="doc"
           title="Indemnity Bond"
           sub="View / download the pledge agreement"

@@ -131,6 +131,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
                   value={bankLabel}
                   onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
                   fetchFn={searchBanksPage}
+                  searchHint="Searches: bank name"
                   getLabel={(b) => b.name}
                   getId={(b) => String(b.id)}
                   placeholder="Search for a registered bank…"
@@ -151,6 +152,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
                 value={bankLabel}
                 onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
                 fetchFn={searchBanksPage}
+                searchHint="Searches: bank name"
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder="Search for a registered bank…"
@@ -247,6 +249,7 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: { onPicked: (loa
             value={label}
             onChange={(_id, l) => { setSelected(l); setLabel(loanLabel(l)); setErr(""); }}
             fetchFn={searchEligibleLoansPage}
+            searchHint="Searches: loan number, customer name, customer code"
             getLabel={loanLabel}
             getId={(l) => String(l.numericId)}
             placeholder="Search by loan number…"

@@ -104,7 +104,7 @@ export function Investments() {
       <div className="page-h">
         <div><h1>Investments</h1><p>Investor deposits, interest payout schedules and maturity</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search investment # or investor…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search investment # or investor…" title="Searches: investment number, investor name, investor code" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canUpdate && <button className="btn plain" onClick={openPlans}>Manage Plans</button>}
         {canCreate && <button className="btn" onClick={openNewInvestment}><Icon name="plus" /> New Investment</button>}
       </div>

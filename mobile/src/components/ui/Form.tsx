@@ -11,6 +11,7 @@ import { ZERO_SPLIT, isBalanced, splitTotal } from "../PaymentBreakdown";
 import { SheetNestedScrollView } from "../BottomSheetModal";
 import { doneBarFor } from "./KeyboardDone";
 import type { SplitAmounts } from "../../api/investments";
+import { dmy } from "../../lib/format";
 
 // ---- .field ---------------------------------------------------------------
 export function Field({ label, children, style }: { label?: string; children?: React.ReactNode; style?: StyleProp<ViewStyle> }) {
@@ -64,11 +65,9 @@ export function TextField({ label, style, ...rest }: TextInputProps & { label: s
 }
 
 // ---- Date field (input look, opens a themed month calendar) ---------------
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
+// Shown as DD-MM-YYYY; the value itself stays YYYY-MM-DD.
 export function isoToPretty(v?: string | null) {
-  const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
-  return m ? `${+m[3]} ${MONTHS[+m[2] - 1]} ${m[1]}` : "";
+  return v ? dmy(v) : "";
 }
 
 export function toISODate(d: Date) {
@@ -79,7 +78,7 @@ export function DateField({
   label,
   value,
   onChange,
-  placeholder = "Select date",
+  placeholder = "DD-MM-YYYY",
   min,
   max,
   clearable,

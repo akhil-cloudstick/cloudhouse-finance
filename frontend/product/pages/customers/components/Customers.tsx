@@ -82,7 +82,7 @@ export function Customers() {
       <div className="page-h">
         <div><h1>Customers &amp; KYC</h1><p>{customers.length} customers · PAN &amp; Aadhaar verification status</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" title="Searches: customer name, customer code, phone" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateCustomers && (
           <button className="btn" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refresh} />, true)}>
             <Icon name="plus" /> Register Customer

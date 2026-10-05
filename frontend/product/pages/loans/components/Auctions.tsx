@@ -5,7 +5,7 @@ import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { useLoans } from "@/product/pages/loans/store/LoansProvider";
 import { Icon } from "@/product/components/Icon";
-import { fmt, fmtW } from "@/product/utils/format";
+import { fmt, fmtW, fmtDate } from "@/product/utils/format";
 import { openPrintWindow, brandHeader } from "@/product/utils/print";
 import { BRAND, printColors } from "@/product/config/brand";
 import { StatusChip } from "@/product/components/ui/StatusChip";
@@ -63,7 +63,7 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
       <li>Despite our repeated reminders, the dues against your gold loan <b>${loan.id}</b>
         (outstanding <b>${fmt(loan.outstanding)}</b> as on date) remain unpaid.</li>
       <li>You are hereby given final notice that the gold ornaments pledged against the said loan will be sold in
-        <b>PUBLIC AUCTION</b>${loan.auctionDate ? ` on <b>${loan.auctionDate}</b>` : ""} at <b>${venue}</b>,
+        <b>PUBLIC AUCTION</b>${loan.auctionDate ? ` on <b>${fmtDate(loan.auctionDate)}</b>` : ""} at <b>${venue}</b>,
         if the entire dues are not settled before the auction date.</li>
       <li>Details of the pledged ornaments to be auctioned:</li>
     </ol>
@@ -198,7 +198,7 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
           <div className="i"><div className="k">Gold Weight</div><div className="v">{fmtW(l.totalNetWeight)}</div></div>
           <div className="i"><div className="k">Outstanding</div><div className="v" style={{ color: "var(--red)", fontWeight: 600 }}>{fmt(l.totalOutstandingBalance)}</div></div>
           <div className="i"><div className="k">Days Overdue</div><div className="v">{l.daysOverdue || "—"}</div></div>
-          <div className="i"><div className="k">Auction Date</div><div className="v">{rec?.auctionDate || "—"}</div></div>
+          <div className="i"><div className="k">Auction Date</div><div className="v">{fmtDate(rec?.auctionDate)}</div></div>
           <div className="i"><div className="k">Reference</div><div className="v">{rec?.auctionReferenceNumber || "—"}</div></div>
           <div className="i"><div className="k">Sale Amount</div><div className="v">{rec && rec.saleAmount ? fmt(rec.saleAmount) : "—"}</div></div>
           {rec && rec.stage !== "AuctionEligible" && rec.stage !== "NoticeIssued" && rec.stage !== "AuctionScheduled" && (
@@ -369,7 +369,7 @@ export function Auctions() {
   );
   const trimmedQ = q.trim().toLowerCase();
   const allCases = trimmedQ
-    ? auctionEligibleCases.filter((l) => l.id.toLowerCase().includes(trimmedQ) || l.customerName.toLowerCase().includes(trimmedQ))
+    ? auctionEligibleCases.filter((l) => l.id.toLowerCase().includes(trimmedQ) || l.customerName.toLowerCase().includes(trimmedQ) || l.customerCode.toLowerCase().includes(trimmedQ))
     : auctionEligibleCases;
   const activeTotalPages = Math.max(1, Math.ceil(allCases.length / pageSize));
   const cases = allCases.slice((activePage - 1) * pageSize, activePage * pageSize);
@@ -455,7 +455,7 @@ export function Auctions() {
       <div className="page-h" >
         <div><h1>Auction Management</h1><p>Defaulted loans progressing through the regulated auction workflow</p> </div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, reference…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, reference…" title="Searches: loan number, customer name, customer code · auction reference on the History tab only" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
 
@@ -529,7 +529,7 @@ export function Auctions() {
                   ) : conducted.map((r) => (
                     <tr key={r.id}>
                       <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a><small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
-                      <td>{r.auctionDate || "—"}</td>
+                      <td>{fmtDate(r.auctionDate)}</td>
                       <td>{r.auctionReferenceNumber || "—"}</td>
                       <td className="num">{fmt(r.saleAmount)}</td>
                       <td className="num">{r.auctionExpenses ? fmt(r.auctionExpenses) : "—"}</td>
@@ -573,7 +573,7 @@ export function Auctions() {
                   ) : closedWithoutSale.map((r) => (
                     <tr key={r.id}>
                       <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a><small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
-                      <td>{r.auctionEligibleDate || "—"}</td>
+                      <td>{fmtDate(r.auctionEligibleDate)}</td>
                       <td>
                         {/* A withdrawn case never reached settlement, so the
                           * settlement label would misdescribe it. */}

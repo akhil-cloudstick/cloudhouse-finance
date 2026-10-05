@@ -57,6 +57,7 @@ export function SearchableSelect<T>({
   renderLabel,
   getId,
   placeholder,
+  searchHint,
   allowCreate = false,
   onCreate,
   onCreateNew,
@@ -82,6 +83,8 @@ export function SearchableSelect<T>({
   renderLabel?: (item: T) => ReactNode;
   getId: (item: T) => string;
   placeholder?: string;
+  // Hover tooltip (native title) listing which fields the search matches.
+  searchHint?: string;
   allowCreate?: boolean;
   onCreate?: (query: string) => Promise<T>;
   // Opt-in, separate mechanism from allowCreate/onCreate above (which
@@ -500,6 +503,7 @@ export function SearchableSelect<T>({
       <input
         className={compact ? "inp" : "inp ss-input"}
         placeholder={placeholder}
+        title={searchHint}
         value={query}
         disabled={disabled}
         autoComplete="off"

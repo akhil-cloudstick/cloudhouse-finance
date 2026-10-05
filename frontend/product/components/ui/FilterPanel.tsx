@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/product/components/Icon";
 import { DatePicker } from "@/product/components/ui/DatePicker";
+import { fmtDate } from "@/product/utils/format";
 
 // This popover's own "narrow" breakpoint — deliberately its own hook rather
 // than the app-wide useIsSmallScreen (<1560px, used for page density
@@ -27,12 +28,14 @@ function useIsNarrowPopover(): boolean {
 export type FilterOption = { value: string; label: string };
 
 export type FilterCategory =
-  | { key: string; label: string; kind: "static"; options: FilterOption[]; singleSelect?: boolean }
+  | { key: string; label: string; kind: "static"; options: FilterOption[]; singleSelect?: boolean; searchHint?: string }
   | {
       key: string;
       label: string;
       kind: "async";
       singleSelect?: boolean;
+      // Hover tooltip on the search box listing which fields fetchOptions matches.
+      searchHint?: string;
       // Backend-driven — called with the current sub-category search text and
       // a page number; never resolves against a client-side full list.
       fetchOptions: (search: string, page: number) => Promise<{ items: FilterOption[]; hasMore: boolean }>;
@@ -126,6 +129,7 @@ function CategoryOptionList({
         className="inp"
         style={{ fontSize: 13 }}
         placeholder={`Search ${category.label.toLowerCase()}…`}
+        title={category.searchHint || `Searches: ${category.label.toLowerCase()}`}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
       />
@@ -408,7 +412,7 @@ export function FilterPanel({
 
       {!hideChips && categories.some((c) => c.kind === "date") && (value.__dateFrom || value.__dateTo) && (
         <span className="chip">
-          {value.__dateFrom || "…"} – {value.__dateTo || "…"}
+          {value.__dateFrom ? fmtDate(value.__dateFrom) : "…"} – {value.__dateTo ? fmtDate(value.__dateTo) : "…"}
           <a href="#" onClick={(e) => { e.preventDefault(); removeChip("__date"); }} style={{ marginLeft: 6 }}>×</a>
         </span>
       )}

@@ -161,6 +161,7 @@ export function PurityPicker({
             value={label}
             onChange={pick}
             fetchFn={fetchFn}
+            searchHint="Searches: purity label, e.g. 22K (91.6%)"
             getLabel={getLabel}
             getId={(p) => String(p.id)}
             placeholder={unit === "karat" ? `22 (${MIN_KARAT}-${MAX_KARAT})` : "91.6"}

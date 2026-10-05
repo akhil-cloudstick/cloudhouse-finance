@@ -95,7 +95,7 @@ export function PersonalLoans() {
       <div className="page-h">
         <div><h1>Personal Loans</h1><p>Small unsecured cash loans, repaid daily/weekly/monthly</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan # or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan # or customer…" title="Searches: loan number, customer name, customer code" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
       </div>
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />

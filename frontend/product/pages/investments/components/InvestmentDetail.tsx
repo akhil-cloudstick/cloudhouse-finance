@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/product/providers/auth-context";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import {
@@ -297,7 +297,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
         ) : (
           <div className="kpi"><div className="l">Interest Paid</div><div className="v">{fmt(investment.totalInterestPaid)}</div></div>
         )}
-        <div className="kpi"><div className="l">Maturity Date</div><div className="v" style={{ fontSize: 17 }}>{investment.maturityDate.slice(0, 10)}</div></div>
+        <div className="kpi"><div className="l">Maturity Date</div><div className="v" style={{ fontSize: 17 }}>{fmtDate(investment.maturityDate)}</div></div>
         {investment.renewedFromInvestmentId && (
           <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`investment/${investment.renewedFromInvestmentId}`)}>Investment #{investment.renewedFromInvestmentId}</a></div></div>
         )}
@@ -332,7 +332,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
               ].filter(Boolean).join(" · ");
               return (
                 <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount}>
-                  <td>{r.date.slice(0, 10)}</td>
+                  <td>{fmtDate(r.date)}</td>
                   <td>{r.reference || "—"}</td>
                   <td>
                     {r.description || r.type}
@@ -365,7 +365,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
               ) : schedule.items.map((p) => (
                 <tr key={p.id}>
                   <td>{p.sequenceNo}</td>
-                  <td>{p.dueDate.slice(0, 10)}</td>
+                  <td>{fmtDate(p.dueDate)}</td>
                   <td className="num">{fmt(p.amount)}</td>
                   <td>{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
                   <td><StatusChip status={p.status} /></td>

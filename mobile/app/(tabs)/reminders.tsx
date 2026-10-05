@@ -17,7 +17,7 @@ import {
 import { ReminderCreateSheet, ReminderItem } from "../../src/components/staff/ShellModals";
 import { useServerList } from "../../src/hooks/useServerList";
 import { getCalendarEvents, listCalendarEventsPage } from "../../src/api/reminders";
-import { todayISO } from "../../src/lib/format";
+import { dmy, todayISO } from "../../src/lib/format";
 import type { CalendarEvent } from "../../src/types/reminder";
 import { useAuth } from "../../src/auth/AuthContext";
 
@@ -29,7 +29,6 @@ import { useAuth } from "../../src/auth/AuthContext";
 const pad = (n: number) => String(n).padStart(2, "0");
 const isoOf = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
@@ -40,7 +39,7 @@ function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
 
 function dayTitle(iso: string) {
   const d = new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
-  return `${DOW[d.getDay()]}, ${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`;
+  return `${DOW[d.getDay()]}, ${dmy(iso)}`;
 }
 
 export default function RemindersScreen() {

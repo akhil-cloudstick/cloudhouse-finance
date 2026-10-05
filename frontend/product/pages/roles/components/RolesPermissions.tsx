@@ -423,7 +423,7 @@ export function RolesPermissions() {
         <div className="role-ctl">
           <div style={{ flex: 1, minWidth: 0 }}>
             <label className="f">Search permissions</label>
-            <input className="inp" placeholder="e.g. loan" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="inp" placeholder="e.g. loan" title="Searches: permission name" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           {canUpdateRole && role && !role.isSystem && (
             <>

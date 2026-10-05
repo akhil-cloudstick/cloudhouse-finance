@@ -214,6 +214,7 @@ export function SplitPaymentInput({
                   value={l.bankName || ""}
                   onChange={(id, item) => updateLine(i, { bankId: Number(id), bankName: item.name })}
                   fetchFn={searchBanksPage}
+                  searchHint="Searches: bank name"
                   getLabel={(b) => b.name}
                   getId={(b) => String(b.id)}
                   placeholder="Search or add a bank…"

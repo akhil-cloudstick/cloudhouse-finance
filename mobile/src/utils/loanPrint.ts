@@ -6,7 +6,7 @@
 // backend's per-language templates (see printServerPdf below).
 import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
-import { fmt } from "../lib/format";
+import { dmy, fmt, todayISO } from "../lib/format";
 import { rupeesInWords } from "../lib/numberToWords";
 import { Loan, LoanTopUp } from "../types/loan";
 import { listTopUps } from "../api/loans";
@@ -74,7 +74,7 @@ async function printDoc(title: string, body: string) {
 }
 
 function fmtDate(d?: string | null) {
-  return d ? new Date(d).toLocaleDateString("en-IN") : "—";
+  return dmy(d);
 }
 
 // Ported from frontend/modules/loans/components/LoanDetail.tsx's
@@ -109,7 +109,7 @@ function pledgeSlipBody(l: Loan, topUps: LoanTopUp[]): string {
   return (
     `${brandHeader("Gold Loan Pledge Slip")}
     <table>
-      <tr><th style="width:110px">Loan No</th><td>${l.loanNumber}</td><th style="width:110px">Date</th><td>${fmtDate(new Date().toISOString())}</td></tr>
+      <tr><th style="width:110px">Loan No</th><td>${l.loanNumber}</td><th style="width:110px">Date</th><td>${dmy(todayISO())}</td></tr>
       <tr><th>Customer</th><td>${c?.name ?? "—"} (${c?.code || c?.id || "—"})</td><th>Phone</th><td>${c?.phone || "—"}</td></tr>
       <tr><th>Address</th><td>${c?.address || "—"}</td><th>Branch</th><td>${l.branch?.name || "—"}</td></tr>
       <tr><th>Scheme</th><td>${l.scheme?.name ?? "—"} @ ${l.scheme?.interestRate ?? "—"}% p.a. (LTV ${l.scheme?.ltvPercent ?? "—"}%)</td>
@@ -197,7 +197,7 @@ export async function printStatement(l: Loan) {
     `Statement — ${l.loanNumber}`,
     `${brandHeader("Statement of Account")}
     <table>
-      <tr><th style="width:150px">Loan No</th><td>${l.loanNumber}</td><th style="width:150px">Statement Date</th><td>${fmtDate(new Date().toISOString())}</td></tr>
+      <tr><th style="width:150px">Loan No</th><td>${l.loanNumber}</td><th style="width:150px">Statement Date</th><td>${dmy(todayISO())}</td></tr>
       <tr><th>Debtor Name</th><td colspan="3">${c?.name ?? "—"}</td></tr>
       <tr><th>Debtor Address</th><td colspan="3">${c?.address || "—"}</td></tr>
       <tr><th>Amount of Loan</th><td>${fmt(l.principalAmount)}</td><th>Amount in Words</th><td>${rupeesInWords(l.principalAmount)}</td></tr>
@@ -341,7 +341,7 @@ async function packetLabelParts(l: Loan): Promise<{ css: string; html: string }>
         <div class="id">${l.loanNumber} · ${packetLabel}</div>
         <div>${l.customer?.name || "—"}</div>
         <div>${l.customer?.code || l.customer?.id || "—"} · ${l.customer?.phone || ""}</div>
-        <div>${new Date().toLocaleDateString("en-IN")} · ${(l.totalNetWeight ?? 0).toFixed(1)} g · ${(l.ornaments ?? []).length} item(s)</div>
+        <div>${dmy(todayISO())} · ${(l.totalNetWeight ?? 0).toFixed(1)} g · ${(l.ornaments ?? []).length} item(s)</div>
       </div>
       <div class="strap"></div>
     </div>`;

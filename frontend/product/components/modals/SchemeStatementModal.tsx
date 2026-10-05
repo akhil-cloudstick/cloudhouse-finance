@@ -7,7 +7,7 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { ApiError } from "@/product/services/httpClient";
-import { fmt, statusChipColor } from "@/product/utils/format";
+import { fmt, statusChipColor, fmtDate } from "@/product/utils/format";
 import { listLoansPage, type LoanView } from "@/product/pages/loans/services/loanService";
 import { downloadSchemeStatement, type SchemeView } from "@/product/pages/schemes/services/schemeService";
 
@@ -17,10 +17,6 @@ function firstOfMonth(): string {
 }
 function today(): string {
   return new Date().toISOString().slice(0, 10);
-}
-function fmtShortDate(iso: string): string {
-  const d = new Date(iso + "T00:00:00");
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
 /* Download Statement modal — a scheme card's second action alongside Edit
@@ -242,7 +238,7 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
                 <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr .8fr .8fr auto", gap: 8, alignItems: "center", padding: "10px 14px", background: "var(--card)" }}>
                   <div><span style={{ display: "block", fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)" }}>Loan</span><b>{l.loanNumber}</b></div>
                   <div><span style={{ display: "block", fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)" }}>Customer</span>{l.customerName}</div>
-                  <div><span style={{ display: "block", fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)" }}>Opened</span>{fmtShortDate(l.opened)}</div>
+                  <div><span style={{ display: "block", fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)" }}>Opened</span>{fmtDate(l.opened)}</div>
                   <div><span style={{ display: "block", fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)" }}>Principal</span>{fmt(l.principal)}</div>
                   <span className={`chip ${statusChipColor(l.status)}`}>{l.status}</span>
                 </div>
@@ -257,7 +253,7 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
                       <tbody>
                         {l.payments.map((p) => (
                           <tr key={p.id}>
-                            <td>{fmtShortDate(p.paidOn)} — {p.type}</td>
+                            <td>{fmtDate(p.paidOn)} — {p.type}</td>
                             <td className="num">{fmt(p.amount)}</td>
                             <td className="num">{fmt(p.interestApplied)}</td>
                             <td className="num">{fmt(p.principalApplied)}</td>

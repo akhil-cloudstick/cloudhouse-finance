@@ -213,6 +213,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
               value={branchLabel}
               onChange={(id, item) => { setBranchId(item.id); setBranchLabel(item.name); }}
               fetchFn={searchBranchesFilter}
+              searchHint="Searches: branch name"
               getLabel={(b) => b.name}
               getId={(b) => String(b.id)}
               placeholder="Search branch…"

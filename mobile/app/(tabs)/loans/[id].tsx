@@ -38,6 +38,7 @@ import {
 } from "../../../src/api/loans";
 import { isFinalStage, stageByKey, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "../../../src/api/approvalWorkflow";
 import { listPackets } from "../../../src/api/packets";
+import { getCashSummary } from "../../../src/api/cash";
 import { getAuction } from "../../../src/api/auctions";
 import { dmy, inr } from "../../../src/lib/format";
 import { apiErr, invalidateLoan } from "../../../src/components/staff/loan/common";
@@ -79,9 +80,9 @@ type SheetKey =
   | "delete"
   | null;
 
-const RECORD_TABS = ["ledger", "history"] as const;
+const RECORD_TABS = ["overview", "ledger", "ornaments", "history"] as const;
 type RecordTab = (typeof RECORD_TABS)[number];
-const RECORD_TAB_LABELS: Record<RecordTab, string> = { ledger: "Payment Ledger", history: "History" };
+const RECORD_TAB_LABELS: Record<RecordTab, string> = { overview: "Overview", ledger: "Payment Ledger", ornaments: "Ornaments", history: "History" };
 
 function monthsBetween(from?: string, to?: string) {
   if (!from || !to) return null;
@@ -103,6 +104,15 @@ export default function LoanDetailScreen() {
   const canHardDeleteLoan = can("Loan_Management", "can_hard_delete_loan");
 
   const loan = useQuery({ queryKey: ["loan", id], queryFn: () => getLoan(loanId), enabled: !!id });
+  // The branch's Balance in Hand — the final sanction stage pays the principal
+  // out of it. The Disburse sheet still opens when it falls short, but its
+  // confirm button stays disabled until cash is added (the backend refuses it
+  // too). Only fetched while a sanction stage is pending.
+  const cashSummary = useQuery({
+    queryKey: ["cashSummary", "loanDisburse", loan.data?.branchId],
+    queryFn: () => getCashSummary(loan.data!.branchId),
+    enabled: !!loan.data?.branchId && !!loan.data?.approvalStage,
+  });
   // This loan's tracking packet — locker info / release warnings.
   const packetQuery = useQuery({ queryKey: ["loanPacket", id], queryFn: () => listPackets({ loanId }), enabled: !!id });
   const packet = packetQuery.data?.[0];
@@ -120,7 +130,7 @@ export default function LoanDetailScreen() {
 
   const [open, setOpen] = useState<SheetKey>(null);
   const [error, setError] = useState<string | null>(null);
-  const [recordTab, setRecordTab] = useState<RecordTab>("ledger");
+  const [recordTab, setRecordTab] = useState<RecordTab>("overview");
   // Which pending top-up the review sheet is showing.
   const [reviewId, setReviewId] = useState<number | null>(null);
   useResetOnBlur(() => setOpen(null));
@@ -209,6 +219,10 @@ export default function LoanDetailScreen() {
   const isFinalSanction = isFinalStage(wf, "loan_sanction", pendingStage);
   const canActOnStage = !!stageDef && canEditLoan && canActAtStage(employee?.role, stageDef);
   const sanctionSteps = stepperSteps(wf, "loan_sanction", pendingStage);
+  const balanceInHand = cashSummary.data?.expectedCash;
+  // A WithheldFromPayout service charge is paid out that much less (same as DisburseSheet).
+  const payoutAmount = l.principalAmount - (l.serviceChargeMode === "WithheldFromPayout" ? l.serviceChargeAmount ?? 0 : 0);
+  const disburseBlocked = isFinalSanction && balanceInHand != null && payoutAmount > balanceInHand + 0.005;
   const approveLabel = isFinalSanction ? (isVerifyStage ? " Disburse" : "Disburse") : isVerifyStage ? "Verify" : "Approve";
 
   const alreadyAuctioned = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
@@ -273,21 +287,46 @@ export default function LoanDetailScreen() {
           { label: "Actions", icon: "bolt", primary: true, onPress: () => go("actions") },
         ];
 
+  // Overview tab, in the web page's column order: Loan Details, Settlement
+  // Preview, Financial Summary.
   const detailItems: { k: string; v: string; color?: string }[] = [
-    { k: "Gold weight", v: `${weight.toFixed(2)} g${purities.length === 1 ? ` · ${purities[0]}` : purities.length > 1 ? ` · ${ornaments.length} items` : ""}` },
-    { k: "Interest rate", v: l.scheme ? `${l.scheme.interestRate}%` : "—" },
+    { k: "Customer", v: l.customer?.name ?? `Customer #${l.customerId}` },
+    { k: "Gold scheme", v: l.scheme?.name ?? "—" },
+    { k: "Branch", v: l.branch?.name ?? "—" },
+    { k: "Opening date", v: dmy(l.openedDate) },
+    { k: "Due date", v: dmy(l.dueDate), color: l.isOverdue ? C.red : undefined },
     { k: "Tenure", v: tenure ? `${tenure} month${tenure === 1 ? "" : "s"}` : "—" },
-    { k: "Disbursed on", v: l.disbursementDate ? dmy(l.disbursementDate) : "Not yet" },
-    { k: "Next due", v: dmy(l.dueDate), color: l.isOverdue ? C.red : undefined },
-    { k: "Outstanding interest", v: inr(l.outstandingInterest ?? 0) },
-    { k: "Penal interest", v: inr(l.outstandingPenalInterest ?? 0), color: (l.outstandingPenalInterest ?? 0) > 0 ? C.red : undefined },
   ];
-  if (l.settlementAmount != null) detailItems.push({ k: "Final settlement", v: inr(l.settlementAmount) });
-  if (l.disbursementDate) {
-    detailItems.push({ k: "Sanctioned", v: inr(l.sanctionedAmount ?? 0) }, { k: "Disbursed", v: inr(l.disbursedAmount ?? 0) });
-  }
+  if (l.disbursementDate) detailItems.push({ k: "Disbursed on", v: dmy(l.disbursementDate) });
   if (l.bankPledgeStatus) detailItems.push({ k: "Gold location", v: l.bankPledgeStatus });
   if (packet) detailItems.push({ k: "Packet", v: `${packet.code} · ${packet.status}` });
+
+  const settlementRows: { k: string; v: number; color?: string }[] = [
+    { k: "Outstanding principal", v: l.outstandingAmount },
+    { k: "Outstanding interest", v: l.outstandingInterest ?? 0 },
+    { k: "Outstanding penal interest", v: l.outstandingPenalInterest ?? 0, color: (l.outstandingPenalInterest ?? 0) > 0 ? C.red : undefined },
+  ];
+  if ((l.outstandingProcessingFee ?? 0) > 0) settlementRows.push({ k: "Outstanding processing fee", v: l.outstandingProcessingFee ?? 0, color: C.red });
+
+  const financialItems: { k: string; v: string; color?: string }[] = [
+    { k: "Principal", v: inr(l.principalAmount) },
+    { k: "Remaining", v: inr(l.outstandingAmount) },
+    // Nothing accrues until disbursement, so a pending loan would read ₹0 —
+    // show the monthly interest it will carry instead.
+    l.disbursementDate
+      ? { k: "Interest", v: inr(l.accruedInterest ?? 0) }
+      : { k: "Interest / month", v: inr((l.principalAmount * (l.scheme?.interestRate ?? 0)) / 100 / 12) },
+    { k: "Interest paid", v: inr(l.interestPaid ?? 0) },
+    { k: "Outstanding interest", v: inr(l.outstandingInterest ?? 0) },
+    { k: "Total paid", v: inr(l.totalPaid ?? 0) },
+    { k: "Scheme rate", v: l.scheme ? `${l.scheme.interestRate}% p.a.` : "—" },
+    { k: "LTV", v: l.scheme ? `${l.schemeLtvPercent ?? l.scheme.ltvPercent}%` : "—" },
+    { k: "Gold weight", v: `${weight.toFixed(2)} g${purities.length === 1 ? ` · ${purities[0]}` : purities.length > 1 ? ` · ${ornaments.length} items` : ""}` },
+  ];
+  if ((l.accruedPenalInterest ?? 0) > 0) financialItems.push({ k: "Accrued penal interest", v: inr(l.accruedPenalInterest ?? 0), color: C.red });
+  if (l.disbursementDate) {
+    financialItems.push({ k: "Sanctioned", v: inr(l.sanctionedAmount ?? 0) }, { k: "Disbursed", v: inr(l.disbursedAmount ?? 0) });
+  }
 
   return (
     <Screen header={header} floating={<ActionsBar actions={bar} />}>
@@ -351,6 +390,9 @@ export default function LoanDetailScreen() {
                     : `Needs your ${isVerifyStage ? "verification" : "approval"}.`
                   : `Awaiting ${requiredRole ?? stageLabel}.`}
               </Txt>
+              {disburseBlocked ? (
+                <WarningBanner>Balance in hand {inr(balanceInHand ?? 0)} is lower than the {inr(payoutAmount)} to disburse — add cash before approving.</WarningBanner>
+              ) : null}
               {doApprove.isPending ? <Buffering /> : null}
             </Card>
           </>
@@ -395,15 +437,62 @@ export default function LoanDetailScreen() {
           </>
         ) : null}
 
-        <SectionTitle>Loan details</SectionTitle>
-        <Card>
-          <FieldGrid items={detailItems} />
-        </Card>
-
-        {/* Money movements and everything else, one at a time — the web
-            page's Payment Ledger table and the loan's History. */}
+        {/* One section at a time, like the web page's cards: Overview (Loan
+            Details, Settlement Preview, Financial Summary), the Payment
+            Ledger table, the Pledged Ornaments table, and the loan's History. */}
         <PillTabs tabs={RECORD_TABS} value={recordTab} onChange={setRecordTab} labels={RECORD_TAB_LABELS} style={{ marginTop: 20, marginBottom: 12 }} />
-        {recordTab === "ledger" ? <LoanLedger loan={l} topUps={topUps.data ?? []} /> : <LoanTimeline loan={l} requests={allRequests} />}
+        {recordTab === "overview" ? (
+          <>
+            <SectionTitle>Loan details</SectionTitle>
+            <Card>
+              <FieldGrid items={detailItems} />
+            </Card>
+            <SectionTitle>Settlement preview</SectionTitle>
+            <Card>
+              {settlementRows.map((r) => (
+                <View key={r.k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 }}>
+                  <Txt style={{ fontSize: 13 }}>{r.k}</Txt>
+                  <Txt style={{ fontSize: 13, fontWeight: "700", color: r.color }}>{inr(r.v)}</Txt>
+                </View>
+              ))}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 9, marginTop: 6, borderTopWidth: 1, borderTopColor: C.line }}>
+                <Txt style={{ fontSize: 13, fontWeight: "700" }}>Final settlement</Txt>
+                <Txt style={{ fontSize: 15, fontWeight: "700" }}>{inr(l.settlementAmount ?? l.totalOutstandingBalance ?? l.outstandingAmount)}</Txt>
+              </View>
+              <Txt style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers</Txt>
+            </Card>
+            <SectionTitle>Financial summary</SectionTitle>
+            <Card>
+              <FieldGrid items={financialItems} />
+            </Card>
+          </>
+        ) : recordTab === "ledger" ? (
+          <LoanLedger loan={l} topUps={topUps.data ?? []} />
+        ) : recordTab === "ornaments" ? (
+          ornaments.length === 0 ? (
+            <EmptyText>No ornaments on this loan.</EmptyText>
+          ) : (
+            ornaments.map((o) => (
+              <Card key={o.id}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <Txt style={{ fontWeight: "700" }}>{o.name}</Txt>
+                  <StatusChip label={o.purity} />
+                </View>
+                <FieldGrid
+                  items={[
+                    { k: "Gross", v: `${o.grossWeight.toFixed(1)} g` },
+                    { k: "Net", v: `${o.netWeight.toFixed(1)} g` },
+                    { k: "Qty", v: String(o.quantity) },
+                    { k: "Gold value", v: inr(o.goldValue) },
+                    { k: "Status", v: o.releasedAt ? `Released ${dmy(o.releasedAt)}` : "Held", color: o.releasedAt ? C.green : undefined },
+                  ]}
+                />
+              </Card>
+            ))
+          )
+        ) : (
+          <LoanTimeline loan={l} requests={allRequests} />
+        )}
         <View style={{ height: 8 }} />
       </PScroll>
 
@@ -496,6 +585,7 @@ export default function LoanDetailScreen() {
       {pendingStage && isFinalSanction ? (
         <DisburseSheet
           loan={l}
+          balanceInHand={balanceInHand}
           visible={open === "disburse"}
           onClose={() => setOpen(null)}
           loading={doApprove.isPending}

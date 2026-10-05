@@ -5,7 +5,7 @@ import { useBranding } from "@/product/providers/BrandingProvider";
 import { Icon } from "@/product/components/Icon";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
-import { fmt, fmtW } from "@/product/utils/format";
+import { fmt, fmtW, fmtDate } from "@/product/utils/format";
 import { FormGReportView } from "@/product/pages/reports/components/FormGReportView";
 import { ReportView, type ReportConfig } from "@/product/pages/reports/components/ReportView";
 import { LedgerExportView } from "@/product/pages/reports/components/LedgerExportView";
@@ -45,7 +45,7 @@ function subMonths(dateStr: string, months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const dt = (v: string) => v ? new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const dt = fmtDate;
 
 /* One config per report — icon/title/description mirror the old static
  * REPORTS grid (legacy/app.js's `renderReports()`) so the tile grid's look

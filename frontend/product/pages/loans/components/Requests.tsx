@@ -19,6 +19,7 @@ const STATUS_OPTIONS = [
 import { ReleaseReviewModalContent } from "@/product/components/modals/ReleaseReviewModal";
 import { ExtensionReviewModalContent } from "@/product/components/modals/ExtensionReviewModal";
 import { routeHref } from "@/product/services/appRoutes";
+import { fmtDate } from "@/product/utils/format";
 
 /* Real "Extensions & Release" review page — staff approve/reject the
  * extension/release requests logged by the customer-mobile app (or by staff
@@ -145,7 +146,7 @@ export function Requests() {
                   <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
                   <td>{r.customerName}</td>
                   <td>{r.detail}</td>
-                  <td>{r.requestedAt}</td>
+                  <td>{fmtDate(r.requestedAt)}</td>
                   <td>
                     <StatusChip status={r.status} />
                     {/* Set by RecordReleaseRequestPayment when a recorded discount+payment

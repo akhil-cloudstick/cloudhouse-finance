@@ -225,7 +225,7 @@ export function CustomerFormSheet({
             <Field label="Age">
               <Input placeholder="e.g. 35" keyboardType="number-pad" maxLength={3} value={age} onChangeText={(t) => setAge(digits(t))} />
             </Field>
-            <DateField label="Date of Birth" value={dob} onChange={setDob} placeholder="Select date" max={todayISO()} clearable />
+            <DateField label="Date of Birth" value={dob} onChange={setDob} max={todayISO()} clearable />
           </FieldRow>
           <FieldRow>
             <Field label="District">

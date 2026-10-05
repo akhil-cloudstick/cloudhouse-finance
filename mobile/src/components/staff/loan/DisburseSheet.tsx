@@ -17,8 +17,11 @@ export function DisburseSheet({
   loading,
   error,
   verb = "Approve",
+  balanceInHand,
 }: {
   loan: Loan;
+  /** Branch balance in hand; confirming stays disabled while it's short of the payout. */
+  balanceInHand?: number | null;
   visible: boolean;
   onClose: () => void;
   onConfirm: (split: SplitAmounts) => void;
@@ -30,6 +33,7 @@ export function DisburseSheet({
   const withheld = l.serviceChargeMode === "WithheldFromPayout" ? l.serviceChargeAmount ?? 0 : 0;
   const payout = Math.round((l.principalAmount - withheld) * 100) / 100;
   const [split, setSplit] = useState<SplitAmounts>({ ...ZERO_SPLIT, cashAmount: payout });
+  const insufficient = balanceInHand != null && payout > balanceInHand + 0.005;
 
   useEffect(() => {
     if (visible) setSplit({ ...ZERO_SPLIT, cashAmount: payout });
@@ -44,8 +48,14 @@ export function DisburseSheet({
       <Field label="Payment breakdown">
         <PaymentSplit amount={payout} value={split} onChange={setSplit} />
       </Field>
+      {balanceInHand != null ? (
+        <Txt style={{ fontSize: 12, marginBottom: 6, color: insufficient ? C.red : C.muted }}>
+          Balance in hand: <Txt style={{ fontWeight: "700", color: insufficient ? C.red : C.ink }}>{inr(balanceInHand)}</Txt>
+          {insufficient ? " — add cash to disburse." : ""}
+        </Txt>
+      ) : null}
       <ErrorText>{error}</ErrorText>
-      <PrimaryButton label={`${verb} & Disburse ${inr(payout)}`} onPress={() => onConfirm(split)} loading={loading} disabled={!isBalanced(split, payout)} />
+      <PrimaryButton label={`${verb} & Disburse ${inr(payout)}`} onPress={() => onConfirm(split)} loading={loading} disabled={insufficient || !isBalanced(split, payout)} />
     </Sheet>
   );
 }

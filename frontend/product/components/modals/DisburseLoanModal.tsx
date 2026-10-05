@@ -79,7 +79,7 @@ export function DisburseLoanModalContent({
         {balanceInHand !== null && (
           <p style={{ fontSize: 12.5, marginTop: 8, color: insufficient ? "var(--red)" : "var(--muted)" }}>
             Balance in hand: <strong>{fmt(balanceInHand)}</strong>
-            {insufficient && " — not enough to disburse this loan. Add cash before approving."}
+            {insufficient && " — add cash to disburse."}
           </p>
         )}
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}

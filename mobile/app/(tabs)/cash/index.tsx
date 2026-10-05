@@ -13,7 +13,8 @@ import {
   ChipToggle,
   ClosingCard,
   DateField,
-  FabCorner,
+  FabMenu,
+  type FabMenuAction,
   Field,
   FieldRow,
   FlatHeader,
@@ -26,7 +27,6 @@ import {
   SectionTitle,
   ServerFlatList,
   Sheet,
-  SheetListItem,
   Txt,
   toast,
 } from "../../../src/components/ui";
@@ -98,7 +98,6 @@ export default function CashScreen() {
     if (params.tab === "movements" || params.tab === "expenses" || params.tab === "goldSales") setTab(params.tab);
   }, [params.tab, params.t]);
 
-  const [actionsOpen, setActionsOpen] = useState(false);
   const [action, setAction] = useState<CashAction>(null);
   const [movementFilters, setMovementFilters] = useState<MovementFilters>(EMPTY_MOVEMENT_FILTERS);
   const [movementFilterSheetOpen, setMovementFilterSheetOpen] = useState(false);
@@ -180,9 +179,6 @@ export default function CashScreen() {
         )}
       </Card>
       <ClosingCard k="Closing Balance (Expected Cash in Hand)" v={s ? inr(s.expectedCash) : "—"} formula="Opening + Cash in − Cash out − Expenses" />
-      <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
-        {can("Cash_Management", "can_create_cash") ? <PrimaryButton label="Cash Actions" onPress={() => setActionsOpen(true)} /> : null}
-      </View>
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />
       <View style={{ paddingTop: 12 }}>
         {tab === "movements" ? (
@@ -213,8 +209,28 @@ export default function CashScreen() {
     refetch();
   };
 
+  const canCreateCash = can("Cash_Management", "can_create_cash");
+  const fabActions: FabMenuAction[] = [
+    ...(canCreateCash
+      ? [
+          { label: "Add Cash", icon: "plus", onPress: () => setAction("addCash") },
+          { label: "Record Expense", icon: "doc", onPress: () => setAction("expense") },
+        ]
+      : []),
+    ...(tab === "movements" && movements.items.length > 0 && can("Ledger_Export", "can_export_ledger")
+      ? [{ label: "Download PDF", icon: "download", onPress: onDownload }]
+      : []),
+  ];
+
   return (
-    <Screen header={<FlatHeader title="Ledger" subtitle="Movements, expenses & gold sales" />}>
+    <Screen
+      header={<FlatHeader title="Ledger" subtitle="Movements, expenses & gold sales" />}
+      floating={
+        // One corner button that opens upward into every action — same as
+        // Bank Pledges.
+        fabActions.length > 0 ? <FabMenu label="Cash actions" actions={fabActions} /> : undefined
+      }
+    >
       {tab === "movements" ? (
         <ServerFlatList
           list={{ ...movements, refetch: refreshAll(movements.refetch) }}
@@ -278,7 +294,7 @@ export default function CashScreen() {
           items={goldSales.items}
           header={header}
           keyOf={(g) => `g${g.id}`}
-          emptyText={goldSales.search ? "No gold sales match your search." : 'No gold sales recorded yet. Use "Cash Actions" → Add Cash with the Gold Sale source.'}
+          emptyText={goldSales.search ? "No gold sales match your search." : 'No gold sales recorded yet. Use the corner Cash actions button → Add Cash with the Gold Sale source.'}
           renderItem={(g, i) => (
             <AccRow
               defaultOpen={i === 0}
@@ -301,29 +317,7 @@ export default function CashScreen() {
         />
       )}
 
-      {/* Same floating Download corner button as the drill-down ledgers (LedgerList). */}
-      {tab === "movements" && movements.items.length > 0 && can("Ledger_Export", "can_export_ledger") ? <FabCorner icon="download" label="Download ledger PDF" onPress={onDownload} /> : null}
 
-      <Sheet visible={actionsOpen} onClose={() => setActionsOpen(false)} title="Cash Actions" maxHeightPct={60}>
-        {(
-          [
-            { key: "addCash", icon: "coin", title: "Add Cash", sub: "Record cash coming in, or a gold sale" },
-            { key: "expense", icon: "doc", title: "Record Expense", sub: "Log a branch expense" },
-          ] as const
-        ).map((a, i) => (
-          <SheetListItem
-            key={a.key}
-            first={i === 0}
-            icon={a.icon}
-            title={a.title}
-            sub={a.sub}
-            onPress={() => {
-              setActionsOpen(false);
-              setAction(a.key);
-            }}
-          />
-        ))}
-      </Sheet>
 
       <MovementSheet visible={action === "addCash"} onClose={() => setAction(null)} branchId={employee?.branchId} />
       <ExpenseSheet visible={action === "expense"} onClose={() => setAction(null)} branchId={employee?.branchId} />

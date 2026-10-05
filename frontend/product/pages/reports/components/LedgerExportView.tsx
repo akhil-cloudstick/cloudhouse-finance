@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
@@ -93,16 +93,16 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
   // "customer has no account in that branch → nothing shown" rule this
   // filter is spec'd to enforce.
   const categories: FilterCategory[] = [
-    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     {
-      key: "customer", label: "Customer", kind: "async",
+      key: "customer", label: "Customer", kind: "async", searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search, p) =>
         listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined }, 20).then((res) => ({
           items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
           hasMore: res.hasMore,
         })),
     },
-    { key: "type", label: "Type", kind: "static", options: TRANSACTION_TYPE_OPTIONS },
+    { key: "type", label: "Type", kind: "static", searchHint: "Searches: transaction type", options: TRANSACTION_TYPE_OPTIONS },
     { key: "__date", label: "Date", kind: "date" },
   ];
 
@@ -185,7 +185,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
                 <tr><td colSpan={7} className="empty compact">No ledger entries found.</td></tr>
               ) : rows.map(({ m, balance }) => (
                 <tr key={m.id}>
-                  <td>{m.d}</td>
+                  <td>{fmtDate(m.d)}</td>
                   {/* Same clickable cells as Cash.tsx's Ledger tab (ledgerCells.tsx). */}
                   <td className="ledger-ref" title={loanNumberFor(m)}>{refCellFor(m)}</td>
                   <td>{particularsFor(m, categoryIds)}</td>

@@ -1,6 +1,6 @@
 "use client";
 
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import type { LoanView } from "@/product/pages/loans/services/loanService";
 import { navigate } from "@/product/services/appRoutes";
@@ -39,7 +39,7 @@ export function LoanRow({ loan: l }: { loan: LoanView }) {
     <tr className={canOpen ? "click" : undefined} onClick={canOpen ? () => navigate("loan/" + l.id) : undefined}>
       <td><span className="id">{l.id}</span><span className="sub">{l.customerName}</span></td>
       <td>{l.schemeName}</td>
-      <td>{l.opened}<span className="sub">due {l.due}</span></td>
+      <td className="td-date">{fmtDate(l.opened)}<span className="sub">due {fmtDate(l.due)}</span></td>
       <td className="num">{fmt(l.principal)}</td>
       <td className="num">{l.outstanding ? fmt(l.outstanding) : "—"}</td>
       <td><StatusChip status={l.bankPledgeStatus} /></td>

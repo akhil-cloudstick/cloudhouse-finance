@@ -46,7 +46,7 @@ export default function GlobalSearch({
     const groups: ResultGroup[] = [];
 
     const loanHits = !canOpen("loan") ? [] : loans
-      .filter((l) => hit(l.id) || hit(l.customerName) || hit(l.status))
+      .filter((l) => hit(l.id) || hit(l.customerName) || hit(l.customerCode) || hit(l.status))
       .slice(0, 5)
       .map((l) => ({
         href: routeHref("loan/" + l.id),
@@ -58,7 +58,7 @@ export default function GlobalSearch({
     if (loanHits.length) groups.push(["Loans", loanHits]);
 
     const custs = !canOpen("customer") ? [] : customers
-      .filter((c) => hit(c.name) || hit(c.id) || hit(c.phone) || hit(c.address))
+      .filter((c) => hit(c.name) || hit(c.code) || hit(c.phone) || hit(c.address))
       .slice(0, 5)
       .map((c) => ({
         href: routeHref("customer/" + c.id),
@@ -70,7 +70,7 @@ export default function GlobalSearch({
     if (custs.length) groups.push(["Customers", custs]);
 
     const schs = !canOpen("schemes") ? [] : schemes
-      .filter((s) => hit(s.name) || hit(s.id))
+      .filter((s) => hit(s.name) || hit(s.code))
       .slice(0, 4)
       .map((s) => ({
         href: routeHref("schemes"),
@@ -188,7 +188,8 @@ export default function GlobalSearch({
           ref={inputRef}
           id="gsInput"
           type="text"
-          placeholder="Search loans, customers, schemes, packets…"
+          placeholder="Search loans, customers, schemes…"
+          title="Searches: loans (loan number, customer name, customer code, status), customers (name, code, phone, address), schemes (name, code) · type at least 2 characters"
           autoComplete="off"
           value={query}
           onChange={(e) => handleChange(e.target.value)}

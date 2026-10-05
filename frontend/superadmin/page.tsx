@@ -175,8 +175,12 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+// DD-MM-YYYY ("05-10-2026"), matching the tenant app's date style.
 function formatDate(iso?: string | null): string {
-  return iso ? new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
 }
 
 /* Inline SVGs rather than an icon package. This console's dependencies are
@@ -610,14 +614,14 @@ export default function SuperAdminDashboard() {
                                     new Date(b.subscriptionExpiresAt) < new Date() ? "var(--sa-red)" : undefined,
                                 }}
                               >
-                                {new Date(b.subscriptionExpiresAt).toLocaleDateString()}
+                                {formatDate(b.subscriptionExpiresAt)}
                               </span>
                             ) : (
                               "—"
                             )}
                             {b.gracePeriodEndsAt && (
                               <span className="sa-chip grace" style={{ marginLeft: 6 }}>
-                                grace ends {new Date(b.gracePeriodEndsAt).toLocaleDateString()}
+                                grace ends {formatDate(b.gracePeriodEndsAt)}
                               </span>
                             )}
                           </td>

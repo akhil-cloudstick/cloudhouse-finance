@@ -6,7 +6,7 @@ import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { publishGoldRate } from "@/product/pages/gold-rates/services/goldRateService";
-import { finenessForKarat, rateForFineness } from "@/product/utils/purity";
+import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/product/utils/purity";
 import { ApiError } from "@/product/services/httpClient";
 
 type Mode = "auto" | "manual";
@@ -40,8 +40,9 @@ function useShake(invalid: boolean) {
  * - Auto (default): every karat's rate derives live off a REFERENCE 24K
  *   figure (today's/session's already-published K24, frozen at open —
  *   `ref24` below) at an editable fineness% (prefilled with the standard
- *   ratio: 100% for 24K itself, karat/24 for 22K/18K). Typing the
- *   fineness recomputes that karat's rate live.
+ *   ratio, karat/24, for 22K/18K). Typing the fineness recomputes that
+ *   karat's rate live. 24K's fineness is fixed at 99.9% (999) and shown
+ *   read-only — it labels the reference rate rather than scaling it.
  * - Typing directly into 22K's or 18K's RATE field switches ALL THREE
  *   karats to Manual at once — same as pressing the top "Manual" tab —
  *   so the modal never sits in a half-Auto/half-Manual state that only
@@ -62,22 +63,22 @@ export function RateModalContent() {
   const { closeModal } = useModal();
   const toast = useToast();
 
-  // Frozen at open — the "999 reference" every Auto karat (24K included)
-  // derives its fineness-adjusted rate off. Re-deriving off a live-edited
-  // rate24 would make 24K's own fineness field circular (adjusting what
-  // it's itself adjusting), so this stays fixed for the life of the modal.
+  // Frozen at open — the "999 reference" Auto falls back to when no rate
+  // has been typed yet (see setAuto).
   const [ref24] = useState(latest.k24 || 0);
 
   const [mode, setMode] = useState<Mode>("auto");
 
   const [rate24, setRate24] = useState(String(latest.k24 || ""));
-  const [fineness24, setFineness24] = useState("100");
 
   const [rate22, setRate22] = useState(String(latest.k22 || ""));
-  const [fineness22, setFineness22] = useState(String(finenessForKarat(22)));
+  // Fineness isn't stored — restore what the last published rates imply
+  // (rate ÷ 24K) rather than the standard ratio, so a custom fineness set
+  // earlier is still showing when the modal is reopened.
+  const [fineness22, setFineness22] = useState(String(finenessFromRate(latest.k24, latest.k22, 22)));
 
   const [rate18, setRate18] = useState(String(latest.k18 || ""));
-  const [fineness18, setFineness18] = useState(String(finenessForKarat(18)));
+  const [fineness18, setFineness18] = useState(String(finenessFromRate(latest.k24, latest.k18, 18)));
 
   const [remarks, setRemarks] = useState("");
   const [err, setErr] = useState("");
@@ -93,9 +94,8 @@ export function RateModalContent() {
 
   function setAuto() {
     setMode("auto");
-    setFineness24("100");
-    const f22 = finenessForKarat(22);
-    const f18 = finenessForKarat(18);
+    const f22 = finenessFromRate(latest.k24, latest.k22, 22);
+    const f18 = finenessFromRate(latest.k24, latest.k18, 18);
     setFineness22(String(f22));
     setFineness18(String(f18));
 
@@ -127,9 +127,7 @@ export function RateModalContent() {
   function editRate24(v: string) {
     setRate24(v); // never switches mode — see file doc comment
     setLastEdited(24);
-    // 22K/18K keep tracking 24K live while they're still in Auto — only
-    // 24K's OWN fineness field (below) has to derive off the frozen
-    // ref24 instead of this live value, to avoid deriving off itself.
+    // 22K/18K keep tracking 24K live while they're still in Auto.
     const k24 = +v;
     if (mode === "auto" && k24 > 0) {
       if (+fineness22 > 0) setRate22(String(rateForFineness(k24, +fineness22)));
@@ -152,17 +150,11 @@ export function RateModalContent() {
   function clampFineness(v: string): string {
     return v !== "" && +v > 100 ? "100" : v;
   }
-  function editFineness24(v: string) {
-    const c = clampFineness(v);
-    setFineness24(c);
-    if (ref24 > 0 && +c > 0) setRate24(String(rateForFineness(ref24, +c)));
-  }
   function editFineness22(v: string) {
     const c = clampFineness(v);
     setFineness22(c);
-    // Off the LIVE 24K rate, not the frozen ref24 — 22K/18K aren't
-    // deriving off themselves, so tracking whatever's currently typed in
-    // the 24K field (not just today's opening reference) is correct here.
+    // Off the LIVE 24K rate, not the frozen ref24 — tracks whatever's
+    // currently typed in the 24K field, not just today's opening reference.
     if (+rate24 > 0 && +c > 0) setRate22(String(rateForFineness(+rate24, +c)));
   }
   function editFineness18(v: string) {
@@ -244,8 +236,8 @@ export function RateModalContent() {
           <div>
             {mode === "auto" && (
               <div style={{ marginTop: 8, marginBottom: 12 }}>
-                <label className="f" style={{ marginBottom: 2 }}>Fineness (100%)</label>
-                <input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness24} onChange={(e) => editFineness24(e.target.value)} />
+                <label className="f" style={{ marginBottom: 2 }}>Fineness ({FINENESS_24K}%)</label>
+                <input className="inp" type="number" style={{ width: 140, background: "var(--brand-faint)", cursor: "not-allowed" }} value={FINENESS_24K} disabled readOnly title="24K is fixed at 99.9% (999)" />
               </div>
             )}
             <label className="f">24K · 999 (₹/g)</label>
@@ -255,7 +247,7 @@ export function RateModalContent() {
             />
             {invalid24 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
             <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
-              {mode === "manual" ? "set directly" : "adjust directly, or via fineness above"}
+              {mode === "manual" ? "set directly" : "22K/18K follow this rate"}
             </p>
           </div>
 
