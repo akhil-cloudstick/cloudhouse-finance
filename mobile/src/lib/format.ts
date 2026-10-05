@@ -5,12 +5,12 @@
 export const fmt = (n?: number | null) =>
   `₹${(n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-// Date only ("24/9/2026", same shape as toLocaleDateString("en-IN")) from a
+// Date only ("24-09-2026", DD-MM-YYYY like dmy) from a
 // backend timestamp. Reads the YYYY-MM-DD prefix directly so a midnight-UTC
 // date never shifts a day with the device timezone. "—" when empty.
 export const fmtDate = (v?: string | null) => {
   const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
-  return m ? `${+m[3]}/${+m[2]}/${m[1]}` : "—";
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : "—";
 };
 
 // Prototype money style: "₹18,42,600" — whole rupees without decimals, but a
@@ -30,12 +30,11 @@ export const inrShort = (n?: number | null) => {
   return `${sign}₹${Math.round(v).toLocaleString("en-IN")}`;
 };
 
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-// Prototype date style: "14 Aug 2026". Reads the YYYY-MM-DD prefix directly
-// (no timezone shift). "—" when empty.
+// App-wide date style: "14-08-2026" (DD-MM-YYYY). Reads the YYYY-MM-DD prefix
+// directly (no timezone shift). "—" when empty.
 export const dmy = (v?: string | null) => {
   const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
-  return m ? `${+m[3]} ${MON[+m[2] - 1]} ${m[1]}` : "—";
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : "—";
 };
 
 export const todayISO = () => {

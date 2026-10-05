@@ -159,6 +159,7 @@ export function Packets() {
         <div className="search"><Icon name="search" /><input
           className="inp"
           placeholder="Search packet code, loan number, or customer — or scan a code (Enter)"
+          title="Searches: packet code, loan number, customer name, customer code, locker code · scan or type an exact packet code and press Enter to open it"
           value={lookup}
           onChange={(e) => { setLookup(e.target.value); setLookupErr(""); }}
           onKeyDown={onLookup}

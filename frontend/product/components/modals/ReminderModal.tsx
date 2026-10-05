@@ -10,6 +10,7 @@ import { Select } from "@/product/components/ui/Select";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { searchCustomersPage, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { createReminder, type ReminderView } from "@/product/pages/reminders/services/reminderService";
+import { fmtDate } from "@/product/utils/format";
 
 const TYPE_OPTIONS = [
   { value: "Follow-Up", label: "Customer Follow-Up" },
@@ -54,7 +55,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: { initialDate?
       });
       onSaved?.(rec);
       closeModal();
-      toast(`${type} reminder logged for ${customerLabel || "customer"} — ${dueDate}`);
+      toast(`${type} reminder logged for ${customerLabel || "customer"} — ${fmtDate(dueDate)}`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to log reminder.");
     } finally {
@@ -73,6 +74,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: { initialDate?
               value={customerLabel}
               placeholder="Search by name, code, or phone…"
               fetchFn={searchCustomersPage}
+              searchHint="Searches: customer name, customer code, phone"
               getLabel={(c) => `${c.name} — ${c.code}`}
               getId={(c) => String(c.id)}
               onChange={(id, c) => { setCustomerId(id); setCustomerLabel(`${c.name} — ${c.code}`); }}

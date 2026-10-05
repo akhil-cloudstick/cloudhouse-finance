@@ -1017,6 +1017,38 @@ h3,
   border-color: var(--red)
 }
 
+/* FileInput's `camera` mode renders the trigger as a <button> (it opens
+ * PhotoSourceMenu rather than the file dialog) — keep it reading as the
+ * same left-aligned field as the <label> version. */
+button.fi-trigger {
+  text-align: left
+}
+
+/* WebcamCapture.tsx's live preview / captured still. */
+.cam-stage {
+  position: relative;
+  background: #111;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center
+}
+
+.cam-stage video,
+.cam-stage img {
+  width: 100%;
+  max-height: 60vh;
+  object-fit: contain
+}
+
+.cam-wait {
+  position: absolute;
+  color: #ddd;
+  font-size: 13px
+}
+
 /* ── themed date picker (components/DatePicker.tsx) ───────────────────── */
 .dp {
   position: relative
@@ -2539,12 +2571,9 @@ h3,
   color: #fff
 }
 
-/* auto, not hidden — table-layout:fixed + overflow-wrap:anywhere below
- * normally keeps this table within its column without ever needing to
- * scroll, but a genuinely narrow right column (a fixed 430px left card
- * eating most of the row at ordinary laptop widths — see .cust-360's own
- * grid-template-columns) can still leave more columns than any wrap can
- * shrink to fit. `hidden` silently cropped that overflow — Status/Pledge
+/* auto, not hidden — the tables below carry a min-width and scroll
+ * sideways when the right column is narrower than that.
+ * `hidden` silently cropped that overflow — Status/Pledge
  * simply vanished off the right edge with no way to reach them — instead
  * of falling back to a scrollbar, which `auto` only ever shows when it's
  * actually needed. */
@@ -2585,14 +2614,32 @@ h3,
   overflow-y: auto;
 }
 
+/* Auto layout sizes each column to its content, and the min-width keeps the
+ * table the same shape on every screen — a narrow right column scrolls the
+ * table sideways (.tbl-wrap's overflow-x:auto above) instead of squeezing
+ * equal fixed-width columns until dates and "Particulars" broke mid-word. */
 .cust-360 .tbl {
-  table-layout: fixed;
-  width: 100%
+  table-layout: auto;
+  width: 100%;
+  min-width: 760px
 }
 
 .cust-360 .tbl th,
 .cust-360 .tbl td {
-  overflow-wrap: anywhere
+  overflow-wrap: normal;
+  word-break: normal
+}
+
+/* Headers, dates and amounts stay on one line; only free text such as the
+ * ledger's Particulars wraps, and only at word boundaries. */
+.cust-360 .tbl th,
+.cust-360 .tbl td.num,
+.cust-360 .tbl td.td-date {
+  white-space: nowrap
+}
+
+.cust-360 .tbl td.td-particulars {
+  min-width: 180px
 }
 
 /* .chip's own white-space:nowrap (app.css above) is fine for every short,
@@ -3093,6 +3140,27 @@ h3,
   background: oklch(0.96 0.020 25)
 }
 
+/* Disabled buttons used to look exactly like live ones — clicks did nothing
+ * but nothing said so (e.g. Approve & Disburse with too little cash). Faded,
+ * not-allowed cursor, and no hover lift or fill change. Placed after every
+ * variant's :hover so these win at equal specificity. */
+.btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.btn:disabled:hover {
+  transform: none;
+}
+.btn:not(.ghost):not(.danger):not(.plain):disabled:hover {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+.btn.ghost:disabled:hover,
+.btn.danger:disabled:hover {
+  background: #fff;
+}
+
 @keyframes btnShake {
   0%, 100% { transform: translateX(0); }
   20%, 60% { transform: translateX(-6px); }
@@ -3114,8 +3182,8 @@ h3,
   font-size: 13px
 }
 /* LoanDetail.tsx's document/eSign action row (Print Label/Slip/Statement/
- * Bond, Signed Bond, eSign) — labels range from "Statement" to "Send
- * Indemnity Bond for eSign", which at a shared width would otherwise force
+ * Bond, Signed Bond, eSign) — labels range from "Statement" to "Send Bond
+ * for eSign", which at a shared width would otherwise force
  * every button to the widest label's size. Fixing the width and eliding the
  * overflowing text keeps the whole row visually uniform instead. Width is
  * on the button itself (not flex-basis) so it holds firm inside the
@@ -3135,7 +3203,7 @@ h3,
 .btn.doc-action.pl-download-bond{width:auto;flex:0 0 auto}
 /* DocumentsMenu's dropdown rows (LoanDetail.tsx) — a label too long for the
  * 165px-wide panel fades out at its right edge instead of ending in "…",
- * so e.g. "Send Indemnity Bond for eSign" reads as trailing off rather than
+ * so e.g. "Send Bond for eSign" reads as trailing off rather than
  * being cut off mid-word. text-overflow is explicitly `clip` (not the
  * `.gs-results a .tx b` default of `ellipsis`) so the two effects don't
  * both apply at once. */

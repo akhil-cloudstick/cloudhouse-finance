@@ -10,7 +10,7 @@ import { useGoldRates } from "@/product/pages/gold-rates/store/GoldRatesProvider
 import { useModal } from "@/product/components/Modal";
 import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import { stageLabel } from "@/product/services/approvalWorkflowService";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate, fmtToday } from "@/product/utils/format";
 import { Icon } from "@/product/components/Icon";
 import { RateModalContent } from "@/product/components/modals/RateModal";
 import { RegisterCustomerModalContent } from "@/product/components/modals/RegisterCustomerModal";
@@ -136,7 +136,7 @@ export function Dashboard() {
   }, [canViewCash, canViewLoans]);
 
   const today = new Date().toISOString().slice(0, 10);
-  const todayLabel = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const todayLabel = `${new Date().toLocaleDateString("en-IN", { weekday: "long" })}, ${fmtToday()}`;
 
   const active = loans.filter((l) => ["Active", "Due Soon", "Overdue"].includes(l.status));
   const overdue = loans.filter((l) => l.status === "Overdue");
@@ -392,7 +392,7 @@ export function Dashboard() {
             <div className="ft">Weight × Rate = Gross Value · Gross × LTV = Eligible</div>
           </div>
           <div className="card gtop">
-            <div className="hd"><h3>Today&apos;s Gold Rate</h3><div className="sp" /><span style={{ fontSize: 11.5, color: "var(--muted)" }}>{latest.date}</span></div>
+            <div className="hd"><h3>Today&apos;s Gold Rate</h3><div className="sp" /><span style={{ fontSize: 11.5, color: "var(--muted)" }}>{fmtDate(latest.date)}</span></div>
             <div className="bd">
               <div className="rates3" style={{ gridTemplateColumns: "1fr" }}>
                 <RateTile k="24K · published" r={latest.k24} />
@@ -423,7 +423,7 @@ export function Dashboard() {
                     <span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : e.type === "FollowUp" || e.type === "PromiseToPay" ? { background: "var(--info-bg)", color: "var(--info)" } : undefined}>
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
                     </span>
-                    <span className="tx"><b>{e.title}</b><small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""} · {e.date}</small></span>
+                    <span className="tx"><b>{e.title}</b><small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""} · {fmtDate(e.date)}</small></span>
                   </li>
                 )) : <li><span className="tx"><small>No pending reminders.</small></span></li>}
               </ul>

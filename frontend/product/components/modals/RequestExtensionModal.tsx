@@ -5,7 +5,7 @@ import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { Select } from "@/product/components/ui/Select";
-import { fmt, fmtW } from "@/product/utils/format";
+import { fmt, fmtW, fmtDate } from "@/product/utils/format";
 import { createExtensionRequest, createReleaseRequest, getLoan, listLoanRequests, type LoanView } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
 import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
@@ -61,7 +61,7 @@ export function RequestExtensionModalContent({ loan, onSaved }: { loan: LoanView
       <div className="hd"><h3>Request Extension — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16 }}>
-          <Icon name="clock" /> Currently due {loan.due} · {fmtW(loan.totalNetWeight)} gold pledged
+          <Icon name="clock" /> Currently due {fmtDate(loan.due)} · {fmtW(loan.totalNetWeight)} gold pledged
         </div>
         {hasArrears && (
           <div className="notice" style={{ marginBottom: 16, color: "var(--red)" }}>
@@ -298,7 +298,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: { loans: L
           <Select
             options={[
               { value: "", label: "Select loan…" },
-              ...eligible.map((l) => ({ value: l.id, label: `${l.id} — due ${l.due} (outstanding ₹${l.outstanding.toLocaleString("en-IN")})` })),
+              ...eligible.map((l) => ({ value: l.id, label: `${l.id} — due ${fmtDate(l.due)} (outstanding ₹${l.outstanding.toLocaleString("en-IN")})` })),
             ]}
             value={loanId}
             onChange={(v) => { setLoanId(v); setErr(""); }}

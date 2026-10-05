@@ -7,7 +7,7 @@ import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import { canActAtStage, chainFor, stageByPending, trackerLabels } from "@/product/services/approvalWorkflowService";
 import { StageTracker } from "@/product/components/ui/StageTracker";
 import { Icon } from "@/product/components/Icon";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { approveExtensionRequest, getLoan, type PaymentView, type RequestView, type LoanView } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
 import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
@@ -153,7 +153,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
           </div>
           <div className="i">
             <div className="k">Requested</div>
-            <div className="v">{req.requestedAt}</div>
+            <div className="v">{fmtDate(req.requestedAt)}</div>
           </div>
         </div>
         {clearingPayments && clearingPayments.length > 0 && (
@@ -162,7 +162,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
             <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
               {clearingPayments.map((p) => (
                 <li key={p.id}>
-                  {p.paidOn} — {fmt(p.interestApplied)}{p.penalInterestApplied > 0.01 ? ` + ${fmt(p.penalInterestApplied)} penal` : ""} via {p.method}
+                  {fmtDate(p.paidOn)} — {fmt(p.interestApplied)}{p.penalInterestApplied > 0.01 ? ` + ${fmt(p.penalInterestApplied)} penal` : ""} via {p.method}
                 </li>
               ))}
             </ul>

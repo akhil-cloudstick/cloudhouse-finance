@@ -197,6 +197,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
         value={source}
         onChange={(_id, item) => setSourceRec(item)}
         fetchFn={searchSourcesWithGoldSale}
+        searchHint="Searches: cash source name"
         getLabel={(s) => s.name}
         getId={(s) => String(s.id)}
         placeholder="Search or add a source…"
@@ -221,6 +222,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
           value={bank}
           onChange={(id, item) => { setBankId(id); setBank(item.name); }}
           fetchFn={searchBanksPage}
+          searchHint="Searches: bank name"
           getLabel={(b) => b.name}
           getId={(b) => String(b.id)}
           placeholder="Search or add a bank…"
@@ -264,6 +266,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
                     value={loanBankName}
                     onChange={(id, item) => { setLoanBankId(id); setLoanBankName(item.name); }}
                     fetchFn={searchBanksPage}
+                    searchHint="Searches: bank name"
                     getLabel={(b) => b.name}
                     getId={(b) => String(b.id)}
                     placeholder="Search or add a bank…"

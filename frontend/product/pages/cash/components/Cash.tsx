@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { AddCashModalContent } from "@/product/components/modals/AddCashModal";
 import { ExpenseModalContent, ReceiptViewModalContent } from "@/product/components/modals/ExpenseModal";
@@ -77,7 +77,7 @@ function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; b
 function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance: number; categoryIds: Record<string, number> }) {
   return (
     <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
-      <td data-label="Date">{m.d}</td>
+      <td data-label="Date">{fmtDate(m.d)}</td>
       <td className="ledger-ref" data-label="Ref No" title={loanNumberFor(m)}>{refCellFor(m)}</td>
       <td data-label="Particulars">{particularsFor(m, categoryIds)}</td>
       <td data-label="Mode">{modeCellFor(m.mode)}</td>
@@ -97,7 +97,7 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, 
 }) {
   return (
     <tr data-ledger-key={`e-${e.id}`} data-ledger-date={e.d} data-ledger-amount={e.amt}>
-      <td data-label="Date">{e.d}</td>
+      <td data-label="Date">{fmtDate(e.d)}</td>
       <td data-label="Category">
         {categoryId ? <LedgerRefLink kind="category" id={categoryId} label={e.cat} /> : e.cat}
       </td>
@@ -130,7 +130,7 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, 
 function GoldSaleRow({ g }: { g: GoldSaleView }) {
   return (
     <tr>
-      <td>{g.d}</td>
+      <td>{fmtDate(g.d)}</td>
       <td>{g.ornamentType}</td>
       <td className="num">{fmt(g.soldAmount)}</td>
       <td className="num">{fmt(g.costAmount)}</td>
@@ -232,11 +232,11 @@ export function Cash() {
   // is dropped rather than shown with one option.
   const movementsFilterCategories: FilterCategory[] = [
     ...(singleBranch ? [] : [{
-      key: "branch", label: "Branch", kind: "static" as const,
+      key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name",
       options: allBranches.map((b) => ({ value: String(b.id), label: b.name })),
     }]),
     {
-      key: "customer", label: "Customer", kind: "async",
+      key: "customer", label: "Customer", kind: "async", searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search, p) =>
         listCustomersPage(search, p, { branchIds: movementsBranchIds.length ? movementsBranchIds : undefined }, 20).then((res) => ({
           items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
@@ -244,7 +244,7 @@ export function Cash() {
         })),
     },
     {
-      key: "type", label: "Type", kind: "static",
+      key: "type", label: "Type", kind: "static", searchHint: "Searches: transaction type",
       options: [
         { value: "loan", label: "Loan" },
         { value: "auction", label: "Auction" },

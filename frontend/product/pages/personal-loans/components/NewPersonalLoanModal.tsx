@@ -145,6 +145,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
             value={customerLabel}
             onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); }}
             fetchFn={searchCustomersPage}
+            searchHint="Searches: customer name, customer code, phone"
             getLabel={(c) => `${c.name} (${c.code})`}
             /* Same treatment as the gold-loan picker (NewLoan.tsx): name
              * plus a "Verified" badge when fully verified, and no negative
@@ -216,7 +217,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         {balanceInHand !== null && (
           <p className={"pl-bal" + (insufficient ? " low" : "")}>
             Balance in hand: <strong>{fmt(balanceInHand)}</strong>
-            {insufficient && " — not enough to disburse this loan. Add cash first."}
+            {insufficient && " — add cash to disburse."}
           </p>
         )}
 

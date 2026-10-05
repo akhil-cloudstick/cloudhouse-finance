@@ -134,7 +134,7 @@ export function Loans() {
     rows = allLoans.filter(computedPredicate);
     if (q.trim()) {
       const needle = q.trim().toLowerCase();
-      rows = rows.filter((l) => l.id.toLowerCase().includes(needle) || l.customerName.toLowerCase().includes(needle));
+      rows = rows.filter((l) => l.id.toLowerCase().includes(needle) || l.customerName.toLowerCase().includes(needle) || l.customerCode.toLowerCase().includes(needle));
     }
     if (fromDate) rows = rows.filter((l) => l.opened >= fromDate);
     if (toDate) rows = rows.filter((l) => l.opened <= toDate);
@@ -158,7 +158,7 @@ export function Loans() {
       <div className="page-h" >
         <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" title="Searches: loan number, customer name, customer code" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateLoans && <a className="btn" href={routeHref("newloan")}><Icon name="plus" /> New Gold Loan</a>}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />

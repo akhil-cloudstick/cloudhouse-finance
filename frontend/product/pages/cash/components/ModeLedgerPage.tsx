@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
@@ -135,12 +135,13 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   }
 
   const filterCategories: FilterCategory[] = [
-    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     ...(mode !== "Cash"
       ? [{
           key: "bank",
           label: "Bank",
           kind: "async" as const,
+          searchHint: "Searches: bank name",
           singleSelect: true,
           fetchOptions: (search: string, p: number) =>
             searchBanksPage(search, p).then((res) => ({
@@ -229,7 +230,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                     null;
                   return (
                   <tr key={`${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
-                    <td>{r.d}</td>
+                    <td>{fmtDate(r.d)}</td>
                     <td>
                       {r.description || r.type}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>

@@ -6,7 +6,7 @@ import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { useAuth } from "@/product/providers/auth-context";
 import { Icon } from "@/product/components/Icon";
-import { fmt, fmtW } from "@/product/utils/format";
+import { fmt, fmtW, fmtDate } from "@/product/utils/format";
 import {
   releaseBankPledge,
   voidBankPledge,
@@ -197,7 +197,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
       <div className="page-h">
         <div><h1>Bank &amp; Gold Re-Pledge</h1><p>Customer gold re-pledged with external banks</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, bank, customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, bank, customer…" title="Searches: loan number, customer name, customer code · bank name on the History tab only" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canViewBanks && <button className="btn ghost" onClick={() => openModal(<BanksModalContent />, true)}><Icon name="bank" /> Banks</button>}
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
@@ -234,7 +234,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
                       <td className="num">{fmtW(l.totalNetWeight)}</td>
                       <td className="num">{active ? fmt(active.pledgedAmount) : "—"}</td>
                       <td><CashTreatmentBadge treatment={treatment} /></td>
-                      <td>{active?.pledgeDate || "—"}</td>
+                      <td>{fmtDate(active?.pledgeDate)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>
                         {active && (
                           <>
@@ -307,8 +307,8 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
                     <td>{r.bankName}</td>
                     <td className="num">{fmt(r.pledgedAmount)}</td>
                     <td><CashTreatmentBadge treatment={r.cashTreatment} /></td>
-                    <td>{r.pledgeDate || "—"}</td>
-                    <td>{r.releaseDate || "—"}</td>
+                    <td>{fmtDate(r.pledgeDate)}</td>
+                    <td>{fmtDate(r.releaseDate)}</td>
                     <td>
                       {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see item #13's
                         * Void→Delete relabel: this is a UI wording change, not a status-value rename. */}

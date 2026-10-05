@@ -424,3 +424,61 @@ func TestProjectAccrual_PenalCountsWholeOverdueMonthsOnce(t *testing.T) {
 		t.Fatalf("already-charged overdue months must not repeat, got %.4f", p)
 	}
 }
+
+// Opened on the day it was entered, disbursed 19 days later: interest, the
+// opened date and the due date all start from disbursement, tenure intact.
+func TestStartAccrualAtDisbursement_ShiftsSameDayLoan(t *testing.T) {
+	opened := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
+	l := &Loan{
+		OpenedDate:        opened,
+		DueDate:           time.Date(2027, 1, 1, 0, 0, 0, 0, time.Local),
+		LastAccrualDate:   opened,
+		CreatedAt:         time.Date(2026, 1, 1, 10, 30, 0, 0, time.Local),
+		OverdueNotifiedAt: &opened,
+	}
+	startAccrualAtDisbursement(l, time.Date(2026, 1, 20, 15, 45, 0, 0, time.Local))
+
+	wantOpened := time.Date(2026, 1, 20, 0, 0, 0, 0, time.Local)
+	if !l.OpenedDate.Equal(wantOpened) || !l.LastAccrualDate.Equal(wantOpened) {
+		t.Fatalf("accrual start: opened %v, lastAccrual %v, want %v", l.OpenedDate, l.LastAccrualDate, wantOpened)
+	}
+	if want := time.Date(2027, 1, 20, 0, 0, 0, 0, time.Local); !l.DueDate.Equal(want) {
+		t.Fatalf("due date: got %v, want %v", l.DueDate, want)
+	}
+	if l.OverdueNotifiedAt != nil {
+		t.Fatal("overdue reminder should be re-armed for the shifted due date")
+	}
+}
+
+// A backdated loan keeps accruing from the date staff chose.
+func TestStartAccrualAtDisbursement_KeepsBackdatedLoan(t *testing.T) {
+	opened := time.Date(2025, 3, 1, 0, 0, 0, 0, time.Local)
+	due := time.Date(2026, 3, 1, 0, 0, 0, 0, time.Local)
+	l := &Loan{OpenedDate: opened, DueDate: due, LastAccrualDate: opened, CreatedAt: time.Date(2026, 1, 1, 9, 0, 0, 0, time.Local)}
+	startAccrualAtDisbursement(l, time.Date(2026, 1, 20, 12, 0, 0, 0, time.Local))
+
+	if !l.OpenedDate.Equal(opened) || !l.DueDate.Equal(due) || !l.LastAccrualDate.Equal(opened) {
+		t.Fatalf("backdated loan changed: opened %v, due %v, lastAccrual %v", l.OpenedDate, l.DueDate, l.LastAccrualDate)
+	}
+}
+
+// Shape the DB actually holds: the form's "YYYY-MM-DD" parsed as UTC
+// midnight. Created and opened on 3 Oct, approved 3 days later — a normal
+// loan, not a backdated one, so it shifts to the approval day.
+func TestStartAccrualAtDisbursement_UTCMidnightOpenedDate(t *testing.T) {
+	opened := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	l := &Loan{
+		OpenedDate:      opened,
+		DueDate:         time.Date(2027, 10, 3, 0, 0, 0, 0, time.UTC),
+		LastAccrualDate: opened,
+		CreatedAt:       time.Date(2026, 10, 3, 12, 47, 0, 0, time.Local),
+	}
+	startAccrualAtDisbursement(l, time.Date(2026, 10, 6, 11, 0, 0, 0, time.Local))
+
+	if got := l.OpenedDate.In(time.Local).Format("2006-01-02"); got != "2026-10-06" {
+		t.Fatalf("opened date: got %s, want 2026-10-06", got)
+	}
+	if got := l.DueDate.In(time.Local).Format("2006-01-02"); got != "2027-10-06" {
+		t.Fatalf("due date: got %s, want 2027-10-06", got)
+	}
+}

@@ -43,7 +43,7 @@ import { routeEnabled } from "../../config/tenantModules";
 import { routeAllowed, useCanOpen } from "../../config/routePermissions";
 import { FEATURES } from "../../config/features";
 import { addDaysISO, dmy, inr, todayISO } from "../../lib/format";
-import { finenessForKarat, rateForFineness } from "../../lib/purity";
+import { finenessFromRate, rateForFineness, FINENESS_24K } from "../../lib/purity";
 import type { CalendarEvent } from "../../types/reminder";
 import type { Loan } from "../../types/loan";
 import type { Customer } from "../../types/customer";
@@ -57,8 +57,8 @@ import { userMessage } from "../../api/errors";
 // Same rules as the web RateModal and the pre-redesign mobile screen. Mode
 // is all-or-nothing across the three karats:
 // - Auto (default): 22K/18K derive live off 24K at an editable fineness %
-//   (prefilled with karat/24). 24K's own fineness scales the rate that was
-//   live when the modal opened.
+//   (prefilled with karat/24). 24K's fineness is fixed at 99.9% (999) and
+//   read-only — it labels the reference rate rather than scaling it.
 // - Manual: every karat is typed independently. Typing straight into the
 //   22K or 18K rate switches to Manual; typing 24K does not.
 // Only karats whose rate actually changed are published, 24 -> 22 -> 18.
@@ -74,7 +74,10 @@ const KARAT_ROWS: { k: Karat; label: string }[] = [
   { k: 22, label: "22K · 916" },
   { k: 18, label: "18K · 750" },
 ];
-const defaultFineness = (k: Karat) => (k === 24 ? "100" : String(finenessForKarat(k)));
+// Fineness isn't stored — restore what the last published rates imply
+// (rate ÷ 24K) rather than the standard karat/24 ratio, so a custom fineness
+// set earlier is still showing when the modal is reopened.
+const savedFineness = (k: Karat, k24: number, rate: number) => (k === 24 ? String(FINENESS_24K) : String(finenessFromRate(k24, rate, k)));
 const clampFineness = (v: string) => (v !== "" && +v > 100 ? "100" : v);
 
 export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -89,18 +92,20 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
   const [mode, setMode] = useState<RateMode>("Auto");
   const [ref24, setRef24] = useState(0);
   const [rates, setRates] = useState<Record<Karat, string>>({ 24: "", 22: "", 18: "" });
-  const [fin, setFin] = useState<Record<Karat, string>>({ 24: "100", 22: defaultFineness(22), 18: defaultFineness(18) });
+  const [fin, setFin] = useState<Record<Karat, string>>({ 24: String(FINENESS_24K), 22: savedFineness(22, now[24], now[22]), 18: savedFineness(18, now[24], now[18]) });
   const [lastEdited, setLastEdited] = useState<Karat | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const resetAuto = (k24: number) => {
     setMode("Auto");
     setRef24(k24);
-    setFin({ 24: "100", 22: defaultFineness(22), 18: defaultFineness(18) });
+    const f22 = savedFineness(22, now[24], now[22]);
+    const f18 = savedFineness(18, now[24], now[18]);
+    setFin({ 24: String(FINENESS_24K), 22: f22, 18: f18 });
     setRates({
       24: k24 > 0 ? String(Math.round(k24)) : "",
-      22: k24 > 0 ? String(rateForFineness(k24, finenessForKarat(22))) : "",
-      18: k24 > 0 ? String(rateForFineness(k24, finenessForKarat(18))) : "",
+      22: k24 > 0 ? String(rateForFineness(k24, +f22)) : "",
+      18: k24 > 0 ? String(rateForFineness(k24, +f18)) : "",
     });
     setLastEdited(null);
     setError(null);
@@ -140,23 +145,14 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
     );
   };
 
+  // 22K/18K only — 24K's fineness is fixed (FINENESS_24K, read-only field).
   const editFineness = (k: Karat, v: string) => {
+    if (k === 24) return;
     const c = clampFineness(v);
     setError(null);
     setFin((f) => ({ ...f, [k]: c }));
     if (!(+c > 0)) return;
-    if (k === 24) {
-      if (ref24 > 0) {
-        const k24 = rateForFineness(ref24, +c);
-        setRates((r) => ({
-          24: String(k24),
-          22: +fin[22] > 0 ? String(rateForFineness(k24, +fin[22])) : r[22],
-          18: +fin[18] > 0 ? String(rateForFineness(k24, +fin[18])) : r[18],
-        }));
-      }
-    } else {
-      setRates((r) => (+r[24] > 0 ? { ...r, [k]: String(rateForFineness(+r[24], +c)) } : r));
-    }
+    setRates((r) => (+r[24] > 0 ? { ...r, [k]: String(rateForFineness(+r[24], +c)) } : r));
   };
 
   // Non-blocking sanity check (Manual only): a lower karat priced above a
@@ -233,7 +229,7 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   {mode === "Auto" ? (
                     <Field label="Fineness %" style={{ flex: 1, marginBottom: 0 }}>
-                      <Input keyboardType="decimal-pad" value={fin[k]} onChangeText={(v) => editFineness(k, v)} />
+                      <Input keyboardType="decimal-pad" value={fin[k]} onChangeText={(v) => editFineness(k, v)} editable={k !== 24} />
                     </Field>
                   ) : null}
                   <Field label="Rate (₹/g)" style={{ flex: 1.3, marginBottom: 0 }}>

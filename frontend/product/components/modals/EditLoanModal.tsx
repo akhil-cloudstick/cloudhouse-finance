@@ -145,6 +145,7 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
               value={schemeLabel}
               onChange={(id, item) => { setSchemeId(id); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); setSchemeLtv(item.ltv); }}
               fetchFn={searchActiveSchemesPage}
+              searchHint="Searches: scheme name, scheme code"
               getLabel={(s) => `${s.name} — ${s.ltv}% LTV @ ${s.rate}%`}
               getId={(s) => s.id}
               placeholder="Search active schemes…"

@@ -5,7 +5,7 @@ import { useGoldRates } from "@/product/pages/gold-rates/store/GoldRatesProvider
 import { useModal } from "@/product/components/Modal";
 import { RateModalContent } from "@/product/components/modals/RateModal";
 import { Icon } from "@/product/components/Icon";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { listGoldRatesPage, type GoldRateView } from "@/product/pages/gold-rates/services/goldRateService";
 import { useAuth } from "@/product/providers/auth-context";
 import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
@@ -88,7 +88,7 @@ export function GoldRates() {
                 <tr><td colSpan={5} className="empty">No rates published yet.</td></tr>
               ) : rows.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.date}</td>
+                  <td>{fmtDate(r.date)}</td>
                   <td className="num">{fmt(r.k24)}</td>
                   <td className="num">{fmt(r.k22)}</td>
                   <td className="num">{fmt(r.k18)}</td>

@@ -2,6 +2,7 @@ package loan
 
 import (
 	"context"
+	"math"
 	"sort"
 	"time"
 
@@ -31,6 +32,39 @@ func addMonths(t time.Time, n int) time.Time {
 		d = last
 	}
 	return time.Date(ty, tm, d, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+}
+
+// startAccrualAtDisbursement moves a loan's interest start to the day it is
+// actually paid out. A loan sits in Pending Approval (accruing nothing) from
+// creation until final sanction, but projectAccrual counts from OpenedDate —
+// so without this a loan opened 1 Jan and disbursed 20 Jan was charged
+// interest for 19 days the customer never held the money. OpenedDate,
+// LastAccrualDate and DueDate all shift forward by the same number of days,
+// keeping the tenure the customer agreed to.
+//
+// A backdated loan (OpenedDate earlier than the day it was entered) is left
+// alone: staff backdate deliberately, e.g. to record an older loan, and that
+// loan should accrue from the date they chose. Dates compare as calendar days
+// in time.Local, same as Create's future-date check.
+func startAccrualAtDisbursement(l *Loan, disbursedAt time.Time) {
+	opened := l.OpenedDate.In(time.Local)
+	if opened.Format("2006-01-02") < l.CreatedAt.In(time.Local).Format("2006-01-02") {
+		return
+	}
+	from := time.Date(opened.Year(), opened.Month(), opened.Day(), 0, 0, 0, 0, time.Local)
+	d := disbursedAt.In(time.Local)
+	to := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.Local)
+	days := int(math.Round(to.Sub(from).Hours() / 24))
+	if days <= 0 {
+		return
+	}
+	l.OpenedDate = l.OpenedDate.AddDate(0, 0, days)
+	l.DueDate = l.DueDate.AddDate(0, 0, days)
+	l.LastAccrualDate = l.OpenedDate
+	// Due/overdue reminders dedupe per DueDate value — re-arm them for the
+	// shifted date (same as ApproveExtensionRequest does).
+	l.DueSoonNotifiedAt = nil
+	l.OverdueNotifiedAt = nil
 }
 
 // completedPeriods counts how many WHOLE periods of `months` calendar months

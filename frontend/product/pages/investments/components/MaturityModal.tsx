@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { Select } from "@/product/components/ui/Select";
 import {
   matureInvestment,
@@ -68,7 +68,7 @@ export function MaturityModalContent({ investment, onSaved }: { investment: Back
       <div className="hd"><h3>Maturity Decision — {investment.investmentNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="notice" style={{ marginBottom: 14 }}>
-          This investment matured on <strong>{investment.maturityDate.slice(0, 10)}</strong>. Principal of <strong>{fmt(investment.principalAmount)}</strong> is outstanding — choose how to proceed.
+          This investment matured on <strong>{fmtDate(investment.maturityDate)}</strong>. Principal of <strong>{fmt(investment.principalAmount)}</strong> is outstanding — choose how to proceed.
         </div>
         <div className="frow"><div><label className="f">Decision *</label>
           <div style={{ display: "flex", gap: 14, marginTop: 6 }}>

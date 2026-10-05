@@ -294,6 +294,7 @@ export type LoanView = {
   branchName: string;
   customerId: string; // stringified, matches CustomerView.id
   customerName: string;
+  customerCode: string;
   schemeId: string; // stringified, matches SchemeView.id
   schemeName: string;
   schemeRate: number;
@@ -447,6 +448,7 @@ export function toView(l: BackendLoan): LoanView {
     branchName: l.branch?.name || "—",
     customerId: String(l.customerId),
     customerName: l.customer?.name || "—",
+    customerCode: l.customer?.code || "",
     schemeId: String(l.schemeId),
     schemeName: l.scheme?.name || "—",
     schemeRate: l.schemeInterestRate || 0,

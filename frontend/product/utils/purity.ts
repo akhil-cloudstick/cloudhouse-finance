@@ -9,6 +9,10 @@ export const MIN_KARAT = 10;
 export const MAX_KARAT = 24;
 export const MIN_FINENESS_PERCENT = 0; // exclusive
 export const MAX_FINENESS_PERCENT = 100;
+// 24K is quoted as 999 (99.9% pure). Shown fixed and read-only in the Set
+// Rate modal; it labels the 24K rate rather than scaling it — 24K IS the
+// reference every other karat derives from.
+export const FINENESS_24K = 99.9;
 
 export type PurityUnit = "karat" | "fineness";
 
@@ -25,6 +29,18 @@ export function isFinenessInRange(finenessPercent: number): boolean {
  * given karat. */
 export function finenessForKarat(karat: number): number {
   return Math.round((karat / 24) * 1000) / 10;
+}
+
+/* The fineness% a published rate implies against its K24 — the inverse of
+ * rateForFineness, to 2 decimals. Fineness itself is never stored (only the
+ * three rates are), so this is how the Set Rate modal restores the fineness
+ * last used for a karat instead of resetting to the standard karat/24 ratio.
+ * Falls back to the standard ratio when either rate is missing, or the
+ * result isn't a valid fineness. */
+export function finenessFromRate(k24: number, rate: number, karat: number): number {
+  if (!(k24 > 0) || !(rate > 0)) return finenessForKarat(karat);
+  const f = Math.round((rate / k24) * 10000) / 100;
+  return isFinenessInRange(f) ? f : finenessForKarat(karat);
 }
 
 /* Per-gram rate for a purity, off the day's K24 benchmark — rounded to the

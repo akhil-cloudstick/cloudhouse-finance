@@ -9,6 +9,7 @@ import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { fmtDate } from "@/product/utils/format";
 import {
   exportFormG, getFormG,
   type FormGOverrides, type FormGStatement, type ReportFilters,
@@ -16,7 +17,7 @@ import {
 
 const ALL_BRANCHES: BranchView = { id: 0, name: "All branches", code: "", address: "", phone: "", isActive: true };
 
-const dt = (v?: string | null) => (v ? new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—");
+const dt = fmtDate;
 const fmt = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /* Form G (Kerala Money-Lenders Rules 1964, Rule 15(3)) is a fixed-layout
@@ -184,6 +185,7 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
             value={branchLabel}
             onChange={(id, item) => { setBranchId(item.id); setBranchLabel(item.name); }}
             fetchFn={searchBranchesFilter}
+            searchHint="Searches: branch name"
             getLabel={(b) => b.name}
             getId={(b) => String(b.id)}
             placeholder="Search branch…"

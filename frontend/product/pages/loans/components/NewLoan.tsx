@@ -11,7 +11,7 @@ import { useToast } from "@/product/components/Toast";
 import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import { stageByPending } from "@/product/services/approvalWorkflowService";
 import { Icon } from "@/product/components/Icon";
-import { fmt, custOf, schemeOf } from "@/product/utils/format";
+import { fmt, custOf, schemeOf, fmtDateTime } from "@/product/utils/format";
 import { uploadFile, searchCustomersPage, getCustomer, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { VerifiedBadge } from "@/product/pages/customers/components/VerifiedBadge";
 import { searchActiveSchemesPage, type SchemeView } from "@/product/pages/schemes/services/schemeService";
@@ -33,6 +33,7 @@ import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { PurityPicker } from "@/product/components/ui/PurityPicker";
+import { PhotoSourceMenu } from "@/product/components/ui/PhotoSourceMenu";
 import { rateForPurityFull } from "@/product/utils/purity";
 import { makeEnterToSubmitHandler } from "@/product/utils/enterToSubmit";
 import { ApiError } from "@/product/services/httpClient";
@@ -209,7 +210,6 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
   // in the future (the DatePicker's max blocks it; the backend re-checks).
   // Interest accrues from this date, and the due date is derived from it.
   const [openedDate, setOpenedDate] = useState(localISO(new Date()));
-  const fileRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Non-admin staff are confined to their own branch — the backend's
   // GET /branches already scopes the list server-side (platform.GetBranchScope),
@@ -394,10 +394,10 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
     }));
   }
 
-  async function ornImgPicked(i: number, input: HTMLInputElement) {
-    const f = input.files?.[0];
-    if (!f) return;
-    if (!f.type.startsWith("image/")) { toast("Please choose an image file"); input.value = ""; return; }
+  // Gets the row's photo from PhotoSourceMenu — a file from the system or
+  // a webcam shot, both arrive as a File.
+  async function ornImgPicked(i: number, f: File) {
+    if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
     try {
       const url = await uploadFile(f);
       setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, img: url, imgName: f.name } : r)));
@@ -412,6 +412,20 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
       void img; void imgName;
       return rest as OrnRow;
     }));
+  }
+  // One photo button per row: opens "Upload from system" / "Take photo
+  // (webcam)". Each view (table + cards) mounts its own, each owning its own
+  // hidden file input, so there's no shared per-row input ref to race on.
+  function ornPhotoMenu(i: number, content: React.ReactNode, title: string, style: React.CSSProperties) {
+    return (
+      <PhotoSourceMenu
+        onFile={(f) => { void ornImgPicked(i, f); }}
+        webcamTitle={`Ornament Photo${rows[i]?.n ? " — " + rows[i].n : ""}`}
+        trigger={(t) => (
+          <button ref={t.ref} type="button" className="btn plain sm" style={style} title={title} aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}>{content}</button>
+        )}
+      />
+    );
   }
   function viewOrnImg(i: number) {
     const r = rows[i];
@@ -723,6 +737,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                 value={custLabel}
                 onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} (${item.code})`); }}
                 fetchFn={searchCustomersPage}
+                searchHint="Searches: customer name, customer code, phone"
                 getLabel={(c) => `${c.name} (${c.code})`}
                 /* Rendered as "Name (CUST-4)" plus a "Verified" badge, and
                  * nothing at all for part/unverified customers — the flat
@@ -745,6 +760,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                 value={schemeLabel}
                 onChange={(id, item) => { setSchemeId(id); setSchemeObj(item); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); }}
                 fetchFn={searchActiveSchemesPage}
+                searchHint="Searches: scheme name, scheme code"
                 getLabel={(s) => `${s.name} — ${s.ltv}% LTV @ ${s.rate}%`}
                 getId={(s) => s.id}
                 placeholder="Search active schemes…"
@@ -764,6 +780,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                   setBranchId(+id); setBranchLabel(item.name);
                 }}
                 fetchFn={searchBranchesLocal}
+                searchHint="Searches: branch name"
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
@@ -778,6 +795,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                 value={lockerLabel}
                 onChange={(id, item) => { setLockerId(+id); setLockerLabel(`${item.code} — ${item.branchName} (${item.occupied}/${item.capacity} packets)`); }}
                 fetchFn={searchLockers}
+                searchHint="Searches: locker code"
                 getLabel={(k) => `${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)`}
                 getId={(k) => String(k.id)}
                 placeholder="— Assign later — or search locker…"
@@ -825,14 +843,9 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
               already switch layouts in this app (those use the app's usual
               900px breakpoint; this table needed its own wider one — see
               app.css's comment above `.orn-cards-view`). `.orn-table-view`
-              is hidden below 1350px, `.orn-cards-view` shown instead. The
-              table's own hidden file `<input>`/ref stays the single source
-              of truth for
-              a row's photo picker either way (see the card's Upload/Replace
-              buttons below, which reuse `fileRefs.current[i]` rather than
-              mounting a second file input for the same row — two <input
-              type="file"> elements sharing one ref array index would race
-              on which one `fileRefs.current[i]` actually points to). */}
+              is hidden below 1350px, `.orn-cards-view` shown instead. Each
+              view's photo button is its own ornPhotoMenu (with its own
+              hidden file input), both writing to the same `rows` entry. */}
           {/* minWidth:900 is a real, computed floor — not an organic
               "however wide the content happens to need" guess. Purity's
               own column (22%) is the binding constraint: its content needs
@@ -886,6 +899,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                       value={r.n}
                       onChange={(_id, item) => updOrn(i, "n", item.name)}
                       fetchFn={searchOrnamentTypesPage}
+                      searchHint="Searches: ornament type name"
                       getLabel={(t) => t.name}
                       getId={(t) => String(t.id)}
                       placeholder="Ornament type…"
@@ -902,15 +916,14 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                       side effect. */}
                   <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.0gm" value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td style={{ textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8, paddingRight: 2 }}>
-                    <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
                     {r.img ? (
                       <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "flex-start" }}>
                         <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
-                        <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Replace photo" onClick={() => fileRefs.current[i]?.click()}>↺</button>
+                        {ornPhotoMenu(i, "↺", "Replace photo", { padding: "0 7px", height: 31 })}
                         <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
                       </div>
                     ) : (
-                      <button className="btn plain sm" style={{ padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}><Icon name="upload" /></button>
+                      ornPhotoMenu(i, <Icon name="camera" />, "Add ornament photo", { padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" })
                     )}
                   </td>
                   <td style={{ textAlign: "center", paddingLeft: 2 }}>
@@ -941,6 +954,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                       value={r.n}
                       onChange={(_id, item) => updOrn(i, "n", item.name)}
                       fetchFn={searchOrnamentTypesPage}
+                      searchHint="Searches: ornament type name"
                       getLabel={(t) => t.name}
                       getId={(t) => String(t.id)}
                       placeholder="Ornament type…"
@@ -977,16 +991,14 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                 </div>
                 <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Photo</span>
-                  {/* Reuses the table view's own hidden file <input>/ref for
-                      this row — see the comment above the table wrapper. */}
                   {r.img ? (
                     <div style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
                       <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
-                      <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Replace photo" onClick={() => fileRefs.current[i]?.click()}>↺</button>
+                      {ornPhotoMenu(i, "↺", "Replace photo", { padding: "0 7px", height: 31 })}
                       <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
                     </div>
                   ) : (
-                    <button className="btn plain sm" style={{ padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}><Icon name="upload" /></button>
+                    ornPhotoMenu(i, <Icon name="camera" />, "Add ornament photo", { padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" })
                   )}
                 </div>
               </div>
@@ -1134,7 +1146,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                         {d.ornaments.length} ornament{d.ornaments.length === 1 ? "" : "s"}
                         {d.scheme ? ` · ${d.scheme.name}` : ""}
                         {" · saved "}
-                        {new Date(d.updatedAt).toLocaleString("en-IN")}
+                        {fmtDateTime(d.updatedAt)}
                       </div>
                     </div>
                     <button className="btn plain sm" onClick={() => applyDraft(d)}>Open</button>

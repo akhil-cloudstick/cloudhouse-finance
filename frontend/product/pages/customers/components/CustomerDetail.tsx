@@ -6,7 +6,7 @@ import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { useAuth } from "@/product/providers/auth-context";
 import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
-import { fmt, fmtW, initials } from "@/product/utils/format";
+import { fmt, fmtW, initials, fmtDate } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { LoanRow } from "@/product/pages/loans/components/LoanRow";
 import { Icon } from "@/product/components/Icon";
@@ -205,6 +205,7 @@ export function CustomerDetail({ id }: { id?: string }) {
       key: "loan",
       label: "Loan",
       kind: "async",
+      searchHint: "Searches: loan number",
       fetchOptions: (search, page) =>
         listCustomerLoansPage(id || "", page, undefined, 20).then((res) => ({
           items: res.items
@@ -582,7 +583,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                  * would otherwise stack one per line like everything else
                  * here. */}
                 <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Date of Birth</div><div className="v">{c.dob || "—"}</div></div>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Date of Birth</div><div className="v">{fmtDate(c.dob)}</div></div>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Phone</div><div className="v">{c.phone || "—"}</div></div>
                 </div>
                 <div className="i"><div className="k">Address</div><div className="v">{c.address || "—"}</div></div>
@@ -736,7 +737,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                     ) : paymentPager.items.map((p) => (
                       <tr key={p.loanId + "-" + p.id}>
                         <td>{canViewLoans ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
-                        <td>{p.paidOn}</td>
+                        <td className="td-date">{fmtDate(p.paidOn)}</td>
                         <td>{p.type}</td>
                         <td className="num">{fmt(p.amount)}</td>
                         <td>{p.method || "—"}</td>
@@ -758,7 +759,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                         <td>{canViewLoans ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
                         <td>{p.bankName}</td>
                         <td className="num">{fmt(p.pledgedAmount)}</td>
-                        <td>{p.pledgeDate}</td>
+                        <td className="td-date">{fmtDate(p.pledgeDate)}</td>
                         <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
                       </tr>
                     ))}
@@ -779,7 +780,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr key={a.id}>
                         <td>{canViewLoans ? <a href={routeHref(`loan/${a.loanNumber}`)}>{a.loanNumber}</a> : a.loanNumber}</td>
                         <td><StatusChip status={a.stage} /></td>
-                        <td>{a.auctionDate || "—"}</td>
+                        <td className="td-date">{fmtDate(a.auctionDate)}</td>
                         <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
                         <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
                       </tr>
@@ -799,8 +800,8 @@ export function CustomerDetail({ id }: { id?: string }) {
                       // A split payment yields one row per method, all sharing
                       // the movement's id — so the id alone isn't unique.
                       <tr key={`${r.type}-${r.id}-${r.method}-${i}`}>
-                        <td>{r.d}</td>
-                        <td>
+                        <td className="td-date">{fmtDate(r.d)}</td>
+                        <td className="td-particulars">
                           {r.description || r.type}
                           {r.bankId ? (
                             <div style={{ marginTop: 4 }}>

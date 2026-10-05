@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
@@ -252,7 +252,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                 // A loan ledger mixes movement and expense ids (plus the
                 // id-less opening row), so key by position there.
                 <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
-                  <td>{r.d}</td>
+                  <td>{fmtDate(r.d)}</td>
                   <td>
                     {r.description || r.type}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>

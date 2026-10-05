@@ -7,7 +7,8 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { Select } from "@/product/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
-import { fmt } from "@/product/utils/format";
+import { DatePicker } from "@/product/components/ui/DatePicker";
+import { fmt, fmtDate as fmtDisplayDate } from "@/product/utils/format";
 import { recordPayment, recordReleasePayment, getLoan, type LoanView } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
 
@@ -417,7 +418,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                     {settleQuick > 0.01 && <button type="button" className="pay-chip" onClick={() => quickFill("Full Settlement", settleQuick)}>Close {fmt(settleQuick)}</button>}
                   </div>
                 </div>
-                <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+                <div><label className="f">Payment Date *</label><DatePicker value={date} onChange={setDate} /></div>
               </div>
             </div>
 
@@ -549,9 +550,7 @@ function modeLabel(mode: string) {
   return ALLOCATION_MODES.find((m) => m.value === mode)?.label ?? mode;
 }
 
-// "2026-10-01" → "01 Oct 2026"; parsed as a local date so it never shifts a day.
+// "2026-10-01" → "01-10-2026"; "No date" until one is picked.
 function fmtDate(iso: string) {
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return "No date";
-  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return iso ? fmtDisplayDate(iso) : "No date";
 }

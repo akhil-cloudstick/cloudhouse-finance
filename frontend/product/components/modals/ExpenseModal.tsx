@@ -106,6 +106,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
               value={cat}
               onChange={(_id, item) => setCat(item.name)}
               fetchFn={searchExpenseCategoriesPage}
+              searchHint="Searches: category name"
               getLabel={(c) => c.name}
               getId={(c) => String(c.id)}
               placeholder="Search or add a category…"
@@ -126,6 +127,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
                 value={fromBankName}
                 onChange={(id, item) => { setFromBankId(id); setFromBankName(item.name); }}
                 fetchFn={searchBanksPage}
+                searchHint="Searches: bank name"
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder="Search or add a bank…"

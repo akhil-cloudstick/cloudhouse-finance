@@ -16,7 +16,7 @@ import {
 } from "@/product/services/approvalWorkflowService";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { Icon } from "@/product/components/Icon";
-import { fmt, fmtW } from "@/product/utils/format";
+import { fmt, fmtW, fmtDate, fmtDateTime, fmtToday } from "@/product/utils/format";
 import { rupeesInWords } from "@/product/utils/numberToWords";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
@@ -60,6 +60,7 @@ import { EditLoanModalContent } from "@/product/components/modals/EditLoanModal"
 import { navigate, routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 import { DisburseLoanModalContent } from "@/product/components/modals/DisburseLoanModal";
+import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
 import { TopUpLoanModalContent } from "@/product/components/modals/TopUpLoanModal";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 
@@ -194,6 +195,8 @@ export function LoanDetail({ id }: { id?: string }) {
   // Locker" release warning below.
   const [packet, setPacket] = useState<PacketView | null>(null);
   const [error, setError] = useState("");
+  // Pledged Ornaments / Bank Pledge and Locker share one card, one tab at a time.
+  const [pledgeTab, setPledgeTab] = useState<"ornaments" | "bank">("ornaments");
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [completing, setCompleting] = useState(false);
@@ -258,7 +261,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // An outstanding request must survive a page reload: the loan itself
   // records the Setu status (indemnityBondSignStatus === "sign_initiated"),
   // so seed the local flag from it. Without this, reloading mid-signing put
-  // the header back to "Send Indemnity Bond for eSign" — leaving no way to
+  // the header back to "Send Bond for eSign" — leaving no way to
   // poll the request already in flight, and inviting staff to start a
   // second one against the same bond.
   useEffect(() => {
@@ -372,6 +375,10 @@ export function LoanDetail({ id }: { id?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Branch Balance in Hand, fetched only while a sanction stage is pending —
+  // the final stage's Approve & Disburse pays the principal out of it.
+  const balanceInHand = useBalanceInHand(loan?.approvalStage || topUps.some((t) => t.status === "Pending") ? loan?.branchId : undefined);
+
   if (error) return <div className="empty">Loan not found — {error}</div>;
   if (!loan) return <div className="empty">Loading loan…</div>;
   const l = loan;
@@ -466,6 +473,10 @@ export function LoanDetail({ id }: { id?: string }) {
   const topUpStageIndex = topUpStageView ? topUpChain.findIndex((s) => s.key === topUpStageView.key) : topUpChain.length;
   const canActOnTopUp = canUpdateLoans && canActAtStage({ role, isAdmin }, topUpStageView);
   const topUpIsFinal = !!topUpStageView && isFinalStage(workflow, "loan_topup", topUpStageView.key);
+  // The final top-up stage pays the amount out of the till. With "deduct",
+  // outstanding interest comes off the payout (backend: amount − deducted),
+  // so only the "require" case is checked here — the backend still enforces both.
+  const topUpBlocked = topUpIsFinal && !!pendingTopUp && pendingTopUp.settleInterest !== "deduct" && balanceInHand !== null && pendingTopUp.amount > balanceInHand + 0.005;
 
   async function decideTopUp(action: "Approved" | "Rejected", remarks = "") {
     if (!pendingTopUp || !topUpStageView) return;
@@ -532,10 +543,17 @@ export function LoanDetail({ id }: { id?: string }) {
     doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved");
   }
 
+  // Not gated on balance in hand: the disburse modal always opens, shows the
+  // balance, and disables its own Approve & Disburse until there's enough
+  // cash (the backend's EnsureCashInHand enforces it too).
   const approvalButtons = pendingStage ? (
     canActOnStage ? (
       <>
-        <button className="btn" disabled={approving} onClick={onApproveClick}>
+        <button
+          className="btn"
+          disabled={approving}
+          onClick={onApproveClick}
+        >
           <Icon name="check" /> {isDisburseStage ? (isVerifyStage ? "Verify & Disburse" : "Approve & Disburse") : isVerifyStage ? "Verify" : "Approve"}
         </button>
         <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
@@ -694,11 +712,11 @@ export function LoanDetail({ id }: { id?: string }) {
     return `
       ${brandHeader("Gold Loan Pledge Slip")}
       <table>
-        <tr><th style="width:110px">Loan No</th><td>${l.id}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
+        <tr><th style="width:110px">Loan No</th><td>${l.id}</td><th style="width:110px">Date</th><td>${fmtToday()}</td></tr>
         <tr><th>Customer</th><td>${c.name} (${c.code || c.id})</td><th>Phone</th><td>${c.phone || "—"}</td></tr>
         <tr><th>Address</th><td>${c.address || "—"}</td><th>Branch</th><td>${l.branchName || "—"}</td></tr>
         <tr><th>Scheme</th><td>${l.schemeName} @ ${l.schemeRate}% p.a. (LTV ${l.schemeLtv}%)</td>
-            <th>Opened</th><td>${l.opened}</td></tr>
+            <th>Opened</th><td>${fmtDate(l.opened)}</td></tr>
       </table>
       <table>
         <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
@@ -723,8 +741,8 @@ export function LoanDetail({ id }: { id?: string }) {
     if (!extra.length) return "";
     const initial = Math.max(l.principal - extra.reduce((s, t) => s + t.amount, 0), 0);
     const rows = [
-      `<tr><td>${l.opened}</td><td>Initial loan amount</td><td class="num">${fmt(initial)}</td></tr>`,
-      ...extra.map((t) => `<tr><td>${new Date(t.occurredOn).toLocaleDateString("en-IN")}</td><td>Additional loan amount</td><td class="num">${fmt(t.amount)}</td></tr>`),
+      `<tr><td>${fmtDate(l.opened)}</td><td>Initial loan amount</td><td class="num">${fmt(initial)}</td></tr>`,
+      ...extra.map((t) => `<tr><td>${fmtDate(t.occurredOn)}</td><td>Additional loan amount</td><td class="num">${fmt(t.amount)}</td></tr>`),
     ].join("");
     return `<table>
         <thead><tr><th>Date</th><th>Amount Distribution</th><th class="num">Amount</th></tr></thead>
@@ -787,7 +805,7 @@ export function LoanDetail({ id }: { id?: string }) {
             p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
           ].filter(Boolean).join(" · ");
           return `<tr>
-              <td>${p.paidOn}</td>
+              <td>${fmtDate(p.paidOn)}</td>
               <td>${p.type}${p.description ? " — " + p.description : ""}${breakdown ? `<br><span class="muted">${breakdown}</span>` : ""}</td>
               <td>${isCash ? p.method || "—" : "Non-cash"}</td>
               <td>${p.reference || "—"}</td>
@@ -803,11 +821,11 @@ export function LoanDetail({ id }: { id?: string }) {
       openPrintWindow("Statement — " + l.id, `
         ${brandHeader("Statement of Account")}
         <table>
-          <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
+          <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${fmtToday()}</td></tr>
           <tr><th>Debtor Name</th><td colspan="3">${c.name}</td></tr>
           <tr><th>Debtor Address</th><td colspan="3">${c.address || "—"}</td></tr>
           <tr><th>Amount of Loan</th><td>${fmt(l.principal)}</td><th>Amount in Words</th><td>${rupeesInWords(l.principal)}</td></tr>
-          <tr><th>Date of Loan</th><td>${l.opened}</td><th>Date of Maturity</th><td>${l.due}</td></tr>
+          <tr><th>Date of Loan</th><td>${fmtDate(l.opened)}</td><th>Date of Maturity</th><td>${fmtDate(l.due)}</td></tr>
           <tr><th>Rate of Interest</th><td>${l.schemeRate}% p.a.</td><th>Status</th><td>${l.status}</td></tr>
           <tr><th>Nature of Security</th><td colspan="3">${security}</td></tr>
           ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${l.additionalInfo}</td></tr>` : ""}
@@ -884,7 +902,7 @@ export function LoanDetail({ id }: { id?: string }) {
         <div class="id">${l.id} · ${packetLabel}</div>
         <div>${c.name || "—"}</div>
         <div>${c.code || c.id || "—"} · ${c.phone || ""}</div>
-        <div>${new Date().toLocaleDateString("en-IN")} · ${l.totalNetWeight.toFixed(1)} g · ${l.ornaments.length} item(s)</div>
+        <div>${fmtToday()} · ${l.totalNetWeight.toFixed(1)} g · ${l.ornaments.length} item(s)</div>
       </div>
     </div>`;
   }
@@ -1068,7 +1086,7 @@ export function LoanDetail({ id }: { id?: string }) {
           {!l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
           </h1>
-          <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{canOpen("customer") ? <a href={routeHref(`customer/${l.customerId}`)} style={{ fontSize: 15, fontWeight: 600 }}>{l.customerName}</a> : <span style={{ fontSize: 15, fontWeight: 600 }}>{l.customerName}</span>} · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
+        </div>
         {/* Everything from here down is one right-aligned group rather than
          * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
          * only right-aligns this whole cluster while it fits on the title's
@@ -1238,8 +1256,8 @@ export function LoanDetail({ id }: { id?: string }) {
                     <Icon name="doc" /><span className="tx">{checkingEsign ? "Checking…" : "Check eSign Status"}</span>
                   </a>
                 ) : (
-                  <a href="#" title="Send Indemnity Bond for eSign" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); openEsignLanguagePicker(); }}>
-                    <Icon name="doc" /><span className="tx">{esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}</span>
+                  <a href="#" title="Send Bond for eSign" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); openEsignLanguagePicker(); }}>
+                    <Icon name="doc" /><span className="tx">{esigning ? "Preparing…" : "Send Bond for eSign"}</span>
                   </a>
                 )}
               </div>
@@ -1261,7 +1279,7 @@ export function LoanDetail({ id }: { id?: string }) {
       {l.status === "Rejected" && (
         <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
           <Icon name="shield" /> Rejected{l.rejectedByName ? ` by ${l.rejectedByName}` : ""}
-          {l.rejectedAt ? ` on ${l.rejectedAt.slice(0, 10)}` : ""}
+          {l.rejectedAt ? ` on ${fmtDate(l.rejectedAt)}` : ""}
           {l.rejectionRemarks ? ` — ${l.rejectionRemarks}` : ""}. This loan was never disbursed.
         </div>
       )}
@@ -1292,7 +1310,12 @@ export function LoanDetail({ id }: { id?: string }) {
                   >
                     Reject
                   </button>
-                  <button className="btn sm" disabled={decidingTopUp} onClick={() => decideTopUp("Approved")}>
+                  <button
+                    className="btn sm"
+                    disabled={decidingTopUp || topUpBlocked}
+                    title={topUpBlocked ? `Balance in hand ${fmt(balanceInHand!)} is lower than the ${fmt(pendingTopUp.amount)} to disburse — add cash first` : undefined}
+                    onClick={() => decideTopUp("Approved")}
+                  >
                     <Icon name="check" /> {topUpIsFinal ? "Approve & Disburse" : `Approve (${topUpStageView.label})`}
                   </button>
                 </>
@@ -1306,7 +1329,7 @@ export function LoanDetail({ id }: { id?: string }) {
               <StageTracker stages={trackerLabels(workflow, "loan_topup", topUpChain)} currentIndex={topUpStageIndex} />
             )}
             <p className="ccheck-hint" style={{ marginTop: 10 }}>
-              Requested {pendingTopUp.createdAt.slice(0, 10)}
+              Requested {fmtDate(pendingTopUp.createdAt)}
               {pendingTopUp.reference ? ` · Ref ${pendingTopUp.reference}` : ""}
               {pendingTopUp.settleInterest === "deduct" ? " · outstanding interest to be deducted from the payout" : ""}
               {" "}— nothing is paid out until the final stage approves it.
@@ -1321,7 +1344,11 @@ export function LoanDetail({ id }: { id?: string }) {
             <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
               <div className="i"><div className="k">Remaining</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
-              <div className="i"><div className="k">Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
+              {/* Nothing accrues until disbursement, so a pending loan would
+                  read ₹0 here — show the monthly interest it will carry instead. */}
+              {l.disbursementDate
+                ? <div className="i"><div className="k">Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
+                : <div className="i"><div className="k">Interest / Month</div><div className="v">{fmt((l.principal * l.schemeRate) / 100 / 12)}</div></div>}
               <div className="i"><div className="k">Interest Paid</div><div className="v">{fmt(l.interestPaid)}</div></div>
               <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(l.outstandingInterest)}</div></div>
               {l.accruedPenalInterest > 0 && <>
@@ -1352,40 +1379,14 @@ export function LoanDetail({ id }: { id?: string }) {
             </div>
             <div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
 
-        <div className="card gtop"><div className="hd"><h3>Pledged Ornaments</h3></div>
-            <div className="bd">
-              {l.ornaments.map((o, i) => (
-                <div key={o.id} style={i > 0 ? { marginTop: 14, paddingTop: 14, borderTop: "1px dashed var(--line)" } : undefined}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                    <span style={{ fontWeight: 600 }}>{o.name}</span>
-                    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      {o.releasedAt && <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title={`Released on ${o.releasedAt}`}>Released {o.releasedAt.slice(0, 10)}</span>}
-                      <span className="chip brand">{o.purity}</span>
-                    </span>
-                  </div>
-                  <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                    <div className="i"><div className="k">Gross</div><div className="v">{o.grossWeight.toFixed(1)} g</div></div>
-                    <div className="i"><div className="k">Net</div><div className="v">{o.netWeight.toFixed(1)} g</div></div>
-                    <div className="i"><div className="k">Qty</div><div className="v">{o.quantity}</div></div>
-                    <div className="i"><div className="k">Gold Value</div><div className="v">{fmt(o.goldValue)}</div></div>
-                    <div className="i">
-                      <div className="k">Photo</div>
-                      <div className="v">
-                        {o.photoUrl ? (
-                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <img src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(o.photoUrl!, o.name)} />
-                            <button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrl!, o.name)}>View</button>
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--muted)" }}>—</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="ft">Jewellery images linked to loan record</div></div>
+        <div className="card gtop"><div className="hd"><h3>Loan Details</h3></div>
+            <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Customer</div><div className="v">{canOpen("customer") ? <a href={routeHref(`customer/${l.customerId}`)} style={{ fontWeight: 600 }}>{l.customerName}</a> : l.customerName}</div></div>
+              <div className="i"><div className="k">Gold Scheme</div><div className="v">{l.schemeName}</div></div>
+              <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>
+              <div className="i"><div className="k">Opening Date</div><div className="v">{fmtDate(l.opened)}</div></div>
+              <div className="i"><div className="k">Due Date</div><div className="v" style={l.isOverdue ? { color: "var(--red)" } : undefined}>{fmtDate(l.due)}{l.isOverdue ? ` · ${l.daysOverdue}d overdue` : ""}</div></div>
+            </div></div></div>
       </div>
 
       <div className="card gtop" style={{ marginTop: 16 }}>
@@ -1414,7 +1415,7 @@ export function LoanDetail({ id }: { id?: string }) {
                         const part = entry.part;
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                            <td>{entry.date}</td>
+                            <td>{fmtDate(entry.date)}</td>
                             <td>{l.loanNumber}</td>
                             <td>
                               Loan Sanctioned
@@ -1437,7 +1438,7 @@ export function LoanDetail({ id }: { id?: string }) {
                         const a = entry.row;
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                            <td>{entry.date}</td>
+                            <td>{fmtDate(entry.date)}</td>
                             <td>{a.auctionReferenceNumber || "—"}</td>
                             <td>
                               Auction Sale
@@ -1459,7 +1460,7 @@ export function LoanDetail({ id }: { id?: string }) {
                           : "Payable to customer — awaiting settlement";
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                            <td>{entry.date}</td>
+                            <td>{fmtDate(entry.date)}</td>
                             <td>{a.auctionReferenceNumber || "—"}</td>
                             <td>
                               Auction Surplus {fmt(a.surplusPayableAmount)}
@@ -1485,7 +1486,7 @@ export function LoanDetail({ id }: { id?: string }) {
                         ] as const).filter(([, v]) => v > 0);
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                            <td>{entry.date}</td>
+                            <td>{fmtDate(entry.date)}</td>
                             <td>{t.reference || "—"}</td>
                             <td>
                               Loan Top-Up
@@ -1530,7 +1531,7 @@ export function LoanDetail({ id }: { id?: string }) {
                       ].filter(Boolean).join(" · ");
                       return (
                         <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                          <td>{p.paidOn}</td>
+                          <td>{fmtDate(p.paidOn)}</td>
                           <td>{p.reference || "—"}</td>
                           <td>
                             {p.type}
@@ -1568,14 +1569,50 @@ export function LoanDetail({ id }: { id?: string }) {
             )}
             {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
             </div>
-
-      <div className="card gtop" style={{ marginTop: 16 }}><div className="hd"><h3>Bank Pledge and Locker</h3></div>
+      <div className="card gtop" style={{ marginTop: 16 }}>
+            <div className="hd">
+              <div className="tabs" style={{ border: 0, padding: "4px 8px 10px 4px", margin: 0 }}>
+                <button className={pledgeTab === "ornaments" ? "on" : ""} onClick={() => setPledgeTab("ornaments")}>Pledged Ornaments</button>
+                <button className={pledgeTab === "bank" ? "on" : ""} onClick={() => setPledgeTab("bank")}>Bank Pledge and Locker</button>
+              </div>
+              <div className="sp" />
+              {pledgeTab === "ornaments" && <span className="chip brand">{l.ornaments.length} item{l.ornaments.length === 1 ? "" : "s"} · {fmtW(l.totalNetWeight)} net</span>}
+            </div>
+            {pledgeTab === "ornaments" && (
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Gross</th><th className="num">Net</th><th className="num">Gold Value</th><th>Photo</th><th>Status</th></tr></thead>
+              <tbody>
+                {l.ornaments.map((o) => (
+                  <tr key={o.id}>
+                    <td>{o.name}</td>
+                    <td><span className="chip brand">{o.purity}</span></td>
+                    <td className="num">{o.quantity}</td>
+                    <td className="num">{o.grossWeight.toFixed(1)} g</td>
+                    <td className="num">{o.netWeight.toFixed(1)} g</td>
+                    <td className="num">{fmt(o.goldValue)}</td>
+                    <td>
+                      {o.photoUrl ? (
+                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <img src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(o.photoUrl!, o.name)} />
+                          <button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrl!, o.name)}>View</button>
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--muted)" }}>—</span>
+                      )}
+                    </td>
+                    <td>{o.releasedAt ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title={`Released on ${fmtDateTime(o.releasedAt)}`}>Released {fmtDate(o.releasedAt)}</span> : <span className="chip">Held</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+            )}
+            {pledgeTab === "bank" && (
             <div className="bd">
               {activePledge ? (
                 <>
                   <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
                     <div className="i"><div className="k">Bank</div><div className="v">{activePledge.bankName}</div></div>
-                    <div className="i"><div className="k">Pledged On</div><div className="v">{activePledge.pledgeDate}</div></div>
+                    <div className="i"><div className="k">Pledged On</div><div className="v">{fmtDate(activePledge.pledgeDate)}</div></div>
                     <div className="i"><div className="k">Pledged Amount</div><div className="v">{fmt(activePledge.pledgedAmount)}</div></div>
                     <div className="i"><div className="k">Bank Interest Rate</div><div className="v">{activePledge.bankInterestRate ? `${activePledge.bankInterestRate}% p.a.` : "—"}</div></div>
                     <div className="i"><div className="k">Reference Number</div><div className="v">{activePledge.referenceNumber || "—"}</div></div>
@@ -1649,8 +1686,8 @@ export function LoanDetail({ id }: { id?: string }) {
                         {pledgeHistory.map((p) => (
                           <tr key={p.id}>
                             <td>{p.bankName}</td>
-                            <td>{p.pledgeDate}</td>
-                            <td>{p.releaseDate || "—"}</td>
+                            <td>{fmtDate(p.pledgeDate)}</td>
+                            <td>{fmtDate(p.releaseDate)}</td>
                             <td className="num">{fmt(p.pledgedAmount)}</td>
                             <td>
                               {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see
@@ -1667,7 +1704,9 @@ export function LoanDetail({ id }: { id?: string }) {
                   </div>
                 </>
               )}
-            </div></div>
+            </div>
+            )}
+      </div>
     </>
   );
 }

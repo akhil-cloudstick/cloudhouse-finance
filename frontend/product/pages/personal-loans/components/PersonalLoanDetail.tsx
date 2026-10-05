@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
 import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import { useToast } from "@/product/components/Toast";
 import { StageTracker } from "@/product/components/ui/StageTracker";
@@ -10,7 +11,7 @@ import { useModal } from "@/product/components/Modal";
 import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
 import { Icon } from "@/product/components/Icon";
 import { ApiError } from "@/product/services/httpClient";
-import { fmt } from "@/product/utils/format";
+import { fmt, fmtDate } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import {
@@ -162,6 +163,9 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     numericId
   );
 
+  // Branch Balance in Hand — the final approval stage pays the loan out of it.
+  const balanceInHand = useBalanceInHand(loan?.status === "Pending Approval" ? loan.branchId : undefined);
+
   if (loading) return <div className="notice">Loading loan…</div>;
   if (error || !loan) return <div className="notice">{error || "Loan not found."}</div>;
 
@@ -197,6 +201,8 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   const approvalIndex = approvalStageView ? approvalChain.findIndex((s) => s.key === approvalStageView.key) : approvalChain.length;
   const canActOnApproval = canUpdate && canActAtStage({ role, isAdmin }, approvalStageView);
   const approvalIsFinal = !!approvalStageView && isFinalStage(workflow, "personal_loan", approvalStageView.key);
+  // Same check the backend applies (EnsureCashInHand on the disbursed amount).
+  const disburseBlocked = approvalIsFinal && balanceInHand !== null && loan.disbursedAmount > balanceInHand + 0.005;
   const lastRejection = loan.status === "Rejected" ? [...approvals].reverse().find((a) => a.action === "Rejected") : undefined;
 
   async function decide(action: "Approved" | "Rejected", remarks = "") {
@@ -234,7 +240,12 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         <div className="sp" />
         {pendingApproval && approvalStageView && (canActOnApproval ? (
           <>
-            <button className="btn" disabled={deciding} onClick={() => decide("Approved")}>
+            <button
+              className="btn"
+              disabled={deciding || disburseBlocked}
+              title={disburseBlocked ? `Balance in hand ${fmt(balanceInHand!)} is lower than the ${fmt(loan.disbursedAmount)} to disburse — add cash first` : undefined}
+              onClick={() => decide("Approved")}
+            >
               <Icon name="check" /> {approvalIsFinal ? "Approve & Disburse" : "Approve"}
             </button>
             <button
@@ -305,13 +316,13 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
       )}
       {loan.status === "Rejected" && (
         <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
-          <Icon name="shield" /> Rejected{lastRejection ? ` by ${lastRejection.actorRole} on ${lastRejection.createdAt.slice(0, 10)}` : ""}
+          <Icon name="shield" /> Rejected{lastRejection ? ` by ${lastRejection.actorRole} on ${fmtDate(lastRejection.createdAt)}` : ""}
           {lastRejection?.remarks ? ` — ${lastRejection.remarks}` : ""}. This loan was never disbursed.
         </div>
       )}
 
       <div className="kpis-strip" style={{ marginBottom: 16 }}>
-        <div className="kpis-strip-item"><span className="l">Created</span><span className="v">{loan.openedDate.slice(0, 10)}</span></div>
+        <div className="kpis-strip-item"><span className="l">Created</span><span className="v">{fmtDate(loan.openedDate)}</span></div>
         <div className="kpis-strip-item"><span className="l">Principal</span><span className="v">{fmt(loan.principalAmount)}</span></div>
         <div className="kpis-strip-item"><span className="l">Interest</span><span className="v">{fmt(loan.interestAmount)}</span><span className="s">({loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`})</span></div>
         <div className="kpis-strip-item"><span className="l">Disbursed</span><span className="v">{fmt(loan.disbursedAmount)}</span></div>
@@ -360,7 +371,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
                   ) : schedule.items.map((s) => (
                     <tr key={s.id}>
                       <td>{s.sequenceNo}</td>
-                      <td>{s.dueDate.slice(0, 10)}</td>
+                      <td>{fmtDate(s.dueDate)}</td>
                       <td className="num">{fmt(s.amount)}</td>
                       <td><StatusChip status={s.status === "PartiallyPaid" ? "Partially Paid" : s.status} /></td>
                     </tr>
@@ -381,7 +392,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
                     <tr><td colSpan={3} className="empty compact">No history yet.</td></tr>
                   ) : history.items.map((hEntry) => (
                     <tr key={hEntry.id}>
-                      <td>{hEntry.occurredAt.slice(0, 10)}</td>
+                      <td>{fmtDate(hEntry.occurredAt)}</td>
                       <td className="pl-history-detail" title={hEntry.detail}>
                         {hEntry.detail}
                         {hEntry.relatedLoanId && (
@@ -412,7 +423,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
                 <tr><td colSpan={4} className="empty compact">No payments yet.</td></tr>
               ) : payments.items.map((p) => (
                 <tr key={p.id}>
-                  <td>{p.paidOn.slice(0, 10)}</td>
+                  <td>{fmtDate(p.paidOn)}</td>
                   <td className="num">{fmt(p.amount)}</td>
                   <td>
                     {p.method}

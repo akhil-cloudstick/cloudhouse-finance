@@ -44,3 +44,27 @@ const STATUS_COLOR: Record<string, string> = {
 export function statusChipColor(status: string): string {
   return STATUS_COLOR[status] || "gray";
 }
+
+// App-wide date style: "05-10-2026" (DD-MM-YYYY). Reads the YYYY-MM-DD prefix
+// of an ISO date/timestamp directly so it never shifts a day across timezones.
+// "—" when empty or unparseable.
+export const fmtDate = (v?: string | null) => {
+  const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : "—";
+};
+
+// Timestamp with its time kept: "05-10-2026 14:32" in local time. "—" when
+// empty or unparseable.
+export const fmtDateTime = (v?: string | null) => {
+  const d = v ? new Date(v) : null;
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+// Today's local date as "05-10-2026".
+export const fmtToday = () => {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+};

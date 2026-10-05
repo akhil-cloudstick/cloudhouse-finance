@@ -97,6 +97,7 @@ export function NewInvestmentModalContent({ onSaved }: { onSaved: () => void }) 
             value={customerLabel}
             onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); }}
             fetchFn={searchInvestorsPage}
+            searchHint="Searches: investor name, investor code, phone"
             getLabel={(c) => `${c.name} (${c.code})`}
             getId={(c) => c.id}
             placeholder="Search for an investor…"

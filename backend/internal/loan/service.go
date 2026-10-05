@@ -1956,6 +1956,7 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 				l.DisbursedAmount = platform.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
 			}
 			l.DisbursementDate = &now
+			startAccrualAtDisbursement(l, now)
 		}
 	}
 

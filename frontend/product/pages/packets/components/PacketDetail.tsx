@@ -7,7 +7,7 @@ import { useAuth } from "@/product/providers/auth-context";
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { Icon } from "@/product/components/Icon";
-import { fmt, fmtW } from "@/product/utils/format";
+import { fmt, fmtW, fmtDateTime } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import { listLockers, searchLockersPage, type LockerView } from "@/product/pages/lockers/services/lockerService";
 import { getLoanByNumber, canAcceptBankPledge } from "@/product/pages/loans/services/loanService";
@@ -215,7 +215,7 @@ export function PacketDetail({ code }: { code?: string }) {
                   const lk = lockers.find((l) => l.id === m.lockerId);
                   return (
                     <tr key={m.id}>
-                      <td>{new Date(m.createdAt).toLocaleString("en-IN")}</td>
+                      <td>{fmtDateTime(m.createdAt)}</td>
                       <td>{m.fromStatus || "—"}</td>
                       <td>{m.toStatus}</td>
                       <td>{lk ? lk.code : "—"}</td>
@@ -267,6 +267,7 @@ export function PacketDetail({ code }: { code?: string }) {
                   <SearchableSelect<LockerView>
                     value=""
                     placeholder="Search locker code…"
+                    searchHint="Searches: locker code"
                     fetchFn={(q, page) =>
                       searchLockersPage(q, page, { activeOnly: true, branchId: p.branchId }).then((res) => ({
                         items: res.items.filter((l) => l.occupied < l.capacity),

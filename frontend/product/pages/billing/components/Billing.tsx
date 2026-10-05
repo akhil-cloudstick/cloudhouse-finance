@@ -12,6 +12,7 @@ import {
 } from "@/product/pages/billing/services/billingService";
 import { FEATURES } from "@/product/config/features";
 import { PlanUpgrade } from "./PlanUpgrade";
+import { fmtDate } from "@/product/utils/format";
 
 // Razorpay's checkout widget is loaded on demand (script tag), not bundled —
 // it is only ever needed on this one page, and only once a subscribe is
@@ -154,12 +155,12 @@ export function Billing() {
               <span style={{ color: "var(--muted)" }}>
                 {new Date(status.subscriptionExpiresAt) < new Date() ? "Expired on" : "Renews on"}
               </span>
-              <strong>{new Date(status.subscriptionExpiresAt).toLocaleDateString()}</strong>
+              <strong>{fmtDate(status.subscriptionExpiresAt)}</strong>
             </div>
           )}
           {status.gracePeriodEndsAt && (
             <p style={{ color: "var(--red)", fontSize: 13, marginTop: 8 }}>
-              A recent payment attempt failed. Please renew before {new Date(status.gracePeriodEndsAt).toLocaleDateString()} to avoid suspension.
+              A recent payment attempt failed. Please renew before {fmtDate(status.gracePeriodEndsAt)} to avoid suspension.
             </p>
           )}
           <hr className="gold-rule" style={{ margin: "16px 0" }} />

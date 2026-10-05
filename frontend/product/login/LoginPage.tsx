@@ -154,10 +154,22 @@ function LoginPageInner() {
        * reasoning now lives at the single call site.) */
       setMsg({ text: "Signed in. Taking you through…", ok: true });
     } catch (err) {
-      const text =
-        err instanceof ApiError
-          ? err.message || "Invalid username/phone or password."
-          : "Invalid username/phone or password.";
+      let text: string;
+      if (err instanceof ApiError) {
+        // 5xx (incl. a proxy's 502/503/504 when the backend is down) is not a
+        // credentials problem — don't let a statusText like "Bad Gateway" or a
+        // raw server error reach the form.
+        text =
+          err.status >= 500
+            ? "Something went wrong. Please try again."
+            : err.message || "Invalid username/phone or password.";
+      } else if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        text = "No internet connection. Check your network and try again.";
+      } else {
+        // fetch() rejected while the browser thinks it's online: the backend
+        // is unreachable (down, restarting, refused connection).
+        text = "Something went wrong. Please try again.";
+      }
       setMsg({ text, ok: false });
       setSubmitting(false);
     }
