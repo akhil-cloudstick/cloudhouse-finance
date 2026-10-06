@@ -71,8 +71,6 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	// which already requires "can create loan" to render at all.
 	rg.POST("/indemnity-bond/preview-pdf", perms.Create, h.PreviewIndemnityBondPDF)
 
-	rg.GET("/approval-limits/loan-operator", perms.Read, h.GetLoanOperatorApprovalLimit)
-	rg.PUT("/approval-limits/loan-operator", perms.Update, h.SetLoanOperatorApprovalLimit)
 
 	rg.POST("/:id/payments", perms.Update, h.RecordPayment)
 

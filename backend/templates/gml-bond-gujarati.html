@@ -56,6 +56,7 @@
 </li>
 <li><b>અર્થઘટનની જોગવાઈ</b><br>આથી બંને પક્ષકારો સંમત થાય છે કે આ કરારમાં સમાવિષ્ટ કોઈપણ જોગવાઈને કાયદેસર રીતે શક્ય તેટલી સંપૂર્ણ અસર આપવા માટે જ્યાં આવી વ્યાખ્યા જરૂરી હોય, ત્યાં &quot;આડગીરો લેનાર&quot; અને &quot;આડગીરો મૂકનાર&quot; શબ્દોમાં તેમના સંબંધિત વારસદારો, વહીવટદારો, એક્ઝિક્યુટર્સ, એડમિનિસ્ટ્રેટર્સ અને અધિકાર સોંપવામાં આવેલ વ્યક્તિઓનો પણ સમાવેશ થશે.</li>
 </ol>
+<div class="deed-end">
 <p style="text-align:center"><b>-:: અનુસૂચિ ::-</b></p>
 <table>
 <thead><tr><th>અનુ.</th><th>વસ્તુનું વર્ણન</th><th>કેરેટ</th><th class="num">કુલ વજન (ગ્રામ)</th><th class="num">ચોખ્ખું વજન (ગ્રામ)</th><th class="num">અંદાજિત કિંમત (રૂ.)</th></tr></thead>
@@ -76,7 +77,7 @@
 </table>{{end}}
 <p>સ્થળ: {{.BranchName}}</p>
 <p>તારીખ: {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
-<div class="sig-page">
+<div class="sig-bottom">
 <div class="sig">
 <div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
 <div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
@@ -86,8 +87,9 @@
      true bottom-most content so Setu's "bottom-right of last page" eSign
      stamp lands on it instead of the witness placeholder. */}}
 <div class="sig">
-<div>આડગીરો મૂકનાર<span>નામ: {{.CustomerName}}</span></div>
+<div>આડગીરો મૂકનાર<span class="esign-slot" data-esign-dx="80" data-esign-dy="-50">નામ: {{.CustomerName}}</span></div>
 <div>આડગીરો લેનાર{{with .LenderSignature}}<div class="lender-sig">{{.}}</div>{{end}}<span>{{.LenderName}}</span></div>
+</div>
 </div>
 </div>
 </body></html>

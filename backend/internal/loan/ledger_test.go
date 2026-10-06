@@ -79,3 +79,68 @@ func TestLedgerFocusIndex(t *testing.T) {
 		t.Errorf("missing key = %d, want -1", i)
 	}
 }
+
+func TestBuildLoanLedgerTopUpThenSettledInterest(t *testing.T) {
+	disbursed := ledgerTestDay("2026-10-01")
+	topAt := disbursed.AddDate(0, 0, 3).Add(10 * time.Hour)
+	l := &Loan{SanctionedAmount: 100000, DisbursedAmount: 100000, DisbursementDate: &disbursed}
+	payments := []LoanPayment{
+		{ID: 1, Type: PaymentTypeDisbursement, Amount: 100000, PaidOn: disbursed, CashAmount: 100000, RunningBalance: 100000},
+		{ID: 2, Type: PaymentTypeInterest, Amount: 500, PaidOn: topAt.Add(time.Millisecond), CashAmount: 500, RunningBalance: 120000},
+	}
+	topUps := []LoanTopUp{{ID: 7, Amount: 20000, Status: TopUpStatusActive, OccurredOn: topAt, CashAmount: 20000}}
+	got := buildLoanLedger(l, payments, topUps, nil)
+	keys := []string{"sanction", "topup-7", "payment-2"}
+	if len(got) != len(keys) {
+		t.Fatalf("got %d rows, want %d: %+v", len(got), len(keys), got)
+	}
+	for i, k := range keys {
+		if got[i].Key != k {
+			t.Errorf("row %d key = %s, want %s", i, got[i].Key, k)
+		}
+	}
+}
+
+func TestBuildLoanLedgerKeepsOriginalDisbursementAfterEdit(t *testing.T) {
+	first := ledgerTestDay("2026-10-01")
+	l := &Loan{} // edited: disbursement snapshot cleared, awaiting re-sanction
+	payments := []LoanPayment{
+		{ID: 1, Type: PaymentTypeDisbursement, Amount: 100000, PaidOn: first, CashAmount: 60000, UpiAmount: 40000, RunningBalance: 100000},
+		{ID: 2, Type: PaymentTypeDisbursementReversal, Amount: 100000, PaidOn: first.AddDate(0, 0, 1), CashAmount: 60000, UpiAmount: 40000},
+	}
+	got := buildLoanLedger(l, payments, nil, nil)
+	keys := []string{"sanction-Cash", "sanction-UPI", "payment-2-Cash", "payment-2-UPI"}
+	if len(got) != len(keys) {
+		t.Fatalf("got %d rows, want %d: %+v", len(got), len(keys), got)
+	}
+	for i, k := range keys {
+		if got[i].Key != k {
+			t.Errorf("row %d key = %s, want %s", i, got[i].Key, k)
+		}
+	}
+	if got[0].Amount != 60000 || got[0].Date != "2026-10-01" {
+		t.Errorf("original payout row = %+v", got[0])
+	}
+
+	// Re-sanctioned at a new amount: the original stays first, the new payout follows the reversal.
+	again := first.AddDate(0, 0, 2)
+	l2 := &Loan{SanctionedAmount: 80000, DisbursedAmount: 80000, DisbursementDate: &again}
+	payments = append(payments, LoanPayment{ID: 3, Type: PaymentTypeDisbursement, Amount: 80000, PaidOn: again, CashAmount: 80000, RunningBalance: 80000})
+	got = buildLoanLedger(l2, payments, nil, nil)
+	keys = []string{"sanction-Cash", "sanction-UPI", "payment-2-Cash", "payment-2-UPI", "sanction-3"}
+	if len(got) != len(keys) {
+		t.Fatalf("got %d rows, want %d: %+v", len(got), len(keys), got)
+	}
+	for i, k := range keys {
+		if got[i].Key != k {
+			t.Errorf("resanction row %d key = %s, want %s", i, got[i].Key, k)
+		}
+	}
+}
+
+func TestScaleSplit(t *testing.T) {
+	c, u, b, ch := scaleSplit(60000, 40000, 0, 0, 100000, 90000)
+	if c != 54000 || u != 36000 || b != 0 || ch != 0 {
+		t.Errorf("scaled = %v %v %v %v", c, u, b, ch)
+	}
+}

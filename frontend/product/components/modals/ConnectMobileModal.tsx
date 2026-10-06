@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
 import { useModal } from "@/product/components/Modal";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { issueQrLogin } from "@/product/services/authService";
 import { createConnectCode } from "@/product/pages/branding/services/brandingService";
 
 /* The staff mobile app has no business of its own any more — it starts on a
@@ -18,8 +19,8 @@ import { createConnectCode } from "@/product/pages/branding/services/brandingSer
  * business; the code grants nothing else — the staff member still signs in
  * with their own username and password. It expires after a few minutes and
  * a new one is fetched automatically. */
-export function connectQrPayload(code: string): string {
-  return "cloudhouse://connect?c=" + encodeURIComponent(code);
+export function connectQrPayload(code: string, loginToken?: string): string {
+  return "cloudhouse://connect?c=" + encodeURIComponent(code) + (loginToken ? "&l=" + encodeURIComponent(loginToken) : "");
 }
 
 // "ABC123" → "ABC 123": easier to read off the screen. The phone ignores
@@ -55,7 +56,11 @@ export function ConnectMobileModalContent() {
     setFailed(false);
     try {
       const c = await createConnectCode();
-      const url = await toDataURL(connectQrPayload(c.code), { width: 256, errorCorrectionLevel: "M", margin: 1 });
+      // The QR also carries a one-time login token for the employee signed in
+      // here, so the phone that scans it is signed in too. If that fails the
+      // QR still connects the business and the phone signs in by password.
+      const login = await issueQrLogin().catch(() => null);
+      const url = await toDataURL(connectQrPayload(c.code, login?.token), { width: 256, errorCorrectionLevel: "M", margin: 1 });
       if (mine !== attempt.current) return;
       deadline.current = Date.now() + c.expiresIn * 1000;
       setCode(c.code);
@@ -126,7 +131,7 @@ export function ConnectMobileModalContent() {
           ) : (
             <li>Tap <b>Enter code manually</b> and type the 6-character code above.</li>
           )}
-          <li>Sign in with your username and password.</li>
+          <li>{tab === "qr" ? "The app signs in as you — no password needed." : "Sign in with your username and password."}</li>
         </ol>
       </div>
       <div className="ft">

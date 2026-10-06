@@ -69,13 +69,13 @@ const fs = movementFilterStyles;
 // loanRefFor pulls the loan number back out of `purpose` — every
 // loan-related movement's Purpose carries it as a "… — LN-00049" suffix
 // (see cash.MovementService.RecordLoanDisbursementCashOut/
-// RecordLoanPaymentCashIn/etc) — same regex web's Cash.tsx uses. Falls back
-// to the transaction group id / movement id for a movement with no loan
-// number (manual top-ups, expenses, gold sales, …).
+// RecordLoanPaymentCashIn/etc) — same regex web's Cash.tsx uses. "" for a
+// movement with no loan number (manual top-ups, expenses, gold sales, …) —
+// the internal transaction group id / movement id is never shown as a Ref No.
 const LOAN_NUMBER_RE = /—\s*(LN-\S+)\s*$/;
 function loanRefFor(m: CashMovement): string {
   const match = m.purpose ? LOAN_NUMBER_RE.exec(m.purpose) : null;
-  return match?.[1] || m.transactionGroupId || String(m.id);
+  return match?.[1] || "";
 }
 
 // Running balance over the currently loaded (paginated) page only — same
@@ -110,6 +110,17 @@ export function MovementRow({
   const bankName = m.bankRef?.name || m.bank || "Bank";
   const category = expenseCategoryOf(m.purpose);
   const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
+  // Ref No: an expense (incl. a loan repayment) or a loan-sourced Add Cash
+  // shows its bank — blank when it has none; a gold-loan number links to the
+  // loan; everything else is blank.
+  const bankBacked = m.expenseId != null || category !== null || (m.type === "in" && m.source?.trim().toLowerCase().startsWith("loan"));
+  const refValue = bankBacked
+    ? m.bankId
+      ? <LedgerLink label={bankName} to="/cash" onPress={() => openLedger("bank", m.bankId!, bankName)} />
+      : m.bankRef?.name || m.bank || "—"
+    : ref
+      ? <LedgerLink label={ref} to="/loans" onPress={() => openLoanByNumber(ref)} />
+      : "—";
   return (
     <AccRow
       defaultOpen={defaultOpen}
@@ -119,7 +130,7 @@ export function MovementRow({
       statusTone={m.type === "in" ? "active" : "due"}
       details={[
         { k: "Date", v: dmy(m.occurredOn) },
-        { k: "Ref No", v: ref.startsWith("LN-") ? <LedgerLink label={ref} to="/loans" onPress={() => openLoanByNumber(ref)} /> : ref },
+        { k: "Ref No", v: refValue },
         { k: "Mode", v: modeLink(m.mode) },
         { k: "Debit", v: m.type === "out" ? inr(m.amount) : "—" },
         { k: "Credit", v: m.type === "in" ? inr(m.amount) : "—" },

@@ -79,6 +79,7 @@ type Service struct {
 	jwtSecret    string
 	jwtExpiry    time.Duration
 	commlogRepo  *commlog.Repository
+	qr           *qrStore
 }
 
 // NewService wires the auth service's dependencies: the employee repository
@@ -93,6 +94,7 @@ func NewService(db *gorm.DB, employeeRepo *employee.Repository, tenantRepo *tena
 		jwtSecret:    jwtSecret,
 		jwtExpiry:    jwtExpiry,
 		commlogRepo:  commlogRepo,
+		qr:           newQRStore(),
 	}
 }
 

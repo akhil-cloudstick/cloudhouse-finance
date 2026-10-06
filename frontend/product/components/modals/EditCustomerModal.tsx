@@ -10,6 +10,7 @@ import { Icon } from "@/product/components/Icon";
 import { updateCustomer, uploadFile, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Edit counterpart to RegisterCustomerModal.tsx's create form, wired to the
  * PUT /api/v1/customers/:id update that already existed in customersApi.ts
@@ -66,7 +67,7 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
       .catch(() => setErr("Could not load branches — try again later."));
   }, []);
 
-  async function save() {
+  async function save() { return singleFlight("modal:editcustomer:save", async () => {
     const n = name.trim();
     const p = phone.trim();
     if (n.length < 3) { setErr("Please enter the customer’s full name."); return; }
@@ -116,7 +117,7 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

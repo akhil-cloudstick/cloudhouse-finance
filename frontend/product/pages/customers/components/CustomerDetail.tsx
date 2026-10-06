@@ -40,10 +40,11 @@ import {
 import { EditCustomerModalContent } from "@/product/components/modals/EditCustomerModal";
 import { navigate, routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
-import { listCashMovementsByCustomer, exportPartyStatementByCustomer, type LedgerRowView } from "@/product/pages/cash/services/cashService";
+import { listCashMovementsByCustomer, exportPartyStatementByCustomer, MODE_LEDGER_ROUTE, type LedgerRowView } from "@/product/pages/cash/services/cashService";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { ApiError } from "@/product/services/httpClient";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Server-side pager for the 360 view's sub-tables: each of the 5 tables
  * below fetches its own page (limit 10) from its own
@@ -228,7 +229,7 @@ export function CustomerDetail({ id }: { id?: string }) {
   );
 
   const [ledgerExporting, setLedgerExporting] = useState(false);
-  async function onExportLedger() {
+  async function onExportLedger() { return singleFlight("customer:ledger-export", async () => {
     setLedgerExporting(true);
     try {
       await exportPartyStatementByCustomer(numericCustomerId, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters });
@@ -237,7 +238,7 @@ export function CustomerDetail({ id }: { id?: string }) {
     } finally {
       setLedgerExporting(false);
     }
-  }
+  }); }
 
   const [activeTable, setActiveTable] = useState(0);
   const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History", "Ledger"];
@@ -458,7 +459,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       setActionsMenuOpen(false);
                       const activeLoans = cLoans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Auctioned");
                       const hasActiveLoans = activeLoans.length > 0 || (profile?.activeLoanCount ?? 0) > 0;
-                      const activeLoanListStr = activeLoans.map((l) => l.loanNumber || l.id).filter(Boolean).join(", ");
+                      const activeLoanRefs = activeLoans.map((l) => l.loanNumber || l.id).filter(Boolean);
 
                       openModal(
                         <ConfirmModalContent
@@ -494,7 +495,21 @@ export function CustomerDetail({ id }: { id?: string }) {
                               <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                                 <Icon name="warning" /> Active Loans Warning
                               </div>
-                              Cannot delete this customer — {activeLoanListStr ? <>the following loan(s) are still active: <strong>{activeLoanListStr}</strong></> : <>this customer has active loan(s)</>}. Active loans must be closed or deleted first.
+                              Cannot delete this customer — {activeLoanRefs.length > 0 ? (
+                                <>
+                                  the following loan(s) are still active:{" "}
+                                  {activeLoanRefs.map((ref, i) => (
+                                    <span key={ref}>
+                                      {i > 0 && ", "}
+                                      {canViewLoans ? (
+                                        <a href={routeHref(`loan/${ref}`)} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", fontWeight: 700, textDecoration: "underline" }}>{ref}</a>
+                                      ) : (
+                                        <strong>{ref}</strong>
+                                      )}
+                                    </span>
+                                  ))}
+                                </>
+                              ) : <>this customer has active loan(s)</>}. Active loans must be closed or deleted first.
                             </div>
                           )}
                         </ConfirmModalContent>
@@ -792,15 +807,31 @@ export function CustomerDetail({ id }: { id?: string }) {
 
             <div hidden={activeTable !== 5} className={activeTable === 5 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-                  <thead><tr><th>Date</th><th>Particulars</th><th>Method</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
+                  <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
                   <tbody>
                     {transactionPager.items.length === 0 ? (
                       <tr><td colSpan={7} className="empty compact">No ledger entries recorded yet.</td></tr>
-                    ) : transactionPager.items.map((r, i) => (
+                    ) : transactionPager.items.map((r, i) => {
+                      // Same reference detection as PartyLedger: the loan /
+                      // investment / personal-loan number is either the row's
+                      // reference or trails its description ("… — LN-00048").
+                      const refOf = (re: RegExp, tail: RegExp) =>
+                        (r.reference && r.reference.match(re)?.[0]) || r.description.match(tail)?.[1] || null;
+                      const loanRef = refOf(/^LN-\d+/i, /—\s*(LN-\S+)\s*$/i);
+                      const invRef = refOf(/^INV-\d+/i, /—\s*(INV-\S+)\s*$/i);
+                      const plRef = refOf(/^PL-\d+/i, /—\s*(PL-\S+)\s*$/i);
+                      return (
                       // A split payment yields one row per method, all sharing
                       // the movement's id — so the id alone isn't unique.
                       <tr key={`${r.type}-${r.id}-${r.method}-${i}`}>
                         <td className="td-date">{fmtDate(r.d)}</td>
+                        <td className="ledger-ref" title={r.reference || undefined}>
+                          {loanRef ? <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
+                            : invRef ? <LedgerRefLink kind="investment" id={invRef} label={invRef} />
+                            : plRef ? <LedgerRefLink kind="personalloan" id={plRef} label={plRef} />
+                            : r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || r.reference || "Bank"} />
+                            : r.reference || "—"}
+                        </td>
                         <td className="td-particulars">
                           {r.description || r.type}
                           {r.bankId ? (
@@ -809,13 +840,17 @@ export function CustomerDetail({ id }: { id?: string }) {
                             </div>
                           ) : null}
                         </td>
-                        <td>{r.method || "—"}</td>
-                        <td className="ledger-ref" title={r.reference || undefined}>{r.reference || "—"}</td>
+                        <td>
+                          {!r.method ? "—"
+                            : MODE_LEDGER_ROUTE[r.method] ? <a href={routeHref(MODE_LEDGER_ROUTE[r.method])}>{r.method}</a>
+                            : r.method}
+                        </td>
                         <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                         <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
                         <td className="num">{fmt(r.runningBalance)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table></div>
                 <Pager page={transactionPager.page} total={transactionPager.total} pageSize={subtablePageSize} onChange={transactionPager.setPage} />

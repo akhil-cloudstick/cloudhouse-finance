@@ -24,7 +24,7 @@ function RateTile({ k, r, small }: { k: string; r: number; small?: boolean }) {
  * by the real /gold-rates API via GoldRatesProvider instead of the mock
  * db.rates/db.rateHistory localStorage pair. */
 export function GoldRates() {
-  const { latest } = useGoldRates();
+  const { latest, version } = useGoldRates();
   const { openModal } = useModal();
   const pageSize = useResponsivePageSize(15, 15);
   const smallScreen = useIsSmallScreen();
@@ -53,7 +53,7 @@ export function GoldRates() {
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, pageSize]);
+  }, [page, pageSize, version]);
 
   return (
     <>

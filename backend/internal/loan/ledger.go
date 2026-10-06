@@ -6,6 +6,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"cloudhouse/backend/internal/platform"
 )
 
 // LoanLedgerMaxPageSize caps one page of GET /loans/:id/ledger.
@@ -55,12 +57,40 @@ type LoanLedgerPage struct {
 	Total  int               `json:"total"`
 	Limit  int               `json:"limit"`
 	Offset int               `json:"offset"`
+	// TotalDebit/TotalCredit sum the Debit and Credit columns over every row in
+	// the filtered range (not just this page) — the ledger footer's Total row.
+	TotalDebit  float64 `json:"totalDebit"`
+	TotalCredit float64 `json:"totalCredit"`
+}
+
+// ledgerColumnTotals sums the Debit and Credit columns the way the ledger
+// table shows them: a sanction, top-up or refunded auction surplus is a debit,
+// a payment a credit; the auction sale and a non-refunded surplus carry no
+// cash column.
+func ledgerColumnTotals(rows []LoanLedgerEntry) (debit, credit float64) {
+	for _, r := range rows {
+		switch r.Kind {
+		case "sanction", "topup":
+			debit += r.Amount
+		case "payment":
+			credit += r.Amount
+		case "auction-surplus":
+			if r.Auction != nil && r.Auction.SurplusDisposition == "RefundedToCustomer" {
+				debit += r.Amount
+			}
+		}
+	}
+	return debit, credit
 }
 
 type ledgerSource struct {
 	kind    string
 	date    string
 	sortKey string
+	// rank breaks a sortKey tie: a payout (top-up, re-disbursement) lands
+	// before a collection booked at the same instant — e.g. the interest
+	// withheld from a top-up, which is stamped with the top-up's own time.
+	rank    int
 	payment *LoanPayment
 	topUp   *LoanTopUp
 	auction *AuctionRecord
@@ -68,6 +98,13 @@ type ledgerSource struct {
 
 func ledgerDate(t time.Time) string {
 	return t.Format("2006-01-02")
+}
+
+// ledgerSortKey is a fixed-width UTC timestamp, so payments (stamped with a
+// PaidOn) and top-ups (stamped with an OccurredOn) order against each other
+// within a day instead of every payment sorting ahead of every top-up.
+func ledgerSortKey(t time.Time) string {
+	return t.UTC().Format("2006-01-02T15:04:05.000000000")
 }
 
 func ledgerSplitParts(cash, upi, bankTransfer, cheque float64) []LoanLedgerPart {
@@ -165,23 +202,30 @@ func expandLedgerParts(e LoanLedgerEntry, total float64, parts []LoanLedgerPart,
 // the true figure. Mirrors what LoanDetail.tsx used to assemble itself.
 func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctions []AuctionRecord) []LoanLedgerEntry {
 	var disbursement *LoanPayment
+	disbursementCount := 0
 	sources := make([]ledgerSource, 0, len(payments)+len(topUps)+2*len(auctions))
 	for i := range payments {
 		p := &payments[i]
 		if p.Type == PaymentTypeDisbursement {
+			disbursementCount++
 			if disbursement == nil {
 				disbursement = p
+			} else {
+				// An edit retracts the first payout (see UpdateLoan) and the
+				// re-sanction pays out again — the earlier row stays, this
+				// later one follows it.
+				sources = append(sources, ledgerSource{kind: "redisbursement", date: ledgerDate(p.PaidOn), sortKey: ledgerSortKey(p.PaidOn), rank: 0, payment: p})
 			}
 			continue
 		}
-		sources = append(sources, ledgerSource{kind: "payment", date: ledgerDate(p.PaidOn), sortKey: ledgerDate(p.PaidOn), payment: p})
+		sources = append(sources, ledgerSource{kind: "payment", date: ledgerDate(p.PaidOn), sortKey: ledgerSortKey(p.PaidOn), rank: 1, payment: p})
 	}
 	for i := range topUps {
 		t := &topUps[i]
 		if t.Status == TopUpStatusPending || t.Status == TopUpStatusRejected {
 			continue
 		}
-		sources = append(sources, ledgerSource{kind: "topup", date: ledgerDate(t.OccurredOn), sortKey: t.OccurredOn.Format(time.RFC3339Nano), topUp: t})
+		sources = append(sources, ledgerSource{kind: "topup", date: ledgerDate(t.OccurredOn), sortKey: ledgerSortKey(t.OccurredOn), rank: 0, topUp: t})
 	}
 	for i := range auctions {
 		a := &auctions[i]
@@ -190,26 +234,52 @@ func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctio
 		}
 		if auctionSalePayment(a, payments) == nil {
 			d := auctionLedgerSaleDate(a)
-			sources = append(sources, ledgerSource{kind: "auction-sale", date: d, sortKey: d, auction: a})
+			sources = append(sources, ledgerSource{kind: "auction-sale", date: d, sortKey: d, rank: 1, auction: a})
 		}
 		if a.SurplusPayableAmount > 0.01 {
 			d := auctionLedgerSurplusDate(a)
-			sources = append(sources, ledgerSource{kind: "auction-surplus", date: d, sortKey: d + "~", auction: a})
+			sources = append(sources, ledgerSource{kind: "auction-surplus", date: d, sortKey: d + "~", rank: 1, auction: a})
 		}
 	}
-	sort.SliceStable(sources, func(i, j int) bool { return sources[i].sortKey < sources[j].sortKey })
+	sort.SliceStable(sources, func(i, j int) bool {
+		if sources[i].sortKey != sources[j].sortKey {
+			return sources[i].sortKey < sources[j].sortKey
+		}
+		return sources[i].rank < sources[j].rank
+	})
 	balance := l.SanctionedAmount
 	out := make([]LoanLedgerEntry, 0, len(sources)+1)
-	if l.DisbursementDate != nil {
+	if l.DisbursementDate != nil || disbursement != nil {
 		var parts []LoanLedgerPart
+		date, amount := time.Time{}, l.DisbursedAmount
+		if l.DisbursementDate != nil {
+			date = *l.DisbursementDate
+		}
 		if disbursement != nil {
 			parts = ledgerSplitParts(disbursement.CashAmount, disbursement.UpiAmount, disbursement.BankTransferAmount, disbursement.ChequeAmount)
+			// More than one payout, or none current, means the loan was
+			// edited after disbursing: this first row describes the
+			// ORIGINAL payout, not the loan's current figures.
+			if disbursementCount > 1 || l.DisbursementDate == nil {
+				date, amount = disbursement.PaidOn, disbursement.Amount
+				balance = disbursement.RunningBalance
+				if balance <= 0 {
+					balance = amount
+				}
+			}
 		}
-		e := LoanLedgerEntry{Kind: "sanction", Date: ledgerDate(*l.DisbursementDate), Balance: ledgerBalance(balance), Payment: disbursement}
-		out = append(out, expandLedgerParts(e, l.DisbursedAmount, parts, "sanction", func(later float64, _ LoanLedgerPart) float64 { return balance - later })...)
+		e := LoanLedgerEntry{Kind: "sanction", Date: ledgerDate(date), Balance: ledgerBalance(balance), Payment: disbursement}
+		first := balance
+		out = append(out, expandLedgerParts(e, amount, parts, "sanction", func(later float64, _ LoanLedgerPart) float64 { return first - later })...)
 	}
 	for _, src := range sources {
 		switch src.kind {
+		case "redisbursement":
+			p := src.payment
+			balance = p.RunningBalance
+			e := LoanLedgerEntry{Kind: "sanction", Date: src.date, Balance: ledgerBalance(balance), Payment: p}
+			parts := ledgerSplitParts(p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount)
+			out = append(out, expandLedgerParts(e, p.Amount, parts, fmt.Sprintf("sanction-%d", p.ID), func(later float64, _ LoanLedgerPart) float64 { return balance - later })...)
 		case "payment":
 			p := src.payment
 			balance = p.RunningBalance
@@ -324,5 +394,6 @@ func (s *Service) GetLoanLedger(ctx context.Context, loanID uint, branchID *uint
 	if end > len(rows) {
 		end = len(rows)
 	}
-	return &LoanLedgerPage{Items: rows[offset:end], Total: len(rows), Limit: limit, Offset: offset}, nil
+	totalDebit, totalCredit := ledgerColumnTotals(rows)
+	return &LoanLedgerPage{Items: rows[offset:end], Total: len(rows), Limit: limit, Offset: offset, TotalDebit: platform.RoundMoney(totalDebit), TotalCredit: platform.RoundMoney(totalCredit)}, nil
 }

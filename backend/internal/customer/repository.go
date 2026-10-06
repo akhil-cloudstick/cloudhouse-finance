@@ -100,8 +100,29 @@ func (r *Repository) FindByPhone(ctx context.Context, phone string) (*Customer, 
 	return &c, nil
 }
 
+// FindByPAN looks up a live customer by exact PAN (tenant-scoped via ctx).
+func (r *Repository) FindByPAN(ctx context.Context, pan string) (*Customer, error) {
+	var c Customer
+	if err := r.db.WithContext(ctx).Where("pan = ?", pan).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// FindByAadhaarHash looks up a live customer by Aadhaar fingerprint.
+func (r *Repository) FindByAadhaarHash(ctx context.Context, hash string) (*Customer, error) {
+	var c Customer
+	if err := r.db.WithContext(ctx).Where("aadhaar_hash = ?", hash).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 func (r *Repository) Update(ctx context.Context, c *Customer) error {
-	return r.db.WithContext(ctx).Save(c).Error
+	// Omit("Branch"): FindByID preloads the old Branch, and Save would
+	// otherwise re-apply that stale association's ID over the freshly
+	// assigned branch_id — silently undoing a branch change.
+	return r.db.WithContext(ctx).Omit("Branch").Save(c).Error
 }
 
 func (r *Repository) Delete(ctx context.Context, id uint) error {

@@ -81,6 +81,14 @@ export function parseConnectQr(scanned: string): string | null {
   return isValidConnectCode(code) ? code : null;
 }
 
+/* The one-time login token the connect QR may carry next to the connect code
+ * (`cloudhouse://connect?c=<code>&l=<token>`), minted for the employee signed
+ * in on the web. Null when absent or malformed. */
+export function parseConnectLoginToken(scanned: string): string | null {
+  const m = scanned.match(/^cloudhouse:\/\/\/?connect\?(?:.*&)?l=([0-9a-f]{32})(?:&|#|$)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
 export async function clearBusinessCode(): Promise<void> {
   await SecureStore.deleteItemAsync(BUSINESS_CODE_KEY);
 }

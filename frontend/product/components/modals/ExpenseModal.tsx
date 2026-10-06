@@ -15,6 +15,7 @@ import { Select } from "@/product/components/ui/Select";
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { FileInput } from "@/product/components/ui/FileInput";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 const MODES = ["Cash", "UPI", "Bank"];
 const MODE_OPTIONS = MODES.map((m) => ({ value: m, label: m }));
@@ -58,7 +59,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
     }).catch(() => setErr("Could not load branches — try again later."));
   }, []);
 
-  async function save() {
+  async function save() { return singleFlight("modal:expense:save", async () => {
     const payee = desc.trim();
     if (!payee) { setErr("Please enter a description."); return; }
     const amount = +amt;
@@ -88,7 +89,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

@@ -102,10 +102,16 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
   const [rec, setRec] = useState<AuctionRecordView | null | undefined>(undefined); // undefined = loading
   const [starting, setStarting] = useState(false);
 
+  // A live case exists only once the loan has been marked auction-eligible
+  // (status Auction Eligible / Auctioned / Auctioned - Balance Due). An
+  // Overdue/Defaulted loan with no case yet would make GET /loans/:id/auction
+  // answer 404 — once per card — so skip the request for those.
+  const mayHaveCase = l.status === "Auction Eligible" || l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
   function load() {
+    if (!mayHaveCase) { setRec(null); return; }
     getAuctionRecord(l.numericId).then(setRec);
   }
-  useEffect(load, [l.numericId]);
+  useEffect(load, [l.numericId, mayHaveCase]);
 
   // Settle Surplus's button visibility is gated on this card's own `rec`
   // state, which only refreshes after an action taken FROM this card

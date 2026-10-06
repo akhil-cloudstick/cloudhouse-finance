@@ -6,6 +6,7 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { Select } from "@/product/components/ui/Select";
 import { createBranch, updateBranch, type BranchView } from "@/product/pages/branches/services/branchService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
 const CODE_RE = /^[A-Z0-9-]*$/;
@@ -49,7 +50,7 @@ export function BranchModalContent({ branch: b, onSaved }: { branch?: BranchView
     setPhone(digits);
   }
 
-  async function save() {
+  async function save() { return singleFlight("modal:branch:save", async () => {
     const n = name.trim();
     const a = address.trim();
     const p = phone.trim();
@@ -76,7 +77,7 @@ export function BranchModalContent({ branch: b, onSaved }: { branch?: BranchView
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

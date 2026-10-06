@@ -20,6 +20,7 @@ import { fmt, fmtW, fmtDate, fmtDateTime, fmtToday } from "@/product/utils/forma
 import { rupeesInWords } from "@/product/utils/numberToWords";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
+import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { modeCellFor } from "@/product/pages/cash/components/ledgerCells";
 import { ledgerFocusTarget, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import {
@@ -63,9 +64,26 @@ import { DisburseLoanModalContent } from "@/product/components/modals/DisburseLo
 import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
 import { TopUpLoanModalContent } from "@/product/components/modals/TopUpLoanModal";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 // Payment Ledger rows per page.
 const LEDGER_PAGE_SIZE = 10;
+// Pledged Ornaments / Pledge History rows per page.
+const PLEDGE_PAGE_SIZE = 5;
+
+/* Prev / Next footer under a table. Always rendered, even for a single page,
+ * so every table on this page ends the same way. */
+function PageBar({ page, total, pageSize, onChange, children }: { page: number; total: number; pageSize: number; onChange: (p: number) => void; children?: React.ReactNode }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <button className="btn plain sm" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
+      <span style={{ fontSize: 13 }}>Page {page} of {pages}</span>
+      <button className="btn plain sm" disabled={page >= pages} onClick={() => onChange(Math.min(pages, page + 1))}>Next ›</button>
+      {children}
+    </div>
+  );
+}
 
 /* An auction case's sale/expense breakdown, shown under its Payment Ledger
  * row (the backend ties each Auction Sale payment to its case). */
@@ -197,6 +215,8 @@ export function LoanDetail({ id }: { id?: string }) {
   const [error, setError] = useState("");
   // Pledged Ornaments / Bank Pledge and Locker share one card, one tab at a time.
   const [pledgeTab, setPledgeTab] = useState<"ornaments" | "bank">("ornaments");
+  const [ornamentsPage, setOrnamentsPage] = useState(1);
+  const [pledgeHistoryPage, setPledgeHistoryPage] = useState(1);
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [completing, setCompleting] = useState(false);
@@ -635,7 +655,7 @@ export function LoanDetail({ id }: { id?: string }) {
     }
   }
 
-  async function onExportLedger() {
+  async function onExportLedger() { return singleFlight("loan:ledger-export:"+l.numericId, async () => {
     if (!l) return;
     setLedgerExporting(true);
     try {
@@ -645,7 +665,7 @@ export function LoanDetail({ id }: { id?: string }) {
     } finally {
       setLedgerExporting(false);
     }
-  }
+  }); }
 
   async function doCompleteRelease() {
     // Checked client-side first, with the exact wording staff need to act
@@ -697,11 +717,11 @@ export function LoanDetail({ id }: { id?: string }) {
    * has no equivalent a page's CSS can drive. NewLoan.tsx's pre-submission
    * preview still uses the old client-side copy — there's no saved loan
    * id yet to render against. */
-  function printBond(lang: BondLang = "en") {
+  function printBond(lang: BondLang = "en") { void singleFlight("loan:print-bond:"+l.numericId+":"+lang, async () => {
     setPrintingBond(true);
-    downloadIndemnityBondPDF(l.numericId, lang)
+    return downloadIndemnityBondPDF(l.numericId, lang)
       .catch(() => toast("Could not print the pledge agreement — try again."))
-      .finally(() => setPrintingBond(false));
+      .finally(() => setPrintingBond(false)); });
   }
 
   /* Inner markup only (no <html>/brand-window wrapper) — shared by
@@ -750,7 +770,7 @@ export function LoanDetail({ id }: { id?: string }) {
       </table>`;
   }
 
-  async function printPledgeSlip() {
+  async function printPledgeSlip() { return singleFlight("loan:print-pledge-slip:"+l.numericId, async () => {
     setPrintingSlip(true);
     try {
       const c = await getCustomer(l.customerId);
@@ -760,14 +780,14 @@ export function LoanDetail({ id }: { id?: string }) {
     } finally {
       setPrintingSlip(false);
     }
-  }
+  }); }
 
   /* Release Agreement — only reachable once the loan has actually closed
    * (CompleteRelease already ran), same Documents dropdown as the other
    * prints. Server-rendered (GET /loans/:id/release-agreement/pdf) — see
    * downloadReleaseAgreementPDF's doc comment — so there's no more
    * client-side data assembly here, unlike the old printReleaseAgreement(). */
-  async function printReleaseAgreementDoc(lang: "en" | "ml") {
+  async function printReleaseAgreementDoc(lang: "en" | "ml") { return singleFlight("loan:print-release-agreement:"+l.numericId+":"+lang, async () => {
     setPrintingReleaseAgreement(true);
     try {
       await downloadReleaseAgreementPDF(l.numericId, lang);
@@ -776,7 +796,7 @@ export function LoanDetail({ id }: { id?: string }) {
     } finally {
       setPrintingReleaseAgreement(false);
     }
-  }
+  }); }
 
   /* Payment statement — a printable copy of the Payment Ledger card below,
    * plus the same loan/customer header printPledgeSlip uses, restructured
@@ -791,7 +811,7 @@ export function LoanDetail({ id }: { id?: string }) {
    * document in its own tab first (the "preview" — the browser's own
    * print dialog only appears after, and can be cancelled from there
    * without ever producing a file) rather than silently generating a PDF. */
-  async function printStatement() {
+  async function printStatement() { return singleFlight("loan:print-statement:"+l.numericId, async () => {
     setPrintingStatement(true);
     try {
       const c = await getCustomer(l.customerId);
@@ -843,7 +863,7 @@ export function LoanDetail({ id }: { id?: string }) {
     } finally {
       setPrintingStatement(false);
     }
-  }
+  }); }
 
   /* Resolves the QR code + packet code shared by printPacketLabel (its own
    * die-cut-stock print window) and printSlipAndLabel (the label reworked
@@ -907,7 +927,7 @@ export function LoanDetail({ id }: { id?: string }) {
     </div>`;
   }
 
-  async function printPacketLabel() {
+  async function printPacketLabel() { return singleFlight("loan:print-label:"+l.numericId, async () => {
     setPrintingLabel(true);
     try {
       const data = await packetLabelData();
@@ -940,7 +960,7 @@ export function LoanDetail({ id }: { id?: string }) {
     } finally {
       setPrintingLabel(false);
     }
-  }
+  }); }
 
   /* Combined "Print Slip + Label" — one print job, one A4 page: the slip's
    * own content followed directly by the label (a dashed rule separates the
@@ -951,7 +971,7 @@ export function LoanDetail({ id }: { id?: string }) {
    * markup/CSS (labelStyle/labelBodyHTML) as the standalone label print,
    * just without the 81mm @page override. Order is slip then label, per the
    * print-format request this was added for. */
-  async function printSlipAndLabel() {
+  async function printSlipAndLabel() { return singleFlight("loan:print-slip-label:"+l.numericId, async () => {
     setPrintingSlipAndLabel(true);
     try {
       const [c, data] = await Promise.all([getCustomer(l.customerId), packetLabelData()]);
@@ -971,7 +991,7 @@ export function LoanDetail({ id }: { id?: string }) {
     } finally {
       setPrintingSlipAndLabel(false);
     }
-  }
+  }); }
 
   // Renders the bond server-side in the requested language (see
   // BondLang/BOND_LANG_OPTIONS in indemnityBond.ts — "en" or "ml", chosen
@@ -1389,7 +1409,7 @@ export function LoanDetail({ id }: { id?: string }) {
             </div></div></div>
       </div>
 
-      <div className="card gtop" style={{ marginTop: 16 }}>
+      <div className="card gtop ld-card" style={{ marginTop: 16 }}>
             <div className="hd">
               <h3>Payment Ledger</h3>
               <div className="sp" />
@@ -1400,7 +1420,7 @@ export function LoanDetail({ id }: { id?: string }) {
               )}
               {canExport && <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>}
             </div>
-            <div className="tbl-wrap"><table className="tbl" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
+            <div className="tbl-wrap"><table className="tbl ledger-nowrap ledger-amt" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {ledgerError ? (
@@ -1560,16 +1580,15 @@ export function LoanDetail({ id }: { id?: string }) {
                 )}
               </tbody>
             </table></div>
-            {ledgerTotal > LEDGER_PAGE_SIZE && (
-              <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <button className="btn plain sm" disabled={ledgerPage <= 1} onClick={() => setLedgerPage(Math.max(1, ledgerPage - 1))}>‹ Prev</button>
-                <span style={{ fontSize: 13 }}>Page {ledgerPage} of {ledgerTotalPages}</span>
-                <button className="btn plain sm" disabled={ledgerPage >= ledgerTotalPages} onClick={() => setLedgerPage(Math.min(ledgerTotalPages, ledgerPage + 1))}>Next ›</button>
-              </div>
-            )}
+            <PageBar page={ledgerPage} total={ledgerTotal} pageSize={LEDGER_PAGE_SIZE} onChange={setLedgerPage}>
+              <FooterTotals aligned items={[
+                { value: ledger?.totalDebit ?? 0, color: "var(--red)" },
+                { value: ledger?.totalCredit ?? 0, color: "var(--green)" },
+              ]} />
+            </PageBar>
             {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
             </div>
-      <div className="card gtop" style={{ marginTop: 16 }}>
+      <div className="card gtop ld-card" style={{ marginTop: 16 }}>
             <div className="hd">
               <div className="tabs" style={{ border: 0, padding: "4px 8px 10px 4px", margin: 0 }}>
                 <button className={pledgeTab === "ornaments" ? "on" : ""} onClick={() => setPledgeTab("ornaments")}>Pledged Ornaments</button>
@@ -1582,7 +1601,7 @@ export function LoanDetail({ id }: { id?: string }) {
             <div className="tbl-wrap"><table className="tbl">
               <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Gross</th><th className="num">Net</th><th className="num">Gold Value</th><th>Photo</th><th>Status</th></tr></thead>
               <tbody>
-                {l.ornaments.map((o) => (
+                {l.ornaments.slice((ornamentsPage - 1) * PLEDGE_PAGE_SIZE, ornamentsPage * PLEDGE_PAGE_SIZE).map((o) => (
                   <tr key={o.id}>
                     <td>{o.name}</td>
                     <td><span className="chip brand">{o.purity}</span></td>
@@ -1605,6 +1624,9 @@ export function LoanDetail({ id }: { id?: string }) {
                 ))}
               </tbody>
             </table></div>
+            )}
+            {pledgeTab === "ornaments" && (
+              <PageBar page={ornamentsPage} total={l.ornaments.length} pageSize={PLEDGE_PAGE_SIZE} onChange={setOrnamentsPage} />
             )}
             {pledgeTab === "bank" && (
             <div className="bd">
@@ -1683,7 +1705,7 @@ export function LoanDetail({ id }: { id?: string }) {
                         <tr><th>Bank</th><th>Pledged On</th><th>Released On</th><th className="num">Amount</th><th>Status</th></tr>
                       </thead>
                       <tbody>
-                        {pledgeHistory.map((p) => (
+                        {pledgeHistory.slice((pledgeHistoryPage - 1) * PLEDGE_PAGE_SIZE, pledgeHistoryPage * PLEDGE_PAGE_SIZE).map((p) => (
                           <tr key={p.id}>
                             <td>{p.bankName}</td>
                             <td>{fmtDate(p.pledgeDate)}</td>
@@ -1702,6 +1724,7 @@ export function LoanDetail({ id }: { id?: string }) {
                       </tbody>
                     </table>
                   </div>
+                  <PageBar page={pledgeHistoryPage} total={pledgeHistory.length} pageSize={PLEDGE_PAGE_SIZE} onChange={setPledgeHistoryPage} />
                 </>
               )}
             </div>

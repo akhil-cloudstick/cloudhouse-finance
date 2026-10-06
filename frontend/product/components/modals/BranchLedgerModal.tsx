@@ -15,6 +15,8 @@ import {
 import { type BranchView } from "@/product/pages/branches/services/branchService";
 import { listCustomersPage, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
+import { singleFlight } from "@/product/utils/singleFlight";
+import { loanNumberFor, refCellFor } from "@/product/pages/cash/components/ledgerCells";
 
 const ZERO_TOTALS: PartyTotals = { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 };
 const PAGE_SIZE = 12;
@@ -109,7 +111,7 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  async function onExport() {
+  async function onExport() { return singleFlight("branch-ledger:export", async () => {
     setExporting(true);
     try {
       await exportPartyStatementByBranch(branch.id, { fromDate, toDate });
@@ -118,7 +120,7 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
     } finally {
       setExporting(false);
     }
-  }
+  }); }
 
   return (
     <>
@@ -152,13 +154,13 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
                 const chronological = [...items].reverse();
                 let running = 0;
                 const withBalance = chronological.map((m) => {
-                  if (m.type === "out") running += m.amount; else running -= m.amount;
+                  if (m.type === "out") running -= m.amount; else running += m.amount;
                   return { m, balance: running };
                 });
                 return withBalance.reverse().map(({ m, balance }) => (
                   <tr key={m.id}>
                     <td>{fmtDate(m.d)}</td>
-                    <td className="ledger-ref" title={String(m.transactionGroupId || m.id)}>{m.transactionGroupId || m.id}</td>
+                    <td className="ledger-ref" title={m.bankName || loanNumberFor(m)}>{refCellFor(m)}</td>
                     <td>{m.purpose || m.source || "—"}</td>
                     <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
                     <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>

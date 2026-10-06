@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useModal } from "@/product/components/Modal";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* "Reject — why?" prompt shared by the approval-chain screens (top-up,
  * personal loan, expense). Holds its own remarks state —
@@ -22,7 +23,7 @@ export function RejectRemarksModalContent({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  async function confirm() {
+  async function confirm() { return singleFlight("modal:rejectremarks:confirm", async () => {
     if (required && !remarks.trim()) { setErr("Please enter a reason for rejecting."); return; }
     setBusy(true);
     setErr("");
@@ -34,7 +35,7 @@ export function RejectRemarksModalContent({
     } finally {
       setBusy(false);
     }
-  }
+  }); }
 
   return (
     <>

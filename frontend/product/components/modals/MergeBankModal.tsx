@@ -7,6 +7,7 @@ import { Icon } from "@/product/components/Icon";
 import { Select } from "@/product/components/ui/Select";
 import { ApiError } from "@/product/services/httpClient";
 import { mergeBanks, type BackendBank } from "@/product/pages/banks/services/bankService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Reassigns a duplicate bank's transaction/pledge history onto the bank the
  * admin picks as canonical, then permanently deletes the duplicate — the
@@ -23,7 +24,7 @@ export function MergeBankModalContent({ source, banks, onSaved }: { source: Back
 
   const target = candidates.find((b) => String(b.id) === targetId);
 
-  async function save() {
+  async function save() { return singleFlight("modal:mergebank:save", async () => {
     if (!target) { setErr("Please pick a bank to merge into."); return; }
     setSaving(true);
     setErr("");
@@ -37,7 +38,7 @@ export function MergeBankModalContent({ source, banks, onSaved }: { source: Back
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

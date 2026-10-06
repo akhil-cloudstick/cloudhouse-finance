@@ -8,6 +8,7 @@ import { fmt } from "@/product/utils/format";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { approveLoan, type LoanView } from "@/product/pages/loans/services/loanService";
 import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* The FINAL enabled sanction stage's affirmative action is also the moment
  * the principal actually leaves the till (see backend Service.Approve's
@@ -44,7 +45,7 @@ export function DisburseLoanModalContent({
   const balanceInHand = useBalanceInHand(loan.branchId);
   const insufficient = balanceInHand !== null && loan.principal > balanceInHand + 0.005;
 
-  async function save() {
+  async function save() { return singleFlight("modal:disburseloan:save", async () => {
     if (!balanced) { setErr("The payment breakdown must add up to the principal amount."); return; }
     if (insufficient) { setErr("Insufficient balance in hand to disburse this loan."); return; }
     setSaving(true);
@@ -67,7 +68,7 @@ export function DisburseLoanModalContent({
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

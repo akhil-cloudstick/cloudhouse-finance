@@ -14,6 +14,7 @@ import { canActAtStage, chainFor, flowOf, isFlowOff, stageByPending, trackerLabe
 import { StageTracker } from "@/product/components/ui/StageTracker";
 import { routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
 // no-buffer check ApproveReleaseRequest re-runs at Manager/Management
@@ -132,7 +133,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   // warning for a release that's actually ready to go.
   const paymentConditionMet = req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
-  async function toggleSawGold(value: boolean) {
+  async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
     setSaving(true);
     setErr("");
     try {
@@ -143,9 +144,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
-  async function saveNotes() {
+  async function saveNotes() { return singleFlight("modal:releasereview:saveNotes", async () => {
     setSaving(true);
     setErr("");
     try {
@@ -157,9 +158,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
-  async function decide(action: "Approved" | "Rejected") {
+  async function decide(action: "Approved" | "Rejected") { return singleFlight("modal:releasereview:decide", async () => {
     setSaving(true);
     setErr("");
     try {
@@ -195,7 +196,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

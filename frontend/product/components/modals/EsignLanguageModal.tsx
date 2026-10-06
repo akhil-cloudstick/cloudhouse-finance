@@ -5,6 +5,7 @@ import { useModal } from "@/product/components/Modal";
 import { Icon } from "@/product/components/Icon";
 import { bondLangOptionsFor, type BondLang } from "@/product/pages/loans/utils/indemnityBond";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Lets staff pick which pledge-agreement language goes to Setu before
  * starting the customer's Aadhaar eSign — LoanDetail.tsx's "Send Indemnity
@@ -47,7 +48,7 @@ export function EsignLanguageModalContent({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  async function confirm() {
+  async function confirm() { return singleFlight("modal:esignlanguage:confirm", async () => {
     setBusy(true);
     setErr("");
     try {
@@ -58,7 +59,7 @@ export function EsignLanguageModalContent({
     } finally {
       setBusy(false);
     }
-  }
+  }); }
 
   const effectiveConfirmContent = confirmLabel ? (
     confirmLabel

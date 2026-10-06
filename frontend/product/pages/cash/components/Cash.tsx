@@ -14,7 +14,7 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/co
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
-import { rememberedLedgerPage, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
+import { rememberedLedgerPage, reloadedLedgerPosition, saveLedgerPosition, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/product/pages/cash/components/ledgerCells";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
@@ -28,16 +28,17 @@ import { ApiError } from "@/product/services/httpClient";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { singleFlight } from "@/product/utils/singleFlight";
 
-function Kpi({ l, v, s, parts, cls }: {
-  l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
+function Kpi({ l, v, s, parts, cls, keepZero }: {
+  l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string; keepZero?: boolean;
 }) {
   return (
     <div className={`kpi ${cls || ""}`}>
       <div className="l">{l}</div>
       <div className="v">{v}</div>
       <div className="s">{s || ""}</div>
-      {parts ? <KpiParts parts={parts} /> : null}
+      {parts ? <KpiParts parts={parts} keepZero={keepZero} /> : null}
     </div>
   );
 }
@@ -45,19 +46,18 @@ function Kpi({ l, v, s, parts, cls }: {
 /* Breaks a KPI's single total back out into the sources that fed it. Zero
  * buckets are dropped so a quiet day shows a short list rather than a wall of
  * "0"s; if every bucket is zero the whole block collapses to one dash. */
-function KpiParts({ parts }: { parts: [string, number][] }) {
-  const shown = parts.filter(([, amt]) => amt !== 0);
+function KpiParts({ parts, keepZero }: { parts: [string, number][]; keepZero?: boolean }) {
+  const shown = keepZero ? parts : parts.filter(([, amt]) => amt !== 0);
   return (
-    <div style={{ marginTop: 6, borderTop: "1px solid var(--line)", paddingTop: 6, display: "grid", gap: 2 }}>
+    // minmax(0,1fr) pins every row to the card's width. Each row is a
+    // `.kpi-fit` — nowrap, so a long label + amount overflows its row, and
+    // FitTextObserver then shrinks that row's font until both fit, rather than
+    // the amount being clipped by .kpi's overflow:hidden.
+    <div style={{ marginTop: 6, borderTop: "1px solid var(--line)", paddingTop: 6, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2 }}>
       {shown.length ? shown.map(([label, amt]) => (
-        <div key={label} style={{ display: "flex", fontSize: 11.5, color: "var(--muted)", gap: 6 }}>
-          {/* min-width:0 lets the label actually shrink/ellipsize inside a
-           * flex row instead of forcing the row (and the fixed-width card)
-           * wider than it has room for — without it the amount span was
-           * the one getting pushed past the card's edge and clipped by
-           * .kpi's overflow:hidden. The amount itself never truncates. */}
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-          <span className="num" style={{ flexShrink: 0, marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>{fmt(amt)}</span>
+        <div key={label} className="kpi-fit" style={{ color: "var(--muted)" }}>
+          <span>{label}</span>
+          <span className="num" style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>{fmt(amt)}</span>
         </div>
       )) : <div style={{ fontSize: 11.5, color: "var(--muted)" }}>No movements today</div>}
     </div>
@@ -68,7 +68,9 @@ function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; b
   const chronological = [...items].reverse();
   let running = 0;
   const withBalance = chronological.map((m) => {
-    running += m.type === "out" ? m.amount : -m.amount;
+    // Cash in raises the balance, cash out lowers it. (Debit here is the
+    // outflow column, so the sign is the reverse of a customer/party ledger.)
+    running += m.type === "out" ? -m.amount : m.amount;
     return { m, balance: running };
   });
   return withBalance.reverse();
@@ -78,7 +80,7 @@ function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance
   return (
     <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
       <td data-label="Date">{fmtDate(m.d)}</td>
-      <td className="ledger-ref" data-label="Ref No" title={loanNumberFor(m)}>{refCellFor(m)}</td>
+      <td className="ledger-ref" data-label="Ref No" title={m.bankName || loanNumberFor(m)}>{refCellFor(m)}</td>
       <td data-label="Particulars">{particularsFor(m, categoryIds)}</td>
       <td data-label="Mode">{modeCellFor(m.mode)}</td>
       <td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
@@ -197,7 +199,15 @@ export function Cash() {
   const [summary, setSummary] = useState<CashSummary | null>(null);
   // Switches the card below between the Cash Movements and Expense Register
   // tables instead of stacking both full tables on the page at once.
-  const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses" | "goldSales">(() => rememberedLedgerPage("cash-expenses") ? "expenses" : "movements");
+  const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses" | "goldSales">(() => {
+    const saved = reloadedLedgerPosition()?.tab;
+    if (saved === "movements" || saved === "expenses" || saved === "goldSales") return saved;
+    return rememberedLedgerPage("cash-expenses") ? "expenses" : "movements";
+  });
+  // Keep the live tab/pages so a refresh returns to this exact spot.
+  useEffect(() => {
+    saveLedgerPosition({ tab: activeCashTab, "cash-movements": movementsPage, "cash-expenses": expensesPage });
+  }, [activeCashTab, movementsPage, expensesPage]);
   // Cash Movements' own date-range filter — empty means "no bound", the
   // table's default unfiltered view. Only this table is filtered; the KPI
   // row above and the Expense Register tab are untouched.
@@ -353,7 +363,7 @@ export function Cash() {
   // Both downloads use whatever's currently in the filter state (date
   // range + category for movements) — never the loaded page's row count —
   // matching listCashMovementsPage's own filter params exactly.
-  async function downloadMovements() {
+  async function downloadMovements() { return singleFlight("cash:download-movements", async () => {
     setDownloadingMovements(true);
     try {
       await exportCashMovements({
@@ -368,9 +378,9 @@ export function Cash() {
     } finally {
       setDownloadingMovements(false);
     }
-  }
+  }); }
 
-  async function downloadExpenses() {
+  async function downloadExpenses() { return singleFlight("cash:download-expenses", async () => {
     setDownloadingExpenses(true);
     try {
       await exportExpenses();
@@ -379,7 +389,7 @@ export function Cash() {
     } finally {
       setDownloadingExpenses(false);
     }
-  }
+  }); }
 
   return (
     <>
@@ -443,7 +453,17 @@ export function Cash() {
             ]}
           />
           <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
-          <Kpi l="Balance in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
+          <Kpi
+            l="Balance in Hand"
+            v={fmt((summary?.cashInHand || 0) + (summary?.bankBalance || 0))}
+            s="live"
+            cls="ok"
+            keepZero
+            parts={[
+              ["Cash in hand", summary?.cashInHand || 0],
+              ["Bank balance", summary?.bankBalance || 0],
+            ]}
+          />
         </div>
 
         <div className="tabs cash-tabs-row" style={{ flexShrink: 0, marginBottom: 0 }}>
@@ -469,7 +489,7 @@ export function Cash() {
       </div>
 
       {activeCashTab === "movements" && (
-        <div className="card tbl-card tbl-card-fill">
+        <div className="card tbl-card tbl-card-fill cash-tbl-card">
           <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
             <h3>Ledger</h3>
             <div className="sp" />
@@ -496,7 +516,7 @@ export function Cash() {
             </div>
           </div>
           <div className="tbl-wrap tbl-scroll">
-            <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-movements" data-ledger-page={movementsPage}>
+            <table className="tbl tbl-center tbl-roomy tbl-stack ledger-nowrap ledger-amt" data-ledger-scope="cash-movements" data-ledger-page={movementsPage}>
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {movements.length
@@ -512,16 +532,16 @@ export function Cash() {
               * just the current page rather than a fabricated "of N". */}
             <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>
             <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>
-            <FooterTotals items={[
-              { label: "Total Debit", value: movementSums.debit, color: "var(--red)" },
-              { label: "Total Credit", value: movementSums.credit, color: "var(--green)" },
+            <FooterTotals aligned items={[
+              { value: movementSums.debit, color: "var(--red)" },
+              { value: movementSums.credit, color: "var(--green)" },
             ]} />
           </div>
         </div>
       )}
 
       {activeCashTab === "expenses" && (
-        <div className="card tbl-card tbl-card-fill">
+        <div className="card tbl-card tbl-card-fill cash-tbl-card">
           <div className="hd">
             <h3>Expense Register</h3>
             <div className="sp" />
@@ -565,7 +585,7 @@ export function Cash() {
       )}
 
       {activeCashTab === "goldSales" && (
-        <div className="card tbl-card tbl-card-fill">
+        <div className="card tbl-card tbl-card-fill cash-tbl-card">
           <div className="hd">
             <h3>Gold Sales</h3>
             <div className="sp" />

@@ -6,7 +6,6 @@ import (
 
 	"cloudhouse/backend/internal/authz"
 	"cloudhouse/backend/internal/employee"
-	"cloudhouse/backend/internal/loan"
 	"cloudhouse/backend/internal/platform"
 )
 
@@ -148,15 +147,6 @@ func seedGrants(ctx context.Context, d *Deps, st *state, rep *Report) error {
 		rep.created("permission grants", len(rows))
 	}
 
-	// The sanction chain compares a loan's principal against this per-role
-	// ceiling. Seeded directly because loan.SeedLoanOperatorLimit is a
-	// boot-time cross-tenant seeder and would write at tenant_id = 0.
-	limit := loan.ApprovalLimit{Role: "Loan Operator", MaxAmount: 50000}
-	limit.TenantID = st.tenantID
-	if err := d.db.WithContext(ctx).Create(&limit).Error; err != nil {
-		return fmt.Errorf("seed approval limit: %w", err)
-	}
-	rep.created("approval limits", 1)
 
 	return nil
 }

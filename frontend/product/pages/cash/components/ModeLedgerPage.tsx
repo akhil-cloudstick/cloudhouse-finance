@@ -5,17 +5,19 @@ import { fmt, fmtDate } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
+import { loanCatRef } from "@/product/pages/cash/components/ledgerCells";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
-import { rememberedLedgerPage, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
+import { rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { getModeLedger, downloadLedger, PARTY_PAGE_SIZE, type LedgerMode, type LedgerRowView } from "@/product/pages/cash/services/cashService";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
-import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { searchBanksPage, type BackendBank } from "@/product/pages/banks/services/bankService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
-import { routeHref } from "@/product/services/appRoutes";
+import { FooterTotals } from "@/product/components/ui/FooterTotals";
+import { goBack, routeHref } from "@/product/services/appRoutes";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 function Pager({ page, total, pageSize, onChange, children }: { page: number; total: number; pageSize: number; onChange: (p: number) => void; children?: React.ReactNode }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -53,6 +55,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   const [total, setTotal] = useState(0);
   // Back from a drill-down, this ledger reopens on the page the user left.
   const [page, setPage] = useState(() => rememberedLedgerPage("mode") ?? 1);
+  useEffect(() => { saveLedgerPosition({ mode: page }); }, [page]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
@@ -120,7 +123,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   useEffect(() => { refresh(); }, [refresh]);
   useLedgerFocus("mode", !loading, [items]);
 
-  async function onDownload() {
+  async function onDownload() { return singleFlight("cash:mode-ledger-download", async () => {
     setExporting(true);
     try {
       await downloadLedger("mode", mode, {
@@ -132,7 +135,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
     } finally {
       setExporting(false);
     }
-  }
+  }); }
 
   const filterCategories: FilterCategory[] = [
     ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
@@ -156,7 +159,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
     <>
       <div className="page-h">
         <div>
-          <a href={routeHref("ledger")} style={{ fontSize: 13 }}>← Back</a>
+          <a href={routeHref("ledger")} onClick={(e) => { if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); goBack("ledger"); }} style={{ fontSize: 13 }}>← Back</a>
           <h1>{mode} Ledger</h1>
           <p>{MODE_DESCRIPTION[mode]}</p>
         </div>
@@ -168,6 +171,13 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
         )}
       </div>
       <hr className="gold-rule" />
+
+      {/* Totals for this mode — every row matching the filters, not just the page. */}
+      <div className="kpis" style={{ marginBottom: 16 }}>
+        <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totals.debit)}</div></div>
+        <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totals.credit)}</div></div>
+        <div className="kpi"><div className="l">Net {mode}</div><div className="v">{fmt(totals.credit - totals.debit)}</div></div>
+      </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
@@ -187,9 +197,9 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl" data-ledger-scope="mode" data-ledger-page={page}>
+          <table className="tbl ledger-amt" data-ledger-scope="mode" data-ledger-page={page}>
             <thead>
-              <tr><th>Date</th><th>Description</th><th>Mode</th>{mode !== "Cash" && <th>Bank</th>}<th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
+              <tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th>{mode !== "Cash" && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
             <tbody>
               {loading ? (
@@ -204,7 +214,8 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                 const chronological = [...items].reverse();
                 let running = 0;
                 const withBalance = chronological.map((r) => {
-                  running += r.debitOrCredit === "debit" ? r.amount : -r.amount;
+                  // Credit (money in) raises the balance, debit (money out) lowers it.
+                  running += r.debitOrCredit === "debit" ? -r.amount : r.amount;
                   return { r, balance: running };
                 });
                 return withBalance.reverse().map(({ r, balance }) => {
@@ -232,6 +243,17 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                   <tr key={`${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
                     <td>{fmtDate(r.d)}</td>
                     <td>
+                      {loanRef ? (
+                        <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
+                      ) : invRef ? (
+                        <LedgerRefLink kind="investment" id={invRef} label={invRef} />
+                      ) : plRef ? (
+                        <LedgerRefLink kind="personalloan" id={plRef} label={plRef} />
+                      ) : (
+                        loanCatRef(r, categoryIds)
+                      )}
+                    </td>
+                    <td>
                       {r.description || r.type}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                         {r.customerId ? <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} /> : null}
@@ -242,17 +264,6 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                     {mode !== "Cash" && (
                       <td>{r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} /> : "—"}</td>
                     )}
-                    <td>
-                      {loanRef ? (
-                        <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
-                      ) : invRef ? (
-                        <LedgerRefLink kind="investment" id={invRef} label={invRef} />
-                      ) : plRef ? (
-                        <LedgerRefLink kind="personalloan" id={plRef} label={plRef} />
-                      ) : (
-                        r.reference || "—"
-                      )}
-                    </td>
                     <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                     <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
                     <td className="num">{fmt(balance)}</td>
@@ -264,9 +275,9 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
           </table>
         </div>
         <Pager page={page} total={total} pageSize={PARTY_PAGE_SIZE} onChange={setPage}>
-          <FooterTotals items={[
-            { label: "Total Debit", value: totals.debit, color: "var(--red)" },
-            { label: "Total Credit", value: totals.credit, color: "var(--green)" },
+          <FooterTotals aligned items={[
+            { value: totals.debit, color: "var(--red)" },
+            { value: totals.credit, color: "var(--green)" },
           ]} />
         </Pager>
       </div>

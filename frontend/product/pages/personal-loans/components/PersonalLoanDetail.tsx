@@ -14,6 +14,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { fmt, fmtDate } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
+import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import {
   getPersonalLoan,
   resolvePersonalLoanNumber,
@@ -33,15 +34,19 @@ import {
 import { CollectPaymentModalContent } from "@/product/pages/personal-loans/components/CollectPaymentModal";
 import { RenewLoanModalContent } from "@/product/pages/personal-loans/components/RenewLoanModal";
 import { navigate, routeHref } from "@/product/services/appRoutes";
+import { modeCellFor } from "@/product/pages/cash/components/ledgerCells";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Click-paginated table (10 rows/page) — same shape/theme as the Customer
  * 360 detail tables (modules/customers/components/CustomerDetail.tsx):
  * `.card > .hd > h3` header, `.tbl-wrap.tbl-wrap-auto` + `.tbl.tbl-center`
  * body, and this same Pager footer. */
-function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; hasMore: boolean; total: number }>, resetKey: unknown) {
+function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; hasMore: boolean; total: number; totalDebit?: number; totalCredit?: number }>, resetKey: unknown) {
   const [items, setItems] = useState<T[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  // Debit/Credit column sums over every page — only the ledger endpoint sends them.
+  const [sums, setSums] = useState({ debit: 0, credit: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -51,6 +56,7 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
       const res = await fetchPage(p - 1);
       setItems(res.items);
       setTotal(Number.isFinite(res.total) ? res.total : 0);
+      setSums({ debit: res.totalDebit ?? 0, credit: res.totalCredit ?? 0 });
       setError("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load.");
@@ -67,7 +73,7 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
   // the Pager's Math.min(totalPages, ...)/Math.max(totalPages, ...) Next/
   // Prev handlers, into a NaN `page` itself.
   const totalPages = Math.max(1, Math.ceil((Number.isFinite(total) ? total : 0) / PERSONAL_LOAN_PAGE_SIZE));
-  return { items, page, setPage, totalPages, loading, error, reload: () => load(page) };
+  return { items, page, setPage, totalPages, sums, loading, error, reload: () => load(page) };
 }
 
 /* Mirrors Loans.tsx's own `.card.tbl-card` + `.tbl-wrap` + plain `.ft`
@@ -79,12 +85,13 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
  * `.tbl-card`'s own layout (see its app.css comment) is what already solves
  * the two-stacked-cards sticky-footer collision ft-static used to work
  * around, so the plain `.ft` here needs no such opt-out. */
-function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+function Pager({ page, totalPages, onChange, children }: { page: number; totalPages: number; onChange: (p: number) => void; children?: React.ReactNode }) {
   return (
-    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", flexWrap: "wrap" }}>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+      {children}
     </div>
   );
 }
@@ -178,7 +185,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     openModal(<RenewLoanModalContent loan={loan} onSaved={() => { closeModal(); navigate("personalloans"); }} />);
   }
 
-  async function handleDownloadBond() {
+  async function handleDownloadBond() { return singleFlight("personal-loan:download-bond", async () => {
     if (!loan || downloadingBond) return;
     setDownloadingBond(true);
     setDownloadError("");
@@ -189,7 +196,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     } finally {
       setDownloadingBond(false);
     }
-  }
+  }); }
 
   const customerName = loan.customer?.name || loan.customer?.code || "";
 
@@ -411,34 +418,42 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
 
         <div className="card tbl-card tbl-card-fill">
           <div className="hd" style={{ justifyContent: "space-between" }}>
-            <h3>Payment History</h3>
+            <h3>Payment Ledger</h3>
           </div>
           {payments.error && <div className="notice" style={{ margin: 14 }}>{payments.error}</div>}
-          <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center">
-            <thead><tr><th>Date</th><th className="num">Amount</th><th>Method</th><th className="num">Balance</th></tr></thead>
+          <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center ledger-amt">
+            <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
             <tbody>
               {payments.loading ? (
-                <tr><td colSpan={4} className="empty compact">Loading…</td></tr>
+                <tr><td colSpan={7} className="empty compact">Loading…</td></tr>
               ) : payments.items.length === 0 ? (
-                <tr><td colSpan={4} className="empty compact">No payments yet.</td></tr>
-              ) : payments.items.map((p) => (
-                <tr key={p.id}>
-                  <td>{fmtDate(p.paidOn)}</td>
-                  <td className="num">{fmt(p.amount)}</td>
+                <tr><td colSpan={7} className="empty compact">No ledger entries yet.</td></tr>
+              ) : payments.items.map((p, i) => (
+                <tr key={p.key || `${p.kind ?? "row"}-${p.id}-${i}`}>
+                  <td>{fmtDate(p.date)}</td>
+                  <td><LedgerRefLink kind="personalloan" id={p.refNo} label={p.refNo} /></td>
+                  <td>{p.particulars}</td>
                   <td>
-                    {p.method}
+                    {modeCellFor(p.mode || undefined)}
                     {p.bankId && (
                       <div style={{ marginTop: 4 }}>
-                        <LedgerRefLink kind="bank" id={p.bankId} label={p.bankRef?.name || "Bank"} />
+                        <LedgerRefLink kind="bank" id={p.bankId} label={p.bankName || "Bank"} />
                       </div>
                     )}
                   </td>
-                  <td className="num">{fmt(p.runningBalance)}</td>
+                  <td className="num" style={{ color: p.debit ? "var(--red)" : undefined }}>{p.debit ? fmt(p.debit) : "—"}</td>
+                  <td className="num" style={{ color: p.credit ? "var(--green)" : undefined }}>{p.credit ? fmt(p.credit) : "—"}</td>
+                  <td className="num">{fmt(p.balance)}</td>
                 </tr>
               ))}
             </tbody>
           </table></div>
-          <Pager page={payments.page} totalPages={payments.totalPages} onChange={payments.setPage} />
+          <Pager page={payments.page} totalPages={payments.totalPages} onChange={payments.setPage}>
+            <FooterTotals aligned items={[
+              { value: payments.sums.debit, color: "var(--red)" },
+              { value: payments.sums.credit, color: "var(--green)" },
+            ]} />
+          </Pager>
         </div>
       </div>
     </>

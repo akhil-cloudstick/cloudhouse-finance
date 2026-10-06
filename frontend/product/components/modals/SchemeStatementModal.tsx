@@ -10,6 +10,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { fmt, statusChipColor, fmtDate } from "@/product/utils/format";
 import { listLoansPage, type LoanView } from "@/product/pages/loans/services/loanService";
 import { downloadSchemeStatement, type SchemeView } from "@/product/pages/schemes/services/schemeService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 function firstOfMonth(): string {
   const d = new Date();
@@ -124,7 +125,7 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
   );
   const totalOutstanding = useMemo(() => shown.reduce((sum, l) => sum + l.totalOutstandingBalance, 0), [shown]);
 
-  async function handleDownload(format: "pdf" | "xlsx") {
+  async function handleDownload(format: "pdf" | "xlsx") { return singleFlight("scheme-statement:download:"+format, async () => {
     setDownloading(format);
     try {
       await downloadSchemeStatement(s.id, format, {
@@ -137,7 +138,7 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
     } finally {
       setDownloading(null);
     }
-  }
+  }); }
 
   const selectedLoans = (loans || []).filter((l) => selected.has(l.numericId));
 

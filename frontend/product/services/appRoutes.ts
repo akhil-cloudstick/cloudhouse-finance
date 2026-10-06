@@ -183,8 +183,26 @@ export function navigate(route: string, arg?: string | number, slug?: string | n
   // Checked on the parsed target, since some callers pass a full href.
   const href = routeHref(route, arg, slug);
   if (!navigationAllowed(parsePath(href).route)) return;
-  window.history.pushState(null, "", href);
+  // The marker tells goBack() that this entry was reached by an in-app move,
+  // so history.back() from it lands on an earlier console page.
+  window.history.pushState({ appNav: true }, "", href);
   window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT));
+}
+
+/**
+ * goBack returns to the console page the user came from — the page, filters
+ * and scroll the browser's own Back restores. When this page was opened
+ * directly (a pasted link, a new tab) there is no earlier console page, so it
+ * falls back to the given route instead.
+ */
+export function goBack(fallbackRoute: string, fallbackArg?: string | number): void {
+  if (typeof window === "undefined") return;
+  const state = window.history.state as { appNav?: boolean } | null;
+  if (state?.appNav) {
+    window.history.back();
+    return;
+  }
+  navigate(fallbackRoute, fallbackArg);
 }
 
 /** The console's landing page for a business. */

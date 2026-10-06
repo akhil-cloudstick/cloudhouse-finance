@@ -12,6 +12,7 @@ import { approveExtensionRequest, getLoan, type PaymentView, type RequestView, t
 import { ApiError } from "@/product/services/httpClient";
 import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
 import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Staff review screen for a pending Extension request — shown from
  * Requests.tsx's "Review" button, mirroring ReleaseReviewModal's pattern.
@@ -82,7 +83,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
   const requiredRole = stageView?.role ?? null;
   const canActOnStage = canActAtStage({ role, isAdmin }, stageView);
 
-  async function decide(action: "Approved" | "Rejected", remarks = "") {
+  async function decide(action: "Approved" | "Rejected", remarks = "") { return singleFlight("modal:extensionreview:decide", async () => {
     if (!stageKey) return;
     setSaving(true);
     setErr("");
@@ -113,7 +114,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   function promptReject() {
     openModal(

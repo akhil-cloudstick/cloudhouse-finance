@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { Icon } from "@/product/components/Icon";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Generic yes/no confirmation modal — replaces browser confirm()/alert()
  * popups (which look out of place next to the rest of the app's modal UI)
@@ -38,7 +39,7 @@ export function ConfirmModalContent({
     setTimeout(() => setShaking(false), 400);
   }
 
-  async function confirm() {
+  async function confirm() { return singleFlight("modal:confirm:confirm", async () => {
     if (disabled) {
       triggerShake();
       return;
@@ -53,7 +54,7 @@ export function ConfirmModalContent({
     } finally {
       setBusy(false);
     }
-  }
+  }); }
 
   function handleConfirmClick(e: React.MouseEvent) {
     if (disabled) {

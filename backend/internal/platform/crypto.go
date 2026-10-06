@@ -3,9 +3,11 @@ package platform
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log"
@@ -38,6 +40,18 @@ const aadhaarDevFallbackSeed = "ambikagold-dev-only-aadhaar-key-do-not-use-in-pr
 // internal/customer, which stores each customer's Aadhaar number this way).
 type Cipher struct {
 	gcm cipher.AEAD
+	key []byte
+}
+
+// Fingerprint returns a deterministic keyed hash (HMAC-SHA256, hex) of
+// plaintext. Encrypt uses a random nonce, so two encryptions of the same value
+// never match — Fingerprint is what lets a value be checked for uniqueness
+// without being stored in the clear. Keyed, so a 12-digit Aadhaar number can't
+// be recovered by brute-forcing a bare hash.
+func (c *Cipher) Fingerprint(plaintext string) string {
+	m := hmac.New(sha256.New, c.key)
+	m.Write([]byte(plaintext))
+	return hex.EncodeToString(m.Sum(nil))
 }
 
 // NewCipher builds a Cipher from a base64-encoded 32-byte key. If keyB64 is
@@ -70,7 +84,7 @@ func NewCipher(keyB64, devFallbackSeed string) (*Cipher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Cipher{gcm: gcm}, nil
+	return &Cipher{gcm: gcm, key: key}, nil
 }
 
 // NewSettingsCipher builds the Cipher used by internal/settings to encrypt

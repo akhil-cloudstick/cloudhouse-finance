@@ -55,7 +55,13 @@ type PartialReleaseReceiptData struct {
 	LenderSignature template.HTML
 }
 
-var partialReleaseReceiptTemplate = mustLoadTemplate("partial_release_receipt_en", "partial-release-receipt.html", nil)
+// partialReleaseReceiptTemplates is the receipt keyed by language. Unlike
+// FORM 7 it is not policy-specific (it is not a statutory form), so there is
+// no policy axis here.
+var partialReleaseReceiptTemplates = map[string]*template.Template{
+	BondLangEnglish:   mustLoadTemplate("partial_release_receipt_en", "partial-release-receipt.html", nil),
+	BondLangMalayalam: mustLoadTemplate("partial_release_receipt_ml", "partial-release-receipt-malayalam.html", nil),
+}
 
 // partialReleaseReceiptTemplateData wraps PartialReleaseReceiptData with
 // pre-formatted display fields, same convention as
@@ -89,17 +95,20 @@ func partialReleaseOrnamentRows(ornaments []PartialReleaseReceiptOrnament) []rel
 	return rows
 }
 
-// renderPartialReleaseReceiptHTML executes the receipt template against
-// data, mirroring renderReleaseAgreementHTML's structure but with no
-// language variants — the receipt is an internal/customer-facing summary
-// document, not a statutory form, so it only ever renders in English.
-func renderPartialReleaseReceiptHTML(data PartialReleaseReceiptData) (string, error) {
+// renderPartialReleaseReceiptHTML executes the receipt template for lang
+// (BondLangEnglish or BondLangMalayalam) against data, mirroring
+// renderReleaseAgreementHTML's structure.
+func renderPartialReleaseReceiptHTML(data PartialReleaseReceiptData, lang string) (string, error) {
+	tmpl, ok := partialReleaseReceiptTemplates[lang]
+	if !ok {
+		return "", ErrUnsupportedIndemnityBondLang
+	}
 	td := partialReleaseReceiptTemplateData{
 		PartialReleaseReceiptData: data,
-		Style:                     template.CSS(releaseAgreementStyle(BondLangEnglish)),
+		Style:                     template.CSS(releaseAgreementStyle(lang)),
 		LenderName:                firstNonEmpty(data.LegalName, releaseFallbackLenderName),
 		LenderAddress:             firstNonEmpty(data.AddressLine, releaseFallbackLenderAddress),
-		ReleaseDate:               releaseFmtDate(data.ReleaseDate, BondLangEnglish),
+		ReleaseDate:               releaseFmtDate(data.ReleaseDate, lang),
 		SettlementAmount:          releaseFmtAmount(data.SettlementAmount),
 		RevisedPrincipalBalance:   releaseFmtAmount(data.RevisedPrincipalBalance),
 		RevisedTotalGoldValue:     releaseFmtAmount(data.RevisedTotalGoldValue),
@@ -109,7 +118,7 @@ func renderPartialReleaseReceiptHTML(data PartialReleaseReceiptData) (string, er
 	}
 
 	var sb strings.Builder
-	if err := partialReleaseReceiptTemplate.Execute(&sb, td); err != nil {
+	if err := tmpl.Execute(&sb, td); err != nil {
 		return "", fmt.Errorf("partial release receipt: render template: %w", err)
 	}
 	return sb.String(), nil
@@ -117,8 +126,8 @@ func renderPartialReleaseReceiptHTML(data PartialReleaseReceiptData) (string, er
 
 // RenderPartialReleaseReceiptPDF renders the Partial Release Receipt into an
 // A4 PDF — same page geometry as RenderReleaseAgreementPDF (see renderA4PDF).
-func RenderPartialReleaseReceiptPDF(data PartialReleaseReceiptData) ([]byte, error) {
-	htmlStr, err := renderPartialReleaseReceiptHTML(data)
+func RenderPartialReleaseReceiptPDF(data PartialReleaseReceiptData, lang string) ([]byte, error) {
+	htmlStr, err := renderPartialReleaseReceiptHTML(data, lang)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +205,10 @@ func (s *Service) partialReleaseReceiptDataForRequest(ctx context.Context, req *
 // Receipt PDF for a given (Approved, IsPartial) release request — the
 // server-side handler for GET
 // /loans/requests/:requestId/partial-release-receipt/pdf.
-func (s *Service) RenderPartialReleaseReceiptPDFForRequest(ctx context.Context, requestID uint, branchID *uint, _ string) ([]byte, string, error) {
+func (s *Service) RenderPartialReleaseReceiptPDFForRequest(ctx context.Context, requestID uint, branchID *uint, lang string) ([]byte, string, error) {
+	if lang != BondLangEnglish && lang != BondLangMalayalam {
+		return nil, "", ErrUnsupportedIndemnityBondLang
+	}
 	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		return nil, "", ErrRequestNotFound
@@ -213,11 +225,14 @@ func (s *Service) RenderPartialReleaseReceiptPDFForRequest(ctx context.Context, 
 		return nil, "", err
 	}
 
-	pdfBytes, err := RenderPartialReleaseReceiptPDF(data)
+	pdfBytes, err := RenderPartialReleaseReceiptPDF(data, lang)
 	if err != nil {
 		return nil, "", err
 	}
 
 	filename := fmt.Sprintf("Partial-Release-Receipt-%s-%d.pdf", data.LoanNumber, requestID)
+	if lang == BondLangMalayalam {
+		filename = fmt.Sprintf("Partial-Release-Receipt-Malayalam-%s-%d.pdf", data.LoanNumber, requestID)
+	}
 	return pdfBytes, filename, nil
 }

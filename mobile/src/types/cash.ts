@@ -21,6 +21,8 @@ export type CashMovement = {
   transactionGroupId?: string;
   bankId?: number;
   bankRef?: { id: number; name: string };
+  // Set on the cash-out row an approved expense booked (incl. loan repayments).
+  expenseId?: number | null;
   partyCustomerId?: number;
   partyCustomer?: { id: number; name: string };
   createdAt: string;

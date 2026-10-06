@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/tenant"
 )
 
@@ -470,6 +471,15 @@ ol li{margin-bottom:10px;text-align:justify}
  * Setu's stamp the way the old forced-second-page version did — re-verify
  * StartIndemnityBondSign's eSign stamp placement after this change. */
 .sig-page{}
+/* GML deeds only (gml-bond-english/gujarati.html): the Schedule, Place/Date
+ * and the signing block are one .deed-end page that always starts on a fresh
+ * sheet, so the Schedule is never separated from the signatures. min-height is
+ * the A4 printable height (11.69in less the 0.75in header and 0.55in footer
+ * bands = 10.39in = 264mm, minus a hair so it never spills onto a blank page),
+ * and .sig-bottom's margin-top:auto pins the Borrower/Lender row to the bottom
+ * of that page — a fixed spot for the eSign stamp (SUREPASS_ESIGN_SIGN_X/Y). */
+.deed-end{page-break-before:always;break-inside:avoid;min-height:262mm;display:flex;flex-direction:column}
+.deed-end .sig-bottom{margin-top:auto}
 `
 
 // bondPageStyleMalayalam is bondPageStyle with a font stack that leads with
@@ -534,8 +544,15 @@ ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
  * fix for the on-screen/print copy of this same bond). */
 .lender-sig{position:absolute;top:22px;left:50%;transform:translateX(-50%);width:130px}
 .lender-sig img{width:100%;max-height:40px;object-fit:contain;display:block}
-/* See bondPageStyle's .sig-page comment — same fix, Gujarati template. */
-.sig-page{page-break-before:always;min-height:240mm;display:flex;flex-direction:column;justify-content:flex-end}
+/* GML deeds only (gml-bond-english/gujarati.html): the Schedule, Place/Date
+ * and the signing block are one .deed-end page that always starts on a fresh
+ * sheet, so the Schedule is never separated from the signatures. min-height is
+ * the A4 printable height (11.69in less the 0.75in header and 0.55in footer
+ * bands = 10.39in = 264mm, minus a hair so it never spills onto a blank page),
+ * and .sig-bottom's margin-top:auto pins the Borrower/Lender row to the bottom
+ * of that page — a fixed spot for the eSign stamp (SUREPASS_ESIGN_SIGN_X/Y). */
+.deed-end{page-break-before:always;break-inside:avoid;min-height:262mm;display:flex;flex-direction:column}
+.deed-end .sig-bottom{margin-top:auto}
 `
 
 // bondTemplateData wraps BondData with the extra pre-formatted fields the
@@ -704,11 +721,20 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 // reserved header/footer bands. Requires a Chrome/Chromium binary on the
 // host; chromedp returns a clear error if none is found.
 func RenderIndemnityBondPDF(data BondData, lang string) ([]byte, error) {
+	pdfBytes, _, err := RenderIndemnityBondPDFWithSlots(data, lang)
+	return pdfBytes, err
+}
+
+// RenderIndemnityBondPDFWithSlots is RenderIndemnityBondPDF plus the eSign
+// stamp positions of the document's tagged signature lines (see
+// renderA4PDFWithSlots). Empty for documents that tag none, in which case the
+// eSign call uses its configured default position.
+func RenderIndemnityBondPDFWithSlots(data BondData, lang string) ([]byte, []platform.SignatureSlot, error) {
 	html, err := renderBondHTML(data, lang)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return renderA4PDF(html, "pledge agreement")
+	return renderA4PDFWithSlots(html, "pledge agreement")
 }
 
 var pdfPagePattern = regexp.MustCompile(`(?s)/Type\s*/Page[^s]`)
