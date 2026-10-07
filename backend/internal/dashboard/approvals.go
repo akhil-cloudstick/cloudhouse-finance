@@ -95,9 +95,19 @@ func (s *Service) pendingOtherApprovals(ctx context.Context, branchScope *uint, 
 	for _, r := range expenses {
 		items = append(items, NeedsAttentionItem{
 			Kind: "approval", Flow: "expense", EntityID: r.ID,
-			CustomerName: r.Payee, Detail: r.Category,
+			CustomerName: firstNonEmpty(r.Payee, r.Category), Detail: r.Category,
 			Principal: r.Amount, ApprovalStage: r.ApprovalStage,
 		})
 	}
 	return items, nil
+}
+
+// firstNonEmpty returns the first argument that isn't blank.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

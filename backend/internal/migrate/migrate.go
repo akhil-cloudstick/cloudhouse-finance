@@ -185,6 +185,12 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// categories replaced cash_sources + expense_categories - copy the legacy
+	// rows over once, after AutoMigrate created the table and before seeding.
+	if err := cash.MigrateCategories(db); err != nil {
+		return err
+	}
+
 	if err := cash.SeedDefaultSourcesAndCategories(db); err != nil {
 		return err
 	}

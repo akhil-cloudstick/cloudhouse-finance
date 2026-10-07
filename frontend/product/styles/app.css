@@ -2840,7 +2840,12 @@ button.fi-trigger {
 
 .kpi {
   width: 213px;
-  height: 89px;
+  height: 104px;
+  /* Centre the label/value/subline block vertically, so the shorter
+   * single-subline tiles don't sit at the top of the taller card. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   flex-shrink: 0;
   box-sizing: border-box;
   background: rgba(255, 255, 255, .72);
@@ -2906,7 +2911,16 @@ button.fi-trigger {
  * every other .kpi tile app-wide keeps its fixed height. */
 .kpis-money .kpi {
   height: auto;
-  min-height: 89px;
+  min-height: 104px;
+  /* Top-align (not centred) so every card's label and main figure sit on the
+   * same line even when one card also carries a breakdown list below. */
+  justify-content: flex-start;
+  padding-top: 20px;
+}
+.kpis-money .kpi .l {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* PersonalLoanDetail.tsx's KPI row — combines what used to be 6-8 separate
@@ -3011,13 +3025,23 @@ button.fi-trigger {
  * `.kpi{width:auto}` here previously applied to all of them, so Reports'
  * two totals cards (short "10" vs. a much longer rupee amount) rendered
  * visibly different widths instead of matching. */
+/* Same column counts as before — 4 across on a big screen, 3 across at a
+ * ~1280px window (901–1400px), 2 across on small screens (the `.kpis` 2-column
+ * rule in the max-width:900px block below) — but the tiles share the row's
+ * full width instead of staying a fixed 213px, so they fill the area beside
+ * the Gold Loan Calculator column. */
+.dashboard-kpis {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-kpis .kpi {
+  width: auto;
+  min-width: 0;
+}
+
 @media (min-width:901px) and (max-width:1400px) {
   .dashboard-kpis {
-    grid-template-columns: repeat(3, 1fr)
-  }
-
-  .dashboard-kpis .kpi {
-    width: auto
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

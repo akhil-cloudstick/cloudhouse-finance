@@ -1,5 +1,7 @@
 // Mirrors backend/internal/cash's CashMovement/Expense JSON shapes.
 export type CashMovement = {
+  // Bill attached to this entry (/uploads/... URL) — see the ledger's "View bill".
+  receiptImage?: string;
   id: number;
   type: "in" | "out";
   source: string;
@@ -34,7 +36,7 @@ export type Expense = {
   category: string;
   amount: number;
   mode: string;
-  payee: string;
+  payee?: string;
   branchId: number;
   branch?: { id: number; name: string };
   status: "Pending" | "Approved" | "Rejected";

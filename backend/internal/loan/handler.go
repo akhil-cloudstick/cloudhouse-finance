@@ -792,6 +792,17 @@ func (h *Handler) GetInterestCollected(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, gin.H{"interestCollected": total, "from": from.Format("2006-01-02"), "to": to.Format("2006-01-02")})
 }
 
+// NextNumber backs GET /loans/next-number — the number the next created loan
+// will receive, for New Loan's read-only "Loan No (auto)" field.
+func (h *Handler) NextNumber(c *gin.Context) {
+	maxSuffix, err := h.svc.repo.MaxLoanNumberSuffix(platform.RequestContext(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"loanNumber": fmt.Sprintf("LN-%05d", maxSuffix+1)})
+}
+
 // riskStatusAllowed reports whether status is one of the risk-eligible
 // statuses ListLoanRiskAssessment accepts — same set the page's own status
 // filter dropdown offers, so a mistyped/stale value fails clearly instead

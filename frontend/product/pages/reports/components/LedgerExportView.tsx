@@ -17,7 +17,7 @@ import { listActiveBranches, type BranchView } from "@/product/pages/branches/se
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
-import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/product/pages/cash/components/ledgerCells";
+import { particularsFor, loanNumberFor, refCellFor, modeCellFor, BillLink } from "@/product/pages/cash/components/ledgerCells";
 import { singleFlight } from "@/product/utils/singleFlight";
 
 // Mirrors backend/internal/cash/repository.go's Category* constants.
@@ -190,8 +190,8 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
                 <tr key={m.id}>
                   <td>{fmtDate(m.d)}</td>
                   {/* Same clickable cells as Cash.tsx's Ledger tab (ledgerCells.tsx). */}
-                  <td className="ledger-ref" title={m.bankName || loanNumberFor(m)}>{refCellFor(m)}</td>
-                  <td>{particularsFor(m, categoryIds)}</td>
+                  <td className="ledger-ref" title={m.bankName || loanNumberFor(m)}>{refCellFor(m, categoryIds)}</td>
+                  <td>{particularsFor(m, categoryIds)}<BillLink url={m.receiptImage} title={m.purpose || m.source || "Entry"} /></td>
                   <td>{modeCellFor(m.mode)}</td>
                   <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
                   <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>

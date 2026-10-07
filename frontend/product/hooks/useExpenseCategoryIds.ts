@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { searchExpenseCategoriesPage, EXPENSE_CATEGORIES_CHANGED } from "@/product/pages/cash/services/expenseCategoryService";
+import { searchCashSourcesPage } from "@/product/pages/cash/services/cashSourceService";
 
-/* Lower-cased category name -> id. Expense.category is free text server
+/* Lower-cased category name (expense categories and cash sources) -> id. Expense.category is free text server
  * side, so ledger rows only carry the name; this resolves it to the id the
  * category ledger route (/ledger-category/:id) needs. Loaded on mount and
  * again whenever a category is created. */
@@ -19,10 +20,14 @@ export function useExpenseCategoryIds(): Record<string, number> {
     let cancelled = false;
     (async () => {
       const next: Record<string, number> = {};
-      for (let page = 0; ; page++) {
-        const res = await searchExpenseCategoriesPage("", page);
-        for (const c of res.items) next[c.name.toLowerCase()] = c.id;
-        if (!res.hasMore || cancelled) break;
+      // Expense categories and cash sources are one table now, so an id from
+      // either list opens the same category ledger.
+      for (const search of [searchExpenseCategoriesPage, searchCashSourcesPage]) {
+        for (let page = 0; ; page++) {
+          const res = await search("", page);
+          for (const c of res.items) next[c.name.toLowerCase()] = c.id;
+          if (!res.hasMore || cancelled) break;
+        }
       }
       if (!cancelled) setMap(next);
     })().catch(() => {});

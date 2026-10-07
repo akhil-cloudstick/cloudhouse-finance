@@ -66,6 +66,13 @@ type CashMovement struct {
 	ToBankID  *uint      `json:"toBankId"`
 	ToBankRef *bank.Bank `json:"toBankRef,omitempty" gorm:"foreignKey:ToBankID"`
 
+	// CounterBankID is the other side of a self transfer — on the debit row the
+	// bank it went to, on the credit row the bank it came from — so the ledger
+	// can show "from → to" on either row. Display only: unlike ToBankID it never
+	// changes how bank balances are summed.
+	CounterBankID  *uint      `json:"counterBankId"`
+	CounterBankRef *bank.Bank `json:"counterBankRef,omitempty" gorm:"foreignKey:CounterBankID"`
+
 	// PartyCustomerID links this movement to the customer it was actually
 	// collected from/paid to, when the recorder call already has one in
 	// hand (a loan/personal-loan/investment payment always does — the
@@ -84,6 +91,10 @@ type CashMovement struct {
 	// SumAllByDate — this column exists purely to make the expense visible
 	// in the Cash Movements ledger table without double-counting it.
 	ExpenseID *uint `json:"expenseId"`
+
+	// ReceiptImage is the bill attached to a manual Add Cash / Self Transfer
+	// entry (an /uploads/... URL, see internal/upload) — same as Expense.ReceiptImage.
+	ReceiptImage string `json:"receiptImage,omitempty" gorm:"type:text"`
 
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -222,31 +233,49 @@ type GoldSale struct {
 	BankID  *uint      `json:"bankId"`
 	BankRef *bank.Bank `json:"bankRef,omitempty" gorm:"foreignKey:BankID"`
 
-	Remarks   string    `json:"remarks" gorm:"size:500"`
-	CreatedAt time.Time `json:"createdAt"`
+	Remarks string `json:"remarks" gorm:"size:500"`
+	// ReceiptImage is the bill attached to the sale (/uploads/... URL).
+	ReceiptImage string    `json:"receiptImage,omitempty" gorm:"type:text"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 func (GoldSale) TableName() string {
 	return "gold_sales"
 }
 
-// CashSource is a named source of cash for a manual "Add Cash" entry —
-// "Savings"/"Loan" ship as seeded defaults, and staff can add further
-// sources on the fly from AddCashModal.tsx's source picker (same
-// find-or-create pattern as bank.Bank). CashMovement.Source keeps storing
-// the resolved name as free text (no FK), so adding this lookup list
-// doesn't change how a movement itself is read/filtered.
+// Category types — which entry form a Category belongs to. A Category with
+// IsCommon set is offered on all three forms regardless of its Type.
+const (
+	CategoryCashIn       = "cash_in"       // Credit — "Add Cash" sources (Savings, Loan …)
+	CategoryExpense      = "expense"       // Debit — expense categories (Rent, Salaries …)
+	CategorySelfTransfer = "self_transfer" // Self Transfer — "Bank to Bank"
+)
+
+// Category is the single list behind the Ledger's Add Entry modal: cash-in
+// sources, expense categories and self-transfer categories are rows of this
+// one table, told apart by Type. Staff add new ones on the fly from each
+// form's picker (find-or-create by name, case-insensitive). When a name that
+// already exists under another Type is added, the existing row is flipped to
+// IsCommon instead of duplicating it — a common category shows up on every
+// form. A name is unique per tenant.
 //
-// A source whose name starts with "Loan" (see IsLoanSource) is one bank
-// loan: BankID/LoanNumber/PrincipalAmount are captured on its first Add Cash
-// entry and reused by every later one. PrincipalAmount != nil marks the
-// details as captured. The loan's balance starts at the principal, drops
-// with each Add Cash under it and climbs back with each approved expense in
-// the same-named ExpenseCategory (a repayment) — see loanBalance.
-type CashSource struct {
+// CashMovement.Source / Expense.Category keep storing the resolved name as
+// free text (no FK), so this list doesn't change how an entry is read.
+//
+// A cash-in category whose name starts with "Loan" (see IsLoanSource) is one
+// bank loan: BankID/LoanNumber/PrincipalAmount are captured on its first Add
+// Cash entry and reused by every later one (PrincipalAmount != nil marks the
+// details as captured). Loans are always common — drawn from on Credit,
+// repaid on Debit, and a Self Transfer category. The loan's balance starts at
+// the principal, drops with each Add Cash under it and climbs back with each
+// approved expense / self transfer in the same name — see loanBalance.
+type Category struct {
 	platform.TenantScoped
-	ID              uint       `json:"id" gorm:"primaryKey"`
-	Name            string     `json:"name" gorm:"index;not null;size:60"`
+	ID       uint   `json:"id" gorm:"primaryKey"`
+	Type     string `json:"type" gorm:"not null;size:20;index;default:cash_in"`
+	Name     string `json:"name" gorm:"index;not null;size:80"`
+	IsCommon bool   `json:"isCommon" gorm:"not null;default:false"`
+
 	BankID          *uint      `json:"bankId,omitempty"`
 	Bank            *bank.Bank `json:"bank,omitempty" gorm:"foreignKey:BankID"`
 	LoanNumber      string     `json:"loanNumber,omitempty" gorm:"size:60"`
@@ -258,31 +287,22 @@ type CashSource struct {
 	CreatedAt    time.Time  `json:"createdAt"`
 }
 
-// HasLoanDetails reports whether this loan source's bank/number/principal
+// HasLoanDetails reports whether this loan category's bank/number/principal
 // were already captured on an earlier Add Cash entry.
-func (s *CashSource) HasLoanDetails() bool {
+func (s *Category) HasLoanDetails() bool {
 	return s.PrincipalAmount != nil && s.BankID != nil
 }
 
-func (CashSource) TableName() string {
-	return "cash_sources"
+func (Category) TableName() string {
+	return "categories"
 }
 
-// ExpenseCategory is a named expense category — ships seeded with the
-// list ExpenseModal.tsx used to hardcode, and staff can add further
-// categories from the Category picker (same find-or-create pattern as
-// bank.Bank/CashSource). Expense.Category keeps storing the resolved name
-// as free text (no FK).
-type ExpenseCategory struct {
-	platform.TenantScoped
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	Name      string    `json:"name" gorm:"index;not null;size:80"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-func (ExpenseCategory) TableName() string {
-	return "expense_categories"
-}
+// CashSource / ExpenseCategory are the cash-in and expense views of Category —
+// the same row type, kept as names so the two pickers' code reads as before.
+type (
+	CashSource      = Category
+	ExpenseCategory = Category
+)
 
 // LoanCashSource captures the loan-specific details staff enter on
 // AddCashModal.tsx when Source is "Loan" — which bank the loan itself came

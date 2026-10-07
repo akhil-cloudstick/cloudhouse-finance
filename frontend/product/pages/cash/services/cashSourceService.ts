@@ -8,6 +8,10 @@ export type BackendCashSource = {
   id: number;
   name: string;
   createdAt: string;
+  // Which form the category belongs to; isCommon = shown on every form. A
+  // search can return one from another form — picking it makes it common.
+  type?: "cash_in" | "expense" | "self_transfer";
+  isCommon?: boolean;
   // A loan source's details, captured on its first Add Cash entry (see
   // isLoanSource) — principalAmount present means they're on file.
   bankId?: number;
@@ -54,4 +58,16 @@ export async function createCashSource(name: string): Promise<BackendCashSource>
     method: "POST",
     body: JSON.stringify({ name }),
   });
+}
+
+/* A loan's position (backend MovementService.loanBalance): principal, what
+ * has been drawn (Add Cash) and repaid (expenses / self transfers) so far. */
+export type LoanBalance = { principal: number; drawn: number; repaid: number; balance: number };
+
+/* GET /cash-sources/:id — the category with its current loan balance. The id is
+ * a category id (cash sources, expense categories and self-transfer categories
+ * are one table), so a loan picked on any form resolves here. */
+export async function getLoanBalance(id: number): Promise<LoanBalance | null> {
+  const res = await apiFetch<{ isLoan: boolean; balance: LoanBalance }>(`/cash-sources/${id}`);
+  return res.isLoan ? res.balance : null;
 }

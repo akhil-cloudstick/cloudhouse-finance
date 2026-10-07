@@ -5,7 +5,7 @@ import { fmt, fmtDate } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
-import { loanCatRef } from "@/product/pages/cash/components/ledgerCells";
+import { loanCatRef, BillLink } from "@/product/pages/cash/components/ledgerCells";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { getModeLedger, downloadLedger, PARTY_PAGE_SIZE, type LedgerMode, type LedgerRowView } from "@/product/pages/cash/services/cashService";
@@ -174,9 +174,9 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
 
       {/* Totals for this mode — every row matching the filters, not just the page. */}
       <div className="kpis" style={{ marginBottom: 16 }}>
-        <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totals.debit)}</div></div>
-        <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totals.credit)}</div></div>
         <div className="kpi"><div className="l">Net {mode}</div><div className="v">{fmt(totals.credit - totals.debit)}</div></div>
+        <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totals.credit)}</div></div>
+        <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totals.debit)}</div></div>
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
@@ -207,18 +207,9 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
               ) : items.length === 0 ? (
                 <tr><td colSpan={mode !== "Cash" ? 8 : 7} className="empty compact">No transactions found.</td></tr>
               ) : (() => {
-                // Running balance over the currently loaded (paginated) page
-                // only — same best-effort approach every other ledger table
-                // in the app uses (Cash.tsx's Ledger tab, BranchLedgerModal),
-                // not a true running balance across the whole filtered set.
-                const chronological = [...items].reverse();
-                let running = 0;
-                const withBalance = chronological.map((r) => {
-                  // Credit (money in) raises the balance, debit (money out) lowers it.
-                  running += r.debitOrCredit === "debit" ? -r.amount : r.amount;
-                  return { r, balance: running };
-                });
-                return withBalance.reverse().map(({ r, balance }) => {
+                // The balance comes from the server — a true running balance over the
+                // whole filtered ledger, so the newest row equals the Net above.
+                return items.map((r) => {
                   // A gold-loan reference ("LN-00047") gets a clickable link
                   // to that loan — #loan/:loanNumber resolves it directly.
                   // A personal-loan ("PL-00012") or investment ("INV-00003")
@@ -254,7 +245,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                       )}
                     </td>
                     <td>
-                      {r.description || r.type}
+                      {r.description || r.type}<BillLink url={r.receiptImage} title={r.description || r.type} />
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                         {r.customerId ? <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} /> : null}
                         <CategoryChip text={r.description} categoryIds={categoryIds} />
@@ -266,7 +257,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                     )}
                     <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                     <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                    <td className="num">{fmt(balance)}</td>
+                    <td className="num">{fmt(r.runningBalance)}</td>
                   </tr>
                   );
                 });

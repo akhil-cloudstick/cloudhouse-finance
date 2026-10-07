@@ -23,6 +23,7 @@ import {
   updateDraft,
   listDrafts,
   deleteDraft,
+  getNextLoanNumber,
   type BackendLoanDraft,
   type SaveDraftInput,
 } from "@/product/pages/loans/services/loanService";
@@ -142,7 +143,15 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
   // it's expected to be, from the real backend-backed loan list (`useLoans()`)
   // rather than the legacy localStorage-backed `db.loans`, which is always
   // empty now that loans live in the Go backend.
-  const provId = useMemo(() => "LN-" + String(loans.length + 1).padStart(5, "0"), [loans.length]);
+  // The real next number comes from the backend (highest ever issued + 1,
+  // hard-deleted loans included) — loans.length + 1 drifts as soon as any
+  // loan has been deleted. Refetched when the loan list changes.
+  const [provId, setProvId] = useState("LN-" + String(loans.length + 1).padStart(5, "0"));
+  useEffect(() => {
+    let live = true;
+    getNextLoanNumber().then((n) => { if (live) setProvId(n); }).catch(() => {});
+    return () => { live = false; };
+  }, [loans.length]);
 
   // Lockers are backend-managed (see lockerApi.ts / LockerModal.tsx). Picking
   // one here checks the loan's auto-created packet straight into it at

@@ -26,7 +26,6 @@ var (
 	ErrInvalidStatus    = httpx.NewBadRequest("status must be \"Open\" or \"Closed\"")
 	ErrCategoryRequired = httpx.NewBadRequest("category is required")
 	ErrModeRequired     = httpx.NewBadRequest("mode is required")
-	ErrPayeeRequired    = httpx.NewBadRequest("payee is required")
 	ErrBranchRequired   = httpx.NewBadRequest("branch is required")
 	ErrBranchInvalid    = httpx.NewBadRequest("branch does not exist")
 	// ErrExpenseNotPending is a state conflict (the expense was already
@@ -84,10 +83,11 @@ type RecordMovementInput struct {
 	BankID *uint // real FK behind Bank — "From Bank" for a UPI/Bank Transfer-mode movement
 	// ToBankID is the destination account for a bank-to-bank transfer — see
 	// CashMovement.ToBankID's doc comment.
-	ToBankID   *uint
-	Amount     float64
-	BranchID   *uint // optional — not every cash movement is tied to a till yet
-	OccurredOn time.Time
+	ToBankID     *uint
+	Amount       float64
+	ReceiptImage string // optional bill
+	BranchID     *uint  // optional — not every cash movement is tied to a till yet
+	OccurredOn   time.Time
 }
 
 // RecordExpenseInput mirrors the fields supplied by ExpenseModal.tsx.
@@ -231,13 +231,14 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 	}
 
 	rec := &CashMovement{
-		Type:     in.Type,
-		Amount:   in.Amount,
-		Mode:     in.Mode,
-		Bank:     in.Bank,
-		BankID:   in.BankID,
-		ToBankID: in.ToBankID,
-		BranchID: in.BranchID,
+		Type:         in.Type,
+		Amount:       in.Amount,
+		Mode:         in.Mode,
+		Bank:         in.Bank,
+		BankID:       in.BankID,
+		ToBankID:     in.ToBankID,
+		BranchID:     in.BranchID,
+		ReceiptImage: in.ReceiptImage,
 	}
 	if in.OccurredOn.IsZero() {
 		rec.OccurredOn = time.Now()
@@ -341,6 +342,131 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 	}
 
 	return s.repo.FindByID(ctx, rec.ID)
+}
+
+// SelfTransferSource is the Source stamped on both rows of a self transfer.
+// Reports/KPIs skip it (the two rows net to zero) and the loan ledger reads
+// it back as a repayment when the category is a loan.
+const SelfTransferSource = "Self Transfer"
+
+// SelfTransferPurposePrefix starts the Purpose of both self-transfer rows —
+// "Self transfer — <category>".
+const SelfTransferPurposePrefix = "Self transfer — "
+
+var (
+	ErrSelfTransferBanks      = httpx.NewBadRequest("from bank and to bank are required")
+	ErrSelfTransferSameBank   = httpx.NewBadRequest("from bank and to bank must be different")
+	ErrSelfTransferCategory   = httpx.NewBadRequest("category is required")
+	ErrSelfTransferLoanNoBank = httpx.NewBadRequest("this loan has no bank recorded yet — add cash from it first")
+)
+
+// RecordSelfTransferInput mirrors the Self Transfer tab of the Ledger's Add
+// Entry modal.
+type RecordSelfTransferInput struct {
+	Category   string
+	Amount     float64
+	FromBankID uint
+	FromBank   string
+	ToBankID   uint
+	ToBank     string
+	// Mode is shown on both rows — "Bank Transfer" (default), "UPI" or "Cash".
+	Mode         string
+	ReceiptImage string
+	BranchID     *uint
+	OccurredOn   time.Time
+}
+
+// RecordSelfTransfer moves money between two of the business's own bank
+// accounts as TWO linked rows sharing one TransactionGroupID: a debit
+// (cash-out) on the from-bank and a credit (cash-in) on the to-bank. When
+// the category is a loan source, the to-bank is forced to the loan's bank
+// and the transfer is a repayment — it is checked against the loan's
+// balance and shows as a debit on the loan's own ledger.
+func (s *MovementService) RecordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]CashMovement, error) {
+	category := strings.TrimSpace(in.Category)
+	if category == "" {
+		return nil, ErrSelfTransferCategory
+	}
+	if in.Amount <= 0 {
+		return nil, ErrInvalidAmount
+	}
+	if in.BranchID != nil {
+		ok, err := s.branchRepo.Exists(ctx, *in.BranchID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, ErrBranchInvalid
+		}
+	}
+
+	toBankID, toBank := in.ToBankID, in.ToBank
+	if IsLoanSource(category) {
+		src, err := s.resolveLoanSource(ctx, category)
+		if err != nil {
+			return nil, err
+		}
+		if !src.HasLoanDetails() {
+			return nil, ErrSelfTransferLoanNoBank
+		}
+		toBankID = *src.BankID
+		if src.Bank != nil {
+			toBank = src.Bank.Name
+		}
+		category = src.Name
+		if err := s.EnsureLoanRepayment(ctx, category, in.Amount, false); err != nil {
+			return nil, err
+		}
+	}
+	if in.FromBankID == 0 || toBankID == 0 {
+		return nil, ErrSelfTransferBanks
+	}
+	if in.FromBankID == toBankID {
+		return nil, ErrSelfTransferSameBank
+	}
+
+	mode := in.Mode
+	switch mode {
+	case "":
+		mode = CashModeBankTransfer
+	case CashModeBankTransfer, CashModeUPI, CashModeCash:
+	default:
+		return nil, httpx.NewBadRequest("mode must be Bank Transfer, UPI or Cash")
+	}
+	occurred := in.OccurredOn
+	if occurred.IsZero() {
+		occurred = time.Now()
+	}
+	groupID := platform.NewTransactionGroupID()
+	purpose := SelfTransferPurposePrefix + category
+	fromID, toID := in.FromBankID, toBankID
+
+	debit := &CashMovement{
+		Type: "out", Source: SelfTransferSource, Purpose: purpose, Mode: mode, ReceiptImage: in.ReceiptImage,
+		Bank: in.FromBank, BankID: &fromID, CounterBankID: &toID, Amount: in.Amount, BranchID: in.BranchID,
+		OccurredOn: occurred, TransactionGroupID: groupID,
+	}
+	credit := &CashMovement{
+		Type: "in", Source: SelfTransferSource, Purpose: purpose, Mode: mode, ReceiptImage: in.ReceiptImage,
+		Bank: toBank, BankID: &toID, CounterBankID: &fromID, Amount: in.Amount, BranchID: in.BranchID,
+		OccurredOn: occurred, TransactionGroupID: groupID,
+	}
+	if err := s.repo.Create(ctx, debit); err != nil {
+		return nil, err
+	}
+	if err := s.repo.Create(ctx, credit); err != nil {
+		_ = s.repo.Delete(ctx, debit.ID) // keep the pair atomic
+		return nil, err
+	}
+	d, err := s.repo.FindByID(ctx, debit.ID)
+	if err != nil {
+		return nil, err
+	}
+	c, err := s.repo.FindByID(ctx, credit.ID)
+	if err != nil {
+		return nil, err
+	}
+	return []CashMovement{*d, *c}, nil
 }
 
 // resolveLoanSource find-or-creates the CashSource row a loan entry draws
@@ -760,7 +886,7 @@ func (s *MovementService) RecordBankPledgeCashOut(ctx context.Context, loanID ui
 // skip rows with ExpenseID set) — the expense is already counted there via
 // ExpenseRepository.SumCashByDate/SumAllByDate, so including this row too
 // would double the deduction.
-func (s *MovementService) RecordExpenseCashOut(ctx context.Context, expenseID uint, category, mode string, fromBankID, toBankID *uint, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+func (s *MovementService) RecordExpenseCashOut(ctx context.Context, expenseID uint, category, mode string, fromBankID, toBankID *uint, amount float64, branchID uint, occurredOn time.Time, receiptImage string) (uint, error) {
 	rec := &CashMovement{
 		Type:      "out",
 		Purpose:   "Expense — " + category,
@@ -770,6 +896,8 @@ func (s *MovementService) RecordExpenseCashOut(ctx context.Context, expenseID ui
 		Amount:    amount,
 		BranchID:  &branchID,
 		ExpenseID: &expenseID,
+		// The expense's bill, so the ledger row can link to it.
+		ReceiptImage: receiptImage,
 	}
 	if occurredOn.IsZero() {
 		rec.OccurredOn = time.Now()
@@ -1021,6 +1149,19 @@ func (s *MovementService) DeleteLoanDisbursementCashMovements(ctx context.Contex
 	})
 }
 
+// DeleteAllLoanCashEntries erases every ledger entry a loan ever produced —
+// disbursement, top-up, repayments, service charge, auction proceeds/refund
+// (all carry " — <loanNumber>" in Purpose) plus the explicitly listed
+// bank-pledge movements and release expenses. Called by
+// loan.Service.HardDeleteLoan so a permanently deleted loan leaves no trace
+// in Cash & Expenses.
+func (s *MovementService) DeleteAllLoanCashEntries(ctx context.Context, loanNumber string, movementIDs, expenseIDs []uint) error {
+	if err := s.repo.DeleteByPurposeSuffixOrIDs(ctx, " — "+loanNumber, movementIDs); err != nil {
+		return err
+	}
+	return s.expenseRepo.DeleteByIDs(ctx, expenseIDs)
+}
+
 // SetLoanStatus updates the Open/Closed status of a loan-sourced cash-in
 // movement, mirroring legacy's setCashLoanStatus/toggleCashLoan. branchID
 // (nil for Administrator) must match the movement's branch or
@@ -1176,9 +1317,6 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 	if in.Mode == "" {
 		return nil, ErrModeRequired
 	}
-	if in.Payee == "" {
-		return nil, ErrPayeeRequired
-	}
 	if in.BranchID == 0 {
 		return nil, ErrBranchRequired
 	}
@@ -1252,7 +1390,7 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
-	movementID, err := s.movementSvc.RecordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, rec.ToBankID, rec.Amount, rec.BranchID, rec.OccurredOn)
+	movementID, err := s.movementSvc.RecordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, rec.ToBankID, rec.Amount, rec.BranchID, rec.OccurredOn, rec.ReceiptImage)
 	if err != nil {
 		return nil, err
 	}
@@ -1315,7 +1453,7 @@ func (s *ExpenseService) Approve(ctx context.Context, id uint, approvedBy string
 	}
 	rec.ApprovedAt = &now
 
-	movementID, err := s.movementSvc.RecordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, rec.ToBankID, rec.Amount, rec.BranchID, rec.OccurredOn)
+	movementID, err := s.movementSvc.RecordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, rec.ToBankID, rec.Amount, rec.BranchID, rec.OccurredOn, rec.ReceiptImage)
 	if err != nil {
 		return nil, err
 	}
@@ -1732,6 +1870,8 @@ type RecordGoldSaleInput struct {
 	// ErrBankRequiredForMode).
 	BankID  *uint
 	Remarks string
+	// ReceiptImage is an optional bill (/uploads/... URL).
+	ReceiptImage string
 }
 
 var (
@@ -1817,6 +1957,7 @@ func (s *GoldSaleService) Create(ctx context.Context, in RecordGoldSaleInput) (*
 		CashMovementID:     &movementID,
 		CostCashMovementID: costMovementID,
 		Remarks:            in.Remarks,
+		ReceiptImage:       in.ReceiptImage,
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
 		// Don't leave the movements booked above behind for a sale that was
@@ -1864,6 +2005,11 @@ func NewCashSourceService(repo *CashSourceRepository) *CashSourceService {
 }
 
 func (s *CashSourceService) List(ctx context.Context, query string, limit, offset int) ([]CashSource, int64, error) {
+	if offset == 0 {
+		if err := ensureBuiltInCategories(ctx, s.repo.CategoryRepository); err != nil {
+			return nil, 0, err
+		}
+	}
 	return s.repo.FindAll(ctx, query, limit, offset)
 }
 
@@ -1881,18 +2027,95 @@ func (s *CashSourceService) FindOrCreate(ctx context.Context, name string) (*Cas
 	if strings.ToLower(strings.ReplaceAll(trimmed, " ", "")) == "goldsale" {
 		return nil, false, ErrCashSourceReserved
 	}
-	existing, err := s.repo.FindByName(ctx, trimmed)
+	return findOrCreateCategory(ctx, s.repo.CategoryRepository, trimmed, CategoryCashIn)
+}
+
+// findOrCreateCategory is the one find-or-create rule behind every category
+// picker: a name is unique per tenant (case-insensitive). If it already
+// exists under another form's type, that row is flipped to common — shown on
+// every form — instead of creating a duplicate; if it is new, it is created
+// under typ. The bool reports whether a new row was created.
+func findOrCreateCategory(ctx context.Context, repo *CategoryRepository, name, typ string) (*Category, bool, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil, false, ErrCashSourceNameRequired
+	}
+	existing, err := repo.FindByName(ctx, trimmed)
 	if err == nil {
+		if existing.Type != typ && !existing.IsCommon {
+			if err := repo.MarkCommon(ctx, existing); err != nil {
+				return nil, false, err
+			}
+		}
 		return existing, false, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, false, err
 	}
-	rec := &CashSource{Name: trimmed}
-	if err := s.repo.Create(ctx, rec); err != nil {
+	rec := &Category{Type: typ, Name: trimmed}
+	if err := repo.Create(ctx, rec); err != nil {
 		return nil, false, err
 	}
 	return rec, true, nil
+}
+
+// ensureBuiltInCategories makes sure the built-in "Gold Sale" cash-in category
+// exists as a real row, so a search on the Debit or Self Transfer forms finds
+// it too (choosing it there makes it common, like any other category). It is
+// still never created through the picker — see ErrCashSourceReserved.
+func ensureBuiltInCategories(ctx context.Context, repo *CategoryRepository) error {
+	_, _, err := findOrCreateCategory(ctx, repo, GoldSaleCategory, CategoryCashIn)
+	return err
+}
+
+// GoldSaleCategory is the built-in cash-in source that posts to /gold-sales.
+const GoldSaleCategory = "Gold Sale"
+
+// CategoryService backs the unified /categories endpoint (all three types) —
+// used by the Self Transfer form's picker.
+type CategoryService struct {
+	repo *CategoryRepository
+}
+
+func NewCategoryService(repo *CategoryRepository) *CategoryService {
+	return &CategoryService{repo: repo}
+}
+
+func validCategoryType(typ string) bool {
+	return typ == CategoryCashIn || typ == CategoryExpense || typ == CategorySelfTransfer
+}
+
+// BankToBankCategory is the default Self Transfer category.
+const BankToBankCategory = "Bank to Bank"
+
+var ErrCategoryTypeInvalid = httpx.NewBadRequest("type must be cash_in, expense or self_transfer")
+
+func (s *CategoryService) List(ctx context.Context, typ, query string, limit, offset int) ([]Category, int64, error) {
+	if !validCategoryType(typ) {
+		return nil, 0, ErrCategoryTypeInvalid
+	}
+	if offset == 0 {
+		if err := ensureBuiltInCategories(ctx, s.repo); err != nil {
+			return nil, 0, err
+		}
+	}
+	// Self Transfer always has its plain bank-to-bank category to pick.
+	if typ == CategorySelfTransfer && offset == 0 {
+		if _, _, err := findOrCreateCategory(ctx, s.repo, BankToBankCategory, CategorySelfTransfer); err != nil {
+			return nil, 0, err
+		}
+	}
+	return s.repo.FindAll(ctx, typ, query, limit, offset)
+}
+
+func (s *CategoryService) FindOrCreate(ctx context.Context, name, typ string) (*Category, bool, error) {
+	if !validCategoryType(typ) {
+		return nil, false, ErrCategoryTypeInvalid
+	}
+	if typ == CategoryCashIn && strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), " ", "")) == "goldsale" {
+		return nil, false, ErrCashSourceReserved
+	}
+	return findOrCreateCategory(ctx, s.repo, name, typ)
 }
 
 // ExpenseCategoryService implements ExpenseCategory's find-or-create
@@ -1909,6 +2132,9 @@ func (s *ExpenseCategoryService) List(ctx context.Context, query string, limit, 
 	// Every bank loan's repayment category must be pickable — create any
 	// that a loan opened earlier never got.
 	if offset == 0 {
+		if err := ensureBuiltInCategories(ctx, s.repo.CategoryRepository); err != nil {
+			return nil, 0, err
+		}
 		missing, err := s.repo.MissingLoanCategoryNames(ctx)
 		if err != nil {
 			return nil, 0, err
@@ -1929,22 +2155,7 @@ func (s *ExpenseCategoryService) FindByID(ctx context.Context, id uint) (*Expens
 }
 
 func (s *ExpenseCategoryService) FindOrCreate(ctx context.Context, name string) (*ExpenseCategory, bool, error) {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
-		return nil, false, ErrCashSourceNameRequired
-	}
-	existing, err := s.repo.FindByName(ctx, trimmed)
-	if err == nil {
-		return existing, false, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, false, err
-	}
-	rec := &ExpenseCategory{Name: trimmed}
-	if err := s.repo.Create(ctx, rec); err != nil {
-		return nil, false, err
-	}
-	return rec, true, nil
+	return findOrCreateCategory(ctx, s.repo.CategoryRepository, name, CategoryExpense)
 }
 
 // defaultCashSources/defaultExpenseCategories are what AddCashModal.tsx's

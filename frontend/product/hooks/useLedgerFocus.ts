@@ -98,6 +98,14 @@ if (typeof window !== "undefined") {
   const leave = (e?: Event) => {
     if (!e || e.type === "popstate" || (e.target as Element | null)?.closest?.("a[href]")) reloadActive = false;
   };
+  // Visiting a page from the sidebar starts every ledger clean — the page/row a
+  // ledger remembers only survives drilling in and out of ledger links.
+  document.addEventListener("click", (e) => {
+    if ((e.target as Element | null)?.closest?.("#side a[href]")) {
+      sessionStorage.removeItem(ORIGINS_KEY);
+      sessionStorage.removeItem(ARRIVAL_KEY);
+    }
+  }, true);
   document.addEventListener("click", leave, true);
   window.addEventListener("popstate", leave);
   // Capture phase: LedgerRefLink stops its click from bubbling, so a bubbling
@@ -171,6 +179,7 @@ export function ledgerFocusTarget(scope: string): { key: string } | { date: stri
 export function useLedgerFocus(scope: string, ready: boolean, deps: unknown[] = []) {
   useEffect(() => {
     if (!ready || typeof window === "undefined") return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const frame = requestAnimationFrame(() => {
       const table = document.querySelector(`[data-ledger-scope="${scope}"]`);
       if (!table) return;
@@ -193,8 +202,11 @@ export function useLedgerFocus(scope: string, ready: boolean, deps: unknown[] = 
       if (!row) return;
       row.classList.add(FOCUS_CLASS);
       row.scrollIntoView({ block: "center", behavior: "smooth" });
+      // The highlight fades after 10 seconds.
+      const target = row;
+      timer = setTimeout(() => target.classList.remove(FOCUS_CLASS), 10000);
     });
-    return () => cancelAnimationFrame(frame);
+    return () => { cancelAnimationFrame(frame); if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, ready, ...deps]);
 }

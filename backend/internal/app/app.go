@@ -255,6 +255,8 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	cashSourceSvc := cash.NewCashSourceService(cashSourceRepo)
 	cashSourceHandler := cash.NewCashSourceHandler(cashSourceSvc, movementSvc)
 
+	categoryRepo := cash.NewCategoryRepository(pinned)
+	categoryHandler := cash.NewCategoryHandler(cash.NewCategoryService(categoryRepo))
 	expenseCategoryRepo := cash.NewExpenseCategoryRepository(pinned)
 	// Loan sources keep their bank/number/principal on the cash-source row
 	// and take repayments through a same-named expense category.
@@ -535,6 +537,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	cash.RegisterCashRoutes(protected.Group("/cash"), openingBalanceHandler, summaryHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterGoldSaleRoutes(protected.Group("/gold-sales"), goldSaleHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterCashSourceRoutes(protected.Group("/cash-sources"), cashSourceHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	cash.RegisterCategoryRoutes(protected.Group("/categories"), categoryHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterExpenseCategoryRoutes(protected.Group("/expense-categories"), expenseCategoryHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	// Category ledger drill-down — same "cash" read permission as every
 	// other ledger drill-down (bank/customer/loan) this reuses.

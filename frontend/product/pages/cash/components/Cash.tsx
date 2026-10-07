@@ -6,8 +6,8 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { fmt, fmtDate } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
-import { AddCashModalContent } from "@/product/components/modals/AddCashModal";
-import { ExpenseModalContent, ReceiptViewModalContent } from "@/product/components/modals/ExpenseModal";
+import { AddEntryModalContent } from "@/product/components/modals/AddEntryModal";
+import { ReceiptViewModalContent } from "@/product/components/modals/ExpenseModal";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { listCustomersPage } from "@/product/pages/customers/services/customerService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
@@ -15,7 +15,7 @@ import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { rememberedLedgerPage, reloadedLedgerPosition, saveLedgerPosition, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
-import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/product/pages/cash/components/ledgerCells";
+import { particularsFor, loanNumberFor, refCellFor, modeCellFor, BillLink } from "@/product/pages/cash/components/ledgerCells";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
   approveExpense, rejectExpense,
@@ -80,8 +80,8 @@ function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance
   return (
     <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
       <td data-label="Date">{fmtDate(m.d)}</td>
-      <td className="ledger-ref" data-label="Ref No" title={m.bankName || loanNumberFor(m)}>{refCellFor(m)}</td>
-      <td data-label="Particulars">{particularsFor(m, categoryIds)}</td>
+      <td className="ledger-ref" data-label="Ref No" title={m.bankName || loanNumberFor(m)}>{refCellFor(m, categoryIds)}</td>
+      <td data-label="Particulars">{particularsFor(m, categoryIds)}<BillLink url={m.receiptImage} title={m.purpose || m.source || "Entry"} /></td>
       <td data-label="Mode">{modeCellFor(m.mode)}</td>
       <td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
       <td className="num" data-label="Credit" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
@@ -105,7 +105,6 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, 
       </td>
       <td className="num" data-label="Amount">{fmt(e.amt)}</td>
       <td data-label="Mode">{e.mode}</td>
-      <td data-label="Description / Payee">{e.payee}</td>
       <td data-label="Branch">{e.branch}</td>
       <td data-label="Status">
         <StatusChip status={e.status} />
@@ -411,8 +410,7 @@ export function Cash() {
          * Cash beside the title). */}
         {canCreateCash && (
           <div className="page-h-actions">
-            <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} defaultBranchId={branchId || undefined} />)}><Icon name="coin" /> Add Cash</button>
-            <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
+            <button className="btn" onClick={() => openModal(<AddEntryModalContent onSaved={refresh} defaultBranchId={branchId || undefined} />)}><Icon name="plus" /> Add Entry</button>
           </div>
         )}
       </div>
@@ -456,7 +454,6 @@ export function Cash() {
           <Kpi
             l="Balance in Hand"
             v={fmt((summary?.cashInHand || 0) + (summary?.bankBalance || 0))}
-            s="live"
             cls="ok"
             keepZero
             parts={[
@@ -554,7 +551,7 @@ export function Cash() {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-expenses" data-ledger-page={expensesPage}>
-              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
+              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
               <tbody>
                 {expenses.length
                   ? expenses.map((e) => (
@@ -570,7 +567,7 @@ export function Cash() {
                       onReject={() => onRejectExpense(e)}
                     />
                   ))
-                  : <tr><td colSpan={8} className="empty">No expenses recorded yet.</td></tr>}
+                  : <tr><td colSpan={7} className="empty">No expenses recorded yet.</td></tr>}
               </tbody>
             </table>
           </div>

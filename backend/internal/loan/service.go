@@ -130,6 +130,12 @@ type CashRecorder interface {
 	// resubmitted for approval, since it will be disbursed again at the new
 	// amount once re-sanctioned and the stale entry must not stay behind.
 	DeleteLoanDisbursementCashMovements(ctx context.Context, loanNumber string) error
+
+	// DeleteAllLoanCashEntries wipes every cash movement/expense tied to a
+	// loan — called from HardDeleteLoan so a permanently deleted loan leaves
+	// nothing behind in the ledger. movementIDs/expenseIDs are the bank-pledge
+	// rows, which carry no loan number in their Purpose.
+	DeleteAllLoanCashEntries(ctx context.Context, loanNumber string, movementIDs, expenseIDs []uint) error
 }
 
 var (
@@ -1610,9 +1616,39 @@ func (s *Service) LoansForCustomer(ctx context.Context, customerID uint) ([]cust
 }
 
 func (s *Service) HardDeleteLoan(ctx context.Context, loanID uint) error {
-	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
+	loan, err := s.repo.FindByID(ctx, loanID)
+	if err != nil {
 		return ErrNotFound
 	}
+	// Bank-pledge cash rows carry no loan number in their Purpose, so their
+	// IDs are read off the pledge records before those are deleted below.
+	var pledges []BankPledgeRecord
+	if err := s.db.WithContext(ctx).Where("loan_id = ?", loanID).Find(&pledges).Error; err != nil {
+		return err
+	}
+	var movementIDs, expenseIDs []uint
+	for _, p := range pledges {
+		for _, id := range []*uint{p.CashMovementID, p.ReleaseCashMovementID} {
+			if id != nil {
+				movementIDs = append(movementIDs, *id)
+			}
+		}
+		for _, id := range []*uint{p.ExpenseID, p.ReleaseExpenseID} {
+			if id != nil {
+				expenseIDs = append(expenseIDs, *id)
+			}
+		}
+	}
+	if err := s.hardDeleteLoanRows(ctx, loanID); err != nil {
+		return err
+	}
+	if s.cashRecorder == nil {
+		return nil
+	}
+	return s.cashRecorder.DeleteAllLoanCashEntries(ctx, loan.LoanNumber, movementIDs, expenseIDs)
+}
+
+func (s *Service) hardDeleteLoanRows(ctx context.Context, loanID uint) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// AuctionRecord has THREE child tables (Notices/Events/
 		// DecisionRequests all FK-reference it) — every one has to go

@@ -17,14 +17,14 @@ import { RegisterCustomerModalContent } from "@/product/components/modals/Regist
 import { PurityPicker } from "@/product/components/ui/PurityPicker";
 import { Select } from "@/product/components/ui/Select";
 import { rateForPurityString } from "@/product/utils/purity";
-import { listCashMovements, listExpenses, type CashMovementView, type ExpenseView } from "@/product/pages/cash/services/cashService";
+import { listCashMovements, listExpenses, getCashSummary, type CashMovementView, type ExpenseView, type CashSummary } from "@/product/pages/cash/services/cashService";
 import { getCalendarEventsPage, type CalendarEvent } from "@/product/pages/reminders/services/reminderService";
 import { listLoanRequests, getInterestCollected, type RequestView } from "@/product/pages/loans/services/loanService";
 import { getNeedsAttentionPage, type NeedsAttentionItem } from "@/product/pages/dashboard/services/dashboardService";
 import { routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
-function Kpi({ l, v, s, cls, href }: { l: string; v: string | number; s?: string; cls?: string; href?: string }) {
+function Kpi({ l, v, s, cls, href }: { l: string; v: string | number; s?: React.ReactNode; cls?: string; href?: string }) {
   const body = (
     <>
       <div className="l">{l}</div>
@@ -121,8 +121,10 @@ export function Dashboard() {
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
   const [pendingReq, setPendingReq] = useState<RequestView[]>([]);
   const [interestCollected, setInterestCollected] = useState(0);
+  const [cashSummary, setCashSummary] = useState<CashSummary | null>(null);
   useEffect(() => {
     if (canViewCash) {
+      getCashSummary().then(setCashSummary).catch(() => setCashSummary(null));
       listCashMovements().then(setCashMovements).catch(() => setCashMovements([]));
       listExpenses().then(setExpenses).catch(() => setExpenses([]));
     }
@@ -273,7 +275,21 @@ export function Dashboard() {
            * instead ("Total Amount"'s longer value rendering visibly
            * wider than "Loans"' short one). */}
           <div className="kpis dashboard-kpis">
-            <Kpi l="Cash in Hand" v={fmt(cashInHand)} cls="ok" href={link("ledger")} />
+            {/* Cash and Bank on two subline rows; the shared .kpi height was
+              * raised (app.css) so every tile fits them. nowrap + ellipsis guards
+              * a long amount from spilling past the 213px tile. */}
+            <Kpi
+              l="Cash in Hand"
+              v={fmt(cashSummary ? cashSummary.cashInHand + cashSummary.bankBalance : cashInHand)}
+              s={cashSummary ? (
+                <>
+                  <span style={{ display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Cash {fmt(cashSummary.cashInHand)}</span>
+                  <span style={{ display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Bank {fmt(cashSummary.bankBalance)}</span>
+                </>
+              ) : undefined}
+              cls="ok"
+              href={link("ledger")}
+            />
             <Kpi l="Loans Opened Today" v={openedToday} href={link("loans")} />
             <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} href={link("loans/Active")} />
             <Kpi l="Due Soon" v={dueSoon.length} s="within 14 days" cls={dueSoon.length ? "warn" : ""} href={link(`loans/${encodeURIComponent("Due Soon")}`)} />
