@@ -150,7 +150,8 @@ function toView(c: BackendCustomer): CustomerView {
     code: c.code,
     name: c.name,
     phone: c.phone,
-    dob: c.dob ? c.dob.slice(0, 10) : "",
+    // "0001-01-01" is Go's zero time (DOB never entered) — treat as unset.
+    dob: c.dob && !c.dob.startsWith("0001-") ? c.dob.slice(0, 10) : "",
     address: c.address,
     branchId: c.branchId,
     branchName: c.branch?.name || "—",

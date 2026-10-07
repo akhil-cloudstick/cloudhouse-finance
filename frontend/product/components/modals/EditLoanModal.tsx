@@ -10,11 +10,13 @@ import { fmt } from "@/product/utils/format";
 import { rateForPurityFull } from "@/product/utils/purity";
 import { useGoldRates } from "@/product/pages/gold-rates/store/GoldRatesProvider";
 import { searchActiveSchemesPage, type SchemeView } from "@/product/pages/schemes/services/schemeService";
+import { searchOrnamentTypesPage, createOrnamentType, type BackendOrnamentType } from "@/product/pages/ornament-types/services/ornamentTypeService";
 import {
   updateLoan, addOrnament, updateOrnament, deleteOrnament,
   type LoanView, type OrnamentView,
 } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean };
 
@@ -76,9 +78,17 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
   // scheme or principal differing from what's on file is what triggers
   // re-approval there, so the warning here fires on exactly the same
   // condition rather than a looser "any field touched" guess.
+  // The principal can never be typed above the eligible amount — anything
+  // higher is pulled back to the cap (floored to a whole rupee so it stays
+  // under it) instead of waiting for Save to refuse it.
+  const capToEligible = (value: string) => {
+    const n = +value;
+    return eligibleLoanAmount > 0 && n > eligibleLoanAmount ? String(Math.floor(eligibleLoanAmount)) : value;
+  };
+
   const triggersReapproval = schemeId !== loan.schemeId || (+principal > 0 && +principal !== loan.principal);
 
-  async function save() {
+  async function save() { return singleFlight("modal:editloan:save", async () => {
     if (!(+principal > 0)) { setErr("Please enter a valid principal amount."); return; }
     if (!activeRows.length) { setErr("A loan must have at least one ornament."); return; }
     if (activeRows.some((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0))) {
@@ -133,12 +143,12 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>
       <div className="hd"><h3>Edit Loan — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2">
           <div><label className="f">Scheme</label>
             <SearchableSelect<SchemeView>
@@ -151,7 +161,7 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
               placeholder="Search active schemes…"
             /></div>
           <div><label className="f">Principal Amount (₹)</label>
-            <input className="inp" type="number" min={1} max={eligibleLoanAmount} value={principal} onChange={(e) => setPrincipal(e.target.value)} />
+            <input className="inp" type="number" min={1} max={eligibleLoanAmount} value={principal} onChange={(e) => setPrincipal(capToEligible(e.target.value))} />
             <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
               Max {fmt(eligibleLoanAmount)} (based on scheme LTV)
             </p>
@@ -180,27 +190,28 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
         )}
 
         <label className="f" style={{ marginTop: 10, display: "block" }}>Ornaments</label>
-        {/* Ornament list scrolls on its own (a loan can carry many
-            ornaments, and the fixed fields above — scheme/principal/
-            eligible amount — shouldn't have to scroll away with them) —
-            scoped locally via inline style rather than a new global class,
-            same approach as the Gross/Net/Qty row fix above. "Add
-            Ornament" is the last child inside this same scrolling box with
-            position:sticky so it stays reachable at the bottom of the
-            visible list without needing to scroll all the way down first. */}
-        <div className="edit-loan-orn-scroll" style={{ maxHeight: 220, overflowY: "auto", paddingRight: 2 }}>
+        <div className="edit-loan-orn-scroll">
           {rows.map((r, i) => r.removed ? null : (
             <div key={i} className="eln-card" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
               {/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —
                   these rows need the modifier or every field stacks onto its
                   own line instead of sitting side by side. */}
               <div className="frow c2">
-                <div><label className="f">Name</label>
-                  {/* PurityPicker beside it is pinned to a fixed 31px row
-                      (`.pur-row`, shared with NewLoan.tsx/Dashboard.tsx) —
-                      matched here rather than the other way around, since
-                      that height is a reused convention across the app. */}
-                  <input className="inp" style={{ height: 31, padding: "6px 8px" }} value={r.name} onChange={(e) => updRow(i, { name: e.target.value })} /></div>
+                <div className="orn-type-td"><label className="f">Name</label>
+                  {/* Same ornament-type catalog picker NewLoan.tsx uses; the
+                      `orn-type-td` wrapper pins it to the 31px row height the
+                      PurityPicker beside it (`.pur-row`) already uses. */}
+                  <SearchableSelect<BackendOrnamentType>
+                    value={r.name}
+                    onChange={(_id, item) => updRow(i, { name: item.name })}
+                    fetchFn={searchOrnamentTypesPage}
+                    searchHint="Searches: ornament type name"
+                    getLabel={(t) => t.name}
+                    getId={(t) => String(t.id)}
+                    placeholder="Ornament type…"
+                    allowCreate
+                    onCreate={createOrnamentType}
+                  /></div>
                 <div><label className="f">Purity</label>
                   <PurityPicker value={r.purity} onChange={(v) => updRow(i, { purity: v })} /></div>
               </div>
@@ -223,9 +234,9 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
               </div>
             </div>
           ))}
-          <div style={{ position: "sticky", bottom: 0, background: "var(--card)", padding: "6px 0" }}>
-            <button className="btn plain sm" onClick={addRow}><Icon name="plus" /> Add Ornament</button>
-          </div>
+        </div>
+        <div style={{ padding: "6px 0" }}>
+          <button className="btn plain sm" onClick={addRow}><Icon name="plus" /> Add Ornament</button>
         </div>
 
         <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>

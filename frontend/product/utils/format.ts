@@ -50,7 +50,8 @@ export function statusChipColor(status: string): string {
 // "—" when empty or unparseable.
 export const fmtDate = (v?: string | null) => {
   const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
-  return m ? `${m[3]}-${m[2]}-${m[1]}` : "—";
+  // Year 0001 is Go's zero time.Time — the backend's "never set" — not a date.
+  return m && m[1] !== "0001" ? `${m[3]}-${m[2]}-${m[1]}` : "—";
 };
 
 // Timestamp with its time kept: "05-10-2026 14:32" in local time. "—" when

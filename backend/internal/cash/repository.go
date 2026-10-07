@@ -1019,3 +1019,123 @@ func (r *MovementRepository) NetByDay(ctx context.Context, branchID *uint, from,
 	}
 	return out, nil
 }
+
+// BalanceScope narrows the live-balance sums below. Bank selects the bank
+// side (UPI / Bank Transfer / Cheque) instead of the cash side (Cash, or a
+// movement that recorded no Mode — physical money). The zero From means
+// "since the beginning"; the window is [From, To).
+type BalanceScope struct {
+	Bank            bool
+	BranchID        *uint
+	ExcludeBranches []uint
+	// BankID/Mode pin one bank account's (and mode's) movements — only used
+	// when Bank is true, to roll a per-bank opening balance forward.
+	BankID *uint
+	Mode   string
+	From   time.Time
+	To     time.Time
+}
+
+var bankModes = []string{CashModeUPI, CashModeBankTransfer, CashModeCheque}
+
+// NetByScope is Σ in − Σ out over the scope's movements. Movements with
+// expense_id set are excluded (expenses are summed separately via
+// ExpenseRepository.SumByScope). Bank-side rows carrying a ToBankID are
+// internal bank-to-bank transfers and net to zero across all banks, so they
+// are skipped.
+func (r *MovementRepository) NetByScope(ctx context.Context, s BalanceScope) (float64, error) {
+	q := r.db.WithContext(ctx).Model(&CashMovement{}).
+		Where("occurred_on < ?", s.To).
+		Where("expense_id IS NULL")
+	if s.Bank {
+		q = q.Where("mode IN ?", bankModes).Where("to_bank_id IS NULL")
+		if s.BankID != nil {
+			q = q.Where("bank_id = ?", *s.BankID)
+		}
+		if s.Mode != "" {
+			q = q.Where("mode = ?", s.Mode)
+		}
+	} else {
+		q = q.Where("(mode IS NULL OR mode NOT IN ?)", bankModes)
+	}
+	if !s.From.IsZero() {
+		q = q.Where("occurred_on >= ?", s.From)
+	}
+	if s.BranchID != nil {
+		q = q.Where("branch_id = ?", *s.BranchID)
+	}
+	if len(s.ExcludeBranches) > 0 {
+		q = q.Where("(branch_id IS NULL OR branch_id NOT IN ?)", s.ExcludeBranches)
+	}
+	var net float64
+	if err := q.Select("COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END), 0)").Scan(&net).Error; err != nil {
+		return 0, err
+	}
+	return net, nil
+}
+
+// SumByScope sums approved expenses on the scope's side: cash-side is
+// Mode "Cash"; bank-side is UPI/Bank Transfer/Cheque expenses that are not an
+// internal bank-to-bank transfer (ToBankID set). BankID/Mode narrow the
+// bank side by the expense's FromBankID/Mode.
+func (r *ExpenseRepository) SumByScope(ctx context.Context, s BalanceScope) (float64, error) {
+	q := r.db.WithContext(ctx).Model(&Expense{}).
+		Where("status = ?", "Approved").
+		Where("occurred_on < ?", s.To)
+	if s.Bank {
+		q = q.Where("mode IN ?", bankModes).Where("to_bank_id IS NULL")
+		if s.BankID != nil {
+			q = q.Where("from_bank_id = ?", *s.BankID)
+		}
+		if s.Mode != "" {
+			q = q.Where("mode = ?", s.Mode)
+		}
+	} else {
+		q = q.Where("mode NOT IN ?", bankModes)
+	}
+	if !s.From.IsZero() {
+		q = q.Where("occurred_on >= ?", s.From)
+	}
+	if s.BranchID != nil {
+		q = q.Where("branch_id = ?", *s.BranchID)
+	}
+	if len(s.ExcludeBranches) > 0 {
+		q = q.Where("branch_id NOT IN ?", s.ExcludeBranches)
+	}
+	var total float64
+	if err := q.Select("COALESCE(SUM(amount), 0)").Scan(&total).Error; err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// LatestBankOpenings returns, for every (branch, bank, mode) of a non-Cash
+// opening balance dated on or before date, its most recent row. branchID nil
+// covers every branch.
+func (r *OpeningBalanceRepository) LatestBankOpenings(ctx context.Context, branchID *uint, date time.Time) ([]OpeningCashBalance, error) {
+	q := r.db.WithContext(ctx).
+		Where("mode <> ? AND bank_id IS NOT NULL AND balance_date <= ?", "Cash", startOfDay(date)).
+		Order("balance_date DESC, id DESC")
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	var rows []OpeningCashBalance
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	type key struct {
+		branch, bank uint
+		mode         string
+	}
+	seen := map[key]bool{}
+	out := rows[:0]
+	for _, row := range rows {
+		k := key{row.BranchID, *row.BankID, row.Mode}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, row)
+	}
+	return out, nil
+}

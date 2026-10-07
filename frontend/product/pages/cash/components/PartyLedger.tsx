@@ -4,13 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt, fmtDate } from "@/product/utils/format";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
-import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { ApiError } from "@/product/services/httpClient";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
+import { loanCatRef } from "@/product/pages/cash/components/ledgerCells";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
-import { rememberedLedgerPage, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
-import { routeHref } from "@/product/services/appRoutes";
+import { rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
+import { goBack, routeHref } from "@/product/services/appRoutes";
 import {
   listCashMovementsByCustomer,
   getBankLedger,
@@ -27,6 +27,8 @@ import { getCustomer, type CustomerView } from "@/product/pages/customers/servic
 
 import { getExpenseCategoryLedger, EXPENSE_CATEGORY_LEDGER_PAGE_SIZE, type LoanLedgerSummary } from "@/product/pages/cash/services/expenseCategoryService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
+import { FooterTotals } from "@/product/components/ui/FooterTotals";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 function Pager({ page, total, pageSize, onChange, children }: { page: number; total: number; pageSize: number; onChange: (p: number) => void; children?: React.ReactNode }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -57,6 +59,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
   const [total, setTotal] = useState(0);
   // Back from a drill-down, this ledger reopens on the page the user left.
   const [page, setPage] = useState(() => rememberedLedgerPage("party") ?? 1);
+  useEffect(() => { saveLedgerPosition({ party: page }); }, [page]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -156,7 +159,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
   useEffect(() => { refresh(); }, [refresh]);
   useLedgerFocus("party", !loading, [items]);
 
-  async function onExport() {
+  async function onExport() { return singleFlight("cash:party-ledger-export", async () => {
     setExporting(true);
     try {
       const range = { fromDate: fromDate || undefined, toDate: toDate || undefined };
@@ -167,15 +170,24 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
     } finally {
       setExporting(false);
     }
-  }
+  }); }
 
   if (labelError) return <div className="notice">{labelError}</div>;
+  // /ledger-bank with no id (or a non-numeric one) names no ledger — say so
+  // rather than sitting on "Loading…" forever.
+  if (!numericId) {
+    return (
+      <div className="notice">
+        No {kind} selected. <a href={routeHref("ledger")} onClick={(e) => { e.preventDefault(); goBack("ledger"); }}>Back to the Ledger</a>
+      </div>
+    );
+  }
 
   return (
     <>
       <div className="page-h">
         <div>
-          <a href={routeHref("ledger")} style={{ fontSize: 13 }}>← Back</a>
+          <a href={routeHref("ledger")} onClick={(e) => { if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); goBack("ledger"); }} style={{ fontSize: 13 }}>← Back</a>
           <h1>{label || "Loading…"}</h1>
           {!loan && <p>{`Every ${kind === "category" ? "expense recorded under this category" : `transaction ever recorded against this ${kind}`}`}</p>}
         </div>
@@ -215,9 +227,9 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl" data-ledger-scope="party" data-ledger-page={page}>
+          <table className="tbl ledger-amt" data-ledger-scope="party" data-ledger-page={page}>
             <thead>
-              <tr><th>Date</th><th>Description</th>{loan && <th>From Bank</th>}<th>{loan ? "Mode" : "Method"}</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
+              <tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>{loan ? "Mode" : "Method"}</th>{loan && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
             <tbody>
               {loading ? (
@@ -254,6 +266,17 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                 <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
                   <td>{fmtDate(r.d)}</td>
                   <td>
+                    {loanRef ? (
+                      <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
+                    ) : invRef ? (
+                      <LedgerRefLink kind="investment" id={invRef} label={invRef} />
+                    ) : plRef ? (
+                      <LedgerRefLink kind="personalloan" id={plRef} label={plRef} />
+                    ) : (
+                      loanCatRef(r, categoryIds)
+                    )}
+                  </td>
+                  <td>
                     {r.description || r.type}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                       {kind !== "customer" && r.customerId ? (
@@ -264,25 +287,14 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                       ) : null}
                       {kind !== "category" ? <CategoryChip text={r.description} categoryIds={categoryIds} /> : null}                    </div>
                   </td>
-                  {loan && (
-                    <td>{r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} /> : "—"}</td>
-                  )}
                   <td>
                     {!r.method ? "—"
                       : MODE_LEDGER_ROUTE[r.method] ? <a href={routeHref(MODE_LEDGER_ROUTE[r.method])}>{r.method}</a>
                       : r.method}
                   </td>
-                  <td>
-                    {loanRef ? (
-                      <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
-                    ) : invRef ? (
-                      <LedgerRefLink kind="investment" id={invRef} label={invRef} />
-                    ) : plRef ? (
-                      <LedgerRefLink kind="personalloan" id={plRef} label={plRef} />
-                    ) : (
-                      r.reference || "—"
-                    )}
-                  </td>
+                  {loan && (
+                    <td>{r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} /> : "—"}</td>
+                  )}
                   <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                   <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
                   <td className="num">{fmt(r.runningBalance)}</td>
@@ -293,9 +305,9 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
           </table>
         </div>
         <Pager page={page} total={total} pageSize={kind === "category" ? EXPENSE_CATEGORY_LEDGER_PAGE_SIZE : PARTY_PAGE_SIZE} onChange={setPage}>
-          <FooterTotals items={[
-            { label: "Total Debit", value: totalDebit, color: "var(--red)" },
-            { label: "Total Credit", value: totalCredit, color: "var(--green)" },
+          <FooterTotals aligned items={[
+            { value: totalDebit, color: "var(--red)" },
+            { value: totalCredit, color: "var(--green)" },
           ]} />
         </Pager>
       </div>

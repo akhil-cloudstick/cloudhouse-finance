@@ -11,6 +11,7 @@ import { DatePicker } from "@/product/components/ui/DatePicker";
 import { fmt, fmtDate as fmtDisplayDate } from "@/product/utils/format";
 import { recordPayment, recordReleasePayment, getLoan, type LoanView } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* What the Amount is allowed to pay off. Every mode clears any outstanding
  * processing fee first — a fee is a real charge, not something staff can
@@ -253,7 +254,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   const alloc = previewAllocation(previewLoan, mode, previewAmount);
   const splitBalanced = Math.abs(remaining) < 0.01;
 
-  async function save() {
+  async function save() { return singleFlight("modal:payment:save", async () => {
     const amount = +amt;
     if (!amount || amount <= 0) { setErr("Please enter a valid payment amount."); return; }
     const processingFee = fee.trim() ? +fee : 0;
@@ -359,7 +360,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   // Live receipt figures (the right-hand panel) — what's left on the loan
   // once previewAllocation's split lands, against the same fee-and-override

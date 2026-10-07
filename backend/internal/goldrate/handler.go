@@ -33,6 +33,8 @@ type publishRequest struct {
 	Rate  float64 `json:"rate"`
 	K24   float64 `json:"k24"` // legacy alias for {karat:24, rate: k24}
 	SetBy string  `json:"setBy" binding:"required"`
+	// Rates publishes several karats as one row, e.g. {"22": 11827, "18": 9676}.
+	Rates map[int]float64 `json:"rates"`
 }
 
 func (req publishRequest) toInput() (PublishInput, error) {
@@ -43,6 +45,9 @@ func (req publishRequest) toInput() (PublishInput, error) {
 			return PublishInput{}, httpx.NewBadRequest("invalid date: expected YYYY-MM-DD")
 		}
 		date = parsed
+	}
+	if len(req.Rates) > 0 {
+		return PublishInput{Date: date, Rates: req.Rates, SetBy: req.SetBy}, nil
 	}
 	karat := req.Karat
 	rate := req.Rate

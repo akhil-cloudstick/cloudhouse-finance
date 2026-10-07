@@ -11,6 +11,7 @@ import { useBranding } from "@/product/providers/BrandingProvider";
 import { createEmployee, updateEmployee, type EmployeeView } from "@/product/pages/employees/services/employeeService";
 import { Select } from "@/product/components/ui/Select";
 import { fetchRoles } from "@/product/services/permissionService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* The seeded roles — the fallback list when the live one (GET /roles,
  * which also carries custom roles) cannot be loaded because this user lacks
@@ -116,7 +117,7 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
     setPhone(digits);
   }
 
-  async function save() {
+  async function save() { return singleFlight("modal:employee:save", async () => {
     const trimmed = name.trim();
     const p = phone.trim();
 
@@ -167,7 +168,7 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

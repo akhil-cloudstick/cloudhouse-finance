@@ -165,6 +165,7 @@ var (
 	// requests now go through the same 3-stage approval chain as Release
 	// (see Service.ApproveExtensionRequest), never a single decide call.
 	ErrUseStagedExtensionApproval = httpx.NewBadRequest("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
+	ErrLoanAwaitingApproval       = httpx.NewBadRequest("this loan is still pending approval — extension or release can only be requested once it is approved and disbursed")
 	ErrLoanTerminalState          = httpx.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
 	ErrChecklistIncomplete        = httpx.NewBadRequest("\"Customer has seen the gold\" must be ticked and a payment recorded before this can be approved")
 	// ErrTopUpShortfall mirrors personalloan.ErrRenewalShortfall exactly —
@@ -327,7 +328,6 @@ type Service struct {
 	requestRepo         *LoanRequestRepository
 	requestApprovalRepo *RequestApprovalRepository
 	auctionRepo         *AuctionRepository
-	approvalLimitRepo   *ApprovalLimitRepository
 
 	// draftRepo/topUpRepo are built from db inside NewService rather than
 	// being passed in like the repositories above — neither has another
@@ -450,7 +450,6 @@ func NewService(
 	requestRepo *LoanRequestRepository,
 	requestApprovalRepo *RequestApprovalRepository,
 	auctionRepo *AuctionRepository,
-	approvalLimitRepo *ApprovalLimitRepository,
 	branchRepo *branch.Repository,
 	customerRepo *customer.Repository,
 	schemeRepo *scheme.Repository,
@@ -479,7 +478,6 @@ func NewService(
 		requestRepo:         requestRepo,
 		requestApprovalRepo: requestApprovalRepo,
 		auctionRepo:         auctionRepo,
-		approvalLimitRepo:   approvalLimitRepo,
 		draftRepo:           NewDraftRepository(db),
 		topUpRepo:           NewLoanTopUpRepository(db),
 		branchRepo:          branchRepo,
@@ -816,9 +814,19 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	if rec.ServiceChargeMode == scheme.ServiceChargeModeAddedToPrincipal && rec.ServiceChargeAmount > 0 {
 		finalPrincipal = platform.RoundMoney(in.PrincipalAmount + rec.ServiceChargeAmount)
 	}
-	if finalPrincipal > rec.EligibleLoanAmount {
+	// Compared at paise precision (same as UpdateLoan below): the eligible
+	// amount is a float product of weight × rate × LTV, so a figure displayed
+	// as 453900.00 can be 453899.9999… underneath and would reject the very
+	// amount the operator was shown.
+	if platform.RoundMoney(finalPrincipal) > platform.RoundMoney(rec.EligibleLoanAmount) {
+		if finalPrincipal > in.PrincipalAmount {
+			return nil, httpx.NewBadRequest(fmt.Sprintf(
+				"principal ₹%.2f plus the ₹%.2f service charge (₹%.2f) cannot exceed the eligible loan amount ₹%.2f — enter a lower amount",
+				in.PrincipalAmount, rec.ServiceChargeAmount, finalPrincipal, rec.EligibleLoanAmount))
+		}
 		return nil, ErrPrincipalTooHigh
 	}
+	rec.EligibleLoanAmount = platform.RoundMoney(rec.EligibleLoanAmount)
 	rec.PrincipalAmount = finalPrincipal
 	rec.OutstandingAmount = rec.PrincipalAmount
 
@@ -1091,7 +1099,7 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 	// AllAuctionCases works the same way, keeping IsDefaulted loans plus the
 	// stored Auction Eligible / Auctioned - Balance Due statuses.
 	limit, offset := f.Limit, f.Offset
-	if f.OnlyDefaulted || f.AllAuctionCases {
+	if f.OnlyDefaulted || f.AllAuctionCases || f.Servicing != "" {
 		f.Limit, f.Offset = 0, 0
 	}
 	loans, total, err := s.repo.FindAll(ctx, f)
@@ -1117,6 +1125,9 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 		loans, total = pageKept(loans, limit, offset, func(l *Loan) bool { return l.IsDefaulted })
 	} else if f.AllAuctionCases {
 		loans, total = pageKept(loans, limit, offset, isAuctionCase)
+	} else if f.Servicing != "" {
+		servicing := f.Servicing
+		loans, total = pageKept(loans, limit, offset, func(l *Loan) bool { return matchesServicing(l, servicing) })
 	}
 	return loans, total, nil
 }
@@ -1384,6 +1395,13 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
 		(in.PrincipalAmount != nil && platform.RoundMoney(*in.PrincipalAmount) != platform.RoundMoney(l.PrincipalAmount))
 	wasDisbursed := l.DisbursementDate != nil
+	// Captured before the edit re-snapshots the scheme/principal: the
+	// reversal below must offset what was actually paid out and kept.
+	priorDisbursed := l.DisbursedAmount
+	priorCharge := 0.0
+	if l.ServiceChargeMode == scheme.ServiceChargeModeWithheldFromPayout {
+		priorCharge = l.ServiceChargeAmount
+	}
 
 	if in.SchemeID != nil {
 		sch, err := s.schemeRepo.FindByID(ctx, *in.SchemeID)
@@ -1411,8 +1429,11 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 		return nil, err
 	}
 	recalculateTotals(l, ornaments)
-	if l.PrincipalAmount > l.EligibleLoanAmount {
-		return nil, ErrPrincipalTooHigh
+	// Re-checked on the edit path against the (possibly re-snapshotted)
+	// scheme LTV and the current ornaments, same as Create — the UI's
+	// "Max ₹X (based on scheme LTV)" is advisory only.
+	if platform.RoundMoney(l.PrincipalAmount) > platform.RoundMoney(l.EligibleLoanAmount) {
+		return nil, httpx.NewBadRequest(fmt.Sprintf("principal amount ₹%.2f cannot exceed the eligible loan amount ₹%.2f (based on scheme LTV)", l.PrincipalAmount, l.EligibleLoanAmount))
 	}
 
 	// Re-derived for consistency whenever the scheme or principal changed
@@ -1453,18 +1474,11 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 		return nil, err
 	}
 
-	if materialChange && wasDisbursed && s.cashRecorder != nil {
-		if err := s.cashRecorder.DeleteLoanDisbursementCashMovements(ctx, l.LoanNumber); err != nil {
-			log.Printf("retracting disbursement cash movement(s) failed for loan %d: %v", l.ID, err)
-		}
-	}
-	// The loan's own ledger mirrors that disbursement as a LoanPayment row —
-	// retract it too, or re-sanction adds a second one and the ledger (which
-	// takes the oldest) keeps showing the retracted payout's mode split.
+	// The original payout (its cash-out movement and its Disbursement ledger
+	// row) is history and stays; the retraction is booked as an explicit
+	// reversal entry instead of deleting it.
 	if materialChange && wasDisbursed {
-		if err := s.paymentRepo.DeleteByLoanIDAndType(ctx, l.ID, PaymentTypeDisbursement); err != nil {
-			log.Printf("retracting disbursement ledger row failed for loan %d: %v", l.ID, err)
-		}
+		s.reverseDisbursement(ctx, l, priorDisbursed, priorCharge)
 	}
 
 	if materialChange {
@@ -1482,6 +1496,80 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 	}
 
 	return s.Get(ctx, l.ID, nil)
+}
+
+// reverseDisbursement books the retraction of a loan's latest payout as a
+// Disbursement Reversal LoanPayment plus its offsetting cash-in, leaving the
+// original Disbursement row and cash-out movement in place. The amount is net
+// of a withheld service charge: that charge was booked as its own cash-in at
+// sanction and is never paid out, so reversing only the rest nets the books
+// to zero before the re-sanction records the new payout. Best-effort, like
+// the cash recording it replaces.
+func (s *Service) reverseDisbursement(ctx context.Context, l *Loan, disbursed, withheldCharge float64) {
+	payments, err := s.paymentRepo.FindByLoanID(ctx, l.ID) // newest first
+	if err != nil {
+		log.Printf("reversing disbursement failed for loan %d: %v", l.ID, err)
+		return
+	}
+	var orig *LoanPayment
+	for i := range payments {
+		if payments[i].Type == PaymentTypeDisbursement {
+			orig = &payments[i]
+			break
+		}
+	}
+	if orig == nil {
+		return
+	}
+	amount := platform.RoundMoney(disbursed - withheldCharge)
+	if amount <= 0.01 {
+		return
+	}
+	cash, upi, bank, cheque := scaleSplit(orig.CashAmount, orig.UpiAmount, orig.BankTransferAmount, orig.ChequeAmount, orig.Amount, amount)
+	now := time.Now()
+	p := &LoanPayment{
+		LoanID:             l.ID,
+		Amount:             amount,
+		Type:               PaymentTypeDisbursementReversal,
+		PaidOn:             now,
+		Description:        "Disbursement reversed — loan edited, resubmitted for approval",
+		Method:             platform.DeriveMethod(cash, upi, bank, cheque),
+		CashAmount:         cash,
+		UpiAmount:          upi,
+		BankTransferAmount: bank,
+		ChequeAmount:       cheque,
+		BankID:             orig.BankID,
+		// Nothing is disbursed until the edit clears the chain again.
+		RunningBalance: 0,
+	}
+	if err := s.paymentRepo.Create(ctx, p); err != nil {
+		log.Printf("disbursement reversal ledger row failed for loan %d: %v", l.ID, err)
+		return
+	}
+	if s.cashRecorder == nil {
+		return
+	}
+	if _, groupID, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, amount, cash, upi, bank, cheque, l.BranchID, now, PaymentTypeDisbursementReversal, l.CustomerID, orig.BankID); err != nil {
+		log.Printf("cash-in movement (disbursement reversal) failed for loan %d: %v", l.ID, err)
+	} else if groupID != "" {
+		if err := s.paymentRepo.SetCashTransactionGroupID(ctx, p.ID, groupID); err != nil {
+			log.Printf("linking disbursement reversal %d to cash movement group failed: %v", p.ID, err)
+		}
+	}
+}
+
+// scaleSplit shrinks a four-mode split summing to total so it sums to newTotal
+// instead, proportionally (rather than favouring one mode), with the cheque
+// bucket absorbing the rounding remainder. A no-op when the totals match.
+func scaleSplit(cash, upi, bank, cheque, total, newTotal float64) (float64, float64, float64, float64) {
+	if total <= 0 || math.Abs(newTotal-total) < 0.01 {
+		return cash, upi, bank, cheque
+	}
+	scale := newTotal / total
+	c := platform.RoundMoney(cash * scale)
+	u := platform.RoundMoney(upi * scale)
+	b := platform.RoundMoney(bank * scale)
+	return c, u, b, platform.RoundMoney(newTotal - c - u - b)
 }
 
 // HardDeleteLoan permanently removes a loan and every record tied to it —
@@ -1741,19 +1829,13 @@ func normalizeSanctionStage(stage string) string {
 	return stage
 }
 
-// sanctionLimits is an advisory-only reference table for Branch Manager/
-// Management — "a Branch Manager would typically only sign off on loans up
-// to ₹X," etc. It is NEVER used to block an approve/reject decision for
-// these two roles, only to compute Loan.ApprovalWarning so the UI can show
-// a "consider escalating" note. Hardcoded (no admin screen to edit these
-// yet — an explicit scope decision, not an oversight; only the Loan
-// Operator limit below was asked to become editable/hard-enforced).
-//
-// Loan Operator's limit used to live here too, advisory-only; it's now a
-// real, admin-editable, HARD-enforced cap — see ApprovalLimit/
-// loanOperatorLimit/Approve's stage-role check below.
+// sanctionLimits is an advisory-only reference table of a role's typical sign-off
+// ceiling, used solely to compute Loan.ApprovalWarning ("consider escalating").
+// It never blocks an approve/reject decision. Every role currently has no
+// ceiling (0): the Branch Manager's former ₹2,00,000 and the Loan Operator's
+// former editable limit were both removed on request, so no amount warns.
 var sanctionLimits = map[string]float64{
-	"Branch Manager": 200000,
+	"Branch Manager": 0, // 0 == no advisory ceiling
 	"Management":     0, // 0 == no advisory ceiling — Management/Final Sanction can clear any amount
 }
 
@@ -1779,40 +1861,6 @@ func (s *Service) sanctionWarning(ctx context.Context, l *Loan) string {
 		return fmt.Sprintf("Principal ₹%.0f exceeds the typical ₹%.0f limit for %s — consider escalating.", l.PrincipalAmount, limit, role)
 	}
 	return ""
-}
-
-// loanOperatorLimit reads the current hard-enforced Loan Operator approval
-// limit from the DB, falling back to DefaultLoanOperatorApprovalLimit if
-// no row exists yet (shouldn't happen past first migration — see
-// SeedLoanOperatorLimit — but a missing row should never silently disable
-// enforcement).
-func (s *Service) loanOperatorLimit(ctx context.Context) float64 {
-	rec, err := s.approvalLimitRepo.FindByRole(ctx, "Loan Operator")
-	if err != nil {
-		return DefaultLoanOperatorApprovalLimit
-	}
-	return rec.MaxAmount
-}
-
-// GetLoanOperatorLimit exposes the current limit for GET /loans/approval-limits/loan-operator.
-func (s *Service) GetLoanOperatorLimit(ctx context.Context) float64 {
-	return s.loanOperatorLimit(ctx)
-}
-
-// SetLoanOperatorLimit updates the Loan Operator's hard-enforced approval
-// limit (PUT /loans/approval-limits/loan-operator). amount must be > 0 —
-// a Loan Operator having literally no approval authority isn't a state
-// this endpoint models; remove the role from the sanction chain instead if
-// that's ever needed.
-func (s *Service) SetLoanOperatorLimit(ctx context.Context, amount float64) (float64, error) {
-	if amount <= 0 {
-		return 0, ErrInvalidAmount
-	}
-	rec, err := s.approvalLimitRepo.Upsert(ctx, "Loan Operator", amount)
-	if err != nil {
-		return 0, err
-	}
-	return rec.MaxAmount, nil
 }
 
 // ApprovalInput mirrors the body of POST /loans/:id/approve.
@@ -2655,6 +2703,11 @@ func (s *Service) executeTopUp(ctx context.Context, loanID uint, in TopUpInput, 
 	var result *Loan
 	var eligibleAtTopUp float64
 	var cashOut float64
+	// What a TopUpSettleDeduct top-up withheld, split the way the interest
+	// waterfall applied it, plus the loan's balance after — kept so the
+	// withheld interest can be booked as its own ledger payment below.
+	var settledInterest, settledPenal, balanceAfter float64
+	var interestGroupID string
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		l, err := s.repo.LockByID(ctx, tx, loanID)
 		if err != nil {
@@ -2746,6 +2799,7 @@ func (s *Service) executeTopUp(ctx context.Context, loanID uint, in TopUpInput, 
 				deductedFromPayout = math.Min(arrears, amount)
 				penalPortion := math.Min(deductedFromPayout, outstandingPenal)
 				interestPortion := deductedFromPayout - penalPortion
+				settledInterest, settledPenal = interestPortion, penalPortion
 				l.PenalInterestPaid = platform.RoundMoney(l.PenalInterestPaid + penalPortion)
 				l.InterestPaid = platform.RoundMoney(l.InterestPaid + interestPortion)
 			default: // TopUpSettleRequire
@@ -2811,6 +2865,7 @@ func (s *Service) executeTopUp(ctx context.Context, loanID uint, in TopUpInput, 
 		}
 
 		cashOut = cashOutAmount
+		balanceAfter = platform.RoundMoney(l.OutstandingAmount + clampMoney(l.AccruedInterest-l.InterestPaid) + clampMoney(l.AccruedPenalInterest-l.PenalInterestPaid) + l.OutstandingProcessingFee)
 		result = l
 		return nil
 	})
@@ -2842,9 +2897,37 @@ func (s *Service) executeTopUp(ctx context.Context, loanID uint, in TopUpInput, 
 		// Mirrors RecordServiceChargeCashIn's "withheld, not paid out and
 		// collected back" rationale.
 		if deducted := platform.RoundMoney(in.Amount - cashOut); deducted > 0.01 {
-			if _, _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, deducted, deducted, 0, 0, 0, result.BranchID, occurredOn, "Interest (top-up settlement)", result.CustomerID, nil); err != nil {
+			if _, groupID, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, deducted, deducted, 0, 0, 0, result.BranchID, occurredOn, "Interest (top-up settlement)", result.CustomerID, nil); err != nil {
 				log.Printf("cash-in movement (top-up interest settlement) failed for loan %d: %v", result.ID, err)
+			} else {
+				interestGroupID = groupID
 			}
+		}
+	}
+	// The cash ledgers hide "Collection" cash movements and show LoanPayment
+	// rows instead, and the loan's own ledger reads only LoanPayment — so the
+	// withheld interest needs a payment row of its own, or it never appears
+	// in any ledger. Stamped with the top-up's own time (the ledger breaks
+	// that tie payout-first) and written after the top-up row it settles.
+	if deducted := platform.RoundMoney(in.Amount - cashOut); deducted > 0.01 {
+		p := &LoanPayment{
+			LoanID:                 result.ID,
+			Amount:                 deducted,
+			Type:                   PaymentTypeInterest,
+			PaidOn:                 occurredOn.Add(time.Millisecond), // just after the top-up it settles
+			Description:            "Interest settled from top-up payout",
+			Method:                 platform.DeriveMethod(deducted, 0, 0, 0),
+			CashAmount:             deducted,
+			PenalInterestApplied:   settledPenal,
+			InterestApplied:        settledInterest,
+			RunningBalance:         balanceAfter,
+			CashTransactionGroupID: interestGroupID,
+		}
+		if in.ReceivedByEmployeeID != 0 {
+			p.ReceivedByEmployeeID = &in.ReceivedByEmployeeID
+		}
+		if err := s.paymentRepo.Create(ctx, p); err != nil {
+			log.Printf("loan-payment ledger row (top-up interest settlement) failed for loan %d: %v", result.ID, err)
 		}
 	}
 	return s.Get(ctx, result.ID, nil)
@@ -4127,6 +4210,9 @@ func (s *Service) CreateExtensionRequest(ctx context.Context, loanID uint, in Ex
 	if in.Months <= 0 {
 		return nil, ErrInvalidMonths
 	}
+	if l.Status == StatusPendingApproval {
+		return nil, ErrLoanAwaitingApproval
+	}
 	// Same "catch stale accrual up first" rationale as MarkAuctionEligible's
 	// IsDefaulted check — without this, OutstandingInterest/
 	// OutstandingPenalInterest below are judged against whatever the DB
@@ -4269,6 +4355,9 @@ func (s *Service) CreateReleaseRequest(ctx context.Context, loanID uint, in Rele
 	l, err := s.Get(ctx, loanID, nil)
 	if err != nil {
 		return nil, ErrNotFound
+	}
+	if l.Status == StatusPendingApproval {
+		return nil, ErrLoanAwaitingApproval
 	}
 	requestedBy := in.RequestedBy
 	if requestedBy == "" {
@@ -5803,7 +5892,7 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 		}
 	}
 
-	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(ctx, l), lang)
+	pdfBytes, slots, err := RenderIndemnityBondPDFWithSlots(s.bondDataForLoan(ctx, l), lang)
 	if err != nil {
 		return nil, err
 	}
@@ -5846,6 +5935,7 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 		Signature: &platform.SignatureConfig{
 			OnPages:  []string{lastPage},
 			Position: "bottom-right",
+			Slots:    slots,
 		},
 	}
 	if !l.Customer.DOB.IsZero() {

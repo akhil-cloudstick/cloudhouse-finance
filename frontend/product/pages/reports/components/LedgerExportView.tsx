@@ -18,6 +18,7 @@ import { useBranding } from "@/product/providers/BrandingProvider";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/product/pages/cash/components/ledgerCells";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 // Mirrors backend/internal/cash/repository.go's Category* constants.
 const TRANSACTION_TYPE_OPTIONS = [
@@ -46,7 +47,9 @@ function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; b
   const chronological = [...items].reverse();
   let running = 0;
   const withBalance = chronological.map((m) => {
-    running += m.type === "out" ? m.amount : -m.amount;
+    // Cash in (credit) raises the balance, cash out (debit) lowers it — same
+    // sign as Cash.tsx's Ledger tab.
+    running += m.type === "out" ? -m.amount : m.amount;
     return { m, balance: running };
   });
   return withBalance.reverse();
@@ -127,7 +130,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
       .finally(() => setLoading(false));
   }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate, page]);
 
-  async function onDownload(format: "pdf" | "xlsx") {
+  async function onDownload(format: "pdf" | "xlsx") { return singleFlight("reports:ledger-export:"+format, async () => {
     setExporting(true);
     try {
       await exportCashMovements({
@@ -143,7 +146,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
     } finally {
       setExporting(false);
     }
-  }
+  }); }
 
   const rows = withRunningBalance(items);
 
@@ -187,7 +190,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
                 <tr key={m.id}>
                   <td>{fmtDate(m.d)}</td>
                   {/* Same clickable cells as Cash.tsx's Ledger tab (ledgerCells.tsx). */}
-                  <td className="ledger-ref" title={loanNumberFor(m)}>{refCellFor(m)}</td>
+                  <td className="ledger-ref" title={m.bankName || loanNumberFor(m)}>{refCellFor(m)}</td>
                   <td>{particularsFor(m, categoryIds)}</td>
                   <td>{modeCellFor(m.mode)}</td>
                   <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>

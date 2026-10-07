@@ -91,7 +91,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
   const [reference, setReference] = useState("");
   const [dueDate, setDueDate] = useState(request.paymentDueDate || "");
   // Language being fetched ("partial" for the partial-release receipt).
-  const [downloading, setDownloading] = useState<DocLang | "partial" | null>(null);
+  const [downloading, setDownloading] = useState<DocLang | `partial-${DocLang}` | null>(null);
   // Seed editable fields only when a different request arrives, so a
   // background refetch never stomps on what staff is typing.
   const [seenId, setSeenId] = useState(request.id);
@@ -158,13 +158,13 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
     onError(err instanceof ApiError ? err.message : "Something went wrong — try again.");
   }
 
-  // A partial release gets the backend's partial-release receipt (English
-  // only); a full release gets the FORM 7 agreement in the chosen language.
-  async function downloadReleaseAgreement(lang: DocLang | "partial") {
+  // A partial release gets the backend's partial-release receipt; a full
+  // release gets the FORM 7 agreement — both in the chosen language.
+  async function downloadReleaseAgreement(lang: DocLang, partial = false) {
     if (downloading) return;
-    setDownloading(lang);
+    setDownloading(partial ? `partial-${lang}` : lang);
     try {
-      if (lang === "partial") await printPartialReleaseReceiptPdf(request.id);
+      if (partial) await printPartialReleaseReceiptPdf(request.id, lang);
       else await printReleaseAgreementPdf(loan.id, loan.loanNumber, lang);
     } catch (err) {
       onError(err instanceof ApiError ? err.message : "Could not download the Release Agreement — try again.");
@@ -228,26 +228,27 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
     <View>
       {request.status === "Approved" ? (
         <View style={{ marginBottom: 10 }}>
-          {request.isPartial ? (
-            <SheetListItem
-              first
-              icon="doc"
-              title="Partial Release Receipt"
-              sub={downloading === "partial" ? "Preparing…" : "Download the partial-release receipt"}
-              onPress={() => downloadReleaseAgreement("partial")}
-            />
-          ) : (
-            RELEASE_AGREEMENT_LANGS.map((lang, i) => (
-              <SheetListItem
-                key={lang}
-                first={i === 0}
-                icon="doc"
-                title={`Release Agreement — ${DOC_LANG_LABELS[lang]}`}
-                sub={downloading === lang ? "Preparing…" : "Gold handed back to the customer"}
-                onPress={() => downloadReleaseAgreement(lang)}
-              />
-            ))
-          )}
+          {request.isPartial
+            ? RELEASE_AGREEMENT_LANGS.map((lang, i) => (
+                <SheetListItem
+                  key={lang}
+                  first={i === 0}
+                  icon="doc"
+                  title={`Partial Release Receipt — ${DOC_LANG_LABELS[lang]}`}
+                  sub={downloading === `partial-${lang}` ? "Preparing…" : "Download the partial-release receipt"}
+                  onPress={() => downloadReleaseAgreement(lang, true)}
+                />
+              ))
+            : RELEASE_AGREEMENT_LANGS.map((lang, i) => (
+                <SheetListItem
+                  key={lang}
+                  first={i === 0}
+                  icon="doc"
+                  title={`Release Agreement — ${DOC_LANG_LABELS[lang]}`}
+                  sub={downloading === lang ? "Preparing…" : "Gold handed back to the customer"}
+                  onPress={() => downloadReleaseAgreement(lang)}
+                />
+              ))}
         </View>
       ) : null}
 

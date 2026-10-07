@@ -103,6 +103,19 @@ export type BackendPersonalLoanPayment = {
   bankId?: number | null;
   bankRef?: { id: number; name: string } | null;
   createdAt: string;
+
+  // Ledger-row fields (backend/internal/personalloan/ledger.go): one row per
+  // disbursement / charge / payment mode-share / rollover.
+  key: string;
+  kind: "disbursement" | "charge" | "penal" | "payment" | "rollover";
+  date: string;
+  refNo: string;
+  particulars: string;
+  mode: string;
+  bankName?: string;
+  debit: number;
+  credit: number;
+  balance: number;
 };
 
 /* With the personal_loan approval flow switched on the loan comes back
@@ -188,9 +201,9 @@ export function getPersonalLoanSchedulePage(id: number, page: number): Promise<{
   return apiFetch<{ items: BackendPersonalLoanInstallment[]; hasMore: boolean; total: number }>(`/personal-loans/${id}/schedule?${params}`);
 }
 
-export function listPersonalLoanPaymentsPage(id: number, page: number): Promise<{ items: BackendPersonalLoanPayment[]; hasMore: boolean; total: number }> {
-  const params = new URLSearchParams({ limit: String(PERSONAL_LOAN_PAGE_SIZE), offset: String(page * PERSONAL_LOAN_PAGE_SIZE) });
-  return apiFetch<{ items: BackendPersonalLoanPayment[]; hasMore: boolean; total: number }>(`/personal-loans/${id}/payments?${params}`);
+export function listPersonalLoanPaymentsPage(id: number, page: number): Promise<{ items: BackendPersonalLoanPayment[]; hasMore: boolean; total: number; totalDebit: number; totalCredit: number }> {
+  const params = new URLSearchParams({ limit: String(PERSONAL_LOAN_PAGE_SIZE), offset: String(page * PERSONAL_LOAN_PAGE_SIZE), order: "desc" });
+  return apiFetch<{ items: BackendPersonalLoanPayment[]; hasMore: boolean; total: number; totalDebit: number; totalCredit: number }>(`/personal-loans/${id}/payments?${params}`);
 }
 
 /* Mirrors backend/internal/personalloan/model_history.go's

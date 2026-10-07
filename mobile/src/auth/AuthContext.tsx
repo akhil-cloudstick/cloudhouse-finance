@@ -17,6 +17,9 @@ type AuthState = {
   // plain sign-out, and cleared only by exitBusiness.
   businessCode: string;
   connectBusiness: (code: string) => Promise<void>;
+  // Adopts a session the backend already issued — the connect QR's login
+  // token (see api/auth.ts redeemQrLogin) — instead of a typed password.
+  signInWithSession: (token: string, emp: Employee, businessCode: string) => Promise<void>;
   // Signs out AND forgets the business, so the app goes back to the scanner.
   exitBusiness: () => Promise<void>;
   // Permission map — see the house role-permission standard's §9. Fetched
@@ -107,6 +110,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loadPermissions, refreshBranding]
   );
 
+  const signInWithSession = useCallback(
+    async (token: string, emp: Employee, code: string) => {
+      await saveBusinessCode(code);
+      const saved = await getBusinessCode();
+      await saveToken(token);
+      // Set together (batched) so the root navigator never sees a business
+      // with no employee, which would flash the login page before the dashboard.
+      setPermissionsLoaded(false);
+      setBusinessCode(saved);
+      setEmployee(emp);
+      await loadPermissions(emp);
+      refreshBranding();
+    },
+    [loadPermissions, refreshBranding]
+  );
+
   const signOut = useCallback(async () => {
     await clearToken();
     setEmployee(null);
@@ -140,8 +159,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ employee, isLoading, signIn, signOut, businessCode, connectBusiness, exitBusiness, permissions, permissionsLoaded, permissionsFailed, can }),
-    [employee, isLoading, signIn, signOut, businessCode, connectBusiness, exitBusiness, permissions, permissionsLoaded, permissionsFailed, can]
+    () => ({ employee, isLoading, signIn, signOut, businessCode, connectBusiness, signInWithSession, exitBusiness, permissions, permissionsLoaded, permissionsFailed, can }),
+    [employee, isLoading, signIn, signOut, businessCode, connectBusiness, signInWithSession, exitBusiness, permissions, permissionsLoaded, permissionsFailed, can]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

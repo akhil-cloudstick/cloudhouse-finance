@@ -216,7 +216,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
-                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th></th></tr>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th className="col-act"></th></tr>
               </thead>
               <tbody>
                 {pledgedLoading ? (
@@ -235,7 +235,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
                       <td className="num">{active ? fmt(active.pledgedAmount) : "—"}</td>
                       <td><CashTreatmentBadge treatment={treatment} /></td>
                       <td>{fmtDate(active?.pledgeDate)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>
+                      <td className="col-act" style={{ whiteSpace: "nowrap" }}>
                         {active && (
                           <>
                             {canUpdatePledges && <button

@@ -13,29 +13,23 @@ import { DatePicker } from "@/product/components/ui/DatePicker";
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
 
-/* "Due Soon"/"Overdue"/"Defaulted" are computed read-time flags (isDueSoon/
- * isOverdue/isDefaulted, see loan/accrual.go's enrichStatusFlags), NOT
- * values of the persisted Loan.Status field — nothing ever sets Status to
- * those strings. So these three categories filter the already-loaded list
- * client-side instead of being sent to the server's `status` query param
- * (which only matches Loan.Status exactly). */
-const COMPUTED_CATS: Partial<Record<string, (l: LoanView) => boolean>> = {
-  "Due Soon": (l) => l.isDueSoon,
-  /* Past term AND actually in arrears. A loan whose interest is paid off is
-   * returned as status "Active" (refreshServicingStatus in loan/accrual.go)
-   * even though isOverdue stays true, and listing it under Overdue would put
-   * a paying customer back in the collections worklist. */
-  "Overdue": (l) => l.isOverdue && l.status !== "Active",
-  "Defaulted": (l) => l.isDefaulted,
+/* "Due Soon"/"Overdue"/"Defaulted" are read-time classifications (see
+ * loan/accrual.go's enrichStatusFlags), not stored statuses, so they are not
+ * sent as `status`. They go to GET /loans as `servicing`, and the server
+ * applies the same rules and paginates (see loan/servicing_filter.go). The
+ * three are mutually exclusive: Overdue leaves out defaulted loans, and
+ * Defaulted leaves out loans already in the auction pipeline. */
+const SERVICING_CATS: Partial<Record<string, "due_soon" | "overdue" | "defaulted">> = {
+  "Due Soon": "due_soon",
+  "Overdue": "overdue",
+  "Defaulted": "defaulted",
 };
 
 /* Ported from legacy/app.js's `renderLoans()`. Backed by the real loan API:
  * the initial list comes from LoansProvider, but once a status filter or
  * search term is applied, this re-queries `GET /loans` directly (via
  * listLoans's `q`/`status` params) so filtering happens server-side instead
- * of only scanning the client's already-loaded page — except for the
- * computed-flag categories above, which filter client-side (see
- * COMPUTED_CATS). */
+ * of only scanning the client's already-loaded page. */
 export function Loans() {
   const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
   const { can } = useAuth();
@@ -63,7 +57,7 @@ export function Loans() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
-  const computedPredicate = COMPUTED_CATS[cat];
+  const servicing = SERVICING_CATS[cat];
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
@@ -80,30 +74,12 @@ export function Loans() {
   useEffect(() => { refreshLoans(); }, [refreshLoans]);
 
   useEffect(() => {
-    // Due Soon/Overdue/Defaulted filter LoansProvider's already-loaded list
-    // client-side (see COMPUTED_CATS above) rather than sending `cat` to the
-    // server — but that meant switching to one of these tabs did nothing
-    // but re-render whatever was fetched on mount, going stale the moment a
-    // loan crosses its due date or clears its arrears while the page sits
-    // open. Re-fetch on tab switch so these tabs get the same on-demand
-    // round trip every other tab does.
-    if (computedPredicate) refreshLoans();
-  }, [cat, computedPredicate, refreshLoans]);
-
-  useEffect(() => {
-    // Computed-flag categories (Due Soon/Overdue/Defaulted) have no backing
-    // `status` column to query server-side — they filter LoansProvider's
-    // already-loaded list client-side (see COMPUTED_CATS) and paginate that
-    // filtered array locally instead of hitting the API per page.
-    if (computedPredicate) {
-      setFiltered(null);
-      return;
-    }
     let cancelled = false;
     setSearching(true);
     const handle = setTimeout(() => {
       listLoansPage({
-        status: cat === "All" ? undefined : cat,
+        status: cat === "All" || servicing ? undefined : cat,
+        servicing,
         q: q.trim() || undefined,
         from: fromDate || undefined,
         to: toDate || undefined,
@@ -120,37 +96,18 @@ export function Loans() {
     // the provider list, and nothing was re-running this query when a loan
     // changed. Recording a payment or clearing an approval called
     // refreshLoans(), which swapped in a fresh provider array but left
-    // `filtered` pinned to the pre-change rows — so with any tab but a
-    // computed category, the table only caught up on a browser reload.
+    // `filtered` pinned to the pre-change rows — so the table only caught up on a browser reload.
     // Keying off the new array identity re-issues the filtered query in step
     // with every provider refresh.
-  }, [cat, q, fromDate, toDate, page, computedPredicate, allLoans, pageSize]);
+  }, [cat, q, fromDate, toDate, page, servicing, allLoans, pageSize]);
 
   const loading = filtered === null ? providerLoading : searching;
   const error = searchError || providerError;
-  let rows: LoanView[];
-  let totalPages = 1;
-  if (computedPredicate) {
-    rows = allLoans.filter(computedPredicate);
-    if (q.trim()) {
-      const needle = q.trim().toLowerCase();
-      rows = rows.filter((l) => l.id.toLowerCase().includes(needle) || l.customerName.toLowerCase().includes(needle) || l.customerCode.toLowerCase().includes(needle));
-    }
-    if (fromDate) rows = rows.filter((l) => l.opened >= fromDate);
-    if (toDate) rows = rows.filter((l) => l.opened <= toDate);
-    totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-    rows = rows.slice((page - 1) * pageSize, page * pageSize);
-  } else {
-    rows = filtered ?? [];
-    totalPages = Math.max(1, Math.ceil(serverTotal / pageSize));
-  }
-  // serverTotal > 0 used to stand in for "we have a real total," but that
-  // misreads a legitimately empty result (search/filter matching 0 loans) as
-  // "total unknown," falling back to the stale hasMore flag for the Next
-  // button and dropping the "of totalPages" label on a perfectly valid,
-  // just-empty page. `filtered` is null only until the first server response
-  // lands, so checking that instead correctly treats total: 0 as known.
-  const knownTotal = !!computedPredicate || filtered !== null;
+  const rows: LoanView[] = filtered ?? [];
+  const totalPages = Math.max(1, Math.ceil(serverTotal / pageSize));
+  // `filtered` is null only until the first server response lands, so a
+  // legitimately empty result (total 0) still counts as a known total.
+  const knownTotal = filtered !== null;
   const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   return (

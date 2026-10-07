@@ -178,10 +178,6 @@ export function listLoanApprovals(loanId: number) {
   return apiRequest<LoanApproval[]>(`/loans/${loanId}/approvals`);
 }
 
-export function getLoanOperatorApprovalLimit() {
-  return apiRequest<{ maxAmount: number }>("/loans/approval-limits/loan-operator");
-}
-
 // --- Extension / release requests (backend/internal/loan/handler.go's
 // CreateExtensionRequest/CreateReleaseRequest/ListRequests/DecideRequest/
 // VerifyReleaseChecklist/ApproveReleaseRequest/CompleteRelease) -------------

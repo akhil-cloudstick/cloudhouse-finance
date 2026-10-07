@@ -7,6 +7,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { addCashToInvestment, type BackendInvestment } from "@/product/pages/investments/services/investmentService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -37,7 +38,7 @@ export function AddInvestmentCashModalContent({
   const amountNum = +amount || 0;
   const balanced = Math.abs(remaining) < 0.01;
 
-  async function save() {
+  async function save() { return singleFlight("modal:addinvestmentcash:save", async () => {
     if (amountNum <= 0) { setErr("Enter an amount greater than zero."); return; }
     if (!balanced) { setErr("The payment breakdown must add up to the amount."); return; }
     setSaving(true);
@@ -56,7 +57,7 @@ export function AddInvestmentCashModalContent({
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

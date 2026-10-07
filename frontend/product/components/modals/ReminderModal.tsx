@@ -11,6 +11,7 @@ import { DatePicker } from "@/product/components/ui/DatePicker";
 import { searchCustomersPage, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { createReminder, type ReminderView } from "@/product/pages/reminders/services/reminderService";
 import { fmtDate } from "@/product/utils/format";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 const TYPE_OPTIONS = [
   { value: "Follow-Up", label: "Customer Follow-Up" },
@@ -37,7 +38,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: { initialDate?
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
-  async function save() {
+  async function save() { return singleFlight("modal:reminder:save", async () => {
     if (!customerId) { setErr("Please select a customer."); return; }
     if (!dueDate) { setErr("Please choose a due date."); return; }
     if (!employee) { setErr("You must be signed in to log a reminder."); return; }
@@ -61,7 +62,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: { initialDate?
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

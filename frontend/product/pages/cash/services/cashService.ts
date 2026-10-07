@@ -11,6 +11,10 @@ export type BackendCashMovement = {
   // doesn't record one (loan repayments, bank-pledge cash-in, …).
   mode?: string;
   bank?: string;
+  // The linked bank's own record (backend preloads it) — its name is what the
+  // ledger's Ref No column shows for bank-backed rows.
+  bankRef?: { id: number; name: string };
+  expenseId?: number | null;
   amount: number;
   status?: string;
   branchId?: number | null;
@@ -62,6 +66,8 @@ export type CashMovementView = {
   purpose?: string;
   mode?: string;
   bank?: string;
+  bankName?: string;
+  expenseId?: number | null;
   amount: number;
   status?: string;
   branchId?: number | null;
@@ -82,6 +88,8 @@ function movementToView(m: BackendCashMovement): CashMovementView {
     purpose: m.purpose,
     mode: m.mode,
     bank: m.bank,
+    bankName: m.bankRef?.name || m.bank || undefined,
+    expenseId: m.expenseId,
     amount: m.amount,
     status: m.status,
     branchId: m.branchId,
@@ -385,6 +393,10 @@ export type CashSummary = {
   cashExpenses: number;
   expensesToday: number;
   expectedCash: number;
+  // Live balances: physical cash in hand (Cash mode) and the combined balance
+  // of every bank (UPI / Bank Transfer / Cheque) — no per-bank split.
+  cashInHand: number;
+  bankBalance: number;
   collectionsBreakdown: CashInBreakdown;
   disbursementsBreakdown: CashOutBreakdown;
 };

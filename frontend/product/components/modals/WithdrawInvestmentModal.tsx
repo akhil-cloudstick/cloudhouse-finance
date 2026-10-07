@@ -8,6 +8,7 @@ import { Select } from "@/product/components/ui/Select";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { withdrawFromInvestment, type BackendInvestment } from "@/product/pages/investments/services/investmentService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -53,7 +54,7 @@ export function WithdrawInvestmentModalContent({
   const outstandingInterest = investment.outstandingInterest;
   const outstandingPrincipal = investment.outstandingPrincipal;
 
-  async function save() {
+  async function save() { return singleFlight("modal:withdrawinvestment:save", async () => {
     if (total <= 0) { setErr("Enter an amount greater than zero."); return; }
     if (interestNum > outstandingInterest + 0.01) { setErr(`Interest amount exceeds the outstanding interest (${fmt(outstandingInterest)}).`); return; }
     if (principalNum > outstandingPrincipal + 0.01) { setErr(`Principal amount exceeds the outstanding principal (${fmt(outstandingPrincipal)}).`); return; }
@@ -75,7 +76,7 @@ export function WithdrawInvestmentModalContent({
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

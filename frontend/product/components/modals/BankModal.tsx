@@ -6,6 +6,7 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { ApiError } from "@/product/services/httpClient";
 import { createBankFull, updateBank, type BackendBank } from "@/product/pages/banks/services/bankService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 const IFSC_RE = /^[A-Za-z0-9]*$/;
 const PHONE_RE = /^\d{10}$/;
@@ -33,7 +34,7 @@ export function BankModalContent({ bank: b, onSaved }: { bank?: BackendBank; onS
     setPhone(v.replace(/\D/g, "").slice(0, 10));
   }
 
-  async function save() {
+  async function save() { return singleFlight("modal:bank:save", async () => {
     const n = name.trim();
     const p = phone.trim();
     if (n.length < 2) { setErr("Please enter a bank name (at least 2 characters)."); return; }
@@ -53,7 +54,7 @@ export function BankModalContent({ bank: b, onSaved }: { bank?: BackendBank; onS
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

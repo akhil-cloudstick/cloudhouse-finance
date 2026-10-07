@@ -193,10 +193,6 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
-	if err := loan.SeedLoanOperatorLimit(db); err != nil {
-		return err
-	}
-
 	if err := loan.MigrateRetiredSanctionStage(db); err != nil {
 		return err
 	}
@@ -454,6 +450,9 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 	if err := createCustomerPhoneUnique(db); err != nil {
+		return err
+	}
+	if err := createCustomerKYCUnique(db); err != nil {
 		return err
 	}
 
@@ -1060,6 +1059,60 @@ func createCustomerPhoneUnique(db *gorm.DB) error {
 		return nil
 	}
 	log.Printf("tenancy: created %s — customer phone is now unique per tenant", name)
+	return nil
+}
+
+// createCustomerKYCUnique makes PAN and Aadhaar unique per business, mirroring
+// createCustomerPhoneUnique: blank values are exempt (both are optional),
+// soft-deleted customers are exempt, and pre-existing duplicates skip the
+// index with a logged warning instead of stopping boot — the service-level
+// checks still reject new duplicates. Aadhaar is compared by aadhaar_hash,
+// which only customers saved after this change carry.
+func createCustomerKYCUnique(db *gorm.DB) error {
+	for _, ix := range []struct{ name, col string }{
+		{"uq_customers_tenant_pan", "pan"},
+		{"uq_customers_tenant_aadhaar", "aadhaar_hash"},
+	} {
+		var exists bool
+		if err := db.Raw(`SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = ?)`, ix.name).Scan(&exists).Error; err != nil {
+			return fmt.Errorf("inspecting index %s: %w", ix.name, err)
+		}
+		if exists {
+			continue
+		}
+		var dups []struct {
+			TenantID uint
+			Val      string
+			Codes    string
+		}
+		err := db.Raw(`
+			SELECT tenant_id, ` + ix.col + ` AS val, string_agg(code, ', ' ORDER BY id) AS codes
+			FROM customers
+			WHERE ` + ix.col + ` IS NOT NULL AND ` + ix.col + ` <> '' AND deleted_at IS NULL
+			GROUP BY tenant_id, ` + ix.col + `
+			HAVING count(*) > 1`).Scan(&dups).Error
+		if err != nil {
+			return fmt.Errorf("checking duplicate customer %s: %w", ix.col, err)
+		}
+		if len(dups) > 0 {
+			log.Printf("WARNING: %s not created — %d %s value(s) are shared by more than one customer. "+
+				"New duplicates are still rejected; fix these and restart to enforce it in the database:", ix.name, len(dups), ix.col)
+			for _, d := range dups {
+				if ix.col == "pan" {
+					log.Printf("  tenant %d, PAN %s: %s", d.TenantID, d.Val, d.Codes)
+				} else {
+					log.Printf("  tenant %d: %s", d.TenantID, d.Codes)
+				}
+			}
+			continue
+		}
+		if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ` + ix.name + `
+			ON customers (tenant_id, ` + ix.col + `) WHERE ` + ix.col + ` IS NOT NULL AND ` + ix.col + ` <> '' AND deleted_at IS NULL`).Error; err != nil {
+			log.Printf("WARNING: %s not created: %v", ix.name, err)
+			continue
+		}
+		log.Printf("tenancy: created %s — customer %s is now unique per tenant", ix.name, ix.col)
+	}
 	return nil
 }
 

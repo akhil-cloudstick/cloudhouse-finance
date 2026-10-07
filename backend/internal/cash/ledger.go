@@ -371,6 +371,19 @@ func personalLoanRef(loanNumber, reference string) string {
 	return reference
 }
 
+// personalLoanDescription is a personal-loan payment row's Particulars: the
+// staff-entered note when there is one, else the same "… — PL-00003" shape
+// every personal-loan cash movement's Purpose carries.
+func personalLoanDescription(description, loanNumber string) string {
+	if description != "" {
+		return description
+	}
+	if loanNumber == "" {
+		return "Personal Loan Payment"
+	}
+	return "Personal Loan Payment — " + loanNumber
+}
+
 // scanLoanPaymentsForLedger reads loan_payments (joined to loans/customers)
 // matching whereCol/whereArg — either "p.bank_id = ?"/bankID (bank ledger) or
 // "l.customer_id = ?"/customerID (customer ledger). whereCol is always one of
@@ -486,7 +499,7 @@ func scanPersonalLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg ui
 			Kind:           "personal_loan_payment",
 			ID:             p.ID,
 			Date:           p.PaidOn,
-			Description:    p.Description,
+			Description:    personalLoanDescription(p.Description, p.LoanNumber),
 			Type:           "Collection",
 			Method:         p.Method,
 			Reference:      personalLoanRef(p.LoanNumber, p.Reference),
@@ -926,7 +939,7 @@ func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uin
 			Kind:           "personal_loan_payment",
 			ID:             p.ID,
 			Date:           p.PaidOn,
-			Description:    p.Description,
+			Description:    personalLoanDescription(p.Description, p.LoanNumber),
 			Type:           "Collection",
 			Method:         p.Method,
 			Reference:      personalLoanRef(p.LoanNumber, p.Reference),

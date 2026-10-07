@@ -95,7 +95,10 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
   // below the heading's height cut "Good to see you again." in half. The
   // heading's right end sits well left of the edge, so ~84% clears it.
   const floor = Math.max(insets.top + (compact ? 150 : 190), heroH ? Math.ceil(heroH / 0.84) : 0);
-  const fitted = formH ? Math.max(floor, Math.min(preferred, windowHeight - formH - bodyPad)) : preferred;
+  // Not shrunk to fit the form: Login's taller form used to squeeze its hero
+  // shorter than Forgot password's. Every screen now gets the same hero
+  // height, and a form that doesn't fit beneath it scrolls (needsScroll).
+  const fitted = Math.max(floor, preferred);
   const panelHeight = keyboardOpen ? insets.top + 96 : fitted;
   const needsScroll = keyboardOpen || !formH || panelHeight + formH + bodyPad > windowHeight + 1;
 

@@ -28,6 +28,7 @@ import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
 import { Icon } from "@/product/components/Icon";
 import { routeHref } from "@/product/services/appRoutes";
 import { modeCellFor } from "@/product/pages/cash/components/ledgerCells";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Same click-paginated table pattern as personal-loans/components/
  * PersonalLoanDetail.tsx's usePagedTable + Pager. */
@@ -172,7 +173,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
     openModal(<MaturityModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />);
   }
 
-  async function handlePrintBond() {
+  async function handlePrintBond() { return singleFlight("investment:print-bond", async () => {
     if (!investment) return;
     setPrintingBond(true);
     try {
@@ -182,9 +183,9 @@ export function InvestmentDetail({ id }: { id?: string }) {
     } finally {
       setPrintingBond(false);
     }
-  }
+  }); }
 
-  async function handlePrintStatement() {
+  async function handlePrintStatement() { return singleFlight("investment:print-statement", async () => {
     if (!investment) return;
     setPrintingStatement(true);
     try {
@@ -194,7 +195,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
     } finally {
       setPrintingStatement(false);
     }
-  }
+  }); }
 
   function openAddCash() {
     if (!investment) return;

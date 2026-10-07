@@ -89,7 +89,7 @@ function rowPurity(r: OrnRow): string | null {
 }
 
 /** Search-or-create against the shared ornament_types catalog. */
-function OrnamentTypeField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function OrnamentTypeField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const canAddType = useAuth().can("Ornament_Type_Management", "can_create_ornament_type");
   const qc = useQueryClient();
   const [focused, setFocused] = useState(false);

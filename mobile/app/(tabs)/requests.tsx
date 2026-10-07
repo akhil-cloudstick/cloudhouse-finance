@@ -110,12 +110,12 @@ export default function RequestsScreen() {
     if (params.requestId) router.setParams({ requestId: undefined, loanId: undefined } as never);
   }
 
-  async function download(r: LoanRequest, lang: DocLang | "partial") {
+  async function download(r: LoanRequest, lang: DocLang) {
     if (downloading) return;
     setDownloading(`${r.id}-${lang}`);
     setListError(null);
     try {
-      if (lang === "partial") await printPartialReleaseReceiptPdf(r.id);
+      if (r.isPartial) await printPartialReleaseReceiptPdf(r.id, lang);
       else await printReleaseAgreementPdf(r.loanId, r.loan?.loanNumber ?? String(r.loanId), lang);
       setDownloadFor(null);
     } catch (err) {
@@ -142,7 +142,7 @@ export default function RequestsScreen() {
         emptyText={list.search || count ? "No requests match your search." : "No extension or release requests yet."}
         header={
           <>
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
+            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search loan no, customer, phone" style={{ paddingTop: 12, paddingBottom: 8 }} />
             <FiltersBar
               count={count}
               summary={summary}
@@ -166,7 +166,7 @@ export default function RequestsScreen() {
               : approvedRelease
                 ? [
                     { k: "Type", v: r.isPartial ? "Partial release" : "Full release" },
-                    { k: "Document", v: r.isPartial ? "Receipt (EN)" : RELEASE_AGREEMENT_LANGS.map((l) => l.toUpperCase()).join(" / ") },
+                    { k: "Document", v: `${r.isPartial ? "Receipt" : "Agreement"} (${RELEASE_AGREEMENT_LANGS.map((l) => l.toUpperCase()).join(" / ")})` },
                   ]
                 : [
                     { k: "Type", v: r.isPartial ? "Partial release" : "Full release" },
@@ -187,7 +187,7 @@ export default function RequestsScreen() {
                         label: downloading?.startsWith(`${r.id}-`) ? "Preparing…" : "Download",
                         primary: true,
                         disabled: downloading !== null,
-                        onPress: () => (r.isPartial ? download(r, "partial") : setDownloadFor(r)),
+                        onPress: () => setDownloadFor(r),
                       },
                       { label: "View", onPress: () => setSelectedId(r.id) },
                     ]
@@ -215,7 +215,7 @@ export default function RequestsScreen() {
         />
       </Sheet>
 
-      <Sheet visible={!!downloadFor} onClose={() => setDownloadFor(null)} title="Release Agreement" maxHeightPct={50}>
+      <Sheet visible={!!downloadFor} onClose={() => setDownloadFor(null)} title={downloadFor?.isPartial ? "Partial Release Receipt" : "Release Agreement"} maxHeightPct={50}>
         {downloadFor
           ? RELEASE_AGREEMENT_LANGS.map((lang, i) => (
               <SheetListItem
@@ -223,7 +223,7 @@ export default function RequestsScreen() {
                 first={i === 0}
                 icon="doc"
                 title={DOC_LANG_LABELS[lang]}
-                sub={`${downloadFor.loan?.loanNumber ?? `#${downloadFor.loanId}`} · release agreement`}
+                sub={`${downloadFor.loan?.loanNumber ?? `#${downloadFor.loanId}`} · ${downloadFor.isPartial ? "partial release receipt" : "release agreement"}`}
                 right={downloading === `${downloadFor.id}-${lang}` ? <Buffering style={{ paddingVertical: 0 }} /> : undefined}
                 onPress={() => download(downloadFor, lang)}
               />

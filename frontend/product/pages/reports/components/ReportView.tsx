@@ -11,6 +11,7 @@ import { listActiveBranches, type BranchView } from "@/product/pages/branches/se
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { exportReport, type ReportFilters, type ReportKey, type ReportResult } from "@/product/pages/reports/services/reportsService";
 import { useResponsivePageSize } from "@/product/utils/responsive";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 export type ReportColumn<Row> = {
   key: string;
@@ -121,7 +122,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
     return { items, hasMore: false };
   }
 
-  async function handleExport(format: "xlsx" | "pdf") {
+  async function handleExport(format: "xlsx" | "pdf") { return singleFlight("reports:view-export:"+format, async () => {
     setExporting(format);
     try {
       await exportReport(config.exportKey, format, filters);
@@ -130,7 +131,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
     } finally {
       setExporting(null);
     }
-  }
+  }); }
 
   const rows = result?.rows ?? [];
   const totalCount = result?.totalCount ?? 0;
@@ -139,21 +140,24 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
 
   return (
     <>
-      <div className="page-h">
-        <div>
+      <div className="page-h page-h-stack">
+        <div className="page-h-title">
           <button className="btn plain sm" style={{ marginBottom: 6 }} onClick={onBack}>
             ← Back to Reports
           </button>
           <h1>{config.title}</h1>
           <p>{config.description}</p>
         </div>
-        <div className="sp" />
-        <button className="btn ghost" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-          <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
-        </button>
-        <button className="btn" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-          <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
-        </button>
+        {/* align-self:flex-end keeps the buttons level with the title block's
+         * bottom edge, as they were when they were bare siblings of .page-h. */}
+        <div className="page-h-actions" style={{ alignSelf: "flex-end" }}>
+          <button className="btn ghost" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
+            <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
+          </button>
+          <button className="btn" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
+            <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
+          </button>
+        </div>
       </div>
       <hr className="gold-rule" />
 

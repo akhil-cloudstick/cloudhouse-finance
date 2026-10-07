@@ -5,6 +5,7 @@ import { addOrnament, deleteOrnament, updateLoan, updateOrnament, type OrnamentR
 import { listSchemes } from "../../../api/schemes";
 import type { Loan, Ornament } from "../../../types/loan";
 import type { Scheme } from "../../../types/scheme";
+import { OrnamentTypeField } from "../CreateLoanSheet";
 import { ErrorText, apiErr, invalidateLoan } from "./common";
 
 type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean };
@@ -107,7 +108,7 @@ export function EditLoanSheet({ loan: l, visible, onClose }: { loan: Loan; visib
       {rows.map((r, i) =>
         r.removed ? null : (
           <OrnamentCard key={r.id ?? `new-${i}`} title={r.name.trim() || `Ornament ${i + 1}`} onRemove={() => upd(i, { removed: true })}>
-            <TextField label="Name" value={r.name} onChangeText={(v) => upd(i, { name: v })} />
+            <OrnamentTypeField value={r.name} onChange={(v) => upd(i, { name: v })} />
             <FieldRow>
               <Field label="Purity">
                 <ThemeDropdown value={r.purity} options={PURITIES.includes(r.purity) ? PURITIES : [r.purity, ...PURITIES]} onChange={(v) => upd(i, { purity: v })} labelOf={(p) => p} />

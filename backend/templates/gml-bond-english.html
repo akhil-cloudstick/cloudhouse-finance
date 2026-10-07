@@ -56,6 +56,7 @@ Residing at :- <b>{{.LenderAddress}}</b>
 </li>
 <li><b>Interpretation clause</b><br>It is hereby agreed that wherever such an interpretation would be requisite in order to give the fullest scope and effect legally possible to any covenant herein contained, the expression &quot;the borrower&quot; and &quot;the lender&quot; hereinbefore used include their respective heirs, executors, administrators, and assigns.</li>
 </ol>
+<div class="deed-end">
 <p><b>The Schedule herein referred to</b></p>
 <table>
 <thead><tr><th>Sr. no</th><th>Description of the Article</th><th>Carat</th><th class="num">Gross Weight</th><th class="num">Net Weight</th><th class="num">Estimated Value</th></tr></thead>
@@ -77,20 +78,21 @@ Residing at :- <b>{{.LenderAddress}}</b>
 <p>Place :- {{.Blank}}</p>
 <p>Date :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
 
-<div class="sig-page" style="break-inside:avoid">
+<div class="sig-bottom">
 <p><b>IN WITNESS WHEREOF Etc.</b></p>
 <div class="sig">
 <div><span>Name: {{.Blank}}<br>Residing at</span></div>
 <div><span>Name: {{.Blank}}<br>Residing at</span></div>
 </div>
 {{/* The Borrower/Lender signature row is deliberately the LAST thing in
-     this page-bottom-pinned block (.sig-page{justify-content:flex-end} —
-     see that class's comment) — Setu's Aadhaar eSign stamp targets
+     this page-bottom-pinned block (.deed-end .sig-bottom{margin-top:auto} —
+     see that class's comment) — the Aadhaar eSign stamp targets
      "bottom-right of the last page", which is whatever sits at the very
      bottom, not a specific line. */}}
 <div class="sig">
-<div>The Borrower<span>Name: {{.CustomerName}}</span></div>
+<div>The Borrower<span class="esign-slot" data-esign-dx="80" data-esign-dy="-50">Name: {{.CustomerName}}</span></div>
 <div>The Lender{{with .LenderSignature}}<div class="lender-sig">{{.}}</div>{{end}}<span>{{.LenderName}}</span></div>
+</div>
 </div>
 </div>
 </body></html>

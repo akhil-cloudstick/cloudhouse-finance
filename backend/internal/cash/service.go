@@ -1462,6 +1462,13 @@ type Summary struct {
 	ExpensesToday float64 `json:"expensesToday"`
 	ExpectedCash  float64 `json:"expectedCash"`
 
+	// BankBalance is the live, all-time balance across every bank account
+	// combined (UPI / Bank Transfer / Cheque modes); CashInHand is the live
+	// physical cash only (Mode Cash, or no Mode). Both are "as of now",
+	// independent of the requested day — see SummaryService.liveBalances.
+	BankBalance float64 `json:"bankBalance"`
+	CashInHand  float64 `json:"cashInHand"`
+
 	// CollectionsBreakdown/DisbursementsBreakdown split Collections/
 	// Disbursements above into the sources that actually feed them (see
 	// MovementRepository.SumBreakdownByDate) — real numbers for the
@@ -1597,7 +1604,13 @@ func (s *SummaryService) GetExpectedCash(ctx context.Context, branchID *uint, da
 	if err != nil {
 		return Summary{}, err
 	}
+	cashInHand, bankBalance, err := s.liveBalances(ctx, branchID)
+	if err != nil {
+		return Summary{}, err
+	}
 	return Summary{
+		BankBalance:            bankBalance,
+		CashInHand:             cashInHand,
 		OpeningCash:            opening,
 		OpeningCashSet:         openingSet,
 		Collections:            in,
@@ -1608,6 +1621,97 @@ func (s *SummaryService) GetExpectedCash(ctx context.Context, branchID *uint, da
 		CollectionsBreakdown:   inBreakdown,
 		DisbursementsBreakdown: outBreakdown,
 	}, nil
+}
+
+// liveBalances returns the branch's (nil = all branches) cash in hand and
+// total bank balance as of now, from the movements model:
+//
+//	cashInHand  = Cash opening seed + Σ cash-side movements − approved Cash expenses
+//	bankBalance = Σ bank opening rows + Σ bank-side movements − approved bank expenses
+//
+// Cash side = Mode Cash or no Mode; bank side = UPI/Bank Transfer/Cheque, so
+// each movement hits exactly one figure. Movements with expense_id are left
+// out (the expenses table is summed instead); bank-to-bank transfers
+// (to_bank_id set) are skipped as they net to zero across all banks.
+func (s *SummaryService) liveBalances(ctx context.Context, branchID *uint) (cashInHand, bankBalance float64, err error) {
+	today := startOfDay(time.Now())
+	to := today.AddDate(0, 0, 1)
+
+	// net of one scope: movements less expenses.
+	net := func(sc BalanceScope) (float64, error) {
+		sc.To = to
+		m, err := s.movementRepo.NetByScope(ctx, sc)
+		if err != nil {
+			return 0, err
+		}
+		e, err := s.expenseRepo.SumByScope(ctx, sc)
+		if err != nil {
+			return 0, err
+		}
+		return m - e, nil
+	}
+
+	// Cash: seeded branches roll forward from their latest Cash opening;
+	// everything else (and branch-less movements) from the beginning.
+	var seeded []uint
+	if branchID == nil {
+		if seeded, err = s.openingSvc.repo.CashSeedBranchIDs(ctx, today); err != nil {
+			return 0, 0, err
+		}
+	} else {
+		seeded = []uint{*branchID}
+	}
+	for _, id := range seeded {
+		id := id
+		sc := BalanceScope{BranchID: &id}
+		rec, ferr := s.openingSvc.repo.FindLatestCashOnOrBefore(ctx, id, today)
+		switch {
+		case ferr == nil:
+			cashInHand += rec.Amount
+			sc.From = startOfDay(rec.BalanceDate)
+		case !errors.Is(ferr, gorm.ErrRecordNotFound):
+			return 0, 0, ferr
+		}
+		v, nerr := net(sc)
+		if nerr != nil {
+			return 0, 0, nerr
+		}
+		cashInHand += v
+	}
+	if branchID == nil {
+		v, nerr := net(BalanceScope{ExcludeBranches: seeded})
+		if nerr != nil {
+			return 0, 0, nerr
+		}
+		cashInHand += v
+	}
+
+	// Bank: each (branch, bank, mode) opening row rolls forward from its date;
+	// movements on accounts with no opening row count from the beginning.
+	openings, err := s.openingSvc.repo.LatestBankOpenings(ctx, branchID, today)
+	if err != nil {
+		return 0, 0, err
+	}
+	bankBalance, err = net(BalanceScope{Bank: true, BranchID: branchID})
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, o := range openings {
+		o := o
+		base := BalanceScope{Bank: true, BranchID: &o.BranchID, BankID: o.BankID, Mode: o.Mode}
+		all, nerr := net(base)
+		if nerr != nil {
+			return 0, 0, nerr
+		}
+		base.From = startOfDay(o.BalanceDate)
+		since, nerr := net(base)
+		if nerr != nil {
+			return 0, 0, nerr
+		}
+		// swap the account's all-time net for opening + net since its date.
+		bankBalance += o.Amount + since - all
+	}
+	return cashInHand, bankBalance, nil
 }
 
 // RecordGoldSaleInput mirrors the fields supplied by the "Gold Sale" form on

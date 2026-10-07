@@ -14,6 +14,7 @@ import {
   exportFormG, getFormG,
   type FormGOverrides, type FormGStatement, type ReportFilters,
 } from "@/product/pages/reports/services/reportsService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 const ALL_BRANCHES: BranchView = { id: 0, name: "All branches", code: "", address: "", phone: "", isActive: true };
 
@@ -87,7 +88,7 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
     return { items, hasMore: false };
   }
 
-  async function handleExport(format: "xlsx" | "pdf") {
+  async function handleExport(format: "xlsx" | "pdf") { return singleFlight("reports:formg-export:"+format, async () => {
     setExporting(format);
     try {
       await exportFormG(format, filters, overrides);
@@ -96,7 +97,7 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
     } finally {
       setExporting(null);
     }
-  }
+  }); }
 
   function setOverride(key: keyof FormGOverrides, value: string) {
     const n = value === "" ? undefined : Number(value);

@@ -145,7 +145,7 @@ export function Calendar() {
 
   return (
     <>
-      <div className="page-h">
+      <div className="page-h page-h-stack">
         {/* .page-h-title (flex:1;min-width:0) lets this block shrink and
          * wrap its subtitle instead of holding its full natural width and
          * forcing .page-h-actions below it — the same pattern LoanDetail

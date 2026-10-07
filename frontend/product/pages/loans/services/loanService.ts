@@ -644,6 +644,9 @@ export async function checkIndemnityBondEsign(loanId: number): Promise<Indemnity
 export type LoanFilters = {
   q?: string;
   status?: string;
+  // Read-time classes (not stored statuses): the Loans page's Due Soon / Overdue /
+  // Defaulted tabs. Replaces `status` on the server.
+  servicing?: "due_soon" | "overdue" | "defaulted";
   branchId?: number;
   customerId?: number;
   bankPledgeStatus?: string;
@@ -686,6 +689,7 @@ export async function listLoansPage(
   });
   if (filters.q) params.set("q", filters.q);
   if (filters.status) params.set("status", filters.status);
+  if (filters.servicing) params.set("servicing", filters.servicing);
   if (filters.branchId) params.set("branchId", String(filters.branchId));
   if (filters.customerId) params.set("customerId", String(filters.customerId));
   if (filters.bankPledgeStatus) params.set("bankPledgeStatus", filters.bankPledgeStatus);
@@ -878,25 +882,6 @@ export async function updateLoan(loanId: number, input: UpdateLoanInput): Promis
  * Service.HardDeleteLoan's own doc comment for the full cascade. */
 export async function hardDeleteLoan(loanId: number): Promise<void> {
   await apiFetch<unknown>(`/loans/${loanId}/hard-delete`, { method: "DELETE" });
-}
-
-/* The Loan Operator's approval limit (see
- * backend/internal/loan/approval_limit.go). Now advisory only: the operator
- * stage is a verification, and the Branch Manager/Management sanction every
- * loan regardless of amount, so nothing is blocked by this figure — it
- * feeds the reviewer-facing warning. Editable from the Employees page's
- * "Roles" panel. */
-export type ApprovalLimitView = { role: string; maxAmount: number };
-
-export async function getLoanOperatorApprovalLimit(): Promise<ApprovalLimitView> {
-  return apiFetch<ApprovalLimitView>("/loans/approval-limits/loan-operator");
-}
-
-export async function setLoanOperatorApprovalLimit(maxAmount: number): Promise<ApprovalLimitView> {
-  return apiFetch<ApprovalLimitView>("/loans/approval-limits/loan-operator", {
-    method: "PUT",
-    body: JSON.stringify({ maxAmount }),
-  });
 }
 
 // employeeId is NOT sent — the backend derives the receiving employee's
@@ -1461,7 +1446,9 @@ export type LoanLedgerEntry =
   | (LedgerEntryBase & { kind: "topup"; balance: number; row: LoanTopUpView })
   | (LedgerEntryBase & { kind: "auction-sale"; balance: null; row: AuctionRecordView })
   | (LedgerEntryBase & { kind: "auction-surplus"; balance: null; row: AuctionRecordView });
-export type LoanLedgerPage = { items: LoanLedgerEntry[]; total: number; limit: number; offset: number };
+// totalDebit/totalCredit sum the Debit/Credit columns over every row in the
+// filtered range, not just this page — the footer's Total row.
+export type LoanLedgerPage = { items: LoanLedgerEntry[]; total: number; limit: number; offset: number; totalDebit: number; totalCredit: number };
 export type LoanLedgerQuery = {
   from?: string;
   to?: string;
@@ -1509,10 +1496,10 @@ export async function getLoanLedger(loanId: number, q: LoanLedgerQuery): Promise
   if (q.focusKey) params.set("focusKey", q.focusKey);
   if (q.focusDate) params.set("focusDate", q.focusDate);
   if (q.focusAmount !== undefined) params.set("focusAmount", String(q.focusAmount));
-  const rec = await apiFetch<{ items: BackendLoanLedgerEntry[] | null; total: number; limit?: number; offset?: number }>(`/loans/${loanId}/ledger?${params}`);
+  const rec = await apiFetch<{ items: BackendLoanLedgerEntry[] | null; total: number; limit?: number; offset?: number; totalDebit?: number; totalCredit?: number }>(`/loans/${loanId}/ledger?${params}`);
   // limit/offset echo the page the server actually served (it may jump to a
   // focused row); fall back to the requested one if they're absent.
-  return { items: (rec.items || []).map(toLedgerEntry), total: rec.total ?? 0, limit: rec.limit ?? q.limit, offset: rec.offset ?? q.offset };
+  return { items: (rec.items || []).map(toLedgerEntry), total: rec.total ?? 0, limit: rec.limit ?? q.limit, offset: rec.offset ?? q.offset, totalDebit: rec.totalDebit ?? 0, totalCredit: rec.totalCredit ?? 0 };
 }
 
 /* listConcludedAuctions backs the Auctions page's History tab — finished cases
@@ -1700,7 +1687,14 @@ function toRequestView(r: BackendLoanRequest): RequestView {
   };
 }
 
-export type LoanRequestFilters = { status?: string; loanId?: number };
+export type LoanRequestFilters = {
+  status?: string;
+  loanId?: number;
+  /* "extension" | "release" — server-side, matches LoanRequest.Type. */
+  type?: string;
+  /* Server-side search: loan number, customer name / code / phone. */
+  q?: string;
+};
 
 export async function listLoanRequests(filters?: LoanRequestFilters): Promise<RequestView[]> {
   const params = new URLSearchParams();
@@ -1727,6 +1721,8 @@ export async function listLoanRequestsPage(
   });
   if (filters?.status) params.set("status", filters.status);
   if (filters?.loanId) params.set("loanId", String(filters.loanId));
+  if (filters?.type) params.set("type", filters.type);
+  if (filters?.q) params.set("q", filters.q);
   const rec = await apiFetch<{ items: BackendLoanRequest[]; hasMore: boolean; total?: number }>(`/loans/requests?${params}`);
   return { items: (rec?.items || []).map(toRequestView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -2044,10 +2040,10 @@ export async function downloadIndemnityBondPDF(loanNumericId: number, lang: Bond
  * the request rather than the loan (the receipt lists only the ornaments
  * released BY THIS REQUEST). Only valid for a Release request with
  * isPartial true — see DownloadPartialReleaseReceiptPDF's own doc comment. */
-export async function downloadPartialReleaseReceiptPDF(requestId: number): Promise<void> {
+export async function downloadPartialReleaseReceiptPDF(requestId: number, lang: "en" | "ml" = "en"): Promise<void> {
   return printPdfJob(async () => {
     const token = getAuthToken();
-    const res = await fetch(`${API_BASE}/loans/requests/${requestId}/partial-release-receipt/pdf`, {
+    const res = await fetch(`${API_BASE}/loans/requests/${requestId}/partial-release-receipt/pdf?lang=${lang}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {

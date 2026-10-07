@@ -169,10 +169,21 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
         if (cancelled) return;
         setCustId(c.id);
         setCustLabel(`${c.name} (${c.code})`);
+        applyCustomerBranch(c);
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [customerId]);
+  // Picking a customer fills the Branch with theirs. Only for roles that may
+  // choose a branch — everyone else is pinned to their own by the backend.
+  function applyCustomerBranch(c: { branchId: number; branchName: string }) {
+    if (!isCrossBranch || singleBranch || !c.branchId) return;
+    setBranchId((cur) => {
+      if (cur !== c.branchId) { setLockerId(""); setLockerLabel(""); }
+      return c.branchId;
+    });
+    setBranchLabel(c.branchName);
+  }
   const [schemeId, setSchemeId] = useState("");
   // The scheme picker searches GET /schemes/active live on every keystroke,
   // while `schemes` (useSchemes()) is a snapshot fetched once on app load —
@@ -735,7 +746,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
             <div><label className="f">Customer</label>
               <SearchableSelect<CustomerView>
                 value={custLabel}
-                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} (${item.code})`); }}
+                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} (${item.code})`); applyCustomerBranch(item); }}
                 fetchFn={searchCustomersPage}
                 searchHint="Searches: customer name, customer code, phone"
                 getLabel={(c) => `${c.name} (${c.code})`}
