@@ -39,6 +39,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: cloudhousewild_frontend
+    profiles: ["manual-build"]
     mem_limit: 2048m
     volumes:
       - cloudhousewild_frontend_out:/shared-out
@@ -81,8 +82,6 @@ services:
     depends_on:
       cloudhousewild_db:
         condition: service_healthy
-      cloudhousewild_frontend:
-        condition: service_completed_successfully
       cloudhousewild_migrate:
         condition: service_completed_successfully
     ports:
@@ -90,7 +89,8 @@ services:
       # but on 6790, not golddemo's 6789, since both run simultaneously.
       - "127.0.0.1:6790:6789"
     volumes:
-      - cloudhousewild_frontend_out:/app/frontend/out:ro
+      - ./deploy/frontend-out:/app/frontend/out:ro
+      - ./deploy/server:/app/server:ro
       - cloudhousewild_uploads:/app/uploads
     networks:
       - cloudhousewild_network
