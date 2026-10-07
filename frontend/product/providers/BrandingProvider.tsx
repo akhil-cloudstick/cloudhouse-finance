@@ -6,7 +6,8 @@ import { cacheBrandProfile, readCachedBrandIdentity } from "@/product/config/bra
 import {
   applyBrandTheme,
   applyDocumentTitle,
-  applyFavicon,
+  applyBrandFavicon,
+  applyCachedFavicon,
   cacheBrandLogo,
   cacheBrandTheme,
   cacheDocumentTitle,
@@ -190,7 +191,10 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setState(seed.state);
     setCached(true);
-    applyFavicon(seed.state.logoUrl);
+    /* The cached GENERATED icon, not the raw logo — see applyBrandFavicon.
+     * Rebuilding here would use FALLBACK's colour, since the seed carries no
+     * theme; the fetch below rebuilds if anything actually changed. */
+    applyCachedFavicon(activeBusinessSlug());
   }, []);
 
   /* The tab text, in ONE place, re-applied whenever the answer could change.
@@ -257,7 +261,11 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         };
         applyBrandTheme(theme);
         cacheBrandTheme(slug, theme);
-        applyFavicon(next.logoUrl);
+        void applyBrandFavicon(slug, {
+          logoUrl: next.logoUrl,
+          brandColor: next.brandColor,
+          name: next.shortName || next.name,
+        });
         cacheBrandLogo(slug, next.logoUrl);
         /* Only CACHE here — applying is the title effect's job, driven off
          * state.shortName, which setState above has just changed. Applying at
@@ -311,7 +319,11 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
       };
       applyBrandTheme(theme);
       cacheBrandTheme(slug, theme);
-      applyFavicon(pub.logoUrl);
+      void applyBrandFavicon(slug, {
+        logoUrl: pub.logoUrl || "",
+        brandColor: pub.brandColor || DEFAULT_BRAND_COLOR,
+        name: pub.shortName || pub.name || "",
+      });
       cacheBrandLogo(slug, pub.logoUrl);
       // Cache only — see the note on the authenticated branch above.
       cacheDocumentTitle(slug, pub.shortName || pub.name);

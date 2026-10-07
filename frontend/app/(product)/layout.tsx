@@ -48,18 +48,16 @@ const montserrat = localFont({
  * its own identity — showing the vendor's, or any other tenant's, even for a
  * few hundred milliseconds is not allowed.
  *
- * So the baked values are neutral: a "Loading…" tab and an empty icon. The
- * business's real name and logo are installed before the first paint by
- * app/brand-preload.tsx from the per-slug cache, and again by applyFavicon /
- * applyDocumentTitle once branding loads. Only a browser that has never seen
- * this business before sees the neutral pair, and only until the first
- * response arrives.
+ * So the baked title is neutral ("Loading…"), and there is NO baked icon at
+ * all — deliberately no `icons` here. A metadata icon is a React-owned
+ * <link rel="icon"> that can commit after the business's own icon link and
+ * win, since browsers use the last icon in tree order; that race left tabs
+ * randomly blank. Instead app/brand-preload.tsx inserts the single icon link
+ * before first paint (the cached business icon, or /blank-icon.svg), and
+ * applyBrandFavicon / applyDocumentTitle replace both once branding loads.
  */
 export const metadata: Metadata = {
   title: NEUTRAL_DOCUMENT_TITLE,
-  icons: {
-    icon: "/blank-icon.svg",
-  },
 };
 
 // Without this, mobile browsers render at a default ~980px desktop-width

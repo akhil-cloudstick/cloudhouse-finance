@@ -1,5 +1,6 @@
 import {
   BRAND_COLOR_KEY_PREFIX,
+  BRAND_FAVICON_KEY_PREFIX,
   BRAND_LOGO_KEY_PREFIX,
   BRAND_TITLE_KEY_PREFIX,
   DEFAULT_BRAND_COLOR,
@@ -45,7 +46,8 @@ const script = `
       : (localStorage.getItem("cloudhouse_active_business") || "default");
     var hex = localStorage.getItem(${JSON.stringify(BRAND_COLOR_KEY_PREFIX)} + slug) || ${JSON.stringify(DEFAULT_BRAND_COLOR)};
     var m = /^#?([0-9a-f]{6})$/i.exec(hex);
-    if (!m) return;
+    // Not a bare return: the tab icon below must still be installed.
+    if (m) {
     var n = parseInt(m[1], 16);
     function lin(v) { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
     var r = lin((n >> 16) & 255), g = lin((n >> 8) & 255), b = lin(n & 255);
@@ -63,6 +65,7 @@ const script = `
       document.documentElement.style.setProperty(steps[i][0],
         "oklch(" + steps[i][1] + " " + c.toFixed(3) + " " + H.toFixed(1) + ")");
     }
+    }
     // The browser tab TEXT — same problem, same fix: a static export bakes
     // one title for every business at build time (see app/layout.tsx's
     // Metadata), so without this it shows the platform name until
@@ -71,25 +74,28 @@ const script = `
     // the colour above.
     var title = localStorage.getItem(${JSON.stringify(BRAND_TITLE_KEY_PREFIX)} + slug);
     if (title) document.title = title;
-    // The tab ICON, same problem once more. app/layout.tsx now ships a
-    // deliberately blank icon rather than the platform mark — a business must
-    // never see another brand, not even for one frame — so the worst case
-    // here is a blank tab icon for a moment instead of the wrong one.
-    //
-    // Appended as a fresh <link> at the end of <head>, for the reason
-    // applyFavicon's own comment gives: several browsers only re-fetch a
-    // favicon on element insertion, never on an href change. The baked-in
-    // metadata icon is left in place — React owns it, and removing it crashes
-    // React later (see applyFavicon); the last icon in tree order wins anyway.
-    var logo = localStorage.getItem(${JSON.stringify(BRAND_LOGO_KEY_PREFIX)} + slug);
-    if (logo) {
-      var el = document.createElement("link");
-      el.rel = "icon";
-      el.href = logo;
-      el.setAttribute("data-brand-icon", "");
-      document.head.appendChild(el);
-    }
   } catch (e) { /* storage blocked or malformed value — keep the default theme */ }
+  // The tab ICON, same problem once more. app/layout.tsx deliberately ships
+  // NO icon in its metadata — a React-owned icon link could commit after
+  // ours and win (browsers use the last icon in tree order), which is what
+  // left some tabs randomly blank. So this script inserts the ONE icon link,
+  // always, and applyFavicon (product/config/theme.ts) replaces it later.
+  //
+  // Preference: the normalised icon BrandingProvider generated and cached
+  // (see applyBrandFavicon), then the raw logo URL an older cache may hold,
+  // then a blank square — a business must never see another brand, not even
+  // for one frame. Outside the try above so a storage failure still gets the
+  // blank link rather than letting the browser fall back to /favicon.ico.
+  var icon = "";
+  try {
+    var fav = JSON.parse(localStorage.getItem(${JSON.stringify(BRAND_FAVICON_KEY_PREFIX)} + slug) || "null");
+    icon = (fav && typeof fav.icon === "string" && fav.icon) || localStorage.getItem(${JSON.stringify(BRAND_LOGO_KEY_PREFIX)} + slug) || "";
+  } catch (e) { /* storage blocked or malformed value */ }
+  var el = document.createElement("link");
+  el.rel = "icon";
+  el.href = icon || "/blank-icon.svg";
+  el.setAttribute("data-brand-icon", "");
+  document.head.appendChild(el);
 })();
 `;
 
