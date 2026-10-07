@@ -13,6 +13,8 @@ import (
 // resource key, per the permission plan).
 func RegisterMovementRoutes(rg *gin.RouterGroup, h *MovementHandler, perms platform.CRUDMiddlewares, branchLedger gin.HandlerFunc) {
 	rg.POST("", perms.Create, h.Record)
+	// Bank-to-bank self transfer: a debit + a credit row (see RecordSelfTransfer).
+	rg.POST("/self-transfer", perms.Create, h.RecordSelfTransfer)
 	rg.GET("", perms.Read, h.List)
 	rg.GET("/export", perms.Read, perms.Export, h.Export)
 	// Party Transactions drill-down — reuses the same can_view_cash
@@ -86,4 +88,12 @@ func RegisterGoldSaleRoutes(rg *gin.RouterGroup, h *GoldSaleHandler, perms platf
 	rg.POST("", perms.Create, h.Record)
 	rg.GET("", perms.Read, h.List)
 	rg.GET("/:id", perms.Read, h.Get)
+}
+
+// RegisterCategoryRoutes mounts the unified category list under the given
+// group (expected to be r.Group(ctx, "/api/v1/categories")) — backs the Self
+// Transfer picker, and any form that wants a category of a given type.
+func RegisterCategoryRoutes(rg *gin.RouterGroup, h *CategoryHandler, perms platform.CRUDMiddlewares) {
+	rg.GET("", perms.Read, h.List)
+	rg.POST("", perms.Create, h.Create)
 }

@@ -15,6 +15,7 @@ export type BackendCashMovement = {
   // ledger's Ref No column shows for bank-backed rows.
   bankRef?: { id: number; name: string };
   expenseId?: number | null;
+  receiptImage?: string; // bill attached to this entry (/uploads/... URL)
   amount: number;
   status?: string;
   branchId?: number | null;
@@ -31,6 +32,9 @@ export type BackendCashMovement = {
   // toBankId is the destination account for a bank-to-bank transfer — see
   // backend/internal/cash/model.go's CashMovement.ToBankID.
   toBankId?: number | null;
+  // The other bank of a self transfer (see backend CashMovement.CounterBankID).
+  counterBankId?: number | null;
+  counterBankRef?: { id: number; name: string };
   partyCustomerId?: number | null;
   // loanSource is only present when source is "Loan" — see
   // backend/internal/cash/model.go's LoanCashSource.
@@ -68,6 +72,7 @@ export type CashMovementView = {
   bank?: string;
   bankName?: string;
   expenseId?: number | null;
+  receiptImage?: string;
   amount: number;
   status?: string;
   branchId?: number | null;
@@ -75,6 +80,8 @@ export type CashMovementView = {
   transactionGroupId?: string;
   bankId?: number | null;
   toBankId?: number | null;
+  counterBankId?: number | null;
+  counterBankName?: string;
   partyCustomerId?: number | null;
   loanSource?: BackendLoanCashSource;
 };
@@ -90,6 +97,7 @@ function movementToView(m: BackendCashMovement): CashMovementView {
     bank: m.bank,
     bankName: m.bankRef?.name || m.bank || undefined,
     expenseId: m.expenseId,
+    receiptImage: m.receiptImage,
     amount: m.amount,
     status: m.status,
     branchId: m.branchId,
@@ -97,6 +105,8 @@ function movementToView(m: BackendCashMovement): CashMovementView {
     transactionGroupId: m.transactionGroupId,
     bankId: m.bankId,
     toBankId: m.toBankId,
+    counterBankId: m.counterBankId,
+    counterBankName: m.counterBankRef?.name,
     partyCustomerId: m.partyCustomerId,
     loanSource: m.loanSource,
   };
@@ -114,6 +124,7 @@ export type CashMovementInput = {
   branchId?: number;
   occurredOn?: string; // "YYYY-MM-DD"
   loanSource?: LoanSourceInput;
+  receiptImage?: string; // bill — /uploads/... URL, from uploadReceipt()
 };
 
 export async function listCashMovements(): Promise<CashMovementView[]> {
@@ -226,6 +237,31 @@ export async function createCashMovement(input: CashMovementInput): Promise<Cash
   return movementToView(rec);
 }
 
+/* Bank-to-bank self transfer — the backend writes a debit row on the from
+ * bank and a credit row on the to bank (see POST /cash-movements/self-transfer).
+ * When `category` is a loan source the backend forces the to bank to the
+ * loan's own bank, so toBankId is not needed then. */
+export type SelfTransferInput = {
+  category: string;
+  amount: number;
+  fromBankId: number;
+  fromBank: string;
+  toBankId?: number;
+  toBank?: string;
+  // How the money moved — shown on both rows. "Bank Transfer" when omitted.
+  mode?: string;
+  receiptImage?: string; // bill — /uploads/... URL
+  branchId?: number;
+  occurredOn: string;
+};
+
+export async function createSelfTransfer(input: SelfTransferInput): Promise<void> {
+  await apiFetch<BackendCashMovement[]>("/cash-movements/self-transfer", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function setCashMovementLoanStatus(id: number, status: "Open" | "Closed"): Promise<CashMovementView> {
   const rec = await apiFetch<BackendCashMovement>(`/cash-movements/${id}/status`, {
     method: "PATCH",
@@ -300,7 +336,7 @@ export type ExpenseFormInput = {
   category: string;
   amount: number;
   mode: string;
-  payee: string;
+  payee?: string; // legacy — the form no longer asks for a description
   fromBankId?: number;
   toBankId?: number;
   branchId: number;
@@ -476,6 +512,7 @@ export type GoldSaleInput = {
   bankId?: number;
   soldOn?: string; // "YYYY-MM-DD"
   remarks?: string;
+  receiptImage?: string; // bill — /uploads/... URL
 };
 
 export const GOLD_SALES_PAGE_SIZE = 8;
@@ -568,6 +605,7 @@ export type LedgerRowView = {
   bankName?: string;
   customerId?: number;
   customerName?: string;
+  receiptImage?: string; // bill attached to the entry behind this row
 };
 
 export type BackendLedgerRow = {
@@ -584,6 +622,7 @@ export type BackendLedgerRow = {
   bankName?: string;
   customerId?: number;
   customerName?: string;
+  receiptImage?: string;
 };
 
 export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
@@ -601,6 +640,7 @@ export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
     bankName: r.bankName,
     customerId: r.customerId,
     customerName: r.customerName,
+    receiptImage: r.receiptImage,
   };
 }
 

@@ -157,3 +157,58 @@ func nullFill(col string) string {
 		return "0"
 	}
 }
+
+// MigrateCategories folds the legacy cash_sources and expense_categories
+// tables into the unified categories table. Runs AFTER AutoMigrate (which
+// creates categories) and only while categories is still empty, so it is a
+// one-time, idempotent copy: cash sources become type cash_in, expense
+// categories become type expense, a name present in both (a loan's repayment
+// category, or any name staff added twice) becomes one common row, and every
+// loan with its details on file is common. The legacy tables are left in
+// place, untouched and no longer read.
+func MigrateCategories(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable("categories") || (!m.HasTable("cash_sources") && !m.HasTable("expense_categories")) {
+		return nil
+	}
+	var existing int64
+	if err := db.Raw(`SELECT COUNT(*) FROM categories`).Scan(&existing).Error; err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if m.HasTable("cash_sources") {
+			if err := tx.Exec(`
+				INSERT INTO categories (tenant_id, type, name, is_common, bank_id, loan_number, principal_amount, loan_opened_at, created_at)
+				SELECT DISTINCT ON (tenant_id, lower(name))
+					tenant_id, 'cash_in', name, (principal_amount IS NOT NULL), bank_id, loan_number, principal_amount, loan_opened_at, created_at
+				FROM cash_sources
+				ORDER BY tenant_id, lower(name), (principal_amount IS NULL), id`).Error; err != nil {
+				return err
+			}
+		}
+		if m.HasTable("expense_categories") {
+			// Already a cash-in source → shown on every form.
+			if err := tx.Exec(`
+				UPDATE categories c SET is_common = true
+				FROM expense_categories e
+				WHERE c.tenant_id IS NOT DISTINCT FROM e.tenant_id AND lower(c.name) = lower(e.name)`).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`
+				INSERT INTO categories (tenant_id, type, name, is_common, created_at)
+				SELECT DISTINCT ON (e.tenant_id, lower(e.name)) e.tenant_id, 'expense', e.name, false, e.created_at
+				FROM expense_categories e
+				WHERE NOT EXISTS (
+					SELECT 1 FROM categories c
+					WHERE c.tenant_id IS NOT DISTINCT FROM e.tenant_id AND lower(c.name) = lower(e.name))
+				ORDER BY e.tenant_id, lower(e.name), e.id`).Error; err != nil {
+				return err
+			}
+		}
+		// A name is unique per tenant — see findOrCreateCategory.
+		return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_categories_tenant_name ON categories (tenant_id, lower(name))`).Error
+	})
+}

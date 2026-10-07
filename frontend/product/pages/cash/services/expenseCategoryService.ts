@@ -8,6 +8,9 @@ export type BackendExpenseCategory = {
   id: number;
   name: string;
   createdAt: string;
+  type?: "cash_in" | "expense" | "self_transfer";
+  isCommon?: boolean;
+  principalAmount?: number; // a loan's principal, when this category is a loan
 };
 
 export const EXPENSE_CATEGORIES_PAGE_SIZE = 5;

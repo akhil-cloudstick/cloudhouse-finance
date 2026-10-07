@@ -24,16 +24,17 @@ func NewMovementHandler(svc *MovementService) *MovementHandler {
 }
 
 type movementRequest struct {
-	Type       string  `json:"type" binding:"required"`
-	Source     string  `json:"source"`
-	Purpose    string  `json:"purpose"`
-	Mode       string  `json:"mode"`
-	Bank       string  `json:"bank"`
-	BankID     *uint   `json:"bankId"`   // real FK behind Bank — "From Bank" for a UPI/Bank Transfer-mode movement
-	ToBankID   *uint   `json:"toBankId"` // destination account for a bank-to-bank transfer — see CashMovement.ToBankID
-	Amount     float64 `json:"amount" binding:"required"`
-	BranchID   *uint   `json:"branchId"`   // optional — not every cash movement is tied to a till yet
-	OccurredOn string  `json:"occurredOn"` // optional, "YYYY-MM-DD" — defaults to today
+	Type         string  `json:"type" binding:"required"`
+	Source       string  `json:"source"`
+	Purpose      string  `json:"purpose"`
+	Mode         string  `json:"mode"`
+	Bank         string  `json:"bank"`
+	BankID       *uint   `json:"bankId"`   // real FK behind Bank — "From Bank" for a UPI/Bank Transfer-mode movement
+	ToBankID     *uint   `json:"toBankId"` // destination account for a bank-to-bank transfer — see CashMovement.ToBankID
+	Amount       float64 `json:"amount" binding:"required"`
+	ReceiptImage string  `json:"receiptImage"` // optional bill — an /uploads/... URL
+	BranchID     *uint   `json:"branchId"`     // optional — not every cash movement is tied to a till yet
+	OccurredOn   string  `json:"occurredOn"`   // optional, "YYYY-MM-DD" — defaults to today
 	// LoanSource is required (see toLoanSourceInput) when Source == "Loan" —
 	// the Loan Details block on AddCashModal.tsx / MovementSheet's Loan
 	// source picker.
@@ -110,7 +111,7 @@ func (req movementRequest) toInput() (RecordMovementInput, error) {
 	return RecordMovementInput{
 		Type: req.Type, Source: req.Source, Purpose: req.Purpose, Mode: req.Mode,
 		Bank: req.Bank, BankID: req.BankID, ToBankID: req.ToBankID,
-		Amount: req.Amount, BranchID: req.BranchID, OccurredOn: occurred,
+		Amount: req.Amount, BranchID: req.BranchID, OccurredOn: occurred, ReceiptImage: req.ReceiptImage,
 	}, nil
 }
 
@@ -174,6 +175,53 @@ func (h *MovementHandler) Record(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusCreated, movementResponse{CashMovement: rec, LoanSource: h.svc.GetLoanSource(ctx, rec.ID)})
+}
+
+type selfTransferRequest struct {
+	Category     string  `json:"category" binding:"required"`
+	Amount       float64 `json:"amount" binding:"required"`
+	FromBankID   uint    `json:"fromBankId"`
+	FromBank     string  `json:"fromBank"`
+	ToBankID     uint    `json:"toBankId"` // ignored when Category is a loan — the loan's own bank is used
+	ToBank       string  `json:"toBank"`
+	Mode         string  `json:"mode"`         // Bank Transfer (default) | UPI | Cash — shown on both rows
+	ReceiptImage string  `json:"receiptImage"` // optional bill
+	BranchID     *uint   `json:"branchId"`
+	OccurredOn   string  `json:"occurredOn"` // optional, "YYYY-MM-DD" — defaults to today
+}
+
+// RecordSelfTransfer backs POST /cash-movements/self-transfer — one debit on
+// the from-bank and one credit on the to-bank, linked by a TransactionGroupID.
+func (h *MovementHandler) RecordSelfTransfer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	var req selfTransferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	occurred, err := parseOccurredOn(req.OccurredOn)
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid occurredOn: expected YYYY-MM-DD")
+		return
+	}
+	branchID := req.BranchID
+	if branchID != nil {
+		b := platform.EnforceBranchOnWrite(c, *branchID)
+		branchID = &b
+	} else if scope := platform.GetBranchScope(c); scope != nil {
+		branchID = scope
+	}
+	rows, err := h.svc.RecordSelfTransfer(ctx, RecordSelfTransferInput{
+		Category: req.Category, Amount: req.Amount,
+		FromBankID: req.FromBankID, FromBank: req.FromBank,
+		ToBankID: req.ToBankID, ToBank: req.ToBank, Mode: req.Mode, ReceiptImage: req.ReceiptImage,
+		BranchID: branchID, OccurredOn: occurred,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusCreated, rows)
 }
 
 // partyPageSize is the Party Transactions page's own page size (12) —
@@ -937,7 +985,7 @@ type expenseRequest struct {
 	Category     string  `json:"category" binding:"required"`
 	Amount       float64 `json:"amount" binding:"required"`
 	Mode         string  `json:"mode" binding:"required"`
-	Payee        string  `json:"payee" binding:"required"`
+	Payee        string  `json:"payee"` // legacy free text — the forms no longer ask for it
 	FromBankID   *uint   `json:"fromBankId"`
 	ToBankID     *uint   `json:"toBankId"`
 	BranchID     uint    `json:"branchId" binding:"required"`
@@ -1032,7 +1080,6 @@ func (h *ExpenseHandler) Export(c *gin.Context) {
 		tableRows[i] = []string{
 			e.OccurredOn.Format("2006-01-02"),
 			e.Category,
-			e.Payee,
 			e.Mode,
 			e.Branch.Name,
 			strconv.FormatFloat(e.Amount, 'f', 2, 64),
@@ -1044,7 +1091,7 @@ func (h *ExpenseHandler) Export(c *gin.Context) {
 	pdfBytes, err := renderTablePDF(
 		"Expense Register",
 		"",
-		[]string{"Date", "Category", "Payee", "Mode", "Branch", "Amount", "Status", "Remarks"},
+		[]string{"Date", "Category", "Mode", "Branch", "Amount", "Status", "Remarks"},
 		tableRows,
 	)
 	if err != nil {
@@ -1258,8 +1305,9 @@ type goldSaleRequest struct {
 	Mode string `json:"mode"`
 	// BankID — see GoldSale.BankID's doc comment. Required when Mode is UPI
 	// or Bank Transfer.
-	BankID  *uint  `json:"bankId"`
-	Remarks string `json:"remarks"`
+	BankID       *uint  `json:"bankId"`
+	Remarks      string `json:"remarks"`
+	ReceiptImage string `json:"receiptImage"` // optional bill
 }
 
 func (req goldSaleRequest) toInput() (RecordGoldSaleInput, error) {
@@ -1269,7 +1317,7 @@ func (req goldSaleRequest) toInput() (RecordGoldSaleInput, error) {
 	}
 	return RecordGoldSaleInput{
 		OrnamentType: req.OrnamentType, SoldAmount: req.SoldAmount, CostAmount: req.CostAmount,
-		SoldOn: soldOn, BranchID: req.BranchID, Mode: req.Mode, BankID: req.BankID, Remarks: req.Remarks,
+		SoldOn: soldOn, BranchID: req.BranchID, Mode: req.Mode, BankID: req.BankID, Remarks: req.Remarks, ReceiptImage: req.ReceiptImage,
 	}, nil
 }
 
@@ -1400,8 +1448,12 @@ func (h *CashSourceHandler) GetLedger(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	if !IsLoanSource(src.Name) || !src.HasLoanDetails() {
-		httpx.Fail(c, http.StatusNotFound, "this source is not a loan with details recorded")
+	if !IsLoanSource(src.Name) {
+		respondCashInLedger(c, h.movementSvc, src)
+		return
+	}
+	if !src.HasLoanDetails() {
+		httpx.Fail(c, http.StatusNotFound, "this loan has no details recorded yet")
 		return
 	}
 	respondLoanLedger(c, h.movementSvc, src, bal)
@@ -1584,6 +1636,11 @@ func (h *ExpenseCategoryHandler) GetLedger(c *gin.Context) {
 		respondLoanLedger(c, h.movementSvc, src, bal)
 		return
 	}
+	// A plain cash-in category (Savings, …) has its own cash-in-only ledger.
+	if cat.Type == CategoryCashIn && !cat.IsCommon {
+		respondCashInLedger(c, h.movementSvc, cat)
+		return
+	}
 	fromDate, err := parseOptionalDate(c.Query("fromDate"))
 	if err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
@@ -1601,4 +1658,94 @@ func (h *ExpenseCategoryHandler) GetLedger(c *gin.Context) {
 		return
 	}
 	respondLedger(c, export, "Expense Ledger — "+cat.Name, "expense-category-ledger.pdf", fromDate, toDate, rec, total, totals, gin.H{"categoryName": cat.Name})
+}
+
+// CategoryHandler backs the unified /categories endpoint — one list for the
+// Credit, Debit and Self Transfer pickers, told apart by ?type=.
+type CategoryHandler struct {
+	svc *CategoryService
+}
+
+func NewCategoryHandler(svc *CategoryService) *CategoryHandler {
+	return &CategoryHandler{svc: svc}
+}
+
+// List backs GET /categories?type=&q=&limit=&offset= — the categories shown on
+// the form of that type (its own plus every common one). Paginated like the
+// other pickers: {items, hasMore, total} when limit is given.
+func (h *CategoryHandler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	typ := c.Query("type")
+
+	if limit <= 0 {
+		rec, _, err := h.svc.List(ctx, typ, c.Query("q"), 0, 0)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, rec)
+		return
+	}
+	rec, total, err := h.svc.List(ctx, typ, c.Query("q"), limit+1, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+}
+
+type categoryRequest struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// Create backs POST /categories — find-or-create by name; a name that already
+// exists under another type becomes common (see findOrCreateCategory).
+func (h *CategoryHandler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	var req categoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	rec, created, err := h.svc.FindOrCreate(ctx, req.Name, req.Type)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if created {
+		httpx.Success(c, http.StatusCreated, rec)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// respondCashInLedger writes a plain cash-in category's ledger page (or PDF) —
+// every Add Cash under that name, credits only (see
+// MovementService.ListLedgerByCashInCategory).
+func respondCashInLedger(c *gin.Context, svc *MovementService, cat *Category) {
+	ctx := platform.RequestContext(c)
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, offset, export := ledgerPaging(c)
+	rows, total, totals, err := svc.ListLedgerByCashInCategory(ctx, cat.Name, fromDate, toDate, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	respondLedger(c, export, cat.Name+" Ledger", "category-ledger.pdf", fromDate, toDate, rows, total, totals, gin.H{"categoryName": cat.Name})
 }

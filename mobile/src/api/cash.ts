@@ -51,7 +51,8 @@ export type LoanSourceInput = {
 export function createCashMovement(input: {
   type: "in" | "out";
   source: string;
-  purpose: string;
+  // Optional now — the ledger row's text comes from the category.
+  purpose?: string;
   // Payment mode ("Cash"/"UPI"/"Bank Transfer"/"Cheque") — movementRequest.Mode.
   mode?: string;
   bank?: string;
@@ -62,14 +63,49 @@ export function createCashMovement(input: {
   branchId?: number;
   occurredOn?: string;
   loanSource?: LoanSourceInput;
+  // Bill — an "/uploads/..." URL from the upload endpoint.
+  receiptImage?: string;
 }) {
   return apiRequest<CashMovement>("/cash-movements", { method: "POST", body: input });
+}
+
+// Bank-to-bank self transfer — the backend writes a debit row on the from
+// bank and a credit row on the to bank. When `category` is a loan the backend
+// forces the to bank to the loan's own bank, so toBankId isn't needed then.
+export function createSelfTransfer(input: {
+  category: string;
+  amount: number;
+  fromBankId: number;
+  fromBank: string;
+  toBankId?: number;
+  toBank?: string;
+  // How the money moved — shown on both rows.
+  mode?: string;
+  receiptImage?: string;
+  branchId?: number;
+  occurredOn: string;
+}) {
+  return apiRequest<CashMovement[]>("/cash-movements/self-transfer", { method: "POST", body: input });
 }
 
 // Cash sources — a small find-or-create lookup list (backend/internal/cash's
 // CashSource) backing the Add Cash sheet's Source picker, real server-side
 // pagination (matches web's cashSourceService.ts).
-export type CashSource = { id: number; name: string; createdAt: string };
+// type/isCommon: a search also returns categories of another form — picking
+// one makes it common (find-or-create POST). A loan source carries its
+// captured details (bankId/bank/principalAmount) once on file.
+export type CategoryType = "cash_in" | "expense" | "self_transfer";
+export type CashSource = {
+  id: number;
+  name: string;
+  createdAt: string;
+  type?: CategoryType;
+  isCommon?: boolean;
+  bankId?: number;
+  bank?: { id: number; name: string };
+  loanNumber?: string;
+  principalAmount?: number;
+};
 
 export const CASH_SOURCES_PAGE_SIZE = 5;
 
@@ -87,7 +123,7 @@ export function createCashSource(name: string) {
 
 // Expense categories — same find-or-create/paginated pattern as cash
 // sources, backing the Expense sheet's Category picker.
-export type ExpenseCategory = { id: number; name: string; createdAt: string };
+export type ExpenseCategory = { id: number; name: string; createdAt: string; type?: CategoryType; isCommon?: boolean; principalAmount?: number };
 
 export const EXPENSE_CATEGORIES_PAGE_SIZE = 5;
 
@@ -99,6 +135,21 @@ export function listExpenseCategoriesPage(q: string, page: number, pageSize: num
 
 // How many rows a mobile dropdown picker asks for (AsyncSelect's own cap).
 export const PICKER_PAGE_SIZE = 30;
+
+// Unified categories (GET /categories?type=) — the Self Transfer picker's
+// list: its own plus every common one. Same shape as a cash source.
+export type Category = CashSource;
+
+export function listCategoriesPage(type: CategoryType, q: string, page: number, pageSize: number = PICKER_PAGE_SIZE) {
+  return apiRequest<{ items: Category[]; hasMore: boolean }>("/categories", {
+    params: { type, q: q || undefined, limit: pageSize, offset: page * pageSize },
+  });
+}
+
+// Find-or-create: an existing name of another form comes back made common.
+export function createCategory(type: CategoryType, name: string) {
+  return apiRequest<Category>("/categories", { method: "POST", body: { name, type } });
+}
 
 export function createExpenseCategory(name: string) {
   return apiRequest<ExpenseCategory>("/expense-categories", { method: "POST", body: { name } });
@@ -126,6 +177,7 @@ export type LedgerRow = {
   bankName?: string;
   customerId?: number;
   customerName?: string;
+  receiptImage?: string; // bill attached to the entry behind this row
 };
 
 export const LEDGER_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
@@ -184,7 +236,8 @@ export function createExpense(input: {
   category: string;
   amount: number;
   mode: string;
-  payee: string;
+  // Optional — the expense form no longer captures a description.
+  payee?: string;
   branchId: number;
   // The branch account a UPI/Bank expense was paid from — required for
   // those modes (see backend cash.ExpenseService.Record).
@@ -234,6 +287,16 @@ export function createGoldSale(input: {
   bankId?: number;
   soldOn?: string;
   remarks?: string;
+  receiptImage?: string;
 }) {
   return apiRequest<GoldSale>("/gold-sales", { method: "POST", body: input });
+}
+
+// A loan's position — principal, drawn (Add Cash) and repaid (expenses / self
+// transfers) so far. GET /cash-sources/:id works for any category id.
+export type LoanBalance = { principal: number; drawn: number; repaid: number; balance: number };
+
+export async function getLoanBalance(id: number): Promise<LoanBalance | null> {
+  const res = await apiRequest<{ isLoan: boolean; balance: LoanBalance }>(`/cash-sources/${id}`);
+  return res.isLoan ? res.balance : null;
 }

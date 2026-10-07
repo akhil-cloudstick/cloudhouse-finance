@@ -5,6 +5,8 @@ import { AccRow, C, DateField, FabCorner, ServerFlatList, Txt, openPage, toast, 
 import { useServerList } from "../../hooks/useServerList";
 import { getLedger, listExpenseCategoriesPage, LEDGER_MODES, PICKER_PAGE_SIZE, type LedgerKind, type LedgerRow } from "../../api/cash";
 import { listLoansPage } from "../../api/loans";
+import { Linking } from "react-native";
+import { API_ORIGIN } from "../../api/config";
 import { dmy, inr } from "../../lib/format";
 import { isUserCancel, userMessage } from "../../api/errors";
 import { shareLedgerPdf } from "../../utils/ledgerExport";
@@ -63,6 +65,12 @@ export function useExpenseCategoryIds(): Record<string, number> {
 
 /** An in-row hyperlink. `to` is the page it opens ("/cash", "/loans"): when
  * the user can't open that page it renders as plain text. */
+// A ledger entry's bill — opens the uploaded image (server-root-relative URL).
+export function billDetail(receiptImage?: string): { k: string; v: React.ReactNode }[] {
+  if (!receiptImage) return [];
+  return [{ k: "Bill", v: <LedgerLink label="View bill" to="/cash" onPress={() => { Linking.openURL(`${API_ORIGIN}${receiptImage}`); }} /> }];
+}
+
 export function LedgerLink({ label, onPress, to }: { label: string; onPress: () => void; to: string }) {
   const canOpen = useCanOpen();
   if (!canOpen(to)) return <Txt style={{ fontSize: 13, fontWeight: "600" }}>{label}</Txt>;
@@ -96,6 +104,7 @@ function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds }: { r: LedgerRo
     { k: "Debit", v: isDebit ? inr(r.amount) : "—", color: isDebit ? C.red : C.muted },
     { k: "Credit", v: isDebit ? "—" : inr(r.amount), color: isDebit ? C.muted : C.green },
     { k: "Balance", v: inr(r.runningBalance), color: C.brandDeep },
+    ...billDetail(r.receiptImage),
   ];
   return (
     <AccRow

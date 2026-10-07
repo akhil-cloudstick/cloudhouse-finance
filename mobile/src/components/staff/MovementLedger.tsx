@@ -9,7 +9,7 @@ import { dmy, inr } from "../../lib/format";
 import type { CashMovement } from "../../types/cash";
 import type { Branch } from "../../types/branch";
 import type { Customer } from "../../types/customer";
-import { LedgerLink, expenseCategoryOf, modeLink, openLedger, openLoanByNumber } from "./LedgerList";
+import { LedgerLink, billDetail, expenseCategoryOf, modeLink, openLedger, openLoanByNumber } from "./LedgerList";
 
 // The branch-wide movements ledger, shared by the Ledger page (Cash tab's
 // Movements) and Reports' Ledger / Statement page: its Branch / Customer /
@@ -145,6 +145,7 @@ export function MovementRow({
           : []),
         ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
         ...(m.status ? [{ k: "Status", v: m.status }] : []),
+        ...billDetail(m.receiptImage),
       ]}
     />
   );

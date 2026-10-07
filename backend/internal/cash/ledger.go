@@ -28,6 +28,8 @@ type LedgerRow struct {
 	BankName       string    `json:"bankName,omitempty"`
 	CustomerID     uint      `json:"customerId"`
 	CustomerName   string    `json:"customerName"`
+	// ReceiptImage is the bill attached to the entry behind this row, when it has one.
+	ReceiptImage string `json:"receiptImage,omitempty"`
 }
 
 // ledgerSourceRow is the flat shape every raw query below scans into before
@@ -596,7 +598,7 @@ func (s *MovementService) ListCombinedLedgerByBank(ctx context.Context, bankID u
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
-	return paginateLedgerRows(rows, limit, offset)
+	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
 }
 
 // ListCombinedLedgerByCustomer is ListCombinedLedgerByBank's counterpart for
@@ -608,7 +610,7 @@ func (s *MovementService) ListCombinedLedgerByCustomer(ctx context.Context, cust
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
-	return paginateLedgerRows(rows, limit, offset)
+	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
 }
 
 // paginateLedgerRows sorts every source's combined rows newest-first, then
@@ -621,7 +623,7 @@ func (s *MovementService) ListCombinedLedgerByCustomer(ctx context.Context, cust
 //
 // Totals cover every row matching the filters, not just the returned page —
 // the ledger footer's Total Debit/Total Credit.
-func paginateLedgerRows(rows []ledgerSourceRow, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+func (r *MovementRepository) paginateLedgerRows(ctx context.Context, rows []ledgerSourceRow, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	sortLedgerSourceRows(rows)
 	total := int64(len(rows))
 	var totals LedgerTotals
@@ -642,12 +644,63 @@ func paginateLedgerRows(rows []ledgerSourceRow, limit, offset int) ([]LedgerRow,
 	if limit > 0 && offset+limit < end {
 		end = offset + limit
 	}
+	// Running balance over the WHOLE filtered set, oldest → newest (credit up,
+	// debit down), so every row's balance is true no matter which page it is
+	// on — the newest row's balance equals Total Credit − Total Debit (the Net).
+	balances := make([]float64, len(rows))
+	acc := 0.0
+	for i := len(rows) - 1; i >= 0; i-- {
+		if toLedgerRow(rows[i]).DebitOrCredit == "debit" {
+			acc -= rows[i].Amount
+		} else {
+			acc += rows[i].Amount
+		}
+		balances[i] = acc
+	}
 	page := rows[offset:end]
 	out := make([]LedgerRow, len(page))
 	for i, r := range page {
 		out[i] = toLedgerRow(r)
+		out[i].RunningBalance = balances[offset+i]
+	}
+	if err := r.attachReceipts(ctx, page, out); err != nil {
+		return nil, 0, LedgerTotals{}, err
 	}
 	return out, total, totals, nil
+}
+
+// attachReceipts fills each page row's ReceiptImage from the table its source
+// row came from — cash movements (Add Cash, self transfers, an expense's
+// cash-out), expenses and gold sales carry a bill; loan payments don't.
+// Only the returned page is looked up, in one query per source table.
+func (r *MovementRepository) attachReceipts(ctx context.Context, src []ledgerSourceRow, out []LedgerRow) error {
+	tables := map[string]string{"cash_movement": "cash_movements", "expense": "expenses", "gold_sale": "gold_sales"}
+	ids := map[string][]uint{}
+	for _, row := range src {
+		if _, ok := tables[row.Kind]; ok {
+			ids[row.Kind] = append(ids[row.Kind], row.ID)
+		}
+	}
+	found := map[string]map[uint]string{}
+	for kind, list := range ids {
+		var recs []struct {
+			ID           uint
+			ReceiptImage string
+		}
+		if err := r.db.WithContext(ctx).Table(tables[kind]).Select("id, receipt_image").
+			Where("id IN ? AND receipt_image <> ''", list).Scan(&recs).Error; err != nil {
+			return err
+		}
+		m := make(map[uint]string, len(recs))
+		for _, rec := range recs {
+			m[rec.ID] = rec.ReceiptImage
+		}
+		found[kind] = m
+	}
+	for i, row := range src {
+		out[i].ReceiptImage = found[row.Kind][row.ID]
+	}
+	return nil
 }
 
 // LedgerTotals is the debit/credit sum across every row matching a ledger's
@@ -691,7 +744,7 @@ func (s *MovementService) ListModeLedger(ctx context.Context, mode string, bankI
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
-	return paginateLedgerRows(rows, limit, offset)
+	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
 }
 
 // modeLedger is ListModeLedger's repository half — one query per source
@@ -1016,7 +1069,7 @@ func (s *MovementService) ListLedgerByCategory(ctx context.Context, categoryName
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
-	return paginateLedgerRows(rows, limit, offset)
+	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
 }
 
 // expenseLedgerByCategory reads expenses.category ILIKE categoryName —
@@ -1047,9 +1100,13 @@ func (r *MovementRepository) expenseLedgerByCategory(ctx context.Context, catego
 	}
 	out := make([]ledgerSourceRow, len(raw))
 	for i, e := range raw {
+		// The forms no longer take a description, so fall back to the category.
 		desc := e.Payee
+		if desc == "" {
+			desc = e.Category
+		}
 		if e.Remarks != "" {
-			desc = e.Payee + " — " + e.Remarks
+			desc += " — " + e.Remarks
 		}
 		out[i] = ledgerSourceRow{
 			Kind:        "expense",
@@ -1140,10 +1197,11 @@ func (r *MovementRepository) loanSourceLedgerRows(ctx context.Context, src *Cash
 		Mode       string
 		Amount     float64
 		ToBank     string
+		Receipt    string
 	}
 	var draws []draw
 	if err := r.db.WithContext(ctx).Table("cash_movements m").
-		Select("m.id, m.occurred_on, m.created_at, m.mode, m.amount, COALESCE(b.name, '') AS to_bank").
+		Select("m.id, m.occurred_on, m.created_at, m.mode, m.amount, COALESCE(b.name, '') AS to_bank, m.receipt_image AS receipt").
 		Joins("LEFT JOIN banks b ON b.id = m.bank_id").
 		Where("m.type = ? AND m.source ILIKE ? AND m.created_at >= ?", "in", src.Name, since).
 		Scan(&draws).Error; err != nil {
@@ -1160,10 +1218,11 @@ func (r *MovementRepository) loanSourceLedgerRows(ctx context.Context, src *Cash
 		Remarks    string
 		FromBankID *uint
 		FromBank   string
+		Receipt    string
 	}
 	var repays []repayment
 	if err := r.db.WithContext(ctx).Table("expenses e").
-		Select("e.id, e.occurred_on, e.created_at, e.mode, e.amount, e.payee, e.remarks, e.from_bank_id, COALESCE(b.name, '') AS from_bank").
+		Select("e.id, e.occurred_on, e.created_at, e.mode, e.amount, e.payee, e.remarks, e.from_bank_id, COALESCE(b.name, '') AS from_bank, e.receipt_image AS receipt").
 		Joins("LEFT JOIN banks b ON b.id = e.from_bank_id").
 		Where("e.category ILIKE ? AND e.status = ? AND e.created_at >= ?", src.Name, "Approved", since).
 		Scan(&repays).Error; err != nil {
@@ -1184,18 +1243,48 @@ func (r *MovementRepository) loanSourceLedgerRows(ctx context.Context, src *Cash
 		merged = append(merged, keyed{created: d.CreatedAt, row: LedgerRow{
 			ID: d.ID, Date: d.OccurredOn, Description: desc, Type: src.Name, Method: d.Mode,
 			Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: d.Amount,
-			BankID: src.BankID, BankName: lendingBank,
+			BankID: src.BankID, BankName: lendingBank, ReceiptImage: d.Receipt,
 		}})
 	}
 	for _, e := range repays {
-		desc := "Repayment — " + e.Payee
+		desc := "Repayment"
+		if e.Payee != "" {
+			desc += " — " + e.Payee
+		}
 		if e.Remarks != "" {
 			desc += " — " + e.Remarks
 		}
 		merged = append(merged, keyed{created: e.CreatedAt, row: LedgerRow{
 			ID: e.ID, Date: e.OccurredOn, Description: desc, Type: src.Name, Method: e.Mode,
 			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: e.Amount,
-			BankID: e.FromBankID, BankName: e.FromBank,
+			BankID: e.FromBankID, BankName: e.FromBank, ReceiptImage: e.Receipt,
+		}})
+	}
+	// Self transfers to the loan's bank — repayments paid from another bank.
+	type transfer struct {
+		ID         uint
+		OccurredOn time.Time
+		CreatedAt  time.Time
+		Mode       string
+		Amount     float64
+		BankID     *uint
+		FromBank   string
+		Receipt    string
+	}
+	var transfers []transfer
+	if err := r.db.WithContext(ctx).Table("cash_movements m").
+		Select("m.id, m.occurred_on, m.created_at, m.mode, m.amount, m.bank_id, COALESCE(b.name, '') AS from_bank, m.receipt_image AS receipt").
+		Joins("LEFT JOIN banks b ON b.id = m.bank_id").
+		Where("m.type = ? AND m.source = ? AND LOWER(m.purpose) = LOWER(?) AND m.created_at >= ?",
+			"out", SelfTransferSource, SelfTransferPurposePrefix+src.Name, since).
+		Scan(&transfers).Error; err != nil {
+		return nil, err
+	}
+	for _, t := range transfers {
+		merged = append(merged, keyed{created: t.CreatedAt, row: LedgerRow{
+			ID: t.ID, Date: t.OccurredOn, Description: "Repayment — self transfer", Type: src.Name, Method: t.Mode,
+			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: t.Amount,
+			BankID: t.BankID, BankName: t.FromBank, ReceiptImage: t.Receipt,
 		}})
 	}
 	sort.SliceStable(merged, func(i, j int) bool {
@@ -1207,6 +1296,57 @@ func (r *MovementRepository) loanSourceLedgerRows(ctx context.Context, src *Cash
 	out := make([]LedgerRow, len(merged))
 	for i := range merged {
 		out[i] = merged[i].row
+	}
+	return out, nil
+}
+
+// ListLedgerByCashInCategory is a plain (non-loan) cash-in category's own
+// ledger — "Savings" and any other source staff add: every Add Cash entry
+// booked under that name, as credits. Cash-in only; backs the category's
+// ledger drill-down (GET /cash-sources/:id/ledger and, for a cash-in category,
+// GET /expense-categories/:id/ledger).
+func (s *MovementService) ListLedgerByCashInCategory(ctx context.Context, name string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+	rows, err := s.repo.cashInLedgerByCategory(ctx, name, fromDate, toDate)
+	if err != nil {
+		return nil, 0, LedgerTotals{}, err
+	}
+	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
+}
+
+func (r *MovementRepository) cashInLedgerByCategory(ctx context.Context, name string, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+	type row struct {
+		ID         uint
+		OccurredOn time.Time
+		Purpose    string
+		Mode       string
+		Amount     float64
+		BankID     *uint
+		BankName   string
+	}
+	q := r.db.WithContext(ctx).Table("cash_movements m").
+		Select("m.id, m.occurred_on, m.purpose, m.mode, m.amount, m.bank_id, COALESCE(bk.name, '') AS bank_name").
+		Joins("LEFT JOIN banks bk ON bk.id = m.bank_id").
+		Where("m.type = ? AND m.source ILIKE ?", "in", name)
+	if !fromDate.IsZero() {
+		q = q.Where("m.occurred_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("m.occurred_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	var raw []row
+	if err := q.Scan(&raw).Error; err != nil {
+		return nil, err
+	}
+	out := make([]ledgerSourceRow, len(raw))
+	for i, m := range raw {
+		desc := m.Purpose
+		if desc == "" {
+			desc = "Cash added — " + name
+		}
+		out[i] = ledgerSourceRow{
+			Kind: "cash_movement", ID: m.ID, Date: m.OccurredOn, Description: desc, Type: name,
+			Method: m.Mode, Amount: m.Amount, BankID: m.BankID, BankName: m.BankName,
+		}
 	}
 	return out, nil
 }

@@ -1727,6 +1727,13 @@ export async function listLoanRequestsPage(
   return { items: (rec?.items || []).map(toRequestView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
+/* The loan number the next created loan will get (highest ever issued + 1,
+ * hard-deleted loans included) — New Loan's "Loan No (auto)" preview. */
+export async function getNextLoanNumber(): Promise<string> {
+  const rec = await apiFetch<{ loanNumber: string }>("/loans/next-number");
+  return rec.loanNumber;
+}
+
 /* Backs Dashboard.tsx's "Interest Collected" KPI — replaces the old
  * always-empty `db.ledger` mock figure. Defaults (server-side) to the
  * current calendar month when `from`/`to` are omitted. */

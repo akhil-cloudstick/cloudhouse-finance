@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
-import { createCashMovement, createGoldSale } from "@/product/pages/cash/services/cashService";
+import { createCashMovement, createGoldSale, uploadReceipt } from "@/product/pages/cash/services/cashService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { searchBanksPage, createBank, type BackendBank } from "@/product/pages/banks/services/bankService";
@@ -15,6 +15,8 @@ import { EXPENSE_CATEGORIES_CHANGED } from "@/product/pages/cash/services/expens
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { Select } from "@/product/components/ui/Select";
 import { DatePicker } from "@/product/components/ui/DatePicker";
+import { FileInput } from "@/product/components/ui/FileInput";
+import { useLoanBalance } from "@/product/hooks/useLoanBalance";
 import { singleFlight } from "@/product/utils/singleFlight";
 
 // A focused number input steps its value on mouse-wheel; blurring first
@@ -31,13 +33,10 @@ const MODE_OPTIONS = [
 // turns this modal into the gold-sale form and posts to /gold-sales instead
 // (the backend refuses to create a real source with this name).
 const GOLD_SALE = "Gold Sale";
-const GOLD_SALE_SOURCE: BackendCashSource = { id: -1, name: GOLD_SALE, createdAt: "" };
 
-async function searchSourcesWithGoldSale(q: string, page: number) {
-  const res = await searchCashSourcesPage(q, page);
-  const matches = !q || GOLD_SALE.toLowerCase().includes(q.trim().toLowerCase());
-  return page === 0 && matches ? { ...res, items: [GOLD_SALE_SOURCE, ...res.items] } : res;
-}
+// "Gold Sale" is now a real (built-in) row of the category list, so the plain
+// source search already returns it.
+const searchSourcesWithGoldSale = searchCashSourcesPage;
 
 /* Ported from legacy/app.js's `openAddCashModal()` / `acSourceChanged()` /
  * `saveAddCash()` — now posts to the real POST /cash-movements endpoint.
@@ -61,7 +60,7 @@ async function searchSourcesWithGoldSale(q: string, page: number) {
  *
  * The built-in "Gold Sale" source (see GOLD_SALE) swaps in the gold-sale
  * fields — ornament type, cost, branch, remarks — and records a gold sale. */
-export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: () => void; defaultBranchId?: number }) {
+export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: { onSaved?: () => void; defaultBranchId?: number; tabs?: ReactNode }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
@@ -74,6 +73,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
   // The branch's own account the UPI/transfer landed in.
   const [bank, setBank] = useState("");
   const [bankId, setBankId] = useState("");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [amt, setAmt] = useState("");
   const [date, setDate] = useState(today);
   const [err, setErr] = useState("");
@@ -115,6 +115,18 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
   // for a loan drawn in parts.
   const setPrincipal = (v: string) => { setPrincipalAmount(v); setAmt(v); };
 
+  // A loan can't be drawn past its principal: a new loan checks the amount
+  // against the principal typed in, an existing one against what is left to
+  // draw. Blocks the Add Cash button (the backend refuses it too).
+  const loanBal = useLoanBalance(sourceRec);
+  const drawAmount = +amt || 0;
+  const loanLimit = needsLoanDetails ? (+principalAmount || 0) : loanBal ? loanBal.balance : 0;
+  const loanExceeded = isLoan && !isGoldSale && drawAmount > 0 && (needsLoanDetails ? loanLimit > 0 : !!loanBal) && drawAmount > loanLimit + 0.005;
+  const loanWarning = loanExceeded
+    ? `Loan principal amount exceeded — only ${fmt(Math.max(loanLimit, 0))} is left to draw on ${source}.`
+    : "";
+
+
   // Bank is required for a non-cash Mode — the branch account the
   // UPI/transfer landed in (see backend/internal/cash/service.go's Record).
   const bankRequired = mode === "UPI" || mode === "Bank Transfer";
@@ -130,10 +142,11 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
 
     setSaving(true);
     try {
+      const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
       await createGoldSale({
         ornamentType: type, soldAmount: sold, costAmount: cost, branchId,
         mode, bankId: bankRequired ? +bankId : undefined,
-        soldOn: date, remarks: remarks.trim() || undefined,
+        soldOn: date, remarks: remarks.trim() || undefined, receiptImage,
       });
       onSaved?.();
       closeModal();
@@ -172,8 +185,9 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
 
     setSaving(true);
     try {
+      const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
       await createCashMovement({
-        type: "in", source, mode,
+        type: "in", source, mode, receiptImage,
         bank: bankRequired ? bank : needsLoanDetails ? loanBankName : undefined,
         bankId: bankRequired ? +bankId : undefined,
         amount, branchId, occurredOn: date, loanSource,
@@ -191,23 +205,27 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
     }
   }); }
 
-  const sourceField = (
-    <div><label className="f">Source of Cash *</label>
+  const categoryField = (
+    <div><label className="f">Category *</label>
       <SearchableSelect<BackendCashSource>
         portal
         value={source}
-        onChange={(_id, item) => setSourceRec(item)}
+        onChange={(_id, item) => {
+          setSourceRec(item);
+          // A category from another form: choosing it flips it to common.
+          if (item.type && item.type !== "cash_in" && !item.isCommon && item.name !== GOLD_SALE) createCashSource(item.name).catch(() => {});
+        }}
         fetchFn={searchSourcesWithGoldSale}
-        searchHint="Searches: cash source name"
+        searchHint="Searches: category name"
         getLabel={(s) => s.name}
         getId={(s) => String(s.id)}
-        placeholder="Search or add a source…"
+        placeholder="Search or add a category…"
         allowCreate
         onCreate={createCashSource}
       /></div>
   );
   const modeField = (
-    <div><label className="f">Mode of Cash *</label>
+    <div><label className="f">Mode *</label>
       <Select
         options={MODE_OPTIONS}
         value={mode}
@@ -230,96 +248,93 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
         onCreate={createBank}
       /></div>
   );
-  const bankRow = bankRequired && <div className="frow">{bankField}</div>;
-  const branchRow = (
-    <div className={isGoldSale ? "frow c2" : "frow"}>
-      {isGoldSale && (
-        <div><label className="f">Ornament Type *</label>
-          <input className="inp" placeholder="e.g. Chain, Bangle, Studs" value={ornamentType} onChange={(e) => setOrnamentType(e.target.value)} /></div>
-      )}
-      <div><label className="f">Branch *</label>
-        <Select
-          disabled={singleBranch}
-          options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-          value={branchId ? String(branchId) : ""}
-          onChange={(v) => setBranchId(v ? Number(v) : "")}
-          placeholder="Select branch…"
-        /></div>
-    </div>
+  const amountField = (
+    <div><label className="f">{isGoldSale ? "Sold For (₹) *" : "Amount (₹) *"}</label>
+      <input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /></div>
+  );
+  const branchField = (
+    <div><label className="f">Branch *</label>
+      <Select
+        disabled={singleBranch}
+        options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+        value={branchId ? String(branchId) : ""}
+        onChange={(v) => setBranchId(v ? Number(v) : "")}
+        placeholder="Select branch…"
+      /></div>
   );
 
+  // Every entry form follows one order: Category → Date → Mode → Amount →
+  // Branch → Bill. Category-specific fields (a new loan's details, a gold
+  // sale's ornament/cost) sit right after the Category, and a Bank appears
+  // after Mode when the mode is not Cash.
   return (
     <>
       <div className="hd"><h3>Add Cash</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
-        {needsLoanDetails ? (
-          // A new loan source: Source → Loan Details → Mode → Bank? → Branch
-          // → Cash Amount → Date of Loan.
-          <>
-            <div className="frow">{sourceField}</div>
-            <div style={{ border: "1px dashed var(--line)", borderRadius: 8, padding: 12, marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent, #8a6d3b)", marginBottom: 12 }}>LOAN DETAILS</div>
-              <div className="frow c2">
-                <div><label className="f">Bank *</label>
-                  <SearchableSelect<BackendBank>
-                    portal
-                    value={loanBankName}
-                    onChange={(id, item) => { setLoanBankId(id); setLoanBankName(item.name); }}
-                    fetchFn={searchBanksPage}
-                    searchHint="Searches: bank name"
-                    getLabel={(b) => b.name}
-                    getId={(b) => String(b.id)}
-                    placeholder="Search or add a bank…"
-                    allowCreate
-                    onCreate={createBank}
-                  /></div>
-                <div><label className="f">Loan Number *</label>
-                  <input className="inp" placeholder="As on the bank's loan account" value={loanNumber} onChange={(e) => setLoanNumber(e.target.value)} /></div>
-              </div>
-              <div className="frow c2">
-                <div><label className="f">Principal Amount (₹) *</label>
-                  <input className="inp" type="number" min={1} value={principalAmount} onChange={(e) => setPrincipal(e.target.value)} onWheel={noWheelStep} /></div>
-              </div>
+        {tabs}
+        <div className="frow">{categoryField}</div>
+
+        {needsLoanDetails && (
+          <div style={{ border: "1px dashed var(--line)", borderRadius: 8, padding: 12, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent, #8a6d3b)", marginBottom: 12 }}>LOAN DETAILS</div>
+            <div className="frow c2">
+              <div><label className="f">Bank *</label>
+                <SearchableSelect<BackendBank>
+                  portal
+                  value={loanBankName}
+                  onChange={(id, item) => { setLoanBankId(id); setLoanBankName(item.name); }}
+                  fetchFn={searchBanksPage}
+                  searchHint="Searches: bank name"
+                  getLabel={(b) => b.name}
+                  getId={(b) => String(b.id)}
+                  placeholder="Search or add a bank…"
+                  allowCreate
+                  onCreate={createBank}
+                /></div>
+              <div><label className="f">Loan Number *</label>
+                <input className="inp" placeholder="As on the bank's loan account" value={loanNumber} onChange={(e) => setLoanNumber(e.target.value)} /></div>
             </div>
-            <div className="frow c2">{modeField}{bankRequired && bankField}</div>
-            {branchRow}
-          </>
-        ) : (
-          <>
-            <div className="frow c2">{sourceField}{modeField}</div>
-            {bankRow}
-            {branchRow}
-          </>
+            <div className="frow c2">
+              <div><label className="f">Principal Amount (₹) *</label>
+                <input className="inp" type="number" min={1} value={principalAmount} onChange={(e) => setPrincipal(e.target.value)} onWheel={noWheelStep} /></div>
+            </div>
+          </div>
+        )}
+        {isGoldSale && (
+          <div className="frow c2">
+            <div><label className="f">Ornament Type *</label>
+              <input className="inp" placeholder="e.g. Chain, Bangle, Studs" value={ornamentType} onChange={(e) => setOrnamentType(e.target.value)} /></div>
+            <div><label className="f">Cost to Acquire (₹) *</label><input className="inp" type="number" min={0} value={costAmount} onChange={(e) => setCostAmount(e.target.value)} onWheel={noWheelStep} /></div>
+          </div>
         )}
 
-        {isGoldSale ? (
-          <>
-            <div className="frow c2">
-              <div><label className="f">Sold For (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /></div>
-              <div><label className="f">Cost to Acquire (₹) *</label><input className="inp" type="number" min={0} value={costAmount} onChange={(e) => setCostAmount(e.target.value)} onWheel={noWheelStep} /></div>
-            </div>
-            <div className="frow c2">
-              <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
-            </div>
-            {amt && (
-              <div className="notice" style={{ marginBottom: 4 }}>
-                {profit >= 0 ? "Profit" : "Loss"}: <strong style={{ color: profit >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(Math.abs(profit))}</strong>
-              </div>
-            )}
-            <div className="frow"><div><label className="f">Remarks</label>
-              <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
-          </>
-        ) : (
-          <div className="frow c2">
-            <div><label className="f">Cash Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /></div>
-            <div><label className="f">{needsLoanDetails ? "Date of Loan *" : "Date *"}</label><DatePicker value={date} onChange={setDate} /></div>
+        <div className="frow c2">
+          <div><label className="f">{needsLoanDetails ? "Date of Loan *" : "Date *"}</label><DatePicker value={date} onChange={setDate} /></div>
+          {modeField}
+        </div>
+        {bankRequired && <div className="frow">{bankField}</div>}
+        <div className="frow c2">{amountField}{branchField}</div>
+        {isGoldSale && amt && (
+          <div className="notice" style={{ marginBottom: 4 }}>
+            {profit >= 0 ? "Profit" : "Loss"}: <strong style={{ color: profit >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(Math.abs(profit))}</strong>
           </div>
+        )}
+        {loanWarning && (
+          <div className="notice" style={{ marginBottom: 4, borderLeft: "3px solid var(--red)", color: "var(--red)" }}>
+            {loanWarning}
+          </div>
+        )}
+        <div className="frow"><div><label className="f">Bill</label>
+          <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
+        {isGoldSale && (
+          <div className="frow"><div><label className="f">Remarks</label>
+            <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : isGoldSale ? "Record Sale" : "Add Cash"}</button>
+        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : isGoldSale ? "Record Sale" : "Add Cash"}</button>
       </div>
     </>
   );

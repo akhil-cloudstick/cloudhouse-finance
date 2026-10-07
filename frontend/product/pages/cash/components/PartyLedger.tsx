@@ -7,7 +7,7 @@ import { useAuth } from "@/product/providers/auth-context";
 import { ApiError } from "@/product/services/httpClient";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
-import { loanCatRef } from "@/product/pages/cash/components/ledgerCells";
+import { loanCatRef, BillLink } from "@/product/pages/cash/components/ledgerCells";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
 import { goBack, routeHref } from "@/product/services/appRoutes";
@@ -203,9 +203,9 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
       {/* A loan ledger's table already carries its running balance — no tiles. */}
       {!loan && (
         <div className="kpis" style={{ marginBottom: 16 }}>
-          <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totalDebit)}</div></div>
-          <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totalCredit)}</div></div>
           <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totalCredit - totalDebit)}</div></div>
+          <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totalCredit)}</div></div>
+          <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totalDebit)}</div></div>
         </div>
       )}
 
@@ -277,7 +277,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                     )}
                   </td>
                   <td>
-                    {r.description || r.type}
+                    {r.description || r.type}<BillLink url={r.receiptImage} title={r.description || r.type} />
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                       {kind !== "customer" && r.customerId ? (
                         <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} />

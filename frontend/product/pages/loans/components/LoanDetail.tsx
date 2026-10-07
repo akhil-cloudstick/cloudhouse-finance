@@ -1199,7 +1199,8 @@ export function LoanDetail({ id }: { id?: string }) {
                               This permanently and irreversibly deletes loan <strong>{l.id}</strong>.
                               <br /><br />
                               Every record tied to it will be removed: payments, ornaments, approvals,
-                              extension/release requests, auctions, bank pledges, packets, and reminders.
+                              extension/release requests, auctions, bank pledges, packets, reminders, and
+                              all of its ledger (cash &amp; bank) entries.
                               <br /><br />
                               This cannot be undone.
                             </>

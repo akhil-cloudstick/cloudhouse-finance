@@ -231,6 +231,9 @@ var routeManifest = map[string]routeSpec{
 	// --------------------------------------------------------------- cash
 	"GET /api/v1/cash-movements":              list(),
 	"POST /api/v1/cash-movements":             list(),
+	"POST /api/v1/cash-movements/self-transfer": list(),
+	"GET /api/v1/categories":                  list(),
+	"POST /api/v1/categories":                 list(),
 	"GET /api/v1/cash-movements/export":       list(),
 	"GET /api/v1/cash-movements/:id":          probe("id=cash_movements"),
 	"PATCH /api/v1/cash-movements/:id/status": probe("id=cash_movements"),
@@ -586,11 +589,11 @@ var routeManifest = map[string]routeSpec{
 
 	"GET /api/v1/cash-sources":                  list(),
 	"POST /api/v1/cash-sources":                 list(),
-	"GET /api/v1/cash-sources/:id":              probe("id=cash_sources"),
-	"GET /api/v1/cash-sources/:id/ledger":       probe("id=cash_sources"),
+	"GET /api/v1/cash-sources/:id":              probe("id=categories"),
+	"GET /api/v1/cash-sources/:id/ledger":       probe("id=categories"),
 	"GET /api/v1/expense-categories":            list(),
 	"POST /api/v1/expense-categories":           list(),
-	"GET /api/v1/expense-categories/:id/ledger": probe("id=expense_categories"),
+	"GET /api/v1/expense-categories/:id/ledger": probe("id=categories"),
 
 	"GET /api/v1/cash-movements/cash-ledger":                              list(),
 	"GET /api/v1/cash-movements/mode-ledger":                              list(),

@@ -16,7 +16,7 @@ import { type BranchView } from "@/product/pages/branches/services/branchService
 import { listCustomersPage, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { singleFlight } from "@/product/utils/singleFlight";
-import { loanNumberFor, refCellFor } from "@/product/pages/cash/components/ledgerCells";
+import { loanNumberFor, refCellFor, BillLink } from "@/product/pages/cash/components/ledgerCells";
 
 const ZERO_TOTALS: PartyTotals = { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 };
 const PAGE_SIZE = 12;
@@ -161,7 +161,7 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
                   <tr key={m.id}>
                     <td>{fmtDate(m.d)}</td>
                     <td className="ledger-ref" title={m.bankName || loanNumberFor(m)}>{refCellFor(m)}</td>
-                    <td>{m.purpose || m.source || "—"}</td>
+                    <td>{m.purpose || m.source || "—"}<BillLink url={m.receiptImage} title={m.purpose || m.source || "Entry"} /></td>
                     <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
                     <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
                     <td className="num">{fmt(balance)}</td>
