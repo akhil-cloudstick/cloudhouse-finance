@@ -25,6 +25,7 @@ var (
 	ErrNameRequired      = httpx.NewBadRequest("business name is required")
 	ErrCodeRequired      = httpx.NewBadRequest("business code is required")
 	ErrInvalidCode       = httpx.NewBadRequest("business code must be lowercase letters, numbers and dashes only")
+	ErrReservedCode      = httpx.NewBadRequest("this business code is reserved, please choose another")
 	ErrDuplicateCode     = httpx.NewConflict("a business with this code already exists")
 	ErrTierNotFound      = httpx.NewBadRequest("tier not found")
 	ErrAdminUsernameReq  = httpx.NewBadRequest("an initial administrator username is required")
@@ -159,6 +160,12 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 	}
 	if !businessCodePattern.MatchString(code) || len(code) > 32 {
 		return nil, ErrInvalidCode
+	}
+	// A reserved label (www, api, admin, superadmin) never resolves as a tenant
+	// from the Host, so a business with that code could not be reached at its
+	// own subdomain. "api" is also the shared mobile API host.
+	if tenant.ReservedHostLabels[code] {
+		return nil, ErrReservedCode
 	}
 	if _, err := s.tenantRepo.FindByCode(ctx, code); err == nil {
 		return nil, ErrDuplicateCode
