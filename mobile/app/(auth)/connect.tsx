@@ -3,7 +3,8 @@ import { ActivityIndicator, BackHandler, Image, Keyboard, Pressable, StyleSheet,
 import { useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../src/auth/AuthContext";
-import { isValidConnectCode, normalizeConnectCode, parseConnectQr } from "../../src/auth/businessCode";
+import { isValidConnectCode, normalizeConnectCode, parseConnectLoginToken, parseConnectQr } from "../../src/auth/businessCode";
+import { redeemQrLogin } from "../../src/api/auth";
 import { fetchPublicBranding, redeemConnectCode, resolveLogoUrl } from "../../src/api/branding";
 import { ApiError } from "../../src/api/client";
 import { QrScanner } from "../../src/components/QrScanner";
@@ -33,8 +34,8 @@ type Mode = "choose" | "scan" | "type" | "loading";
 
 export default function ConnectScreen() {
   const insets = useSafeAreaInsets();
-  const { connectBusiness } = useAuth();
-  const params = useLocalSearchParams<{ c?: string }>();
+  const { connectBusiness, signInWithSession } = useAuth();
+  const params = useLocalSearchParams<{ c?: string; l?: string }>();
   const [mode, setMode] = useState<Mode>("choose");
   const [armed, setArmed] = useState(true);
   const [typed, setTyped] = useState("");
@@ -47,7 +48,7 @@ export default function ConnectScreen() {
   const from = useRef<Mode>("choose");
 
   const connect = useCallback(
-    async (connectCode: string, origin: Mode) => {
+    async (connectCode: string, origin: Mode, loginToken?: string | null) => {
       Keyboard.dismiss();
       const mine = ++attempt.current;
       from.current = origin;
@@ -75,9 +76,22 @@ export default function ConnectScreen() {
       // business they're connecting to before the login page replaces it.
       await new Promise((r) => setTimeout(r, 700));
       if (mine !== attempt.current) return;
+      // The QR carried a login token: be signed in as the web user too. If it
+      // lapsed or was already used, just connect and let them sign in by hand.
+      if (loginToken) {
+        try {
+          const session = await redeemQrLogin(loginToken);
+          if (mine !== attempt.current) return;
+          await signInWithSession(session.token, session.employee, session.businessCode);
+          return;
+        } catch {
+          if (mine !== attempt.current) return;
+          toast.error("Couldn't sign in automatically", "Sign in with your username and password.");
+        }
+      }
       await connectBusiness(code);
     },
-    [connectBusiness]
+    [connectBusiness, signInWithSession]
   );
 
   // cloudhouse://connect?c=<code> — the phone camera opened the app on this
@@ -86,9 +100,10 @@ export default function ConnectScreen() {
     const code = typeof params.c === "string" ? parseConnectQr(params.c) : null;
     if (!code) return;
     // Started off the effect's own tick — connect() sets state straight away.
-    const t = setTimeout(() => connect(code, "choose"), 0);
+    const login = typeof params.l === "string" && /^[0-9a-f]{32}$/i.test(params.l) ? params.l.toLowerCase() : null;
+    const t = setTimeout(() => connect(code, "choose", login), 0);
     return () => clearTimeout(t);
-  }, [params.c, connect]);
+  }, [params.c, params.l, connect]);
 
   const cancel = () => {
     attempt.current++;
@@ -125,7 +140,7 @@ export default function ConnectScreen() {
       setTimeout(() => setArmed(true), 1500);
       return;
     }
-    connect(code, "scan");
+    connect(code, "scan", parseConnectLoginToken(data));
   }
 
   function submitTyped() {

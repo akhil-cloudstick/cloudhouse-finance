@@ -15,7 +15,10 @@ import { isLoanSource } from "@/product/pages/cash/services/cashSourceService";
 // same purpose-or-source text, with a party link layered on top (category /
 // customer / bank drill-down).
 export function particularsFor(m: CashMovementView, categoryIds: Record<string, number>) {
-  const text = m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—";
+  // A gold-loan repayment (source "Collection", LN- reference) reads "Gold
+  // Loan"; personal-loan collections keep their existing label.
+  const source = m.source === "Collection" && loanNumberFor(m).startsWith("LN-") ? "Gold Loan" : m.source;
+  const text = m.type === "in" ? (m.purpose ? `${source} · ${m.purpose}` : source) : m.purpose || "—";
   // An approved expense's row links to its category ledger first — that's
   // the ledger it belongs to; its From Bank still has its own bank ledger.
   const category = expenseCategoryOf(m.purpose);
@@ -41,26 +44,32 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
 // loanNumberFor pulls the loan number back out of `purpose` — every
 // loan-related movement's Purpose carries it as a "… — LN-00049" suffix
 // (see cash.MovementService.RecordLoanDisbursementCashOut/
-// RecordLoanPaymentCashIn/etc), there's no dedicated column for it. Movements
-// with no loan number (manual top-ups, expenses, gold sales, …) fall back to
-// the transaction group id / movement id.
+// RecordLoanPaymentCashIn/etc), there's no dedicated column for it. "" for a
+// movement with none (manual top-ups, expenses, gold sales, …) — the internal
+// transaction group id / movement id is deliberately never shown as a Ref No.
 const LOAN_NUMBER_RE = /—\s*((?:LN|PL|INV)-\S+)\s*$/;
 export function loanNumberFor(m: CashMovementView): string {
-  // A loan-sourced Add Cash entry carries the loan number staff typed in.
-  if (m.loanSource?.loanNumber) return m.loanSource.loanNumber;
   const match = m.purpose ? LOAN_NUMBER_RE.exec(m.purpose) : null;
-  return match?.[1] || m.transactionGroupId || String(m.id);
+  return match?.[1] || "";
 }
 
-// A row's Ref No column is only ever clickable when it actually resolved to
-// a real loan/investment number — the transactionGroupId/id fallback isn't a
-// navigable entity, just an internal identifier.
+// Ref No column. An expense (which includes a loan repayment — those are
+// booked as expenses in the loan's category) or a loan-sourced Add Cash shows
+// the bank it moved through, linked to that bank's ledger, and stays blank
+// shows "—" when there is none (e.g. a Cash-mode expense). A real LN-/PL-/INV-
+// number links to its loan/investment. Everything else is "—" — never the
+// internal transaction id.
 export function refCellFor(m: CashMovementView) {
+  const bankBacked = m.expenseId != null || expenseCategoryOf(m.purpose) !== null || (m.type === "in" && !!m.source && isLoanSource(m.source));
+  if (bankBacked) {
+    if (m.bankId && m.bankName) return <LedgerRefLink kind="bank" id={m.bankId} label={m.bankName} />;
+    return m.bankName || "—";
+  }
   const ref = loanNumberFor(m);
   if (ref.startsWith("LN-")) return <LedgerRefLink kind="loan" id={ref} label={ref} />;
   if (ref.startsWith("PL-")) return <LedgerRefLink kind="personalloan" id={ref} label={ref} />;
   if (ref.startsWith("INV-")) return <LedgerRefLink kind="investment" id={ref} label={ref} />;
-  return ref;
+  return "—";
 }
 
 // Every mode is a drill-down link to that mode's own ledger — plain text for
@@ -75,4 +84,12 @@ export function modeCellFor(mode: string | undefined) {
 function ModeLink({ route, mode }: { route: string; mode: string }) {
   const canOpen = useCanOpenRoute();
   return canOpen(route) ? <a href={routeHref(route)}>{mode}</a> : <>{mode}</>;
+}
+
+// Ref cell for a party/mode ledger row with no loan/investment number: a
+// loan-sourced Add Cash entry (row `type` is its source name, e.g. "Loan …")
+// links to that loan's own ledger — its same-named repayment category.
+export function loanCatRef(r: { type: string; reference?: string }, categoryIds: Record<string, number>) {
+  const id = r.type && isLoanSource(r.type) ? categoryIds[r.type.toLowerCase()] : undefined;
+  return id && r.reference ? <LedgerRefLink kind="category" id={id} label={r.reference} /> : r.reference || "—";
 }

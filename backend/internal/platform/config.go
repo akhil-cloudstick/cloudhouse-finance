@@ -86,34 +86,26 @@ type Config struct {
 	SMTPUser string
 	SMTPPass string
 	SMTPFrom string
-	// Setu* configure the Setu Data Gateway PAN verification API (see
-	// platform/setu.go). SetuBaseURL switches between sandbox
-	// (https://dg-sandbox.setu.co) and production (https://dg.setu.co).
-	SetuClientID        string
-	SetuClientSecret    string
-	SetuProductInstance string
-	SetuBaseURL         string
-	// SetuDigilocker* configure the separate DigiLocker Aadhaar-verification
-	// product instance (see platform/setu_digilocker.go). A different Setu
-	// product from PAN verification above, so its own client-id/secret/
-	// product-instance-id, though the sandbox/production host pattern is
-	// the same.
-	SetuDigilockerClientID        string
-	SetuDigilockerClientSecret    string
-	SetuDigilockerProductInstance string
-	SetuDigilockerBaseURL         string
-	// SetuEsign* configure the separate Aadhaar eSign product instance (see
-	// platform/setu_esign.go) — used to digitally sign the loan indemnity
-	// bond. A different Setu product from PAN/DigiLocker above, so its own
-	// client-id/secret/product-instance-id, though the sandbox/production
-	// host pattern is the same.
-	SetuEsignClientID        string
-	SetuEsignClientSecret    string
-	SetuEsignProductInstance string
-	SetuEsignBaseURL         string
+	// Surepass* configure the Surepass KYC APIs used for PAN verification,
+	// DigiLocker Aadhaar verification and Aadhaar eSign (see
+	// platform/surepass.go). One bearer token covers all three products;
+	// SurepassBaseURL switches between sandbox
+	// (https://sandbox.surepass.app) and production
+	// (https://kyc-api.surepass.app) — use the matching token for each.
+	SurepassToken   string
+	SurepassBaseURL string
+	// SurepassEsign* configure the Suresign eSign API (see
+	// platform/surepass_esign.go) — a separate Surepass product from the KYC
+	// APIs above, with its own host and its own bearer token.
+	SurepassEsignToken   string
+	SurepassEsignBaseURL string
+	// SurepassEsignSignX/Y are the fallback signature stamp coordinates on
+	// the bond's last page, used when a document has no measured slots.
+	SurepassEsignSignX int
+	SurepassEsignSignY int
 	// Razorpay* configure the Razorpay Orders API used for customer-app
 	// online loan payments (see platform/razorpay.go). Plain env vars,
-	// following the same convention as Setu* above, rather than the
+	// following the same convention as Surepass* above, rather than the
 	// encrypted internal/settings table.
 	RazorpayKeyID     string
 	RazorpayKeySecret string
@@ -201,20 +193,14 @@ func LoadConfig() Config {
 		SMTPUser:             getEnv("SMTP_USER", ""),
 		SMTPPass:             getEnv("SMTP_PASS", ""),
 		SMTPFrom:             getEnv("SMTP_FROM", ""),
-		SetuClientID:         getEnv("SETU_CLIENT_ID", ""),
-		SetuClientSecret:     getEnv("SETU_CLIENT_SECRET", ""),
-		SetuProductInstance:  getEnv("SETU_PRODUCT_INSTANCE_ID", ""),
-		SetuBaseURL:          getEnv("SETU_BASE_URL", "https://dg-sandbox.setu.co"),
 
-		SetuDigilockerClientID:        getEnv("SETU_DIGILOCKER_CLIENT_ID", ""),
-		SetuDigilockerClientSecret:    getEnv("SETU_DIGILOCKER_CLIENT_SECRET", ""),
-		SetuDigilockerProductInstance: getEnv("SETU_DIGILOCKER_PRODUCT_INSTANCE_ID", ""),
-		SetuDigilockerBaseURL:         getEnv("SETU_DIGILOCKER_BASE_URL", "https://dg-sandbox.setu.co"),
-
-		SetuEsignClientID:        getEnv("SETU_ESIGN_CLIENT_ID", ""),
-		SetuEsignClientSecret:    getEnv("SETU_ESIGN_CLIENT_SECRET", ""),
-		SetuEsignProductInstance: getEnv("SETU_ESIGN_PRODUCT_INSTANCE_ID", ""),
-		SetuEsignBaseURL:         getEnv("SETU_ESIGN_BASE_URL", "https://dg-sandbox.setu.co"),
+		SurepassToken:   getEnv("SUREPASS_API_TOKEN", ""),
+		SurepassBaseURL: getEnv("SUREPASS_BASE_URL", "https://sandbox.surepass.app"),
+		// Defaults target the Borrower signature gap on the bond (A4, left column, bottom of the last page); confirm against a sandbox signing run.
+		SurepassEsignToken:   getEnv("SUREPASS_ESIGN_TOKEN", ""),
+		SurepassEsignBaseURL: getEnv("SUREPASS_ESIGN_BASE_URL", "https://prod-esign-api-v2.surepass.app"),
+		SurepassEsignSignX:   getEnvInt("SUREPASS_ESIGN_SIGN_X", 110),
+		SurepassEsignSignY:   getEnvInt("SUREPASS_ESIGN_SIGN_Y", 730),
 
 		RazorpayKeyID:         getEnv("RAZORPAY_KEY_ID", ""),
 		RazorpayKeySecret:     getEnv("RAZORPAY_KEY_SECRET", ""),

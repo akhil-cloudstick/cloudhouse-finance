@@ -17,8 +17,11 @@
 /.next/
 /out/
 
-# production
-/build
+# desktop app: renderer build, installers, staged embed assets
+/dist-desktop/
+/dist/
+/core/assets/*
+!/core/assets/.gitkeep
 
 # misc
 .DS_Store

@@ -26,6 +26,10 @@ type PublishInput struct {
 	Karat int // 24, 22, or 18
 	Rate  float64
 	SetBy string
+	// Rates, when non-empty, publishes several karats as ONE history row
+	// (key 24/22/18) and takes precedence over Karat/Rate. Untouched karats
+	// still carry forward from the previous latest row.
+	Rates map[int]float64
 }
 
 // Service implements gold-rate business rules on top of the Repository.
@@ -38,6 +42,20 @@ func NewService(repo *Repository) *Service {
 }
 
 func validate(in PublishInput) error {
+	if len(in.Rates) > 0 {
+		for k, r := range in.Rates {
+			if k != 24 && k != 22 && k != 18 {
+				return ErrInvalidKarat
+			}
+			if r <= 0 {
+				return ErrInvalidRate
+			}
+		}
+		if in.SetBy == "" {
+			return ErrSetByBlank
+		}
+		return nil
+	}
 	if in.Karat != 24 && in.Karat != 22 && in.Karat != 18 {
 		return ErrInvalidKarat
 	}
@@ -72,13 +90,25 @@ func (s *Service) Publish(ctx context.Context, in PublishInput) (*GoldRate, erro
 	if prev, err := s.repo.FindLatest(ctx); err == nil {
 		rec.K24, rec.K22, rec.K18 = prev.K24, prev.K22, prev.K18
 	}
-	switch in.Karat {
-	case 24:
-		rec.K24 = in.Rate
-	case 22:
-		rec.K22 = in.Rate
-	case 18:
-		rec.K18 = in.Rate
+	if len(in.Rates) > 0 {
+		if r, ok := in.Rates[24]; ok {
+			rec.K24 = r
+		}
+		if r, ok := in.Rates[22]; ok {
+			rec.K22 = r
+		}
+		if r, ok := in.Rates[18]; ok {
+			rec.K18 = r
+		}
+	} else {
+		switch in.Karat {
+		case 24:
+			rec.K24 = in.Rate
+		case 22:
+			rec.K22 = in.Rate
+		case 18:
+			rec.K18 = in.Rate
+		}
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err

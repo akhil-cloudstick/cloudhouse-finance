@@ -18,6 +18,7 @@ import {
   type StatementStyle,
 } from "@/product/pages/reports/services/reportsService";
 import { useIsSmallScreen } from "@/product/utils/responsive";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Shared row renderer for the two "printed statement" reports (Balance
  * Sheet, Statement of P&L) — one row per line exactly as a real Ind AS
@@ -535,7 +536,7 @@ export function Reports() {
     return <ReportView config={active} onBack={() => setActiveId(null)} />;
   }
 
-  async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE) {
+  async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE) { return singleFlight("reports:print:"+r.id, async () => {
     e.stopPropagation();
     if (r.id === "ledger-export") { setActiveId("ledger-export"); return; }
     setPrintingId(r.id);
@@ -554,7 +555,7 @@ export function Reports() {
     } finally {
       setPrintingId(null);
     }
-  }
+  }); }
 
   return (
     <>

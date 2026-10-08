@@ -97,6 +97,8 @@
   --select-caret: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236054bf' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --sidebar-w: 248px;
+  --app-h: 100vh;
+  --titlebar-h: 0px;
 
   /* Per-business typography (multi-tenant theming) — defaults matching
      theme.ts's DEFAULT_FONT_FAMILY/DEFAULT_FONT_SCALE, overwritten by
@@ -122,7 +124,7 @@ body {
   font-size: calc(1em * var(--brand-font-scale));
   color: var(--ink);
   background: var(--bg);
-  min-height: 100vh;
+  min-height: var(--app-h);
 }
 
 body::before {
@@ -152,7 +154,7 @@ h3,
  * direction. All scrolling that IS needed happens inside .page (below). */
 .shell {
   display: flex;
-  height: 100vh;
+  height: var(--app-h);
   overflow: hidden;
   position: relative;
   z-index: 1
@@ -168,7 +170,7 @@ h3,
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  height: var(--app-h);
   background: #f6f5f8;
 }
 .shell-loading-spinner {
@@ -232,7 +234,7 @@ h3,
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: 0;
+  top: var(--titlebar-h);
   bottom: 0;
   left: 0;
   z-index: 40;
@@ -2088,6 +2090,13 @@ button.fi-trigger {
   flex: 1 1 auto;
   min-height: 0;
 }
+
+/* Cash page only: keep a floor under the table cards so the table never
+ * collapses to nothing on short/zoomed viewports (KPI tiles + tabs above can
+ * use up the whole page height); `.page` scrolls instead. */
+.tbl-card.tbl-card-fill.cash-tbl-card {
+  min-height: 360px;
+}
 .tbl-card-fill > .tbl-wrap {
   flex: 1 1 auto;
   min-height: 0;
@@ -2621,7 +2630,16 @@ button.fi-trigger {
 .cust-360 .tbl {
   table-layout: auto;
   width: 100%;
-  min-width: 760px
+  min-width: 0
+}
+
+/* Grid items default to min-width:auto, so the right column refused to
+ * shrink below the table's content width and pushed the last column off
+ * the card's edge. min-width:0 lets the column shrink and the table's own
+ * wrapper take over with a sideways scrollbar when columns truly don't fit. */
+.cust-360 > .grid,
+.cust-360 .tbl-card {
+  min-width: 0
 }
 
 .cust-360 .tbl th,
@@ -2658,6 +2676,60 @@ button.fi-trigger {
   text-align: center;
   overflow-wrap: normal;
   word-break: normal
+}
+
+/* Responsive tables on the customer 360 view. The base `.tbl-wrap` hides its
+ * scrollbar, so when the columns don't fit the last ones (Status) were simply
+ * cut off with no hint they could be reached. Show a slim scrollbar here, and
+ * progressively tighten the table as the right column gets narrower so most
+ * widths fit without scrolling at all. */
+.cust-360 .tbl-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: var(--brand-pale) transparent;
+  -ms-overflow-style: auto;
+}
+.cust-360 .tbl-wrap::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+  width: 8px;
+}
+.cust-360 .tbl-wrap::-webkit-scrollbar-thumb {
+  background: var(--brand-pale);
+  border-radius: 4px;
+}
+
+@media (max-width: 1600px) {
+  .cust-360 .tbl th {
+    padding: 10px 8px;
+    letter-spacing: .08em;
+  }
+  .cust-360 .tbl td {
+    padding: 10px 8px;
+  }
+  .cust-360 .tbl th:first-child,
+  .cust-360 .tbl td:first-child {
+    padding-left: 12px;
+  }
+  .cust-360 .tbl th:last-child,
+  .cust-360 .tbl td:last-child {
+    padding-right: 12px;
+  }
+}
+
+@media (max-width: 1450px) {
+  .cust-360 .tbl {
+    font-size: 12.5px;
+  }
+  .cust-360 .tbl th {
+    font-size: 9.5px;
+    letter-spacing: .04em;
+  }
+  .cust-360 .tab-rail {
+    width: 40px;
+  }
+  .cust-360-tabrow {
+    gap: 8px !important;
+  }
 }
 
 .card {
@@ -3193,7 +3265,18 @@ button.fi-trigger {
  * only ever has one card here, so it never needed this) — equal columns
  * at desk width, stacked below 1060px alongside every other .grid.cols*
  * breakpoint (see @media(max-width:1060px) further down this file). */
-.pl-detail-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr;gap:15px;align-items:stretch;flex:1 1 auto;min-height:0}
+/* One column at every width: the Payment Ledger now has seven columns and
+ * wants the full row. Rows size to their content (both tables are paged) and
+ * the cards never shrink below it — a shrinking card used to spill its pager
+ * over the card beneath on a short or zoomed-in window. */
+.pl-detail-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);grid-auto-rows:auto;gap:15px;align-items:start;flex:0 0 auto}
+.pl-detail-grid > .card{flex-shrink:0;min-height:auto}
+/* Schedule has only 4 short columns, so it gives up its 640px table floor and
+ * the (7-column) Payment Ledger gets the wider share; the ledger's date stays
+ * on one line instead of wrapping into a tall cell. */
+.pl-detail-grid > .card:first-child .tbl{min-width:0}
+.pl-detail-grid .ledger-amt td:first-child,.pl-detail-grid .ledger-amt th{white-space:nowrap}
+.pl-detail-grid .tbl-wrap{max-height:none}
 .btn.doc-action{width:132px;flex:0 0 auto;overflow:hidden}
 .doc-action-tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;min-width:0}
 /* PersonalLoanDetail.tsx's Download Bond button is the row's only action
@@ -3723,6 +3806,16 @@ table.tbl {
 .tbl {
   font-variant-numeric: tabular-nums;
 }
+/* Action column pinned to the right edge of `.tbl-wrap` — its scrollbar is
+ * hidden, so when zoomed the table scrolls sideways and the buttons were
+ * clipped with no way to reach them. */
+.tbl th.col-act,
+.tbl td.col-act {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--ivory, #fff);
+}
 .tbl th {
   text-align: left;
   font-size: 10.5px;
@@ -3853,7 +3946,9 @@ table.tbl {
   }
 
   .tbl-stack tr {
-    border: 1px solid rgba(201, 151, 28, .25);
+    /* The business's secondary colour (--brand2, set in the console), falling
+     * back to the primary when none is set — was a fixed gold. */
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
     border-radius: 10px;
     margin-bottom: 10px;
     padding: 4px 14px;
@@ -3870,7 +3965,7 @@ table.tbl {
     justify-content: space-between;
     gap: 12px;
     text-align: right;
-    border-bottom: 1px dashed rgba(232, 220, 186, .6);
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
     padding: 8px 0
   }
 
@@ -5394,6 +5489,21 @@ table.tbl {
   }
 }
 
+/* Big screens (the exact complement of the stacking query above): like every
+ * other table page, the side-by-side cards fill down to `.page`'s bottom gap
+ * and share one bottom edge, with each footer (pager / totals) pinned to the
+ * bottom of its card. `minmax(min-content,1fr)` keeps the row from ever
+ * shrinking below the taller card's content, so a short window scrolls
+ * `.page` instead of squeezing the cards. */
+@media (min-width: 1561px) and (min-height: 851px) {
+  .pl-detail-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-rows: minmax(min-content, 1fr);
+    align-items: stretch
+  }
+}
+
 @keyframes expandSearchRight {
   from {
     opacity: 0.3;
@@ -6215,6 +6325,25 @@ table.tbl {
     min-height: 44px;
   }
 }
+/* Ledger tables' totals row — its Debit / Credit cells sit under those columns. */
+.tbl tfoot tr.tbl-total td {
+  font-weight: 700;
+  border-top: 2px solid var(--line);
+}
+
+/* Loan Detail's Payment Ledger and Pledged Ornaments / Bank Pledge cards.
+ * Every table in them is paged (10 / 5 rows), so they size to their rows:
+ * .tbl-wrap's viewport-based max-height used to cap them at a row or two on
+ * a short or zoomed-in window, and .page's flex column squeezed the card
+ * itself below its content (clipping the pager) — neither wants to happen
+ * here; .page simply scrolls instead. */
+.card.ld-card {
+  flex-shrink: 0;
+}
+.ld-card .tbl-wrap {
+  max-height: none;
+}
+
 /* Edit Loan modal's own scrollable ornament list (EditLoanModal.tsx) —
  * still scrollable by wheel/drag/touch, just with the scrollbar track
  * itself hidden, matching how the rest of this app's scroll areas already
@@ -6277,6 +6406,12 @@ table.tbl {
   order: 2;
   min-width: 0;
   flex: 1 1 auto;
+  /* This row scrolls sideways, and `overflow-x:auto` makes the y axis clip
+   * too — which sheared the active pill's drop shadow flat. Padding gives the
+   * shadow room inside the scroller; the equal negative margins hand that
+   * space back, so the row's size and the gap around it are unchanged. */
+  padding: 10px 12px 20px;
+  margin: -6px -8px -20px;
 }
 
 .loans-filter-row.small .loans-date-filter {
@@ -7526,4 +7661,247 @@ table.tbl {
 
 .tbl tr.ledger-row-focus > td:first-child {
   box-shadow: inset 3px 0 0 var(--brand);
+}
+
+/* Desktop window title bar (components/DesktopTitleBar.tsx). Only present in the
+ * packaged app, which has no native frame; the class below reserves its height. */
+html.has-titlebar {
+  --titlebar-h: 32px;
+  --app-h: calc(100vh - 32px);
+}
+html.has-titlebar body {
+  padding-top: var(--titlebar-h);
+}
+.dtb {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  z-index: 2147483000;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  background: var(--nav);
+  color: oklch(0.95 0.006 290);
+  font-size: 12px;
+  user-select: none;
+  --wails-draggable: drag;
+}
+.dtb-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  min-width: 0;
+}
+.dtb-title img { width: 16px; height: 16px; flex-shrink: 0; }
+.dtb-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtb-btns { display: flex; --wails-draggable: no-drag; }
+.dtb-btn {
+  width: 46px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: default;
+}
+.dtb-btn:hover { background: oklch(1 0 0 / .12); }
+.dtb-btn.close:hover { background: #c42b1c; color: #fff; }
+.dtb-btn svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1; }
+
+/* ── Compact-window fixes ─────────────────────────────────────────────────
+ * Everything below only engages on a narrow or short window; the existing
+ * small/large screen rules above are untouched. */
+
+/* KPI figures stay on one line so FitTextObserver can measure them and scale
+ * the text down to fit the card instead of the amount being clipped. */
+.kpi .v {
+  white-space: nowrap;
+}
+
+/* A KPI breakdown row ("Loan repayments ₹1,18,567.43") — one line; the
+ * observer shrinks its font if label + amount are wider than the card. */
+.kpi-fit {
+  display: flex;
+  gap: 6px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* Short windows. `.tbl-wrap` is capped at `100vh - 350px`, which runs out on
+ * a short viewport and left the table nothing — only the footer was visible.
+ * Table cards now size to their rows and `.page` scrolls instead (rows per
+ * page are bounded by each table's page size); other tables get a floor so
+ * they never collapse. The auction History tables keep their own fixed cap.
+ * (Tables still scroll internally: the cap has a 320px floor, and the card
+ * holds that height so `.page` scrolls to reach it.) */
+@media (max-height: 760px) {
+  .page .tbl-wrap,
+  .page > .tbl-card > .tbl-wrap:not(.auction-history-tbl-wrap),
+  .page > .tbl-card-fill > .tbl-wrap {
+    max-height: max(calc(100vh - 350px), 320px);
+  }
+
+  .page > .tbl-card,
+  .page > .tbl-card-fill {
+    flex: 0 0 auto;
+  }
+
+  .page > .tbl-card > .tbl-wrap:not(.auction-history-tbl-wrap),
+  .page > .tbl-card-fill > .tbl-wrap {
+    flex: 0 0 auto;
+  }
+}
+
+/* Narrow windows. Pages that opt in with `.page-h-stack` (Reminder Calendar,
+ * report views) give the title the full first line and put the action
+ * buttons on their own line below, instead of the buttons squeezing the title
+ * into a one-word-per-line column. */
+@media (max-width: 900px) {
+  .page-h.page-h-stack > .page-h-title {
+    flex: 1 1 100%;
+  }
+
+  .page-h.page-h-stack > .page-h-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+    align-self: flex-start !important;
+  }
+}
+
+/* Loan Schemes: two cards per row once the content column (viewport minus the
+ * sidebar) is too narrow for four — the small-screen layout sets 4 columns
+ * inline. */
+@media (max-width: 1100px) {
+  .schemes-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .schemes-grid > .card {
+    min-width: 0;
+  }
+}
+
+/* Loan Detail / Cash ledgers: dates and Debit/Credit/Balance amounts stay on
+ * one line (the table scrolls sideways instead of wrapping "06-10-\n2026"). */
+.tbl.ledger-nowrap th.num,
+.tbl.ledger-nowrap td.num,
+.tbl.ledger-nowrap td:first-child {
+  white-space: nowrap;
+}
+
+/* Ledger tables with Debit / Credit / Balance: the three amount columns get
+ * one fixed width so the footer's totals (FooterTotals `aligned`, which uses
+ * the same width + padding) sit exactly under Debit and Credit. */
+.tbl.ledger-amt th.num,
+.tbl.ledger-amt td.num {
+  width: 140px;
+  min-width: 140px;
+  box-sizing: border-box;
+}
+
+/* Customer detail (.cust-360) on a short window. The stacked layout (≤1060px)
+ * caps the profile card's content and the table at 56vh each, which on a
+ * short window shrinks them to a few visible lines inside nested scrollers.
+ * Each cap now has a floor, so they stay usable and `.page` scrolls to reach
+ * them; at ordinary heights 56vh is still the larger value, so nothing there
+ * changes. The two-column layout (>1060px) fills the page height with `1fr`
+ * and has no such cap — it gets a minimum height instead of collapsing. */
+@media (max-width: 1060px) {
+  .grid.cols12.cust-360 > .grid > .card > .bd {
+    max-height: max(56vh, 420px);
+  }
+
+  .cust-360 .tbl-card-fill .tbl-wrap {
+    max-height: max(56vh, 360px);
+  }
+}
+
+@media (min-width: 1061px) and (max-height: 760px) {
+  .grid.cols12.cust-360 {
+    flex: 1 0 auto;
+    min-height: 460px;
+  }
+}
+
+/* A table inside a card is part of the card, not a second box. `.tbl-wrap`
+ * carries its own 10px radius, and at ≤900px the small-screen block above adds
+ * a 1px border and frosted background to it as well — which drew a rounded,
+ * bordered rectangle inside the card's own rounded border. Within a `.card` it
+ * now has no border or radius of its own; only a wrap that ends the card
+ * follows the card's bottom corners, so the table never pokes out of them.
+ * A bare `.tbl-wrap` outside any card keeps its small-screen border. */
+.card .tbl-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
+.card > .tbl-wrap:last-child {
+  border-radius: 0 0 11px 11px;
+}
+
+/* Stacked ledger cards (.tbl-stack, ≤1279px): each row is a card of
+ * label/value lines. Three things from the table layout leaked into it:
+ *  - `.ledger-ref`'s 130px max-width cut the Ref No line short, so its value
+ *    sat against the label and its dashed divider stopped part-way;
+ *  - `.tbl td:first-child/:last-child` keep their 18px side padding, indenting
+ *    just the Date and Balance lines relative to the rest;
+ * and a card is ~300px tall, so the short-window scroll box (320px floor) held
+ * one card and a sliver of the next. Cards snap to the top of the box as it
+ * scrolls, and its floor is raised to fit about two. */
+@media (max-width: 1279px) {
+  .tbl-stack td:first-child {
+    padding-left: 0;
+  }
+
+  .tbl-stack td:last-child {
+    padding-right: 0;
+  }
+
+  .tbl-stack td.ledger-ref {
+    max-width: none;
+  }
+
+  .tbl-wrap:has(> .tbl-stack) {
+    scroll-snap-type: y proximity;
+  }
+
+  .tbl-stack tr {
+    scroll-snap-align: start;
+  }
+}
+
+@media (max-width: 1279px) and (max-height: 760px) {
+  .page .tbl-wrap:has(> .tbl-stack),
+  .page > .tbl-card > .tbl-wrap:has(> .tbl-stack):not(.auction-history-tbl-wrap),
+  .page > .tbl-card-fill > .tbl-wrap:has(> .tbl-stack) {
+    max-height: max(calc(100vh - 350px), 620px);
+  }
+}
+
+/* The stacked cards must take the container's width, not the table's. The
+ * base rule `table.tbl{min-width:640px}` outranks `.tbl-stack`, so a stacked
+ * table stayed 640px wide inside a narrower window — every card ran past the
+ * right edge, and the right-aligned values (Date, Ref No, Particulars, Mode)
+ * were pushed out of sight, leaving only labels and short left-side values.
+ * Same applies to the wrap's horizontal scroll, which no stacked table needs. */
+@media (max-width: 1279px) {
+  table.tbl.tbl-stack {
+    min-width: 0;
+  }
+
+  .tbl-wrap:has(> .tbl-stack) {
+    overflow-x: hidden;
+  }
+
+  /* Long values (a customer/loan chip row in Particulars) wrap inside the
+   * card instead of widening it. */
+  .tbl-stack td {
+    flex-wrap: wrap;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }

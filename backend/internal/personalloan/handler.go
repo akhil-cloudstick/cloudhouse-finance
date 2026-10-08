@@ -160,12 +160,12 @@ func (h *Handler) Payments(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	recs, hasMore, total, err := h.svc.ListPayments(ctx, id, platform.GetBranchScope(c), limit, offset)
+	recs, hasMore, total, totals, err := h.svc.GetLedger(ctx, id, platform.GetBranchScope(c), limit, offset, c.Query("order"))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total})
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total, "totalDebit": totals.Debit, "totalCredit": totals.Credit})
 }
 
 type paymentRequest struct {

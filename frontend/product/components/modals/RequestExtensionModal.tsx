@@ -9,6 +9,7 @@ import { fmt, fmtW, fmtDate } from "@/product/utils/format";
 import { createExtensionRequest, createReleaseRequest, getLoan, listLoanRequests, type LoanView } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
 import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Logs a customer's ask to push a loan's due date out. Staff decide on it
  * later from the Extensions & Release page (components/Requests.tsx) — this
@@ -35,7 +36,7 @@ export function RequestExtensionModalContent({ loan, onSaved }: { loan: LoanView
   // request.
   const submittingRef = useRef(false);
 
-  async function save() {
+  async function save() { return singleFlight("modal:requestextension:save:1", async () => {
     const m = +months;
     if (!m || m <= 0) { setErr("Please enter how many months to extend by."); return; }
     if (submittingRef.current) return;
@@ -54,7 +55,7 @@ export function RequestExtensionModalContent({ loan, onSaved }: { loan: LoanView
       submittingRef.current = false;
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>
@@ -192,7 +193,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: { loa
   const remaining = allSelected ? 0 : partialReleaseRemaining(loan.totalOutstandingBalance, loan.principal, remainingCollateral, loan.schemeLtv);
   const conditionMet = allSelected || remaining <= 0.01;
 
-  async function save() {
+  async function save() { return singleFlight("modal:requestextension:save:2", async () => {
     if (submittingRef.current) return;
     if (selected.size === 0) return;
     submittingRef.current = true;
@@ -212,7 +213,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: { loa
       submittingRef.current = false;
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>
@@ -280,7 +281,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: { loans: L
   const [type, setType] = useState<"Extension" | "Release">("Extension");
   const [err, setErr] = useState("");
 
-  const eligible = loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected");
+  const eligible = loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Pending Approval");
   const selected = eligible.find((l) => l.id === loanId);
 
   // Not blanket-disabled on `!selected` — see RepledgeModal.tsx's own

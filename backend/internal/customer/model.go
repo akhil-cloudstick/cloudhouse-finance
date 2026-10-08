@@ -51,6 +51,11 @@ type Customer struct {
 	// unlike a password hash, this is deliberately reversible.
 	AadhaarLast4     string `json:"-" gorm:"size:4"`
 	AadhaarEncrypted string `json:"-" gorm:"type:text"`
+	// AadhaarHash is a keyed fingerprint (platform.Cipher.Fingerprint) of the
+	// number — AadhaarEncrypted can't be compared (random nonce), so this is
+	// what uq_customers_tenant_aadhaar enforces uniqueness on. Blank when no
+	// Aadhaar is on file.
+	AadhaarHash string `json:"-" gorm:"size:64"`
 
 	NomineeName     string `json:"nomineeName" gorm:"size:120"`
 	NomineeRelation string `json:"nomineeRelation" gorm:"size:60"`

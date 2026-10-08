@@ -15,6 +15,7 @@ import { EXPENSE_CATEGORIES_CHANGED } from "@/product/pages/cash/services/expens
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { Select } from "@/product/components/ui/Select";
 import { DatePicker } from "@/product/components/ui/DatePicker";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 // A focused number input steps its value on mouse-wheel; blurring first
 // lets the wheel scroll the modal instead of changing the amount.
@@ -118,7 +119,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
   // UPI/transfer landed in (see backend/internal/cash/service.go's Record).
   const bankRequired = mode === "UPI" || mode === "Bank Transfer";
 
-  async function saveGoldSale() {
+  async function saveGoldSale() { return singleFlight("modal:addcash:saveGoldSale", async () => {
     const type = ornamentType.trim();
     const cost = +costAmount || 0;
     if (!type) { setErr("Please enter the ornament type."); return; }
@@ -142,9 +143,9 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
-  async function save() {
+  async function save() { return singleFlight("modal:addcash:save", async () => {
     if (!source) { setErr("Please select where the cash is coming from."); return; }
     if (!mode) { setErr("Please select the mode of cash."); return; }
     if (bankRequired && !bankId) {
@@ -188,7 +189,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   const sourceField = (
     <div><label className="f">Source of Cash *</label>
@@ -214,23 +215,22 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
         placeholder="Select mode…"
       /></div>
   );
-  const bankRow = bankRequired && (
-    <div className="frow">
-      <div><label className="f">Bank * <span style={{ fontWeight: 400, color: "var(--muted)" }}>(your account)</span></label>
-        <SearchableSelect<BackendBank>
-          portal
-          value={bank}
-          onChange={(id, item) => { setBankId(id); setBank(item.name); }}
-          fetchFn={searchBanksPage}
-          searchHint="Searches: bank name"
-          getLabel={(b) => b.name}
-          getId={(b) => String(b.id)}
-          placeholder="Search or add a bank…"
-          allowCreate
-          onCreate={createBank}
-        /></div>
-    </div>
+  const bankField = (
+    <div><label className="f">Bank * <span style={{ fontWeight: 400, color: "var(--muted)" }}>(your account)</span></label>
+      <SearchableSelect<BackendBank>
+        portal
+        value={bank}
+        onChange={(id, item) => { setBankId(id); setBank(item.name); }}
+        fetchFn={searchBanksPage}
+        searchHint="Searches: bank name"
+        getLabel={(b) => b.name}
+        getId={(b) => String(b.id)}
+        placeholder="Search or add a bank…"
+        allowCreate
+        onCreate={createBank}
+      /></div>
   );
+  const bankRow = bankRequired && <div className="frow">{bankField}</div>;
   const branchRow = (
     <div className={isGoldSale ? "frow c2" : "frow"}>
       {isGoldSale && (
@@ -281,8 +281,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: ()
                   <input className="inp" type="number" min={1} value={principalAmount} onChange={(e) => setPrincipal(e.target.value)} onWheel={noWheelStep} /></div>
               </div>
             </div>
-            <div className="frow c2">{modeField}</div>
-            {bankRow}
+            <div className="frow c2">{modeField}{bankRequired && bankField}</div>
             {branchRow}
           </>
         ) : (

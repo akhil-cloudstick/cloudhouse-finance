@@ -59,6 +59,16 @@ const (
 	// movement itself via cashRecorder, so isCashPaymentType including this
 	// too would double-count the till).
 	PaymentTypeDisbursement = "Disbursement"
+
+	// PaymentTypeDisbursementReversal retracts a Disbursement row when an edit
+	// resubmits an already-disbursed loan for sanction (see Service.UpdateLoan).
+	// The original Disbursement row and its cash-out movement are kept as
+	// history; this is the explicit offsetting entry. Unlike Disbursement it
+	// moves cash back IN, so it reaches the cash ledgers as a normal payment
+	// row (the matching "Collection" movement is hidden there, as for any
+	// payment) and is deliberately not a ledgerCreditTypes/isCashPaymentType
+	// member — UpdateLoan books its cash-in itself.
+	PaymentTypeDisbursementReversal = "Disbursement Reversal"
 )
 
 // LoanPayment is one entry in a loan's payment ledger: what was received

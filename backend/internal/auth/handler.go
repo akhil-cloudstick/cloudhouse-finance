@@ -50,6 +50,37 @@ func (h *Handler) Login(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, LoginResponse{Token: token, Employee: emp})
 }
 
+// QRIssue mints a one-time login token for the web dashboard's "Connect
+// mobile app" QR, bound to the calling employee (see qr.go).
+func (h *Handler) QRIssue(c *gin.Context) {
+	employeeID, ok := c.MustGet("employeeId").(uint)
+	if !ok {
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	rec, err := h.svc.IssueQRLogin(platform.RequestContext(c), employeeID)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// QRRedeem is the phone swapping the scanned token for a session.
+func (h *Handler) QRRedeem(c *gin.Context) {
+	var in QRRedeemInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	res, err := h.svc.RedeemQRLogin(platform.RequestContext(c), in.Token)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, res)
+}
+
 // ForgotPassword tells the caller exactly what happened so the reset page can
 // react: 404 when no employee of this business has that username + phone,
 // 403 when it belongs to an employee with no login, 503 when the code could

@@ -161,6 +161,8 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/auth/forgot-password":   public("pre-session by nature; must not reveal whether an identifier exists"),
 	"POST /api/v1/auth/reset-password":    public("pre-session, gated by the reset token rather than a JWT"),
 	"POST /api/v1/auth/verify-reset-code": public("pre-session, gated by the reset token rather than a JWT; wrong codes are capped"),
+	"POST /api/v1/auth/qr/redeem":         public("pre-session; a one-time, short-lived random token from the web dashboard's QR is the credential"),
+	"POST /api/v1/auth/qr/issue":          self("mints a token for the caller's own employee, taken from the JWT; no identifier to substitute"),
 
 	// Razorpay's own server calling in, not a logged-in employee/borrower —
 	// deliberately unauthenticated by the employee JWT scheme (see
@@ -326,8 +328,6 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/loans/requests/:requestId/approve":         probe("requestId=loan_requests"),
 	"PUT /api/v1/loans/requests/:requestId/decide":           probe("requestId=loan_requests"),
 	"PUT /api/v1/loans/requests/:requestId/verify":           probe("requestId=loan_requests"),
-	"GET /api/v1/loans/approval-limits/loan-operator":        list(),
-	"PUT /api/v1/loans/approval-limits/loan-operator":        list(),
 
 	// -------------------------------------------------------- personal-loans
 	"GET /api/v1/personal-loans":                      list(),

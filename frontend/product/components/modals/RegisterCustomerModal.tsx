@@ -12,6 +12,7 @@ import { listActiveBranches, type BranchView } from "@/product/pages/branches/se
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { navigate } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Ported from legacy/app.js's `openCustomerModal()` / `saveCustomer()`. Now
  * calls the Go backend (`POST /api/v1/customers`) instead of writing to the
@@ -83,7 +84,7 @@ export function RegisterCustomerModalContent({
       .catch(() => setErr("Could not load branches — try again later."));
   }, []);
 
-  async function save() {
+  async function save() { return singleFlight("modal:registercustomer:save", async () => {
     const n = name.trim();
     const p = phone.trim();
     if (n.length < 3) { setErr("Please enter the customer’s full name."); return; }
@@ -143,7 +144,7 @@ export function RegisterCustomerModalContent({
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

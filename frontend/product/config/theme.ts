@@ -391,44 +391,367 @@ export function applyBrandTheme(theme: string | null | undefined | BrandTheme): 
   root.style.setProperty("--brand-font-scale", String(fontScale));
 }
 
-/* applyFavicon swaps the browser tab icon to a business's own logo.
+/* applyFavicon installs an icon as the browser tab icon, and keeps it there.
  *
- * Next's static export bakes app/icon.png into the HTML <link rel="icon">
- * at build time — there's no per-request way to vary it server-side, same
- * constraint applyBrandTheme's own header explains for colour. This is the
- * runtime equivalent: called from the same two places BrandingProvider
- * calls applyBrandTheme.
+ * Next's static export would bake one icon into every page's HTML at build
+ * time — there's no per-request way to vary it server-side, same constraint
+ * applyBrandTheme's own header explains for colour. So app/layout.tsx ships NO
+ * icon in its metadata at all, brand-preload.tsx inserts the one icon link
+ * before first paint, and this is the runtime equivalent. Callers should
+ * normally go through applyBrandFavicon below, which turns a business's raw
+ * logo into an icon that is actually visible at tab size.
  *
- * logoUrl empty (business has no logo of its own) is a no-op, not a clear —
- * it leaves whatever icon is already showing (the platform default on first
- * paint) rather than ever pointing the tab at a broken/empty href.
+ * An empty href is a no-op, not a clear — it leaves whatever icon is already
+ * showing rather than ever pointing the tab at a broken/empty href.
  *
- * Browsers cache favicons aggressively per ORIGIN, not per page state, so a
- * tenant switch on an already-open tab may not visibly update the tab icon
- * until a hard reload. That is a browser limitation to note, not a bug to
- * chase further here.
+ * LATCHED, like applyDocumentTitle and for the same reason: anything else that
+ * inserts a <link rel="icon"> after ours (a metadata commit, a library, a
+ * future layout) would win, because browsers use the LAST icon in tree order.
+ * That race is what made the tab icon randomly blank on some loads. A
+ * MutationObserver re-appends ours whenever it is no longer the last icon.
  */
-export function applyFavicon(logoUrl: string | null | undefined): void {
-  if (typeof document === "undefined" || !logoUrl) return;
+let latchedFavicon: string | null = null;
+let faviconObserver: MutationObserver | null = null;
+
+function faviconIsCurrent(): boolean {
+  const icons = document.head.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]');
+  const last = icons[icons.length - 1];
+  return !!last && last.hasAttribute("data-brand-icon") && last.getAttribute("href") === latchedFavicon;
+}
+
+function insertFavicon(href: string): void {
   // Removing and re-inserting the <link>, not mutating .href in place:
   // several browsers only re-fetch a favicon when the element is inserted
-  // into the document, not on an attribute change to an existing one — a
-  // same-element href swap can silently keep showing the old icon
-  // indefinitely, which is exactly the "stuck on the platform icon" failure
-  // mode this exists to avoid.
+  // into the document, not on an attribute change to an existing one.
   //
-  // Only OUR link (data-brand-icon) is ever removed. The <link rel="icon">
-  // Next renders from metadata is owned by React — removing it behind React's
-  // back makes React's own later removal (route change, layout swap) crash
-  // with "Cannot read properties of null (reading 'removeChild')". Leaving it
-  // in place is harmless: browsers use the LAST matching icon in tree order,
-  // and ours is always appended at the end of <head>.
-  document.querySelectorAll<HTMLLinkElement>('link[data-brand-icon]').forEach((el) => el.remove());
+  // Only OUR link (data-brand-icon) is ever removed. Any other icon link is
+  // left alone — if React owns it, removing it behind React's back makes
+  // React's own later removal crash with "Cannot read properties of null
+  // (reading 'removeChild')". Ours being last is enough.
+  document.querySelectorAll<HTMLLinkElement>("link[data-brand-icon]").forEach((el) => el.remove());
   const link = document.createElement("link");
   link.rel = "icon";
-  link.href = logoUrl;
+  link.href = href;
   link.setAttribute("data-brand-icon", "");
   document.head.appendChild(link);
+}
+
+function watchFavicon(): void {
+  if (faviconObserver || typeof MutationObserver === "undefined") return;
+  faviconObserver = new MutationObserver(() => {
+    if (latchedFavicon && !faviconIsCurrent()) insertFavicon(latchedFavicon);
+  });
+  faviconObserver.observe(document.head, { childList: true });
+}
+
+export function applyFavicon(href: string | null | undefined): void {
+  if (typeof document === "undefined" || !href) return;
+  latchedFavicon = href;
+  if (!faviconIsCurrent()) insertFavicon(href);
+  watchFavicon();
+}
+
+/* --- Tab icon from an arbitrary logo -----------------------------------------
+ *
+ * A business uploads whatever logo it has: a JPEG with a solid background, a
+ * transparent PNG with white artwork meant for a dark header, a wide wordmark,
+ * a 4000px original. Used raw as a favicon, many of those are INVISIBLE at
+ * 16px — white artwork on a transparent background disappears into a light
+ * tab strip, and a wide wordmark shrinks to a hairline. That, not the
+ * fetching, is why some businesses appeared to have no tab icon.
+ *
+ * So the tab never gets the raw upload. buildFavicon normalises ANY logo into
+ * a small square PNG, deciding everything from the pixels themselves:
+ *
+ *   - transparent margins are trimmed, so the mark fills the icon;
+ *   - the result is contain-fitted into a square, whatever the aspect ratio;
+ *   - the logo is never put on a background: opaque logos carry their own,
+ *     transparent ones stay transparent;
+ *   - only artwork that would vanish into a light or dark tab strip (measured
+ *     luminance, not guessed) gets a thin outline following its own shape;
+ *   - no logo, or one that will not load, becomes the business's initials on
+ *     its brand colour. Never blank.
+ */
+const FAVICON_SIZE = 64;
+/** Part of the cache key — bump when the drawing below changes. */
+const FAVICON_VERSION = "3";
+/** Below this share of transparent pixels a logo counts as opaque. */
+const FAVICON_OPAQUE_RATIO = 0.05;
+/* Typical browser tab strips, light and dark theme (Chrome's #dee1e6 and
+ * #35363a), as relative luminance. A pixel at least FAVICON_PIXEL_CONTRAST
+ * against a strip shows on it; a logo with less than FAVICON_VISIBLE_SHARE of
+ * its artwork showing is effectively invisible there and gets an outline.
+ *
+ * A SHARE, not an average: a logo with a white fill and blue detail averages
+ * out "light", yet its blue reads perfectly on a light tab and needs nothing. */
+const FAVICON_LIGHT_TAB_LUM = 0.75;
+const FAVICON_DARK_TAB_LUM = 0.036;
+const FAVICON_PIXEL_CONTRAST = 2;
+const FAVICON_VISIBLE_SHARE = 0.2;
+/** Outline thickness in icon pixels (of 64) — about 0.5px at 16px. */
+const FAVICON_OUTLINE = 2;
+const FAVICON_FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+function parseHexColor(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** WCAG relative luminance, 0 (black) to 1 (white). */
+function relativeLuminance(r: number, g: number, b: number): number {
+  const lin = (v: number) => {
+    v /= 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function contrastRatio(a: number, b: number): number {
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+function roundedTile(ctx: CanvasRenderingContext2D, color: string): void {
+  const r = FAVICON_SIZE * 0.2;
+  const s = FAVICON_SIZE;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.arcTo(s, 0, s, s, r);
+  ctx.arcTo(s, s, 0, s, r);
+  ctx.arcTo(0, s, 0, 0, r);
+  ctx.arcTo(0, 0, s, 0, r);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function loadImage(src: string, anonymous: boolean): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (anonymous) img.crossOrigin = "anonymous";
+    img.onload = () => (img.naturalWidth && img.naturalHeight ? resolve(img) : reject(new Error("empty image")));
+    img.onerror = () => reject(new Error("logo failed to load"));
+    img.src = src;
+  });
+}
+
+function newCanvas(w: number, h: number): CanvasRenderingContext2D | null {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return c.getContext("2d", { willReadFrequently: true });
+}
+
+/** Up to two initials: "AJ Finance" → "AF", "Ambika" → "A". */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = words.slice(0, 2).map((w) => Array.from(w)[0] ?? "");
+  return letters.join("").toUpperCase();
+}
+
+function monogramFavicon(brandColor: string, name: string): string | null {
+  const ctx = newCanvas(FAVICON_SIZE, FAVICON_SIZE);
+  if (!ctx) return null;
+  const rgb = parseHexColor(brandColor) ?? parseHexColor(DEFAULT_BRAND_COLOR)!;
+  const tileLum = relativeLuminance(...rgb);
+  roundedTile(ctx, `rgb(${rgb.join(",")})`);
+  const text = initialsOf(name);
+  if (text) {
+    // White or near-black letters, whichever reads better on this colour.
+    ctx.fillStyle = contrastRatio(tileLum, 1) >= contrastRatio(tileLum, relativeLuminance(17, 17, 17)) ? "#fff" : "#111";
+    ctx.font = `700 ${text.length > 1 ? 28 : 38}px ${FAVICON_FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, FAVICON_SIZE / 2, FAVICON_SIZE / 2 + 2);
+  }
+  return ctx.canvas.toDataURL("image/png");
+}
+
+/* logoFavicon analyses and redraws a loaded logo. Throws if the canvas is
+ * tainted (a cross-origin logo without CORS), which the caller handles. */
+function logoFavicon(img: HTMLImageElement): string | null {
+  // Analyse at a bounded size: a 4000px original costs the same as a 256px one.
+  const scale = Math.min(1, 256 / Math.max(img.naturalWidth, img.naturalHeight));
+  const aw = Math.max(1, Math.round(img.naturalWidth * scale));
+  const ah = Math.max(1, Math.round(img.naturalHeight * scale));
+  const actx = newCanvas(aw, ah);
+  if (!actx) return null;
+  actx.drawImage(img, 0, 0, aw, ah);
+  const px = actx.getImageData(0, 0, aw, ah).data;
+
+  let transparent = 0;
+  let art = 0;
+  let showsOnLight = 0;
+  let showsOnDark = 0;
+  let minX = aw, minY = ah, maxX = -1, maxY = -1;
+  for (let y = 0; y < ah; y++) {
+    for (let x = 0; x < aw; x++) {
+      const i = (y * aw + x) * 4;
+      const a = px[i + 3];
+      if (a < 24) {
+        transparent++;
+        continue;
+      }
+      const lum = relativeLuminance(px[i], px[i + 1], px[i + 2]);
+      art++;
+      if (contrastRatio(lum, FAVICON_LIGHT_TAB_LUM) >= FAVICON_PIXEL_CONTRAST) showsOnLight++;
+      if (contrastRatio(lum, FAVICON_DARK_TAB_LUM) >= FAVICON_PIXEL_CONTRAST) showsOnDark++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  // Fully transparent: nothing to draw.
+  if (maxX < 0) return null;
+
+  const opaque = transparent / (aw * ah) < FAVICON_OPAQUE_RATIO;
+  const ctx = newCanvas(FAVICON_SIZE, FAVICON_SIZE);
+  if (!ctx) return null;
+
+  // Trim to the visible artwork (in source pixels), then contain-fit it.
+  const sx = minX / scale;
+  const sy = minY / scale;
+  const sw = (maxX - minX + 1) / scale;
+  const sh = (maxY - minY + 1) / scale;
+  // A transparent logo keeps a hair of room for the outline below.
+  const pad = opaque ? 0 : FAVICON_OUTLINE + 1;
+  const box = FAVICON_SIZE - pad * 2;
+  const fit = Math.min(box / sw, box / sh);
+  const dw = sw * fit;
+  const dh = sh * fit;
+  const dx = (FAVICON_SIZE - dw) / 2;
+  const dy = (FAVICON_SIZE - dh) / 2;
+  const draw = (target: CanvasRenderingContext2D, ox = 0, oy = 0) => {
+    target.imageSmoothingQuality = "high";
+    target.drawImage(img, sx, sy, sw, sh, dx + ox, dy + oy, dw, dh);
+  };
+
+  /* No background, ever — the logo is shown as the business made it. Only
+   * when the artwork would vanish into a tab strip (white artwork on a light
+   * strip, black artwork on a dark one) does it get a thin OUTLINE following
+   * its own shape, dark for a light strip and light for a dark one. A logo
+   * with enough visible detail on both strips gets nothing. */
+  if (!opaque) {
+    const outline =
+      showsOnLight / art < FAVICON_VISIBLE_SHARE
+        ? "rgba(0,0,0,0.85)"
+        : showsOnDark / art < FAVICON_VISIBLE_SHARE
+          ? "rgba(255,255,255,0.9)"
+          : "";
+    if (outline) {
+      // The logo's silhouette in the outline colour, stamped around it.
+      const sil = newCanvas(FAVICON_SIZE, FAVICON_SIZE);
+      if (sil) {
+        draw(sil);
+        sil.globalCompositeOperation = "source-in";
+        sil.fillStyle = outline;
+        sil.fillRect(0, 0, FAVICON_SIZE, FAVICON_SIZE);
+        const o = FAVICON_OUTLINE;
+        for (const [ox, oy] of [[-o, 0], [o, 0], [0, -o], [0, o], [-o, -o], [o, -o], [-o, o], [o, o]]) {
+          ctx.drawImage(sil.canvas, ox, oy);
+        }
+      }
+    }
+  }
+  draw(ctx);
+  return ctx.canvas.toDataURL("image/png");
+}
+
+/* buildFavicon returns an icon href for a business: a normalised PNG data URL
+ * whenever the browser allows it. Never throws. Falls back to the raw logo URL
+ * only when the logo loads but cannot be read (a cross-origin logo without
+ * CORS) — exactly the pre-normalisation behaviour, so this never does worse. */
+export async function buildFavicon(opts: { logoUrl: string; brandColor: string; name: string }): Promise<string | null> {
+  if (typeof document === "undefined") return null;
+  if (opts.logoUrl) {
+    let img: HTMLImageElement | null = null;
+    let readable = true;
+    try {
+      img = await loadImage(opts.logoUrl, true);
+    } catch {
+      try {
+        img = await loadImage(opts.logoUrl, false);
+        readable = false;
+      } catch {
+        img = null;
+      }
+    }
+    if (img) {
+      if (!readable) return opts.logoUrl;
+      try {
+        const icon = logoFavicon(img);
+        if (icon) return icon;
+      } catch {
+        return opts.logoUrl;
+      }
+    }
+  }
+  try {
+    return monogramFavicon(opts.brandColor, opts.name);
+  } catch {
+    return opts.logoUrl || null;
+  }
+}
+
+/* Pre-paint cache of the GENERATED icon, per slug — read synchronously by
+ * brand-preload.tsx, so a reload shows the business's icon on the first frame
+ * without waiting for a fetch or a canvas. `src` records what it was built
+ * from; a replaced logo, a new colour or a renamed business rebuilds it. */
+export const BRAND_FAVICON_KEY_PREFIX = "cloudhouse_brand_favicon::";
+
+type CachedFavicon = { src: string; icon: string };
+
+function readCachedFavicon(slug: string | null): CachedFavicon | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(BRAND_FAVICON_KEY_PREFIX + (slug || "default"));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<CachedFavicon>;
+    return typeof v.src === "string" && typeof v.icon === "string" && v.icon ? (v as CachedFavicon) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Re-shows the cached icon for a business, if any. True when one was applied. */
+export function applyCachedFavicon(slug: string | null): boolean {
+  const cached = readCachedFavicon(slug);
+  if (!cached) return false;
+  applyFavicon(cached.icon);
+  return true;
+}
+
+let faviconBuildSeq = 0;
+
+/* applyBrandFavicon is what BrandingProvider calls once a business's branding
+ * is known: build (or reuse) the normalised icon, show it, cache it. */
+export async function applyBrandFavicon(
+  slug: string | null,
+  brand: { logoUrl: string; brandColor: string; name: string }
+): Promise<void> {
+  if (typeof window === "undefined") return;
+  // Nothing to build from yet — keep whatever is showing.
+  if (!brand.logoUrl && !brand.name) return;
+  // FAVICON_VERSION first: bumping it rebuilds every cached icon after a
+  // change to how icons are drawn.
+  const src = [FAVICON_VERSION, brand.logoUrl, brand.brandColor, brand.name].join("|");
+  const cached = readCachedFavicon(slug);
+  if (cached && cached.src === src) {
+    applyFavicon(cached.icon);
+    return;
+  }
+  // A later call supersedes this one; drop a stale result.
+  const seq = ++faviconBuildSeq;
+  const icon = await buildFavicon(brand);
+  if (seq !== faviconBuildSeq || !icon) return;
+  applyFavicon(icon);
+  try {
+    window.localStorage.setItem(BRAND_FAVICON_KEY_PREFIX + (slug || "default"), JSON.stringify({ src, icon }));
+  } catch {
+    /* Private mode / storage full — the icon still applies for this load */
+  }
 }
 
 /* applyDocumentTitle is applyFavicon's counterpart for the browser TAB TEXT

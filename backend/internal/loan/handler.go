@@ -217,6 +217,16 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid auctionCase: expected all, eligible, defaulted or auctioned_balance_due")
 		return
 	}
+	// `servicing` (due_soon | overdue | defaulted) is the Loans page's
+	// read-time tabs; it replaces `status`, since these classes are not
+	// stored statuses.
+	if sv := strings.ToLower(strings.TrimSpace(c.Query("servicing"))); sv != "" {
+		if !validServicing(sv) {
+			httpx.Fail(c, http.StatusBadRequest, "invalid servicing: expected due_soon, overdue or defaulted")
+			return
+		}
+		f.Status, f.DueToday, f.Servicing = "", false, sv
+	}
 	f.ExcludeBankPledged = c.Query("excludeBankPledged") == "true"
 	f.BankPledgeStatus = c.Query("bankPledgeStatus")
 	if v := c.Query("branchId"); v != "" {
@@ -1879,36 +1889,6 @@ func (h *Handler) HardDeleteLoan(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, gin.H{"deleted": true})
 }
 
-// --- Approval limits ---------------------------------------------------
-
-// GetLoanOperatorApprovalLimit backs GET /loans/approval-limits/loan-operator
-// — the Employees page's "Roles" panel reads this to show the current
-// hard-enforced cap (see Service.Approve's stage-role check).
-func (h *Handler) GetLoanOperatorApprovalLimit(c *gin.Context) {
-	ctx := platform.RequestContext(c)
-	httpx.Success(c, http.StatusOK, gin.H{"role": "Loan Operator", "maxAmount": h.svc.GetLoanOperatorLimit(ctx)})
-}
-
-type approvalLimitRequest struct {
-	MaxAmount float64 `json:"maxAmount" binding:"required"`
-}
-
-// SetLoanOperatorApprovalLimit backs PUT /loans/approval-limits/loan-operator.
-func (h *Handler) SetLoanOperatorApprovalLimit(c *gin.Context) {
-	ctx := platform.RequestContext(c)
-	var req approvalLimitRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
-		return
-	}
-	amount, err := h.svc.SetLoanOperatorLimit(ctx, req.MaxAmount)
-	if err != nil {
-		httpx.FailErr(c, err)
-		return
-	}
-	httpx.Success(c, http.StatusOK, gin.H{"role": "Loan Operator", "maxAmount": amount})
-}
-
 // --- Indemnity bond Aadhaar eSign (Setu) --------------------------------
 
 // startIndemnityBondEsignRequest carries the frontend's own callback page
@@ -2038,7 +2018,8 @@ func (h *Handler) DownloadPartialReleaseReceiptPDF(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	pdfBytes, filename, err := h.svc.RenderPartialReleaseReceiptPDFForRequest(ctx, requestID, platform.GetBranchScope(c), BondLangEnglish)
+	lang := c.DefaultQuery("lang", BondLangEnglish)
+	pdfBytes, filename, err := h.svc.RenderPartialReleaseReceiptPDFForRequest(ctx, requestID, platform.GetBranchScope(c), lang)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

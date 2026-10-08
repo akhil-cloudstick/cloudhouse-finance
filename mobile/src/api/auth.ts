@@ -44,3 +44,11 @@ export function resetPassword(username: string, phone: string, otp: string, newP
 export function me() {
   return apiRequest<Employee>("/auth/me");
 }
+
+export type QrLoginSession = { token: string; employee: Employee; businessCode: string };
+
+// Swaps the one-time token from the web dashboard's connect QR for a session
+// (backend auth/qr.go). Single use: a second call 404s.
+export function redeemQrLogin(token: string) {
+  return apiRequest<QrLoginSession>("/auth/qr/redeem", { method: "POST", body: { token }, skipAuth: true });
+}

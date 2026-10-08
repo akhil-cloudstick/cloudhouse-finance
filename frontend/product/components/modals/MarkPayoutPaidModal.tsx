@@ -6,6 +6,7 @@ import { fmt } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { markPayoutPaid, type BackendInvestmentPayout } from "@/product/pages/investments/services/investmentService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Marking a scheduled interest/principal-return payout as paid is also the
  * moment that cash actually leaves the till (investment.CashRecorder,
@@ -28,7 +29,7 @@ export function MarkPayoutPaidModalContent({
   const [saving, setSaving] = useState(false);
   const balanced = Math.abs(remaining) < 0.01;
 
-  async function save() {
+  async function save() { return singleFlight("modal:markpayoutpaid:save", async () => {
     if (!balanced) { setErr("The payment breakdown must add up to the payout amount."); return; }
     setSaving(true);
     setErr("");
@@ -41,7 +42,7 @@ export function MarkPayoutPaidModalContent({
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

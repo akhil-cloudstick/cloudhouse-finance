@@ -13,6 +13,9 @@ type GoldRatesState = {
   loading: boolean;
   error: string;
   refresh: () => void;
+  /* Bumps every time a refresh completes, so views that page their own
+   * history (GoldRates.tsx) can refetch after a rate is published. */
+  version: number;
   /* True when `latest.date` ("YYYY-MM-DD") matches today's local date
    * string. False when no rate has ever been published (EMPTY_RATE, date
    * === "") or the newest published rate is from an earlier day — mirrors
@@ -35,6 +38,7 @@ export function GoldRatesProvider({ children }: { children: React.ReactNode }) {
   const allowed = can("Gold_Rate_Management", "can_view_gold_rate_module");
   const [latest, setLatest] = useState<GoldRateView>(EMPTY_RATE);
   const [history, setHistory] = useState<GoldRateView[]>([]);
+  const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -55,6 +59,7 @@ export function GoldRatesProvider({ children }: { children: React.ReactNode }) {
         setLatest(latestRate || EMPTY_RATE);
         // Newest first, matching the old rateHistory[0] = most-recent convention.
         setHistory([...hist].sort((a, b) => (a.id < b.id ? 1 : -1)));
+        setVersion((v) => v + 1);
         setError("");
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load gold rates."))
@@ -69,7 +74,7 @@ export function GoldRatesProvider({ children }: { children: React.ReactNode }) {
   const isTodaySet = !!latest.date && latest.date === new Date().toISOString().slice(0, 10);
 
   return (
-    <GoldRatesContext.Provider value={{ latest, history, loading, error, refresh, isTodaySet }}>
+    <GoldRatesContext.Provider value={{ latest, history, loading, error, refresh, version, isTodaySet }}>
       {children}
     </GoldRatesContext.Provider>
   );

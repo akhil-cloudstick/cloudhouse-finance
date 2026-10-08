@@ -22,7 +22,7 @@
 <p>
 I, <b>{{.CustomerName}}</b>, declare that the gold ornaments shown above are my own property and no one else has any claim to them. I have pledged these ornaments with your establishment, <b>{{.LenderName}}</b>, and hereby humbly request that a loan of Rs. <b>{{.PrincipalAmount}}</b> ( {{.AmountWords}} only ), equal to the appraised value of the ornaments, be granted to me at monthly interest.
 </p>
-<p>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
+<p>Name: {{.CustomerName}}<br><span class="esign-slot">Signature: {{.Blank}}</span></p>
 
 <h3 style="text-align:center;margin:16px 0 8px">DECLARATION</h3>
 
@@ -31,7 +31,7 @@ I, <b>{{.CustomerName}}</b>, undertake to pay the interest on the loan of Rs. <b
 </p>
 
 <div class="sig-page">
-<p>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
+<p>Name: {{.CustomerName}}<br><span class="esign-slot">Signature: {{.Blank}}</span></p>
 <p style="margin-top:18px"><b>Loan Sanctioned.</b></p>
 <p>Date: {{.DateDisplay}}</p>
 {{/* Lender signs the sanction — see kml-bond-malayalam.html. */}}

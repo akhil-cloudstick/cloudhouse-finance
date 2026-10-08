@@ -11,6 +11,7 @@ import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { ApiError } from "@/product/services/httpClient";
 import { useIsSmallScreen } from "@/product/utils/responsive";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Ported from legacy/app.js's `openRepledgeModal()` / `saveRepledge()`. Now
  * posts to the real POST /loans/:id/bank-pledge endpoint. The old mock's
@@ -49,7 +50,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
    * control rather than left to be discovered afterwards. */
   const [cashTreatment, setCashTreatment] = useState<BankPledgeCashTreatment>("RecordOnly");
 
-  async function save() {
+  async function save() { return singleFlight("modal:repledge:save", async () => {
     if (!bank.trim()) { setErr("Please enter the bank to repledge with."); return; }
     if (!date) { setErr("Please select the pledge date."); return; }
     const amount = +amt;
@@ -78,7 +79,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

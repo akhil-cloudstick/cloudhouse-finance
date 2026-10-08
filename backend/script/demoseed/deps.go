@@ -127,7 +127,6 @@ func NewDeps(db *gorm.DB, cfg platform.Config) *Deps {
 	requestRepo := loan.NewLoanRequestRepository(db)
 	requestApprovalRepo := loan.NewRequestApprovalRepository(db)
 	auctionRepo := loan.NewAuctionRepository(db)
-	approvalLimitRepo := loan.NewApprovalLimitRepository(db)
 
 	movementRepo := cash.NewMovementRepository(db)
 	expenseRepo := cash.NewExpenseRepository(db)
@@ -166,7 +165,6 @@ func NewDeps(db *gorm.DB, cfg platform.Config) *Deps {
 		requestRepo,
 		requestApprovalRepo,
 		auctionRepo,
-		approvalLimitRepo,
 		branchRepo,
 		customerRepo,
 		schemeRepo,

@@ -21,6 +21,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { useApprovalWorkflow } from "@/product/providers/auth-context";
 import { isFlowOff } from "@/product/services/approvalWorkflowService";
 import type { LoanView } from "@/product/pages/loans/services/loanService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* One modal body per auction stage-advance action — each posts to its own
  * POST /loans/:id/auction/{notice,schedule,sale,settle} endpoint (see
@@ -44,7 +45,7 @@ export function IssueNoticeModalContent({ loan, onSaved, onError }: { loan: Loan
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
-  async function save() {
+  async function save() { return singleFlight("auction-modal:save:1", async () => {
     setSaving(true);
     try {
       const rec = await issueAuctionNotice(loan.numericId, remarks.trim() || undefined);
@@ -65,7 +66,7 @@ export function IssueNoticeModalContent({ loan, onSaved, onError }: { loan: Loan
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>
@@ -93,7 +94,7 @@ export function ScheduleAuctionModalContent({ loan, onSaved, onError }: { loan: 
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
-  async function save() {
+  async function save() { return singleFlight("auction-modal:save:2", async () => {
     if (!date) { setErr("Please select the auction date."); return; }
     setSaving(true);
     try {
@@ -107,7 +108,7 @@ export function ScheduleAuctionModalContent({ loan, onSaved, onError }: { loan: 
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>
@@ -143,7 +144,7 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: { loan: LoanV
   const { config: workflow } = useApprovalWorkflow();
   const shortfallAuto = isFlowOff(workflow, "auction_shortfall");
 
-  async function save() {
+  async function save() { return singleFlight("auction-modal:save:3", async () => {
     if (!sale || sale <= 0) { setErr("Please enter the sale amount."); return; }
     setSaving(true);
     try {
@@ -157,7 +158,7 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: { loan: LoanV
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>
@@ -233,7 +234,7 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: { loa
   // auction" error, even though the settle itself succeeded.
   const submittingRef = useRef(false);
 
-  async function save() {
+  async function save() { return singleFlight("auction-modal:save:4", async () => {
     if (submittingRef.current) return;
     if (!disposition) { setErr("Please choose what happens to the surplus."); return; }
     // Retaining a customer's money needs a stated reason — enforced server-side
@@ -267,7 +268,7 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: { loa
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>
@@ -350,7 +351,7 @@ export function AuctionDecisionModalContent({
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
-  async function save() {
+  async function save() { return singleFlight("auction-modal:save:5", async () => {
     if (!decision) { setErr("Please choose a decision."); return; }
     if (isShortfall && !remarks.trim()) { setErr("Please state the reason for this decision."); return; }
     setSaving(true);
@@ -365,7 +366,7 @@ export function AuctionDecisionModalContent({
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

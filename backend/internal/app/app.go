@@ -117,8 +117,8 @@ func corsMiddleware(allowedOrigins string) gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Vary", "Origin")
 		}
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Branch-Id")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
@@ -308,13 +308,13 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	}
 	whatsappSender := platform.NewOpenWASender(whatsappLoader)
 
-	setuClient := platform.NewSetuClient(cfg)
+	panClient := platform.NewPANClient(cfg)
 	digilockerClient := platform.NewDigilockerClient(cfg)
 	esignClient := platform.NewEsignClient(cfg)
 	razorpayClient := platform.NewRazorpayClient(cfg)
 
 	customerRepo := customer.NewRepository(pinned)
-	customerSvc := customer.NewService(db, customerRepo, branchRepo, aadhaarCipher, setuClient, digilockerClient)
+	customerSvc := customer.NewService(db, customerRepo, branchRepo, aadhaarCipher, panClient, digilockerClient)
 	customerHandler := customer.NewHandler(customerSvc)
 
 	// locker/packet are wired to each other via narrow interfaces
@@ -338,7 +338,6 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	loanRequestRepo := loan.NewLoanRequestRepository(pinned)
 	requestApprovalRepo := loan.NewRequestApprovalRepository(pinned)
 	loanAuctionRepo := loan.NewAuctionRepository(pinned)
-	loanApprovalLimitRepo := loan.NewApprovalLimitRepository(pinned)
 	// packetSvc satisfies both loan.PacketCreator (auto-creates a packet
 	// right after loan creation) and loan.PacketMover (logs a matching
 	// packet movement on bank-pledge/release) — see internal/loan's
@@ -356,7 +355,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	notificationSvc := notification.NewService(notificationRepo, realtimeHub)
 	notificationHandler := notification.NewHandler(notificationSvc, realtimeHub)
 
-	loanSvc := loan.NewService(pinned, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, uploadRepo, tenantRepo, razorpayClient, aadhaarCipher, authzRepo)
+	loanSvc := loan.NewService(pinned, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, uploadRepo, tenantRepo, razorpayClient, aadhaarCipher, authzRepo)
 	// Disbursement, top-up and bank-pledge release can't exceed Balance in Hand.
 	loanSvc.SetCashBalanceGuard(summarySvc)
 	loanSvc.SetWorkflow(workflowSvc)

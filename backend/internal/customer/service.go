@@ -27,7 +27,12 @@ var (
 	// business. Two businesses may still hold the same borrower's number.
 	ErrPhoneTaken = httpx.NewConflict("phone number is already registered to another customer")
 
-	ErrInvalidCustomerType = httpx.NewBadRequest("customer type must be Borrower or Investor")
+	// PAN and Aadhaar are optional, but when given they identify one person —
+	// no two customers in a business may carry the same number.
+	ErrPANTaken     = httpx.NewConflict("PAN is already registered to another customer")
+	ErrAadhaarTaken = httpx.NewConflict("Aadhaar number is already registered to another customer")
+
+	ErrInvalidCustomerType =httpx.NewBadRequest("customer type must be Borrower or Investor")
 	ErrBankDetailsRequired = httpx.NewBadRequest("bank account name, number and IFSC are required for an investor")
 	ErrInvestorKYCRequired = httpx.NewBadRequest("PAN and Aadhaar are required for an investor")
 )
@@ -97,7 +102,7 @@ type Service struct {
 	repo          *Repository
 	branchRepo    *branch.Repository
 	aadhaarCipher *platform.Cipher
-	setu          *platform.SetuClient
+	pan           *platform.PANClient
 	digilocker    *platform.DigilockerClient
 
 	// loanHardDeleter is nil until main.go calls SetLoanHardDeleter — see
@@ -105,8 +110,8 @@ type Service struct {
 	loanHardDeleter LoanHardDeleter
 }
 
-func NewService(db *gorm.DB, repo *Repository, branchRepo *branch.Repository, aadhaarCipher *platform.Cipher, setu *platform.SetuClient, digilocker *platform.DigilockerClient) *Service {
-	return &Service{db: db, repo: repo, branchRepo: branchRepo, aadhaarCipher: aadhaarCipher, setu: setu, digilocker: digilocker}
+func NewService(db *gorm.DB, repo *Repository, branchRepo *branch.Repository, aadhaarCipher *platform.Cipher, pan *platform.PANClient, digilocker *platform.DigilockerClient) *Service {
+	return &Service{db: db, repo: repo, branchRepo: branchRepo, aadhaarCipher: aadhaarCipher, pan: pan, digilocker: digilocker}
 }
 
 var phoneRe = regexp.MustCompile(`^\d{10}$`)
@@ -181,6 +186,58 @@ func phoneConflict(err error) error {
 	return err
 }
 
+// normalizeKYC canonicalises PAN (trimmed, upper-case) and Aadhaar (digits
+// only — spaces/hyphens stripped) so "abcde1234f" and "ABCDE1234F", or
+// "1234 5678 9012" and "123456789012", count as the same number.
+func normalizeKYC(in *CreateInput) {
+	in.PAN = strings.ToUpper(strings.TrimSpace(in.PAN))
+	in.Aadhaar = strings.NewReplacer(" ", "", "-", "").Replace(strings.TrimSpace(in.Aadhaar))
+}
+
+// checkPANUnique reports ErrPANTaken if pan is non-blank and already used by
+// a different customer in this business (excludeID — 0 when creating).
+func (s *Service) checkPANUnique(ctx context.Context, pan string, excludeID uint) error {
+	if pan == "" {
+		return nil
+	}
+	existing, err := s.repo.FindByPAN(ctx, pan)
+	if err == nil && existing.ID != excludeID {
+		return ErrPANTaken
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return nil
+}
+
+// checkAadhaarUnique is checkPANUnique's counterpart, compared by fingerprint.
+func (s *Service) checkAadhaarUnique(ctx context.Context, hash string, excludeID uint) error {
+	if hash == "" {
+		return nil
+	}
+	existing, err := s.repo.FindByAadhaarHash(ctx, hash)
+	if err == nil && existing.ID != excludeID {
+		return ErrAadhaarTaken
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return nil
+}
+
+// kycConflict maps a PAN/Aadhaar unique-index violation from two requests
+// racing past the checks above onto the friendly conflict errors.
+func kycConflict(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch msg := err.Error(); {
+	case strings.Contains(msg, "uq_customers_tenant_pan"):
+		return ErrPANTaken
+	case strings.Contains(msg, "uq_customers_tenant_aadhaar"):
+		return ErrAadhaarTaken
+	}
+	return err
+}
+
 // aadhaarLast4 returns the last 4 characters of the given Aadhaar number
 // (or the whole string if shorter — defensive, shouldn't happen with real
 // 12-digit Aadhaar numbers).
@@ -193,6 +250,7 @@ func aadhaarLast4(aadhaar string) string {
 
 func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error) {
 	in.Phone = strings.TrimSpace(in.Phone)
+	normalizeKYC(&in)
 	if err := validate(in); err != nil {
 		return nil, err
 	}
@@ -200,6 +258,16 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error)
 		return nil, err
 	}
 	if err := s.checkPhoneUnique(ctx, in.Phone, 0); err != nil {
+		return nil, err
+	}
+	if err := s.checkPANUnique(ctx, in.PAN, 0); err != nil {
+		return nil, err
+	}
+	var aadhaarHash string
+	if in.Aadhaar != "" {
+		aadhaarHash = s.aadhaarCipher.Fingerprint(in.Aadhaar)
+	}
+	if err := s.checkAadhaarUnique(ctx, aadhaarHash, 0); err != nil {
 		return nil, err
 	}
 
@@ -240,6 +308,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error)
 		PAN:              in.PAN,
 		AadhaarLast4:     last4,
 		AadhaarEncrypted: encryptedAadhaar,
+		AadhaarHash:      aadhaarHash,
 
 		NomineeName:     in.NomineeName,
 		NomineeRelation: in.NomineeRelation,
@@ -259,14 +328,14 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error)
 		BankIFSC:          in.BankIFSC,
 
 		// No verification call is made at registration — status starts
-		// Pending until a real PAN check (see internal/platform/setu.go)
+		// Pending until a real PAN check (see internal/platform/surepass.go)
 		// or Aadhaar/DigiLocker check runs and updates it.
 		KYCStatus:     "Pending",
 		PANStatus:     "Pending",
 		AadhaarStatus: "Pending",
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
-		return nil, phoneConflict(err)
+		return nil, kycConflict(phoneConflict(err))
 	}
 	return s.repo.FindByID(ctx, rec.ID)
 }
@@ -316,6 +385,7 @@ func (s *Service) DecryptAadhaar(ctx context.Context, id uint, branchID *uint) (
 
 func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID *uint) (*Customer, error) {
 	in.Phone = strings.TrimSpace(in.Phone)
+	normalizeKYC(&in)
 	if err := validate(in); err != nil {
 		return nil, err
 	}
@@ -334,6 +404,20 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	if in.Phone != rec.Phone {
 		if err := s.checkPhoneUnique(ctx, in.Phone, rec.ID); err != nil {
 			return nil, err
+		}
+	}
+	if in.PAN != rec.PAN {
+		if err := s.checkPANUnique(ctx, in.PAN, rec.ID); err != nil {
+			return nil, err
+		}
+	}
+	var newAadhaarHash string
+	if in.Aadhaar != "" {
+		newAadhaarHash = s.aadhaarCipher.Fingerprint(in.Aadhaar)
+		if newAadhaarHash != rec.AadhaarHash {
+			if err := s.checkAadhaarUnique(ctx, newAadhaarHash, rec.ID); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -373,10 +457,11 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 		}
 		rec.AadhaarEncrypted = encrypted
 		rec.AadhaarLast4 = aadhaarLast4(in.Aadhaar)
+		rec.AadhaarHash = newAadhaarHash
 	}
 
 	if err := s.repo.Update(ctx, rec); err != nil {
-		return nil, phoneConflict(err)
+		return nil, kycConflict(phoneConflict(err))
 	}
 	return s.repo.FindByID(ctx, rec.ID)
 }
@@ -418,11 +503,11 @@ func deriveKYCStatus(panStatus, aadhaarStatus string) string {
 	return "Verified"
 }
 
-// VerifyPAN calls Setu's PAN verification API (internal/platform/setu.go)
+// VerifyPAN calls Surepass's PAN verification API (internal/platform/surepass.go)
 // for this customer's on-file PAN and persists the outcome. KYCStatus is
 // never set directly here — it is derived from PANStatus + AadhaarStatus by
 // deriveKYCStatus, so a customer only becomes "Verified" once both the PAN
-// check and the DigiLocker Aadhaar check have passed. Returns the updated customer plus the raw Setu result (so the
+// check and the DigiLocker Aadhaar check have passed. Returns the updated customer plus the raw Surepass result (so the
 // handler can surface the matched name/message to the UI).
 func (s *Service) VerifyPAN(ctx context.Context, id uint, branchID *uint) (*Customer, *platform.PANVerificationResult, error) {
 	rec, err := s.repo.FindByID(ctx, id)
@@ -435,7 +520,7 @@ func (s *Service) VerifyPAN(ctx context.Context, id uint, branchID *uint) (*Cust
 	if rec.PAN == "" {
 		return nil, nil, ErrPANRequired
 	}
-	if s.setu == nil {
+	if s.pan == nil {
 		return nil, nil, ErrSetuNotConfigured
 	}
 	if tenantID, ok := platform.TenantFromContext(ctx); ok {
@@ -444,7 +529,7 @@ func (s *Service) VerifyPAN(ctx context.Context, id uint, branchID *uint) (*Cust
 		}
 	}
 
-	result, err := s.setu.VerifyPAN(rec.PAN, fmt.Sprintf("Verifying PAN for gold loan customer %s onboarding KYC", rec.Code))
+	result, err := s.pan.VerifyPAN(rec.PAN)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -453,14 +538,14 @@ func (s *Service) VerifyPAN(ctx context.Context, id uint, branchID *uint) (*Cust
 	case result.Verification != "SUCCESS":
 		// PAN itself is invalid/nonexistent per Setu.
 		rec.PANStatus = "Failed"
-	case !s.setu.IsSandbox() && !namesMatch(rec.Name, result.FullName):
+	case !s.pan.IsSandbox() &&!namesMatch(rec.Name, result.FullName):
 		// PAN is real, but registered to a different person than the name
 		// on this customer's profile — do NOT mark this Verified. This is
 		// the actual fraud check: a valid PAN alone proves nothing about
 		// whose PAN it is. Skipped in sandbox (IsSandbox() above) since
 		// Setu's sandbox always returns the same fixed dummy name for any
 		// test PAN regardless of the real customer name on file — see
-		// SetuClient.IsSandbox's doc comment. Re-enable/verify against
+		// surepassHTTP.IsSandbox's doc comment. Re-enable/verify against
 		// production before relying on this for real fraud detection.
 		rec.PANStatus = "Name Mismatch"
 	default:
@@ -480,7 +565,7 @@ func (s *Service) VerifyPAN(ctx context.Context, id uint, branchID *uint) (*Cust
 }
 
 // StartAadhaarVerify begins a DigiLocker Aadhaar-verify request (see
-// internal/platform/setu_digilocker.go) for this customer and stores the
+// internal/platform/surepass_digilocker.go) for this customer and stores the
 // request id for the follow-up CheckAadhaarVerify call. redirectURL is
 // where DigiLocker sends the customer back to after they complete login on
 // their own device — the frontend supplies this (see handler.go) since it

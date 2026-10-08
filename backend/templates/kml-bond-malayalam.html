@@ -22,7 +22,7 @@
 <p>
 ഞാൻ <b>{{.CustomerName}}</b> മുകളിൽ കാണിച്ചിട്ടുള്ള സ്വർണ്ണാഭരണങ്ങൾ എന്റെ സ്വന്തമാണ്. ഇതിന് വേറെ അവകാശികളില്ല. ഈ ആഭരണങ്ങൾ നിങ്ങളുടെ <b>{{.LenderName}}</b> എന്ന സ്ഥാപനത്തിൽ പണയംസ്വീകരിച്ച് ആഭരണത്തിൻ്റെ മതിപ്പുവിലയായ <b>{{.PrincipalAmount}}</b> രൂപ ( {{.AmountWords}} only ) മാസപലിശയ്ക്ക് വായ്‌പയായി തരണമെന്ന് വിനീതമായി അപേക്ഷിക്കുന്നു.
 </p>
-<p>പേര്: {{.CustomerName}}<br>ഒപ്പ്: {{.Blank}}</p>
+<p>പേര്: {{.CustomerName}}<br><span class="esign-slot">ഒപ്പ്: {{.Blank}}</span></p>
 
 <h3 style="text-align:center;margin:16px 0 8px">വാഗ്‌തദത്തം</h3>
 
@@ -31,7 +31,7 @@
 </p>
 
 <div class="sig-page">
-<p>പേര്: {{.CustomerName}}<br>ഒപ്പ്: {{.Blank}}</p>
+<p>പേര്: {{.CustomerName}}<br><span class="esign-slot">ഒപ്പ്: {{.Blank}}</span></p>
 <p style="margin-top:18px"><b>വായ്പ അനുവദിച്ചു.</b></p>
 <p>തിയ്യതി: {{.DateDisplay}}</p>
 {{/* The lender signs the sanction — the business's uploaded signature

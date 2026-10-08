@@ -96,3 +96,12 @@ export async function publishGoldRate(input: GoldRatePublishInput): Promise<Gold
   });
   return toView(rec);
 }
+
+/* Publishes every changed karat as ONE history row (keys 24/22/18). */
+export async function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string): Promise<GoldRateView> {
+  const rec = await apiFetch<BackendGoldRate>("/gold-rates", {
+    method: "POST",
+    body: JSON.stringify({ rates, setBy }),
+  });
+  return toView(rec);
+}

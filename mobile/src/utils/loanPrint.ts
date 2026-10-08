@@ -264,10 +264,10 @@ export function printReleaseAgreementPdf(loanId: number, loanNumber: string, lan
   return printServerPdf(`/loans/${loanId}/release-agreement/pdf?lang=${lang}`, `release-agreement-${lang}-${loanNumber}.pdf`);
 }
 
-// GET /loans/requests/:requestId/partial-release-receipt/pdf — the partial
-// release counterpart; the backend renders it in English only.
-export function printPartialReleaseReceiptPdf(requestId: number) {
-  return printServerPdf(`/loans/requests/${requestId}/partial-release-receipt/pdf`, `partial-release-receipt-${requestId}.pdf`);
+// GET /loans/requests/:requestId/partial-release-receipt/pdf?lang=en|ml — the
+// partial release counterpart (same languages as the full release agreement).
+export function printPartialReleaseReceiptPdf(requestId: number, lang: DocLang = "en") {
+  return printServerPdf(`/loans/requests/${requestId}/partial-release-receipt/pdf?lang=${lang}`, `partial-release-receipt-${lang}-${requestId}.pdf`);
 }
 
 // Fetches a QR PNG from the backend's internal/qr package (no QR-generation

@@ -12,6 +12,7 @@ import {
   type SchemeView, type ServiceChargeType, type ServiceChargeMode,
 } from "@/product/pages/schemes/services/schemeService";
 import { Select } from "@/product/components/ui/Select";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 const DEFAULT_DURATION_MONTHS = 12;
 const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"];
@@ -69,7 +70,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
     }).catch(() => setErr("Could not load branches — try again later."));
   }, [s, isAdmin, myBranchId]);
 
-  async function save() {
+  async function save() { return singleFlight("modal:scheme:save", async () => {
     const n = name.trim();
     const r = parseFloat(rate);
     const d = parseInt(duration, 10);
@@ -104,7 +105,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

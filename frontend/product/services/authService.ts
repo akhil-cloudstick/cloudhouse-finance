@@ -78,3 +78,13 @@ export function resetPassword(
 export function fetchMe(): Promise<AuthEmployee> {
   return apiFetch<AuthEmployee>("/auth/me");
 }
+
+/* QR sign-in of the mobile app (backend/internal/auth/qr.go). The "Connect
+ * mobile app" modal asks for a one-time login token bound to the employee
+ * signed in here and puts it in its QR; the phone that scans it is signed in
+ * as that employee. */
+export type QrLoginToken = { token: string; expiresIn: number };
+
+export function issueQrLogin(): Promise<QrLoginToken> {
+  return apiFetch<QrLoginToken>("/auth/qr/issue", { method: "POST", cache: "no-store" });
+}

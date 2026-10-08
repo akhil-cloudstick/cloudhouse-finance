@@ -5,9 +5,11 @@ import { useGoldRates } from "@/product/pages/gold-rates/store/GoldRatesProvider
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
-import { publishGoldRate } from "@/product/pages/gold-rates/services/goldRateService";
+import { publishGoldRates } from "@/product/pages/gold-rates/services/goldRateService";
 import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/product/utils/purity";
 import { ApiError } from "@/product/services/httpClient";
+import { useAuth } from "@/product/providers/auth-context";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 type Mode = "auto" | "manual";
 
@@ -60,6 +62,7 @@ function useShake(invalid: boolean) {
  * click just published, not a stale one. */
 export function RateModalContent() {
   const { latest, refresh } = useGoldRates();
+  const { employee } = useAuth();
   const { closeModal } = useModal();
   const toast = useToast();
 
@@ -187,8 +190,10 @@ export function RateModalContent() {
   const shaking22 = useShake(invalid22);
   const shaking18 = useShake(invalid18);
 
-  async function save() {
-    const setBy = latest.setBy && latest.setBy !== "—" ? latest.setBy : "Admin";
+  async function save() { return singleFlight("modal:rate:save", async () => {
+    // The logged-in employee is who set this rate — never the previous
+    // row's setBy (that was e.g. "Auto (GoldAPI)" from the background sync).
+    const setBy = employee?.name || employee?.username || "Admin";
     if (!(+rate24 > 0)) { setErr("The 24K rate must be greater than zero."); return; }
     if (!(+rate22 > 0)) { setErr("The 22K rate must be greater than zero."); return; }
     if (!(+rate18 > 0)) { setErr("The 18K rate must be greater than zero."); return; }
@@ -210,9 +215,7 @@ export function RateModalContent() {
     setErr("");
     setSaving(true);
     try {
-      for (const j of jobs) {
-        await publishGoldRate({ karat: j.karat, rate: j.rate, setBy });
-      }
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy);
       refresh();
       closeModal();
       toast(`${jobs.map((j) => `${j.karat}K`).join(", ")} rate${jobs.length > 1 ? "s" : ""} published for today`);
@@ -221,7 +224,7 @@ export function RateModalContent() {
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

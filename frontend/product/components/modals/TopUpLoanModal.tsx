@@ -12,6 +12,7 @@ import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/comp
 import { topUpLoan, getLoan, type LoanView } from "@/product/pages/loans/services/loanService";
 import { EditLoanModalContent } from "@/product/components/modals/EditLoanModal";
 import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Draws additional cash against an already-Active loan's spare eligible
  * value, without closing/reopening it — a single-step flow (no multi-stage
@@ -98,7 +99,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
     );
   }
 
-  async function save() {
+  async function save() { return singleFlight("modal:topuploan:save", async () => {
     if (!amt || amt <= 0) { setErr("Please enter the top-up amount."); return; }
     if (!balanced) { setErr("The payment breakdown must add up to the amount."); return; }
     if (hasArrears && settleMode === "require") {
@@ -144,7 +145,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

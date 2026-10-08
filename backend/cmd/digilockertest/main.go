@@ -48,7 +48,7 @@ func main() {
 			fmt.Println("ERROR:", err)
 			os.Exit(1)
 		}
-		fmt.Printf("status=%s digilockerId=%s phone=%s email=%s\n", status.Status, status.DigilockerUserDetails.DigilockerID, status.DigilockerUserDetails.PhoneNumber, status.DigilockerUserDetails.Email)
+		fmt.Printf("status=%s error=%q\n", status.Status, status.ErrorDescription)
 	case "aadhaar":
 		if len(os.Args) < 3 {
 			fmt.Println("usage: digilockertest aadhaar <requestId>")

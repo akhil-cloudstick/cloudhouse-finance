@@ -10,6 +10,7 @@ import { GoldRatesProvider } from "@/product/pages/gold-rates/store/GoldRatesPro
 import { ModalProvider } from "@/product/components/Modal";
 import { ToastProvider } from "@/product/components/Toast";
 import { TooltipLayer } from "@/product/components/Tooltip";
+import { FitTextObserver } from "@/product/components/ui/FitTextObserver";
 import { Sidebar } from "@/product/layout/Sidebar";
 import { Topbar } from "@/product/layout/Topbar";
 import { useAppRoute } from "@/product/hooks/useAppRoute";
@@ -49,6 +50,17 @@ import { ROUTE_ALIASES } from "@/product/config/routes";
 import { ROUTE_PERMISSIONS, baseRoute, routeAllowed, setNavigationGuard } from "@/product/config/routePermissions";
 import { useToast } from "@/product/components/Toast";
 
+/* Shown instead of NoAccess when the permission fetch itself failed (backend
+ * down / network): the empty map is a failure, not a denial, so saying "no
+ * access" would be wrong. */
+function LoadFailed() {
+  return (
+    <div className="notice" style={{ maxWidth: 480, margin: "48px auto" }}>
+      Something went wrong. Please try again.
+    </div>
+  );
+}
+
 function NoAccess() {
   return (
     <div className="notice" style={{ maxWidth: 480, margin: "48px auto" }}>
@@ -76,7 +88,7 @@ function ModuleUnavailable() {
  * not yet built fall through to Dashboard, matching legacy's `routes[route]
  * || renderDashboard` fallback. */
 function View({ route, arg }: { route: string; arg?: string }) {
-  const { can, permissionsLoaded } = useAuth();
+  const { can, permissionsLoaded, permissionsFailed } = useAuth();
   const { hasModule, loaded: brandingLoaded } = useBranding();
 
   // Wait for the permission map before deciding anything (§11) — evaluating
@@ -85,6 +97,7 @@ function View({ route, arg }: { route: string; arg?: string }) {
   // branding state reports every optional module as off, which would flash
   // "no access" on a page the business actually has.
   if (!permissionsLoaded || !brandingLoaded) return null;
+  if (permissionsFailed) return <LoadFailed />;
 
   const gate = ROUTE_PERMISSIONS[route];
   if (gate && gate.module !== null && !can(gate.module, gate.key!)) {
@@ -311,6 +324,7 @@ export function AppShell() {
               <ToastProvider>
                 <ModalProvider>
                   <AppShellInner />
+                  <FitTextObserver />
                   <TooltipLayer />
                 </ModalProvider>
               </ToastProvider>

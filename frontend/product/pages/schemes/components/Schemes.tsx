@@ -104,7 +104,7 @@ export function Schemes() {
        * simply as many columns as actually fit, wrapping the rest onto the
        * next row instead of resizing anything (same pattern used on the
        * Roles & Permissions grid, so both pages' cards match). */}
-      <div className="grid" style={{ gridTemplateColumns: smallScreen ? "repeat(4, 1fr)" : "repeat(auto-fill,minmax(300px,1fr))" }}>
+      <div className="grid schemes-grid" style={{ gridTemplateColumns: smallScreen ? "repeat(4, 1fr)" : "repeat(auto-fill,minmax(300px,1fr))" }}>
         {(schemes || []).map((s) => (
           <div className="card gtop" key={s.id} style={{ minHeight: smallScreen ? 190 : 300 }}>
             <div className="hd" style={smallScreen ? { padding: "8px 12px 6px" } : undefined}>

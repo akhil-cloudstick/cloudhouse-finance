@@ -7,7 +7,7 @@ import { fmtW } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { LockerModalContent } from "@/product/components/modals/LockerModal";
 import { listLockers, type LockerView } from "@/product/pages/lockers/services/lockerService";
-import { listPacketsPage, getPacketByCode, type PacketView } from "@/product/pages/packets/services/packetService";
+import { listPackets, listPacketsPage, getPacketByCode, type PacketView } from "@/product/pages/packets/services/packetService";
 import { Select } from "@/product/components/ui/Select";
 import { useAuth } from "@/product/providers/auth-context";
 import { useResponsivePageSize } from "@/product/utils/responsive";
@@ -25,9 +25,20 @@ const PACKET_STATUS_OPTIONS = [
   { value: "Returned", label: "Returned" },
 ];
 
-function LockerCard({ l, packets, canUpdate, onChanged }: { l: LockerView; packets: PacketView[]; canUpdate: boolean; onChanged: () => void }) {
+function LockerCard({ l, canUpdate, onChanged }: { l: LockerView; canUpdate: boolean; onChanged: () => void }) {
   const { openModal } = useModal();
-  const inLocker = packets.filter((p) => p.currentLockerId === l.id);
+  // Loaded per locker (GET /packets?lockerId=) rather than filtered out of the
+  // table's current page — the table is paginated, so that only ever showed
+  // the packets that happened to be on the page being viewed. `l.occupied`
+  // changes on check-in/out, which re-runs this.
+  const [inLocker, setInLocker] = useState<PacketView[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listPackets({ lockerId: l.id })
+      .then((ps) => { if (!cancelled) setInLocker(ps); })
+      .catch(() => { if (!cancelled) setInLocker([]); });
+    return () => { cancelled = true; };
+  }, [l.id, l.occupied]);
 
   return (
     <div className="card gtop">
@@ -110,17 +121,23 @@ export function Packets() {
     return () => clearTimeout(handle);
   }, [lookup]);
 
-  async function load() {
+  // The locker column is independent of the table: it loads once (and after a
+  // locker is added/edited), never on a page/status/search change.
+  async function loadLockers() {
+    try {
+      setLockers(await listLockers());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load lockers.");
+    }
+  }
+
+  async function loadPackets() {
     const seq = ++loadSeq.current;
     try {
-      const [p, l] = await Promise.all([
-        listPacketsPage(page, { status: status || undefined, q: q || undefined }, pageSize),
-        listLockers(),
-      ]);
+      const p = await listPacketsPage(page, { status: status || undefined, q: q || undefined }, pageSize);
       if (seq !== loadSeq.current) return;
       setPackets(p.items);
       setTotal(p.total);
-      setLockers(l);
       setError("");
     } catch (e) {
       if (seq !== loadSeq.current) return;
@@ -128,7 +145,13 @@ export function Packets() {
     }
   }
 
-  useEffect(() => { load(); }, [page, status, q, pageSize]);
+  function load() {
+    loadLockers();
+    loadPackets();
+  }
+
+  useEffect(() => { loadLockers(); }, []);
+  useEffect(() => { loadPackets(); }, [page, status, q, pageSize]);
   // A new search term always starts back at page 1 — otherwise a filter
   // typed while sitting on page 3 can land on an empty page.
   useEffect(() => { setPage(1); }, [q]);
@@ -242,7 +265,7 @@ export function Packets() {
               {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}
             </div>
           ) : (
-            lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} canUpdate={canUpdateLockers} onChanged={load} />)
+            lockers.map((l) => <LockerCard key={l.id} l={l} canUpdate={canUpdateLockers} onChanged={load} />)
           )}
         </div>
       </div>

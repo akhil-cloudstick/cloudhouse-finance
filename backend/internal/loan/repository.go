@@ -157,6 +157,12 @@ type LoanFilter struct {
 	// superset and paginates in Go afterwards.
 	OnlyDefaulted bool
 
+	// Servicing narrows to one of the Loans page's read-time tabs — due_soon,
+	// overdue or defaulted (see servicing_filter.go). SQL narrows to a
+	// candidate set; Service.List applies the exact check on the enriched
+	// loans and paginates in Go afterwards, like OnlyDefaulted.
+	Servicing string
+
 	// AllAuctionCases keeps every loan in any of the mobile Auctions
 	// screen's buckets: Auction Eligible, Auctioned - Balance Due, or
 	// IsDefaulted. Like OnlyDefaulted, SQL only narrows to a superset and
@@ -248,6 +254,18 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if f.OnlyDefaulted {
 		q = q.Where("loans.status NOT IN ?", notDefaultableStatuses).
 			Where("loans.due_date < ?", time.Now().AddDate(0, 0, -defaultedAfterDays))
+	}
+	if f.Servicing != "" {
+		notIn, dueBefore, dueFrom := servicingCandidates(f.Servicing, time.Now())
+		if len(notIn) > 0 {
+			q = q.Where("loans.status NOT IN ?", notIn)
+		}
+		if dueFrom != nil {
+			q = q.Where("loans.due_date >= ?", *dueFrom)
+		}
+		if dueBefore != nil {
+			q = q.Where("loans.due_date < ?", *dueBefore)
+		}
 	}
 	if f.AllAuctionCases {
 		q = q.Where("(loans.status IN ?) OR (loans.status NOT IN ? AND loans.due_date < ?)",
@@ -955,7 +973,7 @@ type LoanRequestFilter struct {
 	Type string
 
 	// Query, when set, matches the parent loan's number or its customer's
-	// name/code (case-insensitive, partial) via JOINs on loans/customers.
+	// name/code/phone (case-insensitive, partial) via JOINs on loans/customers.
 	Query string
 
 	// BranchID is the caller's branch-scoping restriction (see
@@ -983,7 +1001,7 @@ func (r *LoanRequestRepository) FindAll(ctx context.Context, f LoanRequestFilter
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
 		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
-			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
+			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR customers.phone ILIKE ?", like, like, like, like)
 	}
 	if f.Type != "" {
 		q = q.Where("loan_requests.type = ?", f.Type)

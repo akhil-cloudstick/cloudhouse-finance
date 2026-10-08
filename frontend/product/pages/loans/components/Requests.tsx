@@ -16,10 +16,16 @@ const STATUS_OPTIONS = [
   { value: "Approved", label: "Approved" },
   { value: "Rejected", label: "Rejected" },
 ];
+const TYPE_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "extension", label: "Extension" },
+  { value: "release", label: "Release" },
+];
 import { ReleaseReviewModalContent } from "@/product/components/modals/ReleaseReviewModal";
 import { ExtensionReviewModalContent } from "@/product/components/modals/ExtensionReviewModal";
 import { routeHref } from "@/product/services/appRoutes";
 import { fmtDate } from "@/product/utils/format";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Real "Extensions & Release" review page — staff approve/reject the
  * extension/release requests logged by the customer-mobile app (or by staff
@@ -48,13 +54,18 @@ export function Requests() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
+  const [type, setType] = useState("");
+  // `qInput` is what's typed; `q` is the debounced value that drives the
+  // server query, so each keystroke doesn't fire a request.
+  const [qInput, setQInput] = useState("");
+  const [q, setQ] = useState("");
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [downloadMenuId, setDownloadMenuId] = useState<number | null>(null);
 
   // Lets an Approved release row's document be re-downloaded right from
   // this list, without navigating to Loan Detail first — same generator
   // LoanDetail.tsx's own Documents menu uses.
-  async function downloadReleaseAgreement(r: RequestView, lang: "en" | "ml") {
+  async function downloadReleaseAgreement(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:release-agreement:"+r.id+":"+lang, async () => {
     setDownloadMenuId(null);
     setDownloadingId(r.id);
     try {
@@ -65,35 +76,42 @@ export function Requests() {
     } finally {
       setDownloadingId(null);
     }
-  }
+  }); }
 
   // Partial Ornament Release counterpart — keyed off the REQUEST rather
   // than the loan (the receipt lists only what THIS request released), same
   // Approved-only gate as the full-release FORM 7 agreement above.
-  async function downloadPartialReceipt(r: RequestView) {
+  async function downloadPartialReceipt(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:partial-receipt:"+r.id+":"+lang, async () => {
     setDownloadMenuId(null);
     setDownloadingId(r.id);
     try {
-      await downloadPartialReleaseReceiptPDF(r.id);
+      await downloadPartialReleaseReceiptPDF(r.id, lang);
     } catch {
       toast("Could not generate the partial release receipt — try again");
     } finally {
       setDownloadingId(null);
     }
-  }
+  }); }
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Re-fetches whatever page is currently on screen — used both by the
   // page-change effect below and after a decision/review-save, so an admin
   // working through page 3 isn't bounced back to page 1 every time.
   const refresh = useCallback(() => {
-    listLoanRequestsPage(page, { status: status || undefined }, pageSize)
+    listLoanRequestsPage(page, { status: status || undefined, type: type || undefined, q: q || undefined }, pageSize)
       .then((res) => { setReqs(res.items); setTotal(res.total); })
       .catch(() => { setReqs([]); setTotal(0); })
       .finally(() => setLoading(false));
-  }, [page, status, pageSize]);
+  }, [page, status, type, q, pageSize]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    const t = qInput.trim();
+    if (t === q) return;
+    const handle = setTimeout(() => { setQ(t); setPage(1); }, 300);
+    return () => clearTimeout(handle);
+  }, [qInput, q]);
 
   function refreshAfterSave() {
     refresh();
@@ -107,6 +125,15 @@ export function Requests() {
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginTop: 0, marginBottom: 10 }}>
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, phone…" title="Searches: loan number, customer name, customer code, phone" value={qInput} onChange={(e) => setQInput(e.target.value)} /></div>
+        <div style={{ width: 160 }}>
+          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Type</label>
+          <Select
+            options={TYPE_OPTIONS}
+            value={type}
+            onChange={(v) => { setType(v); setPage(1); }}
+          />
+        </div>
         <div style={{ width: 180 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
           {/* setPage here rather than in a status-keyed effect, so the two
@@ -198,9 +225,14 @@ export function Requests() {
                                 Release Receipt, listing just the ornaments this
                                 request released — see DownloadPartialReleaseReceiptPDF. */}
                             {r.isPartial ? (
-                              <a href="#" onClick={(e) => { e.preventDefault(); downloadPartialReceipt(r); }}>
-                                <Icon name="doc" /><span className="tx">Partial Release Receipt</span>
-                              </a>
+                              <>
+                                <a href="#" onClick={(e) => { e.preventDefault(); downloadPartialReceipt(r, "en"); }}>
+                                  <Icon name="doc" /><span className="tx">Partial Receipt — English</span>
+                                </a>
+                                <a href="#" onClick={(e) => { e.preventDefault(); downloadPartialReceipt(r, "ml"); }}>
+                                  <Icon name="doc" /><span className="tx">Partial Receipt — Malayalam</span>
+                                </a>
+                              </>
                             ) : (
                               <>
                                 <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "en"); }}>

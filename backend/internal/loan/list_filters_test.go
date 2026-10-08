@@ -185,6 +185,7 @@ func TestLoanRequestFindAllSearchAndType(t *testing.T) {
 		"JOIN loans ON loans.id = loan_requests.loan_id",
 		"JOIN customers ON customers.id = loans.customer_id",
 		"customers.code ILIKE '%LN-1%'",
+		"customers.phone ILIKE '%LN-1%'",
 		"loan_requests.type = 'Release'",
 		"loans.branch_id = 3",
 	)

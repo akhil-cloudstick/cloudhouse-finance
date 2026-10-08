@@ -9,6 +9,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { createLocker, updateLocker, type LockerView } from "@/product/pages/lockers/services/lockerService";
+import { singleFlight } from "@/product/utils/singleFlight";
 
 const CODE_RE = /^[A-Za-z0-9-]*$/;
 
@@ -39,7 +40,7 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function save() {
+  async function save() { return singleFlight("modal:locker:save", async () => {
     const trimmedCode = code.trim().toUpperCase();
     if (!trimmedCode) { setErr("Locker code is required."); return; }
     if (!CODE_RE.test(trimmedCode)) { setErr("Locker code may only contain letters, numbers and hyphens."); return; }
@@ -65,7 +66,7 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
     } finally {
       setSaving(false);
     }
-  }
+  }); }
 
   return (
     <>

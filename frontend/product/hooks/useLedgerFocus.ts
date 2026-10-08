@@ -24,6 +24,14 @@ const ORIGINS_KEY = "ledgerFocus:origins";
 const ARRIVAL_KEY = "ledgerFocus:arrival";
 const FOCUS_CLASS = "ledger-row-focus";
 
+/* A browser refresh must land where the user is NOW, not replay the
+ * drill-out memory from an earlier link click (which could be minutes old).
+ * So on a reload the drill-out memory is dropped, and the live position
+ * (tab + page, kept by saveLedgerPosition) is restored instead — until the
+ * user leaves via a link or Back, after which normal navigation applies. */
+let reloadActive = false;
+const POSITION_KEY = "ledgerFocus:position";
+
 function read<T>(key: string): T | null {
   try {
     const raw = sessionStorage.getItem(key);
@@ -77,6 +85,21 @@ function onLedgerLinkClick(e: MouseEvent) {
 }
 
 if (typeof window !== "undefined") {
+  try {
+    const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    if (nav?.type === "reload") {
+      reloadActive = true;
+      sessionStorage.removeItem(ORIGINS_KEY);
+      sessionStorage.removeItem(ARRIVAL_KEY);
+    }
+  } catch {
+    /* no navigation timing / storage — a reload just starts the ledger clean */
+  }
+  const leave = (e?: Event) => {
+    if (!e || e.type === "popstate" || (e.target as Element | null)?.closest?.("a[href]")) reloadActive = false;
+  };
+  document.addEventListener("click", leave, true);
+  window.addEventListener("popstate", leave);
   // Capture phase: LedgerRefLink stops its click from bubbling, so a bubbling
   // listener would never see it.
   document.addEventListener("click", onLedgerLinkClick, true);
@@ -87,7 +110,26 @@ if (typeof window !== "undefined") {
 export function rememberedLedgerPage(scope: string): number | undefined {
   if (typeof window === "undefined") return undefined;
   const o = origins()[window.location.pathname];
-  return o && o.scope === scope ? o.page : undefined;
+  if (o && o.scope === scope) return o.page;
+  const p = reloadedLedgerPosition()?.[scope];
+  return typeof p === "number" ? p : undefined;
+}
+
+type Position = Record<string, number | string>;
+
+/* Keeps the ledger's current tab/page so a refresh can come back to it. */
+export function saveLedgerPosition(patch: Position) {
+  if (typeof window === "undefined") return;
+  const all = read<Record<string, Position>>(POSITION_KEY) || {};
+  const path = window.location.pathname;
+  write(POSITION_KEY, { ...all, [path]: { ...(all[path] || {}), ...patch } });
+}
+
+/* The position saved before a refresh — only while this document load IS
+ * that refresh; undefined for any normal visit. */
+export function reloadedLedgerPosition(): Position | undefined {
+  if (typeof window === "undefined" || !reloadActive) return undefined;
+  return read<Record<string, Position>>(POSITION_KEY)?.[window.location.pathname];
 }
 
 function sameAmount(a: string | undefined, b: string) {

@@ -79,7 +79,7 @@ func main() {
 			fmt.Println("ERROR:", err)
 			os.Exit(1)
 		}
-		fmt.Printf("status=%s signers=%+v\n", status.Status, status.Signers)
+		fmt.Printf("status=%s raw=%s\n", status.Status, status.RawStatus)
 
 	case "download":
 		if len(os.Args) < 3 {

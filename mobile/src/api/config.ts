@@ -1,7 +1,8 @@
 // The backend. Per the plan's "online-only, no offline mode" decision, the
-// app always talks to this server live: the one shared API host,
-// api.cloudhousefinance.com. The tenant is chosen by the business code sent at
-// login (then carried in the JWT), never by the host.
+// app always talks to this server live: api.cloudhousefinance.com, the one
+// shared API host for every business. The business is not part of the host —
+// the app sends its business code in the request body at sign-in and the
+// tenant rides in the JWT afterwards (see src/auth/businessCode.ts).
 // EXPO_PUBLIC_API_BASE_URL (.env.local for `expo start`, eas.json's `base`
 // profile for EAS builds) is set to this same address everywhere; it exists
 // only so a different environment could be pointed elsewhere on purpose.

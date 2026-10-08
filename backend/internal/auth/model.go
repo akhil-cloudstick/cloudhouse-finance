@@ -26,6 +26,12 @@ type LoginInput struct {
 	BusinessCode string `json:"businessCode"`
 }
 
+// QRRedeemInput is the JSON body accepted by POST /auth/qr/redeem: the token
+// read from the QR the web dashboard showed.
+type QRRedeemInput struct {
+	Token string `json:"token" binding:"required"`
+}
+
 // ForgotPasswordInput is the JSON body accepted by POST /auth/forgot-password.
 // Username and Phone must both belong to the same employee — a phone number
 // alone is not enough to start a reset.

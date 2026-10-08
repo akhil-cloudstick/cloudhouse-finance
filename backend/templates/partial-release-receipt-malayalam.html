@@ -1,0 +1,65 @@
+<!DOCTYPE html><html lang="ml"><head><meta charset="UTF-8"><title>ഭാഗിക വിടുതൽ രസീത് — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>ഭാഗിക വിടുതൽ</h1>
+<table class="hd-table">
+  <tr>
+    <td style="width:65%">
+      <b style="font-size:15px">{{.LenderName}}</b><br>
+      {{.LenderAddress}}
+    </td>
+    <td style="text-align:right">
+      <b>ഭാഗിക സ്വർണ്ണ വിടുതൽ രസീത്</b><br>
+      തിയ്യതി: {{.ReleaseDate}}
+    </td>
+  </tr>
+</table>
+<p><b>ക്രമ നമ്പർ:</b> {{.LoanNumber}} &nbsp; <b>ശാഖ:</b> {{.BranchName}}</p>
+<p><b>ഉപഭോക്താവ്:</b> {{.CustomerName}}<br>{{.CustomerAddress}}</p>
+
+<p>
+  മുകളിൽ പറഞ്ഞ വായ്പയിൽ പണയം വെച്ച സ്വർണ്ണത്തിന്റെ <b>ഒരു ഭാഗം</b> തിരികെ നൽകിയതായി ഈ രസീത് സ്ഥിരീകരിക്കുന്നു.
+  "ഈ ഇടപാടിൽ വിടുതൽ ചെയ്തവ" എന്ന പട്ടികയിലെ ആഭരണങ്ങൾ ഉപഭോക്താവിന് തിരികെ നൽകിയിരിക്കുന്നു;
+  "ഇപ്പോഴും പണയത്തിലുള്ളവ" എന്ന പട്ടികയിലെ ആഭരണങ്ങളുടെ ഈടിൽ വായ്പ തുടരുന്നു.
+</p>
+
+<table class="amt-table">
+  <tr><td><b>ഈടാക്കിയ തീർപ്പ് തുക:</b></td><td class="num">{{.SettlementAmount}}/-</td></tr>
+</table>
+
+<h3>ഈ ഇടപാടിൽ വിടുതൽ ചെയ്തവ</h3>
+<table>
+  <thead><tr><th>ഇനത്തിന്റെ പേര്</th><th class="num">എണ്ണം</th><th class="num">ആകെ തൂക്കം</th><th class="num">അറ്റ തൂക്കം</th><th class="num">തനി തൂക്കം</th><th class="num">മൂല്യം</th></tr></thead>
+  <tbody>
+  {{range .ReleasedOrnaments}}<tr><td>{{.Name}}</td><td class="num">{{.Quantity}}</td>
+    <td class="num">{{printf "%.2f" .GrossWeight}} ഗ്രാം</td><td class="num">{{printf "%.2f" .NetWeight}} ഗ്രാം</td>
+    <td class="num">{{printf "%.2f" .FineWeight}} ഗ്രാം</td><td class="num">{{.Value}}</td></tr>
+  {{else}}<tr><td colspan="6" style="text-align:center;color:#777">ഒന്നുമില്ല</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<h3>ഇപ്പോഴും പണയത്തിലുള്ളവ (ശേഷിക്കുന്ന ഈട്)</h3>
+<table>
+  <thead><tr><th>ഇനത്തിന്റെ പേര്</th><th class="num">എണ്ണം</th><th class="num">ആകെ തൂക്കം</th><th class="num">അറ്റ തൂക്കം</th><th class="num">തനി തൂക്കം</th><th class="num">മൂല്യം</th></tr></thead>
+  <tbody>
+  {{range .StillPledgedOrnaments}}<tr><td>{{.Name}}</td><td class="num">{{.Quantity}}</td>
+    <td class="num">{{printf "%.2f" .GrossWeight}} ഗ്രാം</td><td class="num">{{printf "%.2f" .NetWeight}} ഗ്രാം</td>
+    <td class="num">{{printf "%.2f" .FineWeight}} ഗ്രാം</td><td class="num">{{.Value}}</td></tr>
+  {{else}}<tr><td colspan="6" style="text-align:center;color:#777">ഒന്നുമില്ല</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<table class="amt-table">
+  <tr><td><b>പുതുക്കിയ മുതൽ ബാക്കി:</b></td><td class="num">{{.RevisedPrincipalBalance}}/-</td></tr>
+  <tr><td><b>പുതുക്കിയ മൊത്തം സ്വർണ്ണ മൂല്യം:</b></td><td class="num">{{.RevisedTotalGoldValue}}/-</td></tr>
+  <tr><td><b>പുതുക്കിയ LTV അനുപാതം:</b></td><td class="num">{{.RevisedLTVRatio}}</td></tr>
+</table>
+
+<div class="sig-row">
+  <div><span class="sig-line">&nbsp;</span><br>ഉപഭോക്താവിന്റെ ഒപ്പ്</div>
+  <div><span class="sig-line">&nbsp;</span><br>സാക്ഷി</div>
+</div>
+<div class="sig-row">
+  <div class="owner-sig"><div class="slot">{{.LenderSignature}}</div><span class="sig-line">&nbsp;</span><br>ഉടമയുടെ ഒപ്പ്</div>
+</div>
+</body></html>
