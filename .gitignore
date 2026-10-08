@@ -15,3 +15,9 @@ node_modules/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# DB dumps (contain real data) - never commit
+backups/
+
+# Built/deployed artifacts (compiled frontend + server binary) - live on the server, never commit
+deploy/

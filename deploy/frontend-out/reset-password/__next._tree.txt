@@ -1,5 +1,0 @@
-:HL["/_next/static/chunks/32okqnb1o01he.css","style"]
-:HL["/_next/static/media/Inter_Variable_latin-s.p.0gsaq8ukbf34m.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
-:HL["/_next/static/media/Montserrat_Variable_latin-s.p.0s216eisv2o7-.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
-:HL["/_next/static/chunks/1g8z36aopi3b8.css","style"]
-0:{"tree":{"name":"","param":null,"prefetchHints":4176,"slots":{"children":{"name":"(product)","param":null,"prefetchHints":4144,"slots":{"children":{"name":"reset-password","param":null,"prefetchHints":4160,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":4256,"slots":null}}}}}}},"staleTime":300,"buildId":"rseIbQtUwnTtPg_nlxEeP"}
