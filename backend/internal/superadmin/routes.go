@@ -40,6 +40,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, superAdminAuth gin.HandlerF
 	protected.PUT("/businesses/:id/profile", h.UpdateProfile)
 	protected.PUT("/businesses/:id/branding", h.SetBranding)
 	protected.POST("/businesses/:id/logo", h.SetLogo)
+	protected.DELETE("/businesses/:id/logo", h.ClearLogo)
 	protected.POST("/businesses/:id/signature", h.SetSignature)
 	protected.GET("/businesses/:id/signature", h.GetSignature)
 	protected.DELETE("/businesses/:id/signature", h.ClearSignature)

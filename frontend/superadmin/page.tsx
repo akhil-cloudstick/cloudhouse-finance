@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import "@/superadmin/styles/superadmin.css";
 import {
@@ -19,6 +20,7 @@ import {
   setModules,
   setLanguages,
   uploadLogo,
+  clearLogo,
   uploadSignature,
   fetchSignatureUrl,
   clearSignature,
@@ -43,18 +45,23 @@ import { tenantLoginLink } from "@/superadmin/services/tenantLink";
 import { VENDOR } from "@/superadmin/config/brand";
 import { Select } from "@/superadmin/components/Select";
 import {
-  brandRampHex,
   DEFAULT_BRAND_COLOR,
-  FONT_FAMILIES,
   DEFAULT_FONT_FAMILY,
-  FONT_SCALES,
   DEFAULT_FONT_SCALE,
   LOGO_SCALES,
   DEFAULT_LOGO_SCALE,
-  LOGO_DISPLAYS,
   DEFAULT_LOGO_DISPLAY,
 } from "@/superadmin/config/theme";
-import { extractPaletteFromImage } from "@/superadmin/services/dominantColor";
+import BrandingStep, { type BrandingDraft } from "@/superadmin/components/BrandingStep";
+import {
+  classicLayout,
+  LAYOUT_PRESETS,
+  LOGO_WIDTH_SQUARE,
+  matchingPreset,
+  parseHeaderLayout,
+  serializeHeaderLayout,
+  type HeaderLayout,
+} from "@/product/config/headerLayout";
 
 type Tab = "businesses" | "tiers" | "audit";
 
@@ -294,6 +301,7 @@ export default function SuperAdminDashboard() {
   /* The business whose detail page is open, or null for the list. Bumping
    * detailVersion makes the open detail page refetch after any action. */
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [detailBar, setDetailBar] = useState<HTMLDivElement | null>(null);
   const [detailVersion, setDetailVersion] = useState(0);
   const [detailBranches, setDetailBranches] = useState<number | undefined>(undefined);
 
@@ -441,6 +449,10 @@ export default function SuperAdminDashboard() {
           </div>
         </header>
 
+        {/* A business's detail toolbar (back + actions) is portaled here, so it
+            sits above the summary cards rather than under them. */}
+        {tab === "businesses" && detailId !== null && <div ref={setDetailBar} className="sa-detail-bar" />}
+
         <div className="sa-cards">
           <div className="sa-card">
             <span className="sa-card-icon violet">
@@ -489,6 +501,7 @@ export default function SuperAdminDashboard() {
               version={detailVersion}
               tiers={tiers}
               onBack={() => setDetailId(null)}
+              toolbarSlot={detailBar}
               onEdit={(b) => setWizard({ business: b, openAt: "profile" })}
               onAct={(b, kind, activeBranches) => {
                 setDetailBranches(activeBranches);
@@ -773,13 +786,6 @@ export default function SuperAdminDashboard() {
 /* Keys must match tenant.KnownModules in backend/internal/tenant/branding.go
  * exactly — that slice is the closed set, and a key here with no counterpart
  * there is silently dropped on save. */
-/* The theme presets are stored as lowercase keys ("compact", "light-pad") and
-   shown title-cased. Was inline in four places before the dropdowns moved to
-   the Select component, which takes a label rather than children. */
-function titleCase(key: string) {
-  return key[0].toUpperCase() + key.slice(1);
-}
-
 const MODULE_LABELS: Record<string, string> = {
   settings: "Settings",
   branches: "Branch Management",
@@ -831,20 +837,6 @@ function GrantChips({
   );
 }
 
-/* Shows the six steps deriveBrandRamp produces from one pick, so the
- * operator sees the whole palette before saving rather than only the
- * primary — the derived shades are what most of the app actually paints
- * with (fills, hovers, pale backgrounds). */
-function RampPreview({ hex }: { hex: string }) {
-  const ramp = brandRampHex(hex || DEFAULT_BRAND_COLOR);
-  return (
-    <div className="sa-ramp" title="The full palette derived from this colour">
-      {Object.entries(ramp).map(([token, value]) => (
-        <span key={token} style={{ background: value }} title={`${token} ${value}`} />
-      ))}
-    </div>
-  );
-}
 
 
 function ReasonField({
@@ -1000,13 +992,39 @@ function BusinessWizard({
   const [fontFamily, setFontFamily] = useState(initialFontFamily);
   const initialFontScale = business?.fontScale || DEFAULT_FONT_SCALE;
   const [fontScale, setFontScale] = useState(initialFontScale);
-  const initialLogoScale = business?.logoScale || DEFAULT_LOGO_SCALE;
-  const [logoScale, setLogoScale] = useState(initialLogoScale);
+  /* No longer edited here: the arranged header's logo width (dragged in the
+   * Branding preview) replaced the size dropdown. Sent back unchanged so a
+   * business still on the classic lockup keeps the size it had. */
+  const logoScale = business?.logoScale || DEFAULT_LOGO_SCALE;
   const initialLogoDisplay = business?.logoDisplay || DEFAULT_LOGO_DISPLAY;
   const [logoDisplay, setLogoDisplay] = useState(initialLogoDisplay);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [suggestedPalette, setSuggestedPalette] = useState<string[]>([]);
+  /* Removing the saved logo is held until save, like every other edit here. */
+  const [removeLogo, setRemoveLogo] = useState(false);
+  const initialNavText = business?.navTextColor || "";
+  const [navTextColor, setNavTextColor] = useState(initialNavText);
+  const initialOnBrandText = business?.onBrandTextColor || "";
+  const [onBrandTextColor, setOnBrandTextColor] = useState(initialOnBrandText);
+
+  /* The sidebar header. A business never arranged starts from the classic
+   * lockup at its current logo size, and keeps rendering classically until
+   * the vendor actually changes the header (see `layoutTouched`). */
+  const savedLayoutRaw = business?.headerLayout ?? "";
+  const [initialLayout] = useState<HeaderLayout>(
+    () =>
+      parseHeaderLayout(savedLayoutRaw) ?? {
+        ...classicLayout("square"),
+        logoWidth: Math.round(LOGO_WIDTH_SQUARE * (LOGO_SCALES[logoScale] ?? 1)),
+      }
+  );
+  const [headerLayout, setHeaderLayout] = useState<HeaderLayout>(initialLayout);
+  const layoutTouched = JSON.stringify(headerLayout) !== JSON.stringify(initialLayout);
+  /* What the save sends. The backend overwrites the stored layout on every
+   * branding save, so an untouched one goes back exactly as it was ("" keeps
+   * a classic business classic). A new business is saved arranged. */
+  const layoutToSave = isCreate || layoutTouched ? serializeHeaderLayout(headerLayout) : savedLayoutRaw;
+  const classicHeader = !isCreate && !savedLayoutRaw && !layoutTouched;
 
   /* The lender's signature, printed by the backend on every document with a
    * lender/owner signature line. A new pick is held locally and uploaded on
@@ -1176,33 +1194,39 @@ function BusinessWizard({
     goTo(stepIdx + 1);
   }
 
-  function pickLogo(file: File | null) {
-    setLogoFile(file);
-    setLogoPreview(file ? URL.createObjectURL(file) : null);
-    setSuggestedPalette([]);
-    if (!file) return;
-    void extractPaletteFromImage(file).then((p) => {
-      setSuggestedPalette(p.colors);
-      // Fill Primary/Secondary/Accent from the logo IMMEDIATELY, in that
-      // order — not one click per field. Still never overwrites a colour
-      // the operator already picked by hand: each only fills if it is
-      // still at its untouched default, same guard the swatch buttons
-      // below use for a manual re-pick. Every field stays editable
-      // afterwards — see profile.go's SetTheme, which only ever writes
-      // what the operator actually submits, never what a logo suggested.
-      // BUG THIS FIXES: comparing against `initialColor` treated "matches
-      // what's already saved for this business" as "still untouched" — but
-      // on an EDIT, the already-saved value is the operator's real,
-      // deliberate colour, not a placeholder. Re-uploading (or just
-      // re-selecting) a logo on an existing business silently overwrote a
-      // correct, already-set Primary colour with whatever the image
-      // happened to extract. Only the true PLATFORM default may be
-      // auto-filled — anything a business actually has set, ever, is left
-      // alone.
-      const [first, second] = p.colors;
-      if (first && color === DEFAULT_BRAND_COLOR) setColor(first);
-      if (second && !secondaryColor) setSecondaryColor(second);
-    });
+  /* The Branding step edits one draft object (it keeps undo history of it);
+   * these are the wizard fields it maps onto. The short name and subtitle are
+   * Step 1's own fields, also typed directly in the header preview. */
+  const brandingDraft: BrandingDraft = {
+    color,
+    secondaryColor,
+    navTextColor,
+    onBrandTextColor,
+    logoDisplay,
+    fontFamily,
+    fontScale,
+    layout: headerLayout,
+    shortName,
+    tagline,
+    logoFile,
+    logoPreview,
+    removeLogo,
+  };
+  function setBrandingDraft(d: BrandingDraft) {
+    setColor(d.color);
+    setSecondaryColor(d.secondaryColor);
+    setNavTextColor(d.navTextColor);
+    setOnBrandTextColor(d.onBrandTextColor);
+    setLogoDisplay(d.logoDisplay);
+    setFontFamily(d.fontFamily);
+    setFontScale(d.fontScale);
+    setHeaderLayout(d.layout);
+    setShortName(d.shortName);
+    if (d.tagline !== tagline) setTaglineTouched(true);
+    setTagline(d.tagline);
+    setLogoFile(d.logoFile);
+    setLogoPreview(d.logoPreview);
+    setRemoveLogo(d.removeLogo);
   }
 
   // What this save will actually write — drives the Review step's change
@@ -1225,9 +1249,11 @@ function BusinessWizard({
         secondaryColor !== initialSecondary ||
         fontFamily !== initialFontFamily ||
         fontScale !== initialFontScale ||
-        logoScale !== initialLogoScale ||
-        logoDisplay !== initialLogoDisplay),
-    logo: logoFile !== null,
+        logoDisplay !== initialLogoDisplay ||
+        navTextColor !== initialNavText ||
+        onBrandTextColor !== initialOnBrandText ||
+        layoutTouched),
+    logo: logoFile !== null || (removeLogo && !!business?.logoUrl),
     signature: signatureFile !== null || (removeSignature && hasSavedSignature),
     modules: !isCreate && !sameSet(modules, business.modules ?? []),
     languages: !isCreate && !sameSet(languages, business.languages ?? ["en"]),
@@ -1245,6 +1271,9 @@ function BusinessWizard({
   // superadmin.CreateBusinessInput) and everything else rides a follow-up
   // SetTheme call, the same way the logo already rides a follow-up upload.
   const themeBeyondDefault =
+    layoutToSave !== "" ||
+    navTextColor !== "" ||
+    onBrandTextColor !== "" ||
     secondaryColor !== "" ||
     fontFamily !== DEFAULT_FONT_FAMILY ||
     fontScale !== DEFAULT_FONT_SCALE ||
@@ -1304,6 +1333,9 @@ function BusinessWizard({
             fontScale,
             logoScale,
             logoDisplay,
+            navTextColor,
+            onBrandTextColor,
+            headerLayout: layoutToSave,
             reason,
           });
         }
@@ -1324,10 +1356,14 @@ function BusinessWizard({
             fontScale,
             logoScale,
             logoDisplay,
+            navTextColor,
+            onBrandTextColor,
+            headerLayout: layoutToSave,
             reason,
           });
         }
         if (changed.logo && logoFile) await uploadLogo(business.id, logoFile, reason);
+        else if (changed.logo && removeLogo) await clearLogo(business.id, reason);
         if (signatureFile) await uploadSignature(business.id, signatureFile, reason);
         else if (removeSignature && hasSavedSignature) await clearSignature(business.id, reason);
         if (changed.modules) await setModules(business.id, modules, reason);
@@ -1373,7 +1409,8 @@ function BusinessWizard({
           </div>
         </div>
 
-        <div className="sa-modal-body">
+        {/* The Branding step lays out its own two scrolling panes edge to edge. */}
+        <div className={`sa-modal-body${step.id === "branding" ? " bs-host" : ""}`}>
           {step.id === "profile" && (
             <>
               <div className="sa-grid-2">
@@ -1504,149 +1541,15 @@ function BusinessWizard({
           )}
 
           {step.id === "branding" && (
-            <>
-              <div className="sa-field">
-                <label>Primary colour</label>
-                <div className="sa-color-row">
-                  <input
-                    type="color"
-                    value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : DEFAULT_BRAND_COLOR}
-                    onChange={(e) => setColor(e.target.value)}
-                  />
-                  <input
-                    type="text"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    placeholder={DEFAULT_BRAND_COLOR}
-                  />
-                  <RampPreview hex={color} />
-                </div>
-                <span className="sa-hint">Every other shade (hovers, fills, print header) is derived from this.</span>
-              </div>
-
-              <div className="sa-field">
-                <label>Logo</label>
-                <div className="sa-logo-row">
-                  {(logoPreview || business?.logoUrl) && (
-                    <img className="sa-logo-preview" src={logoPreview || business?.logoUrl} alt="" />
-                  )}
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={(e) => pickLogo(e.target.files?.[0] ?? null)}
-                  />
-                </div>
-                <span className="sa-hint">
-                  PNG, JPEG or WebP (no SVG).{isCreate && " Uploaded once the business has been created."}
-                </span>
-              </div>
-
-              {suggestedPalette.length > 0 && (
-                <div className="sa-field">
-                  <label>Suggested from this logo</label>
-                  <div className="sa-color-row">
-                    {suggestedPalette.map((hex) => (
-                      <button
-                        key={hex}
-                        type="button"
-                        className="sa-swatch-btn"
-                        style={{ background: hex }}
-                        title={`Use ${hex}`}
-                        onClick={() => {
-                          // First click fills the primary (only while it's
-                          // still the untouched PLATFORM default — matching
-                          // `initialColor` here was the same bug fixed in
-                          // pickLogo's auto-fill just above: an existing
-                          // business's already-saved colour is a real,
-                          // deliberate choice, not a placeholder), the
-                          // second click the secondary.
-                          if (color === DEFAULT_BRAND_COLOR) setColor(hex);
-                          else if (!secondaryColor) setSecondaryColor(hex);
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <span className="sa-hint">Click a swatch to fill the next empty colour field.</span>
-                </div>
-              )}
-
-              <div className="sa-field">
-                <label>Secondary colour (optional)</label>
-                <div className="sa-color-row">
-                  <input
-                    type="color"
-                    value={/^#[0-9a-fA-F]{6}$/.test(secondaryColor) ? secondaryColor : "#ffffff"}
-                    onChange={(e) => setSecondaryColor(e.target.value)}
-                  />
-                  <input
-                    type="text"
-                    value={secondaryColor}
-                    onChange={(e) => setSecondaryColor(e.target.value)}
-                    placeholder="unset"
-                  />
-                  {secondaryColor && (
-                    <button type="button" className="sa-link-btn" onClick={() => setSecondaryColor("")}>
-                      Clear
-                    </button>
-                  )}
-                  {secondaryColor && <RampPreview hex={secondaryColor} />}
-                </div>
-                <span className="sa-hint">Also sets the sidebar/login background. Leave empty to derive it automatically.</span>
-              </div>
-
-              <div className="sa-field">
-                <label>Font</label>
-                <Select
-                  value={fontFamily}
-                  onChange={setFontFamily}
-                  ariaLabel="Font"
-                  options={Object.keys(FONT_FAMILIES).map((key) => ({ value: key, label: titleCase(key) }))}
-                />
-                <span className="sa-hint">Applies to running text; headings and the sidebar wordmark are unaffected.</span>
-              </div>
-
-              <div className="sa-field">
-                <label>Text size</label>
-                <Select
-                  value={fontScale}
-                  onChange={setFontScale}
-                  ariaLabel="Text size"
-                  options={Object.keys(FONT_SCALES).map((key) => ({ value: key, label: titleCase(key) }))}
-                />
-              </div>
-
-              <div className="sa-field">
-                <label>Logo size in the sidebar/header</label>
-                <Select
-                  value={logoScale}
-                  onChange={setLogoScale}
-                  ariaLabel="Logo size in the sidebar/header"
-                  options={Object.keys(LOGO_SCALES).map((key) => ({ value: key, label: titleCase(key) }))}
-                />
-                <span className="sa-hint">Only affects the sidebar/header, not the login page logo.</span>
-              </div>
-
-              <div className="sa-field">
-                <label>Logo backing</label>
-                <Select
-                  value={logoDisplay}
-                  onChange={setLogoDisplay}
-                  ariaLabel="Logo backing"
-                  options={LOGO_DISPLAYS.map((key) => ({
-                    value: key,
-                    label:
-                      key === "transparent"
-                        ? "None (transparent)"
-                        : key === "light-pad"
-                          ? "Light backing"
-                          : "Dark backing",
-                  }))}
-                />
-                <span className="sa-hint">
-                  Use a backing swatch for a logo that only reads clearly against one background colour.
-                </span>
-              </div>
-            </>
+            <BrandingStep
+              draft={brandingDraft}
+              onChange={setBrandingDraft}
+              savedLogoUrl={business?.logoUrl ?? ""}
+              businessName={name}
+              code={isCreate ? code : business.code}
+              classic={classicHeader}
+              isCreate={isCreate}
+            />
           )}
 
           {step.id === "grants" && (
@@ -1861,13 +1764,24 @@ function BusinessWizard({
                 <ReviewRow label="Deployment URL" value={appUrl} changed={changed.profile} />
                 <ReviewRow label="Primary colour" value={color} changed={changed.theme} />
                 <ReviewRow label="Secondary colour" value={secondaryColor || "unset"} changed={changed.theme} />
+                <ReviewRow label="Text on primary" value={onBrandTextColor || "automatic"} changed={changed.theme} />
+                <ReviewRow label="Sidebar text" value={navTextColor || "automatic"} changed={changed.theme} />
+                <ReviewRow
+                  label="Sidebar header"
+                  value={
+                    classicHeader
+                      ? "classic"
+                      : (LAYOUT_PRESETS.find((p) => p.id === matchingPreset(headerLayout.tree))?.label ?? "custom") +
+                        ` · ${headerLayout.logoShape} logo`
+                  }
+                  changed={changed.theme}
+                />
                 <ReviewRow label="Font" value={fontFamily} changed={changed.theme} />
                 <ReviewRow label="Text size" value={fontScale} changed={changed.theme} />
-                <ReviewRow label="Logo size" value={logoScale} changed={changed.theme} />
                 <ReviewRow label="Logo backing" value={logoDisplay} changed={changed.theme} />
                 <ReviewRow
                   label="Logo"
-                  value={logoFile ? logoFile.name : business?.logoUrl ? "already set" : ""}
+                  value={logoFile ? logoFile.name : removeLogo && business?.logoUrl ? "removed" : business?.logoUrl ? "already set" : ""}
                   changed={changed.logo}
                 />
                 <ReviewRow
@@ -2181,6 +2095,7 @@ function BusinessDetail({
   version,
   tiers,
   onBack,
+  toolbarSlot,
   onEdit,
   onAct,
   onChanged,
@@ -2192,6 +2107,9 @@ function BusinessDetail({
   version: number;
   tiers: Tier[];
   onBack: () => void;
+  /* Where the back/actions toolbar renders (above the page's summary cards);
+     null until that element mounts, when it renders inline instead. */
+  toolbarSlot: HTMLElement | null;
   onEdit: (b: Business) => void;
   onAct: (b: Business, kind: ActKind, activeBranches?: number) => void;
   onChanged: () => void;
@@ -2222,19 +2140,28 @@ function BusinessDetail({
     };
   }, [id, version]);
 
+  const placeToolbar = (bar: React.ReactNode) => (toolbarSlot ? createPortal(bar, toolbarSlot) : bar);
+  const backButton = (
+    <button className="sa-btn" onClick={onBack}>
+      ← All businesses
+    </button>
+  );
+
   if (error) {
     return (
       <>
-        <div className="sa-toolbar">
-          <button className="sa-btn" onClick={onBack}>
-            ← All businesses
-          </button>
-        </div>
+        {placeToolbar(<div className="sa-toolbar sa-detail-toolbar">{backButton}</div>)}
         <p className="sa-error">{error}</p>
       </>
     );
   }
-  if (!data) return <p className="sa-empty">Loading…</p>;
+  if (!data)
+    return (
+      <>
+        {placeToolbar(<div className="sa-toolbar sa-detail-toolbar">{backButton}</div>)}
+        <p className="sa-empty">Loading…</p>
+      </>
+    );
 
   const { business: b, usage: u, payments } = data;
   const plan = tiers.find((t) => t.id === b.tierId) ?? b.tier;
@@ -2243,10 +2170,9 @@ function BusinessDetail({
 
   return (
     <div className="sa-detail">
+      {placeToolbar(
       <div className="sa-toolbar sa-detail-toolbar">
-        <button className="sa-btn" onClick={onBack}>
-          ← All businesses
-        </button>
+        {backButton}
         <span className="sa-foot-spacer" />
         <button className="sa-btn" onClick={() => onEdit(b)}>
           Edit details
@@ -2263,7 +2189,8 @@ function BusinessDetail({
         <button className="sa-btn danger" onClick={() => onAct(b, "delete")}>
           Delete
         </button>
-      </div>
+      </div>,
+      )}
 
       <section className="sa-panel sa-detail-head">
         {b.logoUrl ? (

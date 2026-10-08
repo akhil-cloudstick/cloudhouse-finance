@@ -63,7 +63,7 @@
    * this was checked against never has at all. Removed: just the flat
    * tenant-coloured field remains, matching the reference exactly. */
   background: linear-gradient(160deg, var(--nav-2) 0%, var(--nav) 100%);
-  color: #fff;
+  color: var(--nav-fg);
   border-radius: 14px 0 0 14px;
   padding: 48px 40px;
   display: flex;
@@ -87,7 +87,7 @@
   width: 260px;
   height: 260px;
   border-radius: 50%;
-  border: 26px solid rgba(255, 255, 255, .04);
+  border: 26px solid color-mix(in oklab, var(--nav-fg) 4%, transparent);
   pointer-events: none;
 }
 
@@ -95,7 +95,7 @@
    no outline. */
 .login-page .bp-mark {
   margin-bottom: 22px;
-  color: #fff;
+  color: var(--nav-fg);
 }
 
 .login-page .bp-name {
@@ -128,7 +128,7 @@
   font-weight: 500;
   letter-spacing: .26em;
   text-transform: uppercase;
-  color: oklch(0.95 0.006 290 / 70%);
+  color: color-mix(in oklab, var(--nav-fg) 70%, transparent);
 }
 
 /* The one full-colour moment on the page: the logo's own violet → magenta →
@@ -175,13 +175,13 @@
 .login-page .bp-phone {
   margin: 0;
   font-size: 12.5px;
-  color: oklch(0.95 0.006 290 / 65%);
+  color: color-mix(in oklab, var(--nav-fg) 65%, transparent);
   letter-spacing: .02em;
 }
 .login-page .bp-phone {
   margin-top: 7px;
   font-variant-numeric: tabular-nums;
-  color: #fff;
+  color: var(--nav-fg);
   font-weight: 500;
 }
 
@@ -205,7 +205,7 @@
   font-family: var(--font-display), 'Montserrat', sans-serif;
   font-size: 25px;
   font-weight: 700;
-  color: var(--nav);
+  color: var(--nav-ink);
   margin: 0;
   letter-spacing: -.01em;
 }
@@ -224,7 +224,7 @@
   font-family: var(--font-display), 'Montserrat', sans-serif;
   font-size: 23px;
   font-weight: 700;
-  color: var(--nav);
+  color: var(--nav-ink);
   margin: 0;
 }
 
@@ -360,7 +360,7 @@
   font-weight: 600;
   letter-spacing: .12em;
   text-transform: uppercase;
-  color: #fff;
+  color: var(--on-brand);
   background: var(--brand);
   border: 1px solid var(--brand);
   border-radius: 8px;

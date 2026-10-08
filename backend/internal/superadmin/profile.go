@@ -149,6 +149,13 @@ type ThemeInput struct {
 	FontScale    string
 	LogoScale    string
 	LogoDisplay  string
+	// NavTextColor/OnBrandTextColor: "" means automatic — see
+	// tenant.Tenant.NavTextColor.
+	NavTextColor     string
+	OnBrandTextColor string
+	// HeaderLayout is the arranged sidebar header as JSON; "" restores the
+	// classic lockup. Normalised by normalizeHeaderLayout before storage.
+	HeaderLayout string
 }
 
 // SetTheme sets the business's whole visual theme: the colour(s) its palette
@@ -171,7 +178,9 @@ func (s *Service) SetTheme(ctx context.Context, actor *SuperAdminUser, id uint, 
 	secondary := strings.TrimSpace(strings.ToLower(in.SecondaryColor))
 	accent := strings.TrimSpace(strings.ToLower(in.AccentColor))
 	sidebar := strings.TrimSpace(strings.ToLower(in.SidebarColor))
-	for _, c := range []string{primary, secondary, accent, sidebar} {
+	navText := strings.TrimSpace(strings.ToLower(in.NavTextColor))
+	onBrandText := strings.TrimSpace(strings.ToLower(in.OnBrandTextColor))
+	for _, c := range []string{primary, secondary, accent, sidebar, navText, onBrandText} {
 		if c != "" && !brandColorPattern.MatchString(c) {
 			return nil, ErrInvalidBrandColor
 		}
@@ -192,14 +201,19 @@ func (s *Service) SetTheme(ctx context.Context, actor *SuperAdminUser, id uint, 
 	if !oneOf(logoDisplay, knownLogoDisplays) {
 		return nil, httpx.NewBadRequest("unknown logo display")
 	}
+	headerLayout, err := normalizeHeaderLayout(in.HeaderLayout)
+	if err != nil {
+		return nil, err
+	}
 
 	t, err := s.tenantRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrBusinessNotFound
 	}
-	before := fmt.Sprintf("brand=%s secondary=%s accent=%s sidebar=%s font=%s/%s logo=%s/%s",
+	before := fmt.Sprintf("brand=%s secondary=%s accent=%s sidebar=%s font=%s/%s logo=%s/%s text=%s/%s header=%s",
 		orDefault(t.BrandColor), orDefault(t.SecondaryColor), orDefault(t.AccentColor), orDefault(t.SidebarColor),
-		orDefault(t.FontFamily), orDefault(t.FontScale), orDefault(t.LogoScale), orDefault(t.LogoDisplay))
+		orDefault(t.FontFamily), orDefault(t.FontScale), orDefault(t.LogoScale), orDefault(t.LogoDisplay),
+		orDefault(t.NavTextColor), orDefault(t.OnBrandTextColor), orDefault(t.HeaderLayout))
 	t.BrandColor = primary
 	t.SecondaryColor = secondary
 	t.AccentColor = accent
@@ -208,12 +222,16 @@ func (s *Service) SetTheme(ctx context.Context, actor *SuperAdminUser, id uint, 
 	t.FontScale = fontScale
 	t.LogoScale = logoScale
 	t.LogoDisplay = logoDisplay
+	t.NavTextColor = navText
+	t.OnBrandTextColor = onBrandText
+	t.HeaderLayout = headerLayout
 	if err := s.tenantRepo.Update(ctx, t); err != nil {
 		return nil, err
 	}
-	after := fmt.Sprintf("brand=%s secondary=%s accent=%s sidebar=%s font=%s/%s logo=%s/%s",
+	after := fmt.Sprintf("brand=%s secondary=%s accent=%s sidebar=%s font=%s/%s logo=%s/%s text=%s/%s header=%s",
 		orDefault(t.BrandColor), orDefault(t.SecondaryColor), orDefault(t.AccentColor), orDefault(t.SidebarColor),
-		orDefault(t.FontFamily), orDefault(t.FontScale), orDefault(t.LogoScale), orDefault(t.LogoDisplay))
+		orDefault(t.FontFamily), orDefault(t.FontScale), orDefault(t.LogoScale), orDefault(t.LogoDisplay),
+		orDefault(t.NavTextColor), orDefault(t.OnBrandTextColor), orDefault(t.HeaderLayout))
 	s.audit(ctx, actor, ActionSetBranding, &t.ID, t.Name,
 		fmt.Sprintf("theme: %s -> %s", before, after), reason)
 	return t, nil
@@ -268,6 +286,28 @@ func (s *Service) SetLogo(ctx context.Context, actor *SuperAdminUser, id uint, f
 	}
 	s.audit(ctx, actor, ActionSetLogo, &t.ID, t.Name,
 		fmt.Sprintf("logo: %s -> %s (%d bytes)", before, t.LogoStorageKey, len(data)), reason)
+	return t, nil
+}
+
+// ClearLogo removes a business's logo, so its app falls back to its own
+// initial. Like a replaced logo, the old file is left on disk — see SetLogo.
+func (s *Service) ClearLogo(ctx context.Context, actor *SuperAdminUser, id uint, reason string) (*tenant.Tenant, error) {
+	reason = optionalReason(reason)
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, ErrBusinessNotFound
+	}
+	if t.LogoStorageKey == "" {
+		return t, nil
+	}
+	before := t.LogoStorageKey
+	t.LogoStorageKey = ""
+	if err := s.tenantRepo.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	t.LogoURL = ""
+	s.audit(ctx, actor, ActionSetLogo, &t.ID, t.Name,
+		fmt.Sprintf("logo: %s -> none", before), reason)
 	return t, nil
 }
 
