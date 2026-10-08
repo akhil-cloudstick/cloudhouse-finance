@@ -32,6 +32,7 @@ import {
   toast,
 } from "../../../src/components/ui";
 import { useServerList } from "../../../src/hooks/useServerList";
+import { usePersistedState } from "../../../src/hooks/usePersistedState";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { listCustomers } from "../../../src/api/customers";
 import { ApiError } from "../../../src/api/client";
@@ -89,7 +90,7 @@ export default function InvestmentsScreen() {
   const canCreate = can("Investment_Management", "can_create_investment");
   const canUpdate = can("Investment_Management", "can_update_investment");
 
-  const [status, setStatus] = useState<StatusFilter>("All");
+  const [status, setStatus] = usePersistedState<StatusFilter>("investments:status", "All");
   const [filterOpen, setFilterOpen] = useState(false);
   const [draft, setDraft] = useState<StatusFilter>("All");
 
@@ -98,7 +99,7 @@ export default function InvestmentsScreen() {
   const [detailId, setDetailId] = useState<number | null>(null);
 
   const filters: Filters = { status: status === "All" ? undefined : status };
-  const list = useServerList<Investment, Filters>({ key: ["investments", "list"], filters, fetchPage: (p) => listInvestmentsPage(p) });
+  const list = useServerList<Investment, Filters>({ key: ["investments", "list"], persistKey: "investments", filters, fetchPage: (p) => listInvestmentsPage(p) });
 
   return (
     <Screen

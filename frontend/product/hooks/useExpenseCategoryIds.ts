@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import { searchExpenseCategoriesPage, EXPENSE_CATEGORIES_CHANGED } from "@/product/pages/cash/services/expenseCategoryService";
 import { searchCashSourcesPage } from "@/product/pages/cash/services/cashSourceService";
 
+// Lower-cased category name -> the bank loan number captured when that loan
+// source was first used in Add Cash. Filled as a side effect of the load below.
+const loanNumberByCategory: Record<string, string> = {};
+export function loanNumberOfCategory(name: string): string {
+  return loanNumberByCategory[name.trim().toLowerCase()] || "";
+}
+
 /* Lower-cased category name (expense categories and cash sources) -> id. Expense.category is free text server
  * side, so ledger rows only carry the name; this resolves it to the id the
  * category ledger route (/ledger-category/:id) needs. Loaded on mount and
@@ -25,7 +32,11 @@ export function useExpenseCategoryIds(): Record<string, number> {
       for (const search of [searchExpenseCategoriesPage, searchCashSourcesPage]) {
         for (let page = 0; ; page++) {
           const res = await search("", page);
-          for (const c of res.items) next[c.name.toLowerCase()] = c.id;
+          for (const c of res.items) {
+            next[c.name.toLowerCase()] = c.id;
+            const loanNumber = (c as { loanNumber?: string }).loanNumber;
+            if (loanNumber) loanNumberByCategory[c.name.toLowerCase()] = loanNumber;
+          }
           if (!res.hasMore || cancelled) break;
         }
       }

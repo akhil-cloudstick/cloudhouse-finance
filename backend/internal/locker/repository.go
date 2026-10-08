@@ -3,6 +3,7 @@ package locker
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -32,6 +33,10 @@ type LockerFilter struct {
 	// locker for one particular packet's branch (see the packet Check-In
 	// picker), so this is ANDed on top of BranchID rather than replacing it.
 	FilterBranchID *uint
+	// FilterBranchIDs / StatusIn match any of the listed values (the Packets
+	// page's multi-select locker filter); ANDed with the fields above.
+	FilterBranchIDs []uint
+	StatusIn        []string
 	// Q searches the locker's own code, case-insensitive substring match.
 	Q string
 	// ActiveOnly excludes inactive lockers — the packet Check-In picker
@@ -83,6 +88,25 @@ func (r *Repository) Find(ctx context.Context, f LockerFilter) ([]Locker, int64,
 	}
 	if f.FilterBranchID != nil {
 		q = q.Where("lockers.branch_id = ?", *f.FilterBranchID)
+	}
+	if len(f.FilterBranchIDs) > 0 {
+		q = q.Where("lockers.branch_id IN ?", f.FilterBranchIDs)
+	}
+	if len(f.StatusIn) > 0 {
+		var conds []string
+		for _, s := range f.StatusIn {
+			switch s {
+			case StatusInactive:
+				conds = append(conds, "lockers.is_active = false")
+			case StatusFull:
+				conds = append(conds, "(lockers.is_active = true AND "+occupiedSQL+" >= lockers.capacity)")
+			case StatusActive:
+				conds = append(conds, "(lockers.is_active = true AND "+occupiedSQL+" < lockers.capacity)")
+			}
+		}
+		if len(conds) > 0 {
+			q = q.Where("(" + strings.Join(conds, " OR ") + ")")
+		}
 	}
 	if f.Q != "" {
 		q = q.Where("lockers.code ILIKE ?", "%"+f.Q+"%")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type UIEvent } from "react";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
@@ -10,6 +10,11 @@ import { useAuth } from "@/product/providers/auth-context";
 import { useIsSmallScreen } from "@/product/utils/responsive";
 import { routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
+import { fmtDate } from "@/product/utils/format";
+
+// Day-panel events render this many at a time; scrolling to the bottom of the
+// panel reveals the next batch.
+const DAY_PAGE_SIZE = 8;
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -67,6 +72,10 @@ export function Calendar() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [dayVisible, setDayVisible] = useState(DAY_PAGE_SIZE);
+
+  // A different day (or month) starts again from the first page.
+  useEffect(() => { setDayVisible(DAY_PAGE_SIZE); }, [selectedDay, year, month]);
 
   const todayISO = today.toISOString().slice(0, 10);
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
@@ -141,6 +150,12 @@ export function Calendar() {
   }
 
   const dayEvents = selectedDay != null ? eventsByDay.get(selectedDay) || [] : [];
+  function onDayScroll(e: UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    if (dayVisible < dayEvents.length && el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
+      setDayVisible((n) => Math.min(dayEvents.length, n + DAY_PAGE_SIZE));
+    }
+  }
   const selectedISO = selectedDay != null ? toISODate(year, month, selectedDay) : undefined;
 
   return (
@@ -220,14 +235,14 @@ export function Calendar() {
 
         <div className="grid">
           <div className="card">
-            <div className="hd"><h3>{selectedDay != null ? `${fmtMonthYear(year, month)} ${selectedDay}` : "Select a day"}</h3></div>
-            <div className="bd" style={{ paddingTop: 6 }}>
+            <div className="hd"><h3>{selectedDay != null ? fmtDate(toISODate(year, month, selectedDay)) : "Select a day"}</h3></div>
+            <div className="bd no-scrollbar" style={{ paddingTop: 6, maxHeight: 420, overflowY: "auto" }} onScroll={onDayScroll}>
               <ul className="mini-list">
                 {selectedDay == null ? (
                   <li><span className="tx"><small>Click a day on the calendar to see its events.</small></span></li>
                 ) : dayEvents.length === 0 ? (
                   <li><span className="tx"><small>No events on this day.</small></span></li>
-                ) : dayEvents.map((e, i) => (
+                ) : dayEvents.slice(0, dayVisible).map((e, i) => (
                   <li key={i}>
                     <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />

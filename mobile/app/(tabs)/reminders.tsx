@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import {
   C,
@@ -7,6 +7,8 @@ import {
   FlatHeader,
   MonthGrid,
   PIcon,
+  Buffering,
+  EmptyText,
   Screen,
   SearchInput,
   SectionTitle,
@@ -29,6 +31,8 @@ import { useAuth } from "../../src/auth/AuthContext";
 const pad = (n: number) => String(n).padStart(2, "0");
 const isoOf = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+// Day list is capped to roughly 8 rows; more load as it scrolls.
+const EVENTS_MAX_HEIGHT = 460;
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
@@ -90,7 +94,6 @@ export default function RemindersScreen() {
     setSelected(today.slice(0, 7) === first.slice(0, 7) ? today : first);
   }
 
-  const last = list.items.length - 1;
   const header = (
     <View>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 18 }}>
@@ -117,36 +120,51 @@ export default function RemindersScreen() {
       header={<FlatHeader title="Reminders" subtitle="Follow-ups & promise-to-pay" />}
       floating={canCreate ? <FabCorner onPress={() => setAdding(true)} label="Add reminder" /> : undefined}
     >
+      {/* The outer list only carries the calendar header; the day's events sit
+          in a height-capped box below it that pages (10 at a time) as it scrolls. */}
       <ServerFlatList
-        list={{ ...list, refetch: () => (monthEvents.refetch(), list.refetch()) }}
-        items={list.items}
+        list={{
+          isLoading: false,
+          isRefreshing: list.isRefreshing,
+          isFetchingNextPage: false,
+          fetchNextPage: () => {},
+          refetch: () => (monthEvents.refetch(), list.refetch()),
+          error: undefined,
+        }}
+        items={[0]}
         header={header}
-        emptyText={searching ? "No reminders match your search." : "No reminders for this day."}
-        keyOf={(e, i) => `${e.date}-${e.type}-${e.reminderId ?? e.loanId ?? i}`}
-        renderItem={(e, i) => (
-          <View
-            style={{
-              backgroundColor: C.card,
-              borderColor: C.line,
-              borderLeftWidth: 1,
-              borderRightWidth: 1,
-              borderTopWidth: i === 0 ? 1 : 0,
-              borderBottomWidth: i === last ? 1 : 0,
-              borderTopLeftRadius: i === 0 ? 18 : 0,
-              borderTopRightRadius: i === 0 ? 18 : 0,
-              borderBottomLeftRadius: i === last ? 18 : 0,
-              borderBottomRightRadius: i === last ? 18 : 0,
-              paddingHorizontal: 16,
-              paddingTop: i === 0 ? 4 : 0,
-              paddingBottom: i === last ? 4 : 0,
-            }}
-          >
-            <ReminderItem
-              ev={e}
-              first={i === 0}
-              showDate={searching}
-              onPress={e.loanId && canViewLoans ? () => openPage(`/loans/${e.loanId}`) : undefined}
-            />
+        emptyText=""
+        keyOf={() => "events"}
+        renderItem={() => (
+          <View style={{ backgroundColor: C.card, borderColor: C.line, borderWidth: 1, borderRadius: 18, maxHeight: EVENTS_MAX_HEIGHT, overflow: "hidden" }}>
+            {list.items.length === 0 ? (
+              list.isLoading ? (
+                <Buffering block />
+              ) : (
+                <EmptyText>{searching ? "No reminders match your search." : "No reminders for this day."}</EmptyText>
+              )
+            ) : (
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                scrollEventThrottle={100}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 4, opacity: list.isLoading ? 0.45 : 1 }}
+                onScroll={({ nativeEvent: n }) => {
+                  if (n.layoutMeasurement.height + n.contentOffset.y >= n.contentSize.height - 80) list.fetchNextPage();
+                }}
+              >
+                {list.items.map((e, i) => (
+                  <ReminderItem
+                    key={`${e.date}-${e.type}-${e.reminderId ?? e.loanId ?? i}`}
+                    ev={e}
+                    first={i === 0}
+                    showDate={searching}
+                    onPress={e.loanId && canViewLoans ? () => openPage(`/loans/${e.loanId}`) : undefined}
+                  />
+                ))}
+                {list.isFetchingNextPage ? <Buffering /> : null}
+              </ScrollView>
+            )}
           </View>
         )}
       />

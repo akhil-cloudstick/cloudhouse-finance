@@ -1,5 +1,6 @@
 "use client";
 
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
@@ -7,6 +8,7 @@ import { useModal } from "@/product/components/Modal";
 import { ApiError } from "@/product/services/httpClient";
 import { useIsSmallScreen } from "@/product/utils/responsive";
 import { listInvestmentsPage, type BackendInvestment, type InvestmentStatus } from "@/product/pages/investments/services/investmentService";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { InvestmentRow } from "@/product/pages/investments/components/InvestmentRow";
 import { NewInvestmentModalContent } from "@/product/pages/investments/components/NewInvestmentModal";
 import { InvestmentPlansModalContent } from "@/product/pages/investments/components/InvestmentPlansModal";
@@ -26,9 +28,14 @@ export function Investments() {
   const canUpdate = can("Investment_Management", "can_update_investment");
   const smallScreen = useIsSmallScreen();
 
-  const [status, setStatus] = useState<"All" | InvestmentStatus>("All");
-  const [q, setQ] = useState("");
+  const [status, setStatus] = usePersistedState<"All" | InvestmentStatus>("investments:status", "All");
+  const [q, setQ] = usePersistedState("investments:q", "");
   const [page, setPage] = useState(1);
+  // The status tabs became one grouped filter (single choice).
+  const filterCategories: FilterCategory[] = [
+    { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUSES.filter((st) => st !== "All").map((st) => ({ value: st, label: st })) },
+  ];
+  const filterValue: FilterValue = { status: status === "All" ? [] : [status] };
   const [investments, setInvestments] = useState<BackendInvestment[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -109,17 +116,22 @@ export function Investments() {
         {canCreate && <button className="btn" onClick={openNewInvestment}><Icon name="plus" /> New Investment</button>}
       </div>
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
-      <div style={{ marginTop: 4, marginBottom: 6 }} className="tabs investments-tabs">
-        {STATUSES.map((s) => (
-          <button key={s} className={s === status ? "on" : ""} onClick={() => setStatus(s)}>{s}</button>
-        ))}
-      </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
       {/* `tbl-card`, not a bare `.card`: this is a `.tbl-wrap` + `.ft` pair,
         * the shape that class exists for — without it the footer falls back
         * to the sticky-overlay behavior and the card doesn't size to its own
         * rows, which is why this table sat differently to Loans'. */}
-      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <FilterPanel
+          categories={filterCategories}
+          value={filterValue}
+          onChange={(next) => setStatus(((Array.isArray(next.status) ? next.status[0] : undefined) as InvestmentStatus | undefined) || "All")}
+          hideChips
+          hideClearAll
+        />
+      </div>
+      <div className="card tbl-card tbl-card-fill tbl-rounded">
+      <div className="tbl-wrap tbl-scroll" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center">
         <thead><tr><th>Investment / Investor</th><th className="num">Principal</th><th>Rate</th><th>Maturity</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (

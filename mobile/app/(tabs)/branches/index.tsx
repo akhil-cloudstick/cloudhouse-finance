@@ -13,6 +13,7 @@ import {
   Sheet,
   TextField,
   Txt,
+  openPage,
 } from "../../../src/components/ui";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { createBranch, deactivateBranch, listBranchesPage, updateBranch } from "../../../src/api/branches";
@@ -108,6 +109,7 @@ export default function BranchesScreen() {
   const canCreate = can("Branch_Management", "can_create_branch");
   const canUpdate = can("Branch_Management", "can_update_branch");
   const canDelete = can("Branch_Management", "can_delete_branch");
+  const canViewLedger = can("Branch_Management", "can_view_branch_ledger");
 
   const list = useServerList<Branch>({ key: ["branches", "list"], fetchPage: (p) => listBranchesPage(p) });
 
@@ -145,6 +147,7 @@ export default function BranchesScreen() {
               { k: "Address", v: b.address || "—" },
             ]}
             actions={[
+              ...(canViewLedger ? [{ label: "Ledger", onPress: () => openPage(`/branches/${b.id}?label=${encodeURIComponent(b.name)}`) }] : []),
               ...(b.isActive && canDelete ? [{ label: "Deactivate", danger: true, onPress: () => setDeactivating(b) }] : []),
               ...(canUpdate
                 ? [

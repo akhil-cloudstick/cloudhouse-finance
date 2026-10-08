@@ -25,6 +25,11 @@ function useIsNarrowPopover(): boolean {
   return narrow;
 }
 
+// Every section's pane is at least as tall as the option-list sections (search
+// box + 200px list + padding), so the popover keeps one height when switching
+// between Branch, Customer, Type and Date.
+const FILTER_BODY_MIN_HEIGHT = 262;
+
 export type FilterOption = { value: string; label: string };
 
 export type FilterCategory =
@@ -136,6 +141,7 @@ function CategoryOptionList({
       <div
         ref={listRef}
         onScroll={onScroll}
+        className="no-scrollbar"
         style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 200, overflowY: "auto" }}
       >
         {options.length === 0 && !loading ? (
@@ -172,20 +178,21 @@ export function FilterPanel({
   categories,
   value,
   onChange,
-  hideChips,
   size = "sm",
+  hideClearAll,
 }: {
   categories: FilterCategory[];
   value: FilterValue;
   onChange: (next: FilterValue) => void;
-  // When true, selected filters show only as the badge count on the filter
-  // button plus a single "Clear all" button — no per-filter removable chip
-  // row alongside it. Used where the chip row would crowd a tight table
-  // header (e.g. CustomerDetail.tsx's Ledger tab).
+  // Selected filters are never listed outside the popover; their names show
+  // beside each category inside it. Kept so existing callers still compile.
   hideChips?: boolean;
   // "sm" (default) suits a card header; "md" matches full-size page-header
   // buttons beside it (e.g. LedgerExportView's Export PDF / Export XL).
   size?: "sm" | "md";
+  // Drops the standalone "Clear all ×" button beside the filter icon — the
+  // popover's own "Reset all filters" button is then the only reset.
+  hideClearAll?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [activeKey, setActiveKey] = useState(categories[0]?.key || "");
@@ -277,18 +284,6 @@ export function FilterPanel({
     onChange({});
   }
 
-  function removeChip(categoryKey: string, optionValue?: string) {
-    if (categoryKey === "__date") {
-      const next = { ...value };
-      delete next.__dateFrom;
-      delete next.__dateTo;
-      onChange(next);
-      return;
-    }
-    if (optionValue === undefined) return;
-    onChange({ ...value, [categoryKey]: categoryValues(value, categoryKey).filter((v) => v !== optionValue) });
-  }
-
   // Resolves a chip's display label back from its category's static options,
   // or — for an async category — from asyncLabels, the running cache of
   // every option that category's picker has loaded so far. Falls back to
@@ -314,14 +309,20 @@ export function FilterPanel({
             className="filter-popover"
             style={{ position: "fixed", top: panelPos.top, left: panelPos.left, width: panelWidth, zIndex: 60 }}
           >
-            <div style={{ display: "flex", flexDirection: smallScreen ? "column" : "row", maxHeight: 380 }}>
+            {/* Reset lives in a header row, not a footer — a footer was clipped off
+             * the bottom of short screens. */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px 6px 12px", borderBottom: "1px solid var(--line)" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", letterSpacing: ".04em", textTransform: "uppercase" }}>Filters</span>
+              {activeCount > 0 && <button type="button" className="btn plain sm" onClick={resetAll}>Reset</button>}
+            </div>
+            <div style={{ display: "flex", flexDirection: smallScreen ? "column" : "row" }}>
               <div
                 className="filter-rail"
                 style={{
                   display: "flex",
                   flexDirection: smallScreen ? "row" : "column",
                   overflowX: smallScreen ? "auto" : "visible",
-                  overflowY: smallScreen ? "visible" : "auto",
+                  overflowY: "visible",
                   flexShrink: 0,
                   flexWrap: smallScreen ? "nowrap" : undefined,
                   minWidth: smallScreen ? 0 : 130,
@@ -385,7 +386,7 @@ export function FilterPanel({
                   );
                 })}
               </div>
-              <div style={{ padding: 10, minWidth: 0, flex: 1, overflowY: "auto" }}>
+              <div style={{ padding: 10, minWidth: 0, flex: 1, boxSizing: "border-box", minHeight: smallScreen ? undefined : FILTER_BODY_MIN_HEIGHT }}>
                 {activeCategory?.kind === "date" ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <DatePicker value={value.__dateFrom || ""} onChange={(v) => onChange({ ...value, __dateFrom: v })} placeholder="From…" max={value.__dateTo || undefined} />
@@ -401,30 +402,11 @@ export function FilterPanel({
                 ) : null}
               </div>
             </div>
-            {activeCount > 0 && (
-              <div style={{ borderTop: "1px solid var(--line)", padding: 8, textAlign: "right" }}>
-                <button type="button" className="btn plain sm" onClick={resetAll}>Reset all filters</button>
-              </div>
-            )}
           </div>
         )}
       </div>
 
-      {!hideChips && categories.some((c) => c.kind === "date") && (value.__dateFrom || value.__dateTo) && (
-        <span className="chip">
-          {value.__dateFrom ? fmtDate(value.__dateFrom) : "…"} – {value.__dateTo ? fmtDate(value.__dateTo) : "…"}
-          <a href="#" onClick={(e) => { e.preventDefault(); removeChip("__date"); }} style={{ marginLeft: 6 }}>×</a>
-        </span>
-      )}
-      {!hideChips && categories.filter((c) => c.kind !== "date").map((c) =>
-        categoryValues(value, c.key).map((v) => (
-          <span key={`${c.key}:${v}`} className="chip">
-            {chipLabel(c, v)}
-            <a href="#" onClick={(e) => { e.preventDefault(); removeChip(c.key, v); }} style={{ marginLeft: 6 }}>×</a>
-          </span>
-        ))
-      )}
-      {activeCount > 0 && (
+      {activeCount > 0 && !hideClearAll && (
         <button type="button" className="btn plain sm" onClick={resetAll} style={{ color: "var(--muted)" }}>
           Clear all ×
         </button>

@@ -113,7 +113,7 @@ func (h *Handler) CustomerCheckAadhaarVerify(c *gin.Context) {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	rec, status, aadhaar, err := h.svc.CheckAadhaarVerify(ctx, customerID, nil)
+	rec, status, aadhaar, reasons, err := h.svc.CheckAadhaarVerify(ctx, customerID, nil)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -123,9 +123,10 @@ func (h *Handler) CustomerCheckAadhaarVerify(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, gin.H{
-		"customer":    rec.ToResponse(),
-		"status":      status.Status,
-		"matchedName": aadhaar.Aadhaar.Name,
-		"dob":         aadhaar.Aadhaar.DateOfBirth,
+		"customer":       rec.ToResponse(),
+		"status":         status.Status,
+		"matchedName":    aadhaar.Aadhaar.Name,
+		"dob":            aadhaar.Aadhaar.DateOfBirth,
+		"failureReasons": reasons,
 	})
 }

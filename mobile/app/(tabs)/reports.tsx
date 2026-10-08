@@ -7,16 +7,19 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import {
   AccRow,
-  BtnRow2,
   Buffering,
   C,
   Card,
-  DateField,
   EmptyText,
-  FieldRow,
   FlatHeader,
   PScroll,
-  PrimaryButton,
+  PillButton,
+  GroupedFilter,
+  emptyGroupedFilter,
+  gfDate,
+  gfFirst,
+  type GroupedFilterValue,
+  type GFSection,
   ReportRow,
   ReportSectionLabel,
   Screen,
@@ -29,6 +32,7 @@ import {
   toast,
 } from "../../src/components/ui";
 import { SheetScrollView } from "../../src/components/BottomSheetModal";
+import { listBranchesPage } from "../../src/api/branches";
 import { useServerList } from "../../src/hooks/useServerList";
 import { API_BASE_URL } from "../../src/api/config";
 import { getToken } from "../../src/auth/tokenStorage";
@@ -90,6 +94,8 @@ type ReportDef = {
   defaultRange?: () => { from?: string; to?: string };
   tenantModule?: TenantModule;
   href?: string;
+  // The report's own extra single-select dropdown (web ReportView extraFilter).
+  extra?: { field: "status" | "triggerType"; label: string; options: string[] };
 };
 
 const w = (n?: number | null) => `${(n ?? 0).toFixed(2)} g`;
@@ -118,6 +124,7 @@ const REPORTS: ReportDef[] = [
     group: "Loans & Collections",
     kind: "table",
     fetch: getLoansStatus,
+    extra: { field: "status", label: "Status", options: ["Active", "Closed", "Pending Approval", "Auction Eligible"] },
     headline: (t) => `${t?.count ?? 0} loans`,
     sub: (t) => `${t?.active ?? 0} active · ${t?.overdue ?? 0} overdue · ${t?.dueSoon ?? 0} due soon · ${t?.closed ?? 0} closed`,
     row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: `Due ${dmy(r.dueDate)}`, amount: inr(r.outstanding), status: r.status, details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Outstanding", v: inr(r.outstanding) }] }),
@@ -304,6 +311,7 @@ const REPORTS: ReportDef[] = [
     group: "Branch & Compliance",
     kind: "table",
     fetch: getCommunicationHistory,
+    extra: { field: "triggerType", label: "Trigger Type", options: ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"] },
     headline: (t) => `${t?.count ?? 0} messages`,
     sub: (t) => `${t?.sent ?? 0} sent · ${t?.failed ?? 0} failed`,
     row: (r) => ({ name: r.recipientName, sub: `${r.channel} · ${dmy(r.sentAt)}`, status: r.status, details: [{ k: "Phone", v: r.recipientPhone || "—" }, { k: "Trigger", v: r.triggerType || "—" }] }),
@@ -359,7 +367,7 @@ const REPORTS: ReportDef[] = [
   // PDF / Excel export of whatever the filters show.
   {
     key: "ledger-export",
-    title: "Ledger / Statement Export",
+    title: "Ledger Report",
     group: "Financial Statements",
     kind: "link",
     href: "/ledger-statement?from=reports",
@@ -455,13 +463,16 @@ export default function ReportsScreen() {
 // ---------------------------------------------------------------------------
 // Report table sheet (prototype #report-table-modal)
 // ---------------------------------------------------------------------------
-async function downloadExport(key: string, format: "xlsx" | "pdf", range: { from?: string; to?: string; q?: string }) {
+async function downloadExport(key: string, format: "xlsx" | "pdf", range: { from?: string; to?: string; q?: string; branchId?: number; status?: string; triggerType?: string }) {
   const token = await getToken();
   const targetUri = `${FileSystem.cacheDirectory}${key}-${Date.now()}.${format}`;
   const qs = new URLSearchParams({ format });
   if (range.from) qs.set("from", range.from);
   if (range.to) qs.set("to", range.to);
   if (range.q) qs.set("q", range.q);
+  if (range.branchId) qs.set("branch_id", String(range.branchId));
+  if (range.status) qs.set("status", range.status);
+  if (range.triggerType) qs.set("trigger_type", range.triggerType);
   const result = await FileSystem.downloadAsync(`${API_BASE_URL}/reports/export/${key}?${qs.toString()}`, targetUri, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -471,29 +482,34 @@ async function downloadExport(key: string, format: "xlsx" | "pdf", range: { from
 
 function ReportSheet({ report, onClose }: { report: ReportDef | null; onClose: () => void }) {
   const visible = !!report;
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  const from = gfDate(fv, "date").from ?? "";
+  const to = gfDate(fv, "date").to ?? "";
+  const branchId = gfFirst(fv, "branch") ? Number(gfFirst(fv, "branch")) : undefined;
+  const extraValue = gfFirst(fv, "extra");
   const [printing, setPrinting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (report) {
       const r = report.defaultRange?.() ?? {};
-      setFrom(r.from ?? "");
-      setTo(r.to ?? "");
+      // Default range seeds the Date section; Reset all clears it (like web).
+      setFv({ options: {}, dates: { date: { from: r.from || undefined, to: r.to || undefined } } });
     }
   }, [report]);
 
   const isTable = report?.kind === "table";
   const totalsRef = useRef<any>(null);
-  const filters = { from: from || undefined, to: to || undefined };
-  const list = useServerList<any, { from?: string; to?: string; rk: string }>({
+  const extraParams: Pick<ReportFilters, "status" | "triggerType"> =
+    report?.extra && extraValue ? (report.extra.field === "status" ? { status: extraValue } : { triggerType: extraValue }) : {};
+  const filters = { from: from || undefined, to: to || undefined, branchId, ...extraParams };
+  const list = useServerList<any, { from?: string; to?: string; branchId?: number; status?: string; triggerType?: string; rk: string }>({
     key: ["reports", "table"],
     filters: { ...filters, rk: report?.key ?? "" },
     enabled: visible && isTable,
     fetchPage: async (p) => {
       const page = Math.floor(p.offset / p.limit) + 1;
-      const res = await report!.fetch!({ page, pageSize: p.limit, q: p.q, from: p.from, to: p.to });
+      const res = await report!.fetch!({ page, pageSize: p.limit, q: p.q, from: p.from, to: p.to, branchId: p.branchId, status: p.status, triggerType: p.triggerType });
       totalsRef.current = res.totals;
       return { items: res.rows ?? [], hasMore: page * p.limit < (res.totalCount ?? 0), total: res.totalCount };
     },
@@ -506,13 +522,13 @@ function ReportSheet({ report, onClose }: { report: ReportDef | null; onClose: (
 
   // Statements are short fixed layouts — every line in one request.
   const statement = useQuery({
-    queryKey: ["reports", "statement", report?.key, from, to],
-    queryFn: () => report!.fetch!({ from: from || undefined, to: to || undefined, pageSize: 500 }),
+    queryKey: ["reports", "statement", report?.key, from, to, branchId],
+    queryFn: () => report!.fetch!({ from: from || undefined, to: to || undefined, branchId, pageSize: 500 }),
     enabled: visible && report?.kind === "statement",
   });
   const formG = useQuery({
-    queryKey: ["reports", "form-g", from, to],
-    queryFn: () => getFormG({ from: from || undefined, to: to || undefined }),
+    queryKey: ["reports", "form-g", from, to, branchId],
+    queryFn: () => getFormG({ from: from || undefined, to: to || undefined, branchId }),
     enabled: visible && report?.kind === "formg",
   });
 
@@ -557,14 +573,29 @@ function ReportSheet({ report, onClose }: { report: ReportDef | null; onClose: (
       </Card>
     ) : null;
 
+  // One grouped filter (Branch, the report's extra dropdown, Date) with the
+  // Export Excel / Export PDF buttons beside it, in the table header.
+  const sections: GFSection[] = report
+    ? [
+        {
+          kind: "async",
+          key: "branch",
+          label: "Branch",
+          single: true,
+          fetchPage: (p) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+        },
+        ...(report.extra ? [{ kind: "static" as const, key: "extra", label: report.extra.label, single: true, options: report.extra.options.map((o) => ({ value: o, label: o })) }] : []),
+        { kind: "date", key: "date", label: "Date", hideFrom: report.key === "balance-sheet" },
+      ]
+    : [];
   const headExtra = report ? (
     <View style={{ paddingTop: 12 }}>
       {isTable ? <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search this report" style={{ paddingHorizontal: 16, paddingBottom: 8 }} /> : null}
-      <View style={{ paddingHorizontal: 16 }}>
-        <FieldRow>
-          {report.key === "balance-sheet" ? null : <DateField label="From date" value={from} onChange={setFrom} clearable max={to || undefined} />}
-          <DateField label={report.key === "balance-sheet" ? "As of" : "To date"} value={to} onChange={setTo} clearable min={from || undefined} />
-        </FieldRow>
+      <View style={{ paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <GroupedFilter title="Filter report" sections={sections} value={fv} onChange={setFv} />
+        <View style={{ flex: 1 }} />
+        <PillButton label={exporting ? "Exporting…" : "Export Excel"} onPress={() => { if (!exporting) onExport(); }} />
+        <PillButton label={printing ? "Printing…" : "Export PDF"} onPress={() => { if (!printing) onPrint(); }} />
       </View>
     </View>
   ) : null;
@@ -638,10 +669,6 @@ function ReportSheet({ report, onClose }: { report: ReportDef | null; onClose: (
   return (
     <Sheet visible={visible} onClose={onClose} title={report?.title ?? "Report"} maxHeightPct={88} scroll={false} headExtra={headExtra}>
       <View style={{ flexShrink: 1 }}>{body}</View>
-      <BtnRow2 style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16 }}>
-        <PrimaryButton label={exporting ? "Exporting…" : "Export .xlsx"} variant="outline" loading={exporting} onPress={onExport} />
-        <PrimaryButton label={printing ? "Printing…" : "Print"} loading={printing} onPress={onPrint} />
-      </BtnRow2>
     </Sheet>
   );
 }

@@ -5,7 +5,7 @@ import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
-import { ApiError } from "@/product/services/httpClient";
+import { ApiError, getAuthToken } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { createExpense, uploadReceipt, type ExpenseView } from "@/product/pages/cash/services/cashService";
@@ -105,6 +105,7 @@ export function ExpenseModalContent({ onSaved, tabs }: { onSaved?: () => void; t
         {/* Same order as every entry form: Category → Date → Mode → Amount → Branch → Bill. */}
         <div className="frow"><div><label className="f">Category *</label>
           <SearchableSelect<BackendExpenseCategory>
+            portal
             value={cat}
             onChange={(_id, item) => {
               setCat(item.name);
@@ -133,6 +134,7 @@ export function ExpenseModalContent({ onSaved, tabs }: { onSaved?: () => void; t
           <div className="frow">
             <div><label className="f">Bank *</label>
               <SearchableSelect<BackendBank>
+                portal
                 value={fromBankName}
                 onChange={(id, item) => { setFromBankId(id); setFromBankName(item.name); }}
                 fetchFn={searchBanksPage}
@@ -189,11 +191,29 @@ export function ReceiptViewModalContent({ e }: { e: ExpenseView }) {
 /* A bill image attached to any ledger entry (expense, cash-in, self transfer). */
 export function BillViewModalContent({ title, url }: { title: string; url: string }) {
   const { closeModal } = useModal();
+  // Fetched with the session's own token and shown from a blob: a plain
+  // <img src="/uploads/…"> relies on a cookie shared across browser tabs,
+  // which another business's login in a second tab silently replaces.
+  const [src, setSrc] = useState<string>("");
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let objectUrl = "";
+    let cancelled = false;
+    const token = getAuthToken();
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then((b) => { if (!cancelled) { objectUrl = URL.createObjectURL(b); setSrc(objectUrl); } })
+      .catch(() => { if (!cancelled) { setSrc(url); setFailed(true); } });
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [url]);
   return (
     <>
       <div className="hd"><h3>Bill — {title}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll" style={{ textAlign: "center" }}>
-        <img src={url} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt="Bill" />
+        {src
+          ? <img src={src} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt="Bill" />
+          : <p style={{ color: "var(--muted)", fontSize: 13 }}>Loading bill…</p>}
+        {failed && <p style={{ color: "var(--muted)", fontSize: 12.5 }}>Could not load this bill.</p>}
       </div>
     </>
   );

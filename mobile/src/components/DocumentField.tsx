@@ -10,6 +10,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { API_ORIGIN } from "../api/config";
 import { uploadFile, PickedFile } from "../api/uploads";
 import { ApiError } from "../api/client";
+import { useUploadSource } from "./staff/BillView";
 
 // The web modal collects these with a bare <input type="file">. On mobile the
 // equivalent is drawn in the app's own language instead of the platform's:
@@ -83,6 +84,8 @@ export function DocumentField({
   ];
 
   const isImage = !!value && !/\.pdf$/i.test(value);
+  // /uploads/* is only served to a signed-in caller — send the session token.
+  const thumbSource = useUploadSource(value || "");
 
   async function pick(source: Source) {
     setChoosing(false);
@@ -120,7 +123,7 @@ export function DocumentField({
       {value ? (
         <View style={styles.attached}>
           {isImage ? (
-            <Image source={{ uri: `${API_ORIGIN}${value}` }} style={[styles.thumb, { backgroundColor: colors.brandPale }]} />
+            <Image source={thumbSource ?? { uri: `${API_ORIGIN}${value}` }} style={[styles.thumb, { backgroundColor: colors.brandPale }]} />
           ) : (
             <View style={[styles.thumb, { backgroundColor: colors.brandPale }, styles.thumbDoc]}>
               <Icon name="doc" size={20} color={colors.brandDeep} />

@@ -1,5 +1,6 @@
 "use client";
 
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { useEffect, useState } from "react";
 import { useCustomers } from "@/product/pages/customers/store/CustomersProvider";
 import { useLoans } from "@/product/pages/loans/store/LoansProvider";
@@ -8,13 +9,12 @@ import { StatusChip } from "@/product/components/ui/StatusChip";
 import { Icon } from "@/product/components/Icon";
 import { RegisterCustomerModalContent } from "@/product/components/modals/RegisterCustomerModal";
 import { listCustomersPage, type CustomerView } from "@/product/pages/customers/services/customerService";
-import { Select } from "@/product/components/ui/Select";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { useAuth } from "@/product/providers/auth-context";
 import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
 import { navigate } from "@/product/services/appRoutes";
 
 const VERIFICATION_STATUS_OPTIONS = [
-  { value: "", label: "All" },
   { value: "Verified", label: "Verified" },
   { value: "Pending", label: "Pending" },
   { value: "Failed", label: "Failed" },
@@ -42,10 +42,16 @@ export function Customers() {
   // use is worse than no control at all (house standard §12).
   const { can } = useAuth();
   const canCreateCustomers = can("Customer_Management", "can_create_customer");
-  const [q, setQ] = useState("");
-  const [panStatus, setPanStatus] = useState("");
-  const [aadhaarStatus, setAadhaarStatus] = useState("");
+  const [q, setQ] = usePersistedState("customers:q", "");
+  const [panStatus, setPanStatus] = usePersistedState("customers:pan", "");
+  const [aadhaarStatus, setAadhaarStatus] = usePersistedState("customers:aadhaar", "");
   const [page, setPage] = useState(1);
+  // One grouped filter: PAN and Aadhaar verification status (single choice each).
+  const filterCategories: FilterCategory[] = [
+    { key: "pan", label: "PAN Verified", kind: "static", singleSelect: true, options: VERIFICATION_STATUS_OPTIONS },
+    { key: "aadhaar", label: "Aadhaar Verified", kind: "static", singleSelect: true, options: VERIFICATION_STATUS_OPTIONS },
+  ];
+  const filterValue: FilterValue = { pan: panStatus ? [panStatus] : [], aadhaar: aadhaarStatus ? [aadhaarStatus] : [] };
   const [rows, setRows] = useState<CustomerView[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -90,25 +96,25 @@ export function Customers() {
         )}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginTop: 0, marginBottom: 10 }}>
-        <div style={{ width: 180 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>PAN Verified</label>
-          <Select options={VERIFICATION_STATUS_OPTIONS} value={panStatus} onChange={setPanStatus} />
-        </div>
-        <div style={{ width: 180 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Aadhaar Verified</label>
-          <Select options={VERIFICATION_STATUS_OPTIONS} value={aadhaarStatus} onChange={setAadhaarStatus} />
-        </div>
-        {(panStatus || aadhaarStatus) && (
-          <button className="btn ghost sm" onClick={() => { setPanStatus(""); setAadhaarStatus(""); }}>Clear</button>
-        )}
-      </div>
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Something went wrong. Please try again later.
         </p>
       )}
-      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <FilterPanel
+          categories={filterCategories}
+          value={filterValue}
+          onChange={(next) => {
+            setPanStatus(Array.isArray(next.pan) ? next.pan[0] || "" : "");
+            setAadhaarStatus(Array.isArray(next.aadhaar) ? next.aadhaar[0] || "" : "");
+          }}
+          hideChips
+          hideClearAll
+        />
+      </div>
+      <div className="card tbl-card tbl-card-fill">
+      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">
         <thead><tr><th>Customer</th><th>Contact</th><th>Branch</th><th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>
           {loading ? (

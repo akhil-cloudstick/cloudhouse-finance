@@ -42,6 +42,7 @@ export const APP_ROUTES = [
   "banks",
   "ledger-bank",
   "ledger-customer",
+  "ledger-branch",
   "ledger-category",
   "cash-ledger",
   "upi-ledger",

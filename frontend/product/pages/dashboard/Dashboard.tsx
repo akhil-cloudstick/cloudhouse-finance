@@ -153,7 +153,14 @@ export function Dashboard() {
     expenses.reduce<Record<string, number>>((acc, e) => { acc[e.cat] = (acc[e.cat] || 0) + e.amt; return acc; }, {})
   );
   const palette = expenseColors();
-  const expenseParts: [string, number, string][] = expenseByCat.map(([cat, amt], i) => [cat, amt, palette[i % palette.length]]);
+  // Only the biggest categories get their own slice and legend row; the long
+  // tail is folded into one "Others" slice so the wheel stays readable.
+  const EXPENSE_TOP = 5;
+  const expenseSorted = [...expenseByCat].sort((a, b) => b[1] - a[1]);
+  const expenseShown: [string, number][] = expenseSorted.slice(0, EXPENSE_TOP);
+  const expenseRest = expenseSorted.slice(EXPENSE_TOP).reduce((sum, [, amt]) => sum + amt, 0);
+  if (expenseRest > 0) expenseShown.push(["Others", expenseRest]);
+  const expenseParts: [string, number, string][] = expenseShown.map(([cat, amt], i) => [cat, amt, palette[i % palette.length]]);
 
   const now = new Date();
   const monthBuckets: [string, number][] = Array.from({ length: 6 }, (_, i) => {

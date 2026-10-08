@@ -1,5 +1,6 @@
 "use client";
 
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
@@ -9,13 +10,12 @@ import { useIsSmallScreen, useResponsivePageSize } from "@/product/utils/respons
 import { listPersonalLoansPage, type BackendPersonalLoan, type Frequency } from "@/product/pages/personal-loans/services/personalLoanService";
 import { PersonalLoanRow } from "@/product/pages/personal-loans/components/PersonalLoanRow";
 import { NewPersonalLoanModalContent } from "@/product/pages/personal-loans/components/NewPersonalLoanModal";
-import { Select } from "@/product/components/ui/Select";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 
 const FREQS: ("All" | Frequency)[] = ["All", "Daily", "Weekly", "Monthly"];
 // Status filter — "Pending Approval"/"Rejected" only occur while the
 // business has the personal_loan approval flow switched on.
 const STATUS_OPTIONS = [
-  { value: "", label: "All statuses" },
   { value: "Active", label: "Active" },
   { value: "Pending Approval", label: "Pending Approval" },
   { value: "Rejected", label: "Rejected" },
@@ -39,10 +39,16 @@ export function PersonalLoans() {
   const smallScreen = useIsSmallScreen();
   const pageSize = useResponsivePageSize(15, 15);
 
-  const [freq, setFreq] = useState<"All" | Frequency>("All");
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("");
+  const [freq, setFreq] = usePersistedState<"All" | Frequency>("personalloans:freq", "All");
+  const [q, setQ] = usePersistedState("personalloans:q", "");
+  const [status, setStatus] = usePersistedState("personalloans:status", "");
   const [page, setPage] = useState(1);
+  // One grouped filter: Frequency and Status (single choice each).
+  const filterCategories: FilterCategory[] = [
+    { key: "freq", label: "Frequency", kind: "static", singleSelect: true, options: FREQS.filter((f) => f !== "All").map((f) => ({ value: f, label: f })) },
+    { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUS_OPTIONS },
+  ];
+  const filterValue: FilterValue = { freq: freq === "All" ? [] : [freq], status: status ? [status] : [] };
   const [loans, setLoans] = useState<BackendPersonalLoan[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -99,19 +105,22 @@ export function PersonalLoans() {
         {canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
       </div>
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 4, marginBottom: 6 }}>
-        <div className="tabs pl-freq-tabs" style={{ margin: 0 }}>
-          {FREQS.map((f) => (
-            <button key={f} className={f === freq ? "on" : ""} onClick={() => setFreq(f)}>{f}</button>
-          ))}
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <div style={{ width: 180 }}>
-          <Select options={STATUS_OPTIONS} value={status} onChange={setStatus} />
-        </div>
-      </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <FilterPanel
+          categories={filterCategories}
+          value={filterValue}
+          onChange={(next) => {
+            const f = Array.isArray(next.freq) ? next.freq[0] : undefined;
+            setFreq((f as Frequency | undefined) || "All");
+            setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+          }}
+          hideChips
+          hideClearAll
+        />
+      </div>
+      <div className="card tbl-card tbl-card-fill tbl-rounded">
+      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Loan / Customer</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Frequency</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (

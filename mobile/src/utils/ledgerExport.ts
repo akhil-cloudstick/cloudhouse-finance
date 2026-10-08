@@ -24,8 +24,10 @@ function ledgerPath(kind: LedgerKind, ref: string, params: URLSearchParams): str
   }
 }
 
-export async function shareLedgerPdf(kind: LedgerKind, ref: string, range: { fromDate?: string; toDate?: string }, title: string) {
+export async function shareLedgerPdf(kind: LedgerKind, ref: string, range: { fromDate?: string; toDate?: string }, title: string, extra?: { bankId?: number; branchIds?: string }) {
   const params = new URLSearchParams({ export: "pdf" });
+  if (extra?.bankId) params.set("bankId", String(extra.bankId));
+  if (extra?.branchIds) params.set("branchIds", extra.branchIds);
   if (range.fromDate) params.set("fromDate", range.fromDate);
   if (range.toDate) params.set("toDate", range.toDate);
   const path = ledgerPath(kind, ref, params);
@@ -75,4 +77,13 @@ async function shareFile(path: string, params: URLSearchParams, fileStem: string
   } else {
     throw new Error(`Saved to ${result.uri} — sharing isn't available on this device.`);
   }
+}
+
+/** Branch ledger Download — web's exportPartyStatementByBranch:
+ * GET /cash-movements/transactions/branch/:id/export with the date range. */
+export async function shareBranchLedgerPdf(branchId: number, range: { fromDate?: string; toDate?: string }) {
+  const params = new URLSearchParams();
+  if (range.fromDate) params.set("fromDate", range.fromDate);
+  if (range.toDate) params.set("toDate", range.toDate);
+  await shareFile(`/cash-movements/transactions/branch/${branchId}/export`, params, "branch-ledger", "Branch ledger");
 }

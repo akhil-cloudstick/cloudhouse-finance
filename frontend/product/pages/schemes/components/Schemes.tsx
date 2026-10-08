@@ -1,15 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { usePersistedState } from "@/product/hooks/usePersistedState";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { SchemeModalContent } from "@/product/components/modals/SchemeModal";
 import { SchemeStatementModalContent } from "@/product/components/modals/SchemeStatementModal";
 import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
-import { deleteScheme, listSchemes, type SchemeView } from "@/product/pages/schemes/services/schemeService";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
+import { SCHEME_METHODS } from "@/product/components/modals/SchemeModal";
+import { deleteScheme, listSchemesPage, type SchemeView } from "@/product/pages/schemes/services/schemeService";
 import { useAuth } from "@/product/providers/auth-context";
 import { useIsSmallScreen } from "@/product/utils/responsive";
+
+// Schemes per request; scrolling to the end of the grid fetches the next batch.
+const SCHEMES_PAGE_SIZE = 10;
 
 /* Ported from legacy/app.js's `renderSchemes()` (legacy/app.js:1222-1244).
  * Loads real data from the Go backend (`GET /api/v1/schemes`) instead of
@@ -29,16 +35,69 @@ export function Schemes() {
   const [schemes, setSchemes] = useState<SchemeView[] | null>(null);
   const [error, setError] = useState("");
 
-  async function load() {
+  const [q, setQ] = usePersistedState("schemes:q", "");
+  const [methods, setMethods] = usePersistedState<string[]>("schemes:methods", []);
+
+  const filterCategories: FilterCategory[] = [
+    {
+      key: "method", label: "Interest Method", kind: "static", searchHint: "Searches: interest calculation method",
+      options: SCHEME_METHODS.map((m) => ({ value: m, label: m })),
+    },
+  ];
+  const filterValue: FilterValue = { method: methods };
+
+  // Backend search: re-queried (debounced) on every search/filter change, and
+  // paged — the next batch loads as the grid is scrolled to its end. A stale
+  // response never overwrites a newer one.
+  const loadSeq = useRef(0);
+  const pageRef = useRef(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
-      setSchemes(await listSchemes());
+      const res = await listSchemesPage({ q: q.trim() || undefined, methods }, 0, SCHEMES_PAGE_SIZE);
+      if (seq !== loadSeq.current) return;
+      pageRef.current = 0;
+      setSchemes(res.items);
+      setHasMore(res.hasMore);
       setError("");
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       setError(e instanceof Error ? e.message : "Failed to load schemes.");
     }
-  }
+  }, [q, methods]);
 
-  useEffect(() => { load(); }, []);
+  const loadMore = useCallback(async () => {
+    const seq = loadSeq.current;
+    setLoadingMore(true);
+    try {
+      const res = await listSchemesPage({ q: q.trim() || undefined, methods }, pageRef.current + 1, SCHEMES_PAGE_SIZE);
+      if (seq !== loadSeq.current) return;
+      pageRef.current += 1;
+      setSchemes((prev) => [...(prev || []), ...res.items]);
+      setHasMore(res.hasMore);
+    } catch {
+      if (seq === loadSeq.current) setHasMore(false);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [q, methods]);
+
+  useEffect(() => {
+    const handle = setTimeout(load, 300);
+    return () => clearTimeout(handle);
+  }, [load]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore || loadingMore) return;
+    const obs = new IntersectionObserver((entries) => { if (entries[0]?.isIntersecting) loadMore(); }, { rootMargin: "200px" });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore, loadingMore, loadMore, schemes]);
 
   function onSaved() {
     load();
@@ -70,6 +129,7 @@ export function Schemes() {
       <div className="page-h" >
         <div><h1>Loan Schemes</h1><p>Interest rates, tenure, LTV and calculation rules per scheme</p></div>
         <div className="sp" />
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search scheme, rate, LTV, duration…" title="Searches: scheme name, scheme code, interest rate %, LTV %, duration (months)" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateSchemes && <button className="btn" onClick={() => openModal(<SchemeModalContent onSaved={onSaved} />)}><Icon name="plus" /> New Scheme</button>}
       </div>
       {/* Explicit small-screen margin (matches Loans.tsx's own hr override)
@@ -79,6 +139,18 @@ export function Schemes() {
        * collapsed almost flush against the header instead of showing as a
        * clearly separate divider line. */}
       <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
+      {/* Schemes are cards, not a table, so the filter sits in a toolbar row
+       * directly above the card grid rather than in the page title. */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+        <FilterPanel
+          categories={filterCategories}
+          value={filterValue}
+          onChange={(next) => setMethods(Array.isArray(next.method) ? next.method : [])}
+          hideChips
+          hideClearAll
+          size="md"
+        />
+      </div>
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Something went wrong. Please try again later.
@@ -89,7 +161,7 @@ export function Schemes() {
       )}
       {schemes !== null && schemes.length === 0 && !error && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>
-          No loan schemes yet. Click &quot;New Scheme&quot; to create one.
+          {q.trim() || methods.length ? "No schemes match your search." : "No loan schemes yet. Click \"New Scheme\" to create one."}
         </p>
       )}
       {/* Fixed 300px columns (auto-fill, not auto-fill/minmax's usual
@@ -140,6 +212,8 @@ export function Schemes() {
           </div>
         ))}
       </div>
+      <div ref={sentinelRef} style={{ minHeight: 1 }} />
+      {loadingMore && <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center" }}>Loading more schemes…</p>}
     </>
   );
 }

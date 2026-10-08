@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -241,7 +242,83 @@ func (r *MovementRepository) combinedLedgerByBank(ctx context.Context, bankID ui
 	}
 	rows = append(rows, gsRows...)
 
+	drawRows, err := scanLoanDrawsForLenderBank(db, bankID, fromDate, toDate)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, drawRows...)
+
 	return rows, nil
+}
+
+// scanLoanDrawsForLenderBank adds the lender's side of every loan drawn from
+// this bank: a loan source (category with loan details) names the bank that
+// lent the money, and each time cash is drawn from it the money lands in one
+// of the business's own accounts (that account's ledger shows the credit).
+// The lender bank's own ledger must show the same draw as a DEBIT — money
+// left it — so that its balance reads as what is still owed once the
+// repayments (credits, via self transfer) are counted. Same draw rule as
+// loanSourceLedgerRows: cash-in movements under the loan source's name since
+// the loan was opened.
+func scanLoanDrawsForLenderBank(db *gorm.DB, bankID uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+	type src struct {
+		Name         string
+		LoanNumber   string
+		LoanOpenedAt *time.Time
+		CreatedAt    time.Time
+		BankName     string
+	}
+	var srcs []src
+	if err := db.Table("categories c").
+		Select("c.name, c.loan_number, c.loan_opened_at, c.created_at, b.name AS bank_name").
+		Joins("LEFT JOIN banks b ON b.id = c.bank_id").
+		Where("c.bank_id = ? AND c.loan_number <> ?", bankID, "").
+		Scan(&srcs).Error; err != nil {
+		return nil, err
+	}
+	var out []ledgerSourceRow
+	for _, s := range srcs {
+		since := s.CreatedAt
+		if s.LoanOpenedAt != nil {
+			since = *s.LoanOpenedAt
+		}
+		type draw struct {
+			ID         uint
+			OccurredOn time.Time
+			Mode       string
+			Amount     float64
+			ToBank     string
+		}
+		q := db.Table("cash_movements m").
+			Select("m.id, m.occurred_on, m.mode, m.amount, COALESCE(b.name, '') AS to_bank").
+			Joins("LEFT JOIN banks b ON b.id = m.bank_id").
+			Where("m.type = ? AND m.source ILIKE ? AND m.created_at >= ?", "in", s.Name, since).
+			// A draw that landed in the lender bank itself already shows there as a credit.
+			Where("m.bank_id IS DISTINCT FROM ?", bankID)
+		if !fromDate.IsZero() {
+			q = q.Where("m.occurred_on >= ?", fromDate)
+		}
+		if !toDate.IsZero() {
+			q = q.Where("m.occurred_on < ?", toDate.AddDate(0, 0, 1))
+		}
+		var draws []draw
+		if err := q.Scan(&draws).Error; err != nil {
+			return nil, err
+		}
+		for _, d := range draws {
+			desc := "Loan disbursed — " + s.Name
+			if d.ToBank != "" && d.ToBank != s.BankName {
+				desc += " → " + d.ToBank
+			}
+			id := bankID
+			out = append(out, ledgerSourceRow{
+				Kind: "loan_draw", ID: d.ID, Date: d.OccurredOn, Description: desc, Type: s.Name,
+				Method: d.Mode, Reference: s.LoanNumber, Amount: d.Amount, IsOut: true,
+				BankID: &id, BankName: s.BankName,
+			})
+		}
+	}
+	return out, nil
 }
 
 // combinedLedgerByCustomer is combinedLedgerByBank's counterpart for a
@@ -272,7 +349,142 @@ func (r *MovementRepository) combinedLedgerByCustomer(ctx context.Context, custo
 	}
 	rows = append(rows, plpRows...)
 
+	// Interest and penal interest charged on the customer's gold loans —
+	// the same accrual rows the loan's own ledger shows, as debits.
+	accRows, err := scanLoanAccrualsForCustomerLedger(db, customerID, fromDate, toDate)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, accRows...)
+
 	return rows, nil
+}
+
+// scanLoanAccrualsForCustomerLedger turns each loan accrual run (loan_accruals)
+// of the customer's loans into an "Interest Charged" and/or "Penal Interest
+// Charged" debit row. Accrual that predates the history table is covered by
+// one catch-up row per loan and kind, dated at the loan's last accrual — the
+// same rule loan.buildLoanLedger applies — so the totals match the loan.
+func scanLoanAccrualsForCustomerLedger(db *gorm.DB, customerID uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+	inRange := func(t time.Time) bool {
+		return (fromDate.IsZero() || !t.Before(fromDate)) && (toDate.IsZero() || t.Before(toDate.AddDate(0, 0, 1)))
+	}
+	var out []ledgerSourceRow
+	add := func(id uint, on time.Time, loanNumber, label string, amount float64) {
+		if amount <= 0.01 || !inRange(on) {
+			return
+		}
+		out = append(out, ledgerSourceRow{
+			Kind: "loan_accrual", ID: id, Date: on, Description: label + " — " + loanNumber,
+			Type: "Loan", Reference: loanNumber, Amount: amount, IsOut: true,
+		})
+	}
+
+	type accrual struct {
+		ID            uint
+		LoanID        uint
+		AccruedOn     time.Time
+		CreatedAt     time.Time
+		Interest      float64
+		PenalInterest float64
+		LoanNumber    string
+	}
+	var accs []accrual
+	if err := db.Table("loan_accruals a").
+		Select("a.id, a.loan_id, a.accrued_on, a.created_at, a.interest, a.penal_interest, l.loan_number").
+		Joins("JOIN loans l ON l.id = a.loan_id").
+		Where("l.customer_id = ?", customerID).
+		Scan(&accs).Error; err != nil {
+		return nil, err
+	}
+	// Payments of these loans, to find the one that triggered each charge.
+	type loanPay struct {
+		LoanID    uint
+		PaidOn    time.Time
+		CreatedAt time.Time
+	}
+	var pays []loanPay
+	if err := db.Table("loan_payments p").
+		Select("p.loan_id, p.paid_on, p.created_at").
+		Joins("JOIN loans l ON l.id = p.loan_id").
+		Where("l.customer_id = ? AND p.type <> ?", customerID, "Disbursement").
+		Scan(&pays).Error; err != nil {
+		return nil, err
+	}
+	for _, a := range accs {
+		// AccruedOn is the billing anchor, which can sit a month AHEAD of the day the
+		// charge was booked; the charge shows when that date arrives, not before.
+		on := a.AccruedOn
+		// A charge booked by a payment reads as the debit that payment settles,
+		// so it sits just before it (RecordPayment accrues, then saves the payment).
+		var trig *loanPay
+		for i := range pays {
+			p := &pays[i]
+			if p.LoanID != a.LoanID || a.CreatedAt.IsZero() || p.CreatedAt.Before(a.CreatedAt) || p.CreatedAt.Sub(a.CreatedAt) > 10*time.Second {
+				continue
+			}
+			if trig == nil || p.CreatedAt.Before(trig.CreatedAt) {
+				trig = p
+			}
+		}
+		if trig != nil {
+			on = a.CreatedAt // when the charge was actually booked...
+			if !on.Before(trig.PaidOn) {
+				on = trig.PaidOn.Add(-time.Millisecond) // ...never later than its payment
+			}
+		} else if on.After(time.Now()) {
+			continue
+		}
+		add(a.ID, on, a.LoanNumber, "Interest Charged", a.Interest)
+		add(a.ID, on, a.LoanNumber, "Penal Interest Charged", a.PenalInterest)
+	}
+
+	type totals struct {
+		ID                   uint
+		LoanNumber           string
+		AccruedInterest      float64
+		AccruedPenalInterest float64
+		LastAccrualDate      time.Time
+		LoanCreatedAt        time.Time
+		RecordedInterest     float64
+		RecordedPenal        float64
+		// Earliest payment that actually settled interest / penal interest: a
+		// catch-up charge cannot post after it (it must have accrued to be paid).
+		FirstInterestPaid *time.Time
+		FirstPenalPaid    *time.Time
+	}
+	var tot []totals
+	if err := db.Table("loans l").
+		Select(`l.id, l.loan_number, l.accrued_interest, l.accrued_penal_interest, l.last_accrual_date, l.created_at AS loan_created_at,
+			(SELECT MIN(p.paid_on) FROM loan_payments p WHERE p.loan_id = l.id AND p.type <> 'Disbursement' AND p.interest_applied > 0) AS first_interest_paid,
+			(SELECT MIN(p.paid_on) FROM loan_payments p WHERE p.loan_id = l.id AND p.type <> 'Disbursement' AND p.penal_interest_applied > 0) AS first_penal_paid,
+			COALESCE((SELECT SUM(a.interest) FROM loan_accruals a WHERE a.loan_id = l.id), 0) AS recorded_interest,
+			COALESCE((SELECT SUM(a.penal_interest) FROM loan_accruals a WHERE a.loan_id = l.id), 0) AS recorded_penal`).
+		Where("l.customer_id = ?", customerID).
+		Scan(&tot).Error; err != nil {
+		return nil, err
+	}
+	for _, t := range tot {
+		last := t.LastAccrualDate
+		if now := time.Now(); last.After(now) {
+			// Billing anchor ahead of today: the charge was booked when the
+			// loan was created, the only time recorded for it.
+			last = now
+			if !t.LoanCreatedAt.IsZero() && t.LoanCreatedAt.Before(now) {
+				last = t.LoanCreatedAt
+			}
+		}
+		interestAt, penalAt := last, last
+		if t.FirstInterestPaid != nil && t.FirstInterestPaid.Add(-time.Millisecond).Before(interestAt) {
+			interestAt = t.FirstInterestPaid.Add(-time.Millisecond)
+		}
+		if t.FirstPenalPaid != nil && t.FirstPenalPaid.Add(-time.Millisecond).Before(penalAt) {
+			penalAt = t.FirstPenalPaid.Add(-time.Millisecond)
+		}
+		add(t.ID, interestAt, t.LoanNumber, "Interest Charged", t.AccruedInterest-t.RecordedInterest)
+		add(t.ID, penalAt, t.LoanNumber, "Penal Interest Charged", t.AccruedPenalInterest-t.RecordedPenal)
+	}
+	return out, nil
 }
 
 // scanCashMovementsForLedger reads cash_movements matching whereCol = whereArg
@@ -565,7 +777,7 @@ func scanGoldSalesForLedger(db *gorm.DB, whereCol string, whereArg uint, fromDat
 // row, which is a debit — see ledgerSourceRow.IsOut's doc comment.
 func toLedgerRow(r ledgerSourceRow) LedgerRow {
 	debitOrCredit := "credit"
-	if r.Kind == "cash_movement" && r.IsOut {
+	if (r.Kind == "cash_movement" || r.Kind == "loan_accrual" || r.Kind == "loan_draw") && r.IsOut {
 		debitOrCredit = "debit"
 	}
 	return LedgerRow{
@@ -593,10 +805,24 @@ func toLedgerRow(r ledgerSourceRow) LedgerRow {
 // there's no "read top to bottom to watch the balance move" expectation to
 // preserve, and newest-first matches every other Party Transactions
 // drill-down on this page).
-func (s *MovementService) ListCombinedLedgerByBank(ctx context.Context, bankID uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+func (s *MovementService) ListCombinedLedgerByBank(ctx context.Context, bankID uint, modes []string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	rows, err := s.repo.combinedLedgerByBank(ctx, bankID, fromDate, toDate)
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
+	}
+	// modes, when given, keeps only rows booked in one of those payment modes
+	// (the ledger's multi-select Mode filter).
+	if len(modes) > 0 {
+		kept := rows[:0]
+		for _, r := range rows {
+			for _, m := range modes {
+				if strings.EqualFold(r.Method, m) {
+					kept = append(kept, r)
+					break
+				}
+			}
+		}
+		rows = kept
 	}
 	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
 }
@@ -605,10 +831,24 @@ func (s *MovementService) ListCombinedLedgerByBank(ctx context.Context, bankID u
 // a customer — replaces ListCashMovementsByCustomer's plain-CashMovement
 // result on GET /cash-movements/transactions/customer/:customerId in place
 // (same URL, richer payload).
-func (s *MovementService) ListCombinedLedgerByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+func (s *MovementService) ListCombinedLedgerByCustomer(ctx context.Context, customerID uint, loanNumbers []string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	rows, err := s.repo.combinedLedgerByCustomer(ctx, customerID, fromDate, toDate)
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
+	}
+	// The ledger's Loan filter: keep rows whose reference or description
+	// names one of the chosen loans.
+	if len(loanNumbers) > 0 {
+		kept := rows[:0]
+		for _, r := range rows {
+			for _, n := range loanNumbers {
+				if strings.EqualFold(r.Reference, n) || strings.Contains(strings.ToLower(r.Description), strings.ToLower(n)) {
+					kept = append(kept, r)
+					break
+				}
+			}
+		}
+		rows = kept
 	}
 	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
 }
@@ -710,9 +950,17 @@ type LedgerTotals struct {
 	TotalCredit float64 `json:"totalCredit"`
 }
 
+// sortLedgerSourceRows orders rows newest-first. Rows sharing an exact
+// timestamp — the two legs of a self transfer are stamped identically — are
+// ordered so the flow reads debit first, then credit: in a newest-first
+// list the credit (the later event) sits above the debit, and the running
+// balance dips by the debit before the credit brings it back.
 func sortLedgerSourceRows(rows []ledgerSourceRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
-		return rows[i].Date.After(rows[j].Date)
+		if !rows[i].Date.Equal(rows[j].Date) {
+			return rows[i].Date.After(rows[j].Date)
+		}
+		return !rows[i].IsOut && rows[j].IsOut
 	})
 }
 
@@ -724,7 +972,7 @@ func sortLedgerSourceRows(rows []ledgerSourceRow) {
 // since it's the one mode with no bank of record — see ListModeLedger's own
 // doc comment for why a bankID makes sense for every other mode but this one.
 func (s *MovementService) ListCashModeLedger(ctx context.Context, branchID *uint, branchIDs []uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
-	return s.ListModeLedger(ctx, "Cash", nil, branchID, branchIDs, fromDate, toDate, limit, offset)
+	return s.ListModeLedger(ctx, "Cash", nil, branchID, branchIDs, nil, fromDate, toDate, limit, offset)
 }
 
 // ListModeLedger returns every transaction across CashMovement/LoanPayment/
@@ -739,11 +987,12 @@ func (s *MovementService) ListCashModeLedger(ctx context.Context, branchID *uint
 // they've picked specific branches, and is ignored entirely for a scoped
 // caller (branchID takes precedence — a Branch Manager's own branch can
 // never be widened by a client-supplied filter).
-func (s *MovementService) ListModeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+func (s *MovementService) ListModeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, types []string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	rows, err := s.repo.modeLedger(ctx, mode, bankID, branchID, branchIDs, fromDate, toDate)
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
+	rows = filterLedgerRowsByType(rows, types)
 	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
 }
 
@@ -1124,8 +1373,8 @@ func (r *MovementRepository) expenseLedgerByCategory(ctx context.Context, catego
 
 // ListLoanSourceLedger is a loan source's own ledger — backs GET
 // /cash-sources/:id/ledger and, for a loan source's same-named category, GET
-// /expense-categories/:id/ledger. Unlike the other ledgers it reads oldest
-// first with a real running balance — what is owed on the loan: each Add
+// /expense-categories/:id/ledger. Its running balance is computed oldest
+// first (a real balance) but the list is shown newest first — what is owed on the loan: each Add
 // Cash drawn from it is a credit (balance up — a loan drawn in full stands
 // at its principal) and each approved repayment expense a debit (balance
 // down, never below zero — see MovementService.EnsureLoanRepayment).
@@ -1165,6 +1414,11 @@ func (s *MovementService) ListLoanSourceLedger(ctx context.Context, src *CashSou
 			totals.TotalCredit += r.Amount
 		}
 		page = append(page, r)
+	}
+	// Balances above ran oldest → newest; the list itself shows newest first,
+	// like every other ledger.
+	for i, j := 0, len(page)-1; i < j; i, j = i+1, j-1 {
+		page[i], page[j] = page[j], page[i]
 	}
 	total := int64(len(page))
 	if offset > len(page) {
@@ -1349,4 +1603,70 @@ func (r *MovementRepository) cashInLedgerByCategory(ctx context.Context, name st
 		}
 	}
 	return out, nil
+}
+
+// splitCSV turns a comma-separated query value into its trimmed, non-empty
+// parts (nil when there are none).
+func splitCSV(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// ledgerRowTypeBuckets returns the Type-filter buckets (the same Loan /
+// Auction / Collection / Personal Loan / Investment / Expenses vocabulary the
+// Cash page's Ledger filter uses, see categoryWhere) one ledger row belongs
+// to. The mode ledgers merge four differently-shaped tables, so a row's
+// bucket is told from its source table and its cash movement's Source/Purpose
+// text — the same rules categoryWhere applies in SQL to cash_movements.
+func ledgerRowTypeBuckets(r ledgerSourceRow) []string {
+	switch r.Kind {
+	case "loan_payment":
+		return []string{CategoryCollection}
+	case "personal_loan_payment":
+		return []string{CategoryPersonalLoan}
+	case "cash_movement":
+		isPL := strings.Contains(r.Description, "PL-") || strings.Contains(r.Reference, "PL-")
+		var out []string
+		switch {
+		case r.Type == "Investment" || strings.Contains(r.Description, "INV-"):
+			out = append(out, CategoryInvestment)
+		case r.Type == "Auction" || strings.HasPrefix(r.Description, "Auction surplus refunded"):
+			out = append(out, CategoryAuction)
+		case (r.Type == "Loan" || r.Type == "Collection") && isPL:
+			out = append(out, CategoryPersonalLoan)
+		case strings.HasPrefix(r.Type, "Loan") || strings.HasPrefix(r.Description, "Loan disbursement — "):
+			out = append(out, CategoryLoan)
+		case r.IsOut && !strings.HasPrefix(r.Description, "Bank pledge release — "):
+			out = append(out, CategoryExpenses)
+		}
+		return out
+	}
+	return nil
+}
+
+// filterLedgerRowsByType keeps only the rows in any of the selected Type
+// buckets; no selection keeps everything.
+func filterLedgerRowsByType(rows []ledgerSourceRow, types []string) []ledgerSourceRow {
+	if len(types) == 0 {
+		return rows
+	}
+	want := make(map[string]bool, len(types))
+	for _, t := range types {
+		want[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+	kept := rows[:0:0]
+	for _, r := range rows {
+		for _, b := range ledgerRowTypeBuckets(r) {
+			if want[b] {
+				kept = append(kept, r)
+				break
+			}
+		}
+	}
+	return kept
 }

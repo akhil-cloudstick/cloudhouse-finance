@@ -1,57 +1,28 @@
 import React, { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { AccRow, C, FabCorner, FiltersBar, FlatHeader, Screen, SearchInput, ServerFlatList, useShell } from "../../../src/components/ui";
 import {
-  AccRow,
-  C,
-  DateField,
-  FabCorner,
-  Field,
-  FieldRow,
-  FilterChipRow,
-  FiltersBar,
-  FlatHeader,
-  PrimaryButton,
-  Screen,
-  SearchInput,
-  ServerFlatList,
-  Sheet,
-  ThemeDropdown,
-  useShell,
-} from "../../../src/components/ui";
+  EMPTY_LOAN_FILTERS,
+  LOAN_STATUS_OPTIONS,
+  LoanFilterSheet,
+  loanFilterCount,
+  loanFilterParams,
+  loanFilterSummary,
+  type LoanFilters,
+} from "../../../src/components/staff/LoanFilterSheet";
 import { useServerList } from "../../../src/hooks/useServerList";
+import { usePersistedState } from "../../../src/hooks/usePersistedState";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { listLoansPage } from "../../../src/api/loans";
-import { listSchemes } from "../../../src/api/schemes";
 import { dmy, inr, todayISO } from "../../../src/lib/format";
 import type { Loan } from "../../../src/types/loan";
-import type { Scheme } from "../../../src/types/scheme";
 
 // Loans list — prototype #header-loans + #page-loans + #filter-sheet-modal.
 // Search (loan no. / customer name / customer ID) and every filter are
 // server-side params on GET /loans; rows page in 10 at a time.
 
-// Chip label → backend `status` value ("All" sends none).
-export const LOAN_STATUS_FILTERS = ["All", "Active", "Overdue", "Due today", "Pending approval", "Closed"] as const;
-type StatusFilter = (typeof LOAN_STATUS_FILTERS)[number];
-const STATUS_PARAM: Record<StatusFilter, string | undefined> = {
-  All: undefined,
-  Active: "Active",
-  Overdue: "Overdue",
-  "Due today": "Due Today",
-  "Pending approval": "Pending Approval",
-  Closed: "Closed",
-};
-const SUMMARY: Record<StatusFilter, string> = {
-  All: "All loans",
-  Active: "Active loans",
-  Overdue: "Overdue loans",
-  "Due today": "Due today",
-  "Pending approval": "Pending approval",
-  Closed: "Closed loans",
-};
-
-type Filters = { status?: string; schemeId?: number; from?: string; to?: string };
+export const LOAN_STATUS_FILTERS = LOAN_STATUS_OPTIONS;
 
 function daysBetween(fromISO: string, toISO: string) {
   const a = new Date(+fromISO.slice(0, 4), +fromISO.slice(5, 7) - 1, +fromISO.slice(8, 10));
@@ -89,35 +60,22 @@ export default function LoansScreen() {
   const { can } = useAuth();
   const params = useLocalSearchParams<{ schemeId?: string; status?: string }>();
 
-  const [status, setStatus] = useState<StatusFilter>("All");
-  const [scheme, setScheme] = useState<Scheme | null>(null);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [filters, setFilters] = usePersistedState<LoanFilters>("loans:filters", EMPTY_LOAN_FILTERS);
   const [sheetOpen, setSheetOpen] = useState(false);
-  // Staged filter values edited in the sheet, applied on "Apply Filters".
-  const [draft, setDraft] = useState({ status, scheme, from, to });
-
-  const schemes = useQuery({ queryKey: ["schemes", "all-picker"], queryFn: () => listSchemes() });
 
   // Deep links: /loans?schemeId=… (global search "Scheme") / ?status=…
+  const schemeId = params.schemeId ? Number(params.schemeId) : undefined;
   useEffect(() => {
-    if (params.schemeId && schemes.data) {
-      const sc = schemes.data.find((x) => String(x.id) === params.schemeId);
-      if (sc) setScheme(sc);
-    }
-  }, [params.schemeId, schemes.data]);
-  useEffect(() => {
-    const match = LOAN_STATUS_FILTERS.find((f) => STATUS_PARAM[f]?.toLowerCase() === params.status?.toLowerCase());
-    if (match) setStatus(match);
-  }, [params.status]);
+    const match = LOAN_STATUS_OPTIONS.find((f) => f.toLowerCase() === params.status?.toLowerCase());
+    if (match) setFilters((f) => ({ ...f, status: match }));
+  }, [params.status, setFilters]);
 
-  const filters: Filters = { status: STATUS_PARAM[status], schemeId: scheme?.id, from: from || undefined, to: to || undefined };
-  const list = useServerList<Loan, Filters>({ key: ["loans", "list"], filters, fetchPage: (p) => listLoansPage(p) });
+  const apiFilters = { ...loanFilterParams(filters), schemeId };
+  const list = useServerList<Loan, typeof apiFilters>({ key: ["loans", "list"], persistKey: "loans", filters: apiFilters, fetchPage: (p) => listLoansPage(p) });
   const overdue = useQuery({ queryKey: ["loans", "overdue-count"], queryFn: () => listLoansPage({ status: "Overdue", limit: 1, offset: 0 }) });
 
-  const activeCount = (status !== "All" ? 1 : 0) + (scheme ? 1 : 0) + (from || to ? 1 : 0);
-  const summary = `${SUMMARY[status]}${scheme ? ` · ${scheme.name}` : ""} · ${list.total ?? list.items.length}`;
   const overdueTotal = (overdue.data as { total?: number } | undefined)?.total;
+  const summary = `${loanFilterSummary(filters)} · ${list.total ?? list.items.length}`;
 
   return (
     <Screen
@@ -136,14 +94,7 @@ export default function LoansScreen() {
         emptyText={list.search ? "No loans match your search." : "No loans found."}
         header={
           <>
-            <FiltersBar
-              count={activeCount}
-              summary={summary}
-              onPress={() => {
-                setDraft({ status, scheme, from, to });
-                setSheetOpen(true);
-              }}
-            />
+            <FiltersBar count={loanFilterCount(filters)} summary={summary} onPress={() => setSheetOpen(true)} />
             <SearchInput
               value={list.search}
               onChangeText={list.setSearch}
@@ -173,35 +124,7 @@ export default function LoansScreen() {
         }}
       />
 
-      <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)} title="Filter Loans" maxHeightPct={80}>
-        <Field label="Status">
-          <FilterChipRow options={LOAN_STATUS_FILTERS} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
-        </Field>
-        <Field label="Scheme">
-          <ThemeDropdown<Scheme | null>
-            value={draft.scheme}
-            options={[null, ...(schemes.data ?? [])]}
-            onChange={(v) => setDraft((d) => ({ ...d, scheme: v }))}
-            labelOf={(v) => (v ? v.name : "All schemes")}
-            keyOf={(v) => (v ? v.id : 0)}
-            placeholder="All schemes"
-          />
-        </Field>
-        <FieldRow>
-          <DateField label="From date" value={draft.from} onChange={(v) => setDraft((d) => ({ ...d, from: v }))} clearable />
-          <DateField label="To date" value={draft.to} onChange={(v) => setDraft((d) => ({ ...d, to: v }))} clearable min={draft.from || undefined} />
-        </FieldRow>
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setStatus(draft.status);
-            setScheme(draft.scheme);
-            setFrom(draft.from);
-            setTo(draft.to);
-            setSheetOpen(false);
-          }}
-        />
-      </Sheet>
+      <LoanFilterSheet visible={sheetOpen} onClose={() => setSheetOpen(false)} value={filters} onChange={setFilters} />
     </Screen>
   );
 }

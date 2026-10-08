@@ -19,7 +19,7 @@ export default function CustomersScreen() {
   const [registerOpen, setRegisterOpen] = useState(false);
   const canCreate = useAuth().can("Customer_Management", "can_create_customer");
 
-  const list = useServerList<Customer>({ key: ["customers", "list"], fetchPage: (p) => listCustomersPage(p) });
+  const list = useServerList<Customer>({ key: ["customers", "list"], persistKey: "customers", fetchPage: (p) => listCustomersPage(p) });
 
   useEffect(() => {
     if (params.register === "1") {

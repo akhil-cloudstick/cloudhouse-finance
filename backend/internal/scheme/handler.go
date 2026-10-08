@@ -3,6 +3,7 @@ package scheme
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -79,9 +80,16 @@ func (h *Handler) List(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
 	branchID := platform.GetBranchScope(c)
+	// `method` is a comma-separated list of interest calculation methods.
+	var methods []string
+	for _, m := range strings.Split(c.Query("method"), ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			methods = append(methods, m)
+		}
+	}
 
 	if limit <= 0 {
-		rec, _, err := h.svc.List(ctx, c.Query("q"), branchID, 0, 0)
+		rec, _, err := h.svc.List(ctx, c.Query("q"), methods, branchID, 0, 0)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -90,7 +98,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, total, err := h.svc.List(ctx, c.Query("q"), branchID, limit+1, offset)
+	rec, total, err := h.svc.List(ctx, c.Query("q"), methods, branchID, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

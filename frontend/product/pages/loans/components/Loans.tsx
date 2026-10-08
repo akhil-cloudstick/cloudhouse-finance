@@ -1,15 +1,19 @@
 "use client";
 
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { useEffect, useState } from "react";
 import { useLoans } from "@/product/pages/loans/store/LoansProvider";
 import { LoanRow } from "@/product/pages/loans/components/LoanRow";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { useAppRoute } from "@/product/hooks/useAppRoute";
-import { listLoansPage, type LoanView } from "@/product/pages/loans/services/loanService";
-import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
+import { listLoansPage, type LoanView, type ServicingClass } from "@/product/pages/loans/services/loanService";
+import { useResponsivePageSize } from "@/product/utils/responsive";
 import { routeHref } from "@/product/services/appRoutes";
-import { DatePicker } from "@/product/components/ui/DatePicker";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
+import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { listCustomersPage } from "@/product/pages/customers/services/customerService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
 
@@ -34,7 +38,7 @@ export function Loans() {
   const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
   const { can } = useAuth();
   const pageSize = useResponsivePageSize(15, 15);
-  const smallScreen = useIsSmallScreen();
+  const { singleBranch } = useBranding();
   // Hidden rather than shown as a form that can only fail with a 403.
   const canCreateLoans = can("Loan_Management", "can_create_loan");
   // Dashboard KPI cards ("Active Loans", "Due Soon", etc.) link here as
@@ -42,14 +46,16 @@ export function Loans() {
   // open on arrival, instead of always landing on "All".
   const { arg: initialCatArg } = useAppRoute();
   const initialCat = initialCatArg ? decodeURIComponent(initialCatArg) : undefined;
-  const [cat, setCat] = useState(() => (initialCat && CATS.includes(initialCat) ? initialCat : "All"));
-  const [q, setQ] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  // Small-screen category tabs collapse behind a "Filter" button; opening it
-  // hides the date-range filter and shows the tabs, and picking a tab
-  // collapses the tabs back and reveals the date filter again.
-  const [tabsExpanded, setTabsExpanded] = useState(false);
+  const [cats, setCats] = usePersistedState<string[]>("loans:cats", initialCat && CATS.includes(initialCat) && initialCat !== "All" ? [initialCat] : []);
+  // A dashboard KPI link (#loans/<category>) wins over the remembered tab.
+  useEffect(() => { if (initialCat && CATS.includes(initialCat)) setCats(initialCat === "All" ? [] : [initialCat]); }, [initialCat, setCats]);
+  const [q, setQ] = usePersistedState("loans:q", "");
+  const [fromDate, setFromDate] = usePersistedState("loans:from", "");
+  const [toDate, setToDate] = usePersistedState("loans:to", "");
+  const [branchIds, setBranchIds] = usePersistedState<string[]>("loans:branches", []);
+  const [customerIds, setCustomerIds] = usePersistedState<string[]>("loans:customers", []);
+  const [branches, setBranches] = useState<BranchView[]>([]);
+  useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
   const [page, setPage] = useState(1);
   const [filtered, setFiltered] = useState<LoanView[] | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -57,11 +63,15 @@ export function Loans() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
-  const servicing = SERVICING_CATS[cat];
+  const servicing = cats.map((c) => SERVICING_CATS[c]).filter((s): s is ServicingClass => !!s);
+  const storedStatuses = cats.filter((c) => !SERVICING_CATS[c]);
+  const catsKey = cats.join("|");
+  const branchKey = branchIds.join(",");
+  const customerKey = customerIds.join(",");
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [cat, q, fromDate, toDate, pageSize]);
+  useEffect(() => { setPage(1); }, [catsKey, q, fromDate, toDate, branchKey, customerKey, pageSize]);
 
   // LoansProvider fetches once when the app shell mounts and is only
   // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,
@@ -78,9 +88,11 @@ export function Loans() {
     setSearching(true);
     const handle = setTimeout(() => {
       listLoansPage({
-        status: cat === "All" || servicing ? undefined : cat,
+        status: storedStatuses,
         servicing,
         q: q.trim() || undefined,
+        branchId: branchIds.map(Number),
+        customerId: customerIds.map(Number),
         from: fromDate || undefined,
         to: toDate || undefined,
         page,
@@ -99,7 +111,38 @@ export function Loans() {
     // `filtered` pinned to the pre-change rows — so the table only caught up on a browser reload.
     // Keying off the new array identity re-issues the filtered query in step
     // with every provider refresh.
-  }, [cat, q, fromDate, toDate, page, servicing, allLoans, pageSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catsKey, q, fromDate, toDate, branchKey, customerKey, page, allLoans, pageSize]);
+
+  // One grouped filter (same FilterPanel the ledger pages use) replacing the
+  // old status tab row + standalone date pickers. Every section is
+  // multi-select: a loan matches any selected value within a section.
+  const filterCategories: FilterCategory[] = [
+    {
+      key: "status", label: "Status", kind: "static", searchHint: "Searches: loan status",
+      options: CATS.filter((c) => c !== "All").map((c) => ({ value: c, label: c })),
+    },
+    ...(singleBranch ? [] : [{
+      key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name",
+      options: branches.map((b) => ({ value: String(b.id), label: b.name })),
+    }]),
+    {
+      key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
+      fetchOptions: (search: string, p: number) =>
+        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined }, 20).then((res) => ({
+          items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
+          hasMore: res.hasMore,
+        })),
+    },
+    { key: "__date", label: "Date", kind: "date" as const },
+  ];
+  const filterValue: FilterValue = {
+    status: cats,
+    branch: branchIds,
+    customer: customerIds,
+    __dateFrom: fromDate || undefined,
+    __dateTo: toDate || undefined,
+  };
 
   const loading = filtered === null ? providerLoading : searching;
   const error = searchError || providerError;
@@ -119,36 +162,24 @@ export function Loans() {
         {canCreateLoans && <a className="btn" href={routeHref("newloan")}><Icon name="plus" /> New Gold Loan</a>}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div className={`loans-filter-row${smallScreen ? " small" : ""}`} style={{ marginTop: 4, marginBottom: 14 }}>
-        <div className="tabs loans-filter-toggle-tabs">
-          <button type="button" className="loans-filter-toggle" onClick={() => setTabsExpanded((v) => !v)}>
-            <Icon name="filter" /> Filter
-          </button>
-        </div>
-        <div className={`tabs loans-cat-tabs${tabsExpanded ? " expanded" : ""}`}>
-          {CATS.map((c) => (
-            <button
-              key={c}
-              className={c === cat ? "on" : ""}
-              onClick={() => { setCat(c); setTabsExpanded(false); }}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-        <div className={`loans-date-filter${tabsExpanded ? " collapsed" : ""}`}>
-          <DatePicker value={fromDate} onChange={setFromDate} placeholder="From date…" max={toDate || undefined} />
-          <span className="loans-date-sep">to</span>
-          <DatePicker value={toDate} onChange={setToDate} placeholder="To date…" min={fromDate || undefined} />
-          {(fromDate || toDate) && (
-            <button type="button" className="btn plain sm" onClick={() => { setFromDate(""); setToDate(""); }}>
-              Clear
-            </button>
-          )}
-        </div>
-      </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <FilterPanel
+          categories={filterCategories}
+          value={filterValue}
+          onChange={(next) => {
+            setCats(Array.isArray(next.status) ? next.status.filter((st) => CATS.includes(st)) : []);
+            setBranchIds(Array.isArray(next.branch) ? next.branch : []);
+            setCustomerIds(Array.isArray(next.customer) ? next.customer : []);
+            setFromDate(next.__dateFrom || "");
+            setToDate(next.__dateTo || "");
+          }}
+          hideChips
+          hideClearAll
+        />
+      </div>
+      <div className="card tbl-card tbl-card-fill">
+      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Loan / Customer</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (

@@ -393,6 +393,12 @@ func (s *Service) accrueAndSave(ctx context.Context, l *Loan) bool {
 	if err := s.repo.Update(ctx, l); err != nil {
 		return false
 	}
+	// Best-effort history row for the loan's ledger — a failure here must not
+	// undo the accrual that was just saved.
+	_ = s.db.WithContext(ctx).Create(&LoanAccrual{
+		LoanID: l.ID, AccruedOn: anchor,
+		Interest: platform.RoundMoney(interestDelta), PenalInterest: platform.RoundMoney(penalDelta),
+	}).Error
 	return true
 }
 

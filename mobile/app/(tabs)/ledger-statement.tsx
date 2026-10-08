@@ -1,15 +1,15 @@
 import React, { useMemo, useState } from "react";
 import { View } from "react-native";
-import { FabMenu, FiltersBar, FlatHeader, Screen, SearchInput, ServerFlatList, toast } from "../../src/components/ui";
+import { FlatHeader, GroupedFilter, PillButton, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfDate, gfValues, toast, type GFSection, type GroupedFilterValue } from "../../src/components/ui";
 import { useServerList } from "../../src/hooks/useServerList";
 import { listCashMovementsPage } from "../../src/api/cash";
 import { isUserCancel, userMessage } from "../../src/api/errors";
-import { dmy } from "../../src/lib/format";
+import { listBranchesPage } from "../../src/api/branches";
+import { listCustomersPage } from "../../src/api/customers";
 import { shareMovementsPdf } from "../../src/utils/ledgerExport";
 import { useExpenseCategoryIds } from "../../src/components/staff/LedgerList";
 import {
-  EMPTY_MOVEMENT_FILTERS,
-  MovementFilterSheet,
+  MOVEMENT_TYPE_OPTIONS,
   MovementRow,
   movementFilterCount,
   runningBalances,
@@ -25,21 +25,49 @@ import { useAuth } from "../../src/auth/AuthContext";
 // Ledger page (shared via MovementLedger), grouped behind one Filters bar;
 // Export downloads exactly what the filters show, as a PDF or Excel sheet.
 
-function filterSummary(f: MovementFilters): string {
-  const dates =
-    f.fromDate && f.toDate ? `${dmy(f.fromDate)} – ${dmy(f.toDate)}` : f.fromDate ? `From ${dmy(f.fromDate)}` : f.toDate ? `Until ${dmy(f.toDate)}` : "All dates";
-  const parts = [
-    dates,
-    f.branchIds.length ? `${f.branchIds.length} branch${f.branchIds.length === 1 ? "" : "es"}` : null,
-    f.customerIds.length ? `${f.customerIds.length} customer${f.customerIds.length === 1 ? "" : "s"}` : null,
-    f.types.length ? `${f.types.length} type${f.types.length === 1 ? "" : "s"}` : null,
-  ];
-  return parts.filter(Boolean).join(" · ");
-}
+const SECTIONS: GFSection[] = [
+  {
+    kind: "async",
+    key: "branch",
+    label: "Branch",
+    fetchPage: (p) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+  },
+  { kind: "static", key: "type", label: "Type", options: MOVEMENT_TYPE_OPTIONS },
+  { kind: "date", key: "date", label: "Date" },
+];
 
 export default function LedgerStatementScreen() {
-  const [filters, setFilters] = useState<MovementFilters>(EMPTY_MOVEMENT_FILTERS);
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  // Customer narrows to the selected branches (a customer has one home branch).
+  const branchIds = gfValues(fv, "branch").map(Number);
+  const sections = useMemo<GFSection[]>(
+    () => [
+      SECTIONS[0],
+      {
+        kind: "async",
+        key: "customer",
+        label: "Customer",
+        deps: [branchIds.join(",")],
+        fetchPage: (p) =>
+          listCustomersPage({ q: p.q, limit: p.limit, offset: p.offset, ...(branchIds.length ? { branchIds } : {}) }).then((r) => ({ items: r.items.map((c) => ({ value: String(c.id), label: c.code ? `${c.name} (${c.code})` : c.name })), hasMore: r.hasMore })),
+      },
+      SECTIONS[1],
+      SECTIONS[2],
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [branchIds.join(",")]
+  );
+  const filters = useMemo<MovementFilters>(
+    () => ({
+      branchIds,
+      customerIds: gfValues(fv, "customer").map(Number),
+      types: gfValues(fv, "type"),
+      fromDate: gfDate(fv, "date").from,
+      toDate: gfDate(fv, "date").to,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fv]
+  );
   const filterCount = movementFilterCount(filters);
 
   const list = useServerList<CashMovement, MovementFilters>({
@@ -69,17 +97,6 @@ export default function LedgerStatementScreen() {
   return (
     <Screen
       header={<FlatHeader title="Ledger / Statement" subtitle="Reports · Financial Statements" back />}
-      floating={
-        list.items.length > 0 && canExport ? (
-          <FabMenu
-            label="Export statement"
-            actions={[
-              { label: "Export PDF", icon: "download", onPress: () => onExport("pdf") },
-              { label: "Export Excel", icon: "download", onPress: () => onExport("xlsx") },
-            ]}
-          />
-        ) : undefined
-      }
     >
       <ServerFlatList
         list={list}
@@ -89,13 +106,21 @@ export default function LedgerStatementScreen() {
         header={
           <View style={{ paddingTop: 12 }}>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by purpose or source" style={{ paddingBottom: 8 }} />
-            <FiltersBar count={filterCount} summary={filterSummary(filters)} onPress={() => setFilterOpen(true)} style={{ marginTop: 0, marginBottom: 10 }} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              <GroupedFilter title="Filter Statement" sections={sections} value={fv} onChange={setFv} />
+              <View style={{ flex: 1 }} />
+              {canExport ? (
+                <>
+                  <PillButton label="Export Excel" onPress={() => onExport("xlsx")} />
+                  <PillButton label="Export PDF" onPress={() => onExport("pdf")} />
+                </>
+              ) : null}
+            </View>
           </View>
         }
         renderItem={(m, i) => <MovementRow m={m} balance={balances[i] ?? 0} categoryIds={categoryIds} defaultOpen={i === 0} />}
       />
 
-      <MovementFilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} value={filters} onChange={setFilters} title="Filter Statement" />
     </Screen>
   );
 }

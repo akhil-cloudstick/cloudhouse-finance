@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { View } from "react-native";
+import { useQuery } from "@tanstack/react-query";
+import { getLoanLedger } from "../../../api/loans";
 import { AccBtn, AccGroup, AccRow, C, EmptyText, type AccDetail, type ChipTone } from "../../ui";
 import { dmy, inr } from "../../../lib/format";
 import type { Loan, LoanTopUp } from "../../../types/loan";
@@ -23,6 +25,8 @@ type Entry = {
 };
 
 const PAGE = 10;
+
+type ChargeEntry = { key: string; kind: string; date: string; amount: number; note?: string };
 
 function modeSplit(r: { cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number }) {
   return [
@@ -72,8 +76,24 @@ function paymentMethod(p: Payment) {
  * "Disbursement" payment only carries the payout's mode split — the same
  * event as the sanction row, so it splits that row instead of showing again
  * as a credit. */
-export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
+export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[] = []): Entry[] {
   const rows: Entry[] = [];
+
+  // Server-computed interest / penal-interest charges: debit rows with no
+  // running balance. Any other (unknown) kind is ignored.
+  for (const c of charges) {
+    if (c.kind !== "interest" && c.kind !== "penal") continue;
+    if (!c.date || !(Number(c.amount) > 0)) continue;
+    rows.push({
+      key: c.key || `${c.kind}-${c.date}`,
+      sortKey: c.date,
+      date: c.date,
+      title: c.kind === "penal" ? "Penal Interest Charged" : "Interest Charged",
+      sub: c.note || undefined,
+      debit: Number(c.amount),
+      split: [],
+    });
+  }
   const payments = l.payments ?? [];
   const disbursement = payments.find((p) => p.type === "Disbursement");
 
@@ -204,7 +224,10 @@ function chipFor(e: Entry): { label: string; tone: ChipTone } {
  * (AccRow) per entry: the date where a loan ID would sit, the amount with a
  * Debit/Credit chip, opening to the web table's columns plus the split. */
 export function LoanLedger({ loan, topUps }: { loan: Loan; topUps: LoanTopUp[] }) {
-  const entries = buildLedger(loan, topUps);
+  // Interest / penal charge rows come from the server ledger; a failed or
+  // slow fetch just leaves them out.
+  const charges = useQuery({ queryKey: ["loanLedgerCharges", loan.id], queryFn: () => getLoanLedger(loan.id, { limit: 500, offset: 0 }), retry: false });
+  const entries = buildLedger(loan, topUps, charges.data?.items ?? []);
   // Oldest first; long ledgers start collapsed to the latest PAGE entries.
   const [shown, setShown] = useState(PAGE);
   const hidden = Math.max(0, entries.length - shown);

@@ -32,7 +32,7 @@ var (
 	ErrPANTaken     = httpx.NewConflict("PAN is already registered to another customer")
 	ErrAadhaarTaken = httpx.NewConflict("Aadhaar number is already registered to another customer")
 
-	ErrInvalidCustomerType =httpx.NewBadRequest("customer type must be Borrower or Investor")
+	ErrInvalidCustomerType = httpx.NewBadRequest("customer type must be Borrower or Investor")
 	ErrBankDetailsRequired = httpx.NewBadRequest("bank account name, number and IFSC are required for an investor")
 	ErrInvestorKYCRequired = httpx.NewBadRequest("PAN and Aadhaar are required for an investor")
 )
@@ -94,6 +94,7 @@ var (
 var (
 	ErrDigilockerNotConfigured = httpx.NewUnavailable("Aadhaar verification is not configured")
 	ErrNoDigilockerRequest     = httpx.NewBadRequest("no Aadhaar verification has been started for this customer")
+	ErrAadhaarRequired         = httpx.NewBadRequest("add the customer's Aadhaar number before verifying via DigiLocker")
 )
 
 // Service implements customer business rules on top of the Repository.
@@ -538,7 +539,7 @@ func (s *Service) VerifyPAN(ctx context.Context, id uint, branchID *uint) (*Cust
 	case result.Verification != "SUCCESS":
 		// PAN itself is invalid/nonexistent per Setu.
 		rec.PANStatus = "Failed"
-	case !s.pan.IsSandbox() &&!namesMatch(rec.Name, result.FullName):
+	case !s.pan.IsSandbox() && !namesMatch(rec.Name, result.FullName):
 		// PAN is real, but registered to a different person than the name
 		// on this customer's profile — do NOT mark this Verified. This is
 		// the actual fraud check: a valid PAN alone proves nothing about
@@ -581,6 +582,9 @@ func (s *Service) StartAadhaarVerify(ctx context.Context, id uint, branchID *uin
 	if s.digilocker == nil {
 		return nil, ErrDigilockerNotConfigured
 	}
+	if rec.AadhaarLast4 == "" {
+		return nil, ErrAadhaarRequired
+	}
 	if tenantID, ok := platform.TenantFromContext(ctx); ok {
 		if err := platform.CheckAndRecordUsage(s.db, tenantID, platform.UsageSetuAadhaar); err != nil {
 			return nil, err
@@ -605,32 +609,32 @@ func (s *Service) StartAadhaarVerify(ctx context.Context, id uint, branchID *uin
 // AadhaarStatus/KYCStatus untouched — callers should poll again later.
 // Once authenticated, it fetches the e-Aadhaar data, updates AadhaarStatus/
 // KYCStatus (and AadhaarLast4 for display), and returns the fetched data.
-func (s *Service) CheckAadhaarVerify(ctx context.Context, id uint, branchID *uint) (*Customer, *platform.DigilockerStatus, *platform.AadhaarXML, error) {
+func (s *Service) CheckAadhaarVerify(ctx context.Context, id uint, branchID *uint) (*Customer, *platform.DigilockerStatus, *platform.AadhaarXML, []string, error) {
 	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return nil, nil, nil, ErrNotFound
+		return nil, nil, nil, nil, ErrNotFound
 	}
 	if branchID != nil && rec.BranchID != *branchID {
-		return nil, nil, nil, ErrNotFound
+		return nil, nil, nil, nil, ErrNotFound
 	}
 	if s.digilocker == nil {
-		return nil, nil, nil, ErrDigilockerNotConfigured
+		return nil, nil, nil, nil, ErrDigilockerNotConfigured
 	}
 	if rec.DigilockerRequestID == "" {
-		return nil, nil, nil, ErrNoDigilockerRequest
+		return nil, nil, nil, nil, ErrNoDigilockerRequest
 	}
 
 	status, err := s.digilocker.GetStatus(rec.DigilockerRequestID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if status.Status != "authenticated" {
-		return rec, status, nil, nil
+		return rec, status, nil, nil, nil
 	}
 
 	aadhaar, err := s.digilocker.GetAadhaar(rec.DigilockerRequestID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Aadhaar itself being fetchable proves the customer completed a real
@@ -638,24 +642,27 @@ func (s *Service) CheckAadhaarVerify(ctx context.Context, id uint, branchID *uin
 	// separate "is this Aadhaar valid" check to fail here). Same name-match
 	// posture as VerifyPAN: skip in sandbox, since sandbox always returns
 	// the same fixed dummy identity regardless of the real customer name.
-	if !s.digilocker.IsSandbox() && !namesMatch(rec.Name, aadhaar.Aadhaar.Name) {
-		rec.AadhaarStatus = "Name Mismatch"
+	// Unlike PAN, the DigiLocker identity is the real logged-in person even in
+	// sandbox, so the comparison is never skipped.
+	reasons := aadhaarMismatches(rec, aadhaar)
+	if len(reasons) > 0 {
+		rec.AadhaarStatus = "Failed"
 	} else {
 		rec.AadhaarStatus = "Verified"
 	}
 	// Overall KYC is derived, never auto-set from this single check.
 	rec.KYCStatus = deriveKYCStatus(rec.PANStatus, rec.AadhaarStatus)
-	if len(aadhaar.Aadhaar.MaskedNumber) >= 4 {
+	if len(reasons) == 0 && len(aadhaar.Aadhaar.MaskedNumber) >= 4 {
 		rec.AadhaarLast4 = aadhaar.Aadhaar.MaskedNumber[len(aadhaar.Aadhaar.MaskedNumber)-4:]
 	}
 	rec.DigilockerRequestID = "" // request consumed — a re-verify starts a fresh one
 
 	if err := s.repo.Update(ctx, rec); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	updated, err := s.repo.FindByID(ctx, rec.ID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return updated, status, aadhaar, nil
+	return updated, status, aadhaar, reasons, nil
 }

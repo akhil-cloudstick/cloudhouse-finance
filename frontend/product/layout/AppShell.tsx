@@ -41,6 +41,8 @@ import { Calendar } from "@/product/pages/reminders/components/Calendar";
 import { Branches } from "@/product/pages/branches/components/Branches";
 import { Banks } from "@/product/pages/banks/components/Banks";
 import { PartyLedger } from "@/product/pages/cash/components/PartyLedger";
+import { syncFilterSection } from "@/product/hooks/usePersistedState";
+import { BranchLedger } from "@/product/pages/branches/components/BranchLedger";
 import { Settings } from "@/product/pages/settings/components/Settings";
 import { RolesPermissions } from "@/product/pages/roles/components/RolesPermissions";
 import { Billing } from "@/product/pages/billing/components/Billing";
@@ -161,6 +163,8 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <PartyLedger kind="bank" id={arg} />;
     case "ledger-customer":
       return <PartyLedger kind="customer" id={arg} />;
+    case "ledger-branch":
+      return <BranchLedger id={arg} />;
     case "ledger-category":
       return <PartyLedger kind="category" id={arg} />;    case "cash-ledger":
       return <ModeLedgerPage mode="Cash" />;
@@ -184,6 +188,9 @@ function View({ route, arg }: { route: string; arg?: string }) {
 
 function AppShellInner() {
   const { route, arg } = useAppRoute();
+  // Runs during render on purpose: it must clear a section's remembered
+  // filters BEFORE the page below mounts and reads them (idempotent).
+  if (typeof window !== "undefined") syncFilterSection(route);
   const { loaded: brandingLoaded } = useBranding();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Bumped whenever the sidebar's own page is clicked again (see

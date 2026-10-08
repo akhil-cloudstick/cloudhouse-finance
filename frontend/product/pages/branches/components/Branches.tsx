@@ -14,7 +14,7 @@ import {
   type BranchView,
 } from "@/product/pages/branches/services/branchService";
 import { useAuth } from "@/product/providers/auth-context";
-import { BranchLedgerModalContent } from "@/product/components/modals/BranchLedgerModal";
+import { routeHref } from "@/product/services/appRoutes";
 
 /* Centralized branch management — admin-only. Loads real data from the Go
  * backend (`GET /api/v1/branches`), following the Schemes.tsx pattern. */
@@ -129,7 +129,7 @@ export function Branches() {
         </p>
       )}
       {branches !== null && branches.length > 0 && (
-        <div className="card">
+        <div className="card tbl-rounded">
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
@@ -145,7 +145,7 @@ export function Branches() {
                     <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
                     <td>
                       <div style={{ display: "flex", gap: 12 }}>
-                        {canViewBranchLedger && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchLedgerModalContent branch={b} />, true); }}>Ledger</a>}
+                        {canViewBranchLedger && <a href={routeHref("ledger-branch", b.id)}>Ledger</a>}
                         {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
                         {canUpdateBranches && b.isActive && (
                           <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>

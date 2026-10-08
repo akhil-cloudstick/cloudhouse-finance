@@ -7,8 +7,10 @@ import {
   ConcludedAuctionRow,
 } from "../types/auction";
 
+// ?optional=1: the server answers 200 with null data (not a 404) when the
+// loan has no auction case yet — null here means "no case".
 export function getAuction(loanId: number) {
-  return apiRequest<AuctionRecord>(`/loans/${loanId}/auction`);
+  return apiRequest<AuctionRecord | null>(`/loans/${loanId}/auction`, { params: { optional: 1 } }).then((r) => r ?? null);
 }
 
 export function markAuctionEligible(loanId: number) {

@@ -329,7 +329,14 @@ func (h *MovementHandler) List(c *gin.Context) {
 			httpx.FailErr(c, err)
 			return
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": h.withLoanSources(ctx, rec), "hasMore": hasMore, "total": total, "totalDebit": debit, "totalCredit": credit})
+		// pageBalance is the running balance after the page's newest row: the
+		// whole filtered set's net minus what the rows ahead of this page add.
+		ahead, err := h.svc.NetOfNewest(ctx, branchID, fromDate, toDate, filter, search, offset)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": h.withLoanSources(ctx, rec), "hasMore": hasMore, "total": total, "totalDebit": debit, "totalCredit": credit, "pageBalance": (credit - debit) - ahead})
 		return
 	}
 
@@ -440,7 +447,7 @@ func (h *MovementHandler) GetModeLedger(c *gin.Context) {
 		return
 	}
 	limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := h.svc.ListModeLedger(ctx, mode, bankID, branchID, branchIDs, fromDate, toDate, limit, offset)
+	rec, total, totals, err := h.svc.ListModeLedger(ctx, mode, bankID, branchID, branchIDs, parseStringCSV(c.Query("types")), fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -517,7 +524,7 @@ func (h *MovementHandler) ListByCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := h.svc.ListCombinedLedgerByCustomer(ctx, customerID, fromDate, toDate, limit, offset)
+	rec, total, totals, err := h.svc.ListCombinedLedgerByCustomer(ctx, customerID, loanNumbersFromQuery(c), fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -556,7 +563,7 @@ func (h *MovementHandler) GetBankLedger(c *gin.Context) {
 		return
 	}
 	limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := h.svc.ListCombinedLedgerByBank(ctx, bankID, fromDate, toDate, limit, offset)
+	rec, total, totals, err := h.svc.ListCombinedLedgerByBank(ctx, bankID, splitCSV(c.Query("modes")), fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -682,12 +689,12 @@ func respondLedger(c *gin.Context, export bool, title, filename string, fromDate
 			credit = money(r.Amount)
 		}
 		tableRows = append(tableRows, []string{
-			r.Date.Format("2006-01-02"), r.Description, r.Method, r.Reference, r.BankName, r.CustomerName, debit, credit,
+			r.Date.Format("2006-01-02"), r.Description, r.Method, r.Reference, r.BankName, r.CustomerName, debit, credit, money(r.RunningBalance),
 		})
 	}
-	tableRows = append(tableRows, []string{"", "Total", "", "", "", "", money(totals.TotalDebit), money(totals.TotalCredit)})
+	tableRows = append(tableRows, []string{"", "Total", "", "", "", "", money(totals.TotalDebit), money(totals.TotalCredit), ""})
 	pdfBytes, err := renderTablePDF(title, partyStatementNote(fromDate, toDate),
-		[]string{"Date", "Description", "Mode", "Reference", "Bank", "Customer", "Debit", "Credit"}, tableRows)
+		[]string{"Date", "Description", "Mode", "Reference", "Bank", "Customer", "Debit", "Credit", "Balance"}, tableRows)
 	if err != nil {
 		httpx.Fail(c, http.StatusInternalServerError, err.Error())
 		return

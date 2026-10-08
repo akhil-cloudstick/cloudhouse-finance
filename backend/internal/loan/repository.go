@@ -103,8 +103,17 @@ type LoanFilter struct {
 	StatusIn   []string // matches any of these statuses; takes priority over Status when non-empty
 	BranchID   uint
 	CustomerID uint
-	SchemeID   uint
-	LoanIDs    []uint // when non-empty, narrows to exactly these loans (e.g. a scheme statement's loan picker)
+	// BranchIDs / CustomerIDs match any of the listed ids — the Loans page's
+	// multi-select filters. Applied in addition to BranchID/CustomerID.
+	BranchIDs   []uint
+	CustomerIDs []uint
+	// ServicingIn lists several of the Loans page's read-time tabs (due_soon,
+	// overdue, defaulted) selected together. A loan is kept when it matches
+	// any of them OR its stored status is in StatusIn. SQL status narrowing is
+	// skipped (the union can't be expressed there); Service.List decides.
+	ServicingIn []string
+	SchemeID    uint
+	LoanIDs   []uint // when non-empty, narrows to exactly these loans (e.g. a scheme statement's loan picker)
 	Query      string // matches LoanNumber, the customer's name or the customer's code (case-insensitive, partial)
 
 	// BranchScope is the caller's branch-scoping restriction (see
@@ -199,7 +208,9 @@ func startOfDay(t time.Time) time.Time {
 // "branch_id = ?" there was ambiguous and made Postgres reject a
 // branch-scoped search outright.
 func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
-	if len(f.StatusIn) > 0 {
+	if len(f.ServicingIn) > 0 {
+		// Status is decided in Service.List together with the servicing tabs.
+	} else if len(f.StatusIn) > 0 {
 		q = q.Where("loans.status IN ?", f.StatusIn)
 	} else if f.Status != "" {
 		q = q.Where("loans.status = ?", f.Status)
@@ -207,8 +218,14 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if f.BranchID != 0 {
 		q = q.Where("loans.branch_id = ?", f.BranchID)
 	}
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("loans.branch_id IN ?", f.BranchIDs)
+	}
 	if f.CustomerID != 0 {
 		q = q.Where("loans.customer_id = ?", f.CustomerID)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("loans.customer_id IN ?", f.CustomerIDs)
 	}
 	if f.SchemeID != 0 {
 		q = q.Where("loans.scheme_id = ?", f.SchemeID)
@@ -1126,14 +1143,21 @@ func preloadAuctionDetail(db *gorm.DB) *gorm.DB {
 // callers translate to ErrAuctionNotFound (or, for MarkAuctionEligible, treat
 // as "clear to start a new one").
 func (r *AuctionRepository) FindActiveByLoanID(ctx context.Context, loanID uint) (*AuctionRecord, error) {
-	var a AuctionRecord
+	// Find + Limit(1), not First: "no live case" is an everyday answer here (the
+	// Auctions screen asks about every eligible loan), and First logs each miss
+	// as a "record not found" error line.
+	var found []AuctionRecord
 	if err := preloadAuctionDetail(r.db.WithContext(ctx)).
 		Where("loan_id = ? AND stage NOT IN (?, ?)", loanID, AuctionStageSettled, AuctionStageWithdrawn).
 		Order("created_at desc, id desc").
-		First(&a).Error; err != nil {
+		Limit(1).
+		Find(&found).Error; err != nil {
 		return nil, err
 	}
-	return &a, nil
+	if len(found) == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &found[0], nil
 }
 
 // FindActiveByLoanIDForUpdate is FindActiveByLoanID with a row lock, for use

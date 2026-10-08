@@ -98,9 +98,20 @@ func (h *ServeHandler) Serve(c *gin.Context) {
 // legitimately view files — staff a customer's KYC document, a borrower
 // their own loan paperwork.
 func (h *ServeHandler) tenantFromCookie(c *gin.Context) (uint, bool) {
-	raw, err := c.Cookie(AuthCookieName)
-	if err != nil || raw == "" {
-		return 0, false
+	// An Authorization header (the SPA fetching a file as a blob) wins over
+	// the cookie: the cookie is shared across tabs, so signing in to another
+	// business in a second tab replaces it and this tab's <img> requests then
+	// resolve against the wrong business and 404.
+	raw := ""
+	if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		raw = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+	}
+	if raw == "" {
+		cookie, err := c.Cookie(AuthCookieName)
+		if err != nil || cookie == "" {
+			return 0, false
+		}
+		raw = cookie
 	}
 	if claims, err := platform.ParseToken(raw, h.jwtSecret); err == nil && claims.TenantID != 0 {
 		// Revalidated against the live employee row, same as AuthMiddleware

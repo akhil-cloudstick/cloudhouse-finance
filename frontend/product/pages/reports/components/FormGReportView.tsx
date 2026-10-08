@@ -1,9 +1,9 @@
 "use client";
 
+import { BackLink } from "@/product/components/ui/BackLink";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/product/components/Icon";
-import { DatePicker } from "@/product/components/ui/DatePicker";
-import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { Select } from "@/product/components/ui/Select";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
@@ -15,8 +15,6 @@ import {
   type FormGOverrides, type FormGStatement, type ReportFilters,
 } from "@/product/pages/reports/services/reportsService";
 import { singleFlight } from "@/product/utils/singleFlight";
-
-const ALL_BRANCHES: BranchView = { id: 0, name: "All branches", code: "", address: "", phone: "", isActive: true };
 
 const dt = fmtDate;
 const fmt = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -45,7 +43,6 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
   // Single-branch business: no branch filter — every row is its one branch.
   const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number>(0);
-  const [branchLabel, setBranchLabel] = useState("All branches");
   // Default range is the LAST 3 MONTHS, not the firstOfMonth()/today() every
   // other report defaults to — per the client's requirement for this one
   // report only (see subMonths below).
@@ -81,13 +78,6 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
-  async function searchBranchesFilter(q: string, _page: number): Promise<{ items: BranchView[]; hasMore: boolean }> {
-    const query = q.trim().toLowerCase();
-    const all = [ALL_BRANCHES, ...branches];
-    const items = query ? all.filter((b) => b.name.toLowerCase().includes(query)) : all;
-    return { items, hasMore: false };
-  }
-
   async function handleExport(format: "xlsx" | "pdf") { return singleFlight("reports:formg-export:"+format, async () => {
     setExporting(format);
     try {
@@ -98,6 +88,22 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
       setExporting(null);
     }
   }); }
+
+  // One grouped filter: Branch and Date (the Quick Range shortcut stays beside it).
+  const filterCategories: FilterCategory[] = [
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    { key: "__date", label: "Date", kind: "date" as const },
+  ];
+  const filterValue: FilterValue = {
+    branch: branchId ? [String(branchId)] : [],
+    __dateFrom: from || undefined,
+    __dateTo: to || undefined,
+  };
+  function onFilterChange(next: FilterValue) {
+    setBranchId(Array.isArray(next.branch) && next.branch[0] ? Number(next.branch[0]) : 0);
+    setFrom(next.__dateFrom || subMonths(today(), 3));
+    setTo(next.__dateTo || today());
+  }
 
   function setOverride(key: keyof FormGOverrides, value: string) {
     const n = value === "" ? undefined : Number(value);
@@ -116,19 +122,10 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
     <div>
       <div className="page-h">
         <div>
-          <button className="btn plain sm" style={{ marginBottom: 6 }} onClick={onBack}>
-            ← Back to Reports
-          </button>
+          <BackLink onClick={onBack} label="Back to Reports" />
           <h1>Form G — Statement of Accounts</h1>
           <p>Kerala Money-Lenders Rules, 1964 — Rule 15(3)</p>
         </div>
-        <div className="sp" />
-        <button className="btn ghost" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-          <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
-        </button>
-        <button className="btn" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-          <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
-        </button>
       </div>
       <hr className="gold-rule" />
 
@@ -136,7 +133,10 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
        * 150px — its own root otherwise carries a global `.dp-date{width:
        * 230px}` that ignores this wrapper's width, same as ReportView.tsx's
        * own filter row (see that file's comment on the same class). */}
-      <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 18, justifyContent: "flex-end", alignItems: "flex-end" }}>
+      <div className="card" style={{ marginBottom: 18 }}>
+      <div className="hd" style={{ flexWrap: "wrap", rowGap: 10, gap: 12, alignItems: "flex-end" }}>
+        <h3>Statement</h3>
+        <div className="sp" />
         <div style={{ width: 170 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Quick Range</label>
           {/* Sets From/To below and resets back to the placeholder — this is
@@ -171,28 +171,14 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
             ]}
           />
         </div>
-        <div style={{ width: 150 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>From</label>
-          <DatePicker value={from} onChange={setFrom} max={to} />
-        </div>
-        <div style={{ width: 150 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>To</label>
-          <DatePicker value={to} onChange={setTo} min={from} />
-        </div>
-        {!singleBranch && (
-        <div style={{ width: 150 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Branch</label>
-          <SearchableSelect<BranchView>
-            value={branchLabel}
-            onChange={(id, item) => { setBranchId(item.id); setBranchLabel(item.name); }}
-            fetchFn={searchBranchesFilter}
-            searchHint="Searches: branch name"
-            getLabel={(b) => b.name}
-            getId={(b) => String(b.id)}
-            placeholder="Search branch…"
-          />
-        </div>
-        )}
+        <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
+        <button className="btn ghost sm" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
+          <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
+        </button>
+        <button className="btn sm" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
+          <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
+        </button>
+      </div>
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}

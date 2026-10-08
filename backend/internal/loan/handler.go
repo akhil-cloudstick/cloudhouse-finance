@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -212,32 +213,50 @@ func applyAuctionCase(f *LoanFilter, auctionCase string) bool {
 func (h *Handler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	f := LoanFilter{Query: strings.TrimSpace(c.Query("q"))}
-	applyStatusParam(&f, c.Query("status"))
+	// `status` may be a comma-separated list (the Loans page's multi-select
+	// filter): the loan matches any of the listed stored statuses.
+	if statuses := splitCSV(c.Query("status")); len(statuses) > 1 {
+		f.StatusIn = statuses
+	} else {
+		applyStatusParam(&f, c.Query("status"))
+	}
 	if !applyAuctionCase(&f, c.Query("auctionCase")) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid auctionCase: expected all, eligible, defaulted or auctioned_balance_due")
 		return
 	}
 	// `servicing` (due_soon | overdue | defaulted) is the Loans page's
-	// read-time tabs; it replaces `status`, since these classes are not
-	// stored statuses.
-	if sv := strings.ToLower(strings.TrimSpace(c.Query("servicing"))); sv != "" {
-		if !validServicing(sv) {
-			httpx.Fail(c, http.StatusBadRequest, "invalid servicing: expected due_soon, overdue or defaulted")
-			return
+	// read-time tabs; a single value replaces `status`, since these classes
+	// are not stored statuses. Several values (comma-separated) are OR-ed with
+	// each other and with any stored `status` values.
+	if svs := splitCSV(strings.ToLower(c.Query("servicing"))); len(svs) > 0 {
+		for _, sv := range svs {
+			if !validServicing(sv) {
+				httpx.Fail(c, http.StatusBadRequest, "invalid servicing: expected due_soon, overdue or defaulted")
+				return
+			}
 		}
-		f.Status, f.DueToday, f.Servicing = "", false, sv
+		if len(svs) == 1 && len(f.StatusIn) == 0 && f.Status == "" {
+			f.DueToday, f.Servicing = false, svs[0]
+		} else if len(svs) == 1 && f.Status == "" {
+			f.DueToday, f.ServicingIn = false, svs
+		} else {
+			if f.Status != "" {
+				f.StatusIn = append(f.StatusIn, f.Status)
+			}
+			f.Status, f.DueToday, f.ServicingIn = "", false, svs
+		}
 	}
 	f.ExcludeBankPledged = c.Query("excludeBankPledged") == "true"
 	f.BankPledgeStatus = c.Query("bankPledgeStatus")
-	if v := c.Query("branchId"); v != "" {
-		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
-			f.BranchID = uint(id)
-		}
+	if ids := parseUintCSV(c.Query("branchId")); len(ids) == 1 {
+		f.BranchID = ids[0]
+	} else {
+		f.BranchIDs = ids
 	}
-	if v := c.Query("customerId"); v != "" {
-		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
-			f.CustomerID = uint(id)
-		}
+	if ids := parseUintCSV(c.Query("customerId")); len(ids) == 1 {
+		f.CustomerID = ids[0]
+	} else {
+		f.CustomerIDs = ids
 	}
 	if v := c.Query("schemeId"); v != "" {
 		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
@@ -1056,6 +1075,13 @@ func (h *Handler) GetAuction(c *gin.Context) {
 	}
 	rec, err := h.svc.GetAuctionRecord(ctx, loanID, platform.GetBranchScope(c))
 	if err != nil {
+		// ?optional=1: "no case yet" is an expected answer for the web
+		// Auctions screen (it asks about every eligible loan), so it gets a
+		// 200 with a null body instead of a 404 the browser logs as an error.
+		if c.Query("optional") == "1" && errors.Is(err, ErrAuctionNotFound) {
+			httpx.Success(c, http.StatusOK, nil)
+			return
+		}
 		httpx.FailErr(c, err)
 		return
 	}
@@ -2321,6 +2347,11 @@ func (h *Handler) GetLedger(c *gin.Context) {
 	to := c.Query("to")
 	focusAmountParam := c.Query("focusAmount")
 	q := LoanLedgerQuery{From: from, To: to, FocusKey: c.Query("focusKey"), FocusDate: c.Query("focusDate")}
+	for _, k := range strings.Split(c.Query("kinds"), ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			q.Kinds = append(q.Kinds, k)
+		}
+	}
 	q.Limit, _ = strconv.Atoi(c.Query("limit"))
 	q.Offset, _ = strconv.Atoi(c.Query("offset"))
 	for _, d := range []string{from, to} {

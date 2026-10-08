@@ -4,20 +4,19 @@ import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { Icon } from "@/product/components/Icon";
-import { Select } from "@/product/components/ui/Select";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { useLoans } from "@/product/pages/loans/store/LoansProvider";
 import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF, type RequestView } from "@/product/pages/loans/services/loanService";
 import { useToast } from "@/product/components/Toast";
 import { useAuth } from "@/product/providers/auth-context";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 const STATUS_OPTIONS = [
-  { value: "", label: "All" },
   { value: "Pending", label: "Pending" },
   { value: "Approved", label: "Approved" },
   { value: "Rejected", label: "Rejected" },
 ];
 const TYPE_OPTIONS = [
-  { value: "", label: "All" },
   { value: "extension", label: "Extension" },
   { value: "release", label: "Release" },
 ];
@@ -53,8 +52,8 @@ export function Requests() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [status, setStatus] = useState("");
-  const [type, setType] = useState("");
+  const [status, setStatus] = usePersistedState("requests:status", "");
+  const [type, setType] = usePersistedState("requests:type", "");
   // `qInput` is what's typed; `q` is the debounced value that drives the
   // server query, so each keystroke doesn't fire a request.
   const [qInput, setQInput] = useState("");
@@ -113,6 +112,13 @@ export function Requests() {
     return () => clearTimeout(handle);
   }, [qInput, q]);
 
+  // One grouped filter for Type and Status (single choice each).
+  const filterCategories: FilterCategory[] = [
+    { key: "type", label: "Type", kind: "static", singleSelect: true, options: TYPE_OPTIONS },
+    { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUS_OPTIONS },
+  ];
+  const filterValue: FilterValue = { type: type ? [type] : [], status: status ? [status] : [] };
+
   function refreshAfterSave() {
     refresh();
     refreshLoans();
@@ -122,29 +128,23 @@ export function Requests() {
     <>
       <div className="page-h">
         <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests </p></div>
+        <div className="sp" />
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, phone…" title="Searches: loan number, customer name, customer code, phone" value={qInput} onChange={(e) => setQInput(e.target.value)} /></div>
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginTop: 0, marginBottom: 10 }}>
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, phone…" title="Searches: loan number, customer name, customer code, phone" value={qInput} onChange={(e) => setQInput(e.target.value)} /></div>
-        <div style={{ width: 160 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Type</label>
-          <Select
-            options={TYPE_OPTIONS}
-            value={type}
-            onChange={(v) => { setType(v); setPage(1); }}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <FilterPanel
+            categories={filterCategories}
+            value={filterValue}
+            onChange={(next) => {
+              setType(Array.isArray(next.type) ? next.type[0] || "" : "");
+              setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+              setPage(1);
+            }}
+            hideChips
+            hideClearAll
           />
         </div>
-        <div style={{ width: 180 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
-          {/* setPage here rather than in a status-keyed effect, so the two
-              state updates batch into one render and one request. */}
-          <Select
-            options={STATUS_OPTIONS}
-            value={status}
-            onChange={(v) => { setStatus(v); setPage(1); }}
-          />
-        </div>
-      </div>
       <div className="card tbl-card tbl-card-fill">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl">

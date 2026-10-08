@@ -88,10 +88,10 @@ func TestScopedTableSetIsNotEmptyAndHasNoGlobals(t *testing.T) {
 	// from the map" defect again; their rows were never stamped either.
 	// 55 -> 57: approval_stage_settings and approval_actions — the per-tenant
 	// approval-workflow configuration and its audit trail (internal/workflow).
-	// 57 -> 59: approval_chains and approval_category_modes — the role-based
+	// 57 -> 59, +1 loan_accruals (interest/penal accrual history): approval_chains and approval_category_modes — the role-based
 	// approval chains that replaced the per-stage on/off (internal/workflow).
-	if len(tenantScopedTables) != 59 {
-		t.Errorf("expected 59 tenant-scoped tables, got %d — update this test "+
+	if len(tenantScopedTables) != 61 {
+		t.Errorf("expected 61 tenant-scoped tables, got %d — update this test "+
 			"deliberately when adding a model, so a new table cannot slip in "+
 			"unfiltered", len(tenantScopedTables))
 	}
