@@ -1,5 +1,7 @@
 "use client";
 
+import { usePersistedState } from "@/product/hooks/usePersistedState";
+import { BackLink } from "@/product/components/ui/BackLink";
 import { useEffect, useState } from "react";
 import { fmt, fmtDate } from "@/product/utils/format";
 import { useToast } from "@/product/components/Toast";
@@ -17,7 +19,7 @@ import { listActiveBranches, type BranchView } from "@/product/pages/branches/se
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
-import { particularsFor, loanNumberFor, refCellFor, modeCellFor, BillLink } from "@/product/pages/cash/components/ledgerCells";
+import { particularsFor, refTitleFor, refCellFor, modeCellFor, BillLink } from "@/product/pages/cash/components/ledgerCells";
 import { singleFlight } from "@/product/utils/singleFlight";
 
 // Mirrors backend/internal/cash/repository.go's Category* constants.
@@ -43,16 +45,14 @@ function Pager({ page, total, pageSize, onChange }: { page: number; total: numbe
   );
 }
 
-function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; balance: number }[] {
-  const chronological = [...items].reverse();
-  let running = 0;
-  const withBalance = chronological.map((m) => {
-    // Cash in (credit) raises the balance, cash out (debit) lowers it — same
-    // sign as Cash.tsx's Ledger tab.
-    running += m.type === "out" ? -m.amount : m.amount;
-    return { m, balance: running };
+function withRunningBalance(items: CashMovementView[], topBalance: number): { m: CashMovementView; balance: number }[] {
+  // Newest first; topBalance (from the server) is the balance after the first row.
+  let running = topBalance;
+  return items.map((m) => {
+    const balance = running;
+    running -= m.type === "out" ? -m.amount : m.amount;
+    return { m, balance };
   });
-  return withBalance.reverse();
 }
 
 /* Reports tile for previewing + downloading the ledger — Branch, Customer,
@@ -69,10 +69,12 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: no branch filter — every row is its one branch.
   const { singleBranch } = useBranding();
-  const [filters, setFilters] = useState<FilterValue>({});
+  const [filters, setFilters] = usePersistedState<FilterValue>("reports:ledger-filters", {});
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<CashMovementView[]>([]);
   const [total, setTotal] = useState(0);
+  const [pageBalance, setPageBalance] = useState(0);
+  const [sums, setSums] = useState({ debit: 0, credit: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -121,6 +123,8 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
       .then((r) => {
         setItems(r.items);
         setTotal(r.total);
+        setPageBalance(r.pageBalance);
+        setSums({ debit: r.totalDebit, credit: r.totalCredit });
         setError("");
       })
       .catch((e) => {
@@ -148,38 +152,49 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
     }
   }); }
 
-  const rows = withRunningBalance(items);
+  const rows = withRunningBalance(items, pageBalance);
 
   return (
     <>
       <div className="page-h">
         <div>
-          <button className="btn plain sm" style={{ marginBottom: 6 }} onClick={onBack}>← Back to Reports</button>
-          <h1>Ledger / Statement Export</h1>
+          <BackLink onClick={onBack} label="Back to Reports" />
+          <h1>Ledger Report</h1>
           <p>Preview and download the ledger — narrow it by branch, customer, type or date</p>
         </div>
-        <div className="sp" />
-        <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips size="md" />
-        {canExport && (
-          <>
-            <button className="btn ghost" disabled={exporting} onClick={() => onDownload("pdf")}>
-              <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
-            </button>
-            <button className="btn" disabled={exporting} onClick={() => onDownload("xlsx")}>
-              <Icon name="download" /> {exporting ? "Exporting…" : "Export Excel"}
-            </button>
-          </>
-        )}
       </div>
       <hr className="gold-rule" />
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
+      <div className="kpis" style={{ marginBottom: 16 }}>
+        <div className="kpi"><div className="l">Net</div><div className="v">{fmt(sums.credit - sums.debit)}</div></div>
+        <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(sums.credit)}</div></div>
+        <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(sums.debit)}</div></div>
+      </div>
+
       <div className="card tbl-card tbl-card-fill">
+        <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
+          <h3>Transactions</h3>
+          <div className="sp" />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips hideClearAll />
+            {canExport && (
+              <>
+                <button className="btn ghost sm" disabled={exporting} onClick={() => onDownload("pdf")}>
+                  <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
+                </button>
+                <button className="btn sm" disabled={exporting} onClick={() => onDownload("xlsx")}>
+                  <Icon name="download" /> {exporting ? "Exporting…" : "Export Excel"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl">
+          <table className="tbl tbl-center">
             <thead>
-              <tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
+              <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
             <tbody>
               {loading ? (
@@ -190,8 +205,8 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
                 <tr key={m.id}>
                   <td>{fmtDate(m.d)}</td>
                   {/* Same clickable cells as Cash.tsx's Ledger tab (ledgerCells.tsx). */}
-                  <td className="ledger-ref" title={m.bankName || loanNumberFor(m)}>{refCellFor(m, categoryIds)}</td>
-                  <td>{particularsFor(m, categoryIds)}<BillLink url={m.receiptImage} title={m.purpose || m.source || "Entry"} /></td>
+                  <td className="ledger-ref" title={refTitleFor(m)}>{refCellFor(m, categoryIds)}</td>
+                  <td style={{ textAlign: "center" }}>{particularsFor(m, categoryIds)}<BillLink url={m.receiptImage} title={m.purpose || m.source || "Entry"} /></td>
                   <td>{modeCellFor(m.mode)}</td>
                   <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
                   <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>

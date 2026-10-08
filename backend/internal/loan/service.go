@@ -1105,7 +1105,7 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 	// AllAuctionCases works the same way, keeping IsDefaulted loans plus the
 	// stored Auction Eligible / Auctioned - Balance Due statuses.
 	limit, offset := f.Limit, f.Offset
-	if f.OnlyDefaulted || f.AllAuctionCases || f.Servicing != "" {
+	if f.OnlyDefaulted || f.AllAuctionCases || f.Servicing != "" || len(f.ServicingIn) > 0 {
 		f.Limit, f.Offset = 0, 0
 	}
 	loans, total, err := s.repo.FindAll(ctx, f)
@@ -1131,6 +1131,21 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 		loans, total = pageKept(loans, limit, offset, func(l *Loan) bool { return l.IsDefaulted })
 	} else if f.AllAuctionCases {
 		loans, total = pageKept(loans, limit, offset, isAuctionCase)
+	} else if len(f.ServicingIn) > 0 {
+		servicingIn, statusIn := f.ServicingIn, f.StatusIn
+		loans, total = pageKept(loans, limit, offset, func(l *Loan) bool {
+			for _, st := range statusIn {
+				if l.Status == st {
+					return true
+				}
+			}
+			for _, sv := range servicingIn {
+				if matchesServicing(l, sv) {
+					return true
+				}
+			}
+			return false
+		})
 	} else if f.Servicing != "" {
 		servicing := f.Servicing
 		loans, total = pageKept(loans, limit, offset, func(l *Loan) bool { return matchesServicing(l, servicing) })
@@ -2404,6 +2419,15 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	}
 
 	s.accrueAndSave(ctx, l)
+
+	// A payment made today is stamped with the moment it is actually saved —
+	// after the interest it triggered was booked above — so the ledger, which
+	// orders purely by time, shows that debit before the payment. (The
+	// handler captured PaidOn before accruing, so it would otherwise be a few
+	// milliseconds EARLIER than the charge.) A backdated payment keeps its date.
+	if now := time.Now(); !in.PaidOn.After(now) && in.PaidOn.Format("2006-01-02") == now.Format("2006-01-02") {
+		in.PaidOn = now
+	}
 
 	// Charging the fee before allocating means this same payment's Amount
 	// can immediately go toward clearing it — fee has first priority in

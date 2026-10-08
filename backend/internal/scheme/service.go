@@ -152,8 +152,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Scheme, error) {
 // List returns schemes, optionally scoped to branchID (nil = all branches —
 // Administrator only, see platform.GetBranchScope). limit/offset mirror
 // FindAll's pagination convention (0 = unpaged).
-func (s *Service) List(ctx context.Context, query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
-	return s.repo.FindAll(ctx, query, branchID, limit, offset)
+func (s *Service) List(ctx context.Context, query string, methods []string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
+	return s.repo.FindAll(ctx, query, methods, branchID, limit, offset)
 }
 
 func (s *Service) ListActive(ctx context.Context, query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {

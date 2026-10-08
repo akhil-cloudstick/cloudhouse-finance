@@ -47,7 +47,13 @@ func (h *Handler) List(c *gin.Context) {
 			f.LockerID = uint(n)
 		}
 	}
-	f.Status = c.Query("status")
+	if statuses := splitCSV(c.Query("status")); len(statuses) > 1 {
+		f.StatusIn = statuses
+	} else {
+		f.Status = c.Query("status")
+	}
+	f.FilterBranchIDs = parseUintCSV(c.Query("branchId"))
+	f.CustomerIDs = parseUintCSV(c.Query("customerId"))
 	f.Q = strings.TrimSpace(c.Query("q"))
 
 	limit, _ := strconv.Atoi(c.Query("limit"))

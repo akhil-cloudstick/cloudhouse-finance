@@ -562,6 +562,10 @@ func (s *MovementService) SumFiltered(ctx context.Context, branchID *uint, fromD
 	return s.repo.SumFiltered(ctx, branchID, fromDate, toDate, filter, search)
 }
 
+func (s *MovementService) NetOfNewest(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string, n int) (float64, error) {
+	return s.repo.NetOfNewest(ctx, branchID, fromDate, toDate, filter, search, n)
+}
+
 // PartyTotals is the Party Transactions page's KPI row — Total In / Total
 // Out / Net across every movement matching the same filter as the list
 // beneath it (not just the current page), plus how many transactions each

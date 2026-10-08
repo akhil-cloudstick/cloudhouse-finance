@@ -97,10 +97,10 @@ function useSubTablePage<T>(
 function Pager({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
-    <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
-      <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
-      <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
-      <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <button className="btn plain sm" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
+      <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+      <button className="btn plain sm" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
     </div>
   );
 }
@@ -245,52 +245,10 @@ export function CustomerDetail({ id }: { id?: string }) {
   // One icon per tab, same order as TABLE_TABS — shown on the rail so each
   // stop says which table it selects.
   const TABLE_TAB_ICONS = ["list", "scale", "coin", "bank", "gavel", "chart"];
-  // Lets a mouse-wheel or trackpad scroll over the tabs section switch tabs.
-  // wheelLock debounces rapid scroll events from a single physical gesture.
-  const wheelLock = useRef(false);
+  // Tables are switched only by clicking the rail buttons — the mouse wheel /
+  // trackpad no longer changes tab (it scrolls the table or page as usual).
   const railRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
-  const activeTableRef = useRef(activeTable);
-  activeTableRef.current = activeTable;
-
-  // A plain React onWheel prop can never actually stop the page from
-  // scrolling here: React attaches its synthetic wheel listener at the root
-  // as passive (for scroll-performance reasons), and a passive listener's
-  // preventDefault() is silently ignored by the browser. A real,
-  // imperatively-attached DOM listener with {passive:false} is used to
-  // prevent default page scrolling while switching tabs and allow normal page
-  // scrolling when hitting the first or last tab boundaries.
-  useEffect(() => {
-    const row = rowRef.current;
-    if (!row) return;
-    function onWheel(e: WheelEvent) {
-      const absY = Math.abs(e.deltaY);
-      const absX = Math.abs(e.deltaX);
-      if (absY < 5 && absX < 5) return;
-
-      const dir = absY >= absX ? (e.deltaY > 0 ? 1 : -1) : (e.deltaX > 0 ? 1 : -1);
-      const currentTab = activeTableRef.current;
-      const nextTab = currentTab + dir;
-
-      // At boundary? (e.g. Tab 0 scrolling up or last tab scrolling down)
-      // Allow natural page scrolling
-      if (nextTab < 0 || nextTab >= TABLE_TABS.length) {
-        return;
-      }
-
-      // Inside tab bounds: prevent page scroll jump and switch tabs
-      e.preventDefault();
-      if (wheelLock.current) return;
-
-      setActiveTable(nextTab);
-      wheelLock.current = true;
-      setTimeout(() => {
-        wheelLock.current = false;
-      }, 250);
-    }
-    row.addEventListener("wheel", onWheel, { passive: false });
-    return () => row.removeEventListener("wheel", onWheel);
-  });
 
   // Edit Customer / Request Extension-Release / New Loan / Delete Customer
   // used to be 4 separate header buttons — collapsed into one "Actions"
@@ -343,7 +301,7 @@ export function CustomerDetail({ id }: { id?: string }) {
       if (status === "Verified") {
         toast(`PAN verified — Setu returned "${result.matchedName}". ${result.message}`);
       } else if (status === "Name Mismatch") {
-        toast(`PAN is valid but registered to a different name — Setu returned "${result.matchedName}", which doesn't match this customer's name. Please review before proceeding.`);
+        toast("PAN verification failed — Name does not match.");
       } else {
         toast(`PAN verification failed — ${result.message}`);
       }
@@ -384,8 +342,9 @@ export function CustomerDetail({ id }: { id?: string }) {
       const status = result.customer.aadhaarStatus;
       if (status === "Verified") {
         toast(`Aadhaar verified via DigiLocker — matched name "${result.matchedName}".`);
-      } else if (status === "Name Mismatch") {
-        toast(`Aadhaar verified but registered name "${result.matchedName}" doesn't match this customer's name. Please review before proceeding.`);
+      } else if (status === "Failed") {
+        const reasons = result.failureReasons?.length ? result.failureReasons.join("; ") : "details do not match the customer profile";
+        toast(`Aadhaar verification failed — ${reasons}.`);
       }
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not check Aadhaar verification status.");
@@ -424,7 +383,7 @@ export function CustomerDetail({ id }: { id?: string }) {
   }
 
   return (
-    <div className="page-fade-in">
+    <div className="page-fade-in page-fill">
       <div className="page-h">
         <div className="dhead">
           <div className="big-av">{initials(c.name)}</div>
@@ -573,9 +532,9 @@ export function CustomerDetail({ id }: { id?: string }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">Aadhaar</div><StatusChip status={c.aadhaarStatus} /></div>
                   <div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span>{c.aadhaarLast4 ? "XXXX-XXXX-" + c.aadhaarLast4 : "—"}</span>
-                    {canUpdateCustomers && c.aadhaarStatus !== "Verified" && !aadhaarStarted && (
+                    {canUpdateCustomers && c.aadhaarLast4 && c.aadhaarStatus !== "Verified" && !aadhaarStarted && (
                       <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={sendAadhaarVerificationLink} disabled={startingAadhaar}>
-                        {startingAadhaar ? "Starting…" : "Verify via DigiLocker"}
+                        {startingAadhaar ? "Starting…" : "Verify Aadhaar"}
                       </button>
                     )}
                     {canUpdateCustomers && c.aadhaarStatus !== "Verified" && aadhaarStarted && (
@@ -662,9 +621,8 @@ export function CustomerDetail({ id }: { id?: string }) {
         <div ref={rowRef} className="cust-360-tabrow" style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }}>
           {/* The rail selects the table below. Each stop carries the icon for
             its own table (loans / ornaments / payments / bank / auction) so
-            the rail reads without hovering for the tooltip. onWheel lives on
-            this whole flex row (rail + table card) to enable smooth scrolling
-            tab switching. */}
+            the rail reads without hovering for the tooltip. (No wheel handler:
+            tabs change by click only.) */}
           <div className="tab-rail" ref={railRef}>
             <div className="tab-rail-line" />
             {TABLE_TABS.map((label, i) => (
@@ -688,7 +646,7 @@ export function CustomerDetail({ id }: { id?: string }) {
               {activeTable === 5 ? (
                 <>
                   <div className="sp" />
-                  <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips />
+                  <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips hideClearAll />
                   {canExport && (
                     <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>
                       <Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}
@@ -699,7 +657,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <>
                   <div className="sp" />
                   {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
-                  <FilterPanel categories={openedDateCategories} value={openedDateFilter} onChange={setOpenedDateFilter} hideChips />
+                  <FilterPanel categories={openedDateCategories} value={openedDateFilter} onChange={setOpenedDateFilter} hideChips hideClearAll />
                 </>
               )}
             </div>

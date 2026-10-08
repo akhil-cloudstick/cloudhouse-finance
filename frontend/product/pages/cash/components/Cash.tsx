@@ -1,5 +1,6 @@
 "use client";
 
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
@@ -15,7 +16,7 @@ import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { rememberedLedgerPage, reloadedLedgerPosition, saveLedgerPosition, useLedgerFocus } from "@/product/hooks/useLedgerFocus";
-import { particularsFor, loanNumberFor, refCellFor, modeCellFor, BillLink } from "@/product/pages/cash/components/ledgerCells";
+import { particularsFor, refTitleFor, refCellFor, modeCellFor, BillLink } from "@/product/pages/cash/components/ledgerCells";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
   approveExpense, rejectExpense,
@@ -64,23 +65,25 @@ function KpiParts({ parts, keepZero }: { parts: [string, number][]; keepZero?: b
   );
 }
 
-function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; balance: number }[] {
-  const chronological = [...items].reverse();
-  let running = 0;
-  const withBalance = chronological.map((m) => {
-    // Cash in raises the balance, cash out lowers it. (Debit here is the
-    // outflow column, so the sign is the reverse of a customer/party ledger.)
-    running += m.type === "out" ? -m.amount : m.amount;
-    return { m, balance: running };
+// Newest-first rows, each with the balance AFTER it. The newest row's balance
+// comes from the server (topBalance), so every page shows the ledger's true
+// running balance rather than one that restarts from zero on each page.
+function withRunningBalance(items: CashMovementView[], topBalance: number): { m: CashMovementView; balance: number }[] {
+  let running = topBalance;
+  return items.map((m) => {
+    const balance = running;
+    // Cash in raises the balance, cash out lowers it, so stepping back to the
+    // previous (older) row undoes this row's effect.
+    running -= m.type === "out" ? -m.amount : m.amount;
+    return { m, balance };
   });
-  return withBalance.reverse();
 }
 
 function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance: number; categoryIds: Record<string, number> }) {
   return (
     <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
       <td data-label="Date">{fmtDate(m.d)}</td>
-      <td className="ledger-ref" data-label="Ref No" title={m.bankName || loanNumberFor(m)}>{refCellFor(m, categoryIds)}</td>
+      <td className="ledger-ref" data-label="Ref No" title={refTitleFor(m)}>{refCellFor(m, categoryIds)}</td>
       <td data-label="Particulars">{particularsFor(m, categoryIds)}<BillLink url={m.receiptImage} title={m.purpose || m.source || "Entry"} /></td>
       <td data-label="Mode">{modeCellFor(m.mode)}</td>
       <td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
@@ -178,6 +181,9 @@ export function Cash() {
   // Table-footer totals from the server — every row matching the current
   // filters, not just the loaded page.
   const [movementSums, setMovementSums] = useState({ debit: 0, credit: 0 });
+  // Running balance after the page's newest row, from the server — the whole
+  // filtered ledger's net minus the rows on earlier pages.
+  const [movementsPageBalance, setMovementsPageBalance] = useState(0);
   const [expenseSum, setExpenseSum] = useState(0);
   const [goldSaleSums, setGoldSaleSums] = useState({ sold: 0, cost: 0, profit: 0 });
   // Back from a drill-down, each table reopens on the page the user left.
@@ -210,20 +216,20 @@ export function Cash() {
   // Cash Movements' own date-range filter — empty means "no bound", the
   // table's default unfiltered view. Only this table is filtered; the KPI
   // row above and the Expense Register tab are untouched.
-  const [movementsFrom, setMovementsFrom] = useState("");
-  const [movementsTo, setMovementsTo] = useState("");
+  const [movementsFrom, setMovementsFrom] = usePersistedState("cash:from", "");
+  const [movementsTo, setMovementsTo] = usePersistedState("cash:to", "");
   // Loan/Auction/Collection/Expenses — narrows which cash movements show,
   // same Category* buckets backend/internal/cash/repository.go's FindAll
   // filters on server-side (not a client-side re-filter of loaded rows).
   // Now multi-select (the Type filter section allows checking several
   // buckets at once), so this is an array rather than the old single value.
-  const [movementsTypes, setMovementsTypes] = useState<CashMovementCategory[]>([]);
+  const [movementsTypes, setMovementsTypes] = usePersistedState<CashMovementCategory[]>("cash:types", []);
   // Branch/Customer sections of the Ledger filter — independent of the KPI
   // row's own single `branchId` above (which picks whose summary to show);
   // these narrow the movement *rows* across however many branches/customers
   // are checked, same server-side filter as movementsTypes.
-  const [movementsBranchIds, setMovementsBranchIds] = useState<string[]>([]);
-  const [movementsCustomerIds, setMovementsCustomerIds] = useState<string[]>([]);
+  const [movementsBranchIds, setMovementsBranchIds] = usePersistedState<string[]>("cash:branches", []);
+  const [movementsCustomerIds, setMovementsCustomerIds] = usePersistedState<string[]>("cash:customers", []);
   const [allBranches, setAllBranches] = useState<BranchView[]>([]);
   const [downloadingMovements, setDownloadingMovements] = useState(false);
   const [downloadingExpenses, setDownloadingExpenses] = useState(false);
@@ -288,8 +294,9 @@ export function Cash() {
       branchIds: movementsBranchIds.length ? movementsBranchIds : undefined,
       customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
       types: movementsTypes.length ? movementsTypes : undefined,
-    }).then(({ items, hasMore, total, totalDebit, totalCredit }) => {
+    }).then(({ items, hasMore, total, totalDebit, totalCredit, pageBalance }) => {
       setMovements(items);
+      setMovementsPageBalance(pageBalance);
       setMovementsHasMore(hasMore);
       setMovementsTotal(total);
       setMovementSums({ debit: totalDebit, credit: totalCredit });
@@ -354,10 +361,9 @@ export function Cash() {
     );
   }
 
-  // Running balance over the currently loaded (paginated) page only — same
-  // best-effort approach LedgerExportView.tsx's preview table uses, not a
-  // true running balance across the whole filtered set.
-  const movementsWithBalance = withRunningBalance(movements);
+  // True running balance: each page's figures continue from the server's
+  // balance for its newest row, so the top row of page 1 equals the ledger's net.
+  const movementsWithBalance = withRunningBalance(movements, movementsPageBalance);
 
   // Both downloads use whatever's currently in the filter state (date
   // range + category for movements) — never the loaded page's row count —
@@ -599,11 +605,16 @@ export function Cash() {
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
             <button className="btn plain sm" disabled={goldSalesPage <= 1} onClick={() => setGoldSalesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>
             <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Sold amount automatically books into Cash-in-Hand as a cash-in movement</span>
+            <span
+              title="Sold amount automatically books into Cash-in-Hand as a cash-in movement"
+              style={{ fontSize: 12.5, color: "var(--muted)", flex: "1 1 0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              Sold amount automatically books into Cash-in-Hand as a cash-in movement
+            </span>
             <FooterTotals items={[
               { label: "Total Sold", value: goldSaleSums.sold },
               { label: "Total Cost", value: goldSaleSums.cost },

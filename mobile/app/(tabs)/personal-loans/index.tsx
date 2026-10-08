@@ -37,6 +37,7 @@ import { ApprovalChainPanel } from "../../../src/components/loanRequests/Approva
 import { isFlowOff, stageByKey, useApprovalWorkflow } from "../../../src/api/approvalWorkflow";
 import { SheetScrollView } from "../../../src/components/BottomSheetModal";
 import { useServerList } from "../../../src/hooks/useServerList";
+import { usePersistedState } from "../../../src/hooks/usePersistedState";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { listCustomers } from "../../../src/api/customers";
 import { createBank, listBanksPage } from "../../../src/api/banks";
@@ -98,8 +99,8 @@ export default function PersonalLoansScreen() {
   const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
 
-  const [freq, setFreq] = useState<FreqFilter>("All");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  const [freq, setFreq] = usePersistedState<FreqFilter>("personalLoans:freq", "All");
+  const [statusFilter, setStatusFilter] = usePersistedState<StatusFilter>("personalLoans:status", "All");
   const [filterOpen, setFilterOpen] = useState(false);
   const [draftFreq, setDraftFreq] = useState<FreqFilter>("All");
   const [draftStatus, setDraftStatus] = useState<StatusFilter>("All");
@@ -118,7 +119,7 @@ export default function PersonalLoansScreen() {
   const filters: Filters = { frequency: freq === "All" ? undefined : freq, status: statusFilter === "Pending approval" ? "Pending Approval" : undefined };
   const filterCount = (freq !== "All" ? 1 : 0) + (statusFilter !== "All" ? 1 : 0);
   const filterSummary = [statusFilter !== "All" ? statusFilter : null, freq === "All" ? "All frequencies" : `${freq} collection`].filter(Boolean).join(" · ");
-  const list = useServerList<PersonalLoan, Filters>({ key: ["personalLoans", "list"], filters, fetchPage: (p) => listPersonalLoansPage(p) });
+  const list = useServerList<PersonalLoan, Filters>({ key: ["personalLoans", "list"], persistKey: "personalLoans", filters, fetchPage: (p) => listPersonalLoansPage(p) });
 
   return (
     <Screen

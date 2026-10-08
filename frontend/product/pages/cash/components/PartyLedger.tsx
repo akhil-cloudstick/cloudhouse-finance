@@ -1,11 +1,12 @@
 "use client";
 
+import { usePersistedState } from "@/product/hooks/usePersistedState";
+import { BackLink } from "@/product/components/ui/BackLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt, fmtDate } from "@/product/utils/format";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { ApiError } from "@/product/services/httpClient";
-import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
 import { loanCatRef, BillLink } from "@/product/pages/cash/components/ledgerCells";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
@@ -60,8 +61,6 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
   // Back from a drill-down, this ledger reopens on the page the user left.
   const [page, setPage] = useState(() => rememberedLedgerPage("party") ?? 1);
   useEffect(() => { saveLedgerPosition({ party: page }); }, [page]);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -73,10 +72,14 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
   // Transfer/Cheque/Cash all pass through a bank); customer/category ledgers
   // don't get this, same "meaningless outside a bank ledger" reasoning as
   // ModeLedgerPage's own Bank filter being Cash-only-excluded.
-  const [modeFilters, setModeFilters] = useState<FilterValue>({});
+  const [modeFilters, setModeFilters] = usePersistedState<FilterValue>("party:filters", {});
   const modeValues = (Array.isArray(modeFilters.mode) ? modeFilters.mode : []) as LedgerMode[];
+  const fromDate = modeFilters.__dateFrom || "";
+  const toDate = modeFilters.__dateTo || "";
+  // One grouped filter: Mode (bank ledgers only) and Date.
   const modeFilterCategories: FilterCategory[] = [
-    { key: "mode", label: "Mode", kind: "static", options: LEDGER_MODES.map((m) => ({ value: m, label: m })) },
+    ...(kind === "bank" ? [{ key: "mode", label: "Mode", kind: "static" as const, options: LEDGER_MODES.map((m) => ({ value: m, label: m })) }] : []),
+    { key: "__date", label: "Date", kind: "date" as const },
   ];
 
   useEffect(() => {
@@ -116,10 +119,6 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
     setPage(rememberedLedgerPage("party") ?? 1);
   }, [ledgerKey]);
 
-  // Only one Mode can meaningfully narrow a bank ledger to a single-source
-  // query (getModeLedger) — with none or several checked, the ledger falls
-  // back to the combined all-modes view (getBankLedger).
-  const singleMode = kind === "bank" && modeValues.length === 1 ? modeValues[0] : undefined;
 
   // Only the latest request may land — switching ledger/page fires a new
   // one before the previous has answered.
@@ -130,8 +129,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
     setLoading(true);
     const range = { fromDate: fromDate || undefined, toDate: toDate || undefined };
     const call =
-      singleMode ? getModeLedger(singleMode, page, { ...range, bankId: numericId }, PARTY_PAGE_SIZE)
-      : kind === "bank" ? getBankLedger(numericId, page, range, PARTY_PAGE_SIZE)
+      kind === "bank" ? getBankLedger(numericId, page, { ...range, modes: modeValues }, PARTY_PAGE_SIZE)
       : kind === "category" ? getExpenseCategoryLedger(numericId, page, range, EXPENSE_CATEGORY_LEDGER_PAGE_SIZE)
       : listCashMovementsByCustomer(numericId, page, range, PARTY_PAGE_SIZE);
     call
@@ -150,7 +148,8 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
         setError(e instanceof ApiError ? e.message : "Could not load this ledger.");
       })
       .finally(() => { if (reqId === requestIdRef.current) setLoading(false); });
-  }, [kind, numericId, page, fromDate, toDate, singleMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, numericId, page, fromDate, toDate, JSON.stringify(modeValues)]);
 
   // Server-side sums over every row matching the filters, not just this page.
   const totalDebit = totals.debit;
@@ -163,8 +162,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
     setExporting(true);
     try {
       const range = { fromDate: fromDate || undefined, toDate: toDate || undefined };
-      if (singleMode) await downloadLedger("mode", singleMode, { ...range, bankId: numericId });
-      else await downloadLedger(kind, numericId, range);
+      await downloadLedger(kind, numericId, kind === "bank" ? { ...range, modes: modeValues } : range);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not download the ledger.");
     } finally {
@@ -187,27 +185,18 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
     <>
       <div className="page-h">
         <div>
-          <a href={routeHref("ledger")} onClick={(e) => { if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); goBack("ledger"); }} style={{ fontSize: 13 }}>← Back</a>
+          <BackLink href={routeHref("ledger")} onClick={() => goBack("ledger")} />
           <h1>{label || "Loading…"}</h1>
           {!loan && <p>{`Every ${kind === "category" ? "expense recorded under this category" : `transaction ever recorded against this ${kind}`}`}</p>}
         </div>
-        <div className="sp" />
-        {canExport && (
-          <button className="btn ghost" disabled={exporting} onClick={onExport} title="PDF of every transaction in the selected date range">
-            <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
-          </button>
-        )}
       </div>
       <hr className="gold-rule" />
 
-      {/* A loan ledger's table already carries its running balance — no tiles. */}
-      {!loan && (
-        <div className="kpis" style={{ marginBottom: 16 }}>
-          <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totalCredit - totalDebit)}</div></div>
-          <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totalCredit)}</div></div>
-          <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totalDebit)}</div></div>
-        </div>
-      )}
+      <div className="kpis" style={{ marginBottom: 16 }}>
+        <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totalCredit - totalDebit)}</div></div>
+        <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totalCredit)}</div></div>
+        <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totalDebit)}</div></div>
+      </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
@@ -216,20 +205,18 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
           <h3>Transactions</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <DatePicker value={fromDate} onChange={setFromDate} placeholder="From…" max={toDate || undefined} />
-            <DatePicker value={toDate} onChange={setToDate} placeholder="To…" min={fromDate || undefined} />
-            {(fromDate || toDate) && (
-              <button className="btn ghost sm" onClick={() => { setFromDate(""); setToDate(""); }}>Clear</button>
-            )}
-            {kind === "bank" && (
-              <FilterPanel categories={modeFilterCategories} value={modeFilters} onChange={setModeFilters} hideChips />
+            <FilterPanel categories={modeFilterCategories} value={modeFilters} onChange={setModeFilters} hideChips hideClearAll />
+            {canExport && (
+              <button className="btn ghost sm" disabled={exporting} onClick={onExport} title="PDF of every transaction in the selected date range">
+                <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
+              </button>
             )}
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl ledger-amt" data-ledger-scope="party" data-ledger-page={page}>
+          <table className="tbl tbl-center ledger-amt" data-ledger-scope="party" data-ledger-page={page}>
             <thead>
-              <tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>{loan ? "Mode" : "Method"}</th>{loan && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
+              <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th>{loan ? "Mode" : "Method"}</th>{loan && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
             <tbody>
               {loading ? (
@@ -276,16 +263,17 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                       loanCatRef(r, categoryIds)
                     )}
                   </td>
-                  <td>
+                  <td style={{ textAlign: "center" }}>
                     {r.description || r.type}<BillLink url={r.receiptImage} title={r.description || r.type} />
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4, marginTop: 4 }}>
                       {kind !== "customer" && r.customerId ? (
                         <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} />
                       ) : null}
                       {!loan && kind !== "bank" && r.bankId ? (
                         <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} />
                       ) : null}
-                      {kind !== "category" ? <CategoryChip text={r.description} categoryIds={categoryIds} /> : null}                    </div>
+                      {kind !== "category" ? <CategoryChip text={r.description} categoryIds={categoryIds} /> : null}
+                    </div>
                   </td>
                   <td>
                     {!r.method ? "—"

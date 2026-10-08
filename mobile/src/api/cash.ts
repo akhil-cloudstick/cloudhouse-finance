@@ -197,7 +197,7 @@ export function getBankLedger(bankId: number, params: LedgerParams) {
   return apiRequest<LedgerPage>(`/banks/${bankId}/ledger`, { params });
 }
 
-export function getModeLedger(mode: string, params: LedgerParams & { bankId?: number }) {
+export function getModeLedger(mode: string, params: LedgerParams & { bankId?: number; branchIds?: string }) {
   return apiRequest<LedgerPage>("/cash-movements/mode-ledger", { params: { ...params, mode } });
 }
 
@@ -299,4 +299,17 @@ export type LoanBalance = { principal: number; drawn: number; repaid: number; ba
 export async function getLoanBalance(id: number): Promise<LoanBalance | null> {
   const res = await apiRequest<{ isLoan: boolean; balance: LoanBalance }>(`/cash-sources/${id}`);
   return res.isLoan ? res.balance : null;
+}
+
+// Branch ledger — GET /cash-movements/transactions/branch/:id (web's
+// listCashMovementsByBranch). Only the date range is applied server side;
+// totals cover every row in that range.
+export type BranchLedgerPage = {
+  items: CashMovement[];
+  total: number;
+  totals: { totalIn: number; totalOut: number; net: number; inCount?: number; outCount?: number };
+};
+
+export function listCashMovementsByBranch(branchId: number, params: LedgerParams) {
+  return apiRequest<BranchLedgerPage>(`/cash-movements/transactions/branch/${branchId}`, { params });
 }

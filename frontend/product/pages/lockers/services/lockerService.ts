@@ -46,8 +46,12 @@ function toView(l: BackendLocker): LockerView {
   };
 }
 
-export async function listLockers(): Promise<LockerView[]> {
-  const rec = await apiFetch<BackendLocker[]>("/lockers");
+export async function listLockers(filters?: { branchId?: number[]; status?: string[] }): Promise<LockerView[]> {
+  const params = new URLSearchParams();
+  if (filters?.branchId?.length) params.set("branchId", filters.branchId.join(","));
+  if (filters?.status?.length) params.set("status", filters.status.join(","));
+  const qs = params.toString();
+  const rec = await apiFetch<BackendLocker[]>(`/lockers${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toView);
 }
 

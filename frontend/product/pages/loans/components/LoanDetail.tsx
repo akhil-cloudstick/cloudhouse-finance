@@ -1,5 +1,7 @@
 "use client";
 
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
 import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
@@ -223,8 +225,25 @@ export function LoanDetail({ id }: { id?: string }) {
   const [statementBusy, setStatementBusy] = useState(false);
   // Payment Ledger — filtered and paged by the backend (getLoanLedger), one
   // page held at a time. A date filter change goes back to page 1.
-  const [ledgerFromDate, setLedgerFromDate] = useState("");
-  const [ledgerToDate, setLedgerToDate] = useState("");
+  // One grouped filter: entry Type and Date.
+  const [ledgerFilters, setLedgerFilters] = usePersistedState<FilterValue>("loan-ledger:filters", {});
+  const ledgerFromDate = ledgerFilters.__dateFrom || "";
+  const ledgerToDate = ledgerFilters.__dateTo || "";
+  const ledgerKinds = Array.isArray(ledgerFilters.kind) ? ledgerFilters.kind : [];
+  const ledgerCategories: FilterCategory[] = [
+    {
+      key: "kind", label: "Type", kind: "static",
+      options: [
+        { value: "sanction", label: "Sanction" },
+        { value: "payment", label: "Payment" },
+        { value: "topup", label: "Top-Up" },
+        { value: "interest", label: "Interest" },
+        { value: "penal", label: "Penal Interest" },
+        { value: "auction", label: "Auction" },
+      ],
+    },
+    { key: "__date", label: "Date", kind: "date" },
+  ];
   const [ledgerExporting, setLedgerExporting] = useState(false);
   const [ledgerPage, setLedgerPage] = useState(1);
   const [ledger, setLedger] = useState<LoanLedgerPage | null>(null);
@@ -234,11 +253,8 @@ export function LoanDetail({ id }: { id?: string }) {
   const ledgerFocusPending = useRef(true);
   const ledgerAdoptedPage = useRef<number | null>(null);
   useLedgerFocus("loan-ledger", !!ledger, [ledger]);
-  function setLedgerRange(from: string, to: string) {
-    setLedgerFromDate(from);
-    setLedgerToDate(to);
-    setLedgerPage(1);
-  }
+  // A filter change goes back to page 1.
+  useEffect(() => { setLedgerPage(1); }, [ledgerFromDate, ledgerToDate, JSON.stringify(ledgerKinds)]);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingSlipAndLabel, setPrintingSlipAndLabel] = useState(false);
@@ -342,6 +358,7 @@ export function LoanDetail({ id }: { id?: string }) {
     getLoanLedger(loan.numericId, {
       from: ledgerFromDate || undefined,
       to: ledgerToDate || undefined,
+      kinds: ledgerKinds.length ? ledgerKinds : undefined,
       limit: LEDGER_PAGE_SIZE,
       offset: (ledgerPage - 1) * LEDGER_PAGE_SIZE,
       ...(focus ? ("key" in focus ? { focusKey: focus.key } : { focusDate: focus.date, focusAmount: focus.amount }) : {}),
@@ -367,7 +384,8 @@ export function LoanDetail({ id }: { id?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [loan, topUpsVersion, ledgerFromDate, ledgerToDate, ledgerPage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan, topUpsVersion, ledgerFromDate, ledgerToDate, JSON.stringify(ledgerKinds), ledgerPage]);
 
   // Re-fetched whenever bankPledgeStatus/status change, e.g. right after a
   // locker check-in/out or the bank pledge being released — the "Gold
@@ -1362,7 +1380,7 @@ export function LoanDetail({ id }: { id?: string }) {
 
       <div className="grid loan-detail-c3">
         <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
-            <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="bd"><div className="kv">
               <div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
               <div className="i"><div className="k">Remaining</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
               {/* Nothing accrues until disbursement, so a pending loan would
@@ -1414,14 +1432,10 @@ export function LoanDetail({ id }: { id?: string }) {
             <div className="hd">
               <h3>Payment Ledger</h3>
               <div className="sp" />
-              <DatePicker value={ledgerFromDate} onChange={(v) => setLedgerRange(v, ledgerToDate)} placeholder="From…" max={ledgerToDate || undefined} />
-              <DatePicker value={ledgerToDate} onChange={(v) => setLedgerRange(ledgerFromDate, v)} placeholder="To…" min={ledgerFromDate || undefined} />
-              {(ledgerFromDate || ledgerToDate) && (
-                <button className="btn ghost sm" onClick={() => setLedgerRange("", "")}>Clear</button>
-              )}
+              <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips hideClearAll />
               {canExport && <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>}
             </div>
-            <div className="tbl-wrap"><table className="tbl ledger-nowrap ledger-amt" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
+            <div className="tbl-wrap"><table className="tbl tbl-center ledger-nowrap ledger-amt" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {ledgerError ? (
@@ -1429,7 +1443,7 @@ export function LoanDetail({ id }: { id?: string }) {
                 ) : !ledger ? (
                   <tr><td colSpan={7} className="empty">Loading ledger…</td></tr>
                 ) : ledgerEntries.length === 0 ? (
-                  <tr><td colSpan={7} className="empty">{ledgerFromDate || ledgerToDate ? "No ledger entries in this date range." : "No ledger entries yet."}</td></tr>
+                  <tr><td colSpan={7} className="empty">{ledgerFromDate || ledgerToDate || ledgerKinds.length ? "No ledger entries match these filters." : "No ledger entries yet."}</td></tr>
                 ) : (
                   ledgerEntries.map((entry) => {
                       if (entry.kind === "sanction") {
@@ -1449,6 +1463,21 @@ export function LoanDetail({ id }: { id?: string }) {
                             </td>
                             <td>{modeCellFor(part ? part.mode : entry.payment?.method)}</td>
                             <td className="num" style={{ color: "var(--red)" }}>{fmt(part ? part.amount : l.disbursedAmount)}</td>
+                            <td className="num">—</td>
+                            <td className="num">{fmt(entry.balance)}</td>
+                          </tr>
+                        );
+                      }
+
+                      if (entry.kind === "interest" || entry.kind === "penal") {
+                        const penal = entry.kind === "penal";
+                        return (
+                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
+                            <td>{fmtDate(entry.date)}</td>
+                            <td>{l.loanNumber}</td>
+                            <td>{penal ? "Penal Interest Charged" : "Interest Charged"}</td>
+                            <td>—</td>
+                            <td className="num" style={{ color: "var(--red)" }}>{fmt(entry.amount)}</td>
                             <td className="num">—</td>
                             <td className="num">{fmt(entry.balance)}</td>
                           </tr>

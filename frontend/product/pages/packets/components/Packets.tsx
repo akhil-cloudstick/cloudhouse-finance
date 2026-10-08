@@ -6,9 +6,13 @@ import { Icon } from "@/product/components/Icon";
 import { fmtW } from "@/product/utils/format";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { LockerModalContent } from "@/product/components/modals/LockerModal";
+import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { listCustomersPage } from "@/product/pages/customers/services/customerService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { listLockers, type LockerView } from "@/product/pages/lockers/services/lockerService";
 import { listPackets, listPacketsPage, getPacketByCode, type PacketView } from "@/product/pages/packets/services/packetService";
-import { Select } from "@/product/components/ui/Select";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { useAuth } from "@/product/providers/auth-context";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 import { navigate, routeHref } from "@/product/services/appRoutes";
@@ -16,11 +20,9 @@ import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 
 /* Mirrors packet.Status* in backend/internal/packet/model.go. */
 const PACKET_STATUS_OPTIONS = [
-  { value: "", label: "All" },
   { value: "Packet Generated", label: "Packet Generated" },
   { value: "Locker Stored", label: "Locker Stored" },
   { value: "Bank Pledged", label: "Bank Pledged" },
-  { value: "Ready For Release", label: "Ready For Release" },
   { value: "Released", label: "Released" },
   { value: "Returned", label: "Returned" },
 ];
@@ -101,7 +103,44 @@ export function Packets() {
   const [lookupErr, setLookupErr] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [status, setStatus] = useState("");
+  const { singleBranch } = useBranding();
+  const [statuses, setStatuses] = usePersistedState<string[]>("packets:statuses", []);
+  const [branchIds, setBranchIds] = usePersistedState<string[]>("packets:branches", []);
+  const [customerIds, setCustomerIds] = usePersistedState<string[]>("packets:customers", []);
+  const [lockerBranchIds, setLockerBranchIds] = usePersistedState<string[]>("lockers:branches", []);
+  const [lockerStatuses, setLockerStatuses] = usePersistedState<string[]>("lockers:statuses", []);
+  const [branches, setBranches] = useState<BranchView[]>([]);
+  useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
+  const branchOptions = branches.map((b) => ({ value: String(b.id), label: b.name }));
+  // Every section is multi-select: a packet matches any selected value within
+  // a section. Customer is backend-searched (async), like the Loans filter.
+  const filterCategories: FilterCategory[] = [
+    { key: "status", label: "Status", kind: "static", options: PACKET_STATUS_OPTIONS },
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branchOptions }]),
+    {
+      key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
+      fetchOptions: (search: string, p: number) =>
+        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined }, 20).then((res) => ({
+          items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
+          hasMore: res.hasMore,
+        })),
+    },
+  ];
+  const filterValue: FilterValue = { status: statuses, branch: branchIds, customer: customerIds };
+  // Locker column filter: which branch a locker is in, and whether it still has room.
+  const lockerFilterCategories: FilterCategory[] = [
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branchOptions }]),
+    { key: "status", label: "Status", kind: "static", options: [
+      { value: "active", label: "Has room" },
+      { value: "full", label: "Full" },
+      { value: "inactive", label: "Inactive" },
+    ] },
+  ];
+  const lockerFilterValue: FilterValue = { branch: lockerBranchIds, status: lockerStatuses };
+  const statusKey = statuses.join(",");
+  const branchKey = branchIds.join(",");
+  const customerKey = customerIds.join(",");
+  const lockerFilterKey = lockerBranchIds.join(",") + "|" + lockerStatuses.join(",");
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   /* Guards against an out-of-order response winning: switching status
@@ -125,7 +164,7 @@ export function Packets() {
   // locker is added/edited), never on a page/status/search change.
   async function loadLockers() {
     try {
-      setLockers(await listLockers());
+      setLockers(await listLockers({ branchId: lockerBranchIds.map(Number), status: lockerStatuses }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load lockers.");
     }
@@ -134,7 +173,7 @@ export function Packets() {
   async function loadPackets() {
     const seq = ++loadSeq.current;
     try {
-      const p = await listPacketsPage(page, { status: status || undefined, q: q || undefined }, pageSize);
+      const p = await listPacketsPage(page, { status: statuses, branchId: branchIds.map(Number), customerId: customerIds.map(Number), q: q || undefined }, pageSize);
       if (seq !== loadSeq.current) return;
       setPackets(p.items);
       setTotal(p.total);
@@ -150,8 +189,8 @@ export function Packets() {
     loadPackets();
   }
 
-  useEffect(() => { loadLockers(); }, []);
-  useEffect(() => { loadPackets(); }, [page, status, q, pageSize]);
+  useEffect(() => { loadLockers(); }, [lockerFilterKey]);
+  useEffect(() => { loadPackets(); }, [page, statusKey, branchKey, customerKey, q, pageSize]);
   // A new search term always starts back at page 1 — otherwise a filter
   // typed while sitting on page 3 can land on an empty page.
   useEffect(() => { setPage(1); }, [q]);
@@ -191,20 +230,6 @@ export function Packets() {
       </div>
       {lookupErr && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: -4, marginBottom: 8 }}>{lookupErr}</p>}
       <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-        <div style={{ width: 200 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
-          {/* setPage in the same handler (not a separate effect keyed on
-              status) so React batches both into one render — a status change
-              therefore issues exactly one request, not one for the old page
-              followed by another for page 1. */}
-          <Select
-            options={PACKET_STATUS_OPTIONS}
-            value={status}
-            onChange={(v) => { setStatus(v); setPage(1); }}
-          />
-        </div>
-      </div>
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Something went wrong. Please try again later.
@@ -212,7 +237,22 @@ export function Packets() {
       )}
       <div className="grid cols21 packets-grid">
         <div className="card tbl-card tbl-card-fill">
-          <div className="hd"><h3>Packets</h3></div>
+          <div className="hd">
+            <h3>Packets</h3>
+            <div className="sp" />
+            <FilterPanel
+              categories={filterCategories}
+              value={filterValue}
+              onChange={(next) => {
+                setStatuses(Array.isArray(next.status) ? next.status : []);
+                setBranchIds(Array.isArray(next.branch) ? next.branch : []);
+                setCustomerIds(Array.isArray(next.customer) ? next.customer : []);
+                setPage(1);
+              }}
+              hideChips
+              hideClearAll
+            />
+          </div>
           <div className="tbl-wrap">
             <table className="tbl tbl-center">
               <thead>
@@ -260,6 +300,19 @@ export function Packets() {
             scrollbar invisible while it scrolls internally past that
             shared height. */}
         <div className="grid scroll-hidden locker-col" style={{ alignContent: "start" }}>
+          <div className="locker-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={{ margin: 0 }}>Lockers</h3>
+            <FilterPanel
+              categories={lockerFilterCategories}
+              value={lockerFilterValue}
+              onChange={(next) => {
+                setLockerBranchIds(Array.isArray(next.branch) ? next.branch : []);
+                setLockerStatuses(Array.isArray(next.status) ? next.status : []);
+              }}
+              hideChips
+              hideClearAll
+            />
+          </div>
           {lockers.length === 0 ? (
             <div className="empty" style={{ padding: "14px 4px" }}>
               {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}

@@ -6,6 +6,8 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { ApiError } from "@/product/services/httpClient";
 import { useAuth } from "@/product/providers/auth-context";
+import { routeHref } from "@/product/services/appRoutes";
+import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 import { BankModalContent } from "@/product/components/modals/BankModal";
 import { MergeBankModalContent } from "@/product/components/modals/MergeBankModal";
 import { listBanks, listBanksPage, deleteBank, type BackendBank } from "@/product/pages/banks/services/bankService";
@@ -78,6 +80,7 @@ export function BanksModalContent() {
 function BankTable({ reloadKey, afterChange, inModal }: { reloadKey: number; afterChange: () => void; inModal?: boolean }) {
   const { openModal } = useModal();
   const { can } = useAuth();
+  const canOpenRoute = useCanOpenRoute();
   const canUpdate = can("Bank_Management", "can_update_bank");
   const canDelete = can("Bank_Management", "can_delete_bank");
   const [banks, setBanks] = useState<BackendBank[] | null>(null);
@@ -159,6 +162,7 @@ function BankTable({ reloadKey, afterChange, inModal }: { reloadKey: number; aft
                 <td>{b.phone || "—"}</td>
                 <td>
                   <div style={{ display: "flex", gap: 12 }}>
+                    {canOpenRoute("ledger-bank") && <a href={routeHref("ledger-bank", b.id)}>Ledger</a>}
                     {canUpdate && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BankModalContent bank={b} onSaved={afterChange} />); }}>Edit</a>}
                     {canDelete && (
                       <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDelete(b); }}>Delete</a>

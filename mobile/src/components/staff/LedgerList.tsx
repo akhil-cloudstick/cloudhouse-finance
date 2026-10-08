@@ -1,12 +1,13 @@
 import React, { useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { AccRow, C, DateField, FabCorner, ServerFlatList, Txt, openPage, toast, type AccDetail } from "../ui";
+import { AccRow, C, GroupedFilter, PillButton, ServerFlatList, Txt, emptyGroupedFilter, gfDate, gfFirst, gfValues, openPage, toast, type AccDetail, type GFSection, type GroupedFilterValue } from "../ui";
 import { useServerList } from "../../hooks/useServerList";
-import { getLedger, listExpenseCategoriesPage, LEDGER_MODES, PICKER_PAGE_SIZE, type LedgerKind, type LedgerRow } from "../../api/cash";
+import { listBranchesPage } from "../../api/branches";
+import { listBanksPage } from "../../api/banks";
+import { getLedger, getModeLedger, listExpenseCategoriesPage, LEDGER_MODES, PICKER_PAGE_SIZE, type LedgerKind, type LedgerRow } from "../../api/cash";
 import { listLoansPage } from "../../api/loans";
-import { Linking } from "react-native";
-import { API_ORIGIN } from "../../api/config";
+import { BillSheet } from "./BillView";
 import { dmy, inr } from "../../lib/format";
 import { isUserCancel, userMessage } from "../../api/errors";
 import { shareLedgerPdf } from "../../utils/ledgerExport";
@@ -68,7 +69,19 @@ export function useExpenseCategoryIds(): Record<string, number> {
 // A ledger entry's bill — opens the uploaded image (server-root-relative URL).
 export function billDetail(receiptImage?: string): { k: string; v: React.ReactNode }[] {
   if (!receiptImage) return [];
-  return [{ k: "Bill", v: <LedgerLink label="View bill" to="/cash" onPress={() => { Linking.openURL(`${API_ORIGIN}${receiptImage}`); }} /> }];
+  return [{ k: "Bill", v: <BillLink path={receiptImage} /> }];
+}
+
+// Opens the bill in an in-app sheet that sends the session token (the server
+// only serves /uploads/* to a signed-in caller) and falls back cleanly.
+function BillLink({ path }: { path: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <LedgerLink label="View bill" to="/cash" onPress={() => setOpen(true)} />
+      <BillSheet path={open ? path : null} onClose={() => setOpen(false)} />
+    </>
+  );
 }
 
 export function LedgerLink({ label, onPress, to }: { label: string; onPress: () => void; to: string }) {
@@ -125,8 +138,43 @@ function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds }: { r: LedgerRo
  * (e.g. the customer detail's tabs). onCategoryName reports the category
  * ledger's resolved name for the screen title. */
 export function LedgerList({ kind, ledgerRef, top, onCategoryName }: { kind: LedgerKind; ledgerRef: string; top?: React.ReactElement; onCategoryName?: (name: string) => void }) {
-  const [fromDate, setFromDate] = useState<string | undefined>();
-  const [toDate, setToDate] = useState<string | undefined>();
+  // One grouped filter: Mode (bank ledger only), Branch + Bank (mode ledgers;
+  // Cash has no bank of record), and Date — like web's PartyLedger / ModeLedgerPage.
+  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  const fromDate = gfDate(fv, "date").from;
+  const toDate = gfDate(fv, "date").to;
+  // Several (or no) modes on a bank ledger fall back to its combined view.
+  const modeValues = gfValues(fv, "mode");
+  const singleMode = kind === "bank" && modeValues.length === 1 ? modeValues[0] : undefined;
+  const branchCsv = kind === "mode" ? gfValues(fv, "branch").join(",") || undefined : undefined;
+  const modeBankId = kind === "mode" && gfFirst(fv, "bank") ? Number(gfFirst(fv, "bank")) : undefined;
+  const sections: GFSection[] = [
+    ...(kind === "bank" ? [{ kind: "static" as const, key: "mode", label: "Mode", options: LEDGER_MODES.map((m) => ({ value: m, label: m })) }] : []),
+    ...(kind === "mode"
+      ? [
+          {
+            kind: "async" as const,
+            key: "branch",
+            label: "Branch",
+            fetchPage: (p: { q?: string; limit: number; offset: number }) =>
+              listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+          },
+          ...(ledgerRef !== "Cash"
+            ? [
+                {
+                  kind: "async" as const,
+                  key: "bank",
+                  label: "Bank",
+                  single: true,
+                  fetchPage: (p: { q?: string; limit: number; offset: number }) =>
+                    listBanksPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.branch ? `${b.name} — ${b.branch}` : b.name })), hasMore: r.hasMore })),
+                },
+              ]
+            : []),
+        ]
+      : []),
+    { kind: "date" as const, key: "date", label: "Date" },
+  ];
   const categoryIds = useExpenseCategoryIds();
   const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
   // Server-side sums over every row matching the date filter, not just the
@@ -140,7 +188,8 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: { kind: Led
     setExporting(true);
     toast.info("Preparing PDF", "The ledger will open in the share sheet.");
     try {
-      await shareLedgerPdf(kind, ledgerRef, { fromDate, toDate }, "Ledger");
+      if (singleMode) await shareLedgerPdf("mode", singleMode, { fromDate, toDate }, "Ledger", { bankId: Number(ledgerRef) });
+      else await shareLedgerPdf(kind, ledgerRef, { fromDate, toDate }, "Ledger", { bankId: modeBankId, branchIds: branchCsv });
     } catch (e) {
       if (isUserCancel(e)) return;
       toast.error("Download failed", userMessage(e, "Could not download the ledger — try again."));
@@ -149,9 +198,14 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: { kind: Led
     }
   }
   const list = useServerList<LedgerRow>({
-    key: ["ledger", kind, ledgerRef, fromDate, toDate],
+    key: ["ledger", kind, ledgerRef, fromDate, toDate, singleMode, branchCsv, modeBankId],
     fetchPage: (p) =>
-      getLedger(kind, ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate }).then((r) => {
+      (singleMode
+        ? getModeLedger(singleMode, { limit: p.limit, offset: p.offset, fromDate, toDate, bankId: Number(ledgerRef) })
+        : kind === "mode"
+          ? getModeLedger(ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate, bankId: modeBankId, branchIds: branchCsv })
+          : getLedger(kind, ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate })
+      ).then((r) => {
         if (r.categoryName) onCategoryName?.(r.categoryName);
         setTotals({ debit: r.totalDebit ?? 0, credit: r.totalCredit ?? 0 });
         return { items: r.items ?? [], hasMore: p.offset + p.limit < r.total, total: r.total };
@@ -169,13 +223,10 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: { kind: Led
       header={
         <>
           {top}
-          <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 18, paddingTop: 12 }}>
-            <View style={{ flex: 1 }}>
-              <DateField label="From" value={fromDate} onChange={setFromDate} max={toDate} clearable />
-            </View>
-            <View style={{ flex: 1 }}>
-              <DateField label="To" value={toDate} onChange={setToDate} min={fromDate} clearable />
-            </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingHorizontal: 18, paddingTop: 12 }}>
+            <GroupedFilter title="Filter ledger" sections={sections} value={fv} onChange={setFv} />
+            <View style={{ flex: 1 }} />
+            {canExport ? <PillButton label={exporting ? "Preparing…" : "Download"} onPress={onDownload} /> : null}
           </View>
           {totals ? (
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginHorizontal: 18, marginTop: 10, marginBottom: 14, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
@@ -191,11 +242,6 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: { kind: Led
       }
       renderItem={(r, i) => <LedgerRowItem r={r} index={i} kind={kind} ledgerRef={ledgerRef} categoryIds={categoryIds} />}
     />
-    {/* Floating corner button, same as the Customers page's Register button.
-        Rendered here (not via Screen's `floating`) so every screen hosting
-        this list gets it; the list's body view ends where the screen does,
-        so it lands in the same spot. */}
-    {list.items.length > 0 && canExport ? <FabCorner icon="download" label="Download ledger PDF" onPress={onDownload} /> : null}
     </>
   );
 }

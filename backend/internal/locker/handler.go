@@ -58,17 +58,37 @@ func (h *Handler) List(c *gin.Context) {
 			f.FilterBranchID = &b
 		}
 	}
+	// `branchId` may be a comma-separated list (multi-select filter).
+	var branchIDs []uint
+	for _, p := range strings.Split(c.Query("branchId"), ",") {
+		if n, err := strconv.ParseUint(strings.TrimSpace(p), 10, 64); err == nil {
+			branchIDs = append(branchIDs, uint(n))
+		}
+	}
+	if len(branchIDs) > 1 {
+		f.FilterBranchID, f.FilterBranchIDs = nil, branchIDs
+	}
 	f.Q = strings.TrimSpace(c.Query("q"))
 	if v := c.Query("active"); v == "true" {
 		f.ActiveOnly = true
 	}
-	switch s := strings.ToLower(strings.TrimSpace(c.Query("status"))); s {
-	case "":
-	case StatusActive, StatusFull, StatusInactive:
-		f.Status = s
-	default:
-		httpx.Fail(c, http.StatusBadRequest, "invalid status: expected active, full or inactive")
-		return
+	// `status` may be a comma-separated list; the buckets are OR-ed.
+	var statuses []string
+	for _, s := range strings.Split(strings.ToLower(c.Query("status")), ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			statuses = append(statuses, s)
+		}
+	}
+	for _, s := range statuses {
+		if s != StatusActive && s != StatusFull && s != StatusInactive {
+			httpx.Fail(c, http.StatusBadRequest, "invalid status: expected active, full or inactive")
+			return
+		}
+	}
+	if len(statuses) == 1 {
+		f.Status = statuses[0]
+	} else {
+		f.StatusIn = statuses
 	}
 
 	limit, _ := strconv.Atoi(c.Query("limit"))

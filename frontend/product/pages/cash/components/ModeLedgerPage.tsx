@@ -1,9 +1,10 @@
 "use client";
 
+import { usePersistedState } from "@/product/hooks/usePersistedState";
+import { BackLink } from "@/product/components/ui/BackLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt, fmtDate } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
-import { DatePicker } from "@/product/components/ui/DatePicker";
 import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
 import { loanCatRef, BillLink } from "@/product/pages/cash/components/ledgerCells";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
@@ -56,19 +57,20 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   // Back from a drill-down, this ledger reopens on the page the user left.
   const [page, setPage] = useState(() => rememberedLedgerPage("mode") ?? 1);
   useEffect(() => { saveLedgerPosition({ mode: page }); }, [page]);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: no branch filter — every row is its one branch.
   const { singleBranch } = useBranding();
-  const [filters, setFilters] = useState<FilterValue>({});
+  const [filters, setFilters] = usePersistedState<FilterValue>("mode:filters", {});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   // Server-side sums over every row matching the filters, not just this page.
   const [totals, setTotals] = useState({ debit: 0, credit: 0 });
   const [exporting, setExporting] = useState(false);
 
+  const fromDate = filters.__dateFrom || "";
+  const toDate = filters.__dateTo || "";
   const branchIds = Array.isArray(filters.branch) ? filters.branch : [];
+  const typeValues = Array.isArray(filters.type) ? filters.type : [];
   const bankValues = Array.isArray(filters.bank) ? filters.bank : [];
   const bankId = bankValues.length ? Number(bankValues[0]) : undefined;
 
@@ -79,7 +81,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   // Any filter change resets back to page 1; switching to another mode's
   // ledger (same component, new `mode`) starts on its remembered page.
   // Compared against the previous key so neither fires on mount.
-  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(branchIds)}|${bankId ?? ""}`;
+  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(branchIds)}|${bankId ?? ""}|${typeValues.join(",")}`;
   const prevFilterKey = useRef(filterKey);
   useEffect(() => {
     if (prevFilterKey.current === filterKey) return;
@@ -101,7 +103,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
     getModeLedger(
       mode,
       page,
-      { fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId },
+      { fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined },
       PARTY_PAGE_SIZE
     )
       .then(({ items, total, totalDebit, totalCredit }) => {
@@ -118,7 +120,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
       })
       .finally(() => { if (reqId === requestIdRef.current) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, page, fromDate, toDate, JSON.stringify(branchIds), bankId]);
+  }, [mode, page, fromDate, toDate, JSON.stringify(branchIds), bankId, typeValues.join(",")]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useLedgerFocus("mode", !loading, [items]);
@@ -129,6 +131,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
       await downloadLedger("mode", mode, {
         fromDate: fromDate || undefined, toDate: toDate || undefined,
         branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId,
+        types: typeValues.length ? typeValues : undefined,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not download the ledger.");
@@ -147,28 +150,34 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
           searchHint: "Searches: bank name",
           singleSelect: true,
           fetchOptions: (search: string, p: number) =>
-            searchBanksPage(search, p).then((res) => ({
+            searchBanksPage(search, p - 1).then((res) => ({
               items: res.items.map((b: BackendBank) => ({ value: String(b.id), label: b.branch ? `${b.name} — ${b.branch}` : b.name })),
               hasMore: res.hasMore,
             })),
         }]
       : []),
+    {
+      key: "type", label: "Type", kind: "static" as const, searchHint: "Searches: transaction type",
+      options: [
+        { value: "loan", label: "Loan" },
+        { value: "auction", label: "Auction" },
+        { value: "collection", label: "Collection" },
+        { value: "personal loan", label: "Personal Loan" },
+        { value: "investment", label: "Investment" },
+        { value: "expenses", label: "Expenses" },
+      ],
+    },
+    { key: "__date", label: "Date", kind: "date" as const },
   ];
 
   return (
     <>
       <div className="page-h">
         <div>
-          <a href={routeHref("ledger")} onClick={(e) => { if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); goBack("ledger"); }} style={{ fontSize: 13 }}>← Back</a>
+          <BackLink href={routeHref("ledger")} onClick={() => goBack("ledger")} />
           <h1>{mode} Ledger</h1>
           <p>{MODE_DESCRIPTION[mode]}</p>
         </div>
-        <div className="sp" />
-        {canExport && (
-          <button className="btn ghost" disabled={exporting} onClick={onDownload} title="PDF of every transaction matching the current filters">
-            <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
-          </button>
-        )}
       </div>
       <hr className="gold-rule" />
 
@@ -186,26 +195,24 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
           <h3>Transactions</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <DatePicker value={fromDate} onChange={setFromDate} placeholder="From…" max={toDate || undefined} />
-            <DatePicker value={toDate} onChange={setToDate} placeholder="To…" min={fromDate || undefined} />
-            {(fromDate || toDate) && (
-              <button className="btn ghost sm" onClick={() => { setFromDate(""); setToDate(""); }}>Clear</button>
-            )}
-            {(branches.length > 1 || mode !== "Cash") && (
-              <FilterPanel categories={filterCategories} value={filters} onChange={setFilters} hideChips />
+            <FilterPanel categories={filterCategories} value={filters} onChange={setFilters} hideChips hideClearAll />
+            {canExport && (
+              <button className="btn ghost sm" disabled={exporting} onClick={onDownload} title="PDF of every transaction matching the current filters">
+                <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
+              </button>
             )}
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl ledger-amt" data-ledger-scope="mode" data-ledger-page={page}>
+          <table className="tbl tbl-center ledger-amt" data-ledger-scope="mode" data-ledger-page={page}>
             <thead>
-              <tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th>{mode !== "Cash" && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
+              <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th>{mode !== "Cash" && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={mode !== "Cash" ? 8 : 7} className="empty compact">Loading…</td></tr>
+                <tr><td colSpan={mode !== "Cash" ? 7 : 6} className="empty compact">Loading…</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={mode !== "Cash" ? 8 : 7} className="empty compact">No transactions found.</td></tr>
+                <tr><td colSpan={mode !== "Cash" ? 7 : 6} className="empty compact">No transactions found.</td></tr>
               ) : (() => {
                 // The balance comes from the server — a true running balance over the
                 // whole filtered ledger, so the newest row equals the Net above.
@@ -244,15 +251,16 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                         loanCatRef(r, categoryIds)
                       )}
                     </td>
-                    <td>
-                      {r.description || r.type}<BillLink url={r.receiptImage} title={r.description || r.type} />
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                        {r.customerId ? <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} /> : null}
-                        <CategoryChip text={r.description} categoryIds={categoryIds} />
-                      </div>
-                    </td>
-                    <td>{r.method || mode}</td>
-                    {mode !== "Cash" && (
+                    <td style={{ textAlign: "center" }}>
+                    {r.description || r.type}<BillLink url={r.receiptImage} title={r.description || r.type} />
+                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4, marginTop: 4 }}>
+                      {r.customerId ? (
+                        <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} />
+                      ) : null}
+                      <CategoryChip text={r.description} categoryIds={categoryIds} />
+                    </div>
+                  </td>
+                                        {mode !== "Cash" && (
                       <td>{r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} /> : "—"}</td>
                     )}
                     <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>

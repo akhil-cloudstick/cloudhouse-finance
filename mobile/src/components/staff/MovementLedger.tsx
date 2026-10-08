@@ -78,6 +78,11 @@ function loanRefFor(m: CashMovement): string {
   return match?.[1] || "";
 }
 
+const SELF_TRANSFER_PREFIX = "Self transfer — ";
+function selfTransferCategory(purpose?: string): string {
+  return purpose && purpose.startsWith(SELF_TRANSFER_PREFIX) ? purpose.slice(SELF_TRANSFER_PREFIX.length).trim() : "";
+}
+
 // Running balance over the currently loaded (paginated) page only — same
 // best-effort approach web's Cash.tsx/LedgerExportView.tsx use, not a true
 // running balance across the whole filtered set. Items are newest-first
@@ -108,13 +113,20 @@ export function MovementRow({
 }) {
   const ref = loanRefFor(m);
   const bankName = m.bankRef?.name || m.bank || "Bank";
-  const category = expenseCategoryOf(m.purpose);
+  // A self transfer reads "Self transfer — <category>"; a loan category links
+  // to that loan's own ledger, same as web.
+  const isSelf = m.source === "Self Transfer";
+  const category = isSelf ? selfTransferCategory(m.purpose) || null : expenseCategoryOf(m.purpose);
   const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
   // Ref No: an expense (incl. a loan repayment) or a loan-sourced Add Cash
   // shows its bank — blank when it has none; a gold-loan number links to the
   // loan; everything else is blank.
   const bankBacked = m.expenseId != null || category !== null || (m.type === "in" && m.source?.trim().toLowerCase().startsWith("loan"));
-  const refValue = bankBacked
+  const refValue = isSelf
+    ? categoryId
+      ? <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!)} />
+      : "—"
+    : bankBacked
     ? m.bankId
       ? <LedgerLink label={bankName} to="/cash" onPress={() => openLedger("bank", m.bankId!, bankName)} />
       : m.bankRef?.name || m.bank || "—"

@@ -23,7 +23,7 @@ type LoanLedgerPart struct {
 }
 
 // LoanLedgerEntry is one row of a loan's Payment Ledger. Kind is "sanction",
-// "payment", "topup", "auction-sale" or "auction-surplus"; the record it was
+// "payment", "topup", "interest", "penal", "auction-sale" or "auction-surplus"; the record it was
 // built from rides along so the client renders it exactly as before.
 // Balance is nil for auction rows, which carry no running balance.
 type LoanLedgerEntry struct {
@@ -36,6 +36,8 @@ type LoanLedgerEntry struct {
 	Payment *LoanPayment    `json:"payment,omitempty"`
 	TopUp   *LoanTopUp      `json:"topUp,omitempty"`
 	Auction *AuctionRecord  `json:"auction,omitempty"`
+	// Note describes an interest/penal accrual row.
+	Note string `json:"note,omitempty"`
 }
 
 // LoanLedgerQuery narrows and pages GET /loans/:id/ledger. From/To are
@@ -44,6 +46,9 @@ type LoanLedgerEntry struct {
 type LoanLedgerQuery struct {
 	From        string
 	To          string
+	// Kinds, when set, keeps only these entry kinds ("sanction", "payment",
+	// "topup", "interest", "penal"; "auction" covers both auction rows).
+	Kinds       []string
 	Limit       int
 	Offset      int
 	FocusKey    string
@@ -70,7 +75,7 @@ type LoanLedgerPage struct {
 func ledgerColumnTotals(rows []LoanLedgerEntry) (debit, credit float64) {
 	for _, r := range rows {
 		switch r.Kind {
-		case "sanction", "topup":
+		case "sanction", "topup", "interest", "penal":
 			debit += r.Amount
 		case "payment":
 			credit += r.Amount
@@ -94,6 +99,9 @@ type ledgerSource struct {
 	payment *LoanPayment
 	topUp   *LoanTopUp
 	auction *AuctionRecord
+	// accrual rows: amount is the interest or penal charge itself.
+	accrualAmount float64
+	note          string
 }
 
 func ledgerDate(t time.Time) string {
@@ -200,7 +208,7 @@ func expandLedgerParts(e LoanLedgerEntry, total float64, parts []LoanLedgerPart,
 // into one chronological timeline with running balances carried over the
 // WHOLE history — callers filter/page afterwards so a later page still shows
 // the true figure. Mirrors what LoanDetail.tsx used to assemble itself.
-func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctions []AuctionRecord) []LoanLedgerEntry {
+func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctions []AuctionRecord, accruals []LoanAccrual) []LoanLedgerEntry {
 	var disbursement *LoanPayment
 	disbursementCount := 0
 	sources := make([]ledgerSource, 0, len(payments)+len(topUps)+2*len(auctions))
@@ -227,6 +235,73 @@ func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctio
 		}
 		sources = append(sources, ledgerSource{kind: "topup", date: ledgerDate(t.OccurredOn), sortKey: ledgerSortKey(t.OccurredOn), rank: 0, topUp: t})
 	}
+	// Interest and penal interest charged to the loan, one row each per accrual
+	// run. Accruals from before runs were recorded are covered by one catch-up
+	// row per kind, dated at the loan's last accrual, so the ledger's totals
+	// still agree with what the loan has accrued.
+	var recordedInterest, recordedPenal float64
+	for _, a := range accruals {
+		recordedInterest += a.Interest
+		recordedPenal += a.PenalInterest
+		// AccruedOn is the billing anchor — for a loan's first month a whole
+		// month AHEAD of the day the charge was booked. The charge shows when
+		// that date arrives, not before (its amount is already in
+		// recordedInterest, so the catch-up row below never double-books it).
+		at := a.AccruedOn
+		// A charge booked by a payment (RecordPayment accrues first) reads
+		// as the debit that payment settles, so it goes just before it.
+		if p := accrualTriggerPayment(a.CreatedAt, payments); p != nil {
+			// When the charge was actually booked; never later than the
+			// payment it belongs to (older rows stamped the payment first).
+			at = a.CreatedAt
+			if !at.Before(p.PaidOn) {
+				at = p.PaidOn.Add(-time.Millisecond)
+			}
+		} else if at.After(time.Now()) {
+			continue
+		}
+		if a.Interest > 0.004 {
+			sources = append(sources, ledgerSource{kind: "interest", date: ledgerDate(at), sortKey: ledgerSortKey(at), rank: 2, accrualAmount: a.Interest, note: fmt.Sprintf("interest-%d", a.ID)})
+		}
+		if a.PenalInterest > 0.004 {
+			sources = append(sources, ledgerSource{kind: "penal", date: ledgerDate(at), sortKey: ledgerSortKey(at), rank: 3, accrualAmount: a.PenalInterest, note: fmt.Sprintf("penal-%d", a.ID)})
+		}
+	}
+	catchUpAt := l.LastAccrualDate
+	if now := time.Now(); catchUpAt.After(now) {
+		// The last accrual date is a billing anchor ahead of today (a first
+		// month is charged up front), so the charge was booked when the loan
+		// was created — the only time recorded for it — not on that future date.
+		if !l.CreatedAt.IsZero() && l.CreatedAt.Before(now) {
+			catchUpAt = l.CreatedAt
+		} else {
+			catchUpAt = now
+		}
+	}
+	// Interest can only be paid once it has accrued, so a catch-up charge (one
+	// with no history row of its own) belongs before the first payment that
+	// settled any of that kind — time order, not a fixed position.
+	catchUpFor := func(applied func(*LoanPayment) float64) time.Time {
+		at := catchUpAt
+		for i := range payments {
+			p := &payments[i]
+			if p.Type == PaymentTypeDisbursement || applied(p) <= 0 {
+				continue
+			}
+			if before := p.PaidOn.Add(-time.Millisecond); before.Before(at) {
+				at = before
+			}
+		}
+		return at
+	}
+	interestAt := catchUpFor(func(p *LoanPayment) float64 { return p.InterestApplied })
+	penalAt := catchUpFor(func(p *LoanPayment) float64 { return p.PenalInterestApplied })
+	if missing := l.AccruedInterest - recordedInterest; missing > 0.01 {
+		sources = append(sources, ledgerSource{kind: "interest", date: ledgerDate(interestAt), sortKey: ledgerSortKey(interestAt), rank: 2, accrualAmount: platform.RoundMoney(missing), note: "interest-earlier"})
+	}
+	if missing := l.AccruedPenalInterest - recordedPenal; missing > 0.01 {
+		sources = append(sources, ledgerSource{kind: "penal", date: ledgerDate(penalAt), sortKey: ledgerSortKey(penalAt), rank: 3, accrualAmount: platform.RoundMoney(missing), note: "penal-earlier"})
+	}
 	for i := range auctions {
 		a := &auctions[i]
 		if a.SaleAmount <= 0 {
@@ -248,6 +323,17 @@ func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctio
 		return sources[i].rank < sources[j].rank
 	})
 	balance := l.SanctionedAmount
+	// With interest/penal rows in the ledger the Balance column is what the
+	// customer owes in total: charges add to it and every payment (whatever
+	// bucket it clears) comes off it. Without any, it stays the principal
+	// balance each payment recorded.
+	owedModel := false
+	for _, src := range sources {
+		if src.kind == "interest" || src.kind == "penal" {
+			owedModel = true
+			break
+		}
+	}
 	out := make([]LoanLedgerEntry, 0, len(sources)+1)
 	if l.DisbursementDate != nil || disbursement != nil {
 		var parts []LoanLedgerPart
@@ -282,7 +368,11 @@ func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctio
 			out = append(out, expandLedgerParts(e, p.Amount, parts, fmt.Sprintf("sanction-%d", p.ID), func(later float64, _ LoanLedgerPart) float64 { return balance - later })...)
 		case "payment":
 			p := src.payment
-			balance = p.RunningBalance
+			if owedModel {
+				balance = balance + p.ProcessingFee - p.Amount
+			} else {
+				balance = p.RunningBalance
+			}
 			e := LoanLedgerEntry{Kind: "payment", Date: src.date, Balance: ledgerBalance(balance), Payment: p}
 			if p.Type == PaymentTypeAuctionSale {
 				for i := range auctions {
@@ -310,6 +400,9 @@ func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctio
 				}
 				return balance
 			})...)
+		case "interest", "penal":
+			balance += src.accrualAmount
+			out = append(out, LoanLedgerEntry{Kind: src.kind, Key: src.note, Date: src.date, Amount: src.accrualAmount, Balance: ledgerBalance(balance), Note: src.note})
 		case "auction-sale":
 			out = append(out, LoanLedgerEntry{Kind: src.kind, Key: fmt.Sprintf("auction-sale-%d", src.auction.ID), Date: src.date, Amount: src.auction.SaleAmount, Auction: src.auction})
 		case "auction-surplus":
@@ -317,6 +410,18 @@ func buildLoanLedger(l *Loan, payments []LoanPayment, topUps []LoanTopUp, auctio
 		}
 	}
 	return out
+}
+
+func ledgerKindWanted(kind string, wanted []string) bool {
+	if len(wanted) == 0 {
+		return true
+	}
+	for _, w := range wanted {
+		if w == kind || (w == "auction" && (kind == "auction-sale" || kind == "auction-surplus")) {
+			return true
+		}
+	}
+	return false
 }
 
 // ledgerFocusIndex is the index of the row to open the ledger on: the row
@@ -372,10 +477,14 @@ func (s *Service) GetLoanLedger(ctx context.Context, loanID uint, branchID *uint
 	if err != nil {
 		return nil, err
 	}
-	all := buildLoanLedger(l, payments, topUps, auctions)
+	var accruals []LoanAccrual
+	if err := s.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("accrued_on asc, id asc").Find(&accruals).Error; err != nil {
+		return nil, err
+	}
+	all := buildLoanLedger(l, payments, topUps, auctions, accruals)
 	rows := make([]LoanLedgerEntry, 0, len(all))
 	for _, r := range all {
-		if (q.From == "" || r.Date >= q.From) && (q.To == "" || r.Date <= q.To) {
+		if (q.From == "" || r.Date >= q.From) && (q.To == "" || r.Date <= q.To) && ledgerKindWanted(r.Kind, q.Kinds) {
 			rows = append(rows, r)
 		}
 	}
@@ -396,4 +505,28 @@ func (s *Service) GetLoanLedger(ctx context.Context, loanID uint, branchID *uint
 	}
 	totalDebit, totalCredit := ledgerColumnTotals(rows)
 	return &LoanLedgerPage{Items: rows[offset:end], Total: len(rows), Limit: limit, Offset: offset, TotalDebit: platform.RoundMoney(totalDebit), TotalCredit: platform.RoundMoney(totalCredit)}, nil
+}
+
+// accrualTriggerWindow is how soon after an accrual was booked a payment must
+// have been saved to count as the payment that triggered it (RecordPayment
+// accrues, then saves the payment moments later in the same request).
+const accrualTriggerWindow = 10 * time.Second
+
+// accrualTriggerPayment returns the payment saved within accrualTriggerWindow
+// after an accrual was booked, nil when none was (a scheduled accrual run).
+func accrualTriggerPayment(accruedAt time.Time, payments []LoanPayment) *LoanPayment {
+	if accruedAt.IsZero() {
+		return nil
+	}
+	var best *LoanPayment
+	for i := range payments {
+		p := &payments[i]
+		if p.Type == PaymentTypeDisbursement || p.CreatedAt.Before(accruedAt) || p.CreatedAt.Sub(accruedAt) > accrualTriggerWindow {
+			continue
+		}
+		if best == nil || p.CreatedAt.Before(best.CreatedAt) {
+			best = p
+		}
+	}
+	return best
 }

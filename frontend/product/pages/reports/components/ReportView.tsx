@@ -1,10 +1,9 @@
 "use client";
 
+import { BackLink } from "@/product/components/ui/BackLink";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/product/components/Icon";
-import { DatePicker } from "@/product/components/ui/DatePicker";
-import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
-import { Select } from "@/product/components/ui/Select";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
@@ -58,8 +57,6 @@ export type ReportConfig<Row = any, Totals = any> = {
   tenantModule?: string;
 };
 
-const ALL_BRANCHES: BranchView = { id: 0, name: "All branches", code: "", address: "", phone: "", isActive: true };
-
 function firstOfMonth(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
@@ -75,7 +72,6 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
   // Single-branch business: no branch filter — every row is its one branch.
   const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number>(0);
-  const [branchLabel, setBranchLabel] = useState("All branches");
   const [from, setFrom] = useState(config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
   const [to, setTo] = useState(today());
   const [extraValue, setExtraValue] = useState("");
@@ -115,11 +111,26 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
-  async function searchBranchesFilter(q: string, _page: number): Promise<{ items: BranchView[]; hasMore: boolean }> {
-    const query = q.trim().toLowerCase();
-    const all = [ALL_BRANCHES, ...branches];
-    const items = query ? all.filter((b) => b.name.toLowerCase().includes(query)) : all;
-    return { items, hasMore: false };
+  // One grouped filter: Branch, the report's own extra dropdown, and Date.
+  // Clearing the date range falls back to the report's default range.
+  const filterCategories: FilterCategory[] = [
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(config.extraFilter
+      ? [{ key: "extra", label: config.extraFilter.label, kind: "static" as const, singleSelect: true, options: config.extraFilter.options.map((o) => ({ value: o, label: o })) }]
+      : []),
+    { key: "__date", label: "Date", kind: "date" as const },
+  ];
+  const filterValue: FilterValue = {
+    branch: branchId ? [String(branchId)] : [],
+    extra: extraValue ? [extraValue] : [],
+    __dateFrom: from || undefined,
+    __dateTo: to || undefined,
+  };
+  function onFilterChange(next: FilterValue) {
+    setBranchId(Array.isArray(next.branch) && next.branch[0] ? Number(next.branch[0]) : 0);
+    setExtraValue(Array.isArray(next.extra) && next.extra[0] ? next.extra[0] : "");
+    setFrom(next.__dateFrom || (config.defaultFromFn ? config.defaultFromFn() : firstOfMonth()));
+    setTo(next.__dateTo || today());
   }
 
   async function handleExport(format: "xlsx" | "pdf") { return singleFlight("reports:view-export:"+format, async () => {
@@ -142,21 +153,9 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
     <>
       <div className="page-h page-h-stack">
         <div className="page-h-title">
-          <button className="btn plain sm" style={{ marginBottom: 6 }} onClick={onBack}>
-            ← Back to Reports
-          </button>
+          <BackLink onClick={onBack} label="Back to Reports" />
           <h1>{config.title}</h1>
           <p>{config.description}</p>
-        </div>
-        {/* align-self:flex-end keeps the buttons level with the title block's
-         * bottom edge, as they were when they were bare siblings of .page-h. */}
-        <div className="page-h-actions" style={{ alignSelf: "flex-end" }}>
-          <button className="btn ghost" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-            <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
-          </button>
-          <button className="btn" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-            <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
-          </button>
         </div>
       </div>
       <hr className="gold-rule" />
@@ -192,54 +191,24 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
             ))}
           </div>
         )}
-        {/* .report-filter-row scopes the DatePicker width override below —
-         * DatePicker.tsx's own root carries a global `.dp-date{width:230px;
-         * flex:0 0 230px}` that ignores whatever width this wrapper <div>
-         * asks for, so reducing just the wrapper's width (Branch/extraFilter
-         * below, plain SearchableSelect/Select, have no such override and
-         * shrink correctly) left From/To exactly the same size. Every field
-         * here is the same 150px now, and `gap` (a single value, so it's
-         * necessarily identical between every adjacent pair) keeps them
-         * evenly spaced regardless of how many are showing. */}
-        <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginLeft: "auto" }}>
-          <div style={{ width: 150 }}>
-            <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>From</label>
-            <DatePicker value={from} onChange={setFrom} max={to} />
-          </div>
-          <div style={{ width: 150 }}>
-            <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>To</label>
-            <DatePicker value={to} onChange={setTo} min={from} />
-          </div>
-          {!singleBranch && (
-          <div style={{ width: 150 }}>
-            <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Branch</label>
-            <SearchableSelect<BranchView>
-              value={branchLabel}
-              onChange={(id, item) => { setBranchId(item.id); setBranchLabel(item.name); }}
-              fetchFn={searchBranchesFilter}
-              searchHint="Searches: branch name"
-              getLabel={(b) => b.name}
-              getId={(b) => String(b.id)}
-              placeholder="Search branch…"
-            />
-          </div>
-          )}
-          {config.extraFilter && (
-            <div style={{ width: 150 }}>
-              <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>{config.extraFilter.label}</label>
-              <Select
-                options={[{ value: "", label: "All" }, ...config.extraFilter.options.map((o) => ({ value: o, label: o }))]}
-                value={extraValue}
-                onChange={setExtraValue}
-              />
-            </div>
-          )}
-        </div>
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 4 }}>{error}</div>}
 
       <div className="card tbl-card tbl-card-fill">
+        <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
+          <h3>{config.title}</h3>
+          <div className="sp" />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
+            <button className="btn ghost sm" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
+              <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
+            </button>
+            <button className="btn sm" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
+              <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
+            </button>
+          </div>
+        </div>
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>

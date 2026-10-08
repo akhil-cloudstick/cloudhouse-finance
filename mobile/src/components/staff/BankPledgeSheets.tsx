@@ -5,6 +5,8 @@ import { AccGroup, AccRow, BtnRow2, C, Field, Input, PrimaryButton, Sheet, Txt, 
 import { ApiError } from "../../api/client";
 import { createBank, deleteBank, listBanks, updateBank } from "../../api/banks";
 import { useAuth } from "../../auth/AuthContext";
+import { useCanOpen } from "../../config/routePermissions";
+import { openLedger } from "./LedgerList";
 import type { Bank } from "../../types/bank";
 import { recordBankPledge } from "../../api/bankPledges";
 import { todayISO } from "../../lib/format";
@@ -73,6 +75,8 @@ export function BanksSheet({ visible, onClose }: { visible: boolean; onClose: ()
   const canCreate = can("Bank_Management", "can_create_bank");
   const canUpdate = can("Bank_Management", "can_update_bank");
   const canDelete = can("Bank_Management", "can_delete_bank");
+  // A bank's ledger is a Cash drill-down (web: /ledger-bank/:id).
+  const canLedger = useCanOpen()("/cash");
 
   const [view, setView] = useState<BanksView>({ kind: "list" });
   const [name, setName] = useState("");
@@ -196,6 +200,7 @@ export function BanksSheet({ visible, onClose }: { visible: boolean; onClose: ()
                 { k: "Phone", v: b.phone || "—" },
               ]}
               actions={[
+                ...(canLedger ? [{ label: "Ledger", onPress: () => { onClose(); openLedger("bank", b.id, b.name); } }] : []),
                 ...(canUpdate ? [{ label: "Edit", onPress: () => openForm(b) }] : []),
                 ...(canDelete ? [{ label: "Delete", danger: true, onPress: () => { setError(null); setView({ kind: "delete", bank: b }); } }] : []),
               ]}

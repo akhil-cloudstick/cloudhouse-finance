@@ -148,6 +148,32 @@ func (r *MovementRepository) SumFiltered(ctx context.Context, branchID *uint, fr
 	return row.Debit, row.Credit, err
 }
 
+// NetOfNewest is the credit-minus-debit of the n newest movements matching the
+// filter, in FindAllFiltered's own order — what the rows ahead of a page
+// contribute to the running balance shown on that page.
+func (r *MovementRepository) NetOfNewest(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string, n int) (float64, error) {
+	if n <= 0 {
+		return 0, nil
+	}
+	var rows []struct {
+		Type   string
+		Amount float64
+	}
+	err := r.filteredMovements(ctx, branchID, fromDate, toDate, filter, search).
+		Select("type", "amount").
+		Order("DATE(occurred_on) desc, created_at desc, id desc").
+		Limit(n).Scan(&rows).Error
+	net := 0.0
+	for _, m := range rows {
+		if m.Type == "out" {
+			net -= m.Amount
+		} else {
+			net += m.Amount
+		}
+	}
+	return net, err
+}
+
 // filteredMovements applies FindAllFiltered's WHERE conditions — shared with
 // SumFiltered so the list and its totals can never disagree.
 func (r *MovementRepository) filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string) *gorm.DB {

@@ -641,14 +641,20 @@ export async function checkIndemnityBondEsign(loanId: number): Promise<Indemnity
   return apiFetch<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
 }
 
+export type ServicingClass = "due_soon" | "overdue" | "defaulted";
+
+const csv = (v: string | number | (string | number)[]) => (Array.isArray(v) ? v.join(",") : String(v));
+const hasValue = (v?: string | number | (string | number)[]) => (Array.isArray(v) ? v.length > 0 : !!v);
+
 export type LoanFilters = {
   q?: string;
-  status?: string;
+  status?: string | string[]; // an array matches any of the statuses
   // Read-time classes (not stored statuses): the Loans page's Due Soon / Overdue /
-  // Defaulted tabs. Replaces `status` on the server.
-  servicing?: "due_soon" | "overdue" | "defaulted";
-  branchId?: number;
-  customerId?: number;
+  // Defaulted tabs. A single one replaces `status` on the server; several are
+  // OR-ed with each other and with `status`.
+  servicing?: ServicingClass | ServicingClass[];
+  branchId?: number | number[];
+  customerId?: number | number[];
   bankPledgeStatus?: string;
   schemeId?: number;
   from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
@@ -658,9 +664,9 @@ export type LoanFilters = {
 export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
   const params = new URLSearchParams();
   if (filters?.q) params.set("q", filters.q);
-  if (filters?.status) params.set("status", filters.status);
-  if (filters?.branchId) params.set("branchId", String(filters.branchId));
-  if (filters?.customerId) params.set("customerId", String(filters.customerId));
+  if (filters && hasValue(filters.status)) params.set("status", csv(filters.status!));
+  if (filters && hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
+  if (filters && hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
   if (filters?.schemeId) params.set("schemeId", String(filters.schemeId));
   if (filters?.from) params.set("from", filters.from);
   if (filters?.to) params.set("to", filters.to);
@@ -688,10 +694,10 @@ export async function listLoansPage(
     offset: String((filters.page - 1) * pageSize),
   });
   if (filters.q) params.set("q", filters.q);
-  if (filters.status) params.set("status", filters.status);
-  if (filters.servicing) params.set("servicing", filters.servicing);
-  if (filters.branchId) params.set("branchId", String(filters.branchId));
-  if (filters.customerId) params.set("customerId", String(filters.customerId));
+  if (hasValue(filters.status)) params.set("status", csv(filters.status!));
+  if (hasValue(filters.servicing)) params.set("servicing", csv(filters.servicing!));
+  if (hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
+  if (hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
   if (filters.bankPledgeStatus) params.set("bankPledgeStatus", filters.bankPledgeStatus);
   if (filters.schemeId) params.set("schemeId", String(filters.schemeId));
   if (filters.from) params.set("from", filters.from);
@@ -1370,8 +1376,8 @@ export function toConcludedAuctionRowView(r: BackendConcludedAuctionRow): Conclu
 
 export async function getAuctionRecord(loanId: number): Promise<AuctionRecordView | null> {
   try {
-    const rec = await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction`);
-    return toAuctionRecordView(rec);
+    const rec = await apiFetch<BackendAuctionRecord | null>(`/loans/${loanId}/auction?optional=1`);
+    return rec ? toAuctionRecordView(rec) : null;
   } catch {
     return null; // no auction case started yet for this loan
   }
@@ -1444,6 +1450,8 @@ export type LoanLedgerEntry =
   | (LedgerEntryBase & { kind: "sanction"; balance: number; payment: PaymentView | null })
   | (LedgerEntryBase & { kind: "payment"; balance: number; row: PaymentView; auction: AuctionRecordView | null })
   | (LedgerEntryBase & { kind: "topup"; balance: number; row: LoanTopUpView })
+  | (LedgerEntryBase & { kind: "interest"; balance: number })
+  | (LedgerEntryBase & { kind: "penal"; balance: number })
   | (LedgerEntryBase & { kind: "auction-sale"; balance: null; row: AuctionRecordView })
   | (LedgerEntryBase & { kind: "auction-surplus"; balance: null; row: AuctionRecordView });
 // totalDebit/totalCredit sum the Debit/Credit columns over every row in the
@@ -1452,6 +1460,8 @@ export type LoanLedgerPage = { items: LoanLedgerEntry[]; total: number; limit: n
 export type LoanLedgerQuery = {
   from?: string;
   to?: string;
+  // Entry kinds to keep: sanction | payment | topup | interest | penal | auction.
+  kinds?: string[];
   limit: number;
   offset: number;
   // Open on the page holding this row — by key, else by date + amount.
@@ -1482,6 +1492,9 @@ function toLedgerEntry(e: BackendLoanLedgerEntry): LoanLedgerEntry {
       return { ...base, kind: "payment", balance: e.balance ?? 0, row: toPaymentView(e.payment!), auction };
     case "topup":
       return { ...base, kind: "topup", balance: e.balance ?? 0, row: e.topUp! };
+    case "interest":
+    case "penal":
+      return { ...base, kind: e.kind, balance: e.balance ?? 0 } as LoanLedgerEntry;
     case "auction-sale":
       return { ...base, kind: "auction-sale", balance: null, row: auction! };
     default:
@@ -1493,6 +1506,7 @@ export async function getLoanLedger(loanId: number, q: LoanLedgerQuery): Promise
   const params = new URLSearchParams({ limit: String(q.limit), offset: String(q.offset) });
   if (q.from) params.set("from", q.from);
   if (q.to) params.set("to", q.to);
+  if (q.kinds?.length) params.set("kinds", q.kinds.join(","));
   if (q.focusKey) params.set("focusKey", q.focusKey);
   if (q.focusDate) params.set("focusDate", q.focusDate);
   if (q.focusAmount !== undefined) params.set("focusAmount", String(q.focusAmount));

@@ -1290,6 +1290,7 @@ var allModels = []any{
 	&loan.LoanApproval{},
 	&loan.LoanPayment{},
 	&loan.LoanTopUp{},
+	&loan.LoanAccrual{},
 	&loan.BankPledgeRecord{},
 	&loan.BankPledgeEvent{},
 	&loan.AuctionRecord{},
@@ -1409,6 +1410,7 @@ var tenantFromParent = []struct{ table, fk, parent string }{
 	{"investment_payouts", "investment_id", "investments"},
 	{"investment_transactions", "investment_id", "investments"},
 	{"loan_top_ups", "loan_id", "loans"},
+	{"loan_accruals", "loan_id", "loans"},
 	{"loan_request_ornaments", "request_id", "loan_requests"},
 	{"personal_loan_history", "personal_loan_id", "personal_loans"},
 }

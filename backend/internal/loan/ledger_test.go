@@ -21,7 +21,7 @@ func TestBuildLoanLedgerSplitsBalancesAndOrder(t *testing.T) {
 		{ID: 7, Amount: 20000, Status: TopUpStatusActive, OccurredOn: ledgerTestDay("2026-10-04"), CashAmount: 5000, UpiAmount: 15000},
 		{ID: 8, Amount: 999, Status: TopUpStatusPending, OccurredOn: ledgerTestDay("2026-10-04"), CashAmount: 999},
 	}
-	got := buildLoanLedger(l, payments, topUps, nil)
+	got := buildLoanLedger(l, payments, topUps, nil, nil)
 	want := []struct {
 		key     string
 		date    string
@@ -51,7 +51,7 @@ func TestBuildLoanLedgerAuctionRows(t *testing.T) {
 	sold := ledgerTestDay("2026-06-01")
 	payments := []LoanPayment{{ID: 3, Type: PaymentTypeAuctionSale, Amount: 40000, PaidOn: sold, Reference: "AUC-1", RunningBalance: 0}}
 	auctions := []AuctionRecord{{ID: 9, AuctionReferenceNumber: "AUC-1", SaleAmount: 45000, SurplusPayableAmount: 5000, AuctionEligibleDate: sold}}
-	got := buildLoanLedger(l, payments, nil, auctions)
+	got := buildLoanLedger(l, payments, nil, auctions, nil)
 	if len(got) != 3 {
 		t.Fatalf("got %d rows, want sanction + sale payment + surplus: %+v", len(got), got)
 	}
@@ -89,7 +89,7 @@ func TestBuildLoanLedgerTopUpThenSettledInterest(t *testing.T) {
 		{ID: 2, Type: PaymentTypeInterest, Amount: 500, PaidOn: topAt.Add(time.Millisecond), CashAmount: 500, RunningBalance: 120000},
 	}
 	topUps := []LoanTopUp{{ID: 7, Amount: 20000, Status: TopUpStatusActive, OccurredOn: topAt, CashAmount: 20000}}
-	got := buildLoanLedger(l, payments, topUps, nil)
+	got := buildLoanLedger(l, payments, topUps, nil, nil)
 	keys := []string{"sanction", "topup-7", "payment-2"}
 	if len(got) != len(keys) {
 		t.Fatalf("got %d rows, want %d: %+v", len(got), len(keys), got)
@@ -108,7 +108,7 @@ func TestBuildLoanLedgerKeepsOriginalDisbursementAfterEdit(t *testing.T) {
 		{ID: 1, Type: PaymentTypeDisbursement, Amount: 100000, PaidOn: first, CashAmount: 60000, UpiAmount: 40000, RunningBalance: 100000},
 		{ID: 2, Type: PaymentTypeDisbursementReversal, Amount: 100000, PaidOn: first.AddDate(0, 0, 1), CashAmount: 60000, UpiAmount: 40000},
 	}
-	got := buildLoanLedger(l, payments, nil, nil)
+	got := buildLoanLedger(l, payments, nil, nil, nil)
 	keys := []string{"sanction-Cash", "sanction-UPI", "payment-2-Cash", "payment-2-UPI"}
 	if len(got) != len(keys) {
 		t.Fatalf("got %d rows, want %d: %+v", len(got), len(keys), got)
@@ -126,7 +126,7 @@ func TestBuildLoanLedgerKeepsOriginalDisbursementAfterEdit(t *testing.T) {
 	again := first.AddDate(0, 0, 2)
 	l2 := &Loan{SanctionedAmount: 80000, DisbursedAmount: 80000, DisbursementDate: &again}
 	payments = append(payments, LoanPayment{ID: 3, Type: PaymentTypeDisbursement, Amount: 80000, PaidOn: again, CashAmount: 80000, RunningBalance: 80000})
-	got = buildLoanLedger(l2, payments, nil, nil)
+	got = buildLoanLedger(l2, payments, nil, nil, nil)
 	keys = []string{"sanction-Cash", "sanction-UPI", "payment-2-Cash", "payment-2-UPI", "sanction-3"}
 	if len(got) != len(keys) {
 		t.Fatalf("got %d rows, want %d: %+v", len(got), len(keys), got)

@@ -15,8 +15,10 @@ export function listActiveSchemes(q?: string) {
 // Page-scoped variant: passing `limit` flips the backend (scheme/handler.go's
 // List) into the {items, hasMore} envelope — used by the paginated mobile
 // Schemes list (10/page, one API call per page).
-export function listSchemesPage(params: { q?: string; limit: number; offset: number }) {
-  return apiRequest<{ items: Scheme[]; hasMore: boolean; total?: number }>("/schemes", { params });
+export function listSchemesPage(params: { q?: string; method?: string[]; limit: number; offset: number }) {
+  return apiRequest<{ items: Scheme[]; hasMore: boolean; total?: number }>("/schemes", {
+    params: { ...params, method: params.method?.length ? params.method.join(",") : undefined },
+  });
 }
 
 export function getScheme(id: number) {

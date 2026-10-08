@@ -1,7 +1,7 @@
 "use client";
 
 import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
-import { expenseCategoryOf } from "@/product/hooks/useExpenseCategoryIds";
+import { expenseCategoryOf, loanNumberOfCategory } from "@/product/hooks/useExpenseCategoryIds";
 import { MODE_LEDGER_ROUTE, type CashMovementView } from "@/product/pages/cash/services/cashService";
 import { routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
@@ -30,7 +30,7 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
   // on the credit row).
   if (m.source === "Self Transfer" && m.bankId) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", verticalAlign: "middle", flexWrap: "wrap", gap: 6 }}>
         <span>{text}</span>
         <LedgerRefLink kind="bank" id={m.bankId} label={m.bankName || "Bank"} />
       </span>
@@ -86,7 +86,9 @@ export function refCellFor(m: CashMovementView, categoryIds?: Record<string, num
   if (m.source === "Self Transfer") {
     const cat = selfTransferCategory(m.purpose);
     const id = cat && isLoanSource(cat) ? categoryIds?.[cat.toLowerCase()] : undefined;
-    return id ? <LedgerRefLink kind="category" id={id} label={cat} /> : "—";
+    // The chip reads the bank loan number recorded in Add Cash (the loan's own
+    // id), falling back to the loan's name when none is on file.
+    return id ? <LedgerRefLink kind="category" id={id} label={loanNumberOfCategory(cat) || cat} /> : "—";
   }
   const bankBacked = m.expenseId != null || expenseCategoryOf(m.purpose) !== null || (m.type === "in" && !!m.source && isLoanSource(m.source));
   if (bankBacked) {
@@ -98,6 +100,20 @@ export function refCellFor(m: CashMovementView, categoryIds?: Record<string, num
   if (ref.startsWith("PL-")) return <LedgerRefLink kind="personalloan" id={ref} label={ref} />;
   if (ref.startsWith("INV-")) return <LedgerRefLink kind="investment" id={ref} label={ref} />;
   return "—";
+}
+
+// Hover text for the Ref No cell. A loan repayment (self transfer, expense or
+// loan-sourced Add Cash) shows the bank loan number recorded when that loan
+// was first added in Add Cash — not the bank the money moved through.
+export function refTitleFor(m: CashMovementView): string {
+  const category =
+    m.source === "Self Transfer" ? selfTransferCategory(m.purpose)
+    : expenseCategoryOf(m.purpose) ?? (m.type === "in" && m.source ? m.source : "");
+  if (category && isLoanSource(category)) {
+    const number = loanNumberOfCategory(category);
+    if (number) return number;
+  }
+  return m.bankName || loanNumberFor(m);
 }
 
 // Every mode is a drill-down link to that mode's own ledger — plain text for
@@ -122,7 +138,7 @@ export function loanCatRef(r: { type: string; reference?: string; description?: 
   if (r.type === "Self Transfer") {
     const cat = selfTransferCategory(r.description);
     const catId = cat && isLoanSource(cat) ? categoryIds[cat.toLowerCase()] : undefined;
-    return catId ? <LedgerRefLink kind="category" id={catId} label={cat} /> : "—";
+    return catId ? <LedgerRefLink kind="category" id={catId} label={loanNumberOfCategory(cat) || cat} /> : "—";
   }
   const id = r.type && isLoanSource(r.type) ? categoryIds[r.type.toLowerCase()] : undefined;
   return id && r.reference ? <LedgerRefLink kind="category" id={id} label={r.reference} /> : r.reference || "—";

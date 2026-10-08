@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { AccRow, FabCorner, FlatHeader, Screen, SearchInput, ServerFlatList } from "../../../src/components/ui";
+import { AccBtn, AccRow, CheckItem, FabCorner, FiltersBar, FlatHeader, Screen, SearchInput, ServerFlatList, Sheet } from "../../../src/components/ui";
 import { SchemeSheet, SchemeStatementSheet } from "../../../src/components/staff/SchemeSheet";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
+import { usePersistedState } from "../../../src/hooks/usePersistedState";
 import { listSchemesPage } from "../../../src/api/schemes";
 import type { Scheme } from "../../../src/types/scheme";
 import { useAuth } from "../../../src/auth/AuthContext";
@@ -12,6 +13,8 @@ import { useAuth } from "../../../src/auth/AuthContext";
 // Create / edit open the Scheme sheet; Download Statement opens the
 // statement sheet (server-built PDF / xlsx).
 
+const INTEREST_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"] as const;
+
 function serviceCharge(sc: Scheme) {
   if (!sc.serviceChargeType || sc.serviceChargeType === "None") return null;
   const v = sc.serviceChargeType === "Flat" ? `₹${(sc.serviceChargeValue ?? 0).toLocaleString("en-IN")}` : `${sc.serviceChargeValue ?? 0}%`;
@@ -19,7 +22,14 @@ function serviceCharge(sc: Scheme) {
 }
 
 export default function SchemesScreen() {
-  const list = useServerList<Scheme>({ key: ["schemes", "list"], fetchPage: (p) => listSchemesPage(p) });
+  const [methods, setMethods] = usePersistedState<string[]>("schemes:methods", []);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const list = useServerList<Scheme, { method?: string[] }>({
+    key: ["schemes", "list"],
+    persistKey: "schemes",
+    filters: { method: methods },
+    fetchPage: (p) => listSchemesPage(p),
+  });
   const [editing, setEditing] = useState<Scheme | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [statementFor, setStatementFor] = useState<Scheme | null>(null);
@@ -53,7 +63,12 @@ export default function SchemesScreen() {
         items={list.items}
         keyOf={(sc) => String(sc.id)}
         emptyText={list.search ? "No schemes match your search." : "No schemes yet."}
-        header={<SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by scheme name or code" style={{ paddingTop: 12 }} />}
+        header={
+            <>
+              <FiltersBar count={methods.length} summary={methods.length ? methods.join(", ") : "All interest methods"} onPress={() => setFilterOpen(true)} style={{ paddingTop: 12 }} />
+              <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by name, code, LTV % or months" style={{ paddingTop: 0 }} />
+            </>
+          }
         renderItem={(sc, i) => {
           const charge = serviceCharge(sc);
           return (
@@ -96,6 +111,12 @@ export default function SchemesScreen() {
         }}
       />
 
+      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Schemes" maxHeightPct={70}>
+        {INTEREST_METHODS.map((m) => (
+          <CheckItem key={m} checked={methods.includes(m)} title={m} onPress={() => setMethods((cur) => (cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]))} />
+        ))}
+        {methods.length ? <AccBtn label="Reset all" onPress={() => setMethods([])} /> : null}
+      </Sheet>
       <SchemeSheet visible={formOpen} onClose={() => setFormOpen(false)} scheme={editing} />
       <SchemeStatementSheet visible={statementOpen} onClose={() => setStatementOpen(false)} scheme={statementFor} />
     </Screen>

@@ -87,6 +87,12 @@ type Filter struct {
 	BranchID *uint
 	Status   string
 	LockerID uint
+	// StatusIn / FilterBranchIDs / CustomerIDs match any of the listed
+	// values — the Packets page's multi-select filters. FilterBranchIDs is
+	// ANDed on top of BranchID (the caller's own branch scope).
+	StatusIn        []string
+	FilterBranchIDs []uint
+	CustomerIDs     []uint
 	// Q searches the packet's own code, its loan's LoanNumber, the locker it sits in, and its
 	// loan's customer's name/code — the same fields the Packets screen's search
 	// box promises ("packet code, loan number, or customer name"). Case-
@@ -106,7 +112,9 @@ func (r *Repository) FindAll(ctx context.Context, f Filter) ([]Packet, int64, er
 	if f.LoanID != 0 {
 		q = q.Where("packets.loan_id = ?", f.LoanID)
 	}
-	if f.Status != "" {
+	if len(f.StatusIn) > 0 {
+		q = q.Where("packets.status IN ?", f.StatusIn)
+	} else if f.Status != "" {
 		q = q.Where("packets.status = ?", f.Status)
 	}
 	if f.LockerID != 0 {
@@ -115,12 +123,18 @@ func (r *Repository) FindAll(ctx context.Context, f Filter) ([]Packet, int64, er
 	// Q needs the same loans/customers join branch-scoping uses — joined
 	// unconditionally (not only when BranchID is set) since either filter
 	// may need it on its own.
-	if f.BranchID != nil || f.Q != "" {
+	if f.BranchID != nil || f.Q != "" || len(f.FilterBranchIDs) > 0 || len(f.CustomerIDs) > 0 {
 		q = q.Joins("JOIN loans ON loans.id = packets.loan_id").
 			Joins("JOIN customers ON customers.id = loans.customer_id")
 	}
 	if f.BranchID != nil {
 		q = q.Where("loans.branch_id = ?", *f.BranchID)
+	}
+	if len(f.FilterBranchIDs) > 0 {
+		q = q.Where("loans.branch_id IN ?", f.FilterBranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("loans.customer_id IN ?", f.CustomerIDs)
 	}
 	if f.Q != "" {
 		// LEFT JOIN: a packet that isn't checked into a locker (Bank

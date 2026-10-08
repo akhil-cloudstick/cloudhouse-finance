@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { fmt } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
-import { DatePicker } from "@/product/components/ui/DatePicker";
-import { Select } from "@/product/components/ui/Select";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
+import { usePersistedState } from "@/product/hooks/usePersistedState";
 import {
   listLoanRiskAssessmentPage, RISK_STATUSES, LOAN_RISK_PAGE_SIZE,
   type LoanRiskRow, type LoanRiskLevel, type LoanRiskCounts,
@@ -44,10 +44,24 @@ export function LoanRisk() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
-  const [status, setStatus] = useState("");
-  const [riskLevel, setRiskLevel] = useState<LoanRiskLevel | "">("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [status, setStatus] = usePersistedState("loanrisk:status", "");
+  const [riskLevel, setRiskLevel] = usePersistedState<LoanRiskLevel | "">("loanrisk:risk", "");
+  const [fromDate, setFromDate] = usePersistedState("loanrisk:from", "");
+  const [toDate, setToDate] = usePersistedState("loanrisk:to", "");
+
+  // One grouped filter: Status, Risk level (single choice each) and the
+  // opened-date range.
+  const filterCategories: FilterCategory[] = [
+    { key: "status", label: "Status", kind: "static", singleSelect: true, options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
+    { key: "risk", label: "Risk", kind: "static", singleSelect: true, options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
+    { key: "__date", label: "Opened Date", kind: "date" },
+  ];
+  const filterValue: FilterValue = {
+    status: status ? [status] : [],
+    risk: riskLevel ? [riskLevel] : [],
+    __dateFrom: fromDate || undefined,
+    __dateTo: toDate || undefined,
+  };
   const totalPages = Math.max(1, Math.ceil(total / LOAN_RISK_PAGE_SIZE));
 
   // Any filter change resets back to page 1 rather than leaving the user
@@ -79,7 +93,7 @@ export function LoanRisk() {
   useEffect(() => { refresh(); }, [refresh]);
 
   return (
-    <>
+    <div className="page-fill loan-risk-page">
       <div className="page-h">
         <div><h1>Loan Risk</h1><p>Outstanding principal vs. today&apos;s gold value for every open loan — flags loans a falling gold price has put at risk or at a loss</p></div>
       </div>
@@ -92,7 +106,8 @@ export function LoanRisk() {
         * themselves always reflect the full status/date-matched set (see
         * loanService.ts's LoanRiskCounts doc comment), so the other two
         * tiles don't collapse to zero while one level is selected. */}
-      <div className="kpis" style={{ marginBottom: 16 }}>
+      <div className="loan-risk-bar" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+      <div className="kpis kpis-compact">
         <div className="kpi"><div className="l">Total Open Loans</div><div className="v">{total}</div></div>
         {RISK_LEVELS.map((level) => (
           <button
@@ -114,32 +129,23 @@ export function LoanRisk() {
           </button>
         ))}
       </div>
-
-      <div className="loan-risk-filters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10, justifyContent: "flex-end" }}>
-        <div style={{ width: 170 }}>
-          <Select
-            options={[{ value: "", label: "All statuses" }, ...RISK_STATUSES.map((s) => ({ value: s, label: s }))]}
-            value={status}
-            onChange={setStatus}
-          />
-        </div>
-        <div style={{ width: 150 }}>
-          <Select
-            options={[{ value: "", label: "All risk levels" }, ...RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] }))]}
-            value={riskLevel}
-            onChange={(v) => setRiskLevel(v as LoanRiskLevel | "")}
-          />
-        </div>
-        <DatePicker value={fromDate} onChange={setFromDate} placeholder="Opened from…" max={toDate || undefined} />
-        <DatePicker value={toDate} onChange={setToDate} placeholder="Opened to…" min={fromDate || undefined} />
-        {(status || riskLevel || fromDate || toDate) && (
-          <button className="btn ghost sm" onClick={() => { setStatus(""); setRiskLevel(""); setFromDate(""); setToDate(""); }}>Clear</button>
-        )}
+      <FilterPanel
+        categories={filterCategories}
+        value={filterValue}
+        onChange={(next) => {
+          setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+          setRiskLevel((Array.isArray(next.risk) ? next.risk[0] || "" : "") as LoanRiskLevel | "");
+          setFromDate(next.__dateFrom || "");
+          setToDate(next.__dateTo || "");
+        }}
+        hideChips
+        hideClearAll
+      />
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
-      <div className="card tbl-card tbl-card-fill">
+      <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center">
             <thead>
@@ -187,6 +193,6 @@ export function LoanRisk() {
         </div>
         {/* <div className="ft">Red = gold, sold today, would not cover the principal · Orange = covered by less than a 10% margin · Green = comfortably covered</div> */}
       </div>
-    </>
+    </div>
   );
 }

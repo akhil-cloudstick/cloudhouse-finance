@@ -1,5 +1,6 @@
 // `expo-router`'s root export of `Tabs` is deprecated in SDK 57 — the
 // supported path is `expo-router/js-tabs`.
+import { syncPersistedSection } from "../../src/hooks/usePersistedState";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
@@ -79,6 +80,9 @@ function CollectLauncher({ loanId, onClose }: { loanId: number | null; onClose: 
 }
 
 export default function TabsLayout() {
+  // Before any screen below reads its remembered filters: entering a different
+  // section clears them (see usePersistedState.ts).
+  syncPersistedSection(((useSegments() as string[])[1]) ?? "");
   useTenantModuleGuard();
   useRoutePermissionGuard();
   const [open, setOpen] = useState<SheetName>(null);

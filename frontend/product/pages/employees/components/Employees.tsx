@@ -89,7 +89,7 @@ export function Employees() {
         </p>
       )}
       {employees !== null && employees.length > 0 && (
-        <div className="card tbl-card tbl-card-fill">
+        <div className="card tbl-card tbl-card-fill tbl-rounded">
           <div className="tbl-wrap">
             <table className="tbl tbl-center col1-left tbl-tight emp-tbl">
               <thead>

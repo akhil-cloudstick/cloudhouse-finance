@@ -5,6 +5,7 @@ import { fromCamera, fromFiles, fromLibrary, PermissionError } from "../Document
 import { uploadFile, type PickedFile } from "../../api/uploads";
 import { API_ORIGIN } from "../../api/config";
 import { ApiError } from "../../api/client";
+import { useUploadSource } from "./BillView";
 import { useAuth } from "../../auth/AuthContext";
 
 /** Prototype dashed upload tile ("Tap to add a photo" / "Tap to upload").
@@ -47,6 +48,8 @@ export function UploadField({
   }
 
   const isImage = !!value && !/\.pdf$/i.test(value);
+  // /uploads/* is only served to a signed-in caller — send the session token.
+  const thumbSource = useUploadSource(value || "");
   return (
     <Field label={label}>
       <Pressable onPress={() => canUpload && !busy && setChoosing(true)} disabled={!canUpload} style={[s.box, !!value && s.boxDone]}>
@@ -54,7 +57,7 @@ export function UploadField({
           <ActivityIndicator color={C.brandDeep} />
         ) : value ? (
           <View style={s.done}>
-            {isImage ? <Image source={{ uri: value.startsWith("http") ? value : `${API_ORIGIN}${value}` }} style={s.thumb} /> : null}
+            {isImage ? <Image source={thumbSource ?? { uri: value.startsWith("http") ? value : `${API_ORIGIN}${value}` }} style={s.thumb} /> : null}
             <Txt style={s.doneTxt} numberOfLines={1}>
               {name ?? "Attached"}
               {canUpload ? " · Tap to replace" : ""}

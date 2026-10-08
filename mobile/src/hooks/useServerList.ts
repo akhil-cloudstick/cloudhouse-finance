@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "./useDebouncedValue";
 import { useRefetchOnFocus } from "./useRefetchOnFocus";
+import { usePersistedState } from "./usePersistedState";
 
 export type ServerPage<T> = { items: T[] | null; hasMore: boolean; total?: number };
 
@@ -22,6 +23,7 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   enabled = true,
   pageSize = PAGE_SIZE,
   fresh = false,
+  persistKey,
 }: {
   key: unknown[];
   fetchPage: (params: F & { q?: string; limit: number; offset: number }) => Promise<ServerPage<T>>;
@@ -31,6 +33,8 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   /** Drop any cached pages when this list mounts, so it always loads fresh
    * (with the buffering spinner) instead of flashing stale rows. */
   fresh?: boolean;
+  /** Keep the search text under this key so it survives leaving the screen. */
+  persistKey?: string;
 }) {
   const qc = useQueryClient();
   // Runs once, before the query subscribes.
@@ -38,7 +42,7 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
     if (fresh) qc.removeQueries({ queryKey: key });
     return null;
   });
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = usePersistedState<string>(persistKey ? `search:${persistKey}` : null, "");
   const q = useDebouncedValue(search.trim());
 
   const query = useInfiniteQuery({

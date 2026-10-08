@@ -212,7 +212,7 @@ var appRoutes = map[string]bool{
 	"auctions": true, "packets": true, "packet": true,
 	"bankpledge": true, "reports": true, "employees": true,
 	"calendar": true, "branches": true, "banks": true,
-	"ledger-bank": true, "ledger-customer": true, "ledger-category": true,
+	"ledger-bank": true, "ledger-customer": true, "ledger-branch": true, "ledger-category": true,
 	"cash-ledger": true, "upi-ledger": true, "bank-transfer-ledger": true, "cheque-ledger": true,
 	// Old names, still served so old links open (the frontend rewrites the
 	// address — see ROUTE_ALIASES).

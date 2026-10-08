@@ -340,14 +340,15 @@ export type AadhaarVerificationCheck = {
   customer?: CustomerView;
   matchedName?: string;
   dob?: string;
+  failureReasons?: string[];
 };
 
 export async function checkAadhaarVerify(customerId: string): Promise<AadhaarVerificationCheck> {
-  const res = await apiFetch<{ status: string; customer?: BackendCustomer; matchedName?: string; dob?: string }>(
+  const res = await apiFetch<{ status: string; customer?: BackendCustomer; matchedName?: string; dob?: string; failureReasons?: string[] }>(
     `/customers/${customerId}/verify-aadhaar/check`,
     { method: "POST" }
   );
-  return { status: res.status, customer: res.customer ? toView(res.customer) : undefined, matchedName: res.matchedName, dob: res.dob };
+  return { status: res.status, customer: res.customer ? toView(res.customer) : undefined, matchedName: res.matchedName, dob: res.dob, failureReasons: res.failureReasons ?? [] };
 }
 
 export async function createCustomer(input: CustomerFormInput): Promise<CustomerView> {

@@ -169,14 +169,14 @@ export async function listCashMovementsPage(
   page: number,
   limit?: number,
   filters?: CashMovementFilters
-): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number; totalDebit: number; totalCredit: number }> {
+): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number; totalDebit: number; totalCredit: number; pageBalance: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = movementFilterParams(filters);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number; totalDebit?: number; totalCredit?: number }>(`/cash-movements?${params}`);
+  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number; totalDebit?: number; totalCredit?: number; pageBalance?: number }>(`/cash-movements?${params}`);
   // totalDebit/totalCredit: every movement matching the filters, not the page.
-  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
+  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, pageBalance: rec?.pageBalance ?? 0 };
 }
 
 /* Downloads a file from an endpoint that returns a raw file body (CSV),
@@ -561,7 +561,7 @@ export type PartyTotals = {
 
 // loanNumbers is the customer drilldown's Loan filter, now multi-select —
 // loanNumber (singular) is kept for any caller still passing exactly one.
-export type PartyDateRange = { fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[] };
+export type PartyDateRange = { fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
 
 function partyRangeParams(range?: PartyDateRange): URLSearchParams {
   const params = new URLSearchParams();
@@ -569,6 +569,7 @@ function partyRangeParams(range?: PartyDateRange): URLSearchParams {
   if (range?.toDate) params.set("toDate", range.toDate);
   if (range?.loanNumber) params.set("loanNumber", range.loanNumber);
   if (range?.loanNumbers?.length) params.set("loanNumbers", range.loanNumbers.join(","));
+  if (range?.modes?.length) params.set("modes", range.modes.join(","));
   return params;
 }
 
@@ -725,11 +726,12 @@ export const MODE_LEDGER_ROUTE: Record<string, string> = {
 export async function getModeLedger(
   mode: LedgerMode,
   page: number,
-  range?: PartyDateRange & { branchIds?: number[]; bankId?: number },
+  range?: PartyDateRange & { branchIds?: number[]; bankId?: number; types?: string[] },
   pageSize: number = PARTY_PAGE_SIZE
 ): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
   const params = partyRangeParams(range);
   params.set("mode", mode);
+  if (range?.types?.length) params.set("types", range.types.join(","));
   if (range?.bankId) params.set("bankId", String(range.bankId));
   if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
   params.set("limit", String(pageSize));
@@ -744,10 +746,11 @@ export async function getModeLedger(
 export async function downloadLedger(
   kind: "bank" | "customer" | "category" | "mode",
   ref: number | LedgerMode,
-  range?: PartyDateRange & { bankId?: number; branchIds?: number[] }
+  range?: PartyDateRange & { bankId?: number; branchIds?: number[]; types?: string[] }
 ): Promise<void> {
   const params = partyRangeParams(range);
   params.set("export", "pdf");
+  if (range?.types?.length) params.set("types", range.types.join(","));
   if (range?.bankId) params.set("bankId", String(range.bankId));
   if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
   let path: string;

@@ -336,7 +336,7 @@ func (h *Handler) CheckAadhaarVerify(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, status, aadhaar, err := h.svc.CheckAadhaarVerify(ctx, id, platform.GetBranchScope(c))
+	rec, status, aadhaar, reasons, err := h.svc.CheckAadhaarVerify(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -346,10 +346,11 @@ func (h *Handler) CheckAadhaarVerify(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, gin.H{
-		"customer":    rec.ToResponse(),
-		"status":      status.Status,
-		"matchedName": aadhaar.Aadhaar.Name,
-		"dob":         aadhaar.Aadhaar.DateOfBirth,
+		"customer":       rec.ToResponse(),
+		"status":         status.Status,
+		"matchedName":    aadhaar.Aadhaar.Name,
+		"dob":            aadhaar.Aadhaar.DateOfBirth,
+		"failureReasons": reasons,
 	})
 }
 

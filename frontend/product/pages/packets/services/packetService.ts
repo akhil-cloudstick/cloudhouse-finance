@@ -171,13 +171,17 @@ function toMovementView(m: BackendPacketMovement): MovementView {
   };
 }
 
-export type PacketFilters = { loanId?: number; branchId?: number; status?: string; lockerId?: number; q?: string };
+export type PacketFilters = { loanId?: number; branchId?: number | number[]; customerId?: number[]; status?: string | string[]; lockerId?: number; q?: string };
+
+const csv = (v: string | number | (string | number)[]) => (Array.isArray(v) ? v.join(",") : String(v));
+const hasValue = (v?: string | number | (string | number)[]) => (Array.isArray(v) ? v.length > 0 : !!v);
 
 export async function listPackets(filters?: PacketFilters): Promise<PacketView[]> {
   const params = new URLSearchParams();
   if (filters?.loanId) params.set("loanId", String(filters.loanId));
-  if (filters?.branchId) params.set("branchId", String(filters.branchId));
-  if (filters?.status) params.set("status", filters.status);
+  if (filters && hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
+  if (filters && hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
+  if (filters && hasValue(filters.status)) params.set("status", csv(filters.status!));
   if (filters?.lockerId) params.set("lockerId", String(filters.lockerId));
   if (filters?.q) params.set("q", filters.q);
   const qs = params.toString();
@@ -202,8 +206,9 @@ export async function listPacketsPage(
     offset: String((page - 1) * pageSize),
   });
   if (filters?.loanId) params.set("loanId", String(filters.loanId));
-  if (filters?.branchId) params.set("branchId", String(filters.branchId));
-  if (filters?.status) params.set("status", filters.status);
+  if (filters && hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
+  if (filters && hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
+  if (filters && hasValue(filters.status)) params.set("status", csv(filters.status!));
   if (filters?.lockerId) params.set("lockerId", String(filters.lockerId));
   if (filters?.q) params.set("q", filters.q);
   const rec = await apiFetch<{ items: BackendPacket[]; hasMore: boolean; total?: number }>(`/packets?${params}`);

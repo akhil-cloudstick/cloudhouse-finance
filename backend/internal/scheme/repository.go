@@ -26,12 +26,19 @@ func (r *Repository) Create(ctx context.Context, s *Scheme) error {
 // pointer to confine results to that branch (see platform.GetBranchScope).
 // limit == 0 returns every matching scheme unpaged (the web Schemes page's
 // behaviour); limit > 0 applies Limit/Offset (the mobile app's paginated
-// list) — same convention as FindActive below.
-func (r *Repository) FindAll(ctx context.Context, query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
+// list) — same convention as FindActive below. methods, when non-empty,
+// narrows to schemes whose interest calculation method is one of them.
+func (r *Repository) FindAll(ctx context.Context, query string, methods []string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
 	var schemes []Scheme
 	q := r.db.WithContext(ctx).Preload("Branch").Order("id asc")
 	if query != "" {
-		q = q.Where("name ILIKE ? OR code ILIKE ?", "%"+query+"%", "%"+query+"%")
+		// Name, code, interest rate, LTV % and duration (months) — the numeric
+		// columns are cast to text so "75" or "12" match as a plain substring.
+		like := "%" + query + "%"
+		q = q.Where("name ILIKE ? OR code ILIKE ? OR CAST(interest_rate AS TEXT) ILIKE ? OR CAST(ltv_percent AS TEXT) ILIKE ? OR CAST(duration_months AS TEXT) ILIKE ?", like, like, like, like, like)
+	}
+	if len(methods) > 0 {
+		q = q.Where("interest_method IN ?", methods)
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)

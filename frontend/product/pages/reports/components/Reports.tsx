@@ -504,7 +504,7 @@ const FORM_G_TILE = {
  * exportPartyStatementBy* calls, not a fixed-dataset Row/Totals report. */
 const LEDGER_EXPORT_TILE = {
   id: "ledger-export",
-  title: "Ledger / Statement Export",
+  title: "Ledger Report",
   description: "Download a full ledger for one customer, branch or bank",
   icon: "coin",
 };

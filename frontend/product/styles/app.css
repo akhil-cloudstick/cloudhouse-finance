@@ -2615,6 +2615,12 @@ button.fi-trigger {
   flex: 1 1 auto;
   min-height: 0;
 }
+/* The `display:flex` above beats the UA's `[hidden]{display:none}`, so every
+ * tab's panel (and its own pager) rendered at once, stacked inside the card.
+ * Only the active panel may show, so there is one table and one footer. */
+.cust-360 .tbl-card-fill > .tab-slide-up[hidden] {
+  display: none;
+}
 .cust-360 .tbl-card-fill .tbl-wrap {
   height: auto;
   max-height: none;
@@ -5438,6 +5444,19 @@ table.tbl {
   align-items: stretch
 }
 
+/* The three cards stay side by side, so each card's key/value grid fits as
+ * many columns as its own width allows (down to one) instead of a fixed
+ * three that overflowed the card on narrower windows; long values wrap. */
+.loan-detail-c3 .kv {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 12px 14px
+}
+
+.loan-detail-c3 .kv .i {
+  min-width: 0;
+  overflow-wrap: anywhere
+}
+
 @media(max-width:1060px) {
   .frow.c4 {
     grid-template-columns: 1fr 1fr
@@ -5466,20 +5485,23 @@ table.tbl {
    * room. Falls back to ordinary content-sized rows and lets `.page`'s
    * own bottom padding provide the gap, same as before this table
    * learned to fill. */
+  /* Stacked: the profile card and the table card still share the page's
+   * height (profile ~40%, table ~60%) and scroll internally, so the page
+   * itself never scrolls — same as every other page. */
   .grid.cols12.cust-360 {
-    grid-template-rows: none;
-    flex: 0 1 auto;
+    grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
+    flex: 1 1 auto;
     min-height: 0;
   }
 
   .cust-360 .tbl-card-fill,
   .cust-360 .tbl-card-fill > .tab-slide-up {
-    flex: 0 1 auto;
+    flex: 1 1 auto;
   }
 
   .cust-360 .tbl-card-fill .tbl-wrap {
-    flex: 0 1 auto;
-    max-height: 56vh;
+    flex: 1 1 auto;
+    max-height: none;
   }
 
   /* The profile card's own bd (KYC + documents + nominee + loan totals)
@@ -5492,8 +5514,8 @@ table.tbl {
    * viewport-relative height with its own scroll, matching the tabbed
    * table card's 56vh cap right above. */
   .grid.cols12.cust-360 > .grid > .card > .bd {
-    flex: 0 1 auto;
-    max-height: 56vh;
+    flex: 1 1 auto;
+    max-height: none;
   }
 }
 
@@ -7834,22 +7856,9 @@ html.has-titlebar body {
  * them; at ordinary heights 56vh is still the larger value, so nothing there
  * changes. The two-column layout (>1060px) fills the page height with `1fr`
  * and has no such cap — it gets a minimum height instead of collapsing. */
-@media (max-width: 1060px) {
-  .grid.cols12.cust-360 > .grid > .card > .bd {
-    max-height: max(56vh, 420px);
-  }
-
-  .cust-360 .tbl-card-fill .tbl-wrap {
-    max-height: max(56vh, 360px);
-  }
-}
-
-@media (min-width: 1061px) and (max-height: 760px) {
-  .grid.cols12.cust-360 {
-    flex: 1 0 auto;
-    min-height: 460px;
-  }
-}
+/* (Superseded: the stacked and short-window layouts now fill the viewport and
+ * scroll inside the cards instead of scrolling the page — see the .cust-360
+ * rules in the ≤1060px block above.) */
 
 /* A table inside a card is part of the card, not a second box. `.tbl-wrap`
  * carries its own 10px radius, and at ≤900px the small-screen block above adds
@@ -7928,4 +7937,151 @@ html.has-titlebar body {
     min-width: 0;
     overflow-wrap: anywhere;
   }
+}
+
+/* Keeps a region scrollable (wheel/touch/keys) without drawing its scrollbar. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* BackLink.tsx — quiet back control above a page title. */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 6px -4px;
+  padding: 2px 8px 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: .01em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color .12s, background-color .12s;
+}
+.back-link:hover { color: var(--fg); background: var(--line); }
+.back-link:focus-visible { outline: 2px solid var(--brand-deep); outline-offset: 1px; }
+
+/* Customer 360 fills the window instead of scrolling the page. The page's
+ * wrapper div (`page-fill`) becomes the flex column the grid's `flex:1` was
+ * written for, so the profile card and the tabbed table card are bounded by
+ * the viewport and scroll inside themselves. */
+.page-fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.page:has(> .page-fill) {
+  overflow-y: hidden;
+}
+.grid.cols12.cust-360 > .cust-360-tabrow {
+  height: auto !important;
+}
+.cust-360 .tbl-card-fill {
+  overflow: hidden;
+}
+/* The pager sits at the card's bottom edge, never stuck to the page. */
+.cust-360 .tbl-card-fill .tbl-wrap + .ft {
+  position: static;
+  flex-shrink: 0;
+}
+
+/* Packets & Lockers: the Lockers heading + filter stay put while the cards
+ * scroll underneath. */
+.locker-col > .locker-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg);
+  padding-bottom: 6px;
+}
+
+/* Customer Profile card: still scrolls if its content is taller than the
+ * window, but without a visible scrollbar. */
+.grid.cols12.cust-360 > .grid > .card > .bd {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.grid.cols12.cust-360 > .grid > .card > .bd::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Customer 360 tables on a small screen (the app's own "small" definition:
+ * under 1560px wide or under 850px tall): tighter rows and cells so every
+ * column fits the card without a horizontal scrollbar. */
+@media (max-width: 1560px), (max-height: 850px) {
+  .cust-360 .tbl-wrap {
+    overflow-x: hidden;
+  }
+  .cust-360 .tbl {
+    font-size: 12px;
+  }
+  .cust-360 .tbl th {
+    padding: 13px 5px;
+    letter-spacing: .03em;
+    white-space: normal;
+  }
+  .cust-360 .tbl td {
+    padding: 14px 5px;
+  }
+  .cust-360 .tbl th:first-child,
+  .cust-360 .tbl td:first-child {
+    padding-left: 8px;
+  }
+  .cust-360 .tbl th:last-child,
+  .cust-360 .tbl td:last-child {
+    padding-right: 8px;
+  }
+  .cust-360 .tbl td.td-particulars {
+    min-width: 0;
+  }
+  .cust-360 .tbl td.ledger-ref {
+    max-width: none;
+  }
+  .cust-360 .tbl .ledger-ref-chip {
+    padding: 1px 6px;
+    font-size: 10.5px;
+  }
+}
+
+/* Loan Risk: the four KPI tiles sit in one horizontal line, with the filter
+ * button at the far end of the same row. The base .kpis grid has no room to
+ * lay them out side by side inside the flex row, so they stack — a flex row
+ * of fixed-width tiles keeps them in a line (wrapping only on narrow windows). */
+.kpis.kpis-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Table cards whose header row used to poke out square at the top corners:
+ * the card clips its contents to its own rounded corners, so the heading row
+ * is rounded with it. */
+.card.tbl-rounded {
+  overflow: hidden;
+}
+
+/* Loan Risk: tighter vertical gaps so the KPI row and the table fit the window
+ * without scrolling the page; the filter button sits low, level with the
+ * bottom edge of the KPI cards. */
+.loan-risk-page .page-h {
+  margin-bottom: 8px;
+}
+.loan-risk-page .gold-rule {
+  margin: 2px 0 10px;
+}
+.loan-risk-page .kpis-compact .kpi {
+  height: 84px;
+}
+.loan-risk-page .kpis-compact + .filter-wrap,
+.loan-risk-page .loan-risk-bar {
+  align-items: flex-end;
 }

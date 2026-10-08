@@ -15,7 +15,8 @@ import { Select } from "@/product/components/ui/Select";
 import { singleFlight } from "@/product/utils/singleFlight";
 
 const DEFAULT_DURATION_MONTHS = 12;
-const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"];
+export const SCHEME_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"];
+const METHODS = SCHEME_METHODS;
 const METHOD_OPTIONS = METHODS.map((m) => ({ value: m, label: m }));
 const STATUS_OPTIONS = [{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }];
 const CHARGE_TYPE_OPTIONS: { value: ServiceChargeType; label: string }[] = [

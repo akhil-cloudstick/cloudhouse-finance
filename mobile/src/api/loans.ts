@@ -14,6 +14,7 @@ export function listLoans(params?: { q?: string; status?: string; branchId?: num
 export function listLoansPage(params: {
   q?: string;
   status?: string;
+  servicing?: string; // due_soon | overdue | defaulted (read-time classifications)
   branchId?: number;
   customerId?: number;
   schemeId?: number;
@@ -55,6 +56,7 @@ export type LoanRiskCounts = { loss: number; atRisk: number; safe: number };
 export function listLoanRiskAssessmentPage(params: {
   q?: string;
   status?: string;
+  servicing?: string; // due_soon | overdue | defaulted
   riskLevel?: LoanRiskLevel;
   from?: string; // "YYYY-MM-DD", bounds openedDate
   to?: string;
@@ -374,4 +376,21 @@ export function approveTopUp(topUpId: number, input: { stage: string; action: "A
 // Ledger alongside the loan's payments.
 export function listTopUps(loanId: number) {
   return apiRequest<LoanTopUp[]>(`/loans/${loanId}/topups`);
+}
+
+// GET /loans/:id/ledger (backend/internal/loan/ledger.go). The staff app builds
+// its Payment Ledger locally from the loan's payments/top-ups; this is used for
+// the server-computed "interest" / "penal" charge rows, which aren't in those.
+// `kind` is open-ended — callers must ignore kinds they don't know.
+export type LoanLedgerEntry = {
+  key: string;
+  kind: string;
+  date: string;
+  amount: number;
+  balance: number | null;
+  note?: string;
+};
+
+export function getLoanLedger(loanId: number, params: { limit: number; offset: number }) {
+  return apiRequest<{ items: LoanLedgerEntry[] | null; total: number; totalDebit?: number; totalCredit?: number }>(`/loans/${loanId}/ledger`, { params });
 }

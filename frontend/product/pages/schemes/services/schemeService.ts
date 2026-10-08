@@ -100,9 +100,30 @@ function toRequestBody(input: SchemeFormInput) {
   };
 }
 
-export async function listSchemes(): Promise<SchemeView[]> {
-  const rec = await apiFetch<BackendScheme[]>("/schemes");
+/* Server-side search. `q` matches scheme name, code, LTV % and duration
+ * (months); `methods` narrows to those interest calculation methods. */
+export async function listSchemes(filters?: { q?: string; methods?: string[] }): Promise<SchemeView[]> {
+  const params = new URLSearchParams();
+  if (filters?.q) params.set("q", filters.q);
+  if (filters?.methods?.length) params.set("method", filters.methods.join(","));
+  const qs = params.toString();
+  const rec = await apiFetch<BackendScheme[]>(`/schemes${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toView);
+}
+
+/* One page of the Loan Schemes list — same search/method filters as
+ * listSchemes, paged server-side ({items, hasMore, total} envelope).
+ * `page` is 0-based. */
+export async function listSchemesPage(
+  filters: { q?: string; methods?: string[] },
+  page: number,
+  limit: number
+): Promise<{ items: SchemeView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(page * limit) });
+  if (filters.q) params.set("q", filters.q);
+  if (filters.methods?.length) params.set("method", filters.methods.join(","));
+  const rec = await apiFetch<{ items: BackendScheme[] | null; hasMore: boolean }>(`/schemes?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }
 
 /* Server-side search (by name) across active schemes only — backs

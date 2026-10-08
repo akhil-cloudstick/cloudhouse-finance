@@ -48,6 +48,8 @@ export const ROUTE_PERMISSIONS: Record<string, RouteGate> = {
   // (viewing a party's ledger is a drill-down of data the user can already
   // see there, not a new resource) rather than a new permission.
   "ledger-bank": { module: "Cash_Management", key: "can_view_cash_module" },
+  // Opened from Branch Management's Ledger link — gated like that link.
+  "ledger-branch": { module: "Branch_Management", key: "can_view_branch_ledger", tenantModule: "branches" },
   "ledger-customer": { module: "Cash_Management", key: "can_view_cash_module" },
   "ledger-category": { module: "Cash_Management", key: "can_view_cash_module" },
   "cash-ledger": { module: "Cash_Management", key: "can_view_cash_module" },
