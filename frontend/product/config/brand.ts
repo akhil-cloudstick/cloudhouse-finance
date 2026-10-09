@@ -123,6 +123,8 @@ export type PrintBrand = {
   legalName: string;
   kmlRegLabel: string;
   addressLine: string;
+  /** The business's own contact number(s); falls back to the platform demo numbers. */
+  phones: string;
 };
 
 /* readCachedBrandIdentity replays the last-known IDENTITY (not just the print
@@ -163,7 +165,7 @@ export function readCachedBrandIdentity(slug: string | null): {
 
 export function cacheBrandProfile(
   slug: string | null,
-  profile: { legalName: string; kmlRegNo: string; addressLine: string } & Partial<{ name: string; shortName: string; lockupTagline: string; logoUrl: string }>
+  profile: { legalName: string; kmlRegNo: string; addressLine: string } & Partial<{ name: string; shortName: string; lockupTagline: string; logoUrl: string; contactPhone: string; policy: string }>
 ): void {
   if (typeof window === "undefined") return;
   const key = BRAND_PROFILE_KEY_PREFIX + (slug || "default");
@@ -231,17 +233,19 @@ export function printBrand(): PrintBrand {
     kmlRegLabel: BRAND.kmlRegLabel,
     kmlRegNo: BRAND.kmlReg,
     addressLine: "",
+    phones: BRAND_PHONES,
   };
   if (typeof window === "undefined") return fallback;
   try {
     const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (activeBusinessSlug() || "default"));
     if (!raw) return fallback;
-    const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string };
+    const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string; contactPhone?: string; policy?: string };
     return {
       legalName: p.legalName || fallback.legalName,
-      kmlRegLabel: p.kmlRegNo ? `KML Reg. No: ${p.kmlRegNo}` : fallback.kmlRegLabel,
+      kmlRegLabel: p.kmlRegNo ? `${p.policy === "gml" ? "GML" : "KML"} Reg. No: ${p.kmlRegNo}` : fallback.kmlRegLabel,
       kmlRegNo: p.kmlRegNo || fallback.kmlRegNo,
       addressLine: p.addressLine || "",
+      phones: p.contactPhone || fallback.phones,
     };
   } catch {
     return fallback;

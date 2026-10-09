@@ -43,6 +43,8 @@ import {
   downloadLoanStatement,
   hardDeleteLoan,
   downloadIndemnityBondPDF,
+  downloadPledgeSlipPDF,
+  fetchPledgeSlipParts,
   downloadReleaseAgreementPDF,
   type LoanView,
 } from "@/product/pages/loans/services/loanService";
@@ -742,62 +744,16 @@ export function LoanDetail({ id }: { id?: string }) {
       .finally(() => setPrintingBond(false)); });
   }
 
-  /* Inner markup only (no <html>/brand-window wrapper) — shared by
-   * printPledgeSlip (its own print window) and printSlipAndLabel (combined
-   * with the packet label below into one print job). Needs the customer
-   * record the same way printPledgeSlip always has. */
-  function pledgeSlipBodyHTML(c: { name: string; code?: string; id: string; phone?: string; address?: string }): string {
-    return `
-      ${brandHeader("Gold Loan Pledge Slip")}
-      <table>
-        <tr><th style="width:110px">Loan No</th><td>${l.id}</td><th style="width:110px">Date</th><td>${fmtToday()}</td></tr>
-        <tr><th>Customer</th><td>${c.name} (${c.code || c.id})</td><th>Phone</th><td>${c.phone || "—"}</td></tr>
-        <tr><th>Address</th><td>${c.address || "—"}</td><th>Branch</th><td>${l.branchName || "—"}</td></tr>
-        <tr><th>Scheme</th><td>${l.schemeName} @ ${l.schemeRate}% p.a. (LTV ${l.schemeLtv}%)</td>
-            <th>Opened</th><td>${fmtDate(l.opened)}</td></tr>
-      </table>
-      <table>
-        <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
-        <tbody>
-          ${l.ornaments.map((o, i) => `<tr><td>${i + 1}</td><td>${o.name}</td><td>${o.purity}</td>
-            <td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td><td class="num">${fmt(o.goldValue)}</td>
-            <td style="text-align:center">${o.photoUrl ? `<img src="${o.photoUrl}" style="width:56px;height:56px;object-fit:cover">` : "—"}</td></tr>`).join("")}
-          <tr><th colspan="3">Total</th><th class="num">${l.totalNetWeight.toFixed(1)}</th><th></th><th class="num">${fmt(l.totalGoldValue)}</th><th></th></tr>
-        </tbody>
-      </table>
-      <p><b>Principal disbursed: ${fmt(l.principal)}</b> &nbsp;<span class="muted">(eligible amount at pledge time: ${fmt(l.eligibleLoanAmount)})</span></p>
-      ${amountDistributionHTML()}
-      <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`;
-  }
-
-  /* How the principal was advanced — the initial amount on the opening
-   * date, then each later additional amount (paid-out top-ups), oldest
-   * first. Empty when the loan was advanced in one go. */
-  function amountDistributionHTML(): string {
-    const extra = topUps.filter((t) => t.status === "Active")
-      .sort((a, b) => a.occurredOn.localeCompare(b.occurredOn) || a.id - b.id);
-    if (!extra.length) return "";
-    const initial = Math.max(l.principal - extra.reduce((s, t) => s + t.amount, 0), 0);
-    const rows = [
-      `<tr><td>${fmtDate(l.opened)}</td><td>Initial loan amount</td><td class="num">${fmt(initial)}</td></tr>`,
-      ...extra.map((t) => `<tr><td>${fmtDate(t.occurredOn)}</td><td>Additional loan amount</td><td class="num">${fmt(t.amount)}</td></tr>`),
-    ].join("");
-    return `<table>
-        <thead><tr><th>Date</th><th>Amount Distribution</th><th class="num">Amount</th></tr></thead>
-        <tbody>${rows}<tr><th colspan="2">Total</th><th class="num">${fmt(l.principal)}</th></tr></tbody>
-      </table>`;
-  }
-
+  /* The pledge slip is rendered server-side from backend/templates/
+   * pledge-slip.html (GET /loans/:id/pledge-slip) and sent straight to the
+   * print dialog, same as the pledge agreement above. The customer's phone
+   * and address come from their record, the header from the business
+   * profile — both resolved on the server. */
   async function printPledgeSlip() { return singleFlight("loan:print-pledge-slip:"+l.numericId, async () => {
     setPrintingSlip(true);
-    try {
-      const c = await getCustomer(l.customerId);
-      openPrintWindow("Pledge Slip — " + l.id, pledgeSlipBodyHTML(c), toast);
-    } catch {
-      toast("Could not load customer details — try again");
-    } finally {
-      setPrintingSlip(false);
-    }
+    return downloadPledgeSlipPDF(l.numericId)
+      .catch(() => toast("Could not print the pledge slip — try again."))
+      .finally(() => setPrintingSlip(false));
   }); }
 
   /* Release Agreement — only reachable once the loan has actually closed
@@ -992,11 +948,11 @@ export function LoanDetail({ id }: { id?: string }) {
   async function printSlipAndLabel() { return singleFlight("loan:print-slip-label:"+l.numericId, async () => {
     setPrintingSlipAndLabel(true);
     try {
-      const [c, data] = await Promise.all([getCustomer(l.customerId), packetLabelData()]);
+      const [slip, data] = await Promise.all([fetchPledgeSlipParts(l.numericId), packetLabelData()]);
       if (!data) return;
       openPrintWindow(
         "Pledge Slip + Label — " + l.id,
-        `${pledgeSlipBodyHTML(c)}
+        `<style>${slip.style}</style>${slip.body}
         <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
           <style>${labelStyle()}</style>
           <div style="display:inline-block">${labelBodyHTML(data)}</div>
@@ -1382,6 +1338,13 @@ export function LoanDetail({ id }: { id?: string }) {
         <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
             <div className="bd"><div className="kv">
               <div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
+              {l.serviceChargeAmount > 0 && <>
+                <div className="i"><div className="k">Service Charge</div><div className="v">{fmt(l.serviceChargeAmount)}</div></div>
+                <div className="i"><div className="k">Charge Mode</div><div className="v">{l.serviceChargeMode === "WithheldFromPayout" ? "Deducted from payout" : "Added to principal"}</div></div>
+                {l.serviceChargeMode === "WithheldFromPayout" && (
+                  <div className="i"><div className="k">Net Payout</div><div className="v">{fmt(l.principal - l.serviceChargeAmount)}</div></div>
+                )}
+              </>}
               <div className="i"><div className="k">Remaining</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
               {/* Nothing accrues until disbursement, so a pending loan would
                   read ₹0 here — show the monthly interest it will carry instead. */}

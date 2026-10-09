@@ -146,11 +146,11 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
         <label className="f" style={{ marginTop: 6 }}>Documents</label>
         <div className="frow c3">
           <div><label className="f">Customer Photograph {customer.photoUrl && <a href={customer.photoUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" camera /></div>
-          <div><label className="f">Identity Proof {customer.identityProofUrl && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
-          <div><label className="f">Address Proof {customer.addressProofUrl && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
+          <div><label className="f">Identity Proof {customer.identityProofUrl && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera /></div>
+          <div><label className="f">Address Proof {customer.addressProofUrl && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera /></div>
         </div>
         <div className="frow c3">
-          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
+          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera /></div>
         </div>
 
         <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>

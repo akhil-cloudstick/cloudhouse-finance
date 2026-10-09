@@ -254,14 +254,6 @@ func projectAccrual(l *Loan, asOf time.Time, firstMonthTopUps []LoanTopUp) (inte
 
 	annualRate := l.SchemeInterestRate / 100
 	monthlyRate := annualRate / 12
-	// The same base each method's whole-month branch below uses for ITS
-	// charge — kept as one variable so the leftover-days charge can never
-	// drift onto a different base than the method it's supplementing.
-	dailyBase := l.OutstandingAmount
-	if l.SchemeInterestMethod == "Flat monthly" {
-		dailyBase = l.PrincipalAmount
-	}
-
 	var anchor time.Time
 	if firstAccrual {
 		anchor = addMonths(l.OpenedDate, 1)
@@ -301,9 +293,8 @@ func projectAccrual(l *Loan, asOf time.Time, firstMonthTopUps []LoanTopUp) (inte
 	} else {
 		// Anchor is already past the opening month — no more floor logic.
 		// Whole completed months first (existing per-method formulas,
-		// unchanged), then whatever's left short of the next month is
-		// charged day-by-day and the anchor advances all the way to asOf so
-		// those leftover days are consumed, not recounted next call.
+		// unchanged). The part-month in progress is NOT charged; the anchor
+		// stops at the last completed boundary.
 		periodMonths := 1
 		if l.SchemeInterestMethod == "Quarterly simple" {
 			periodMonths = monthsPerQuarter
@@ -327,10 +318,12 @@ func projectAccrual(l *Loan, asOf time.Time, firstMonthTopUps []LoanTopUp) (inte
 		default: // "Monthly simple interest"
 			interestDelta = l.OutstandingAmount * monthlyRate * float64(periods)
 		}
-		if leftoverDays := asOf.Sub(boundary).Hours() / 24; leftoverDays > 0 {
-			interestDelta += dailyBase * (monthlyRate / 30) * leftoverDays
-		}
-		anchor = asOf
+		// No day-by-day charge for the part-month in progress: interest posts
+		// only when a whole period completes, so the figure customers see
+		// stays steady between month boundaries instead of creeping up on
+		// every page view. The anchor stops at the boundary, so the leftover
+		// days carry into the next period.
+		anchor = boundary
 	}
 	if interestDelta < 0 {
 		interestDelta = 0

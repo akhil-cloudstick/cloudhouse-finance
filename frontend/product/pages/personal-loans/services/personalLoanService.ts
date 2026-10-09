@@ -161,9 +161,9 @@ export const PERSONAL_LOANS_TABLE_PAGE_SIZE = 10;
 export function listPersonalLoansPage(params: {
   page: number;
   q?: string;
-  frequency?: Frequency;
+  frequency?: string; // one value or a comma-separated list
   customerId?: number;
-  status?: string;
+  status?: string; // one value or a comma-separated list
   pageSize?: number;
 }): Promise<{ items: BackendPersonalLoan[]; hasMore: boolean; total: number }> {
   const pageSize = params.pageSize || PERSONAL_LOANS_TABLE_PAGE_SIZE;

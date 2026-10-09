@@ -368,3 +368,22 @@ func (s *Service) tenantAllowsLanguage(ctx context.Context, lang string) bool {
 	}
 	return t.HasLanguage(lang)
 }
+
+// lenderIdentity returns the licensee's own age, PAN and Aadhaar from the
+// tenant profile, for the GML pledge agreement. Empty strings on any lookup
+// failure, so renderBondHTML falls back to its placeholders — same stance as
+// lenderProfile.
+func (s *Service) lenderIdentity(ctx context.Context) (age, pan, aadhaar string) {
+	if s.tenantRepo == nil {
+		return "", "", ""
+	}
+	id, ok := platform.TenantFromContext(ctx)
+	if !ok {
+		return "", "", ""
+	}
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return "", "", ""
+	}
+	return t.LenderAge, t.LenderPAN, t.LenderAadhaar
+}

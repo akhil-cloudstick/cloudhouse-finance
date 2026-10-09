@@ -117,6 +117,11 @@ type CreateBusinessInput struct {
 	LegalName   string
 	AddressLine string
 	KMLRegNo    string
+	// Lender identity — required when Policy is GML, ignored otherwise.
+	ContactPhone  string
+	LenderAge     string
+	LenderPAN     string
+	LenderAadhaar string
 	AppURL      string
 	BrandColor  string
 	Modules     []string
@@ -220,6 +225,16 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 		t.LegalName = strings.TrimSpace(in.LegalName)
 		t.AddressLine = strings.TrimSpace(in.AddressLine)
 		t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
+		contactPhone, perr := normalizeContactPhone(in.ContactPhone, true)
+		if perr != nil {
+			return perr
+		}
+		t.ContactPhone = contactPhone
+		age, pan, aadhaar, lerr := lenderIdentity(policy, in.LenderAge, in.LenderPAN, in.LenderAadhaar)
+		if lerr != nil {
+			return lerr
+		}
+		t.LenderAge, t.LenderPAN, t.LenderAadhaar = age, pan, aadhaar
 		t.AppURL = strings.TrimSpace(in.AppURL)
 		t.SetModules(in.Modules)
 		// Single-branch mode follows the plan, not a separate switch — see

@@ -145,7 +145,7 @@ export function Requests() {
             hideClearAll
           />
         </div>
-      <div className="card tbl-card tbl-card-fill">
+      <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl">
             <thead>

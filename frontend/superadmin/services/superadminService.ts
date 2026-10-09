@@ -92,6 +92,12 @@ export type Business = {
   lockupTagline: string;
   addressLine: string;
   kmlRegNo: string;
+  /* Lender identity for the GML pledge agreement — empty until set under a GML
+   * policy. Aadhaar is the plain 12 digits; shown unmasked in the console. */
+  contactPhone?: string;
+  lenderAge?: string;
+  lenderPan?: string;
+  lenderAadhaar?: string;
   /* The regulatory regime this business lends under, one of the catalogue's
    * policy codes ("kml"/"gml"). It selects which FAMILY of customer-facing
    * paperwork the business issues, and bounds which document languages it may
@@ -157,6 +163,11 @@ export type CreateBusinessInput = {
   legalName?: string;
   addressLine?: string;
   kmlRegNo?: string;
+  /* Required by the server when policy is "gml"; ignored otherwise. */
+  contactPhone?: string;
+  lenderAge?: string;
+  lenderPan?: string;
+  lenderAadhaar?: string;
   /* Document policy. Omitted means the backend's KML default. Languages
    * outside this policy are rejected with a 400, not silently dropped. */
   policy?: string;
@@ -359,6 +370,11 @@ export type ProfileInput = {
   lockupTagline?: string;
   addressLine: string;
   kmlRegNo: string;
+  /* Required by the server when policy is "gml"; ignored otherwise. */
+  contactPhone?: string;
+  lenderAge?: string;
+  lenderPan?: string;
+  lenderAadhaar?: string;
   policy: string;
   appUrl: string;
   reason: string;

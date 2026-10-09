@@ -14,6 +14,7 @@ var (
 	ErrInvalidDuration       = httpx.NewBadRequest("duration must be greater than zero months")
 	ErrInvalidLTV            = httpx.NewBadRequest("ltv percent must be between 0 and 100")
 	ErrInvalidRate           = httpx.NewBadRequest("interest rate must be non-negative")
+	ErrInvalidTiers          = httpx.NewBadRequest("multiple interest needs at least two rate rows, each with a positive rate and (except the last) a positive number of days, and a non-negative minimum period")
 	ErrInvalidWeight         = httpx.NewBadRequest("gold weight must be greater than zero")
 	ErrInvalidGoldRt         = httpx.NewBadRequest("gold rate must be greater than zero")
 	ErrBranchReq             = httpx.NewBadRequest("branch is required")
@@ -35,6 +36,11 @@ type CreateInput struct {
 	PenalRate      float64
 	Conditions     string
 	IsActive       bool
+
+	// RateTiers/MinimumDays: see Scheme. Used only when InterestMethod is
+	// InterestMethodMultiple, ignored (and cleared) otherwise.
+	RateTiers   []RateTier
+	MinimumDays int
 
 	// ServiceChargeType/Value/Mode configure an optional per-loan charge —
 	// see Scheme's own doc comment on the ServiceChargeType*/
@@ -66,7 +72,47 @@ func NewService(repo *Repository, branchRepo *branch.Repository) *Service {
 	return &Service{repo: repo, branchRepo: branchRepo}
 }
 
+// normalizeTiers applies the Multiple-interest rules to in: for any other
+// method the tier table is dropped; for Multiple interest the last tier's
+// Days is zeroed (it runs to loan end) and InterestRate is set to the first
+// tier's rate.
+func normalizeTiers(in *CreateInput) {
+	if in.InterestMethod != InterestMethodMultiple {
+		in.RateTiers = nil
+		in.MinimumDays = 0
+		return
+	}
+	if n := len(in.RateTiers); n > 0 {
+		in.RateTiers[n-1].Days = 0
+		in.InterestRate = in.RateTiers[0].Rate
+	}
+}
+
+func validateTiers(in CreateInput) error {
+	if in.InterestMethod != InterestMethodMultiple {
+		return nil
+	}
+	if len(in.RateTiers) < 2 {
+		return ErrInvalidTiers
+	}
+	for i, t := range in.RateTiers {
+		if t.Rate <= 0 {
+			return ErrInvalidTiers
+		}
+		if i < len(in.RateTiers)-1 && t.Days <= 0 {
+			return ErrInvalidTiers
+		}
+	}
+	if in.MinimumDays < 0 {
+		return ErrInvalidTiers
+	}
+	return nil
+}
+
 func validate(in CreateInput) error {
+	if err := validateTiers(in); err != nil {
+		return err
+	}
 	if in.DurationMonths <= 0 {
 		return ErrInvalidDuration
 	}
@@ -85,8 +131,10 @@ func validate(in CreateInput) error {
 		if in.ServiceChargeValue < 0 || (in.ServiceChargeType == ServiceChargeTypePercent && in.ServiceChargeValue > 100) {
 			return ErrInvalidServiceChgVal
 		}
+		// Mode is now chosen per loan at creation; on the scheme it is
+		// optional (legacy value kept as the default when present).
 		switch in.ServiceChargeMode {
-		case ServiceChargeModeWithheldFromPayout, ServiceChargeModeAddedToPrincipal:
+		case "", ServiceChargeModeWithheldFromPayout, ServiceChargeModeAddedToPrincipal:
 		default:
 			return ErrInvalidServiceChgMode
 		}
@@ -111,6 +159,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Scheme, error) {
 	if err := validate(in); err != nil {
 		return nil, err
 	}
+	normalizeTiers(&in)
 	if in.BranchID == 0 {
 		return nil, ErrBranchReq
 	}
@@ -137,6 +186,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Scheme, error) {
 		LTVPercent:         in.LTVPercent,
 		InterestMethod:     in.InterestMethod,
 		PenalRate:          in.PenalRate,
+		RateTiers:          in.RateTiers,
+		MinimumDays:        in.MinimumDays,
 		Conditions:         in.Conditions,
 		IsActive:           in.IsActive,
 		ServiceChargeType:  chargeType,
@@ -187,6 +238,7 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	if err := validate(in); err != nil {
 		return nil, err
 	}
+	normalizeTiers(&in)
 	if in.BranchID == 0 {
 		return nil, ErrBranchReq
 	}
@@ -212,6 +264,8 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	rec.LTVPercent = in.LTVPercent
 	rec.InterestMethod = in.InterestMethod
 	rec.PenalRate = in.PenalRate
+	rec.RateTiers = in.RateTiers
+	rec.MinimumDays = in.MinimumDays
 	rec.Conditions = in.Conditions
 	rec.IsActive = in.IsActive
 	rec.ServiceChargeType = chargeType

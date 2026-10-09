@@ -33,6 +33,8 @@ export type CreateLoanInput = {
   // Optional free text captured at creation — anything the standard fields
   // don't cover, carried through onto the printed Statement of Account.
   additionalInfo?: string;
+  // Per-loan choice of how the scheme's service charge is collected.
+  serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal";
 };
 
 /* Shape returned by the Go backend (backend/internal/loan/model.go's Loan —
@@ -192,6 +194,8 @@ export type BackendLoan = {
   // actually clears final sanction.
   sanctionedAmount?: number;
   disbursedAmount?: number;
+  serviceChargeMode?: string;
+  serviceChargeAmount?: number;
   disbursementDate?: string | null;
   bankPledgeStatus: string;
   isDueSoon: boolean;
@@ -323,6 +327,8 @@ export type LoanView = {
   approvalStage: string;
   sanctionedAmount: number;
   disbursedAmount: number;
+  serviceChargeMode: string;
+  serviceChargeAmount: number;
   disbursementDate: string | null;
   bankPledgeStatus: string;
   isDueSoon: boolean;
@@ -477,6 +483,8 @@ export function toView(l: BackendLoan): LoanView {
     approvalStage: l.approvalStage,
     sanctionedAmount: l.sanctionedAmount || 0,
     disbursedAmount: l.disbursedAmount || 0,
+    serviceChargeMode: l.serviceChargeMode || "",
+    serviceChargeAmount: l.serviceChargeAmount || 0,
     disbursementDate: l.disbursementDate ? l.disbursementDate.slice(0, 10) : null,
     bankPledgeStatus: l.bankPledgeStatus,
     isDueSoon: l.isDueSoon,
@@ -858,6 +866,13 @@ export type ApprovalInput = {
   // Which bank the UPI/Bank Transfer/Cheque portion was sent from —
   // mirrors PaymentInput.bankId. Only stored at FinalSanction disbursement.
   bankId?: number;
+  // How the withheld service charge is recorded (same four-mode split as the
+  // payout; must sum to the loan's service charge). Omitted = recorded as Cash.
+  chargeCashAmount?: number;
+  chargeUpiAmount?: number;
+  chargeBankTransferAmount?: number;
+  chargeChequeAmount?: number;
+  chargeBankId?: number;
 };
 
 export async function approveLoan(loanId: number, input: ApprovalInput): Promise<LoanView> {
@@ -2054,6 +2069,43 @@ export async function downloadIndemnityBondPDF(loanNumericId: number, lang: Bond
 
     return res.blob();
   });
+}
+
+/* Gold Loan Pledge Slip — rendered server-side from
+ * backend/templates/pledge-slip.html (GET /loans/:id/pledge-slip), sent
+ * straight to the print dialog like the pledge agreement above. */
+async function pledgeSlipResponse(loanNumericId: number, format?: "html"): Promise<Response> {
+  const token = getAuthToken();
+  const res = await fetch(`${API_BASE}/loans/${loanNumericId}/pledge-slip${format ? `?format=${format}` : ""}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+  return res;
+}
+
+export async function downloadPledgeSlipPDF(loanNumericId: number): Promise<void> {
+  return printPdfJob(async () => (await pledgeSlipResponse(loanNumericId)).blob());
+}
+
+/* The same slip as an HTML document, for printing it together with the
+ * packet label in one window (LoanDetail.tsx's printSlipAndLabel). Returns
+ * the template's own <style> text and body markup. */
+export async function fetchPledgeSlipParts(loanNumericId: number): Promise<{ style: string; body: string }> {
+  const text = await (await pledgeSlipResponse(loanNumericId, "html")).text();
+  const doc = new DOMParser().parseFromString(text, "text/html");
+  return {
+    style: Array.from(doc.querySelectorAll("style")).map((s) => s.textContent || "").join("\n"),
+    body: doc.body.innerHTML,
+  };
 }
 
 /* Partial Ornament Release counterpart to downloadReleaseAgreementPDF below

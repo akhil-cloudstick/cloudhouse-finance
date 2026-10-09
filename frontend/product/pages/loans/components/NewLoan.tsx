@@ -31,6 +31,7 @@ import { publishGoldRate } from "@/product/pages/gold-rates/services/goldRateSer
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { getLocker, searchLockersPage, type LockerView } from "@/product/pages/lockers/services/lockerService";
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
+import { Select } from "@/product/components/ui/Select";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { PurityPicker } from "@/product/components/ui/PurityPicker";
@@ -226,6 +227,9 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
   // Free text staff may want to record on this loan that no standard field
   // captures — carried through onto the printed Statement of Account.
   const [additionalInfo, setAdditionalInfo] = useState("");
+  // How the scheme's service charge is collected — chosen per loan here, not
+  // on the scheme.
+  const [chargeMode, setChargeMode] = useState<"WithheldFromPayout" | "AddedToPrincipal">("WithheldFromPayout");
   // Loan (opened) date — defaults to today, may be backdated but never set
   // in the future (the DatePicker's max blocks it; the backend re-checks).
   // Interest accrues from this date, and the due date is derived from it.
@@ -316,15 +320,10 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
   // letting staff enter the full eligible amount and have it rejected
   // server-side once the charge is added. WithheldFromPayout doesn't touch
   // PrincipalAmount at all, so it needs no such adjustment.
-  const maxPrincipalEntry = (() => {
-    if (!sch || sch.serviceChargeType === "None" || sch.serviceChargeMode !== "AddedToPrincipal") return roundedEligible;
-    if (sch.serviceChargeType === "Flat") {
-      // principal + flatCharge <= eligible  =>  principal <= eligible - flatCharge
-      return Math.max(0, Math.floor(roundedEligible - sch.serviceChargeValue));
-    }
-    // principal + principal*(rate/100) <= eligible  =>  principal <= eligible / (1 + rate/100)
-    return Math.max(0, Math.floor(roundedEligible / (1 + sch.serviceChargeValue / 100)));
-  })();
+  // The cap applies to the entered loan amount only — an AddedToPrincipal
+  // charge is added on top of it and does not eat into the eligible amount
+  // (see loan.Service.Create).
+  const maxPrincipalEntry = roundedEligible;
   // Staff can reduce the disbursed principal below the ceiling, but never
   // raise it above — maxPrincipalEntry (eligible amount, minus any
   // AddedToPrincipal charge) is the hard cap a manual override may not
@@ -541,6 +540,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
     setPrincipalOverride("");
     setPrincipalExceedsEligible(false);
     setAdditionalInfo("");
+    setChargeMode("WithheldFromPayout");
   }
 
   // Reopens a saved draft into the form. Labels for the pickers come from the
@@ -649,6 +649,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
         // Service.DeleteDraftQuietly).
         ...(draftId ? { draftId } : {}),
         ...(additionalInfo.trim() ? { additionalInfo: additionalInfo.trim() } : {}),
+        ...(sch && sch.serviceChargeType !== "None" ? { serviceChargeMode: chargeMode } : {}),
       });
 
       // The backend creates + returns ornaments in the same order they were
@@ -1064,67 +1065,98 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Gross gold value</span><b>{fmt(totalGross)}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Scheme LTV</span><b>{sch ? sch.ltv + "%" : "—"}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
-                <span>Eligible loan amount</span><b>{fmt(eligible)}</b></div>
-              <div style={{ padding: "10px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 8 }}>
-                <label className="f" htmlFor="loan-amount-input">Loan amount to disburse (₹)</label>
-                <input
-                  id="loan-amount-input"
-                  className="inp"
-                  type="text"
-                  inputMode="numeric"
-                  // principalOverride is itself prefilled to the eligible
-                  // amount (see the roundedEligible effect below) rather
-                  // than left empty behind a placeholder, so this just
-                  // displays whatever's actually stored — including
-                  // genuinely empty while staff are mid-edit (e.g. having
-                  // just cleared the field to type a smaller figure).
-                  value={principalOverride ? (+principalOverride).toLocaleString("en-IN") : ""}
-                  onChange={(e) => {
-                    // Store the raw digits (comma-free) — only the display
-                    // above is comma-grouped, same "en-IN" grouping fmt()
-                    // uses everywhere else money is shown.
-                    const digits = e.target.value.replace(/[^\d]/g, "");
-                    const clean = digits.replace(/^0+(?=\d)/, "");
-                    const num = clean === "" ? 0 : +clean;
-                    // maxPrincipalEntry (the eligible amount, minus room for
-                    // any AddedToPrincipal charge — see its own comment
-                    // above) is a hard ceiling — clamp what's stored so the
-                    // displayed value never shows a figure that would
-                    // silently be rejected server-side later, and surface
-                    // the clamp as inline feedback instead of just
-                    // truncating keystrokes.
-                    if (num > maxPrincipalEntry) {
-                      setPrincipalOverride(String(maxPrincipalEntry));
-                      setPrincipalExceedsEligible(true);
-                    } else {
-                      setPrincipalOverride(clean);
-                      setPrincipalExceedsEligible(false);
-                    }
-                  }}
-                  style={{ fontWeight: 600, color: "var(--brand-deep)", fontSize: 16 }}
-                />
-                {principalExceedsEligible && (
-                  <p style={{ color: "var(--red)", fontSize: 12, margin: "4px 0 0" }}>
-                    {maxPrincipalEntry < roundedEligible
-                      ? `Loan amount can't exceed ${fmt(maxPrincipalEntry)} — the scheme's service charge is added on top, and the total must still stay within the ${fmt(roundedEligible)} eligible amount.`
-                      : `Loan amount can't exceed ${fmt(roundedEligible)}.`}
-                  </p>
-                )}
-              </div>
-              {sch && sch.serviceChargeType !== "None" && (() => {
-                const principal = +principalOverride || 0;
-                const charge = sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : (principal * sch.serviceChargeValue) / 100;
-                const withheld = sch.serviceChargeMode === "WithheldFromPayout";
+                <span>Eligible gold amount</span><b>{fmt(eligible)}</b></div>
+              {/* Option 4 layout: charge rows first, then the one editable
+                  Amount, then Principal / Disbursed as the headline figures. */}
+              {(() => {
+                const hasCharge = !!sch;
+                const amount = +principalOverride || 0;
+                const charge = !sch || sch.serviceChargeType === "None" ? 0 : sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : (amount * sch.serviceChargeValue) / 100;
+                const withheld = chargeMode === "WithheldFromPayout";
+                // AddedToPrincipal: the charge rides on top of the amount the
+                // customer receives; WithheldFromPayout: it comes off it.
+                const loanPrincipal = hasCharge && !withheld ? amount + charge : amount;
+                const disbursed = hasCharge && withheld ? Math.max(0, amount - charge) : amount;
+                const row = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "5px 0" } as const;
                 return (
-                  <div className="notice" style={{ marginTop: 8 }}>
-                    <Icon name="shield" />
-                    <span>
-                      Service charge {sch.serviceChargeType === "Flat" ? fmt(charge) : `${sch.serviceChargeValue}% (${fmt(charge)})`}
-                      {" "}{withheld
-                        ? `will be withheld from the payout — customer receives ${fmt(Math.max(0, principal - charge))}, but owes interest on the full ${fmt(principal)}.`
-                        : `will be added to the principal — customer owes and receives ${fmt(principal + charge)} in total.`}
-                    </span>
-                  </div>
+                  <>
+                    {hasCharge && sch && (
+                      <>
+                        <div style={row}>
+                          <span>Service charge{sch.serviceChargeType === "Percent" ? ` (${sch.serviceChargeValue}%)` : ""}</span>
+                          <b style={{ color: withheld ? "var(--red)" : "var(--green)" }}>{withheld ? "−" : "+"}{fmt(charge)}</b>
+                        </div>
+                        <div style={row}>
+                          <span>Charge method</span>
+                          <div style={{ width: 170 }}>
+                            <Select
+                              value={chargeMode}
+                              onChange={(v) => setChargeMode(v as "WithheldFromPayout" | "AddedToPrincipal")}
+                              options={[
+                                { value: "WithheldFromPayout", label: "Deduct from loan" },
+                                { value: "AddedToPrincipal", label: "Add to loan" },
+                              ]}
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    <div style={{ ...row, borderTop: "1px dashed var(--line)", marginTop: 8, paddingTop: 10 }}>
+                      <label htmlFor="loan-amount-input">Amount (₹)</label>
+                      <input
+                        id="loan-amount-input"
+                        className="inp"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        // principalOverride is prefilled to the eligible amount
+                        // (see the roundedEligible effect above) rather than
+                        // left empty, so this displays whatever's stored —
+                        // including genuinely empty while staff are mid-edit.
+                        value={principalOverride ? (+principalOverride).toLocaleString("en-IN") : ""}
+                        onChange={(e) => {
+                          const el = e.target;
+                          // Digits left of the caret, so the caret can be put
+                          // back after the same digit once the value is
+                          // re-grouped — otherwise it jumps to the end and
+                          // mid-number edits are impossible.
+                          const digitsLeft = el.value.slice(0, el.selectionStart ?? el.value.length).replace(/\D/g, "").length;
+                          const clean = el.value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+                          const num = clean === "" ? 0 : +clean;
+                          // maxPrincipalEntry (the eligible amount) is a hard
+                          // ceiling — clamp what's stored so the field never
+                          // shows a figure the server would reject, and show
+                          // the clamp as inline feedback.
+                          if (num > maxPrincipalEntry) {
+                            setPrincipalOverride(String(maxPrincipalEntry));
+                            setPrincipalExceedsEligible(true);
+                          } else {
+                            setPrincipalOverride(clean);
+                            setPrincipalExceedsEligible(false);
+                          }
+                          requestAnimationFrame(() => {
+                            let pos = 0, seen = 0;
+                            while (pos < el.value.length && seen < digitsLeft) { if (/\d/.test(el.value[pos])) seen++; pos++; }
+                            el.setSelectionRange(pos, pos);
+                          });
+                        }}
+                        style={{ flex: "0 0 120px", minWidth: 0, padding: "3px 8px", textAlign: "right", fontWeight: 600, color: "var(--brand-deep)", fontSize: 13.5 }}
+                      />
+                    </div>
+                    {principalExceedsEligible && (
+                      <p style={{ color: "var(--red)", fontSize: 12, margin: "0 0 4px", textAlign: "right" }}>
+                        Amount can&apos;t exceed {fmt(roundedEligible)}.
+                      </p>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: "8px 0 0", marginTop: 6, borderTop: "1px solid var(--line)" }}>
+                      <span style={{ color: "var(--muted)", fontWeight: 500 }}>Principal</span>
+                      <b style={{ fontSize: 18, letterSpacing: "-.01em", color: "var(--brand-deep)" }}>{fmt(loanPrincipal)}</b>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: "8px 0 0", marginTop: 6, borderTop: "1px solid var(--line)" }}>
+                      <span style={{ color: "var(--muted)", fontWeight: 500 }}>Loan amount to disburse</span>
+                      <b style={{ fontSize: 18, letterSpacing: "-.01em", color: "var(--green)" }}>{fmt(disbursed)}</b>
+                    </div>
+                  </>
                 );
               })()}
               <div style={{ padding: "10px 0 2px" }}>

@@ -36,6 +36,21 @@ const (
 	ServiceChargeModeAddedToPrincipal   = "AddedToPrincipal"
 )
 
+// InterestMethodMultiple is the InterestMethod value for a scheme whose annual
+// rate changes as the loan ages — see RateTier. Accrual is the same
+// whole-calendar-month simple interest as "Monthly simple interest"; only the
+// rate applied to each stretch of days differs.
+const InterestMethodMultiple = "Multiple interest"
+
+// RateTier is one row of a "Multiple interest" scheme's rate table: Rate (%
+// p.a.) applies for Days days, then the next row takes over. The tiers are
+// counted from the loan's OpenedDate, in order. The LAST row's Days is
+// ignored (stored as 0) — its rate runs to the end of the loan.
+type RateTier struct {
+	Days int     `json:"days"`
+	Rate float64 `json:"rate"`
+}
+
 type Scheme struct {
 	platform.TenantScoped
 	ID             uint           `json:"id" gorm:"primaryKey"`
@@ -48,6 +63,14 @@ type Scheme struct {
 	LTVPercent     float64        `json:"ltvPercent" gorm:"not null"`
 	InterestMethod string         `json:"interestMethod" gorm:"size:80"`
 	PenalRate      float64        `json:"penalRate"`
+
+	// RateTiers/MinimumDays are only meaningful for InterestMethodMultiple.
+	// MinimumDays is the minimum interest period billed up front (0 = none).
+	// InterestRate holds the first tier's rate for such a scheme, so every
+	// place that shows a single rate keeps working.
+	RateTiers   []RateTier `json:"rateTiers" gorm:"serializer:json;type:text"`
+	MinimumDays int        `json:"minimumDays" gorm:"not null;default:0"`
+
 	Conditions     string         `json:"conditions"`
 	IsActive       bool           `json:"isActive" gorm:"default:false"`
 

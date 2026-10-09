@@ -26,6 +26,9 @@ type EsignClient struct {
 	// sheet's top-left) for a document that supplies no measured Slots.
 	SignX int
 	SignY int
+	// YFromBottom: Suresign reads y from the bottom of the page — see
+	// Config.SurepassEsignYFromBottom.
+	YFromBottom bool
 }
 
 // Stamp box sent for every signature element. Sized to fit the blank gap above
@@ -34,6 +37,9 @@ type EsignClient struct {
 const (
 	esignStampWidth  = 120
 	esignStampHeight = 36
+	// a4HeightPt is the A4 sheet height in PDF points, for converting a
+	// top-measured y into the bottom-measured y Suresign expects.
+	a4HeightPt = 842
 	// esignExpirySeconds is how long a signing link stays valid (the API
 	// accepts 1 hour to 30 days).
 	esignExpirySeconds = 7 * 24 * 3600
@@ -50,6 +56,7 @@ func NewEsignClient(cfg Config) *EsignClient {
 		},
 		SignX: cfg.SurepassEsignSignX,
 		SignY: cfg.SurepassEsignSignY,
+		YFromBottom: cfg.SurepassEsignYFromBottom,
 	}
 }
 
@@ -158,7 +165,11 @@ func (c *EsignClient) elementsFor(sig *SignatureConfig) []esignElement {
 	// the intended spot (confirmed on the signing page preview) — so the height
 	// is added here.
 	element := func(x, y int, page string) esignElement {
-		return esignElement{X: x, Y: y + esignStampHeight, Page: zeroBased(page), Type: "signature", Width: esignStampWidth, Height: esignStampHeight}
+		bottom := y + esignStampHeight // stamp's bottom edge, measured from the page top
+		if c.YFromBottom {
+			bottom = a4HeightPt - bottom
+		}
+		return esignElement{X: x, Y: bottom, Page: zeroBased(page), Type: "signature", Width: esignStampWidth, Height: esignStampHeight}
 	}
 
 	var els []esignElement

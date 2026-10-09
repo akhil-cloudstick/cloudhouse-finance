@@ -68,6 +68,10 @@ type createBusinessRequest struct {
 	LegalName     string   `json:"legalName"`
 	AddressLine   string   `json:"addressLine"`
 	KMLRegNo      string   `json:"kmlRegNo"`
+	ContactPhone  string   `json:"contactPhone"`
+	LenderAge     string   `json:"lenderAge"`
+	LenderPAN     string   `json:"lenderPan"`
+	LenderAadhaar string   `json:"lenderAadhaar"`
 	Policy        string   `json:"policy"`
 	AppURL        string   `json:"appUrl"`
 	BrandColor    string   `json:"brandColor"`
@@ -94,6 +98,10 @@ func (h *Handler) CreateBusiness(c *gin.Context) {
 		LegalName:     req.LegalName,
 		AddressLine:   req.AddressLine,
 		KMLRegNo:      req.KMLRegNo,
+		ContactPhone:  req.ContactPhone,
+		LenderAge:     req.LenderAge,
+		LenderPAN:     req.LenderPAN,
+		LenderAadhaar: req.LenderAadhaar,
 		Policy:        req.Policy,
 		AppURL:        req.AppURL,
 		BrandColor:    req.BrandColor,

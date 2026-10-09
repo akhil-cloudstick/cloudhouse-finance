@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Gold Loan Pledge Slip — {{.LoanNumber}}</title>
+<style>
+{{.Style}}
+</style></head><body>
+<header class="brandhead">
+  <div class="bh-name">{{.LegalName}}</div>
+  <div class="bh-desc">{{.Descriptor}}</div>
+  <div class="bh-meta">{{.RegLabel}}{{if .Phones}} &nbsp;·&nbsp; {{.Phones}}{{end}}</div>{{if .AddressLine}}
+  <div class="bh-meta">{{.AddressLine}}</div>{{end}}
+  <div class="bh-rule"></div>
+  <h2>Gold Loan Pledge Slip</h2>
+</header>
+
+<table>
+  <tr><th style="width:110px">Loan No</th><td>{{.LoanNumber}}</td><th style="width:110px">Date</th><td>{{.Today}}</td></tr>
+  <tr><th>Customer</th><td>{{.CustomerName}} ({{.CustomerCode}})</td><th>Phone</th><td>{{.Phone}}</td></tr>
+  <tr><th>Address</th><td>{{.Address}}</td><th>Branch</th><td>{{.BranchName}}</td></tr>
+  <tr><th>Scheme</th><td>{{.SchemeName}} @ {{.SchemeRate}}% p.a. (LTV {{.SchemeLTV}}%)</td>
+      <th>Opened</th><td>{{.Opened}}</td></tr>
+</table>
+
+<table>
+  <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
+  <tbody>
+    {{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td>
+      <td class="num">{{$o.NetWeight}}</td><td class="num">{{$o.Quantity}}</td><td class="num">{{$o.Value}}</td>
+      <td style="text-align:center">{{if $o.Photo}}<img src="{{$o.Photo}}" class="orn-photo" alt="">{{else}}—{{end}}</td></tr>
+    {{end}}
+    <tr><th colspan="3">Total</th><th class="num">{{.TotalNetWeight}}</th><th></th><th class="num">{{.TotalGoldValue}}</th><th></th></tr>
+  </tbody>
+</table>
+
+<p><b>Principal disbursed: {{.Principal}}</b> &nbsp;<span class="muted">(eligible amount at pledge time: {{.Eligible}})</span></p>
+
+{{if .Distribution}}<table>
+  <thead><tr><th>Date</th><th>Amount Distribution</th><th class="num">Amount</th></tr></thead>
+  <tbody>
+    {{range .Distribution}}<tr><td>{{.Date}}</td><td>{{if .Initial}}Initial loan amount{{else}}Additional loan amount{{end}}</td><td class="num">{{.Amount}}</td></tr>
+    {{end}}<tr><th colspan="2">Total</th><th class="num">{{.Principal}}</th></tr>
+  </tbody>
+</table>{{end}}
+
+<div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>
+</body></html>

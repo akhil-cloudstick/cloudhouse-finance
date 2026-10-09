@@ -215,11 +215,11 @@ export default function GlobalSearch({
           groups.map(([g, items]) => (
             <div key={g}>
               <div className="gs-grp">{g}</div>
-              {items.map((r) => {
+              {items.map((r, i) => {
                 const flatIndex = flatItems.indexOf(r);
                 return (
                   <a
-                    key={r.href + r.t}
+                    key={`${r.href}|${r.t}|${i}`}
                     href={r.href}
                     className={flatIndex === sel ? "sel" : ""}
                     onClick={() => { setQuery(""); closeResults(); setExpanded(false); }}

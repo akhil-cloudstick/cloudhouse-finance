@@ -31,6 +31,9 @@ type schemeRequest struct {
 	PenalRate      float64 `json:"penalRate"`
 	Conditions     string  `json:"conditions"`
 	IsActive       bool    `json:"isActive"`
+	// RateTiers/MinimumDays only apply to the "Multiple interest" method.
+	RateTiers   []RateTier `json:"rateTiers"`
+	MinimumDays int        `json:"minimumDays"`
 	// ServiceCharge* are all optional — an omitted ServiceChargeType is
 	// treated as "None" by Service.Create/Update, same as an explicit one.
 	ServiceChargeType  string  `json:"serviceChargeType"`
@@ -47,6 +50,8 @@ func (req schemeRequest) toInput() CreateInput {
 		LTVPercent:         req.LTVPercent,
 		InterestMethod:     req.InterestMethod,
 		PenalRate:          req.PenalRate,
+		RateTiers:          req.RateTiers,
+		MinimumDays:        req.MinimumDays,
 		Conditions:         req.Conditions,
 		IsActive:           req.IsActive,
 		ServiceChargeType:  req.ServiceChargeType,
