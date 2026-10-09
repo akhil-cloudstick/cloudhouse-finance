@@ -8,6 +8,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { useAuth } from "@/product/providers/auth-context";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { createEmployee, updateEmployee, type EmployeeView } from "@/product/pages/employees/services/employeeService";
 import { Select } from "@/product/components/ui/Select";
 import { fetchRoles } from "@/product/services/permissionService";
@@ -83,8 +84,14 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
+  const branchLocked = singleBranch || lockedBranchId != null;
   const [branchId, setBranchId] = useState<number | "">(
-    employee?.branchId || (!isAdmin && myBranchId ? myBranchId : "")
+    employee?.branchId || (!isAdmin && myBranchId ? myBranchId : lockedBranchId || "")
   );
   // Login credentials. On create the password is pre-filled with a generated
   // one (shown, so it can be handed to the employee). On edit it starts blank
@@ -188,13 +195,13 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
               autoComplete="off"
             /></div>
         </div>
-        <div className="frow c2">
+        <div className={showBranch ? "frow c2" : "frow"}>
           <div><label className="f">Role *</label>
             <Select options={roleOptionsFor(roleNames, role)} value={role} onChange={setRole} placeholder="Select role…" /></div>
-          <div><label className="f">Branch *</label>
+          {showBranch && <div><label className="f">Branch *</label>
             {isAdmin ? (
               <Select
-                disabled={singleBranch}
+                disabled={branchLocked}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 value={branchId ? String(branchId) : ""}
                 onChange={(v) => setBranchId(v ? Number(v) : "")}
@@ -210,7 +217,7 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
                 onChange={() => {}}
                 disabled
               />
-            )}</div>
+            )}</div>}
         </div>
         {/* Login credentials. Create: password is pre-generated (shown) so it
           * can be handed to the employee. Edit: username can be set/changed

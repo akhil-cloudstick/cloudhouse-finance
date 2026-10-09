@@ -1103,6 +1103,61 @@ type BalanceScope struct {
 
 var bankModes = []string{CashModeUPI, CashModeBankTransfer, CashModeCheque}
 
+// bankSideBranch is the branch a bank-side row counts toward: the business
+// branch of the bank account it went through, or — when no bank was picked —
+// the row's own branch. A bank account belongs to one branch, so its whole
+// balance lands on that branch and the Bank balance card always equals the
+// sum of the branch's bank balances (BankBalances).
+func bankSideBranch(table, bankCol string) string {
+	return "COALESCE((SELECT bk.branch_id FROM banks bk WHERE bk.id = " + table + "." + bankCol + "), " + table + ".branch_id)"
+}
+
+// NetByBank is NetByScope's bank side grouped by bank account: Σ in − Σ out
+// per bank_id over every bank-mode movement before to (expense-linked and
+// bank-to-bank to_bank_id rows excluded, same as NetByScope). Rows with no
+// bank are left out — they are not any account's balance.
+func (r *MovementRepository) NetByBank(ctx context.Context, to time.Time) (map[uint]float64, error) {
+	var rows []struct {
+		BankID uint
+		Net    float64
+	}
+	err := r.db.WithContext(ctx).Model(&CashMovement{}).
+		Select("bank_id, COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END), 0) AS net").
+		Where("occurred_on < ? AND expense_id IS NULL AND bank_id IS NOT NULL", to).
+		Where("mode IN ? AND to_bank_id IS NULL", bankModes).
+		Group("bank_id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint]float64, len(rows))
+	for _, rw := range rows {
+		out[rw.BankID] = rw.Net
+	}
+	return out, nil
+}
+
+// SumByBank is SumByScope's bank side grouped by the account paid from
+// (from_bank_id): approved bank-mode expenses before to.
+func (r *ExpenseRepository) SumByBank(ctx context.Context, to time.Time) (map[uint]float64, error) {
+	var rows []struct {
+		FromBankID uint
+		Total      float64
+	}
+	err := r.db.WithContext(ctx).Model(&Expense{}).
+		Select("from_bank_id, COALESCE(SUM(amount), 0) AS total").
+		Where("status = ? AND occurred_on < ? AND from_bank_id IS NOT NULL", "Approved", to).
+		Where("mode IN ? AND to_bank_id IS NULL", bankModes).
+		Group("from_bank_id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint]float64, len(rows))
+	for _, rw := range rows {
+		out[rw.FromBankID] = rw.Total
+	}
+	return out, nil
+}
+
 // NetByScope is Σ in − Σ out over the scope's movements. Movements with
 // expense_id set are excluded (expenses are summed separately via
 // ExpenseRepository.SumByScope). Bank-side rows carrying a ToBankID are
@@ -1126,11 +1181,15 @@ func (r *MovementRepository) NetByScope(ctx context.Context, s BalanceScope) (fl
 	if !s.From.IsZero() {
 		q = q.Where("occurred_on >= ?", s.From)
 	}
+	branchCol := "branch_id"
+	if s.Bank {
+		branchCol = bankSideBranch("cash_movements", "bank_id")
+	}
 	if s.BranchID != nil {
-		q = q.Where("branch_id = ?", *s.BranchID)
+		q = q.Where(branchCol+" = ?", *s.BranchID)
 	}
 	if len(s.ExcludeBranches) > 0 {
-		q = q.Where("(branch_id IS NULL OR branch_id NOT IN ?)", s.ExcludeBranches)
+		q = q.Where("("+branchCol+" IS NULL OR "+branchCol+" NOT IN ?)", s.ExcludeBranches)
 	}
 	var net float64
 	if err := q.Select("COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END), 0)").Scan(&net).Error; err != nil {
@@ -1164,11 +1223,15 @@ func (r *ExpenseRepository) SumByScope(ctx context.Context, s BalanceScope) (flo
 	if !s.From.IsZero() {
 		q = q.Where("occurred_on >= ?", s.From)
 	}
+	branchCol := "branch_id"
+	if s.Bank {
+		branchCol = bankSideBranch("expenses", "from_bank_id")
+	}
 	if s.BranchID != nil {
-		q = q.Where("branch_id = ?", *s.BranchID)
+		q = q.Where(branchCol+" = ?", *s.BranchID)
 	}
 	if len(s.ExcludeBranches) > 0 {
-		q = q.Where("branch_id NOT IN ?", s.ExcludeBranches)
+		q = q.Where(branchCol+" NOT IN ?", s.ExcludeBranches)
 	}
 	var total float64
 	if err := q.Select("COALESCE(SUM(amount), 0)").Scan(&total).Error; err != nil {

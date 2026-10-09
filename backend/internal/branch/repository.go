@@ -55,8 +55,8 @@ type Filter struct {
 	// ActiveOnly drops deactivated branches (GET /branches?active=true) —
 	// pickers that may only assign to a live branch.
 	ActiveOnly bool
-	Limit  int
-	Offset int
+	Limit      int
+	Offset     int
 }
 
 // Find is FindAll's filtered/paginated superset. Returns the TOTAL row
@@ -192,4 +192,25 @@ func (r *Repository) CountReferences(ctx context.Context, branchID uint) (int64,
 		count += c
 	}
 	return count, nil
+}
+
+// SingleBranchHeadOffice reports whether the business runs in single-branch
+// mode and, if so, its Head Office (same rule as FindHeadOffice). Backs
+// platform.PinSingleBranch; reads through the request's pinned, tenant-scoped
+// connection.
+func (r *Repository) SingleBranchHeadOffice(ctx context.Context, tenantID uint) (uint, bool, error) {
+	var row struct {
+		SingleBranch bool
+		HeadOfficeID uint
+	}
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT t.single_branch,
+		       COALESCE((SELECT b.id FROM branches b
+		                  WHERE b.tenant_id = t.id AND b.is_active AND b.deleted_at IS NULL AND b.name <> ''
+		                  ORDER BY (b.name = 'Head Office') DESC, b.id LIMIT 1), 0) AS head_office_id
+		  FROM tenants t WHERE t.id = ?`, tenantID).Scan(&row).Error
+	if err != nil {
+		return 0, false, err
+	}
+	return row.HeadOfficeID, row.SingleBranch, nil
 }

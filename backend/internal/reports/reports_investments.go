@@ -127,9 +127,14 @@ func (s *Service) MaturityRegister(ctx context.Context, f Filter) ([]MaturityReg
 // InvestorLedger returns every investment belonging to one investor
 // (customerID), newest first — a detail-view statement rather than a
 // date-scoped register — GET /reports/investments/investor-ledger.
-func (s *Service) InvestorLedger(ctx context.Context, customerID uint) ([]InvestorLedgerRow, InvestorLedgerTotals, error) {
+// branchID (nil = all) keeps only that branch's investments.
+func (s *Service) InvestorLedger(ctx context.Context, customerID uint, branchID *uint) ([]InvestorLedgerRow, InvestorLedgerTotals, error) {
 	var rows []InvestorLedgerRow
-	err := s.db.WithContext(ctx).Table("investments i").
+	q := s.db.WithContext(ctx).Table("investments i")
+	if branchID != nil {
+		q = q.Where("i.branch_id = ?", *branchID)
+	}
+	err := q.
 		Select(`i.id as investment_id, i.investment_number, p.name as plan_name, i.principal_amount,
 			i.total_interest_paid, i.start_date, i.maturity_date, i.status`).
 		Joins("LEFT JOIN investment_plans p ON p.id = i.plan_id").

@@ -8,7 +8,7 @@ import { StatusChip } from "@/product/components/ui/StatusChip";
 import { LockerModalContent } from "@/product/components/modals/LockerModal";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { listCustomersPage } from "@/product/pages/customers/services/customerService";
-import { useBranding } from "@/product/providers/BrandingProvider";
+import { useShowBranch, useShowBranchFilter } from "@/product/hooks/useBranchSwitch";
 import { listLockers, type LockerView } from "@/product/pages/lockers/services/lockerService";
 import { listPackets, listPacketsPage, getPacketByCode, type PacketView } from "@/product/pages/packets/services/packetService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
@@ -17,6 +17,9 @@ import { useAuth } from "@/product/providers/auth-context";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 import { navigate, routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
+
+// Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
+const NO_BRANCHES: string[] = [];
 
 /* Mirrors packet.Status* in backend/internal/packet/model.go. */
 const PACKET_STATUS_OPTIONS = [
@@ -29,6 +32,7 @@ const PACKET_STATUS_OPTIONS = [
 
 function LockerCard({ l, canUpdate, onChanged }: { l: LockerView; canUpdate: boolean; onChanged: () => void }) {
   const { openModal } = useModal();
+  const showBranch = useShowBranch();
   // Loaded per locker (GET /packets?lockerId=) rather than filtered out of the
   // table's current page — the table is paginated, so that only ever showed
   // the packets that happened to be on the page being viewed. `l.occupied`
@@ -49,8 +53,8 @@ function LockerCard({ l, canUpdate, onChanged }: { l: LockerView; canUpdate: boo
         {canUpdate && <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => openModal(<LockerModalContent key={l.id} locker={l} onSaved={onChanged} />)}>Edit</button>}
       </div>
       <div className="bd">
-        <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div className="i"><div className="k">Branch</div><div className="v">{l.branchName}</div></div>
+        <div className="kv" style={{ gridTemplateColumns: showBranch ? "1fr 1fr" : "1fr" }}>
+          {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName}</div></div>}
           <div className="i"><div className="k">Packets</div><div className="v">{l.occupied} / {l.capacity}</div></div>
         </div>
         <div style={{ height: 7, background: "var(--brand-pale)", borderRadius: 4, marginTop: 12, overflow: "hidden" }}>
@@ -103,11 +107,17 @@ export function Packets() {
   const [lookupErr, setLookupErr] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const { singleBranch } = useBranding();
+  // No branch filter in a single-branch business, or while the global
+  // branch selector already scopes the page (see useShowBranchFilter).
+  const showBranchFilter = useShowBranchFilter();
   const [statuses, setStatuses] = usePersistedState<string[]>("packets:statuses", []);
-  const [branchIds, setBranchIds] = usePersistedState<string[]>("packets:branches", []);
+  const [savedBranchIds, setBranchIds] = usePersistedState<string[]>("packets:branches", []);
+  // A hidden Branch filter must not keep narrowing rows with a stale saved
+  // selection (it would intersect the global branch to an empty page).
+  const branchIds = showBranchFilter ? savedBranchIds : NO_BRANCHES;
   const [customerIds, setCustomerIds] = usePersistedState<string[]>("packets:customers", []);
-  const [lockerBranchIds, setLockerBranchIds] = usePersistedState<string[]>("lockers:branches", []);
+  const [savedLockerBranchIds, setLockerBranchIds] = usePersistedState<string[]>("lockers:branches", []);
+  const lockerBranchIds = showBranchFilter ? savedLockerBranchIds : NO_BRANCHES;
   const [lockerStatuses, setLockerStatuses] = usePersistedState<string[]>("lockers:statuses", []);
   const [branches, setBranches] = useState<BranchView[]>([]);
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
@@ -116,7 +126,7 @@ export function Packets() {
   // a section. Customer is backend-searched (async), like the Loans filter.
   const filterCategories: FilterCategory[] = [
     { key: "status", label: "Status", kind: "static", options: PACKET_STATUS_OPTIONS },
-    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branchOptions }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branchOptions }]),
     {
       key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search: string, p: number) =>
@@ -129,7 +139,7 @@ export function Packets() {
   const filterValue: FilterValue = { status: statuses, branch: branchIds, customer: customerIds };
   // Locker column filter: which branch a locker is in, and whether it still has room.
   const lockerFilterCategories: FilterCategory[] = [
-    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branchOptions }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branchOptions }]),
     { key: "status", label: "Status", kind: "static", options: [
       { value: "active", label: "Has room" },
       { value: "full", label: "Full" },

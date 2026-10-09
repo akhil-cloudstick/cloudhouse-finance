@@ -130,25 +130,23 @@ function sortedTiers(tiers: Tier[]): Tier[] {
   return [...tiers].sort((a, b) => rank(a.branchQuota) - rank(b.branchQuota));
 }
 
-/* Plans by branch allowance; Unlimited (branchQuota 0) above every capped one. */
-const planRank = (t: Tier) => (t.branchQuota === 0 ? Number.MAX_SAFE_INTEGER : t.branchQuota);
+/* Plans a business may move to: every plan, up or down. A plan never removes
+ * branches — on a single-branch plan the business is pinned to its Head
+ * Office and its other branches are only hidden (see
+ * superadmin.Service.ChangeTier / platform.PinSingleBranch). */
+function plansFor(tiers: Tier[]): Tier[] {
+  return sortedTiers(tiers);
+}
 
-/* Plans a business may move to — the server refuses the rest too (see
- * superadmin.Service.ChangeTier):
- *   - plans only go up: never a smaller allowance than its current plan, so a
- *     business on Unlimited is offered Unlimited only;
- *   - never a limit below the active branches it already runs.
- * Its current plan always stays listed. A new business (no current plan) is
- * offered every plan. Until the branch count is known only the first rule
- * applies; the server still guards the second. */
-function plansFor(tiers: Tier[], activeBranches: number | undefined, currentTierId?: number): Tier[] {
-  const current = tiers.find((t) => t.id === currentTierId);
-  return sortedTiers(tiers).filter(
-    (t) =>
-      t.id === currentTierId ||
-      ((!current || planRank(t) >= planRank(current)) &&
-        (activeBranches === undefined || t.branchQuota === 0 || t.branchQuota >= activeBranches))
-  );
+/* The note under the plan picker when the chosen plan allows fewer branches
+ * than the business already runs — nothing is removed, but staff should know
+ * what they will (not) see. */
+function downgradeNote(tier: Tier | undefined, activeBranches: number | undefined): string | null {
+  if (!tier || activeBranches === undefined || tier.branchQuota === 0 || activeBranches <= tier.branchQuota) return null;
+  if (tier.branchQuota === 1) {
+    return `This business has ${activeBranches} active branches. On this plan only Head Office is shown; the other branches and their data are kept and come back on a larger plan.`;
+  }
+  return `This business has ${activeBranches} active branches, more than this plan allows (${tier.branchQuota}). Nothing is removed, but no branch can be added or reactivated until it is within the limit.`;
 }
 
 /* A business's active branch count, for plansFor. `known` (already fetched
@@ -939,8 +937,8 @@ function BusinessWizard({
   const [code, setCode] = useState("");
   const [tierId, setTierId] = useState(business?.tierId ?? sortedTiers(tiers)[0]?.id ?? 0);
   const activeBranches = useActiveBranches(business?.id ?? null);
-  const planOptions = plansFor(tiers, activeBranches, business?.tierId);
-  const plansHidden = planOptions.length < tiers.length;
+  const planOptions = plansFor(tiers);
+  const planNote = downgradeNote(tiers.find((t) => t.id === tierId), activeBranches);
   /* Single-branch mode follows the plan: a 1-branch plan hides Branch
    * Management and locks every branch picker to Head Office. The server
    * derives it the same way on create and on a plan change. */
@@ -1574,11 +1572,7 @@ function BusinessWizard({
                     : "Decides how many active branches this business may run. Enforced by the server."}
                   {!isCreate && " Takes effect on save and asks for a reason."}
                 </span>
-                {plansHidden && (
-                  <span className="sa-hint">
-                    Only the current plan or a larger one can be chosen — a business is never moved to a smaller plan.
-                  </span>
-                )}
+                {planNote && <span className="sa-hint">{planNote}</span>}
               </div>
 
               {/* Deployment URL is optional, so it lives behind a disclosure — but
@@ -1978,8 +1972,8 @@ function BusinessActionModal({
   // Plans below the business's active branch count aren't offered at all
   // (the server refuses them too).
   const branches = useActiveBranches(kind === "tier" ? business.id : null, activeBranches);
-  const planOptions = plansFor(tiers, branches, business.tierId);
-  const plansHidden = planOptions.length < tiers.length;
+  const planOptions = plansFor(tiers);
+  const planNote = downgradeNote(tiers.find((t) => t.id === tierId), branches);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -2048,12 +2042,7 @@ function BusinessActionModal({
                 />
                 <span className="sa-hint">Takes effect immediately. Existing branches are never removed.</span>
               </div>
-              {plansHidden && (
-                <p className="sa-modal-note">
-                  Only {business.name}&rsquo;s current plan or a larger one can be chosen — a business is never moved
-                  to a smaller plan.
-                </p>
-              )}
+              {planNote && <p className="sa-modal-note">{planNote}</p>}
             </>
           )}
           <ReasonField value={reason} onChange={setReason} required />

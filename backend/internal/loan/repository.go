@@ -690,11 +690,14 @@ func (r *PaymentRepository) FindLatestPaidOn(ctx context.Context, loanID uint) (
 // every payment recorded with PaidOn within [from, to] (inclusive) —
 // backs the Dashboard's "Interest Collected" KPI (see
 // Service.GetInterestCollected).
-func (r *PaymentRepository) SumInterestCollected(ctx context.Context, from, to time.Time) (float64, error) {
+func (r *PaymentRepository) SumInterestCollected(ctx context.Context, from, to time.Time, branchID *uint) (float64, error) {
 	var total float64
-	err := r.db.WithContext(ctx).Model(&LoanPayment{}).
-		Where("paid_on >= ? AND paid_on <= ?", from, to).
-		Select("COALESCE(SUM(interest_applied + penal_interest_applied), 0)").
+	q := r.db.WithContext(ctx).Model(&LoanPayment{}).
+		Where("paid_on >= ? AND paid_on <= ?", from, to)
+	if branchID != nil {
+		q = q.Where("loan_id IN (SELECT id FROM loans WHERE branch_id = ?)", *branchID)
+	}
+	err := q.Select("COALESCE(SUM(interest_applied + penal_interest_applied), 0)").
 		Row().Scan(&total)
 	return total, err
 }

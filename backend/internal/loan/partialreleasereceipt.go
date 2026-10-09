@@ -185,7 +185,7 @@ func (s *Service) partialReleaseReceiptDataForRequest(ctx context.Context, req *
 
 	return PartialReleaseReceiptData{
 		LoanNumber:              l.LoanNumber,
-		BranchName:              l.Branch.Name,
+		BranchName:              s.documentBranchName(ctx, l.Branch.Name),
 		CustomerName:            l.Customer.Name,
 		CustomerAddress:         l.Customer.Address,
 		ReleaseDate:             releaseDate,

@@ -12,7 +12,7 @@
     </td>
   </tr>
 </table>
-<p><b>ക്രമ നമ്പർ:</b> {{.LoanNumber}} &nbsp; <b>ശാഖ:</b> {{.BranchName}}</p>
+<p><b>ക്രമ നമ്പർ:</b> {{.LoanNumber}}{{if .BranchName}} &nbsp; <b>ശാഖ:</b> {{.BranchName}}{{end}}</p>
 <p><b>ഉപഭോക്താവ്:</b> {{.CustomerName}}<br>{{.CustomerAddress}}</p>
 
 <p>

@@ -13,6 +13,7 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/co
 import { useAuth } from "@/product/providers/auth-context";
 import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
 import { navigate } from "@/product/services/appRoutes";
+import { useShowBranch } from "@/product/hooks/useBranchSwitch";
 
 const VERIFICATION_STATUS_OPTIONS = [
   { value: "Verified", label: "Verified" },
@@ -41,6 +42,7 @@ export function Customers() {
   // permission behind them — a disabled-looking control the user can never
   // use is worse than no control at all (house standard §12).
   const { can } = useAuth();
+  const showBranch = useShowBranch();
   const canCreateCustomers = can("Customer_Management", "can_create_customer");
   const [q, setQ] = usePersistedState("customers:q", "");
   const [panStatus, setPanStatus] = usePersistedState("customers:pan", "");
@@ -115,17 +117,17 @@ export function Customers() {
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
       <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">
-        <thead><tr><th>Customer</th><th>Contact</th><th>Branch</th><th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
+        <thead><tr><th>Customer</th><th>Contact</th>{showBranch && <th>Branch</th>}<th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>
           {loading ? (
-            <tr><td colSpan={8} className="empty">Loading customers…</td></tr>
+            <tr><td colSpan={showBranch ? 8 : 7} className="empty">Loading customers…</td></tr>
           ) : rows.length === 0 ? (
-            <tr><td colSpan={8} className="empty">{error ? "—" : "No customers match your search."}</td></tr>
+            <tr><td colSpan={showBranch ? 8 : 7} className="empty">{error ? "—" : "No customers match your search."}</td></tr>
           ) : rows.map((c) => (
             <tr className="click" key={c.id} onClick={() => { navigate("customer/" + c.id); }}>
               <td><span className="id">{c.code}</span><span className="sub" style={{ fontSize: 13.5, color: "var(--nav)", fontWeight: 500 }}>{c.name}</span></td>
               <td>{c.phone || "—"}<span className="sub">{c.address}</span></td>
-              <td>{c.branchName}</td>
+              {showBranch && <td>{c.branchName}</td>}
               <td><StatusChip status={c.panStatus} /></td>
               <td><StatusChip status={c.aadhaarStatus} /></td>
               <td><StatusChip status={c.kycStatus} /></td>

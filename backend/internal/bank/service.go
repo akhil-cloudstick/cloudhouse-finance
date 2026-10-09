@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"cloudhouse/backend/internal/branch"
 	"cloudhouse/backend/internal/platform/httpx"
 )
 
@@ -17,29 +18,114 @@ var ErrPhoneInvalid = httpx.NewBadRequest("phone number must be exactly 10 digit
 var ErrNotFound = httpx.NewNotFound("bank not found")
 var ErrDuplicateName = httpx.NewConflict("a bank with this name already exists")
 var ErrSameBank = httpx.NewBadRequest("cannot merge a bank into itself")
+var ErrBranchRequired = httpx.NewBadRequest("select the branch this bank account belongs to")
 
 var phoneRe = regexp.MustCompile(`^\d{10}$`)
 
 // CreateInput mirrors the fields an admin supplies via the "Add Bank" form.
+// BranchID is the owning business branch; 0 falls back to the Head Office.
 type CreateInput struct {
 	Name      string
+	BranchID  uint
 	Branch    string
 	Ifsc      string
 	AccountNo string
 	Phone     string
 }
 
+// HeadOfficeFinder resolves the business's Head Office — the branch a bank
+// is filed under when none is given (branch.Repository).
+type HeadOfficeFinder interface {
+	FindHeadOffice(ctx context.Context) (*branch.Branch, error)
+}
+
+// BalanceSource supplies every bank account's current balance and a branch's
+// (nil = all) live Bank balance (cash.SummaryService.BankBalances). Injected
+// rather than imported: cash imports bank.
+type BalanceSource interface {
+	BankBalances(ctx context.Context, branchID *uint) (map[uint]float64, float64, error)
+}
+
 // Service implements bank business rules on top of the Repository.
 type Service struct {
-	repo *Repository
+	repo       *Repository
+	headOffice HeadOfficeFinder
+	balances   BalanceSource
 }
 
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) List(ctx context.Context, query string, limit, offset int) ([]Bank, int64, error) {
-	return s.repo.FindAll(ctx, query, limit, offset)
+// WithBranches wires the Head Office fallback and the balance source. Without
+// them (migrations) a bank with no branch is left to the migration's Head
+// Office backfill and List carries no balances.
+func (s *Service) WithBranches(headOffice HeadOfficeFinder, balances BalanceSource) *Service {
+	s.headOffice, s.balances = headOffice, balances
+	return s
+}
+
+func (s *Service) List(ctx context.Context, query string, branchID *uint, limit, offset int) ([]Bank, int64, error) {
+	return s.repo.FindAll(ctx, query, branchID, limit, offset)
+}
+
+// BankView is a bank as the Bank Management list shows it: its owning
+// branch's name and its current balance.
+type BankView struct {
+	Bank
+	BranchName string  `json:"branchName"`
+	Balance    float64 `json:"balance"`
+}
+
+// ListWithBalances is List plus each account's balance, the total of every
+// matching account (not just this page) and the scope's live Bank balance.
+// With no search, total = the Bank balance card less unassigned, where
+// unassigned is bank-mode money recorded without naming a bank.
+func (s *Service) ListWithBalances(ctx context.Context, query string, branchID *uint, limit, offset int) (views []BankView, count int64, total, unassigned float64, err error) {
+	rows, count, err := s.repo.FindAll(ctx, query, branchID, limit, offset)
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+	var balances map[uint]float64
+	var bankSide float64
+	if s.balances != nil {
+		if balances, bankSide, err = s.balances.BankBalances(ctx, branchID); err != nil {
+			return nil, 0, 0, 0, err
+		}
+	}
+	views = make([]BankView, len(rows))
+	for i, b := range rows {
+		views[i] = BankView{Bank: b, Balance: balances[b.ID]}
+		if b.BusinessBranch != nil {
+			views[i].BranchName = b.BusinessBranch.Name
+		}
+	}
+	// The total covers every matching account, not just this page.
+	all := rows
+	if limit > 0 {
+		if all, _, err = s.repo.FindAll(ctx, query, branchID, 0, 0); err != nil {
+			return nil, 0, 0, 0, err
+		}
+	}
+	for _, b := range all {
+		total += balances[b.ID]
+	}
+	if query == "" && s.balances != nil {
+		unassigned = bankSide - total
+	}
+	return views, count, total, unassigned, nil
+}
+
+// resolveBranch returns branchID, or the Head Office when it is 0.
+func (s *Service) resolveBranch(ctx context.Context, branchID uint) (uint, error) {
+	if branchID != 0 || s.headOffice == nil {
+		return branchID, nil
+	}
+	ho, err := s.headOffice.FindHeadOffice(ctx)
+	if err != nil {
+		return 0, ErrBranchRequired
+	}
+	return ho.ID, nil
 }
 
 // FindOrCreate trims the given name, rejects it if empty, and returns the
@@ -67,7 +153,11 @@ func (s *Service) FindOrCreate(ctx context.Context, in CreateInput) (*Bank, bool
 		return nil, false, err
 	}
 
-	rec := &Bank{Name: trimmed, Branch: strings.TrimSpace(in.Branch), Ifsc: strings.TrimSpace(in.Ifsc), AccountNo: strings.TrimSpace(in.AccountNo), Phone: phone}
+	branchID, err := s.resolveBranch(ctx, in.BranchID)
+	if err != nil {
+		return nil, false, err
+	}
+	rec := &Bank{Name: trimmed, BranchID: branchID, Branch: strings.TrimSpace(in.Branch), Ifsc: strings.TrimSpace(in.Ifsc), AccountNo: strings.TrimSpace(in.AccountNo), Phone: phone}
 	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, false, err
 	}
@@ -104,6 +194,9 @@ func (s *Service) Update(ctx context.Context, id uint, in CreateInput) (*Bank, e
 		return nil, ErrDuplicateName
 	}
 	rec.Name = trimmed
+	if in.BranchID != 0 {
+		rec.BranchID = in.BranchID
+	}
 	rec.Branch = strings.TrimSpace(in.Branch)
 	rec.Ifsc = strings.TrimSpace(in.Ifsc)
 	rec.AccountNo = strings.TrimSpace(in.AccountNo)

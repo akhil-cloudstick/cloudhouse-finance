@@ -44,6 +44,7 @@ import { openPrintWindow, brandHeader } from "@/product/utils/print";
 import { printColors, tenantLenderProfile } from "@/product/config/brand";
 import { bondLangOptionsFor, type BondLang } from "@/product/pages/loans/utils/indemnityBond";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useShowBranch } from "@/product/hooks/useBranchSwitch";
 import type { Ornament } from "@/product/utils/data";
 import { navigate } from "@/product/services/appRoutes";
 
@@ -85,10 +86,17 @@ function localISO(d: Date): string {
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
 export function NewLoan({ customerId }: { customerId?: string } = {}) {
-  const { isCrossBranch, can } = useAuth();
+  const { isCrossBranch, can, selectedBranchId } = useAuth();
   const canPublishRate = can("Gold_Rate_Management", "can_create_gold_rate");
   // Single-branch business: the Branch picker is locked to its one branch.
   const { singleBranch } = useBranding();
+  // Single-branch plan: no branch is ever shown — the Branch picker is not
+  // rendered and locker labels drop the branch name.
+  const showBranch = useShowBranch();
+  const lockerLabelOf = (k: LockerView) =>
+    showBranch
+      ? `${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)`
+      : `${k.code} (${k.occupied}/${k.capacity} packets)`;
   const { config: workflow } = useApprovalWorkflow();
   const { refresh } = useData();
   const { customers } = useCustomers();
@@ -188,7 +196,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
   // Picking a customer fills the Branch with theirs. Only for roles that may
   // choose a branch — everyone else is pinned to their own by the backend.
   function applyCustomerBranch(c: { branchId: number; branchName: string }) {
-    if (!isCrossBranch || singleBranch || !c.branchId) return;
+    if (!isCrossBranch || singleBranch || selectedBranchId != null || !c.branchId) return;
     setBranchId((cur) => {
       if (cur !== c.branchId) { setLockerId(""); setLockerLabel(""); }
       return c.branchId;
@@ -259,8 +267,10 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
       .then((list) => {
         setBranches(list);
         if (list.length) {
-          setBranchId((cur) => (cur === "" ? list[0].id : cur));
-          setBranchLabel((cur) => (cur === "" ? list[0].name : cur));
+          // The global branch selection, when one is active, else the first.
+          const first = list.find((b) => b.id === selectedBranchId) ?? list[0];
+          setBranchId((cur) => (cur === "" ? first.id : cur));
+          setBranchLabel((cur) => (cur === "" ? first.name : cur));
         }
       })
       .catch(() => toast("Could not load branches — try again later."));
@@ -562,7 +572,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
     setLockerLabel("");
     if (d.lockerId) {
       getLocker(d.lockerId)
-        .then((k) => setLockerLabel(`${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)`))
+        .then((k) => setLockerLabel(lockerLabelOf(k)))
         .catch(() => {/* locker may have since been deleted — leave the label blank */});
     }
     setRows(d.ornaments.map((o) => ({
@@ -788,8 +798,8 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                 placeholder="Search active schemes…"
               /></div>
           </div>
-          <div className="frow c2">
-            <div><label className="f">Branch</label>
+          <div className={showBranch ? "frow c2" : "frow"}>
+            {showBranch && <div><label className="f">Branch</label>
               {/* Locked unless there's a real choice: only cross-branch roles
                   (Administrator, Management) may pick — the backend pins
                   everyone else to their own branch (EnforceBranchOnWrite) —
@@ -806,8 +816,8 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
-                disabled={!isCrossBranch || singleBranch || branches.length <= 1}
-              /></div>
+                disabled={!isCrossBranch || singleBranch || selectedBranchId != null || branches.length <= 1}
+              /></div>}
             <div><label className="f">Locker / Storage</label>
               {/* key={branchId}: SearchableSelect caches results per search
                 * term, so without remounting it kept showing the previous
@@ -815,10 +825,10 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
               <SearchableSelect<LockerView>
                 key={branchId}
                 value={lockerLabel}
-                onChange={(id, item) => { setLockerId(+id); setLockerLabel(`${item.code} — ${item.branchName} (${item.occupied}/${item.capacity} packets)`); }}
+                onChange={(id, item) => { setLockerId(+id); setLockerLabel(lockerLabelOf(item)); }}
                 fetchFn={searchLockers}
                 searchHint="Searches: locker code"
-                getLabel={(k) => `${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)`}
+                getLabel={lockerLabelOf}
                 getId={(k) => String(k.id)}
                 placeholder="— Assign later — or search locker…"
               /></div>

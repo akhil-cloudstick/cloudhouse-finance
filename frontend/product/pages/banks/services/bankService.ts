@@ -4,10 +4,17 @@ import { apiFetchEnveloped as apiFetch } from "@/product/services/httpClient";
 export type BackendBank = {
   id: number;
   name: string;
+  // The business branch this account belongs to (mandatory) — GET /banks is
+  // scoped by it via the X-Branch-Id header.
+  branchId: number;
+  branchName: string;
+  // The BANK's own branch (free text, e.g. "Koratty") — not a business branch.
   branch: string;
   ifsc: string;
   accountNo: string;
   phone: string;
+  // Current net balance of this account (money in less money out).
+  balance: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -45,7 +52,9 @@ export async function createBank(name: string): Promise<BackendBank> {
  * "Add Bank" form — a name collision there just reuses the existing row,
  * which is a reasonable admin outcome too (see backend Service.Update's own
  * doc comment for why RENAMING instead rejects a collision outright). */
-export async function createBankFull(input: { name: string; branch: string; ifsc: string; accountNo: string; phone: string }): Promise<BackendBank> {
+export type BankFormInput = { name: string; branchId: number; branch: string; ifsc: string; accountNo: string; phone: string };
+
+export async function createBankFull(input: BankFormInput): Promise<BackendBank> {
   return apiFetch<BackendBank>("/banks", {
     method: "POST",
     body: JSON.stringify(input),
@@ -64,11 +73,13 @@ export const BANKS_PAGE_SIZE = 10;
  * backend's GET /banks already supports limit/offset/total (mirrors
  * loan/customer's List, see backend/internal/bank/handler.go), this just
  * wasn't wired up on the frontend yet. `page` is 1-based, same convention as
- * listLoansPage/listBankPledgeHistoryPage. */
-export async function listBanksPage(page: number, limit: number = BANKS_PAGE_SIZE): Promise<{ items: BackendBank[]; hasMore: boolean; total: number }> {
+ * listLoansPage/listBankPledgeHistoryPage. `totalBalance` is the server's
+ * sum of `balance` over every matching bank (not just this page) — the Bank
+ * Management page's "Net Bank Balance" card. */
+export async function listBanksPage(page: number, limit: number = BANKS_PAGE_SIZE): Promise<{ items: BackendBank[]; hasMore: boolean; total: number; totalBalance: number }> {
   const params = new URLSearchParams({ limit: String(limit), offset: String((page - 1) * limit) });
-  const res = await apiFetch<{ items: BackendBank[] | null; hasMore: boolean; total?: number }>(`/banks?${params}`);
-  return { items: res.items || [], hasMore: !!res.hasMore, total: res.total ?? 0 };
+  const res = await apiFetch<{ items: BackendBank[] | null; hasMore: boolean; total?: number; totalBalance?: number }>(`/banks?${params}`);
+  return { items: res.items || [], hasMore: !!res.hasMore, total: res.total ?? 0, totalBalance: res.totalBalance ?? 0 };
 }
 
 /* The Party Transactions page's bank-drill-down header needs the bank's own
@@ -77,7 +88,7 @@ export async function getBank(id: number): Promise<BackendBank> {
   return apiFetch<BackendBank>(`/banks/${id}`);
 }
 
-export async function updateBank(id: number, input: { name: string; branch: string; ifsc: string; accountNo: string; phone: string }): Promise<BackendBank> {
+export async function updateBank(id: number, input: BankFormInput): Promise<BackendBank> {
   return apiFetch<BackendBank>(`/banks/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 

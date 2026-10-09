@@ -29,8 +29,11 @@ import { canActAtStage, stageByPending } from "@/product/services/approvalWorkfl
 import { ApiError } from "@/product/services/httpClient";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
-import { useBranding } from "@/product/providers/BrandingProvider";
+import { useShowBranch, useShowBranchFilter } from "@/product/hooks/useBranchSwitch";
 import { singleFlight } from "@/product/utils/singleFlight";
+
+// Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
+const NO_BRANCHES: string[] = [];
 
 function Kpi({ l, v, s, parts, cls, keepZero }: {
   l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string; keepZero?: boolean;
@@ -101,6 +104,7 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, 
   e: ExpenseView; categoryId?: number; onViewReceipt: () => void;
   canApprove: boolean; awaiting?: string; busy: boolean; onApprove: () => void; onReject: () => void;
 }) {
+  const showBranch = useShowBranch();
   return (
     <tr data-ledger-key={`e-${e.id}`} data-ledger-date={e.d} data-ledger-amount={e.amt}>
       <td data-label="Date">{fmtDate(e.d)}</td>
@@ -109,7 +113,7 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, 
       </td>
       <td className="num" data-label="Amount">{fmt(e.amt)}</td>
       <td data-label="Mode">{e.mode}</td>
-      <td data-label="Branch">{e.branch}</td>
+      {showBranch && <td data-label="Branch">{e.branch}</td>}
       <td data-label="Status">
         <StatusChip status={e.status} />
         {e.remarks ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
@@ -133,6 +137,7 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, 
 }
 
 function GoldSaleRow({ g }: { g: GoldSaleView }) {
+  const showBranch = useShowBranch();
   return (
     <tr>
       <td>{fmtDate(g.d)}</td>
@@ -144,7 +149,7 @@ function GoldSaleRow({ g }: { g: GoldSaleView }) {
       </td>
       <td>{modeCellFor(g.mode)}</td>
       <td>{g.bankId ? <LedgerRefLink kind="bank" id={g.bankId} label={g.bankName || "Bank"} /> : "—"}</td>
-      <td>{g.branch}</td>
+      {showBranch && <td>{g.branch}</td>}
       <td>{g.remarks || "—"}</td>
     </tr>
   );
@@ -159,9 +164,12 @@ export function Cash() {
   const toast = useToast();
   // Recording cash movements and expenses is a create; closing a loan movement is an update.
   // Whatever the role can't do is hidden outright (see Customers.tsx).
-  const { can, role, isAdmin } = useAuth();
+  const { can, role, isAdmin, selectedBranchId } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
-  const { singleBranch } = useBranding();
+  // No branch filter in a single-branch business, or while the global
+  // branch selector already scopes the page (see useShowBranchFilter).
+  const showBranchFilter = useShowBranchFilter();
+  const showBranch = useShowBranch();
   const { config: workflow } = useApprovalWorkflow();
   const canCreateCash = can("Cash_Management", "can_create_cash");
   // Pending expenses (expense approval chain configured) — each waits at one
@@ -173,7 +181,6 @@ export function Cash() {
   const [decidingExpenseId, setDecidingExpenseId] = useState<number | null>(null);
   const today = new Date().toISOString().slice(0, 10);
 
-  const [branchId, setBranchId] = useState<number | "">("");
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
   // Category name -> id, for the category-ledger links on expense rows.
@@ -226,10 +233,13 @@ export function Cash() {
   // buckets at once), so this is an array rather than the old single value.
   const [movementsTypes, setMovementsTypes] = usePersistedState<CashMovementCategory[]>("cash:types", []);
   // Branch/Customer sections of the Ledger filter — independent of the KPI
-  // row's own single `branchId` above (which picks whose summary to show);
+  // row (whose scope is the global branch selection, via the header);
   // these narrow the movement *rows* across however many branches/customers
   // are checked, same server-side filter as movementsTypes.
-  const [movementsBranchIds, setMovementsBranchIds] = usePersistedState<string[]>("cash:branches", []);
+  const [savedMovementsBranchIds, setMovementsBranchIds] = usePersistedState<string[]>("cash:branches", []);
+  // A hidden Branch filter must not keep narrowing rows with a stale saved
+  // selection (it would intersect the global branch to an empty page).
+  const movementsBranchIds = showBranchFilter ? savedMovementsBranchIds : NO_BRANCHES;
   const [movementsCustomerIds, setMovementsCustomerIds] = usePersistedState<string[]>("cash:customers", []);
   const [allBranches, setAllBranches] = useState<BranchView[]>([]);
   const [downloadingMovements, setDownloadingMovements] = useState(false);
@@ -247,7 +257,7 @@ export function Cash() {
   // A single-branch business has nothing to filter by branch — the category
   // is dropped rather than shown with one option.
   const movementsFilterCategories: FilterCategory[] = [
-    ...(singleBranch ? [] : [{
+    ...(!showBranchFilter ? [] : [{
       key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name",
       options: allBranches.map((b) => ({ value: String(b.id), label: b.name })),
     }]),
@@ -280,12 +290,12 @@ export function Cash() {
     __dateTo: movementsTo || undefined,
   };
 
-  /* Guards against a stale response winning. The first render fires a
-   * summary request before the branch list has loaded (branchId ""), then a
-   * second, branch-scoped one the moment it does. The unscoped one has no
-   * opening balance (it's per-branch), so if it resolved last it overwrote
-   * the real figure with 0 — which is exactly what made a set opening
-   * balance read as ₹0 after a refresh. Only the newest request may write. */
+  /* Guards against a stale response winning: every refresh fires a new
+   * summary request, and only the newest may write. The summary itself is
+   * no longer pinned to a branch here — it used to default to the first
+   * branch in the list, which showed one branch's figures under "All
+   * branches". The X-Branch-Id header (global branch selector) now decides:
+   * whole business when nothing is selected, else that one branch. */
   const summarySeq = useRef(0);
 
   const refresh = useCallback(() => {
@@ -315,23 +325,17 @@ export function Cash() {
       setGoldSaleSums({ sold: totalSold, cost: totalCost, profit: totalProfit });
     }).catch(() => { setGoldSales([]); setGoldSalesHasMore(false); setGoldSalesTotal(0); });
     const seq = ++summarySeq.current;
-    getCashSummary(branchId || undefined, today).then((s) => {
+    getCashSummary(undefined, today).then((s) => {
       if (seq !== summarySeq.current) return;
       setSummary(s);
     }).catch(() => {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [branchId, today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes]);
+  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes]);
 
   useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0, [movements]);
   useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0, [expenses]);
-
-  useEffect(() => {
-    listActiveBranches().then((list) => {
-      if (list.length) setBranchId((cur) => cur || list[0].id);
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -407,7 +411,7 @@ export function Cash() {
          * + subtitle's natural width plus the 3 buttons tipped `.page-h`
          * past its wrap threshold on narrower screens well before the
          * buttons actually ran out of room beside the title. */}
-        <div className="page-h-title"><h1>Ledger</h1><p>Daily cash movements, balance in hand and branch expenses.</p></div>
+        <div className="page-h-title"><h1>Ledger</h1><p>Daily cash movements, balance in hand and {showBranch ? "branch expenses" : "expenses"}.</p></div>
         {/* .page-h-actions (app.css) rather than flat siblings of `.page-h`
          * — its own margin-left:auto/justify-content:flex-end keeps all 3
          * buttons right-aligned as a group even once they wrap to their
@@ -417,7 +421,7 @@ export function Cash() {
          * Cash beside the title). */}
         {canCreateCash && (
           <div className="page-h-actions">
-            <button className="btn" onClick={() => openModal(<AddEntryModalContent onSaved={refresh} defaultBranchId={branchId || undefined} />)}><Icon name="plus" /> Add Entry</button>
+            <button className="btn" onClick={() => openModal(<AddEntryModalContent onSaved={refresh} defaultBranchId={selectedBranchId ?? undefined} />)}><Icon name="plus" /> Add Entry</button>
           </div>
         )}
       </div>
@@ -558,7 +562,7 @@ export function Cash() {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-expenses" data-ledger-page={expensesPage}>
-              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
+              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th>{showBranch && <th>Branch</th>}<th>Status</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
               <tbody>
                 {expenses.length
                   ? expenses.map((e) => (
@@ -574,7 +578,7 @@ export function Cash() {
                       onReject={() => onRejectExpense(e)}
                     />
                   ))
-                  : <tr><td colSpan={7} className="empty">No expenses recorded yet.</td></tr>}
+                  : <tr><td colSpan={showBranch ? 7 : 6} className="empty">No expenses recorded yet.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -598,11 +602,11 @@ export function Cash() {
             </span>          </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy">
-              <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Mode</th><th>Bank</th><th>Branch</th><th>Remarks</th></tr></thead>
+              <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Mode</th><th>Bank</th>{showBranch && <th>Branch</th>}<th>Remarks</th></tr></thead>
               <tbody>
                 {goldSales.length
                   ? goldSales.map((g) => <GoldSaleRow key={g.id} g={g} />)
-                  : <tr><td colSpan={9} className="empty">No gold sales recorded yet. Use &quot;Add Cash&quot; with the Gold Sale source.</td></tr>}
+                  : <tr><td colSpan={showBranch ? 9 : 8} className="empty">No gold sales recorded yet. Use &quot;Add Cash&quot; with the Gold Sale source.</td></tr>}
               </tbody>
             </table>
           </div>

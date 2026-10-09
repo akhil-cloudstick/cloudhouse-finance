@@ -7,6 +7,7 @@ import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import {
   createScheme, updateScheme,
   type SchemeView, type ServiceChargeType, type ServiceChargeMode,
@@ -49,8 +50,14 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
+  const branchLocked = singleBranch || lockedBranchId != null;
   const [branchId, setBranchId] = useState<number | "">(
-    s?.branchId || (!isAdmin && myBranchId ? myBranchId : "")
+    s?.branchId || (!isAdmin && myBranchId ? myBranchId : lockedBranchId || "")
   );
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
@@ -144,13 +151,13 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
             Whether the charge is deducted from the loan amount or added to it is chosen per loan, when the loan is created.
           </p>
         )}
-        <div className="frow c2 scheme-frow">
+        <div className={showBranch ? "frow c2 scheme-frow" : "frow scheme-frow"}>
           <div><label className="f">Status</label>
             <Select options={STATUS_OPTIONS} value={active ? "1" : "0"} onChange={(v) => setActive(v === "1")} /></div>
-          <div><label className="f">Branch *</label>
+          {showBranch && <div><label className="f">Branch *</label>
             {isAdmin ? (
               <Select
-                disabled={singleBranch}
+                disabled={branchLocked}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 value={branchId ? String(branchId) : ""}
                 onChange={(v) => setBranchId(v ? Number(v) : "")}
@@ -166,7 +173,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
                 onChange={() => {}}
                 disabled
               />
-            )}</div>
+            )}</div>}
         </div>
         <div className="notice"><Icon name="shield" /> Scheme changes are restricted to authorized administrators and recorded in the audit trail.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

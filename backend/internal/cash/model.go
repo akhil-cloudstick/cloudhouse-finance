@@ -5,13 +5,46 @@
 package cash
 
 import (
+	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 
 	"cloudhouse/backend/internal/bank"
 	"cloudhouse/backend/internal/branch"
 	"cloudhouse/backend/internal/customer"
 	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
 )
+
+// BeforeCreate guards the two branch rules every movement must keep, at the
+// one place all of them are written: it has a branch, and a bank-mode entry
+// (UPI / Bank Transfer / Cheque) only goes through a bank account of that same
+// branch — a bank's whole balance belongs to its own branch.
+func (m *CashMovement) BeforeCreate(tx *gorm.DB) error {
+	if m.BranchID == nil || *m.BranchID == 0 {
+		return ErrBranchRequired
+	}
+	if m.BankID == nil || !isBankMode(m.Mode) {
+		return nil
+	}
+	var bk struct {
+		Name     string
+		BranchID uint
+	}
+	if err := tx.Session(&gorm.Session{NewDB: true}).Table("banks").Select("name, branch_id").
+		Where("id = ?", *m.BankID).Scan(&bk).Error; err != nil {
+		return err
+	}
+	if bk.BranchID != 0 && bk.BranchID != *m.BranchID {
+		return httpx.NewBadRequest(fmt.Sprintf("%s belongs to another branch — pick a bank account of this entry's branch", bk.Name))
+	}
+	return nil
+}
+
+func isBankMode(mode string) bool {
+	return mode == CashModeUPI || mode == CashModeBankTransfer || mode == CashModeCheque
+}
 
 // CashMovement represents one cash-in or cash-out entry. For a cash-in
 // sourced from a loan (Source == "Loan"), Status tracks whether that
@@ -34,8 +67,8 @@ type CashMovement struct {
 	// physical notes, so there's a bank of record behind it.
 	Bank       string         `json:"bank" gorm:"size:120"`
 	Amount     float64        `json:"amount" gorm:"not null;type:numeric(16,2)"`
-	Status     string         `json:"status" gorm:"size:20"` // "Open" | "Closed" — only for loan-sourced cash-in
-	BranchID   *uint          `json:"branchId"`              // nullable — not every cash movement is tied to a till yet
+	Status     string         `json:"status" gorm:"size:20"`    // "Open" | "Closed" — only for loan-sourced cash-in
+	BranchID   *uint          `json:"branchId" gorm:"not null"` // every movement belongs to a branch (Head Office when none other applies)
 	Branch     *branch.Branch `json:"branch,omitempty" gorm:"foreignKey:BranchID"`
 	OccurredOn time.Time      `json:"occurredOn" gorm:"not null"`
 

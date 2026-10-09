@@ -49,6 +49,17 @@ const formGLenderName = "CloudHouse Finance (MLL No. DEMO-0000000000)"
 // same MLL registration referenced above. Also a demo placeholder.
 const formGLenderAddress = "Demo Registered Office, Door No. 0/000, Demo Village, Demo Taluk, Ernakulam District, Kerala"
 
+// singleBranch reports whether the request's business runs in single-branch
+// mode (Head Office only) — its documents then print no branch.
+func (s *Service) singleBranch(ctx context.Context) bool {
+	id, ok := platform.TenantFromContext(ctx)
+	if !ok || s.tenantRepo == nil {
+		return false
+	}
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	return err == nil && t.SingleBranch
+}
+
 // formGLenderParticulars resolves the signed-in business's own name and
 // registered address for Form G's letterhead, falling back to the demo
 // placeholders above when the tenant profile has not been filled in — same
@@ -403,8 +414,13 @@ func (s *Service) loanSpansForMaxOutstanding(ctx context.Context, f Filter, from
 // named by f.BranchID when the caller/report is scoped to one, otherwise
 // every active branch — Rule 15(3) wants "branch particulars" and a
 // lender operating several branches under one Form G reasonably lists all
-// of them when no single branch was chosen.
+// of them when no single branch was chosen. A single-branch business lists
+// none: its only branch is the Head Office, already printed as the lender's
+// own address.
 func (s *Service) formGBranches(ctx context.Context, f Filter) ([]FormGBranch, error) {
+	if s.singleBranch(ctx) {
+		return nil, nil
+	}
 	var out []FormGBranch
 	q := s.db.WithContext(ctx).Table("branches").Select("name, address").Where("deleted_at IS NULL")
 	if f.BranchID != nil {

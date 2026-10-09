@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/product/services/httpClient";
+import { branchHeader } from "@/product/services/branchSelection";
 import { printPdfJob } from "@/product/utils/print";
 
 export type InterestType = "Flat" | "Percentage";
@@ -285,7 +286,7 @@ export async function downloadPersonalLoanBond(loanId: number): Promise<void> {
   return printPdfJob(async () => {
     const token = typeof window !== "undefined" ? getAuthToken() : null;
     const res = await fetch(`${API_BASE}/personal-loans/${loanId}/bond`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
     });
     if (!res.ok) {
       let message = res.statusText;

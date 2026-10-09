@@ -7,7 +7,7 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/co
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
-import { useBranding } from "@/product/providers/BrandingProvider";
+import { useShowBranch, useShowBranchFilter } from "@/product/hooks/useBranchSwitch";
 import { exportReport, type ReportFilters, type ReportKey, type ReportResult } from "@/product/pages/reports/services/reportsService";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 import { singleFlight } from "@/product/utils/singleFlight";
@@ -28,6 +28,9 @@ export type ReportConfig<Row = any, Totals = any> = {
   id: string;
   title: string;
   description: string;
+  // Tile description on a single-branch plan, where no branch is ever shown
+  // (only set when `description` mentions branches).
+  singleBranchDescription?: string;
   icon: string;
   exportKey: ReportKey;
   fetchFn: (f: ReportFilters) => Promise<ReportResult<Row, Totals>>;
@@ -69,8 +72,12 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
   const pageSize = useResponsivePageSize(15, 15);
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // Single-branch business: no branch filter — every row is its one branch.
-  const { singleBranch } = useBranding();
+  // No branch filter in a single-branch business (every row is its one
+  // branch) or while the global branch selector already scopes the page.
+  const showBranchFilter = useShowBranchFilter();
+  // Single-branch plan: the Branch column is dropped from every report.
+  const showBranch = useShowBranch();
+  const columns = showBranch ? config.columns : config.columns.filter((c) => c.key !== "branchName");
   const [branchId, setBranchId] = useState<number>(0);
   const [from, setFrom] = useState(config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
   const [to, setTo] = useState(today());
@@ -114,7 +121,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
   // One grouped filter: Branch, the report's own extra dropdown, and Date.
   // Clearing the date range falls back to the report's default range.
   const filterCategories: FilterCategory[] = [
-    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     ...(config.extraFilter
       ? [{ key: "extra", label: config.extraFilter.label, kind: "static" as const, singleSelect: true, options: config.extraFilter.options.map((o) => ({ value: o, label: o })) }]
       : []),
@@ -212,13 +219,13 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>
-              <tr>{config.columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
+              <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={config.columns.length} className="empty">Loading report…</td></tr>
+                <tr><td colSpan={columns.length} className="empty">Loading report…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={config.columns.length} className="empty">No data for the selected filters.</td></tr>
+                <tr><td colSpan={columns.length} className="empty">No data for the selected filters.</td></tr>
               ) : rows.map((row, i) => (
                 // Some reports' rowKey (e.g. interest-collection's
                 // `loanId-paidOn`) isn't guaranteed unique — two rows for the
@@ -227,7 +234,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
                 // the current page is always unique, so appending it here
                 // guards every report's key, not just that one.
                 <tr key={`${config.rowKey(row)}-${i}`}>
-                  {config.columns.map((c) => (
+                  {columns.map((c) => (
                     <td key={c.key} className={c.numeric ? "num" : undefined}>{c.render(row)}</td>
                   ))}
                 </tr>

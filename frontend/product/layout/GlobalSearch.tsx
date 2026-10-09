@@ -10,6 +10,7 @@ import { StatusChip } from "@/product/components/ui/StatusChip";
 import { fmt } from "@/product/utils/format";
 import { navigate, parsePath, routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
+import { useShowBranch } from "@/product/hooks/useBranchSwitch";
 
 type ResultRow = { href: string; ic: string; t: string; s: string; chip: string | null };
 type ResultGroup = [string, ResultRow[]];
@@ -39,6 +40,8 @@ export default function GlobalSearch({
   // Only result groups the role can open: a hit is a link to that page, and
   // the global search must not surface records outside the role's scope.
   const canOpen = useCanOpenRoute();
+  // Single-branch plan: result subtitles never name the branch.
+  const showBranch = useShowBranch();
 
   function searchAll(q: string): ResultGroup[] {
     const needle = q.toLowerCase();
@@ -64,7 +67,7 @@ export default function GlobalSearch({
         href: routeHref("customer/" + c.id),
         ic: "user",
         t: c.name,
-        s: c.code + " · " + c.phone + " · " + c.branchName,
+        s: c.code + " · " + c.phone + (showBranch ? " · " + c.branchName : ""),
         chip: c.kycStatus,
       }));
     if (custs.length) groups.push(["Customers", custs]);
@@ -100,7 +103,7 @@ export default function GlobalSearch({
         href: routeHref("employees"),
         ic: "user",
         t: e.name,
-        s: e.role + " · " + e.branch,
+        s: showBranch ? e.role + " · " + e.branch : e.role,
         chip: null as string | null,
       }));
     if (emps.length) groups.push(["Employees", emps]);

@@ -13,7 +13,10 @@ import { routeHref } from "@/product/services/appRoutes";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { listCustomersPage } from "@/product/pages/customers/services/customerService";
-import { useBranding } from "@/product/providers/BrandingProvider";
+import { useShowBranchFilter } from "@/product/hooks/useBranchSwitch";
+
+// Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
+const NO_BRANCHES: string[] = [];
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
 
@@ -38,7 +41,9 @@ export function Loans() {
   const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
   const { can } = useAuth();
   const pageSize = useResponsivePageSize(15, 15);
-  const { singleBranch } = useBranding();
+  // No branch filter in a single-branch business, or while the global
+  // branch selector already scopes the page (see useShowBranchFilter).
+  const showBranchFilter = useShowBranchFilter();
   // Hidden rather than shown as a form that can only fail with a 403.
   const canCreateLoans = can("Loan_Management", "can_create_loan");
   // Dashboard KPI cards ("Active Loans", "Due Soon", etc.) link here as
@@ -52,7 +57,10 @@ export function Loans() {
   const [q, setQ] = usePersistedState("loans:q", "");
   const [fromDate, setFromDate] = usePersistedState("loans:from", "");
   const [toDate, setToDate] = usePersistedState("loans:to", "");
-  const [branchIds, setBranchIds] = usePersistedState<string[]>("loans:branches", []);
+  const [savedBranchIds, setBranchIds] = usePersistedState<string[]>("loans:branches", []);
+  // A hidden Branch filter must not keep narrowing rows with a stale saved
+  // selection (it would intersect the global branch to an empty page).
+  const branchIds = showBranchFilter ? savedBranchIds : NO_BRANCHES;
   const [customerIds, setCustomerIds] = usePersistedState<string[]>("loans:customers", []);
   const [branches, setBranches] = useState<BranchView[]>([]);
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
@@ -122,7 +130,7 @@ export function Loans() {
       key: "status", label: "Status", kind: "static", searchHint: "Searches: loan status",
       options: CATS.filter((c) => c !== "All").map((c) => ({ value: c, label: c })),
     },
-    ...(singleBranch ? [] : [{
+    ...(!showBranchFilter ? [] : [{
       key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name",
       options: branches.map((b) => ({ value: String(b.id), label: b.name })),
     }]),

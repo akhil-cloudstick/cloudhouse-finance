@@ -18,6 +18,7 @@ import {
 } from "@/product/pages/packets/services/packetService";
 import { routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
+import { useShowBranch } from "@/product/hooks/useBranchSwitch";
 
 /* Hardcoded actor id — this codebase has no auth/session yet, so every
  * staff-attributed action across the app (loan approvals, payments) uses
@@ -56,6 +57,7 @@ function Stepper({ status }: { status: string }) {
  * POST /packets/:id/movements. */
 export function PacketDetail({ code }: { code?: string }) {
   const toast = useToast();
+  const showBranch = useShowBranch();
   const { openModal } = useModal();
   const { can } = useAuth();
   const canOpen = useCanOpenRoute();
@@ -235,7 +237,7 @@ export function PacketDetail({ code }: { code?: string }) {
           <div className="bd">
             <div className="kv" style={{ gridTemplateColumns: "1fr" }}>
               <div className="i"><div className="k">Items / Weight</div><div className="v">{p.itemCount} item(s) · {fmtW(p.totalWeight)}</div></div>
-              <div className="i"><div className="k">Branch</div><div className="v">{p.branchName}</div></div>
+              {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{p.branchName}</div></div>}
               <div className="i"><div className="k">Current Locker</div><div className="v">{currentLocker ? currentLocker.code : "—"}</div></div>
             </div>
 

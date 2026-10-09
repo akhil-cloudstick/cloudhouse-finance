@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"cloudhouse/backend/internal/platform"
 )
@@ -18,22 +19,23 @@ func NewRepository(db platform.DB) *Repository {
 }
 
 func (r *Repository) Create(ctx context.Context, b *Bank) error {
-	return r.db.WithContext(ctx).Create(b).Error
+	return r.db.WithContext(ctx).Omit(clause.Associations).Create(b).Error
 }
 
 // FindAll returns banks matching query, plus the TOTAL row count for that
 // query (Limit/Offset ignored, 0 when limit <= 0). limit == 0 returns every
 // match unpaged (the web bank directory's behaviour); limit > 0 applies
-// FindAll returns banks matching query, plus the TOTAL row count for that
-// query (Limit/Offset ignored, 0 when limit <= 0). limit == 0 returns every
-// match unpaged (the web bank directory's behaviour); limit > 0 applies
 // Limit/Offset (the mobile app's paginated list) — same convention as
-// customer/loan/scheme's FindAll.
-func (r *Repository) FindAll(ctx context.Context, query string, limit, offset int) ([]Bank, int64, error) {
+// customer/loan/scheme's FindAll. branchID (nil = every branch) narrows to
+// one business branch's accounts.
+func (r *Repository) FindAll(ctx context.Context, query string, branchID *uint, limit, offset int) ([]Bank, int64, error) {
 	var banks []Bank
-	q := r.db.WithContext(ctx).Order("name asc")
+	q := r.db.WithContext(ctx).Preload("BusinessBranch").Order("name asc")
 	if query != "" {
 		q = q.Where("name ILIKE ?", "%"+query+"%")
+	}
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
 	}
 	var total int64
 	if limit > 0 {
@@ -59,14 +61,14 @@ func (r *Repository) FindByName(ctx context.Context, name string) (*Bank, error)
 // FindByID looks up a single bank by primary key.
 func (r *Repository) FindByID(ctx context.Context, id uint) (*Bank, error) {
 	var b Bank
-	if err := r.db.WithContext(ctx).First(&b, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("BusinessBranch").First(&b, id).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil
 }
 
 func (r *Repository) Update(ctx context.Context, b *Bank) error {
-	return r.db.WithContext(ctx).Save(b).Error
+	return r.db.WithContext(ctx).Omit(clause.Associations).Save(b).Error
 }
 
 // bankRefColumns is every (table, column) that stores a bank id — raw names

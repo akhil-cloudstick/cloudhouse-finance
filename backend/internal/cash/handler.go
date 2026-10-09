@@ -580,11 +580,38 @@ func (h *MovementHandler) ownsParty(c *gin.Context, ctx context.Context, table s
 		httpx.FailErr(c, err)
 		return false
 	}
+	if ok {
+		ok, err = h.partyInBranchScope(c, ctx, table, id)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return false
+		}
+	}
 	if !ok {
 		httpx.Fail(c, http.StatusNotFound, notFound)
 		return false
 	}
 	return true
+}
+
+// partyInBranchScope reports whether a bank, customer or branch belongs to
+// the caller's branch scope (GetBranchScope): each belongs to one branch, so
+// with a branch selected — or for a branch-confined role — another branch's
+// party reads as not found, the same as one from another business.
+func (h *MovementHandler) partyInBranchScope(c *gin.Context, ctx context.Context, table string, id uint) (bool, error) {
+	scope := platform.GetBranchScope(c)
+	if scope == nil {
+		return true, nil
+	}
+	if table == "branches" {
+		return id == *scope, nil
+	}
+	var branchID uint
+	if err := h.svc.repo.db.WithContext(ctx).Table(table).Select("branch_id").
+		Where("id = ?", id).Scan(&branchID).Error; err != nil {
+		return false, err
+	}
+	return branchID == *scope, nil
 }
 
 // ListByBranch is ListByBank's counterpart for :branchId.
@@ -648,6 +675,32 @@ func partyStatementRows(rows []CashMovement) [][]string {
 		}
 	}
 	return tableRows
+}
+
+// branchColumnFor drops the "Branch" column from an export when the business
+// runs in single-branch mode — its only branch is the Head Office, so the
+// column carries nothing. Returns headers and rows unchanged otherwise.
+func branchColumnFor(c *gin.Context, headers []string, rows [][]string) ([]string, [][]string) {
+	if _, single := platform.SingleBranchPin(c); !single {
+		return headers, rows
+	}
+	idx := -1
+	for i, h := range headers {
+		if h == "Branch" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return headers, rows
+	}
+	headers = append(append([]string{}, headers[:idx]...), headers[idx+1:]...)
+	for i, r := range rows {
+		if idx < len(r) {
+			rows[i] = append(append([]string{}, r[:idx]...), r[idx+1:]...)
+		}
+	}
+	return headers, rows
 }
 
 // ledgerPaging reads a ledger request's limit/offset. ?export=pdf asks for
@@ -745,11 +798,12 @@ func (h *MovementHandler) ExportByBank(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
 		"Party Transactions",
 		partyStatementNote(fromDate, toDate),
-		[]string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"},
-		partyStatementRows(rows),
+		headers,
+		tableRows,
 	)
 	if err != nil {
 		httpx.Fail(c, http.StatusInternalServerError, err.Error())
@@ -785,11 +839,12 @@ func (h *MovementHandler) ExportByBranch(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
 		"Party Transactions",
 		partyStatementNote(fromDate, toDate),
-		[]string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"},
-		partyStatementRows(rows),
+		headers,
+		tableRows,
 	)
 	if err != nil {
 		httpx.Fail(c, http.StatusInternalServerError, err.Error())
@@ -825,11 +880,12 @@ func (h *MovementHandler) ExportByCustomer(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
 		"Party Transactions",
 		partyStatementNote(fromDate, toDate),
-		[]string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"},
-		partyStatementRows(rows),
+		headers,
+		tableRows,
 	)
 	if err != nil {
 		httpx.Fail(c, http.StatusInternalServerError, err.Error())
@@ -900,6 +956,8 @@ func (h *MovementHandler) Export(c *gin.Context) {
 			m.Status,
 		}
 	}
+
+	headers, tableRows = branchColumnFor(c, headers, tableRows)
 
 	// format defaults to "pdf" for every existing caller that never sent
 	// one — the Ledger filter panel's "Export PDF" / "Export XL" pair (added
@@ -1095,10 +1153,11 @@ func (h *ExpenseHandler) Export(c *gin.Context) {
 		}
 	}
 
+	headers, tableRows := branchColumnFor(c, []string{"Date", "Category", "Mode", "Branch", "Amount", "Status", "Remarks"}, tableRows)
 	pdfBytes, err := renderTablePDF(
 		"Expense Register",
 		"",
-		[]string{"Date", "Category", "Mode", "Branch", "Amount", "Status", "Remarks"},
+		headers,
 		tableRows,
 	)
 	if err != nil {
@@ -1211,6 +1270,10 @@ func (h *OpeningBalanceHandler) Set(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
+	if _, ok := platform.NarrowBranch(c, &req.BranchID); !ok {
+		httpx.FailErr(c, ErrBranchOutOfScope)
+		return
+	}
 	rec, err := h.svc.Set(ctx, req.BranchID, date, req.Mode, req.BankID, req.FromBankID, req.Amount)
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1250,7 +1313,12 @@ func (h *OpeningBalanceHandler) Get(c *gin.Context) {
 		id := uint(v)
 		bankID = &id
 	}
-	rec, err := h.svc.Get(ctx, uint(branchID), date, c.Query("mode"), bankID)
+	requested := uint(branchID)
+	if _, ok := platform.NarrowBranch(c, &requested); !ok {
+		httpx.FailErr(c, ErrBranchOutOfScope)
+		return
+	}
+	rec, err := h.svc.Get(ctx, requested, date, c.Query("mode"), bankID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1278,6 +1346,13 @@ func (h *SummaryHandler) Get(c *gin.Context) {
 		}
 		id := uint(v)
 		branchID = &id
+	}
+	// No branchId follows the caller's scope — the selected branch, or all
+	// branches; an explicit one may only narrow it.
+	branchID, ok := platform.NarrowBranch(c, branchID)
+	if !ok {
+		httpx.FailErr(c, ErrBranchOutOfScope)
+		return
 	}
 	date, err := parseQueryDate(c)
 	if err != nil {
@@ -1659,7 +1734,7 @@ func (h *ExpenseCategoryHandler) GetLedger(c *gin.Context) {
 		return
 	}
 	limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := h.movementSvc.ListLedgerByCategory(ctx, cat.Name, fromDate, toDate, limit, offset)
+	rec, total, totals, err := h.movementSvc.ListLedgerByCategory(ctx, cat.Name, platform.GetBranchScope(c), fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1749,7 +1824,7 @@ func respondCashInLedger(c *gin.Context, svc *MovementService, cat *Category) {
 		return
 	}
 	limit, offset, export := ledgerPaging(c)
-	rows, total, totals, err := svc.ListLedgerByCashInCategory(ctx, cat.Name, fromDate, toDate, limit, offset)
+	rows, total, totals, err := svc.ListLedgerByCashInCategory(ctx, cat.Name, platform.GetBranchScope(c), fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

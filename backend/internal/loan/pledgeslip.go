@@ -162,7 +162,7 @@ func (s *Service) pledgeSlipData(ctx context.Context, l *Loan) pledgeSlipTemplat
 
 		LoanNumber: l.LoanNumber, Today: slipDate(time.Now()),
 		CustomerName: l.Customer.Name, CustomerCode: custCode,
-		Phone: dash(l.Customer.Phone), Address: dash(l.Customer.Address), BranchName: dash(l.Branch.Name),
+		Phone: dash(l.Customer.Phone), Address: dash(l.Customer.Address), BranchName: s.documentBranchName(ctx, l.Branch.Name),
 		SchemeName: l.Scheme.Name, SchemeRate: fmt.Sprintf("%v", l.SchemeInterestRate), SchemeLTV: fmt.Sprintf("%v", l.SchemeLTVPercent),
 		Opened: slipDate(l.OpenedDate),
 

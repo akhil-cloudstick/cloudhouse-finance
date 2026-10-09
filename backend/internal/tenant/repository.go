@@ -301,3 +301,4 @@ func (r *Repository) HasModule(ctx context.Context, tenantID uint, moduleKey str
 	}
 	return containsCSV(row.Enabled, moduleKey), nil
 }
+

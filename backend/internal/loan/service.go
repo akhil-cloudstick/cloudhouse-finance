@@ -2218,8 +2218,22 @@ func (s *Service) employeeName(ctx context.Context, employeeID uint) string {
 // payments recorded within [from, to] — backs Dashboard.tsx's "Interest
 // Collected" KPI (GET /loans/interest-collected), replacing the old
 // mock-only db.ledger figure that never had a real backend equivalent.
-func (s *Service) GetInterestCollected(ctx context.Context, from, to time.Time) (float64, error) {
-	return s.paymentRepo.SumInterestCollected(ctx, from, to)
+func (s *Service) GetInterestCollected(ctx context.Context, from, to time.Time, branchID *uint) (float64, error) {
+	return s.paymentRepo.SumInterestCollected(ctx, from, to, branchID)
+}
+
+// CustomerInBranchScope reports whether the customer belongs to scope (nil =
+// every branch) — a customer belongs to one branch, so with a branch selected
+// another branch's customer reads as not found.
+func (s *Service) CustomerInBranchScope(ctx context.Context, customerID uint, scope *uint) (bool, error) {
+	if scope == nil {
+		return true, nil
+	}
+	c, err := s.customerRepo.FindByID(ctx, customerID)
+	if err != nil {
+		return false, nil
+	}
+	return c.BranchID == *scope, nil
 }
 
 // ListApprovals returns the loan's full sanction-chain decision history, in
@@ -5955,7 +5969,7 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		CustomerName:    l.Customer.Name,
 		Age:             age,
 		Address:         l.Customer.Address,
-		BranchName:      l.Branch.Name,
+		BranchName:      bondPlace(s.singleBranch(ctx), l.Branch.Name, addressLine),
 		Phone:           l.Customer.Phone,
 		PAN:             l.Customer.PAN,
 		Aadhaar:         aadhaar,

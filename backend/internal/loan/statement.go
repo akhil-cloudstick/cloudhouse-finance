@@ -31,6 +31,9 @@ func (s *Service) Statement(ctx context.Context, loanID uint, branchID *uint) (d
 	}
 
 	businessName := s.businessName(ctx)
+	if s.singleBranch(ctx) {
+		l.Branch.Name = "" // Head Office only — the header prints no branch
+	}
 
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.SetTitle(fmt.Sprintf("Loan Statement %s", l.LoanNumber), true)
@@ -328,18 +331,50 @@ func truncate(s string, max int) string {
 // degrades the same way: bondDocFor reads it as the KML default, which is
 // what every tenant issued before the policy column existed.
 func (s *Service) lenderProfile(ctx context.Context) (legalName, addressLine, kmlRegNo, policy string) {
+	legalName, addressLine, kmlRegNo, policy, _ = s.lenderProfileFull(ctx)
+	return legalName, addressLine, kmlRegNo, policy
+}
+
+// documentBranchName is the branch a printed document shows: the branch's
+// name (dash when blank), or "" for a single-branch business, whose templates
+// then leave the branch out entirely.
+func (s *Service) documentBranchName(ctx context.Context, name string) string {
+	if s.singleBranch(ctx) {
+		return ""
+	}
+	return dash(name)
+}
+
+// bondPlace is the place the bond's legal text names — the branch, or for a
+// single-branch business (which shows no branch anywhere) its own address.
+func bondPlace(single bool, branchName, addressLine string) string {
+	if single && addressLine != "" {
+		return addressLine
+	}
+	return branchName
+}
+
+// singleBranch reports whether the request's business runs in single-branch
+// mode (Head Office only) — its documents then print no branch.
+func (s *Service) singleBranch(ctx context.Context) bool {
+	_, _, _, _, single := s.lenderProfileFull(ctx)
+	return single
+}
+
+// lenderProfileFull is lenderProfile plus the business's single-branch flag.
+func (s *Service) lenderProfileFull(ctx context.Context) (legalName, addressLine, kmlRegNo, policy string, singleBranch bool) {
 	if s.tenantRepo == nil {
-		return "", "", "", ""
+		return "", "", "", "", false
 	}
 	id, ok := platform.TenantFromContext(ctx)
 	if !ok {
-		return "", "", "", ""
+		return "", "", "", "", false
 	}
 	t, err := s.tenantRepo.FindByID(ctx, id)
 	if err != nil {
-		return "", "", "", ""
+		return "", "", "", "", false
 	}
-	return t.LegalName, t.AddressLine, t.KMLRegNo, t.PolicyOrDefault()
+	return t.LegalName, t.AddressLine, t.KMLRegNo, t.PolicyOrDefault(), t.SingleBranch
 }
 
 // tenantAllowsLanguage reports whether this business has been granted the

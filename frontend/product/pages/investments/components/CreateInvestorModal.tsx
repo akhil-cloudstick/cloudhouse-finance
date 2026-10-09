@@ -6,6 +6,7 @@ import { Select } from "@/product/components/ui/Select";
 import { createCustomer, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { getSelectedBranchId } from "@/product/services/branchSelection";
 
 /* Inline "+ Add new investor" flow reached from the New Investment picker
@@ -25,7 +26,13 @@ export function CreateInvestorModalContent({ onCreated }: { onCreated: (customer
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
-  const [branchId, setBranchId] = useState<number | "">("");
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
+  const branchLocked = singleBranch || lockedBranchId != null;
+  const [branchId, setBranchId] = useState<number | "">(lockedBranchId || "");
   const [address, setAddress] = useState("");
   const [pan, setPan] = useState("");
   const [aadhaar, setAadhaar] = useState("");
@@ -107,16 +114,18 @@ export function CreateInvestorModalContent({ onCreated }: { onCreated: (customer
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Radha Menon" value={name} onChange={(e) => setName(e.target.value)} /></div>
           <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
-        <div className="frow c2">
-          <div><label className="f">Branch *</label>
-            <Select
-              value={branchId === "" ? "" : String(branchId)}
-              onChange={(v) => setBranchId(v ? Number(v) : "")}
-              disabled={singleBranch}
-              options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-              placeholder="Select branch…"
-            />
-          </div>
+        <div className={showBranch ? "frow c2" : "frow"}>
+          {showBranch && (
+            <div><label className="f">Branch *</label>
+              <Select
+                value={branchId === "" ? "" : String(branchId)}
+                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                disabled={branchLocked}
+                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                placeholder="Select branch…"
+              />
+            </div>
+          )}
           <div><label className="f">Address</label><input className="inp" placeholder="House / street" value={address} onChange={(e) => setAddress(e.target.value)} /></div>
         </div>
         <div className="frow c2">

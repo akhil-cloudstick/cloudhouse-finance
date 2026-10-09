@@ -11,7 +11,6 @@ import { useAuth } from "@/product/providers/auth-context";
 import { Icon } from "@/product/components/Icon";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import GlobalSearch from "./GlobalSearch";
-import { BranchSwitcher } from "./BranchSwitcher";
 import { AccountMenu } from "./AccountMenu";
 import { routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";

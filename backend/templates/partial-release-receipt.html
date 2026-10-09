@@ -12,7 +12,7 @@
     </td>
   </tr>
 </table>
-<p><b>Loan No.</b> {{.LoanNumber}} &nbsp; <b>Branch:</b> {{.BranchName}}</p>
+<p><b>Loan No.</b> {{.LoanNumber}}{{if .BranchName}} &nbsp; <b>Branch:</b> {{.BranchName}}{{end}}</p>
 <p><b>Customer:</b> {{.CustomerName}}<br>{{.CustomerAddress}}</p>
 
 <p>

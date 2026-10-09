@@ -1,6 +1,7 @@
 package reports
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -50,9 +51,14 @@ func parseFilter(c *gin.Context) (Filter, error) {
 		}
 		branchID := uint(id)
 		f.BranchID = &branchID
-	} else {
-		f.BranchID = platform.GetBranchScope(c)
 	}
+	// An explicit branch_id may only narrow the caller's scope (the selected
+	// branch, or a confined role's own branch) — never reach another branch.
+	branchID, ok := platform.NarrowBranch(c, f.BranchID)
+	if !ok {
+		return Filter{}, errors.New("that branch is outside your current branch selection")
+	}
+	f.BranchID = branchID
 	f.Page = 1
 	if v := c.Query("page"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -157,7 +163,7 @@ func (h *Handler) InvestorLedger(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.InvestorLedger(ctx, uint(customerID))
+	rows, totals, err := h.svc.InvestorLedger(ctx, uint(customerID), platform.GetBranchScope(c))
 	if err != nil {
 		serverError(c, err)
 		return

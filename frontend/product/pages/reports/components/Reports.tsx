@@ -123,6 +123,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     id: "interest-collection",
     title: "Interest & Penal Collection",
     description: "Collections by month and branch",
+    singleBranchDescription: "Collections by month",
     icon: "coin",
     exportKey: "interest-collection",
     fetchFn: getInterestCollection,
@@ -144,6 +145,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     id: "outstanding-principal",
     title: "Outstanding Principal",
     description: "Exposure by scheme & branch",
+    singleBranchDescription: "Exposure by scheme",
     icon: "chart",
     exportKey: "outstanding-principal",
     fetchFn: getOutstandingPrincipal,
@@ -159,6 +161,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     id: "payment-collection",
     title: "Payment Collection",
     description: "Collections by date, branch & employee",
+    singleBranchDescription: "Collections by date & employee",
     icon: "coin",
     exportKey: "payment-collection",
     fetchFn: getPaymentCollection,
@@ -506,6 +509,7 @@ const LEDGER_EXPORT_TILE = {
   id: "ledger-export",
   title: "Ledger Report",
   description: "Download a full ledger for one customer, branch or bank",
+  singleBranchDescription: "Download a full ledger for one customer or bank",
   icon: "coin",
 };
 
@@ -516,7 +520,10 @@ const LEDGER_EXPORT_TILE = {
 export function Reports() {
   const toast = useToast();
   const smallScreen = useIsSmallScreen();
-  const { hasModule } = useBranding();
+  const { hasModule, singleBranch } = useBranding();
+  // Single-branch plan: tile descriptions drop their branch wording.
+  const tileDescription = (r: { description: string; singleBranchDescription?: string }) =>
+    (singleBranch && r.singleBranchDescription) || r.description;
   // Personal Loans/Investments reports carry a tenantModule the way
   // Sidebar.tsx's own nav entries do for those pages — a business without
   // the module doesn't see the report tile exist, matching the backend
@@ -584,7 +591,7 @@ export function Reports() {
             </button>
             <div className="bd" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
               <b style={{ fontSize: 14.5, color: "var(--charcoal)", paddingRight: 40 }}>{r.title}</b>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, paddingRight: 40 }}>{r.description}</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, paddingRight: 40 }}>{tileDescription(r)}</div>
             </div>
           </div>
         ))}

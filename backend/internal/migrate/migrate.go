@@ -154,7 +154,17 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// banks.branch_id / cash_movements.branch_id are NOT NULL — see
+	// PrepareBranchRequired. Must run BEFORE AutoMigrate.
+	if err := PrepareBranchRequired(db); err != nil {
+		return err
+	}
+
 	if err := db.AutoMigrate(allModels...); err != nil {
+		return err
+	}
+
+	if err := syncSingleBranchFlag(db); err != nil {
 		return err
 	}
 
@@ -286,6 +296,10 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	}
 
 	if err := backfillCashMovementBankID(db); err != nil {
+		return err
+	}
+
+	if err := RequireBranchColumns(db); err != nil {
 		return err
 	}
 
@@ -646,35 +660,17 @@ func dropLegacyBranchColumn(db *gorm.DB) error {
 // backfillEmployeeBranch is a one-time, idempotent safety net for any
 // employee row that still has no branch_id despite the app layer requiring
 // one on create/update (e.g. a row that slipped through before that
-// validation existed). Points it at branch 1, matching the same
-// "default to branch 1" convention used elsewhere in this file. Safe to
+// validation existed). Points it at its own business's Head Office. Safe to
 // re-run: once every row has branch_id populated, the WHERE clause matches
 // nothing.
 func backfillEmployeeBranch(db *gorm.DB) error {
-	if err := db.Table("employees").
-		Where("branch_id IS NULL OR branch_id = 0").
-		Update("branch_id", 1).Error; err != nil {
-		return err
-	}
-	log.Printf("backfilled employees: %d row(s) -> branch_id 1", db.RowsAffected)
-	return nil
+	return pointAtHeadOffice(db, "employees", "branch_id")
 }
 
-// backfillCashMovementBranch is a one-time, idempotent step for cash
-// movements whose branch_id was never set — CashMovement.BranchID is
-// nullable ("not every cash movement is tied to a till yet"), but movements
-// predating that column, or created via a code path that historically
-// allowed a nil BranchID, ended up with no branch at all. Points every such
-// row at branch 1, matching the same convention used elsewhere in this file.
-// Safe to re-run.
+// backfillCashMovementBranch is the same safety net for cash movements
+// written before branch became mandatory on them. Safe to re-run.
 func backfillCashMovementBranch(db *gorm.DB) error {
-	if err := db.Table("cash_movements").
-		Where("branch_id IS NULL").
-		Update("branch_id", 1).Error; err != nil {
-		return err
-	}
-	log.Printf("backfilled cash_movements: %d row(s) -> branch_id 1", db.RowsAffected)
-	return nil
+	return pointAtHeadOffice(db, "cash_movements", "branch_id")
 }
 
 // backfillBankPledgeBankID is a one-time, idempotent step for the new

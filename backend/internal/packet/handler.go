@@ -101,7 +101,7 @@ func (h *Handler) Get(c *gin.Context) {
 
 func (h *Handler) GetByCode(c *gin.Context) {
 	ctx := platform.RequestContext(c)
-	rec, err := h.svc.GetByCode(ctx, c.Param("code"))
+	rec, err := h.svc.GetByCode(ctx, c.Param("code"), platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -116,7 +116,7 @@ func (h *Handler) ListMovements(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, err := h.svc.ListMovements(ctx, id)
+	recs, err := h.svc.ListMovements(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

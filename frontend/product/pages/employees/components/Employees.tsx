@@ -11,6 +11,7 @@ import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
 import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/product/pages/employees/services/employeeService";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 import { routeHref } from "@/product/services/appRoutes";
+import { useShowBranch } from "@/product/hooks/useBranchSwitch";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
  * Go backend (`GET /api/v1/employees`), following the Branches.tsx pattern. */
@@ -18,6 +19,7 @@ export function Employees() {
   const { openModal } = useModal();
   const toast = useToast();
   const { can } = useAuth();
+  const showBranch = useShowBranch();
   const pageSize = useResponsivePageSize(15, 15);
   const canViewRoles = can("Role_Management", "can_view_role_and_permission_module");
   const canCreateEmployees = can("Employee_Management", "can_create_employee");
@@ -93,7 +95,7 @@ export function Employees() {
           <div className="tbl-wrap">
             <table className="tbl tbl-center col1-left tbl-tight emp-tbl">
               <thead>
-                <tr><th>Employee</th><th>Role</th><th>Branch</th><th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th>Action</th></tr>
+                <tr><th>Employee</th><th>Role</th>{showBranch && <th>Branch</th>}<th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th>Action</th></tr>
               </thead>
               <tbody>
                 {employees.map((e) => (
@@ -111,7 +113,7 @@ export function Employees() {
                       </span>
                     </td>
                     <td><span className={`chip ${e.role === "Administrator" ? "brand" : e.role === "Branch Manager" ? "info" : "gray"}`}>{e.role}</span></td>
-                    <td>{e.branchName}</td>
+                    {showBranch && <td>{e.branchName}</td>}
                     <td className="num">{e.loansProcessed || "—"}</td>
                     <td className="num">{fmt(e.collections)}</td>
                     <td className="num">{e.followups}</td>

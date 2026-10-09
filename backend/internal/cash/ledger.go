@@ -1313,8 +1313,10 @@ func scanGoldSalesForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID
 // FindByID below) and passes that name in here. Once Expense gains a real
 // CategoryID column, this should switch to filtering "category_id = ?" —
 // the LedgerRow shape returned to the frontend does not need to change.
-func (s *MovementService) ListLedgerByCategory(ctx context.Context, categoryName string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
-	rows, err := s.repo.expenseLedgerByCategory(ctx, categoryName, fromDate, toDate)
+// branchID (nil = all) keeps one branch's expenses — categories are shared
+// across branches, their entries are not.
+func (s *MovementService) ListLedgerByCategory(ctx context.Context, categoryName string, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+	rows, err := s.repo.expenseLedgerByCategory(ctx, categoryName, branchID, fromDate, toDate)
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
@@ -1324,7 +1326,7 @@ func (s *MovementService) ListLedgerByCategory(ctx context.Context, categoryName
 // expenseLedgerByCategory reads expenses.category ILIKE categoryName —
 // every expense is a debit (money spent), so this source never needs the
 // cash_movement dedup rule the other ledgers apply.
-func (r *MovementRepository) expenseLedgerByCategory(ctx context.Context, categoryName string, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func (r *MovementRepository) expenseLedgerByCategory(ctx context.Context, categoryName string, branchID *uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID         uint
 		OccurredOn time.Time
@@ -1337,6 +1339,7 @@ func (r *MovementRepository) expenseLedgerByCategory(ctx context.Context, catego
 	q := r.db.WithContext(ctx).Table("expenses e").
 		Select(`e.id, e.occurred_on, e.category, e.payee, e.mode, e.amount, e.remarks`).
 		Where("e.category ILIKE ?", categoryName)
+	q = applyBranchScope(q, "e.branch_id", branchID, nil)
 	if !fromDate.IsZero() {
 		q = q.Where("e.occurred_on >= ?", fromDate)
 	}
@@ -1559,15 +1562,15 @@ func (r *MovementRepository) loanSourceLedgerRows(ctx context.Context, src *Cash
 // booked under that name, as credits. Cash-in only; backs the category's
 // ledger drill-down (GET /cash-sources/:id/ledger and, for a cash-in category,
 // GET /expense-categories/:id/ledger).
-func (s *MovementService) ListLedgerByCashInCategory(ctx context.Context, name string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
-	rows, err := s.repo.cashInLedgerByCategory(ctx, name, fromDate, toDate)
+func (s *MovementService) ListLedgerByCashInCategory(ctx context.Context, name string, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+	rows, err := s.repo.cashInLedgerByCategory(ctx, name, branchID, fromDate, toDate)
 	if err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
 	return s.repo.paginateLedgerRows(ctx, rows, limit, offset)
 }
 
-func (r *MovementRepository) cashInLedgerByCategory(ctx context.Context, name string, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func (r *MovementRepository) cashInLedgerByCategory(ctx context.Context, name string, branchID *uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID         uint
 		OccurredOn time.Time
@@ -1581,6 +1584,7 @@ func (r *MovementRepository) cashInLedgerByCategory(ctx context.Context, name st
 		Select("m.id, m.occurred_on, m.purpose, m.mode, m.amount, m.bank_id, COALESCE(bk.name, '') AS bank_name").
 		Joins("LEFT JOIN banks bk ON bk.id = m.bank_id").
 		Where("m.type = ? AND m.source ILIKE ?", "in", name)
+	q = applyBranchScope(q, "m.branch_id", branchID, nil)
 	if !fromDate.IsZero() {
 		q = q.Where("m.occurred_on >= ?", fromDate)
 	}

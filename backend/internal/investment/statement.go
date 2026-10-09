@@ -23,6 +23,9 @@ func (s *Service) Statement(ctx context.Context, investmentID uint, branchID *ui
 	}
 
 	businessName := s.businessName(ctx)
+	if s.singleBranch(ctx) {
+		inv.Branch.Name = "" // Head Office only — the header prints no branch
+	}
 
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.SetTitle(fmt.Sprintf("Investment Statement %s", inv.InvestmentNumber), true)
@@ -217,6 +220,20 @@ func (s *Service) businessName(ctx context.Context) string {
 		return "Investment Statement"
 	}
 	return t.Name
+}
+
+// singleBranch reports whether the request's business runs in single-branch
+// mode (Head Office only) — its documents then print no branch.
+func (s *Service) singleBranch(ctx context.Context) bool {
+	if s.tenantRepo == nil {
+		return false
+	}
+	id, ok := platform.TenantFromContext(ctx)
+	if !ok {
+		return false
+	}
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	return err == nil && t.SingleBranch
 }
 
 func money(v float64) string {

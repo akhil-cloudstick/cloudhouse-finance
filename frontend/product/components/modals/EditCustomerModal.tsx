@@ -10,6 +10,7 @@ import { Icon } from "@/product/components/Icon";
 import { updateCustomer, uploadFile, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { singleFlight } from "@/product/utils/singleFlight";
 
 /* Edit counterpart to RegisterCustomerModal.tsx's create form, wired to the
@@ -32,6 +33,12 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
+  const branchLocked = singleBranch || lockedBranchId != null;
   const [branchId, setBranchId] = useState<number | "">(customer.branchId);
   const [addr, setAddr] = useState(customer.address);
   const [pan, setPan] = useState(customer.pan);
@@ -63,9 +70,14 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
 
   useEffect(() => {
     listActiveBranches()
-      .then(setBranches)
+      .then((list) => {
+        setBranches(list);
+        // Single-branch plan: the field is hidden, so a customer saved
+        // without a branch falls back to the only branch and still validates.
+        if (singleBranch && list.length) setBranchId((cur) => cur || list[0].id);
+      })
       .catch(() => setErr("Could not load branches — try again later."));
-  }, []);
+  }, [singleBranch]);
 
   async function save() { return singleFlight("modal:editcustomer:save", async () => {
     const n = name.trim();
@@ -124,18 +136,20 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
       <div className="hd"><h3>Edit Customer</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <label className="f">Personal Details</label>
-        <div className="frow c3">
+        <div className={showBranch ? "frow c3" : "frow c2"}>
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
           <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
-          <div><label className="f">Branch *</label>
-            <Select
-              value={branchId === "" ? "" : String(branchId)}
-              onChange={(v) => setBranchId(v ? Number(v) : "")}
-              disabled={singleBranch}
-              options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-              placeholder="Select branch…"
-            />
-          </div>
+          {showBranch && (
+            <div><label className="f">Branch *</label>
+              <Select
+                value={branchId === "" ? "" : String(branchId)}
+                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                disabled={branchLocked}
+                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                placeholder="Select branch…"
+              />
+            </div>
+          )}
         </div>
         <div className="frow c3">
           <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>

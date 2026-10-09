@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/product/services/httpClient";
+import { branchHeader } from "@/product/services/branchSelection";
 import type { SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { printPdfJob } from "@/product/utils/print";
 
@@ -312,7 +313,7 @@ export function getInvestmentTransactionsPage(
 async function fetchInvestmentPdf(investmentId: number, path: string): Promise<Blob> {
   const token = typeof window !== "undefined" ? getAuthToken() : null;
   const res = await fetch(`${API_BASE}/investments/${investmentId}/${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
   });
   if (!res.ok) {
     let message = res.statusText;

@@ -7,23 +7,31 @@
 package bank
 
 import (
-	"cloudhouse/backend/internal/platform"
 	"time"
+
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Bank is a named external bank a loan's gold can be re-pledged with. Name
 // is unique (case-insensitively, enforced in the service layer's
 // find-or-create flow). Branch/IFSC are optional descriptive fields.
+//
+// BranchID is the business branch that owns the account (mandatory): its
+// balance counts toward that branch only, and only that branch's entries may
+// use it. Branch (text) is the BANK's own branch, e.g. "Thrissur Main".
 type Bank struct {
 	platform.TenantScoped
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	Name      string    `json:"name" gorm:"index;not null;size:120"`
-	Branch    string    `json:"branch" gorm:"size:120"`
-	Ifsc      string    `json:"ifsc" gorm:"size:20"`
-	AccountNo string    `json:"accountNo" gorm:"size:40"`
-	Phone     string    `json:"phone" gorm:"size:20"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID             uint           `json:"id" gorm:"primaryKey"`
+	Name           string         `json:"name" gorm:"index;not null;size:120"`
+	BranchID       uint           `json:"branchId" gorm:"not null;index"`
+	BusinessBranch *branch.Branch `json:"-" gorm:"foreignKey:BranchID"`
+	Branch         string         `json:"branch" gorm:"size:120"`
+	Ifsc           string         `json:"ifsc" gorm:"size:20"`
+	AccountNo      string         `json:"accountNo" gorm:"size:40"`
+	Phone          string         `json:"phone" gorm:"size:20"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	UpdatedAt      time.Time      `json:"updatedAt"`
 }
 
 // TableName pins the GORM table name explicitly.

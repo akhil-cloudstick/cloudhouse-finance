@@ -8,6 +8,7 @@ import { Select } from "@/product/components/ui/Select";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { createLocker, updateLocker, type LockerView } from "@/product/pages/lockers/services/lockerService";
 import { singleFlight } from "@/product/utils/singleFlight";
 
@@ -22,13 +23,19 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
   const { closeModal } = useModal();
   const toast = useToast();
 
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
   const [code, setCode] = useState(locker?.code || "");
   const [cap, setCap] = useState(String(locker?.capacity || 30));
-  const [branchId, setBranchId] = useState<number | "">(locker?.branchId || "");
+  const [branchId, setBranchId] = useState<number | "">(locker?.branchId || lockedBranchId || "");
   const [isActive, setIsActive] = useState(locker?.isActive ?? true);
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  const branchLocked = singleBranch || lockedBranchId != null;
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -76,14 +83,16 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
           <div><label className="f">Locker Code *</label><input className="inp" placeholder="e.g. LKR-B2" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} /></div>
           <div><label className="f">Capacity (packets) *</label><input className="inp" type="number" min={1} value={cap} onChange={(e) => setCap(e.target.value)} /></div>
         </div>
-        <div className="frow"><div><label className="f">Branch *</label>
-          <Select
-            disabled={singleBranch}
-            options={[{ value: "", label: "Select branch…" }, ...branches.map((b) => ({ value: String(b.id), label: b.name }))]}
-            value={branchId === "" ? "" : String(branchId)}
-            onChange={(v) => setBranchId(v ? Number(v) : "")}
-          />
-        </div></div>
+        {showBranch && (
+          <div className="frow"><div><label className="f">Branch *</label>
+            <Select
+              disabled={branchLocked}
+              options={[{ value: "", label: "Select branch…" }, ...branches.map((b) => ({ value: String(b.id), label: b.name }))]}
+              value={branchId === "" ? "" : String(branchId)}
+              onChange={(v) => setBranchId(v ? Number(v) : "")}
+            />
+          </div></div>
+        )}
         {locker && (
           <div className="frow"><div><label className="f">Status</label>
             <Select

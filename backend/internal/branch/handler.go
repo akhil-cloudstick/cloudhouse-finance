@@ -163,7 +163,10 @@ func (h *Handler) Delete(c *gin.Context) {
 // selection is active. See Service.ListSwitchable.
 func (h *Handler) Switchable(c *gin.Context) {
 	ctx := platform.RequestContext(c)
-	crossBranch := platform.IsCrossBranchRole(c)
+	// A single-branch business has nothing to switch between, whatever the
+	// role — every request is pinned to its Head Office.
+	_, pinned := platform.SingleBranchPin(c)
+	crossBranch := platform.IsCrossBranchRole(c) && !pinned
 
 	// A confined role's own branch, read from the same claims the scope
 	// itself is built from — never from the request.

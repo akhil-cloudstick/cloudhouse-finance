@@ -6,6 +6,7 @@ import { ConnectMobileModalContent } from "@/product/components/modals/ConnectMo
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useBranchSwitch } from "@/product/hooks/useBranchSwitch";
 import {
   checkForUpdate,
   downloadUpdate,
@@ -30,7 +31,11 @@ const subscribeNever = () => () => {};
  *
  * The update state lives here rather than in the dropdown, so closing the
  * menu (or moving between pages — Topbar stays mounted) doesn't stop a
- * download. A dot on the avatar shows when an update is waiting. */
+ * download. A dot on the avatar shows when an update is waiting.
+ *
+ * Multi-branch Administrators/Management also get the global branch selector
+ * here ("Branch: …" row expanding to the branch list) — see useBranchSwitch.
+ * It scopes the whole app, so the chosen branch is echoed under the name. */
 export function AccountMenu() {
   const { employee, logout } = useAuth();
   const { name: businessName } = useBranding();
@@ -39,6 +44,8 @@ export function AccountMenu() {
   const [upd, setUpd] = useState<UpdateState>("idle");
   const [progress, setProgress] = useState(0);
   const [updError, setUpdError] = useState("");
+  const branch = useBranchSwitch();
+  const [branchOpen, setBranchOpen] = useState(false);
   const desktop = useSyncExternalStore(subscribeNever, isDesktop, () => false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -79,6 +86,12 @@ export function AccountMenu() {
       setProgress(0);
       void downloadUpdate();
     } else if (upd === "ready") void installUpdate();
+  }
+
+  function pickBranch(id: number | null) {
+    setBranchOpen(false);
+    setOpen(false);
+    if (id !== branch.selectedBranchId) branch.select(id);
   }
 
   function connectMobile() {
@@ -143,7 +156,7 @@ export function AccountMenu() {
         className="user"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => { setOpen((o) => !o); setBranchOpen(false); }}
       >
         <span className="av">
           {initial}
@@ -151,7 +164,15 @@ export function AccountMenu() {
         </span>
         <span className="nm">
           {employee?.name || "Not signed in"}
-          <small>{employee?.role || "No user session"}</small>
+          {/* With a branch selector, the branch the whole app is scoped to is
+            * kept in view (the role moves to the menu header); a branch-confined
+            * employee sees their own branch; with no branches at all
+            * (single-branch plan) — the role. */}
+          {branch.visible
+            ? <span className="acct-branch" title={`Viewing: ${branch.selectedName}`}>{branch.selectedName}</span>
+            : branch.ownBranchName
+            ? <span className="acct-branch" title={`Branch: ${branch.ownBranchName}`}>{branch.ownBranchName}</span>
+            : <small>{employee?.role || "No user session"}</small>}
         </span>
         <svg className="acct-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
           <path d="M6 9l6 6 6-6" />
@@ -165,9 +186,48 @@ export function AccountMenu() {
             <div>
               <b>{employee?.name || "Not signed in"}</b>
               <span>{[employee?.role, businessName].filter(Boolean).join(" · ")}</span>
+              {branch.visible && <span className="acct-branch">{branch.selectedName}</span>}
+              {!branch.visible && branch.ownBranchName && <span className="acct-branch">{branch.ownBranchName}</span>}
             </div>
           </div>
           <div className="acct-sep" />
+          {branch.visible && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="acct-item"
+                aria-expanded={branchOpen}
+                onClick={() => setBranchOpen((o) => !o)}
+                title="Viewing scope — narrows every page to one branch"
+              >
+                <span className="i"><Icon name="home" /></span>
+                <span className="lbl">Branch: {branch.selectedName}</span>
+                <span className={`acct-chev${branchOpen ? " up" : ""}`}><Icon name="chevronDown" /></span>
+              </button>
+              {branchOpen && (
+                <div className="acct-branches" role="group" aria-label="Branch">
+                  {[{ id: null as number | null, name: "All branches" }, ...branch.branches].map((b) => {
+                    const active = b.id === branch.selectedBranchId;
+                    return (
+                      <button
+                        key={b.id ?? "all"}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        className={`acct-item sub${active ? " ok" : ""}`}
+                        onClick={() => pickBranch(b.id)}
+                      >
+                        <span className="i">{active && <Icon name="check" />}</span>
+                        <span className="lbl">{b.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="acct-sep" />
+            </>
+          )}
           <button type="button" role="menuitem" className="acct-item" onClick={connectMobile}>
             <span className="i"><Icon name="smartphone" /></span>
             <span className="lbl">Connect mobile app</span>

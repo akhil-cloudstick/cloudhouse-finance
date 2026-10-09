@@ -142,6 +142,9 @@ func (h *Handler) Export(c *gin.Context) {
 	}
 
 	headers, data := toTable(rows)
+	if _, single := platform.SingleBranchPin(c); single {
+		headers, data = dropColumn(headers, data, "branchName")
+	}
 	filename := fmt.Sprintf("%s-%s.%s", key, time.Now().Format("20060102-150405"), format)
 
 	switch format {
@@ -509,4 +512,26 @@ func BuildPDF(businessName, title string, headers []string, data [][]string) ([]
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// dropColumn removes the column headed name — a single-branch business has
+// only its Head Office, so a Branch column on its reports is noise.
+func dropColumn(headers []string, data [][]string, name string) ([]string, [][]string) {
+	idx := -1
+	for i, h := range headers {
+		if h == name {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return headers, data
+	}
+	headers = append(append([]string{}, headers[:idx]...), headers[idx+1:]...)
+	for r, row := range data {
+		if idx < len(row) {
+			data[r] = append(append([]string{}, row[:idx]...), row[idx+1:]...)
+		}
+	}
+	return headers, data
 }

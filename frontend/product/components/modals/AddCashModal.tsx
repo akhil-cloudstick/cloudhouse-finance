@@ -9,6 +9,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { createCashMovement, createGoldSale, uploadReceipt } from "@/product/pages/cash/services/cashService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { searchBanksPage, createBank, type BackendBank } from "@/product/pages/banks/services/bankService";
 import { searchCashSourcesPage, createCashSource, isLoanSource, type BackendCashSource } from "@/product/pages/cash/services/cashSourceService";
 import { EXPENSE_CATEGORIES_CHANGED } from "@/product/pages/cash/services/expenseCategoryService";
@@ -95,7 +96,13 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: { onSave
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
-  const [branchId, setBranchId] = useState<number | "">(defaultBranchId || "");
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
+  const branchLocked = singleBranch || lockedBranchId != null;
+  const [branchId, setBranchId] = useState<number | "">(defaultBranchId || lockedBranchId || "");
   useEffect(() => {
     listActiveBranches().then((list) => {
       setBranches(list);
@@ -255,7 +262,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: { onSave
   const branchField = (
     <div><label className="f">Branch *</label>
       <Select
-        disabled={singleBranch}
+        disabled={branchLocked}
         options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
         value={branchId ? String(branchId) : ""}
         onChange={(v) => setBranchId(v ? Number(v) : "")}
@@ -313,7 +320,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: { onSave
           {modeField}
         </div>
         {bankRequired && <div className="frow">{bankField}</div>}
-        <div className="frow c2">{amountField}{branchField}</div>
+        <div className={showBranch ? "frow c2" : "frow"}>{amountField}{showBranch && branchField}</div>
         {isGoldSale && amt && (
           <div className="notice" style={{ marginBottom: 4 }}>
             {profit >= 0 ? "Profit" : "Loss"}: <strong style={{ color: profit >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(Math.abs(profit))}</strong>

@@ -28,6 +28,7 @@ var (
 	ErrModeRequired     = httpx.NewBadRequest("mode is required")
 	ErrBranchRequired   = httpx.NewBadRequest("branch is required")
 	ErrBranchInvalid    = httpx.NewBadRequest("branch does not exist")
+	ErrBranchOutOfScope = httpx.NewForbidden("that branch is outside your current branch selection")
 	// ErrExpenseNotPending is a state conflict (the expense was already
 	// decided), not a malformed request.
 	ErrExpenseNotPending = httpx.NewConflict("expense has already been approved or rejected")
@@ -732,7 +733,7 @@ func (s *MovementService) recordSplitCashMovement(ctx context.Context, base Cash
 // bankID is the branch's own bank account a non-cash share landed in. An
 // all-zero split books the whole amount as Cash.
 func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time) (uint, error) {
-	hoID, err := s.HeadOfficeBranchID(ctx)
+	hoID, err := s.pledgeBranchID(ctx, bankID, upiAmount+bankTransferAmount+chequeAmount)
 	if err != nil {
 		return 0, err
 	}
@@ -897,8 +898,10 @@ func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID ui
 // this books the release as its own, separately visible transaction.
 func (s *MovementService) RecordBankPledgeCashOut(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time, branchID uint) (uint, error) {
 	// branchID (the pledged loan's branch) is ignored on purpose: every
-	// pledge movement lives on the Head Office till, in and out alike.
-	hoID, err := s.HeadOfficeBranchID(ctx)
+	// pledge movement lives on the Head Office till, in and out alike — or on
+	// the paying account's own branch when it goes through a bank account
+	// (see pledgeBranchID).
+	hoID, err := s.pledgeBranchID(ctx, bankID, upiAmount+bankTransferAmount+chequeAmount)
 	if err != nil {
 		return 0, err
 	}
@@ -1159,6 +1162,25 @@ func (s *MovementService) RecordBankPledgeReleaseExpense(ctx context.Context, lo
 		return 0, err
 	}
 	return s.recordSystemExpense(ctx, "Bank Pledge Release", bankName, amount, occurredOn, hoID)
+}
+
+// pledgeBranchID is the branch a bank-pledge movement is booked on: the Head
+// Office, unless part of it goes through one of the business's bank accounts
+// (UPI / Bank Transfer / Cheque) — then that account's own branch, since a
+// bank account's money always counts toward the branch that owns it (see
+// bankSideBranch and CashMovement.BeforeCreate).
+func (s *MovementService) pledgeBranchID(ctx context.Context, bankID *uint, bankAmount float64) (uint, error) {
+	if bankID != nil && bankAmount > 0 {
+		var branchID uint
+		if err := s.repo.db.WithContext(ctx).Table("banks").Select("branch_id").
+			Where("id = ?", *bankID).Scan(&branchID).Error; err != nil {
+			return 0, err
+		}
+		if branchID != 0 {
+			return branchID, nil
+		}
+	}
+	return s.HeadOfficeBranchID(ctx)
 }
 
 // HeadOfficeBranchID is the branch every bank-pledge movement is booked on —
@@ -1815,6 +1837,32 @@ func (s *SummaryService) GetExpectedCash(ctx context.Context, branchID *uint, da
 // total bank balance as of now — see balancesBefore.
 func (s *SummaryService) liveBalances(ctx context.Context, branchID *uint) (cashInHand, bankBalance float64, err error) {
 	return s.balancesBefore(ctx, branchID, startOfDay(time.Now()).AddDate(0, 0, 1))
+}
+
+// BankBalances returns every bank account's current balance (bank-mode
+// movements in − out, less approved expenses paid from it) and the branch's
+// (nil = all branches) live Bank balance. The Bank balance is the sum of the
+// branch's accounts plus any bank-mode entry recorded without a bank (see
+// bankSideBranch), so it equals the bank list's total whenever every entry
+// names its bank. Backs the Bank Management list (bank.BalanceSource).
+func (s *SummaryService) BankBalances(ctx context.Context, branchID *uint) (map[uint]float64, float64, error) {
+	to := startOfDay(time.Now()).AddDate(0, 0, 1)
+	net, err := s.movementRepo.NetByBank(ctx, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	spent, err := s.expenseRepo.SumByBank(ctx, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	for id, amt := range spent {
+		net[id] -= amt
+	}
+	_, bankBalance, err := s.balancesBefore(ctx, branchID, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	return net, bankBalance, nil
 }
 
 // balancesBefore computes the cash-side and bank-side balances over the whole

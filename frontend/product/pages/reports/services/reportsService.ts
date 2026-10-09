@@ -259,7 +259,7 @@ export async function exportFormG(format: "xlsx" | "pdf", filters: ReportFilters
 
   const token = typeof window !== "undefined" ? getAuthToken() : null;
   const res = await fetch(`${API_BASE}/reports/export/form-g?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
   });
   if (!res.ok) {
     let message = res.statusText;

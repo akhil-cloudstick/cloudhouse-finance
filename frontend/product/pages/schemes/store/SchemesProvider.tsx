@@ -18,7 +18,7 @@ const SchemesContext = createContext<SchemesState | null>(null);
 export function SchemesProvider({ children }: { children: React.ReactNode }) {
   // Loaded for every page, so only fetched when this role can view the
   // module — otherwise it stays empty instead of failing with a 403.
-  const { can, permissionsLoaded } = useAuth();
+  const { can, permissionsLoaded, selectedBranchId } = useAuth();
   const allowed = can("Scheme_Management", "can_view_scheme_module");
   const [schemes, setSchemes] = useState<SchemeView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,9 @@ export function SchemesProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setLoading(false));
   }, [allowed, permissionsLoaded]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Refetch when the global branch selector changes — the list is scoped
+  // server-side by the X-Branch-Id header.
+  useEffect(() => { refresh(); }, [refresh, selectedBranchId]);
 
   return (
     <SchemesContext.Provider value={{ schemes, loading, error, refresh }}>

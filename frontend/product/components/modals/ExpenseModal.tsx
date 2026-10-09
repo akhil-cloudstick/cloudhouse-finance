@@ -7,8 +7,10 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
 import { ApiError, getAuthToken } from "@/product/services/httpClient";
+import { branchHeader } from "@/product/services/branchSelection";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { createExpense, uploadReceipt, type ExpenseView } from "@/product/pages/cash/services/cashService";
 import { searchExpenseCategoriesPage, createExpenseCategory, type BackendExpenseCategory } from "@/product/pages/cash/services/expenseCategoryService";
 import { searchBanksPage, createBank, type BackendBank } from "@/product/pages/banks/services/bankService";
@@ -57,7 +59,13 @@ export function ExpenseModalContent({ onSaved, tabs }: { onSaved?: () => void; t
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
-  const [branchId, setBranchId] = useState<number | "">("");
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
+  const branchLocked = singleBranch || lockedBranchId != null;
+  const [branchId, setBranchId] = useState<number | "">(lockedBranchId || "");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -148,16 +156,18 @@ export function ExpenseModalContent({ onSaved, tabs }: { onSaved?: () => void; t
               /></div>
           </div>
         )}
-        <div className="frow c2">
+        <div className={showBranch ? "frow c2" : "frow"}>
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-          <div><label className="f">Branch *</label>
-            <Select
-              disabled={singleBranch}
-              options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-              value={branchId ? String(branchId) : ""}
-              onChange={(v) => setBranchId(v ? Number(v) : "")}
-              placeholder="Select branch…"
-            /></div>
+          {showBranch && (
+            <div><label className="f">Branch *</label>
+              <Select
+                disabled={branchLocked}
+                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                value={branchId ? String(branchId) : ""}
+                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                placeholder="Select branch…"
+              /></div>
+          )}
         </div>
         <div className="frow"><div><label className="f">Bill</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
@@ -201,7 +211,7 @@ export function BillViewModalContent({ title, url }: { title: string; url: strin
     let objectUrl = "";
     let cancelled = false;
     const token = getAuthToken();
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    fetch(url, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() } })
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
       .then((b) => { if (!cancelled) { objectUrl = URL.createObjectURL(b); setSrc(objectUrl); } })
       .catch(() => { if (!cancelled) { setSrc(url); setFailed(true); } });

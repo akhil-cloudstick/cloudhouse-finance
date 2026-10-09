@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/product/services/httpClient";
+import { branchHeader } from "@/product/services/branchSelection";
 
 /* Shape returned by the Go backend (backend/internal/scheme/model.go). A
  * scheme's tenure is a real field now — no more start/end date window. */
@@ -187,7 +188,7 @@ export async function downloadSchemeStatement(
 
   const token = typeof window !== "undefined" ? getAuthToken() : null;
   const res = await fetch(`${API_BASE}/schemes/${id}/statement?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
   });
   if (!res.ok) {
     let message = res.statusText;

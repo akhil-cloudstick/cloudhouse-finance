@@ -180,9 +180,12 @@ func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Packet, er
 	return rec, nil
 }
 
-func (s *Service) GetByCode(ctx context.Context, code string) (*Packet, error) {
+func (s *Service) GetByCode(ctx context.Context, code string, branchID *uint) (*Packet, error) {
 	rec, err := s.repo.FindByCode(ctx, code)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.Loan.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	return rec, nil
@@ -192,9 +195,9 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Packet, int64, error) {
 	return s.repo.FindAll(ctx, f)
 }
 
-func (s *Service) ListMovements(ctx context.Context, packetID uint) ([]PacketMovement, error) {
-	if _, err := s.repo.FindByID(ctx, packetID); err != nil {
-		return nil, ErrNotFound
+func (s *Service) ListMovements(ctx context.Context, packetID uint, branchID *uint) ([]PacketMovement, error) {
+	if _, err := s.Get(ctx, packetID, branchID); err != nil {
+		return nil, err
 	}
 	return s.repo.FindMovements(ctx, packetID)
 }

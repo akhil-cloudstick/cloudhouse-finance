@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { getAuthToken } from "@/product/services/httpClient";
+import { branchHeader } from "@/product/services/branchSelection";
 
 /* An image that never shows the browser's broken-image icon. /uploads/* files
  * are fetched with the session token and shown from a blob: (a plain <img>
@@ -24,7 +25,7 @@ export function SafeImage({ src, alt = "", style, title, onClick }: {
     let objectUrl = "";
     let cancelled = false;
     const token = getAuthToken();
-    fetch(src, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    fetch(src, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() } })
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
       .then((b) => { if (!cancelled) { objectUrl = URL.createObjectURL(b); setShown(objectUrl); } })
       .catch(() => { if (!cancelled) setFailed(true); });

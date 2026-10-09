@@ -16,7 +16,7 @@ import {
 } from "@/product/pages/cash/services/cashService";
 import { listCustomersPage } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
-import { useBranding } from "@/product/providers/BrandingProvider";
+import { useShowBranch, useShowBranchFilter } from "@/product/hooks/useBranchSwitch";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { particularsFor, refTitleFor, refCellFor, modeCellFor, BillLink } from "@/product/pages/cash/components/ledgerCells";
@@ -67,8 +67,10 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
   const canExport = can("Ledger_Export", "can_export_ledger");
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // Single-branch business: no branch filter — every row is its one branch.
-  const { singleBranch } = useBranding();
+  // No branch filter in a single-branch business (every row is its one
+  // branch) or while the global branch selector already scopes the page.
+  const showBranchFilter = useShowBranchFilter();
+  const showBranch = useShowBranch();
   const [filters, setFilters] = usePersistedState<FilterValue>("reports:ledger-filters", {});
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<CashMovementView[]>([]);
@@ -83,7 +85,9 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
 
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
 
-  const branchIds = Array.isArray(filters.branch) ? filters.branch : [];
+  // Ignored while the Branch filter is hidden — a stale saved selection
+  // would otherwise intersect the global branch to an empty page.
+  const branchIds = showBranchFilter && Array.isArray(filters.branch) ? filters.branch : [];
   const customerIds = Array.isArray(filters.customer) ? filters.customer : [];
   const types = (Array.isArray(filters.type) ? filters.type : []) as CashMovementCategory[];
   const fromDate = filters.__dateFrom;
@@ -98,7 +102,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
   // "customer has no account in that branch → nothing shown" rule this
   // filter is spec'd to enforce.
   const categories: FilterCategory[] = [
-    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     {
       key: "customer", label: "Customer", kind: "async", searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search, p) =>
@@ -160,7 +164,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
         <div>
           <BackLink onClick={onBack} label="Back to Reports" />
           <h1>Ledger Report</h1>
-          <p>Preview and download the ledger — narrow it by branch, customer, type or date</p>
+          <p>Preview and download the ledger — narrow it by {showBranch ? "branch, customer" : "customer"}, type or date</p>
         </div>
       </div>
       <hr className="gold-rule" />

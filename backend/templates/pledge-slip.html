@@ -15,7 +15,7 @@
 <table>
   <tr><th style="width:110px">Loan No</th><td>{{.LoanNumber}}</td><th style="width:110px">Date</th><td>{{.Today}}</td></tr>
   <tr><th>Customer</th><td>{{.CustomerName}} ({{.CustomerCode}})</td><th>Phone</th><td>{{.Phone}}</td></tr>
-  <tr><th>Address</th><td>{{.Address}}</td><th>Branch</th><td>{{.BranchName}}</td></tr>
+  <tr><th>Address</th>{{if .BranchName}}<td>{{.Address}}</td><th>Branch</th><td>{{.BranchName}}</td>{{else}}<td colspan="3">{{.Address}}</td>{{end}}</tr>
   <tr><th>Scheme</th><td>{{.SchemeName}} @ {{.SchemeRate}}% p.a. (LTV {{.SchemeLTV}}%)</td>
       <th>Opened</th><td>{{.Opened}}</td></tr>
 </table>

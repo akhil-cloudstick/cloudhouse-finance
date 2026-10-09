@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -568,6 +569,21 @@ func (h *Handler) Approve(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// customerInScope answers 404 (and returns false) when the customer belongs
+// to a branch outside the caller's scope — see Service.CustomerInBranchScope.
+func (h *Handler) customerInScope(c *gin.Context, ctx context.Context, customerID uint) bool {
+	ok, err := h.svc.CustomerInBranchScope(ctx, customerID, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return false
+	}
+	if !ok {
+		httpx.Fail(c, http.StatusNotFound, "customer not found")
+		return false
+	}
+	return true
+}
+
 // GetCustomer360 handles GET /customers/:id/profile360?from=&to= — mounted
 // directly on the customers group in main.go (not loan's own route group)
 // since the URL is customer-shaped, even though the aggregation logic lives
@@ -579,6 +595,9 @@ func (h *Handler) GetCustomer360(c *gin.Context) {
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
+		return
+	}
+	if !h.customerInScope(c, ctx, customerID) {
 		return
 	}
 	var from, to *time.Time
@@ -660,6 +679,9 @@ func (h *Handler) ListLoansForCustomer(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	if !h.customerInScope(c, ctx, customerID) {
+		return
+	}
 	from, to, ok := parseOpenedRange(c)
 	if !ok {
 		return
@@ -684,6 +706,9 @@ func (h *Handler) ListOrnamentsForCustomer(c *gin.Context) {
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
+		return
+	}
+	if !h.customerInScope(c, ctx, customerID) {
 		return
 	}
 	from, to, ok := parseOpenedRange(c)
@@ -712,6 +737,9 @@ func (h *Handler) ListPaymentsForCustomer(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	if !h.customerInScope(c, ctx, customerID) {
+		return
+	}
 	from, to, ok := parseOpenedRange(c)
 	if !ok {
 		return
@@ -738,6 +766,9 @@ func (h *Handler) ListBankPledgesForCustomer(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	if !h.customerInScope(c, ctx, customerID) {
+		return
+	}
 	from, to, ok := parseOpenedRange(c)
 	if !ok {
 		return
@@ -762,6 +793,9 @@ func (h *Handler) ListAuctionHistoryForCustomer(c *gin.Context) {
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
+		return
+	}
+	if !h.customerInScope(c, ctx, customerID) {
 		return
 	}
 	from, to, ok := parseOpenedRange(c)
@@ -824,7 +858,7 @@ func (h *Handler) GetInterestCollected(c *gin.Context) {
 		}
 		to = parsed
 	}
-	total, err := h.svc.GetInterestCollected(ctx, from, to)
+	total, err := h.svc.GetInterestCollected(ctx, from, to, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -2282,7 +2316,9 @@ func (h *Handler) SaveDraft(c *gin.Context) {
 	// Ownership comes from the JWT, never the body — otherwise a caller could
 	// write drafts into (or read them out of) someone else's queue.
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.SaveDraft(ctx, actorEmployeeID, req.toInput())
+	input := req.toInput()
+	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
+	rec, err := h.svc.SaveDraft(ctx, actorEmployeeID, input)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -2306,7 +2342,9 @@ func (h *Handler) UpdateDraft(c *gin.Context) {
 		return
 	}
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.UpdateDraft(ctx, draftID, actorEmployeeID, req.toInput())
+	input := req.toInput()
+	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
+	rec, err := h.svc.UpdateDraft(ctx, draftID, actorEmployeeID, input)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

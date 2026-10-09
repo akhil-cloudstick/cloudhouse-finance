@@ -13,7 +13,7 @@ import { getModeLedger, downloadLedger, PARTY_PAGE_SIZE, type LedgerMode, type L
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
-import { useBranding } from "@/product/providers/BrandingProvider";
+import { useShowBranchFilter } from "@/product/hooks/useBranchSwitch";
 import { searchBanksPage, type BackendBank } from "@/product/pages/banks/services/bankService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
@@ -58,8 +58,9 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   const [page, setPage] = useState(() => rememberedLedgerPage("mode") ?? 1);
   useEffect(() => { saveLedgerPosition({ mode: page }); }, [page]);
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // Single-branch business: no branch filter — every row is its one branch.
-  const { singleBranch } = useBranding();
+  // No branch filter in a single-branch business (every row is its one
+  // branch) or while the global branch selector already scopes the page.
+  const showBranchFilter = useShowBranchFilter();
   const [filters, setFilters] = usePersistedState<FilterValue>("mode:filters", {});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -69,7 +70,9 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
 
   const fromDate = filters.__dateFrom || "";
   const toDate = filters.__dateTo || "";
-  const branchIds = Array.isArray(filters.branch) ? filters.branch : [];
+  // Ignored while the Branch filter is hidden — a stale saved selection
+  // would otherwise intersect the global branch to an empty page.
+  const branchIds = showBranchFilter && Array.isArray(filters.branch) ? filters.branch : [];
   const typeValues = Array.isArray(filters.type) ? filters.type : [];
   const bankValues = Array.isArray(filters.bank) ? filters.bank : [];
   const bankId = bankValues.length ? Number(bankValues[0]) : undefined;
@@ -141,7 +144,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   }); }
 
   const filterCategories: FilterCategory[] = [
-    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     ...(mode !== "Cash"
       ? [{
           key: "bank",

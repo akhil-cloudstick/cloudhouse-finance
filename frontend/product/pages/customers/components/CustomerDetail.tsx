@@ -45,6 +45,7 @@ import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { ApiError } from "@/product/services/httpClient";
 import { singleFlight } from "@/product/utils/singleFlight";
+import { useShowBranch } from "@/product/hooks/useBranchSwitch";
 
 /* Server-side pager for the 360 view's sub-tables: each of the 5 tables
  * below fetches its own page (limit 10) from its own
@@ -124,6 +125,7 @@ function ProofLink({ label, url }: { label: string; url: string }) {
  * source exists anywhere yet. */
 export function CustomerDetail({ id }: { id?: string }) {
   const { openModal } = useModal();
+  const showBranch = useShowBranch();
   const toast = useToast();
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
@@ -387,7 +389,7 @@ export function CustomerDetail({ id }: { id?: string }) {
       <div className="page-h">
         <div className="dhead">
           <div className="big-av">{initials(c.name)}</div>
-          <div><h1 style={{ fontSize: 26 }}>{c.name}</h1><p>{c.code} · {c.branchName} branch</p></div>
+          <div><h1 style={{ fontSize: 26 }}>{c.name}</h1><p>{c.code}{showBranch && <> · {c.branchName} branch</>}</p></div>
         </div>
         <div className="sp" />
         {(canUpdateCustomers || canHardDeleteCustomers) && (

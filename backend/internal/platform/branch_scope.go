@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"context"
 	"strconv"
 	"strings"
 
@@ -115,6 +116,9 @@ func selectedBranchID(c *gin.Context) (uint, bool) {
 // Note what this function does NOT do: it never widens scope, and it never
 // touches the business. Branch is a view; business is the boundary.
 func GetBranchScope(c *gin.Context) *uint {
+	if ho, ok := SingleBranchPin(c); ok {
+		return &ho
+	}
 	if !IsCrossBranchRole(c) {
 		own := ownBranchID(c)
 		return &own
@@ -143,6 +147,9 @@ func GetBranchScope(c *gin.Context) *uint {
 // that belongs to another business writes a row that business can never see,
 // and the foreign key rejects it outright.
 func EnforceBranchOnWrite(c *gin.Context, submittedBranchID uint) uint {
+	if ho, ok := SingleBranchPin(c); ok {
+		return ho
+	}
 	if IsCrossBranchRole(c) {
 		if submittedBranchID != 0 {
 			return submittedBranchID
@@ -162,4 +169,58 @@ func EnforceBranchOnWrite(c *gin.Context, submittedBranchID uint) uint {
 		return submittedBranchID
 	}
 	return branchID
+}
+
+// singleBranchPinKey holds the Head Office id PinSingleBranch resolved for a
+// business on a single-branch plan.
+const singleBranchPinKey = "singleBranchHeadOffice"
+
+// SingleBranchResolver answers, for one business, whether it runs in
+// single-branch mode and which branch is its Head Office.
+type SingleBranchResolver interface {
+	SingleBranchHeadOffice(ctx context.Context, tenantID uint) (headOfficeID uint, single bool, err error)
+}
+
+// PinSingleBranch pins every request of a single-branch business to its Head
+// Office, whatever the caller's role, own branch or switcher selection. A
+// business moved down to a single-branch plan keeps its other branches and
+// their data untouched — they are only hidden while the plan stays single, so
+// moving back up brings them back as they were.
+func PinSingleBranch(resolver SingleBranchResolver) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if tenantID, ok := TenantFromGin(c); ok {
+			ho, single, err := resolver.SingleBranchHeadOffice(WithTenant(c.Request.Context(), tenantID), tenantID)
+			if err == nil && single && ho != 0 {
+				c.Set(singleBranchPinKey, ho)
+			}
+		}
+		c.Next()
+	}
+}
+
+// SingleBranchPin returns the Head Office every request is pinned to when the
+// business is on a single-branch plan (see PinSingleBranch).
+func SingleBranchPin(c *gin.Context) (uint, bool) {
+	v, ok := c.Get(singleBranchPinKey)
+	if !ok {
+		return 0, false
+	}
+	id, ok := v.(uint)
+	return id, ok && id != 0
+}
+
+// NarrowBranch combines a branch the request asked for (nil = none) with the
+// caller's scope (GetBranchScope): the request may narrow the scope, never
+// widen it. ok is false when it asks for a branch outside the scope — callers
+// answer that as not found / forbidden rather than silently widening.
+func NarrowBranch(c *gin.Context, requested *uint) (branch *uint, ok bool) {
+	scope := GetBranchScope(c)
+	switch {
+	case scope == nil:
+		return requested, true
+	case requested == nil || *requested == *scope:
+		return scope, true
+	default:
+		return nil, false
+	}
 }

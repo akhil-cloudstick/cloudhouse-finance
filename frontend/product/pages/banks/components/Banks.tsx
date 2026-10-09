@@ -8,13 +8,19 @@ import { ApiError } from "@/product/services/httpClient";
 import { useAuth } from "@/product/providers/auth-context";
 import { routeHref } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
+import { useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { BankModalContent } from "@/product/components/modals/BankModal";
 import { MergeBankModalContent } from "@/product/components/modals/MergeBankModal";
 import { listBanks, listBanksPage, deleteBank, type BackendBank } from "@/product/pages/banks/services/bankService";
-import { getCashSummary } from "@/product/pages/cash/services/cashService";
 import { fmt } from "@/product/utils/format";
 
 const PAGE_SIZE = 15;
+
+// A bank balance can be overdrawn — sign before the ₹ ("−₹1,200.00"), not
+// fmt's "₹-1,200.00", and red.
+const fmtBalance = (n: number) => (n < 0 ? "−" + fmt(-n) : fmt(n));
+// Zero or more is green, like the other ledgers' credits.
+const balanceColor = (n: number) => (n < 0 ? "var(--red)" : "var(--green)");
 // The Banks modal loads 10 at a time — its table is height-capped (see
 // `.tbl-scroll-paged` in app.css) so the first 10 rows overflow and
 // scrolling to the end fetches the next 10.
@@ -35,15 +41,11 @@ export function Banks() {
   const canCreate = can("Bank_Management", "can_create_bank");
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
-  // Net balance across every bank (UPI / Bank Transfer / Cheque money in less
-  // money out) — the same figure as the Cash page's "Bank balance". Left null
-  // (card hidden) for a role that can't read the cash summary.
+  // Net balance across every listed bank — the server's `totalBalance` from
+  // the same GET /banks response the table renders, so it always equals the
+  // sum of the Balance column (scoped by the global branch selection). Null
+  // (card hidden) until the list has loaded.
   const [bankBalance, setBankBalance] = useState<number | null>(null);
-  useEffect(() => {
-    getCashSummary()
-      .then((s) => setBankBalance(s.bankBalance || 0))
-      .catch(() => setBankBalance(null));
-  }, [reloadKey]);
 
   return (
     <>
@@ -55,10 +57,10 @@ export function Banks() {
       <hr className="gold-rule" />
       {bankBalance !== null && (
         <div className="kpis" style={{ marginBottom: 16 }}>
-          <div className="kpi"><div className="l">Net Bank Balance</div><div className="v">{fmt(bankBalance)}</div></div>
+          <div className="kpi"><div className="l">Net Bank Balance</div><div className="v" style={{ color: balanceColor(bankBalance) }}>{fmtBalance(bankBalance)}</div></div>
         </div>
       )}
-      <BankTable reloadKey={reloadKey} afterChange={reload} />
+      <BankTable reloadKey={reloadKey} afterChange={reload} onTotalBalance={setBankBalance} />
     </>
   );
 }
@@ -93,10 +95,13 @@ export function BanksModalContent() {
 /* `inModal` drops the card border (the modal box is already the frame — see
  * `.tbl-flat` / `.bd-tbl` in app.css) and swaps the Prev/Next pager for
  * infinite scroll: the next page loads as the rows are scrolled to the end. */
-function BankTable({ reloadKey, afterChange, inModal }: { reloadKey: number; afterChange: () => void; inModal?: boolean }) {
+function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: { reloadKey: number; afterChange: () => void; inModal?: boolean; onTotalBalance?: (n: number) => void }) {
   const { openModal } = useModal();
   const { can } = useAuth();
   const canOpenRoute = useCanOpenRoute();
+  // "Business branch" is the lender's own branch — hidden on a single-branch
+  // plan. "Bank branch" is the bank's branch and always shows.
+  const showBranch = useShowBranch();
   const canUpdate = can("Bank_Management", "can_update_bank");
   const canDelete = can("Bank_Management", "can_delete_bank");
   const [banks, setBanks] = useState<BackendBank[] | null>(null);
@@ -115,6 +120,7 @@ function BankTable({ reloadKey, afterChange, inModal }: { reloadKey: number; aft
       setBanks((prev) => (inModal && page > 1 ? [...(prev ?? []), ...res.items] : res.items));
       setTotal(res.total);
       setHasMore(res.hasMore);
+      onTotalBalance?.(res.totalBalance);
       setError("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load banks.");
@@ -157,45 +163,61 @@ function BankTable({ reloadKey, afterChange, inModal }: { reloadKey: number; aft
     );
   }
 
-  if (error) return <p style={{ color: "var(--red)", fontSize: 13.5 }}>Something went wrong. Please try again later.</p>;
-  if (banks === null) return <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading banks…</p>;
-  if (banks.length === 0) return <p style={{ color: "var(--muted)", fontSize: 13.5 }}>No banks yet. Click &quot;Add Bank&quot; to create one.</p>;
+  const cols = showBranch ? 7 : 6;
+  // Loading, error and empty states render inside the table, like the other
+  // lists, so the layout (headers, frame, pager) never disappears.
+  const status = error
+    ? "Something went wrong. Please try again later."
+    : banks === null
+    ? "Loading banks…"
+    : banks.length === 0
+    ? "No banks yet. Click “Add Bank” to create one."
+    : "";
+  const rows = banks ?? [];
 
   return (
     <div className={`card tbl-card tbl-card-fill${inModal ? " tbl-flat tbl-scroll-paged" : " tbl-rounded"}`}>
       <div className="tbl-wrap" ref={wrapRef} onScroll={inModal ? onWrapScroll : undefined}>
         <table className="tbl">
           <thead>
-            <tr><th>Bank</th><th>Branch</th><th>IFSC</th><th>Account No.</th><th>Phone</th><th></th></tr>
+            <tr><th>Bank</th>{showBranch && <th>Business branch</th>}<th>Bank branch</th><th>IFSC</th><th>Account No.</th><th className="num">Balance</th><th></th></tr>
           </thead>
           <tbody>
-            {banks.map((b) => (
+            {status && <tr><td colSpan={cols} className="empty">{status}</td></tr>}
+            {!status && rows.map((b) => (
               <tr key={b.id}>
                 <td><b>{b.name}</b></td>
+                {showBranch && <td>{b.branchName || "—"}</td>}
                 <td>{b.branch || "—"}</td>
                 <td>{b.ifsc || "—"}</td>
                 <td>{b.accountNo || "—"}</td>
-                <td>{b.phone || "—"}</td>
-                <td>
-                  <div style={{ display: "flex", gap: 12 }}>
-                    {canOpenRoute("ledger-bank") && <a href={routeHref("ledger-bank", b.id)}>Ledger</a>}
-                    {canUpdate && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BankModalContent bank={b} onSaved={afterChange} />); }}>Edit</a>}
-                    {canDelete && (
-                      <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDelete(b); }}>Delete</a>
-                    )}
-                  </div>
+                <td className="num" style={{ color: balanceColor(b.balance ?? 0) }}>{fmtBalance(b.balance ?? 0)}</td>
+                <td className="tbl-acts">
+                  {canOpenRoute("ledger-bank") && <a href={routeHref("ledger-bank", b.id)}>Ledger</a>}
+                  {canUpdate && (
+                    <button type="button" className="tbl-ibtn" title="Edit bank" aria-label={`Edit ${b.name}`}
+                      onClick={() => openModal(<BankModalContent bank={b} onSaved={afterChange} />)}>
+                      <Icon name="edit" />
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button type="button" className="tbl-ibtn danger" title="Delete bank" aria-label={`Delete ${b.name}`}
+                      onClick={() => onDelete(b)}>
+                      <Icon name="trash" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
             {inModal && loadingMore && (
-              <tr><td colSpan={6} className="empty compact">Loading more…</td></tr>
+              <tr><td colSpan={cols} className="empty compact">Loading more…</td></tr>
             )}
           </tbody>
         </table>
       </div>
       {inModal && (
         <div className="ft ft-static" style={{ fontSize: 12.5, color: "var(--muted)" }}>
-          Showing {banks.length} of {total}{hasMore ? " — scroll for more" : ""}
+          Showing {rows.length} of {total}{hasMore ? " — scroll for more" : ""}
         </div>
       )}
       {!inModal && (

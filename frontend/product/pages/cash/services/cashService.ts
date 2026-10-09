@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch, apiUploadEnveloped as apiUpload, API_BASE, getAuthToken } from "@/product/services/httpClient";
+import { branchHeader } from "@/product/services/branchSelection";
 
 /* Shapes returned by the Go backend (backend/internal/cash/model.go). */
 export type BackendCashMovement = {
@@ -186,7 +187,7 @@ export async function listCashMovementsPage(
 async function downloadFile(path: string, fallbackFilename: string): Promise<void> {
   const token = getAuthToken();
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
   });
   // A JSON body (even with 200) means no file was produced — saving it would
   // just be a broken PDF.

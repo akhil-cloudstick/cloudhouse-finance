@@ -8,7 +8,7 @@ import { Select } from "@/product/components/ui/Select";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
-import { useBranding } from "@/product/providers/BrandingProvider";
+import { useShowBranch, useShowBranchFilter } from "@/product/hooks/useBranchSwitch";
 import { fmtDate } from "@/product/utils/format";
 import {
   exportFormG, getFormG,
@@ -40,8 +40,10 @@ const fmt = (n: number) => (Number.isFinite(n) ? n.toLocaleString("en-IN", { min
 export function FormGReportView({ onBack }: { onBack: () => void }) {
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // Single-branch business: no branch filter — every row is its one branch.
-  const { singleBranch } = useBranding();
+  // No branch filter in a single-branch business (every row is its one
+  // branch) or while the global branch selector already scopes the page.
+  const showBranchFilter = useShowBranchFilter();
+  const showBranch = useShowBranch();
   const [branchId, setBranchId] = useState<number>(0);
   // Default range is the LAST 3 MONTHS, not the firstOfMonth()/today() every
   // other report defaults to — per the client's requirement for this one
@@ -91,7 +93,7 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
 
   // One grouped filter: Branch and Date (the Quick Range shortcut stays beside it).
   const filterCategories: FilterCategory[] = [
-    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     { key: "__date", label: "Date", kind: "date" as const },
   ];
   const filterValue: FilterValue = {
@@ -191,7 +193,7 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
             <div><b>Reporting period:</b> {stmt.periodLabel}</div>
             <div><b>Name of money-lender:</b> {stmt.lenderName}</div>
             <div><b>Postal address:</b> {stmt.lenderAddress}</div>
-            {stmt.branches.map((b) => (
+            {showBranch && stmt.branches.map((b) => (
               <div key={b.name}><b>Branch:</b> {b.name} — {b.address}</div>
             ))}
           </div>

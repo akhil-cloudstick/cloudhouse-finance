@@ -22,7 +22,7 @@ export const TITLES: Record<string, string> = {
   goldrates: "Gold Rates", packets: "Packets & Lockers", packet: "Packet Detail", ledger: "Ledger",
   calendar: "Reminder Calendar", requests: "Extensions & Release", bankpledge: "Bank Re-Pledge",
   auctions: "Auctions", reports: "Reports", employees: "Employees",
-  branches: "Branch Management",
+  branches: "Branch Management", banks: "Bank Management",
   "roles-permissions": "Roles & Permissions",
   billing: "Billing",
   settings: "Settings",

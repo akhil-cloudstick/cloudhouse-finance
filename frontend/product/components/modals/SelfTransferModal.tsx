@@ -9,6 +9,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { createSelfTransfer, uploadReceipt } from "@/product/pages/cash/services/cashService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { searchBanksPage, createBank, type BackendBank } from "@/product/pages/banks/services/bankService";
 import { isLoanSource } from "@/product/pages/cash/services/cashSourceService";
 import { searchCategoriesPage, createCategory, type BackendCategory } from "@/product/pages/cash/services/categoryService";
@@ -70,7 +71,13 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs }: { o
 
   const [branches, setBranches] = useState<BranchView[]>([]);
   const { singleBranch } = useBranding();
-  const [branchId, setBranchId] = useState<number | "">(defaultBranchId || "");
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
+  const branchLocked = singleBranch || lockedBranchId != null;
+  const [branchId, setBranchId] = useState<number | "">(defaultBranchId || lockedBranchId || "");
   useEffect(() => {
     listActiveBranches().then((list) => {
       setBranches(list);
@@ -160,16 +167,18 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs }: { o
               : bankPicker(toBank, (id, name) => { setToBankId(id); setToBank(name); })}
           </div>
         </div>
-        <div className="frow c2">
+        <div className={showBranch ? "frow c2" : "frow"}>
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /></div>
-          <div><label className="f">Branch *</label>
-            <Select
-              disabled={singleBranch}
-              options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-              value={branchId ? String(branchId) : ""}
-              onChange={(v) => setBranchId(v ? Number(v) : "")}
-              placeholder="Select branch…"
-            /></div>
+          {showBranch && (
+            <div><label className="f">Branch *</label>
+              <Select
+                disabled={branchLocked}
+                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                value={branchId ? String(branchId) : ""}
+                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                placeholder="Select branch…"
+              /></div>
+          )}
         </div>
         <div className="frow"><div><label className="f">Bill</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>

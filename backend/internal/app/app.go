@@ -394,7 +394,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	ornamentTypeHandler := ornamenttype.NewHandler(ornamentTypeSvc)
 
 	bankRepo := bank.NewRepository(pinned)
-	bankSvc := bank.NewService(bankRepo)
+	bankSvc := bank.NewService(bankRepo).WithBranches(branchRepo, summarySvc)
 	bankHandler := bank.NewHandler(bankSvc)
 
 	authSvc := auth.NewService(db, employeeRepo, tenantRepo, whatsappSender, cfg.JWTSecret, cfg.JWTExpiry, commlogRepo)
@@ -509,7 +509,9 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// ("checkpoint 2" — see platform.CRUDPermissions), currently allow-all
 	// for all 9 roles until an admin screen starts restricting rows.
 	protected := v1.Group("")
-	protected.Use(authMiddleware, platform.RequireHostMatchesTenant(tenantRepo), pinConn)
+	// After pinConn: the Head Office lookup reads branches through the
+	// pinned, tenant-scoped connection.
+	protected.Use(authMiddleware, platform.RequireHostMatchesTenant(tenantRepo), pinConn, platform.PinSingleBranch(branchRepo))
 
 	// authzRepo is declared earlier now (see employeeSvc above) — read-only
 	// here regardless: the permissions table is seeded and restricted solely

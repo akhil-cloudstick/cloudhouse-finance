@@ -49,7 +49,7 @@ import { Billing } from "@/product/pages/billing/components/Billing";
 import { useAuth } from "@/product/providers/auth-context";
 import { ModeLedgerPage } from "@/product/pages/cash/components/ModeLedgerPage";
 import { ROUTE_ALIASES } from "@/product/config/routes";
-import { ROUTE_PERMISSIONS, baseRoute, routeAllowed, setNavigationGuard } from "@/product/config/routePermissions";
+import { ROUTE_PERMISSIONS, baseRoute, routeAllowed, routeEntitled, setNavigationGuard } from "@/product/config/routePermissions";
 import { useToast } from "@/product/components/Toast";
 
 /* Shown instead of NoAccess when the permission fetch itself failed (backend
@@ -91,7 +91,7 @@ function ModuleUnavailable() {
  * || renderDashboard` fallback. */
 function View({ route, arg }: { route: string; arg?: string }) {
   const { can, permissionsLoaded, permissionsFailed } = useAuth();
-  const { hasModule, loaded: brandingLoaded } = useBranding();
+  const { hasModule, singleBranch, loaded: brandingLoaded } = useBranding();
 
   // Wait for the permission map before deciding anything (§11) — evaluating
   // an empty map mid-fetch would deny everyone for a moment. The module
@@ -108,7 +108,9 @@ function View({ route, arg }: { route: string; arg?: string }) {
   // The optional-module gate. Separate from the permission above: this is
   // the business's entitlement, not the role's rights. Still only what is
   // DRAWN — platform.RequireTenantModule refuses the API calls server-side.
-  if (gate?.tenantModule && !hasModule(gate.tenantModule)) {
+  // A multi-branch-only route (Branch Management, a branch ledger) on a
+  // single-branch plan is treated the same as a module that is off.
+  if (!routeEntitled(route, hasModule, singleBranch)) {
     return <ModuleUnavailable />;
   }
 
@@ -205,19 +207,19 @@ function AppShellInner() {
   // a link, button or KPI card to a page this role can't open is refused
   // with a toast and the user stays put, rather than being taken to the
   // NoAccess screen View would render there.
-  const { can, permissionsLoaded } = useAuth();
-  const { hasModule } = useBranding();
+  const { can, permissionsLoaded, selectedBranchId } = useAuth();
+  const { hasModule, singleBranch } = useBranding();
   const toast = useToast();
   useEffect(() => {
     if (!permissionsLoaded || !brandingLoaded) return;
     setNavigationGuard((target) => {
       const r = baseRoute(target);
-      if (routeAllowed(ROUTE_ALIASES[r] ?? r, can, hasModule)) return true;
+      if (routeAllowed(ROUTE_ALIASES[r] ?? r, can, hasModule, singleBranch)) return true;
       toast("You don't have permission to open this page.");
       return false;
     });
     return () => setNavigationGuard(null);
-  }, [permissionsLoaded, brandingLoaded, can, hasModule, toast]);
+  }, [permissionsLoaded, brandingLoaded, can, hasModule, singleBranch, toast]);
 
   /* In-app links navigate WITHOUT a full page load.
    *
@@ -328,7 +330,10 @@ function AppShellInner() {
       <div className="main">
         <Topbar route={route} arg={arg} onBurger={() => setSidebarOpen((v) => !v)} />
         <main className="page" id="view" ref={pageRef}>
-          <View key={`${route}/${arg ?? ""}/${reloadSeq}`} route={route} arg={arg} />
+          {/* The global branch selection is part of the key: switching branch
+            * remounts the page so every list/KPI refetches under the new
+            * X-Branch-Id header. */}
+          <View key={`${route}/${arg ?? ""}/${reloadSeq}/${selectedBranchId ?? "all"}`} route={route} arg={arg} />
         </main>
       </div>
     </div>

@@ -3,7 +3,6 @@ package superadmin
 import (
 	"context"
 	"fmt"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -469,16 +468,9 @@ func (s *Service) SetBranchMode(ctx context.Context, actor *SuperAdminUser, id u
 	if t.SingleBranch == singleBranch {
 		return t, nil
 	}
-	if singleBranch {
-		active, err := s.tenantRepo.CountActiveBranches(platform.AllowCrossTenant(ctx), t.ID)
-		if err != nil {
-			return nil, err
-		}
-		if active > 1 {
-			return nil, httpx.NewConflict(fmt.Sprintf(
-				"This business has %d active branches. Deactivate all but one before switching it to single-branch.", active))
-		}
-	}
+	// Single-branch ON is allowed with several active branches: the business
+	// is pinned to its Head Office (platform.PinSingleBranch) and the others
+	// are hidden, not removed.
 	t.SingleBranch = singleBranch
 	if err := s.tenantRepo.Update(ctx, t); err != nil {
 		return nil, err
@@ -492,15 +484,6 @@ func (s *Service) SetBranchMode(ctx context.Context, actor *SuperAdminUser, id u
 // mode. The plan is the one control for how many branches a business has:
 // a 1-branch plan IS single-branch (Head Office only, Branch Management
 // hidden); anything larger, or unlimited, is multi-branch.
-// planRank orders plans by branch allowance for "plans only go up":
-// capped plans by their quota, Unlimited above all of them.
-func planRank(tier tenant.Tier) uint64 {
-	if tier.IsUnlimited() {
-		return math.MaxUint64
-	}
-	return uint64(tier.BranchQuota)
-}
-
 func singleBranchFor(tier tenant.Tier) bool {
 	return tier.BranchQuota == 1
 }

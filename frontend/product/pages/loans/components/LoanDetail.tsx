@@ -71,6 +71,7 @@ import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
 import { TopUpLoanModalContent } from "@/product/components/modals/TopUpLoanModal";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 import { singleFlight } from "@/product/utils/singleFlight";
+import { useShowBranch } from "@/product/hooks/useBranchSwitch";
 
 // Payment Ledger rows per page.
 const LEDGER_PAGE_SIZE = 10;
@@ -181,6 +182,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const { openModal, closeModal } = useModal();
   // Links off this page only to pages the role can open.
   const canOpen = useCanOpenRoute();
+  const showBranch = useShowBranch();
   const toast = useToast();
   // Approving/paying/repledging updates this page's own `loan` state
   // directly from the API response, but Loans.tsx/Dashboard.tsx/
@@ -1377,8 +1379,8 @@ export function LoanDetail({ id }: { id?: string }) {
         <div className="card gtop"><div className="hd"><h3>Loan Details</h3></div>
             <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
               <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Customer</div><div className="v">{canOpen("customer") ? <a href={routeHref(`customer/${l.customerId}`)} style={{ fontWeight: 600 }}>{l.customerName}</a> : l.customerName}</div></div>
-              <div className="i"><div className="k">Gold Scheme</div><div className="v">{l.schemeName}</div></div>
-              <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>
+              <div className="i" style={showBranch ? undefined : { gridColumn: "1 / -1" }}><div className="k">Gold Scheme</div><div className="v">{l.schemeName}</div></div>
+              {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>}
               <div className="i"><div className="k">Opening Date</div><div className="v">{fmtDate(l.opened)}</div></div>
               <div className="i"><div className="k">Due Date</div><div className="v" style={l.isOverdue ? { color: "var(--red)" } : undefined}>{fmtDate(l.due)}{l.isOverdue ? ` · ${l.daysOverdue}d overdue` : ""}</div></div>
             </div></div></div>

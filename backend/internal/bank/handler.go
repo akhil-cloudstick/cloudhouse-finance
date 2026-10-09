@@ -27,9 +27,12 @@ func (h *Handler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
+	// A bank account belongs to one business branch: with a branch selected
+	// (or for a branch-confined role) only that branch's accounts are listed.
+	scope := platform.GetBranchScope(c)
 
 	if limit <= 0 {
-		rec, _, err := h.svc.List(ctx, c.Query("q"), 0, 0)
+		rec, _, _, _, err := h.svc.ListWithBalances(ctx, c.Query("q"), scope, 0, 0)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -38,7 +41,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, total, err := h.svc.List(ctx, c.Query("q"), limit+1, offset)
+	rec, total, totalBalance, unassigned, err := h.svc.ListWithBalances(ctx, c.Query("q"), scope, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -47,11 +50,18 @@ func (h *Handler) List(c *gin.Context) {
 	if hasMore {
 		rec = rec[:limit]
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+	httpx.Success(c, http.StatusOK, gin.H{
+		"items": rec, "hasMore": hasMore, "total": total,
+		// Σ balance over every matching account (not just this page), and
+		// bank-mode money recorded without naming a bank — together they make
+		// the Bank balance card.
+		"totalBalance": totalBalance, "unassignedBalance": unassigned,
+	})
 }
 
 type bankRequest struct {
 	Name      string `json:"name"`
+	BranchID  uint   `json:"branchId"`
 	Branch    string `json:"branch"`
 	Ifsc      string `json:"ifsc"`
 	AccountNo string `json:"accountNo"`
@@ -65,7 +75,7 @@ func (h *Handler) Create(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, created, err := h.svc.FindOrCreate(ctx, CreateInput{Name: req.Name, Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
+	rec, created, err := h.svc.FindOrCreate(ctx, CreateInput{Name: req.Name, BranchID: platform.EnforceBranchOnWrite(c, req.BranchID), Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -108,7 +118,11 @@ func (h *Handler) Update(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.Update(ctx, id, CreateInput{Name: req.Name, Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
+	branchID := req.BranchID
+	if branchID != 0 {
+		branchID = platform.EnforceBranchOnWrite(c, branchID)
+	}
+	rec, err := h.svc.Update(ctx, id, CreateInput{Name: req.Name, BranchID: branchID, Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

@@ -14,12 +14,12 @@ import { baseRoute, routeAllowed } from "@/product/config/routePermissions";
  */
 export function useCanOpenRoute(): (route: string) => boolean {
   const { can } = useAuth();
-  const { hasModule } = useBranding();
+  const { hasModule, singleBranch } = useBranding();
   return useCallback(
     (route: string) => {
       const r = baseRoute(route);
-      return routeAllowed(ROUTE_ALIASES[r] ?? r, can, hasModule);
+      return routeAllowed(ROUTE_ALIASES[r] ?? r, can, hasModule, singleBranch);
     },
-    [can, hasModule]
+    [can, hasModule, singleBranch]
   );
 }

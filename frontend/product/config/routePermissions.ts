@@ -17,7 +17,10 @@
  * A leaf module (no imports), like routes.ts, so services/appRoutes.ts can
  * read it without a cycle.
  */
-export type RouteGate = { module: string | null; key?: string; tenantModule?: string };
+/* multiBranchOnly: the route only exists for a business with more than one
+ * branch — on a single-branch plan it is treated exactly like an optional
+ * module that is off (no nav entry, no link, ModuleUnavailable if typed). */
+export type RouteGate = { module: string | null; key?: string; tenantModule?: string; multiBranchOnly?: boolean };
 
 export const ROUTE_PERMISSIONS: Record<string, RouteGate> = {
   dashboard: { module: null },
@@ -42,14 +45,14 @@ export const ROUTE_PERMISSIONS: Record<string, RouteGate> = {
   reports: { module: "Report_Management", key: "can_view_report_module" },
   employees: { module: "Employee_Management", key: "can_view_employee_module" },
   calendar: { module: "Reminder_Management", key: "can_view_reminder_module" },
-  branches: { module: "Branch_Management", key: "can_view_branch_module", tenantModule: "branches" },
+  branches: { module: "Branch_Management", key: "can_view_branch_module", tenantModule: "branches", multiBranchOnly: true },
   banks: { module: "Bank_Management", key: "can_view_bank_module" },
   // Drill-down-only routes off the Cash & Expenses page — reuse can_view_cash_module
   // (viewing a party's ledger is a drill-down of data the user can already
   // see there, not a new resource) rather than a new permission.
   "ledger-bank": { module: "Cash_Management", key: "can_view_cash_module" },
   // Opened from Branch Management's Ledger link — gated like that link.
-  "ledger-branch": { module: "Branch_Management", key: "can_view_branch_ledger", tenantModule: "branches" },
+  "ledger-branch": { module: "Branch_Management", key: "can_view_branch_ledger", tenantModule: "branches", multiBranchOnly: true },
   "ledger-customer": { module: "Cash_Management", key: "can_view_cash_module" },
   "ledger-category": { module: "Cash_Management", key: "can_view_cash_module" },
   "cash-ledger": { module: "Cash_Management", key: "can_view_cash_module" },
@@ -76,10 +79,18 @@ export function routePermitted(route: string, can: Can): boolean {
   return !gate || gate.module === null || can(gate.module, gate.key!);
 }
 
-/** routePermitted plus the business's optional-module entitlement. */
-export function routeAllowed(route: string, can: Can, hasModule: HasModule): boolean {
+/** Whether the business is entitled to the route at all: its optional module
+ * is granted, and it is not a multi-branch-only route on a single-branch plan. */
+export function routeEntitled(route: string, hasModule: HasModule, singleBranch = false): boolean {
   const gate = ROUTE_PERMISSIONS[baseRoute(route)];
-  return routePermitted(route, can) && (!gate?.tenantModule || hasModule(gate.tenantModule));
+  if (!gate) return true;
+  if (gate.tenantModule && !hasModule(gate.tenantModule)) return false;
+  return !(singleBranch && gate.multiBranchOnly);
+}
+
+/** routePermitted plus the business's entitlement (routeEntitled). */
+export function routeAllowed(route: string, can: Can, hasModule: HasModule, singleBranch = false): boolean {
+  return routePermitted(route, can) && routeEntitled(route, hasModule, singleBranch);
 }
 
 // navigate() is a plain function, so it can't use the auth/branding hooks —

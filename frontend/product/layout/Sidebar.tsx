@@ -27,6 +27,9 @@ type NavItem = {
    * ROLE may use a feature, this asks whether the business has the feature
    * at all. Undefined means every business gets it. */
   tenantModule?: string;
+  /* Only for a business with more than one branch — hidden on a
+   * single-branch plan (see ROUTE_PERMISSIONS' multiBranchOnly). */
+  multiBranchOnly?: boolean;
 };
 
 export const NAV: [string, NavItem[]][] = [
@@ -58,7 +61,7 @@ export const NAV: [string, NavItem[]][] = [
     { route: "employees", title: "Employees & Roles", icon: "user", module: "Employee_Management", key: "can_view_employee_module" },
   ]],
   ["Administration", [
-    { route: "branches", title: "Branch Management", icon: "bank", module: "Branch_Management", key: "can_view_branch_module", tenantModule: "branches" },
+    { route: "branches", title: "Branch Management", icon: "bank", module: "Branch_Management", key: "can_view_branch_module", tenantModule: "branches", multiBranchOnly: true },
     { route: "banks", title: "Bank Management", icon: "bank", module: "Bank_Management", key: "can_view_bank_module" },
     { route: "roles-permissions", title: "Roles & Permissions", icon: "shield", module: "Role_Management", key: "can_view_role_and_permission_module" },
     { route: "billing", title: "Billing", icon: "coin", module: "Billing", key: "can_manage_billing" },
@@ -78,6 +81,7 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
     headerLayout,
     logoUrl,
     logoDisplay,
+    singleBranch,
   } = useBranding();
 
   /* Which two lines to show, and at what size, is resolveLockup's call — see
@@ -146,7 +150,8 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
           const visible = items.filter(
             (item) =>
               (item.module === null || can(item.module, item.key!)) &&
-              (!item.tenantModule || hasModule(item.tenantModule))
+              (!item.tenantModule || hasModule(item.tenantModule)) &&
+              !(singleBranch && item.multiBranchOnly)
           );
           if (visible.length === 0) return null;
           return (

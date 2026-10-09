@@ -17,7 +17,7 @@ const LoansContext = createContext<LoansState | null>(null);
 export function LoansProvider({ children }: { children: React.ReactNode }) {
   // Loaded for every page, so only fetched when this role can view the
   // module — otherwise it stays empty instead of failing with a 403.
-  const { can, permissionsLoaded } = useAuth();
+  const { can, permissionsLoaded, selectedBranchId } = useAuth();
   const allowed = can("Loan_Management", "can_view_loan_module");
   const [loans, setLoans] = useState<LoanView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +35,9 @@ export function LoansProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setLoading(false));
   }, [allowed, permissionsLoaded]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Refetch when the global branch selector changes — the list is scoped
+  // server-side by the X-Branch-Id header.
+  useEffect(() => { refresh(); }, [refresh, selectedBranchId]);
 
   return (
     <LoansContext.Provider value={{ loans, loading, error, refresh }}>

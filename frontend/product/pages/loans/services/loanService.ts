@@ -2070,7 +2070,7 @@ export async function downloadIndemnityBondPDF(loanNumericId: number, lang: Bond
   return printPdfJob(async () => {
     const token = getAuthToken();
     const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
     });
     if (!res.ok) {
       let message = res.statusText;
@@ -2093,7 +2093,7 @@ export async function downloadIndemnityBondPDF(loanNumericId: number, lang: Bond
 async function pledgeSlipResponse(loanNumericId: number, format?: "html"): Promise<Response> {
   const token = getAuthToken();
   const res = await fetch(`${API_BASE}/loans/${loanNumericId}/pledge-slip${format ? `?format=${format}` : ""}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
   });
   if (!res.ok) {
     let message = res.statusText;
@@ -2133,7 +2133,7 @@ export async function downloadPartialReleaseReceiptPDF(requestId: number, lang: 
   return printPdfJob(async () => {
     const token = getAuthToken();
     const res = await fetch(`${API_BASE}/loans/requests/${requestId}/partial-release-receipt/pdf?lang=${lang}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
     });
     if (!res.ok) {
       let message = res.statusText;
@@ -2163,7 +2163,7 @@ export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "
   return printPdfJob(async () => {
     const token = getAuthToken();
     const res = await fetch(`${API_BASE}/loans/${loanNumericId}/release-agreement/pdf?lang=${lang}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
     });
     if (!res.ok) {
       let message = res.statusText;
@@ -2211,6 +2211,7 @@ export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, l
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...branchHeader(),
       },
       body: JSON.stringify(data),
     });

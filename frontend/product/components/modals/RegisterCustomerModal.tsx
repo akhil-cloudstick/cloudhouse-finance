@@ -10,6 +10,7 @@ import { Icon } from "@/product/components/Icon";
 import { createCustomer, uploadFile, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { useBranding } from "@/product/providers/BrandingProvider";
+import { useLockedBranchId, useShowBranch } from "@/product/hooks/useBranchSwitch";
 import { navigate } from "@/product/services/appRoutes";
 import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 import { singleFlight } from "@/product/utils/singleFlight";
@@ -50,7 +51,13 @@ export function RegisterCustomerModalContent({
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
-  const [branchId, setBranchId] = useState<number | "">("");
+  // Single-branch plan: no branch is ever shown — the field is not rendered.
+  const showBranch = useShowBranch();
+  // Locked (and defaulted) to the global branch selection when one is
+  // active, the same way a single-branch business locks it.
+  const lockedBranchId = useLockedBranchId();
+  const branchLocked = singleBranch || lockedBranchId != null;
+  const [branchId, setBranchId] = useState<number | "">(lockedBranchId || "");
   const [addr, setAddr] = useState("");
   const [pan, setPan] = useState("");
   const [aadhaar, setAadhaar] = useState("");
@@ -151,21 +158,23 @@ export function RegisterCustomerModalContent({
       <div className="hd"><h3>Register Customer</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <label className="f">Personal Details</label>
-        <div className="frow c3">
+        <div className={showBranch ? "frow c3" : "frow c2"}>
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
           {/* Digit-filtered on input like Aadhaar below (and like the mobile
               app's register screen), so letters/spaces/punctuation can't be
               typed at all rather than being caught only on save. */}
           <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
-          <div><label className="f">Branch *</label>
-            <Select
-              value={branchId === "" ? "" : String(branchId)}
-              onChange={(v) => setBranchId(v ? Number(v) : "")}
-              disabled={singleBranch}
-              options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-              placeholder="Select branch…"
-            />
-          </div>
+          {showBranch && (
+            <div><label className="f">Branch *</label>
+              <Select
+                value={branchId === "" ? "" : String(branchId)}
+                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                disabled={branchLocked}
+                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                placeholder="Select branch…"
+              />
+            </div>
+          )}
         </div>
         <div className="frow c3">
           <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>

@@ -49,6 +49,18 @@ function authHeader(): Record<string, string> {
   return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() };
 }
 
+/* The headers for a JSON request: defaults, then auth + branch, then the
+ * caller's own. Spread *after* opts in the fetch init — spreading opts last
+ * (as this used to) let any caller-supplied `headers` replace the whole
+ * object and silently drop Authorization / X-Branch-Id. */
+function jsonHeaders(opts?: RequestInit): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    ...authHeader(),
+    ...Object.fromEntries(new Headers(opts?.headers).entries()),
+  };
+}
+
 /* Called whenever the backend rejects a request with 401 — clears the
  * stored session and bounces to the login page. Skipped for the /auth/*
  * endpoints themselves: a wrong password on /auth/login is an expected 401
@@ -76,10 +88,7 @@ function handleUnauthorized(path: string) {
 }
 
 export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...authHeader(), ...(opts?.headers || {}) },
-    ...opts,
-  });
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers: jsonHeaders(opts) });
   if (!res.ok) {
     if (res.status === 401) handleUnauthorized(path);
     let message = res.statusText;
@@ -103,10 +112,7 @@ export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> 
  * using apiFetch until its own handlers move over. Once every module has
  * migrated, this replaces apiFetch outright and this comment goes away. */
 export async function apiFetchEnveloped<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...authHeader(), ...(opts?.headers || {}) },
-    ...opts,
-  });
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers: jsonHeaders(opts) });
   let body: { success?: boolean; data?: T; message?: unknown; error?: string } | undefined;
   try {
     body = res.status === 204 ? undefined : await res.json();
@@ -133,10 +139,7 @@ export async function apiFetchEnvelope<T extends { success: boolean; error?: str
   path: string,
   opts?: RequestInit
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...authHeader(), ...(opts?.headers || {}) },
-    ...opts,
-  });
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers: jsonHeaders(opts) });
   let body: T | undefined;
   try {
     body = await res.json();
