@@ -16,6 +16,9 @@ export type PublicBranding = {
 export type SelfBranding = PublicBranding & {
   addressLine: string;
   kmlRegNo: string;
+  contactPhone?: string;
+  /** "kml"/"gml" — decides the registration label printed on documents. */
+  policy?: string;
   modules: string[];
   languages: string[];
 };

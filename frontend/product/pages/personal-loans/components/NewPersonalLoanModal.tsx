@@ -6,6 +6,7 @@ import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { fmt } from "@/product/utils/format";
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
+import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { searchCustomersPage, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { VerifiedBadge } from "@/product/pages/customers/components/VerifiedBadge";
 import { RegisterCustomerModalContent } from "@/product/components/modals/RegisterCustomerModal";
@@ -53,6 +54,12 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
   // CreateInput.PenalInterestRate's doc comment).
   const [penalInterestRate, setPenalInterestRate] = useState("");
   const [gracePeriodDays, setGracePeriodDays] = useState("");
+  // How the customer is paid (Cash / UPI / Bank Transfer / Cheque), and the
+  // branch bank account a non-cash share leaves from. With the approval chain
+  // on, the final stage books the cash-out using this choice.
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   // Toggles this same mounted component over to the inline "+ Add new
@@ -93,6 +100,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
     if (!tenureNum || tenureNum <= 0) { setErr("Please enter the number of installments."); return; }
     if (interestValueNum < 0) { setErr("Interest value must not be negative."); return; }
     if (interestAmount >= principalNum) { setErr("Interest amount must be less than the principal amount."); return; }
+    if (Math.abs(remaining) >= 0.01) { setErr("The disbursement breakdown must add up to the amount the customer gets."); return; }
 
     setSaving(true);
     setErr("");
@@ -108,6 +116,8 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         fullDisbursement,
         penalInterestRate: penalInterestRate ? +penalInterestRate : undefined,
         gracePeriodDays: gracePeriodDays ? +gracePeriodDays : undefined,
+        ...split,
+        bankId,
       });
       if (created.status === "Pending Approval") {
         const first = firstStage(workflow, "personal_loan");
@@ -199,6 +209,11 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         <div className="frow c2">
           <div><label className="f">Penal Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="Same as loan rate" value={penalInterestRate} onChange={(e) => setPenalInterestRate(e.target.value)} /></div>
           <div><label className="f">Grace Period (days)</label><input className="inp" type="number" min={0} placeholder="e.g. 5" value={gracePeriodDays} onChange={(e) => setGracePeriodDays(e.target.value)} /></div>
+        </div>
+
+        <div className="pl-sec-h">Disbursement method</div>
+        <div className="frow">
+          <SplitPaymentInput totalAmount={Math.max(0, disbursedAmount)} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
         </div>
 
         {/* Live preview — dashes until principal and installments are set. */}

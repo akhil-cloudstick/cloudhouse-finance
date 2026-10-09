@@ -25,6 +25,7 @@ export function MarkPayoutPaidModalContent({
   const { closeModal } = useModal();
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const balanced = Math.abs(remaining) < 0.01;
@@ -34,7 +35,7 @@ export function MarkPayoutPaidModalContent({
     setSaving(true);
     setErr("");
     try {
-      const updated = await markPayoutPaid(investmentId, payout.id, split);
+      const updated = await markPayoutPaid(investmentId, payout.id, split, bankId);
       onSaved(updated);
       closeModal();
     } catch (e) {
@@ -52,7 +53,7 @@ export function MarkPayoutPaidModalContent({
           {payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of <strong>{fmt(payout.amount)}</strong>
         </div>
         <div className="frow">
-          <SplitPaymentInput totalAmount={payout.amount} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
+          <SplitPaymentInput totalAmount={payout.amount} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>

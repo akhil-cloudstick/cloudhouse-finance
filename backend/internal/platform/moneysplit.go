@@ -32,6 +32,24 @@ func ValidateSplit(cash, upi, bank, cheque, total float64) error {
 	return nil
 }
 
+// NormalizeSplit is ValidateSplit for callers that also accept "no breakdown
+// sent": an all-zero split (older clients) becomes the whole total in Cash,
+// which is what those flows always booked before a mode could be chosen. It
+// then validates the sum and requires a bank whenever UPI/Bank Transfer/
+// Cheque carries money, since those modes land in a bank account.
+func NormalizeSplit(cash, upi, bank, cheque, total float64, bankID *uint) (float64, float64, float64, float64, error) {
+	if RoundMoney(cash+upi+bank+cheque) == 0 {
+		cash = total
+	}
+	if err := ValidateSplit(cash, upi, bank, cheque, total); err != nil {
+		return 0, 0, 0, 0, err
+	}
+	if upi+bank+cheque > 0 && bankID == nil {
+		return 0, 0, 0, 0, httpx.NewBadRequest("bank is required when the payment breakdown includes UPI, Bank Transfer, or Cheque")
+	}
+	return cash, upi, bank, cheque, nil
+}
+
 // DeriveMethod returns the display-only Method/Mode string for a set of
 // split amounts: the single mode's name when exactly one component is
 // non-zero, "Split" when more than one is, or "" when all are zero. This is

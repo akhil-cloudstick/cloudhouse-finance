@@ -149,6 +149,14 @@ type createRequest struct {
 	PlanID          uint    `json:"planId"`
 	PrincipalAmount float64 `json:"principalAmount"`
 	StartDate       string  `json:"startDate"` // RFC3339, optional
+
+	// How the opening deposit was paid (all-zero = all Cash) + the bank account
+	// a non-cash share landed in.
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+	BankID             *uint   `json:"bankId"`
 }
 
 func (h *Handler) Create(c *gin.Context) {
@@ -175,6 +183,11 @@ func (h *Handler) Create(c *gin.Context) {
 		PrincipalAmount:     req.PrincipalAmount,
 		StartDate:           startDate,
 		CreatedByEmployeeID: employeeID,
+		CashAmount:          req.CashAmount,
+		UpiAmount:           req.UpiAmount,
+		BankTransferAmount:  req.BankTransferAmount,
+		ChequeAmount:        req.ChequeAmount,
+		BankID:              req.BankID,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -289,6 +302,7 @@ type markPayoutPaidRequest struct {
 	UpiAmount          float64 `json:"upiAmount"`
 	BankTransferAmount float64 `json:"bankTransferAmount"`
 	ChequeAmount       float64 `json:"chequeAmount"`
+	BankID             *uint   `json:"bankId"`
 }
 
 // MarkPayoutPaid marks one due payout of an investment as paid.
@@ -317,6 +331,7 @@ func (h *Handler) MarkPayoutPaid(c *gin.Context) {
 		UpiAmount:          req.UpiAmount,
 		BankTransferAmount: req.BankTransferAmount,
 		ChequeAmount:       req.ChequeAmount,
+		BankID:             req.BankID,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -397,6 +412,7 @@ type addCashRequest struct {
 	UpiAmount          float64 `json:"upiAmount"`
 	BankTransferAmount float64 `json:"bankTransferAmount"`
 	ChequeAmount       float64 `json:"chequeAmount"`
+	BankID             *uint   `json:"bankId"`
 	Reference          string  `json:"reference"`
 }
 
@@ -431,6 +447,7 @@ func (h *Handler) AddCash(c *gin.Context) {
 		UpiAmount:            req.UpiAmount,
 		BankTransferAmount:   req.BankTransferAmount,
 		ChequeAmount:         req.ChequeAmount,
+		BankID:               req.BankID,
 		Reference:            req.Reference,
 		RecordedByEmployeeID: employeeID,
 	})
@@ -449,6 +466,7 @@ type withdrawRequest struct {
 	UpiAmount          float64 `json:"upiAmount"`
 	BankTransferAmount float64 `json:"bankTransferAmount"`
 	ChequeAmount       float64 `json:"chequeAmount"`
+	BankID             *uint   `json:"bankId"`
 	Reference          string  `json:"reference"`
 }
 
@@ -475,6 +493,7 @@ func (h *Handler) Withdraw(c *gin.Context) {
 		UpiAmount:            req.UpiAmount,
 		BankTransferAmount:   req.BankTransferAmount,
 		ChequeAmount:         req.ChequeAmount,
+		BankID:               req.BankID,
 		Reference:            req.Reference,
 		RecordedByEmployeeID: employeeID,
 	})

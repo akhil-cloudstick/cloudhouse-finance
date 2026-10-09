@@ -62,6 +62,8 @@ export type PrintProfile = {
   name: string;
   legalName: string;
   kmlRegNo: string;
+  contactPhone: string;
+  policy: string;
   addressLine: string;
   brandColor: string;
 };
@@ -78,9 +80,9 @@ export type PrintBrand = {
   kmlRegNo: string;
   kmlRegLabel: string;
   addressLine: string;
-  /* CloudHouse's own numbers, only while no business profile is loaded —
-   * the backend holds no phone for a business, and printing the vendor's
-   * numbers on another business's slip would send its borrowers to us. */
+  /* The business's own contact number(s) once its profile is loaded (empty if
+   * it set none — never the vendor's numbers, which would send its borrowers
+   * to us); CloudHouse's numbers only while no profile is loaded at all. */
   phones: string;
 };
 
@@ -93,9 +95,9 @@ export function printBrand(): PrintBrand {
     name: p?.name || p?.legalName || BRAND.name,
     legalName: p?.legalName || p?.name || BRAND.legalName,
     kmlRegNo: p?.kmlRegNo || BRAND.kmlReg,
-    kmlRegLabel: p?.kmlRegNo ? `KML Reg. No: ${p.kmlRegNo}` : BRAND.kmlRegLabel,
+    kmlRegLabel: p?.kmlRegNo ? `${p.policy === "gml" ? "GML" : "KML"} Reg. No: ${p.kmlRegNo}` : BRAND.kmlRegLabel,
     addressLine: p?.addressLine || "",
-    phones: p ? "" : BRAND_PHONES,
+    phones: p ? p.contactPhone : BRAND_PHONES,
   };
 }
 

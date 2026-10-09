@@ -3,6 +3,7 @@
 import { usePersistedState } from "@/product/hooks/usePersistedState";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/product/components/Modal";
+import { SafeImage } from "@/product/components/ui/SafeImage";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { fmt, fmtDate } from "@/product/utils/format";
@@ -124,7 +125,7 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, 
       </td>
       <td data-label="Receipt" style={{ textAlign: "center" }}>
         {e.img
-          ? <img src={e.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View receipt" onClick={onViewReceipt} />
+          ? <SafeImage src={e.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View receipt" onClick={onViewReceipt} />
           : <span style={{ color: "var(--muted)" }}>—</span>}
       </td>
     </tr>

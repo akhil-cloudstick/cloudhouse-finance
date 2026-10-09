@@ -6,6 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
 import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
 import { useModal } from "@/product/components/Modal";
+import { SafeImage } from "@/product/components/ui/SafeImage";
 import { useToast } from "@/product/components/Toast";
 import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import {
@@ -59,6 +60,7 @@ import { useLoans } from "@/product/pages/loans/store/LoansProvider";
 import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
 import { RepledgeModalContent } from "@/product/components/modals/RepledgeModal";
 import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
+import { ReleasePledgeModalContent } from "@/product/components/modals/ReleasePledgeModal";
 import { EsignLanguageModalContent, type EsignDeliverBy } from "@/product/components/modals/EsignLanguageModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/product/components/modals/RequestExtensionModal";
 import { EditLoanModalContent } from "@/product/components/modals/EditLoanModal";
@@ -432,7 +434,7 @@ export function LoanDetail({ id }: { id?: string }) {
       <>
         <div className="hd"><h3>{name} — {l.id}</h3><button className="x" onClick={closeModal}>×</button></div>
         <div className="bd" style={{ textAlign: "center" }}>
-          <img src={url} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt={name} />
+          <SafeImage src={url} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt={name} />
         </div>
       </>,
       true
@@ -632,23 +634,14 @@ export function LoanDetail({ id }: { id?: string }) {
     if (!activePledge) return;
     const p = activePledge;
     openModal(
-      <ConfirmModalContent
-        title="Release Bank Pledge"
-        message={
-          <>
-            Release the gold pledged to <strong>{p.bankName}</strong> for <strong>{fmt(p.pledgedAmount)}</strong>?
-            {p.cashTreatment === "CashIn"
-              ? ` ${fmt(p.pledgedAmount)} will be booked out of Cash-in-Hand.`
-              : " No cash movement will be created — this pledge was recorded only."}
-          </>
-        }
-        confirmLabel="Release"
-        busyLabel="Releasing…"
-        danger={false}
-        onConfirm={async () => {
+      <ReleasePledgeModalContent
+        bankName={p.bankName}
+        amount={p.pledgedAmount}
+        cashTreatment={p.cashTreatment}
+        onConfirm={async (payment) => {
           setReleasing(true);
           try {
-            await releaseBankPledge(l.numericId, p.id);
+            await releaseBankPledge(l.numericId, p.id, payment);
             toast("Bank pledge released");
             load();
           } finally {
@@ -1605,7 +1598,7 @@ export function LoanDetail({ id }: { id?: string }) {
                     <td>
                       {o.photoUrl ? (
                         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <img src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(o.photoUrl!, o.name)} />
+                          <SafeImage src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(o.photoUrl!, o.name)} />
                           <button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrl!, o.name)}>View</button>
                         </span>
                       ) : (

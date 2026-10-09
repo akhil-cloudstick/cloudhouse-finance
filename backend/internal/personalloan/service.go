@@ -128,6 +128,14 @@ type CreateInput struct {
 	// penalty, just no CUSTOM one.
 	PenalInterestRate float64
 	GracePeriodDays   int
+
+	// How the disbursed amount is handed over (all-zero = all Cash) and the
+	// branch bank account a UPI/Bank Transfer/Cheque share leaves from.
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+	BankID             *uint
 }
 
 func validateFrequency(freq string) bool {
@@ -224,6 +232,14 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		disbursed = principal
 		obligation = platform.RoundMoney(principal + interestAmount)
 	}
+	dCash, dUpi, dBankTransfer, dCheque, err := platform.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, disbursed, in.BankID)
+	if err != nil {
+		return nil, err
+	}
+	var dBankID *uint
+	if dUpi+dBankTransfer+dCheque > 0 {
+		dBankID = in.BankID
+	}
 	// With the tenant's personal-loan approval chain switched on, the loan
 	// is only saved here — its schedule, history and cash-out (and so the
 	// Balance-in-Hand check) all wait for the final approval (ApproveLoan).
@@ -255,6 +271,13 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		InterestValue:       platform.RoundMoney(in.InterestValue),
 		InterestAmount:      interestAmount,
 		DisbursedAmount:     disbursed,
+
+		DisbursementCashAmount:         dCash,
+		DisbursementUpiAmount:          dUpi,
+		DisbursementBankTransferAmount: dBankTransfer,
+		DisbursementChequeAmount:       dCheque,
+		DisbursementBankID:             dBankID,
+
 		FullDisbursement:    in.FullDisbursement,
 		Frequency:           in.Frequency,
 		TenureCount:         in.TenureCount,
@@ -332,12 +355,11 @@ func (s *Service) activateTx(ctx context.Context, tx *gorm.DB, rec *PersonalLoan
 // logged, not fatal to loan creation.
 func (s *Service) recordDisbursement(ctx context.Context, rec *PersonalLoan, now time.Time) {
 	if s.cashRecorder != nil {
-		// No split-mode UI on loan creation (Phase 2's split-payment work
-		// covers repayments/disbursement-with-a-breakdown for gold loans,
-		// not personal-loan disbursement) — all-zero split amounts fall back
-		// to one legacy-style unmoded row (see cash.MovementService.
-		// recordSplitCashMovement).
-		if _, _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, rec.ID, rec.LoanNumber, rec.DisbursedAmount, 0, 0, 0, 0, rec.BranchID, now, rec.CustomerID, nil); err != nil {
+		// The mode split chosen at creation (see PersonalLoan.Disbursement*).
+		// Loans from before a mode could be chosen have an all-zero split,
+		// which falls back to one legacy-style unmoded row (see cash.
+		// MovementService.recordSplitCashMovement).
+		if _, _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.DisbursementCashAmount, rec.DisbursementUpiAmount, rec.DisbursementBankTransferAmount, rec.DisbursementChequeAmount, rec.BranchID, now, rec.CustomerID, rec.DisbursementBankID); err != nil {
 			log.Printf("cash-out movement (personal loan disbursement) failed for loan %d: %v", rec.ID, err)
 		}
 	}

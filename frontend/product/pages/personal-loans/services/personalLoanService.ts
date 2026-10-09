@@ -26,6 +26,13 @@ export type CreatePersonalLoanInput = {
   penalInterestRate?: number;
   /* Omit or 0 for no grace period. */
   gracePeriodDays?: number;
+  /* How the disbursed amount is handed over, and the bank account a UPI/Bank
+   * Transfer/Cheque share leaves from. Omitted = all Cash. */
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
 };
 
 /* Mirrors backend/internal/personalloan/model_loan.go's PersonalLoan

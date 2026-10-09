@@ -18,7 +18,7 @@ import {
 } from "@/product/pages/loans/services/loanService";
 import { RepledgeModalContent, SelectLoanForRepledgeModalContent } from "@/product/components/modals/RepledgeModal";
 import { BanksModalContent } from "@/product/pages/banks/components/Banks";
-import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
+import { ReleasePledgeModalContent } from "@/product/components/modals/ReleasePledgeModal";
 import { ApiError } from "@/product/services/httpClient";
 import { useResponsivePageSize } from "@/product/utils/responsive";
 import { routeHref } from "@/product/services/appRoutes";
@@ -91,7 +91,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
       setPledgedHasMore(res.hasMore);
       setPledgedTotal(res.total);
     } catch (e) {
-      setPledgedError(e instanceof ApiError ? e.message : "Could not load re-pledged loans.");
+      setPledgedError(e instanceof ApiError && e.status < 500 ? e.message : "Something went wrong. Failed to load re-pledged loans.");
     } finally {
       setPledgedLoading(false);
     }
@@ -106,7 +106,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
       setHistoryHasMore(res.hasMore);
       setHistoryTotal(res.total);
     } catch (e) {
-      setHistoryError(e instanceof ApiError ? e.message : "Could not load re-pledge history.");
+      setHistoryError(e instanceof ApiError && e.status < 500 ? e.message : "Something went wrong. Failed to load re-pledge history.");
     } finally {
       setHistoryLoading(false);
     }
@@ -161,23 +161,14 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
    * unconfirmed click — the old version fired immediately. */
   function confirmRelease(loanId: number, pledgeId: number, bankName: string, amount: number, treatment: string) {
     openModal(
-      <ConfirmModalContent
-        title="Release Bank Pledge"
-        message={
-          <>
-            Release the gold pledged to <strong>{bankName}</strong> for <strong>{fmt(amount)}</strong>?
-            {treatment === "CashIn"
-              ? ` ${fmt(amount)} will be booked out of Cash-in-Hand.`
-              : " No cash movement will be created — this pledge was recorded only."}
-          </>
-        }
-        confirmLabel="Release"
-        busyLabel="Releasing…"
-        danger={false}
-        onConfirm={async () => {
+      <ReleasePledgeModalContent
+        bankName={bankName}
+        amount={amount}
+        cashTreatment={treatment}
+        onConfirm={async (payment) => {
           setReleasingId(pledgeId);
           try {
-            await releaseBankPledge(loanId, pledgeId);
+            await releaseBankPledge(loanId, pledgeId, payment);
             refreshAll();
             toast("Bank pledge released");
           } finally {

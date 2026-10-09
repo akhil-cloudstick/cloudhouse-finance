@@ -1156,7 +1156,10 @@ func (r *ExpenseRepository) SumByScope(ctx context.Context, s BalanceScope) (flo
 			q = q.Where("mode = ?", s.Mode)
 		}
 	} else {
-		q = q.Where("mode NOT IN ?", bankModes)
+		// Only Mode "Cash" expenses leave the till. The bank-pledge release
+		// expense (Mode "Bank") is a marker only — its money already left
+		// through the pledge's own cash-out movement — so it counts nowhere.
+		q = q.Where("mode = ?", CashModeCash)
 	}
 	if !s.From.IsZero() {
 		q = q.Where("occurred_on >= ?", s.From)

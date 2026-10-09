@@ -28,11 +28,13 @@ type CachedProfile = {
   name: string;
   legalName: string;
   kmlRegNo: string;
+  contactPhone: string;
+  policy: string;
   addressLine: string;
   modules: string[];
 };
 
-const EMPTY_PROFILE: CachedProfile = { name: "", legalName: "", kmlRegNo: "", addressLine: "", modules: [] };
+const EMPTY_PROFILE: CachedProfile = { name: "", legalName: "", kmlRegNo: "", contactPhone: "", policy: "", addressLine: "", modules: [] };
 
 function parseProfile(raw: string | null): CachedProfile {
   if (!raw) return EMPTY_PROFILE;
@@ -134,6 +136,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       name: p.name,
       legalName: p.legalName,
       kmlRegNo: p.kmlRegNo,
+      contactPhone: p.contactPhone,
+      policy: p.policy,
       addressLine: p.addressLine,
       brandColor,
     });
@@ -180,6 +184,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
             name: branding.name,
             legalName: branding.legalName,
             kmlRegNo: branding.kmlRegNo,
+            contactPhone: branding.contactPhone || "",
+            policy: branding.policy || "",
             addressLine: branding.addressLine,
             modules: branding.modules,
           }

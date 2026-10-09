@@ -82,6 +82,17 @@ type BankPledgeRecord struct {
 	// RecordOnly so cash is only ever touched on an explicit opt-in.
 	CashTreatment string `json:"cashTreatment" gorm:"not null;size:20;default:'CashIn'"`
 
+	// CashAmount/UpiAmount/BankTransferAmount/ChequeAmount/ReceivedBankID say
+	// how the bank's advance reached the branch (CashIn pledges only; all 0 for
+	// RecordOnly and for pledges recorded before a mode could be chosen, which
+	// were always Cash). Kept so voiding the pledge can reverse the money in the
+	// same modes it arrived in.
+	CashAmount         float64 `json:"cashAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	UpiAmount          float64 `json:"upiAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	BankTransferAmount float64 `json:"bankTransferAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	ChequeAmount       float64 `json:"chequeAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	ReceivedBankID     *uint   `json:"receivedBankId,omitempty"`
+
 	// Status tracks the record's lifecycle so released and voided pledges stay
 	// visible in history rather than disappearing from the active list.
 	// Voided rows keep every original figure for audit — they are never deleted.

@@ -57,7 +57,7 @@ func (s *Service) GetLedger(ctx context.Context, investmentID uint, branchID *ui
 		if len(txs) > 0 {
 			opening = txs[0].PrincipalBefore
 		}
-		rows = append(rows, openingRow(inv, opening))
+		rows = append(rows, s.openingRows(ctx, inv, opening)...)
 		for _, t := range txs {
 			row := LedgerRow{
 				ID:             fmt.Sprintf("tx-%d", t.ID),
@@ -87,7 +87,8 @@ func (s *Service) GetLedger(ctx context.Context, investmentID uint, branchID *ui
 		return nil, err
 	}
 	balance := inv.PrincipalAmount
-	rows = append(rows, openingRow(inv, balance))
+	openRows := s.openingRows(ctx, inv, balance)
+	rows = append(rows, openRows...)
 	for _, p := range payouts {
 		row := LedgerRow{
 			ID:            fmt.Sprintf("payout-%d", p.ID),
@@ -116,7 +117,8 @@ func (s *Service) GetLedger(ctx context.Context, investmentID uint, branchID *ui
 		row.RunningBalance = balance
 		rows = append(rows, row)
 	}
-	sort.SliceStable(rows[1:], func(i, j int) bool { return rows[1+i].Date.Before(rows[1+j].Date) })
+	tail := rows[len(openRows):]
+	sort.SliceStable(tail, func(i, j int) bool { return tail[i].Date.Before(tail[j].Date) })
 	return rows, nil
 }
 
@@ -131,6 +133,61 @@ func (s *Service) ResolveNumber(ctx context.Context, number string, branchID *ui
 		return 0, err
 	}
 	return id, nil
+}
+
+// openingRows is the opening deposit as ledger rows. When the deposit was paid
+// in several modes (Cash + Bank Transfer, …) it is one row per mode, read back
+// from the deposit's cash movements — the same shape the bank/cash ledgers
+// show. Falls back to the single openingRow for an older deposit with no
+// recorded split, or one whose movements don't add up to the amount.
+func (s *Service) openingRows(ctx context.Context, inv *Investment, amount float64) []LedgerRow {
+	single := openingRow(inv, amount)
+	var mv []struct {
+		Mode               string
+		Amount             float64
+		TransactionGroupID string
+	}
+	err := s.repo.DB().WithContext(ctx).Table("cash_movements").
+		Select("mode, amount, transaction_group_id").
+		Where("source = ? AND type = ? AND purpose = ?", "Investment", "in", "Investment deposit — "+inv.InvestmentNumber).
+		Order("id asc").Scan(&mv).Error
+	if err != nil || len(mv) == 0 {
+		return []LedgerRow{single}
+	}
+	// The opening deposit is the first group written; later Add Cash deposits
+	// share the purpose but have their own groups (and ledger rows).
+	var parts []struct {
+		Mode   string
+		Amount float64
+	}
+	var sum float64
+	for _, m := range mv {
+		if m.TransactionGroupID != mv[0].TransactionGroupID {
+			continue
+		}
+		parts = append(parts, struct {
+			Mode   string
+			Amount float64
+		}{m.Mode, m.Amount})
+		sum += m.Amount
+	}
+	if len(parts) < 2 || platform.RoundMoney(sum) != platform.RoundMoney(amount) {
+		if len(parts) == 1 && platform.RoundMoney(sum) == platform.RoundMoney(amount) {
+			single.Method = parts[0].Mode
+		}
+		return []LedgerRow{single}
+	}
+	rows := make([]LedgerRow, 0, len(parts))
+	var running float64
+	for i, p := range parts {
+		running = platform.RoundMoney(running + p.Amount)
+		r := single
+		r.ID = fmt.Sprintf("open-%d-%d", inv.ID, i)
+		r.Method = p.Mode
+		r.Amount, r.PrincipalPart, r.RunningBalance = p.Amount, p.Amount, running
+		rows = append(rows, r)
+	}
+	return rows
 }
 
 func openingRow(inv *Investment, amount float64) LedgerRow {
