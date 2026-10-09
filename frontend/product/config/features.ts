@@ -77,6 +77,7 @@ export function findPlanIndex(tierName: string, quota?: number): number {
 }
 
 export function formatRupees(amount: number): string {
+  if (!Number.isFinite(amount)) return "-";
   return `₹${amount.toLocaleString("en-IN")}`;
 }
 

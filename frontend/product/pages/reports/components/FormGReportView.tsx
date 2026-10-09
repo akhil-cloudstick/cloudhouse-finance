@@ -17,7 +17,7 @@ import {
 import { singleFlight } from "@/product/utils/singleFlight";
 
 const dt = fmtDate;
-const fmt = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n: number) => (Number.isFinite(n) ? n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-");
 
 /* Form G (Kerala Money-Lenders Rules 1964, Rule 15(3)) is a fixed-layout
  * statutory statement — header particulars, two 4-row loan-movement

@@ -36,5 +36,6 @@ export async function confirmSubscription(
 }
 
 export function formatPaise(paise: number): string {
+  if (!Number.isFinite(paise)) return "-";
   return `₹${(paise / 100).toLocaleString("en-IN")}`;
 }

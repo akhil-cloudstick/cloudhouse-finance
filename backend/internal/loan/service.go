@@ -2305,7 +2305,9 @@ func allocatePayment(l *Loan, paymentType string, amount float64, interestOverri
 
 	case PaymentTypeFullSettlement:
 		total := feeOutstanding + penalOutstanding + interestOutstanding + principalOutstanding
-		if amount+epsilon < total {
+		// Exactly what is owed (incl. any additional charge) — neither short nor
+		// over: an overpayment would record cash the loan never applies.
+		if amount+epsilon < total || amount > total+epsilon {
 			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
 		fee, penal, interest, principal = feeOutstanding, penalOutstanding, interestOutstanding, principalOutstanding
