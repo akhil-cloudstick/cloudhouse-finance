@@ -184,6 +184,44 @@ export function cacheBrandProfile(
   }
 }
 
+/* The arranged sidebar header, replayed on a cold load like the identity
+ * above so a business with a custom header does not flash the classic lockup
+ * first. Its own key, REPLACED on every write rather than merged: "" is a real
+ * value here (back to the classic lockup), which cacheBrandProfile's
+ * empty-means-unsupplied merge would never let through. */
+const BRAND_HEADER_KEY_PREFIX = "cloudhouse_brand_header::";
+
+export type CachedBrandHeader = {
+  /** Normalised layout JSON, or "" for the classic lockup. */
+  headerLayout: string;
+  shortNameSet: boolean;
+  logoDisplay: string;
+};
+
+export function cacheBrandHeader(slug: string | null, header: CachedBrandHeader): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(BRAND_HEADER_KEY_PREFIX + (slug || "default"), JSON.stringify(header));
+  } catch {
+    /* storage disabled — the header still renders once branding loads */
+  }
+}
+
+export function readCachedBrandHeader(slug: string | null): CachedBrandHeader | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = JSON.parse(window.localStorage.getItem(BRAND_HEADER_KEY_PREFIX + (slug || "default")) || "null");
+    if (!v || typeof v !== "object") return null;
+    return {
+      headerLayout: typeof v.headerLayout === "string" ? v.headerLayout : "",
+      shortNameSet: v.shortNameSet === true,
+      logoDisplay: typeof v.logoDisplay === "string" ? v.logoDisplay : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 /* printBrand falls back FIELD BY FIELD rather than all-or-nothing: a business
  * that has a legal name but no registration number on file should print its
  * own name, not revert wholesale to CloudHouse's. */

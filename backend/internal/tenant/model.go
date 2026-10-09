@@ -232,6 +232,23 @@ type Tenant struct {
 	LogoScale   string `json:"logoScale" gorm:"size:20"`
 	LogoDisplay string `json:"logoDisplay" gorm:"size:20"`
 
+	// NavTextColor / OnBrandTextColor are the text colours drawn on the
+	// sidebar ground (SecondaryColor, or its auto-derived shade) and on
+	// primary-colour buttons. A light secondary colour needs dark sidebar
+	// text, and a white-only rule made it unreadable. Empty means automatic:
+	// white, switching to a dark ink only when white would not read — see
+	// frontend/product/config/brandColors.ts. Hex "#rrggbb" otherwise.
+	NavTextColor     string `json:"navTextColor" gorm:"size:9"`
+	OnBrandTextColor string `json:"onBrandTextColor" gorm:"size:9"`
+
+	// HeaderLayout is the vendor-arranged sidebar header: which of the logo,
+	// title and subtitle are shown, how they nest in rows and columns, their
+	// sizes and the alignment. It is normalised JSON written only through
+	// superadmin.normalizeHeaderLayout, never raw client input. Empty means
+	// the classic lockup (logo beside title over subtitle), so a business
+	// that has never been arranged renders exactly as it always did.
+	HeaderLayout string `json:"headerLayout" gorm:"type:text"`
+
 	// LogoStorageKey points at an uploaded_files row owned by THIS tenant.
 	// Stored as the key, not a URL, so the file is always served through a
 	// route that re-resolves it from this row: a caller-supplied key must

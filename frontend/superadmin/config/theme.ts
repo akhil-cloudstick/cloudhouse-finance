@@ -219,11 +219,17 @@ function clearNamedRamp(root: CSSStyleDeclaration, prefix: string): void {
  * a way to inject CSS, not just a typo. Keep this list in the same order and
  * with the same keys as the backend's.
  */
+/* Each choice leads with the font the app actually LOADS. next/font registers
+ * a self-hosted face under a generated name, exposed only through its CSS
+ * variable (app/(product)/layout.tsx), so a bare "Inter" or "Poppins" here
+ * matched nothing and fell through to the system font — Inter and Poppins
+ * looked identical to System. The quoted name after each var() is only the
+ * fallback for a page where the variable is not defined. */
 export const FONT_FAMILIES: Record<string, string> = {
-  inter: '"Inter", system-ui, -apple-system, "Segoe UI", sans-serif',
+  inter: 'var(--font-sans, "Inter"), system-ui, -apple-system, "Segoe UI", sans-serif',
   system: '-apple-system, system-ui, "Segoe UI", Roboto, sans-serif',
-  lora: '"Lora", Georgia, "Times New Roman", serif',
-  poppins: '"Poppins", system-ui, -apple-system, "Segoe UI", sans-serif',
+  lora: 'var(--font-lora, "Lora"), Georgia, "Times New Roman", serif',
+  poppins: 'var(--font-poppins, "Poppins"), system-ui, -apple-system, "Segoe UI", sans-serif',
 };
 export const DEFAULT_FONT_FAMILY = "inter";
 

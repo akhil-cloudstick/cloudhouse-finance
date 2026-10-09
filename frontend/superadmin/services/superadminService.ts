@@ -111,6 +111,12 @@ export type Business = {
   fontScale: string;
   logoScale: string;
   logoDisplay: string;
+  /* Text on the sidebar ground / on primary-colour fills; empty = automatic. */
+  navTextColor?: string;
+  onBrandTextColor?: string;
+  /* The arranged sidebar header as normalised JSON; empty = classic lockup.
+   * Read with parseHeaderLayout (product/config/headerLayout.ts). */
+  headerLayout?: string;
   /* Empty when the business has no logo. Derived server-side from the
    * business code (tenant.Tenant.LogoPath) — never a raw storage key. */
   logoUrl: string;
@@ -383,6 +389,13 @@ export type ThemeInput = {
   fontScale?: string;
   logoScale?: string;
   logoDisplay?: string;
+  /* "" = automatic text colour. */
+  navTextColor?: string;
+  onBrandTextColor?: string;
+  /* Arranged header JSON (serializeHeaderLayout); "" = classic lockup. The
+   * backend overwrites the stored value on every call, so an untouched layout
+   * must be sent back as it was, not omitted. */
+  headerLayout?: string;
   reason: string;
 };
 
@@ -497,6 +510,12 @@ export async function fetchSignatureUrl(id: number): Promise<string | null> {
   if (res.status === 404) return null;
   if (!res.ok) throw new SuperAdminApiError(res.statusText, res.status);
   return URL.createObjectURL(await res.blob());
+}
+
+export function clearLogo(id: number, reason: string): Promise<Business> {
+  return request<Business>(`/superadmin/businesses/${id}/logo?reason=${encodeURIComponent(reason)}`, {
+    method: "DELETE",
+  });
 }
 
 export function clearSignature(id: number, reason: string): Promise<Business> {

@@ -27,7 +27,11 @@
 //     upload/serve.go refuses to serve anything without an auth cookie.
 package branding
 
-import "cloudhouse/backend/internal/tenant"
+import (
+	"encoding/json"
+
+	"cloudhouse/backend/internal/tenant"
+)
 
 // Platform defaults, used when a business has not set its own. These mirror
 // frontend/common/config/brand.ts — the frontend has the same fallbacks for
@@ -75,6 +79,17 @@ type Public struct {
 	FontScale      string `json:"fontScale"`
 	LogoScale      string `json:"logoScale"`
 	LogoDisplay    string `json:"logoDisplay"`
+	// NavTextColor/OnBrandTextColor are empty when automatic — the frontend
+	// then picks white or a dark ink by contrast. See tenant.Tenant.
+	NavTextColor     string `json:"navTextColor"`
+	OnBrandTextColor string `json:"onBrandTextColor"`
+	// HeaderLayout is the vendor-arranged sidebar header (already-normalised
+	// JSON from the tenant row), or null for the classic lockup.
+	HeaderLayout json.RawMessage `json:"headerLayout"`
+	// ShortNameSet says whether ShortName is the business's own or the Name
+	// fallback below. An arranged header shows no title rather than repeat
+	// a name the logo usually already carries.
+	ShortNameSet bool `json:"shortNameSet"`
 	// LogoURL is empty when the business has no logo of its own, which the
 	// frontend reads as "use the platform mark".
 	LogoURL string `json:"logoUrl"`
@@ -114,6 +129,13 @@ func publicOf(t *tenant.Tenant, logoURL string) Public {
 		LogoDisplay:    t.LogoDisplay,
 		LogoURL:        logoURL,
 		AppURL:         t.AppURL,
+
+		NavTextColor:     t.NavTextColor,
+		OnBrandTextColor: t.OnBrandTextColor,
+		ShortNameSet:     t.ShortName != "",
+	}
+	if t.HeaderLayout != "" && json.Valid([]byte(t.HeaderLayout)) {
+		p.HeaderLayout = json.RawMessage(t.HeaderLayout)
 	}
 	if p.Name == "" {
 		p.Name = DefaultName

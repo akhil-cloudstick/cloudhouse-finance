@@ -1690,11 +1690,23 @@ body {
   flex-direction: column;
   gap: 16px;
 }
+/* Holds the detail toolbar above the summary cards; same gutters as .sa-cards. */
+.sa-detail-bar {
+  padding: 20px 24px 0;
+}
+.sa-detail-bar .sa-toolbar {
+  margin-bottom: 0;
+}
 .sa-detail-toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  /* Back button on the left; the spacer pushes the actions right. */
+  justify-content: flex-start;
+}
+.sa-detail-toolbar .sa-foot-spacer {
+  margin-left: auto;
 }
 .sa-panel {
   background: var(--sa-card);

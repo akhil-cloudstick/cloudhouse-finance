@@ -2,7 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { cacheBrandProfile, readCachedBrandIdentity } from "@/product/config/brand";
+import { cacheBrandHeader, cacheBrandProfile, readCachedBrandHeader, readCachedBrandIdentity } from "@/product/config/brand";
+import { monogramFor, parseHeaderLayout, serializeHeaderLayout, type HeaderLayout } from "@/product/config/headerLayout";
 import {
   applyBrandTheme,
   applyDocumentTitle,
@@ -64,6 +65,15 @@ export type BrandingValue = {
   fontScale: string;
   logoScale: string;
   logoDisplay: string;
+  /** Text on the sidebar ground / on primary fills; empty = automatic. */
+  navTextColor: string;
+  onBrandTextColor: string;
+  /** The vendor-arranged sidebar header; null renders the classic lockup.
+   * See product/config/headerLayout.ts. */
+  headerLayout: HeaderLayout | null;
+  /** False when shortName is only the business-name fallback. An arranged
+   * header shows no title then, rather than repeat a name the logo carries. */
+  shortNameSet: boolean;
   /** Empty means "render the platform mark" — see BrandLogo. */
   logoUrl: string;
   appUrl: string;
@@ -114,6 +124,10 @@ const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "l
   fontScale: "",
   logoScale: "",
   logoDisplay: "",
+  navTextColor: "",
+  onBrandTextColor: "",
+  headerLayout: null,
+  shortNameSet: false,
   logoUrl: "",
   appUrl: "",
   modules: [],
@@ -150,9 +164,13 @@ const BrandingContext = createContext<BrandingValue | undefined>(undefined);
 function initialBranding(): { state: typeof FALLBACK; cached: boolean } {
   const id = readCachedBrandIdentity(activeBusinessSlug());
   if (!id) return { state: FALLBACK, cached: false };
+  const header = readCachedBrandHeader(activeBusinessSlug());
   return {
     state: {
       ...FALLBACK,
+      headerLayout: parseHeaderLayout(header?.headerLayout),
+      shortNameSet: header?.shortNameSet ?? false,
+      logoDisplay: header?.logoDisplay ?? "",
       name: id.name || FALLBACK.name,
       shortName: id.shortName || id.name || FALLBACK.shortName,
       lockupTagline: id.lockupTagline,
@@ -161,6 +179,22 @@ function initialBranding(): { state: typeof FALLBACK; cached: boolean } {
     },
     cached: true,
   };
+}
+
+/* The tab icon draws letters instead of the logo when the logo is WIDE (a
+ * wordmark shrunk to 16px is an unreadable smear), or when an arranged header
+ * has no logo: the short name, else the sign-in code. Businesses still on the
+ * classic lockup keep the icon they had. */
+function faviconMonogram(
+  layout: HeaderLayout | null,
+  logoUrl: string,
+  shortName: string,
+  code: string | null,
+  name: string
+): string | undefined {
+  if (!layout) return undefined;
+  if (logoUrl && layout.logoShape !== "wide") return undefined;
+  return monogramFor(shortName, code || "", name) || undefined;
 }
 
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
@@ -245,6 +279,10 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           fontScale: b.fontScale || "",
           logoScale: b.logoScale || "",
           logoDisplay: b.logoDisplay || "",
+          navTextColor: b.navTextColor || "",
+          onBrandTextColor: b.onBrandTextColor || "",
+          headerLayout: parseHeaderLayout(b.headerLayout),
+          shortNameSet: !!b.shortNameSet,
           logoUrl: b.logoUrl || "",
           appUrl: b.appUrl || "",
           modules: b.modules || [],
@@ -258,6 +296,8 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           secondary: next.secondaryColor,
           fontFamily: next.fontFamily,
           fontScale: next.fontScale,
+          navText: next.navTextColor,
+          onBrandText: next.onBrandTextColor,
         };
         applyBrandTheme(theme);
         cacheBrandTheme(slug, theme);
@@ -265,6 +305,12 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           logoUrl: next.logoUrl,
           brandColor: next.brandColor,
           name: next.shortName || next.name,
+          monogram: faviconMonogram(next.headerLayout, next.logoUrl, next.shortNameSet ? next.shortName : "", slug, next.name),
+        });
+        cacheBrandHeader(slug, {
+          headerLayout: next.headerLayout ? serializeHeaderLayout(next.headerLayout) : "",
+          shortNameSet: next.shortNameSet,
+          logoDisplay: next.logoDisplay,
         });
         cacheBrandLogo(slug, next.logoUrl);
         /* Only CACHE here — applying is the title effect's job, driven off
@@ -294,6 +340,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
 
     const pub = await fetchPublicBranding(slug);
     if (pub) {
+      const pubLayout = parseHeaderLayout(pub.headerLayout);
       setState((prev) => ({
         ...prev,
         name: pub.name || FALLBACK.name,
@@ -308,6 +355,10 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         fontScale: pub.fontScale || "",
         logoScale: pub.logoScale || "",
         logoDisplay: pub.logoDisplay || "",
+        navTextColor: pub.navTextColor || "",
+        onBrandTextColor: pub.onBrandTextColor || "",
+        headerLayout: pubLayout,
+        shortNameSet: !!pub.shortNameSet,
         logoUrl: pub.logoUrl || "",
         appUrl: pub.appUrl || "",
       }));
@@ -316,6 +367,8 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         secondary: pub.secondaryColor,
         fontFamily: pub.fontFamily,
         fontScale: pub.fontScale,
+        navText: pub.navTextColor,
+        onBrandText: pub.onBrandTextColor,
       };
       applyBrandTheme(theme);
       cacheBrandTheme(slug, theme);
@@ -323,6 +376,12 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         logoUrl: pub.logoUrl || "",
         brandColor: pub.brandColor || DEFAULT_BRAND_COLOR,
         name: pub.shortName || pub.name || "",
+        monogram: faviconMonogram(pubLayout, pub.logoUrl || "", pub.shortNameSet ? pub.shortName : "", slug, pub.name || ""),
+      });
+      cacheBrandHeader(slug, {
+        headerLayout: pubLayout ? serializeHeaderLayout(pubLayout) : "",
+        shortNameSet: !!pub.shortNameSet,
+        logoDisplay: pub.logoDisplay || "",
       });
       cacheBrandLogo(slug, pub.logoUrl);
       // Cache only — see the note on the authenticated branch above.

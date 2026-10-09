@@ -1,0 +1,92 @@
+/* The arranged sidebar header — product/layout/BrandHeader.tsx.
+ *
+ * Shared by the app's sidebar and the superadmin console's Branding preview,
+ * so it reads only variables both of them set: --nav-fg (text on the sidebar
+ * ground) and --brand / --on-brand. Sizes come from inline custom properties
+ * (--bh-logo-w, --bh-title, --bh-sub) and are multiplied by --lockup-rail, the
+ * same knob the narrow-sidebar breakpoint in app.css uses to shrink the classic
+ * lockup, so both header kinds scale together.
+ */
+
+.bh {
+  --bh-gap: 12px;
+  padding: 18px 12px 16px 18px;
+  border-bottom: 1px solid rgba(201, 151, 28, .22);
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+/* In the app's sidebar (a flex column) the header keeps its height; the nav
+ * below it is what scrolls. */
+.side > .bh { flex-shrink: 0; }
+.bh[data-pad="compact"] { --bh-gap: 8px; padding: 10px 10px 9px 14px; }
+.bh[data-pad="roomy"] { --bh-gap: 16px; padding: 26px 14px 22px 20px; }
+
+/* The arrangement: rows and columns, nested. */
+.bh-n {
+  display: flex;
+  gap: var(--bh-gap);
+  min-width: 0;
+}
+.bh > .bh-n { width: 100%; }
+.bh-row { flex-direction: row; align-items: center; }
+.bh-col { flex-direction: column; gap: calc(var(--bh-gap) * .4); }
+.bh-row > * { flex: 0 1 auto; min-width: 0; }
+
+.bh[data-align="start"] .bh-col { align-items: flex-start; }
+.bh[data-align="start"] .bh-row { justify-content: flex-start; }
+.bh[data-align="center"] .bh-col { align-items: center; text-align: center; }
+.bh[data-align="center"] .bh-row { justify-content: center; }
+.bh[data-align="spread"] .bh-col { align-items: stretch; }
+.bh[data-align="spread"] .bh-row { justify-content: space-between; }
+
+/* Logo: a square logo is as tall as it is wide; a wide one keeps its own
+ * proportions, capped so a tall upload cannot push the nav down. */
+.bh-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--bh-logo-w, 48px) * var(--lockup-rail, 1));
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.bh-row > .bh-logo { flex: 0 0 auto; }
+.bh-logo[data-shape="square"] { height: calc(var(--bh-logo-w, 48px) * var(--lockup-rail, 1)); }
+.bh-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.bh-logo[data-shape="wide"] img { height: auto; max-height: 64px; }
+.bh-logo[data-backing="light-pad"] { background: #fff; padding: 8%; border-radius: 12px; }
+.bh-logo[data-backing="dark-pad"] { background: rgba(0, 0, 0, .72); padding: 8%; border-radius: 12px; }
+.bh-initial {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 20%;
+  display: grid;
+  place-items: center;
+  background: var(--brand);
+  color: var(--on-brand, #fff);
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: calc(var(--bh-logo-w, 48px) * var(--lockup-rail, 1) * .46);
+}
+
+/* Text: the classic lockup's own typography (app.css .side .brand .t b and
+ * .side .brand-full), sized per item instead of by a fixed step. */
+.bh-title {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: calc(var(--bh-title, 21px) * var(--lockup-rail, 1));
+  letter-spacing: .04em;
+  line-height: 1.05;
+  color: var(--nav-fg, #fff);
+  overflow-wrap: anywhere;
+}
+.bh-sub {
+  font-size: calc(var(--bh-sub, 8.4px) * var(--lockup-rail, 1));
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--nav-fg, #fff) 55%, transparent);
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}

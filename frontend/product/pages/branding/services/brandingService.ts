@@ -34,6 +34,14 @@ export type PublicBranding = {
   /** Empty when the business has no logo — render the platform mark. */
   logoUrl: string;
   appUrl: string;
+  /** Text on the sidebar ground / on primary fills; empty = automatic. */
+  navTextColor?: string;
+  onBrandTextColor?: string;
+  /** The vendor-arranged sidebar header, or null for the classic lockup.
+   * Read through parseHeaderLayout (product/config/headerLayout.ts). */
+  headerLayout?: unknown;
+  /** False when shortName above is only the business-name fallback. */
+  shortNameSet?: boolean;
 };
 
 export type MyBranding = PublicBranding & {
