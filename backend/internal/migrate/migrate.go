@@ -126,6 +126,16 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// personal_loans and bank_pledge_records grew NOT NULL payment-mode
+	// columns (how a disbursement / pledge advance was paid) — same AutoMigrate
+	// limitation as above. Must run BEFORE AutoMigrate.
+	if err := personalloan.BackfillDisbursementSplitColumns(db); err != nil {
+		return err
+	}
+	if err := loan.BackfillBankPledgeSplitColumns(db); err != nil {
+		return err
+	}
+
 	// loan_payments/personal_loan_payments/investment_payouts all grew NOT
 	// NULL split-mode columns after they shipped — same AutoMigrate
 	// limitation as gold_sales above, plus (for the first two) a one-time

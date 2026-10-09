@@ -35,6 +35,14 @@ type createRequest struct {
 	// loan's own effective interest rate — see CreateInput's doc comment.
 	PenalInterestRate float64 `json:"penalInterestRate"`
 	GracePeriodDays   int     `json:"gracePeriodDays"`
+
+	// How the disbursed amount is handed over (all-zero = all Cash) + the bank
+	// account a non-cash share leaves from.
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+	BankID             *uint   `json:"bankId"`
 }
 
 // Create validates + persists a new loan, disbursing it in the same step.
@@ -59,6 +67,11 @@ func (h *Handler) Create(c *gin.Context) {
 		FullDisbursement:    req.FullDisbursement,
 		PenalInterestRate:   req.PenalInterestRate,
 		GracePeriodDays:     req.GracePeriodDays,
+		CashAmount:          req.CashAmount,
+		UpiAmount:           req.UpiAmount,
+		BankTransferAmount:  req.BankTransferAmount,
+		ChequeAmount:        req.ChequeAmount,
+		BankID:              req.BankID,
 		CreatedByEmployeeID: employeeID,
 	})
 	if err != nil {

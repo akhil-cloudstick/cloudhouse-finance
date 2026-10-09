@@ -7,6 +7,7 @@ import { ApiError } from "@/product/services/httpClient";
 import { fmt } from "@/product/utils/format";
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { Select } from "@/product/components/ui/Select";
+import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { searchInvestorsPage, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { CreateInvestorModalContent } from "@/product/pages/investments/components/CreateInvestorModal";
 import { useAuth } from "@/product/providers/auth-context";
@@ -34,6 +35,11 @@ export function NewInvestmentModalContent({ onSaved }: { onSaved: () => void }) 
   const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
   const [planId, setPlanId] = useState<number | "">("");
   const [principal, setPrincipal] = useState("");
+  // How the investor pays the opening deposit (Cash / UPI / Bank Transfer /
+  // Cheque), and the branch bank account a non-cash share lands in.
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   // Same "swap this same mounted component to an inline create form instead
@@ -56,6 +62,7 @@ export function NewInvestmentModalContent({ onSaved }: { onSaved: () => void }) 
     if (!planId) { setErr("Please select an investment plan."); return; }
     if (!principalNum || principalNum <= 0) { setErr("Please enter the principal amount."); return; }
     if (plan && principalNum < plan.minPrincipal) { setErr(`Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`); return; }
+    if (Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the principal amount."); return; }
 
     setSaving(true);
     setErr("");
@@ -65,6 +72,8 @@ export function NewInvestmentModalContent({ onSaved }: { onSaved: () => void }) 
         customerId,
         planId: Number(planId),
         principalAmount: principalNum,
+        ...split,
+        bankId,
       });
       toast(`Investment created — ${fmt(principalNum)} deposited`);
       onSaved();
@@ -91,7 +100,7 @@ export function NewInvestmentModalContent({ onSaved }: { onSaved: () => void }) 
   return (
     <>
       <div className="hd"><h3>New Investment</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow"><div><label className="f">Investor *</label>
           <SearchableSelect<CustomerView>
             value={customerLabel}
@@ -114,6 +123,10 @@ export function NewInvestmentModalContent({ onSaved }: { onSaved: () => void }) 
             />
           </div>
           <div><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 100000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
+        </div>
+
+        <div className="frow">
+          <SplitPaymentInput totalAmount={principalNum} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
         </div>
 
         {plan && principalNum > 0 && (

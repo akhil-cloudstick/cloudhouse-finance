@@ -11,6 +11,8 @@ import { useCanOpenRoute } from "@/product/hooks/useCanOpenRoute";
 import { BankModalContent } from "@/product/components/modals/BankModal";
 import { MergeBankModalContent } from "@/product/components/modals/MergeBankModal";
 import { listBanks, listBanksPage, deleteBank, type BackendBank } from "@/product/pages/banks/services/bankService";
+import { getCashSummary } from "@/product/pages/cash/services/cashService";
+import { fmt } from "@/product/utils/format";
 
 const PAGE_SIZE = 15;
 // The Banks modal loads 10 at a time — its table is height-capped (see
@@ -33,6 +35,15 @@ export function Banks() {
   const canCreate = can("Bank_Management", "can_create_bank");
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
+  // Net balance across every bank (UPI / Bank Transfer / Cheque money in less
+  // money out) — the same figure as the Cash page's "Bank balance". Left null
+  // (card hidden) for a role that can't read the cash summary.
+  const [bankBalance, setBankBalance] = useState<number | null>(null);
+  useEffect(() => {
+    getCashSummary()
+      .then((s) => setBankBalance(s.bankBalance || 0))
+      .catch(() => setBankBalance(null));
+  }, [reloadKey]);
 
   return (
     <>
@@ -42,6 +53,11 @@ export function Banks() {
         {canCreate && <button className="btn" onClick={() => openModal(<BankModalContent onSaved={reload} />)}><Icon name="plus" /> Add Bank</button>}
       </div>
       <hr className="gold-rule" />
+      {bankBalance !== null && (
+        <div className="kpis" style={{ marginBottom: 16 }}>
+          <div className="kpi"><div className="l">Net Bank Balance</div><div className="v">{fmt(bankBalance)}</div></div>
+        </div>
+      )}
       <BankTable reloadKey={reloadKey} afterChange={reload} />
     </>
   );

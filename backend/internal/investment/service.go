@@ -54,14 +54,16 @@ const epsilon = 0.01
 type CashRecorder interface {
 	// customerID populates CashMovement.PartyCustomerID so the deposit shows
 	// on the investor's own customer ledger.
-	RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, err error)
+	// The split says how the investor paid; bankID is the branch bank account
+	// a non-cash share landed in (nil for Cash).
+	RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, err error)
 
 	// cashAmount/upiAmount/bankTransferAmount/chequeAmount split amount
 	// across the mode CashMovement rows actually written (see
 	// cash.MovementService.recordSplitCashMovement) — amount stays the
 	// authoritative total. customerID (0 = none) populates CashMovement.
 	// PartyCustomerID for the Party Transactions ledger.
-	RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint) (movementID uint, groupID string, err error)
+	RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint, bankID *uint) (movementID uint, groupID string, err error)
 }
 
 // CommsRecorder logs a notification/comms-history entry for an investment
@@ -303,6 +305,14 @@ type CreateInput struct {
 	PrincipalAmount     float64
 	StartDate           time.Time // zero = today
 	CreatedByEmployeeID uint
+
+	// How the investor paid the opening deposit (all-zero = all Cash) and the
+	// branch bank account a non-cash share landed in.
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+	BankID             *uint
 }
 
 // CreateInvestment validates the input against the chosen plan, snapshots
@@ -329,6 +339,14 @@ func (s *Service) CreateInvestment(ctx context.Context, in CreateInput) (*Invest
 	principal := platform.RoundMoney(in.PrincipalAmount)
 	if principal < plan.MinPrincipal {
 		return nil, ErrPrincipalBelowMin
+	}
+	depCash, depUpi, depBankTransfer, depCheque, err := platform.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, principal, in.BankID)
+	if err != nil {
+		return nil, err
+	}
+	var depBankID *uint
+	if depUpi+depBankTransfer+depCheque > 0 {
+		depBankID = in.BankID
 	}
 
 	startDate := in.StartDate
@@ -400,7 +418,7 @@ func (s *Service) CreateInvestment(ctx context.Context, in CreateInput) (*Invest
 	// is durably persisted — best-effort and outside the transaction, same
 	// as personalloan.Service.CreateLoan's disbursement recording.
 	if s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, rec.ID, rec.InvestmentNumber, rec.PrincipalAmount, rec.BranchID, startDate, rec.CustomerID); err != nil {
+		if _, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, rec.ID, rec.InvestmentNumber, rec.PrincipalAmount, depCash, depUpi, depBankTransfer, depCheque, depBankID, rec.BranchID, startDate, rec.CustomerID); err != nil {
 			log.Printf("cash-in movement (investment deposit) failed for investment %d: %v", rec.ID, err)
 		}
 	}
@@ -541,6 +559,15 @@ func (s *Service) GetSchedule(ctx context.Context, investmentID uint, branchID *
 	return recs, hasMore, nil
 }
 
+// nonCashBankID is the bank to stamp on a cash movement: only when a UPI/Bank
+// Transfer/Cheque share exists, since a Cash-only movement has no bank.
+func nonCashBankID(bankID *uint, upi, bankTransfer, cheque float64) *uint {
+	if upi+bankTransfer+cheque > 0 {
+		return bankID
+	}
+	return nil
+}
+
 // MarkPayoutPaidInput carries the split-mode breakdown of a payout being
 // paid out — CashAmount/UpiAmount/BankTransferAmount/ChequeAmount (NOT NULL
 // DEFAULT 0) must sum to the payout's own Amount within
@@ -550,6 +577,8 @@ type MarkPayoutPaidInput struct {
 	UpiAmount          float64
 	BankTransferAmount float64
 	ChequeAmount       float64
+	// BankID is the branch bank account a non-cash share leaves from.
+	BankID *uint
 }
 
 // MarkPayoutPaid marks one due payout as Paid: row-locks the payout and its
@@ -585,7 +614,8 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, investmentID, payoutID uin
 		if p.Status == PayoutStatusPaid {
 			return ErrPayoutAlreadyPaid
 		}
-		if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, p.Amount); err != nil {
+		cashAmt, upiAmt, bankTransferAmt, chequeAmt, err := platform.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, p.Amount, in.BankID)
+		if err != nil {
 			return err
 		}
 
@@ -593,10 +623,10 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, investmentID, payoutID uin
 		p.Status = PayoutStatusPaid
 		p.PaidAt = &now
 		p.PaidByEmployeeID = &employeeID
-		p.CashAmount = in.CashAmount
-		p.UpiAmount = in.UpiAmount
-		p.BankTransferAmount = in.BankTransferAmount
-		p.ChequeAmount = in.ChequeAmount
+		p.CashAmount = cashAmt
+		p.UpiAmount = upiAmt
+		p.BankTransferAmount = bankTransferAmt
+		p.ChequeAmount = chequeAmt
 		if err := s.repo.UpdatePayout(ctx, tx, p); err != nil {
 			return err
 		}
@@ -619,7 +649,7 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, investmentID, payoutID uin
 		payoutType = "Principal return"
 	}
 	if s.cashRecorder != nil {
-		movementID, _, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, inv.ID, inv.InvestmentNumber, payout.Amount, payout.CashAmount, payout.UpiAmount, payout.BankTransferAmount, payout.ChequeAmount, inv.BranchID, *payout.PaidAt, payoutType, inv.CustomerID)
+		movementID, _, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, inv.ID, inv.InvestmentNumber, payout.Amount, payout.CashAmount, payout.UpiAmount, payout.BankTransferAmount, payout.ChequeAmount, inv.BranchID, *payout.PaidAt, payoutType, inv.CustomerID, nonCashBankID(in.BankID, payout.UpiAmount, payout.BankTransferAmount, payout.ChequeAmount))
 		if err != nil {
 			log.Printf("cash-out movement (%s) failed for investment %d: %v", payoutType, inv.ID, err)
 		} else {
@@ -804,6 +834,7 @@ type AddCashInput struct {
 	UpiAmount            float64
 	BankTransferAmount   float64
 	ChequeAmount         float64
+	BankID               *uint // branch bank account a non-cash share landed in
 	Reference            string
 	RecordedByEmployeeID uint
 }
@@ -820,7 +851,9 @@ func (s *Service) AddCash(ctx context.Context, investmentID uint, branchID *uint
 		return nil, ErrInvalidAmount
 	}
 	amount := platform.RoundMoney(in.Amount)
-	if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, amount); err != nil {
+	var splitErr error
+	in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, splitErr = platform.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, amount, in.BankID)
+	if err := splitErr; err != nil {
 		return nil, err
 	}
 	occurredOn := in.OccurredOn
@@ -894,7 +927,7 @@ func (s *Service) AddCash(ctx context.Context, investmentID uint, branchID *uint
 	}
 
 	if s.cashRecorder != nil {
-		if movementID, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, invID, invNumber, amount, branchOfInv, occurredOn, custID); err != nil {
+		if movementID, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, invID, invNumber, amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, nonCashBankID(in.BankID, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount), branchOfInv, occurredOn, custID); err != nil {
 			log.Printf("cash-in movement (investment add-cash) failed for investment %d: %v", invID, err)
 		} else {
 			txRow.CashMovementID = &movementID
@@ -916,6 +949,7 @@ type WithdrawInput struct {
 	UpiAmount            float64
 	BankTransferAmount   float64
 	ChequeAmount         float64
+	BankID               *uint // branch bank account a non-cash share leaves from
 	Reference            string
 	RecordedByEmployeeID uint
 }
@@ -933,8 +967,10 @@ func (s *Service) Withdraw(ctx context.Context, investmentID uint, branchID *uin
 	if total <= 0 {
 		return nil, ErrInvalidAmount
 	}
-	if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, total); err != nil {
-		return nil, err
+	var splitErr error
+	in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, splitErr = platform.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, total, in.BankID)
+	if splitErr != nil {
+		return nil, splitErr
 	}
 	occurredOn := in.OccurredOn
 	if occurredOn.IsZero() {
@@ -1022,7 +1058,7 @@ func (s *Service) Withdraw(ctx context.Context, investmentID uint, branchID *uin
 		case txRow.InterestAmount == 0:
 			payoutType = "Principal withdrawal"
 		}
-		movementID, _, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, invID, invNumber, total, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, branchOfInv, occurredOn, payoutType, custID)
+		movementID, _, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, invID, invNumber, total, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, branchOfInv, occurredOn, payoutType, custID, nonCashBankID(in.BankID, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount))
 		if err != nil {
 			log.Printf("cash-out movement (investment withdrawal) failed for investment %d: %v", invID, err)
 		} else {

@@ -695,6 +695,11 @@ func (s *MovementService) recordSplitCashMovement(ctx context.Context, base Cash
 		rec.Mode = c.mode
 		rec.Amount = c.amount
 		rec.TransactionGroupID = groupID
+		// The bank belongs to the UPI/Bank Transfer/Cheque share only — a Cash
+		// row never goes through it, so it must not land in that bank's ledger.
+		if c.mode == CashModeCash {
+			rec.BankID = nil
+		}
 		if err := s.repo.Create(ctx, &rec); err != nil {
 			return 0, "", err
 		}
@@ -721,28 +726,41 @@ func (s *MovementService) recordSplitCashMovement(ctx context.Context, base Cash
 // "Savings"/"Loan" sources so it renders in the same Cash Movements table
 // without special-casing on the frontend. Returns the new movement's ID so
 // the caller can store it on the pledge record and reverse it later.
-func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time) (uint, error) {
+//
+// cashAmount/upiAmount/bankTransferAmount/chequeAmount say how the advance
+// reached the branch (one movement row per mode, like a loan disbursement);
+// bankID is the branch's own bank account a non-cash share landed in. An
+// all-zero split books the whole amount as Cash.
+func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time) (uint, error) {
 	hoID, err := s.HeadOfficeBranchID(ctx)
 	if err != nil {
 		return 0, err
 	}
-	rec := &CashMovement{
-		Type:     "in",
-		Source:   "Bank",
+	base := CashMovement{
+		Type:   "in",
+		Source: "Bank",
+		// "… — LN-00003" suffix: the ledgers read the Ref No (and link to the
+		// loan) back out of Purpose, like every other loan movement.
+		Purpose:  "Bank pledge — " + bankName + " — " + loanNumber,
 		Bank:     bankName,
-		Amount:   amount,
-		Mode:     CashModeCash,
+		BankID:   bankID,
 		BranchID: &hoID,
 	}
 	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
+		base.OccurredOn = time.Now()
 	} else {
-		rec.OccurredOn = occurredOn
+		base.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(ctx, rec); err != nil {
-		return 0, err
+	if cashAmount+upiAmount+bankTransferAmount+chequeAmount == 0 {
+		cashAmount = amount
 	}
-	return rec.ID, nil
+	id, _, err := s.recordSplitCashMovement(ctx, base, amount, []splitComponent{
+		{CashModeCash, cashAmount},
+		{CashModeUPI, upiAmount},
+		{CashModeBankTransfer, bankTransferAmount},
+		{CashModeCheque, chequeAmount},
+	})
+	return id, err
 }
 
 // RecordServiceChargeCashIn creates the cash-in movement for a
@@ -877,30 +895,35 @@ func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID ui
 // loan.Service.ReleaseBankPledge). It does NOT touch the original cash-in
 // movement recorded at pledge time — that stays as permanent history —
 // this books the release as its own, separately visible transaction.
-func (s *MovementService) RecordBankPledgeCashOut(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+func (s *MovementService) RecordBankPledgeCashOut(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time, branchID uint) (uint, error) {
 	// branchID (the pledged loan's branch) is ignored on purpose: every
 	// pledge movement lives on the Head Office till, in and out alike.
 	hoID, err := s.HeadOfficeBranchID(ctx)
 	if err != nil {
 		return 0, err
 	}
-	rec := &CashMovement{
+	base := CashMovement{
 		Type:     "out",
-		Purpose:  "Bank pledge release — " + bankName,
+		Purpose:  "Bank pledge release — " + bankName + " — " + loanNumber,
 		Bank:     bankName,
-		Amount:   amount,
-		Mode:     CashModeCash,
+		BankID:   bankID,
 		BranchID: &hoID,
 	}
 	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
+		base.OccurredOn = time.Now()
 	} else {
-		rec.OccurredOn = occurredOn
+		base.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(ctx, rec); err != nil {
-		return 0, err
+	if cashAmount+upiAmount+bankTransferAmount+chequeAmount == 0 {
+		cashAmount = amount
 	}
-	return rec.ID, nil
+	id, _, err := s.recordSplitCashMovement(ctx, base, amount, []splitComponent{
+		{CashModeCash, cashAmount},
+		{CashModeUPI, upiAmount},
+		{CashModeBankTransfer, bankTransferAmount},
+		{CashModeCheque, chequeAmount},
+	})
+	return id, err
 }
 
 // RecordExpenseCashOut creates the cash-out movement for an Expense once it
@@ -944,27 +967,36 @@ func (s *MovementService) RecordExpenseCashOut(ctx context.Context, expenseID ui
 //
 // customerID (0 = none) tags PartyCustomerID so the deposit lands on the
 // investor's customer ledger alongside their payouts.
-func (s *MovementService) RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, error) {
-	rec := &CashMovement{
+//
+// The split says how the investor paid (one movement row per mode; all-zero
+// books the whole amount as Cash) and bankID is the branch bank account a
+// non-cash share landed in.
+func (s *MovementService) RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, branchID uint, occurredOn time.Time, customerID uint) (uint, error) {
+	base := CashMovement{
 		Type:     "in",
 		Source:   "Investment",
 		Purpose:  "Investment deposit — " + investmentNumber,
-		Amount:   amount,
-		Mode:     CashModeCash,
+		BankID:   bankID,
 		BranchID: &branchID,
 	}
 	if customerID != 0 {
-		rec.PartyCustomerID = &customerID
+		base.PartyCustomerID = &customerID
 	}
 	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
+		base.OccurredOn = time.Now()
 	} else {
-		rec.OccurredOn = occurredOn
+		base.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(ctx, rec); err != nil {
-		return 0, err
+	if cashAmount+upiAmount+bankTransferAmount+chequeAmount == 0 {
+		cashAmount = amount
 	}
-	return rec.ID, nil
+	id, _, err := s.recordSplitCashMovement(ctx, base, amount, []splitComponent{
+		{CashModeCash, cashAmount},
+		{CashModeUPI, upiAmount},
+		{CashModeBankTransfer, bankTransferAmount},
+		{CashModeCheque, chequeAmount},
+	})
+	return id, err
 }
 
 // RecordInvestmentPayoutCashOut creates the cash-out movement(s) for an
@@ -974,10 +1006,11 @@ func (s *MovementService) RecordInvestmentDepositCashIn(ctx context.Context, inv
 // sensibly in the Cash Movements table without a dedicated column —
 // mirrors RecordLoanDisbursementCashOut's Purpose-carries-context approach.
 // See RecordLoanDisbursementCashOut for the split/customerID parameters.
-func (s *MovementService) RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint) (uint, string, error) {
+func (s *MovementService) RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint, bankID *uint) (uint, string, error) {
 	base := CashMovement{
 		Type:     "out",
 		Purpose:  fmt.Sprintf("%s — %s", payoutType, investmentNumber),
+		BankID:   bankID,
 		BranchID: &branchID,
 	}
 	if occurredOn.IsZero() {
@@ -1368,7 +1401,12 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 	} else if !ok {
 		return nil, ErrBranchInvalid
 	}
-	if (in.Mode == CashModeUPI || in.Mode == "Bank") && in.FromBankID == nil {
+	// "Bank" was the old name for a bank-paid expense; it is a Bank Transfer
+	// like any other, so it lands on the bank side of the balances and ledgers.
+	if in.Mode == "Bank" {
+		in.Mode = CashModeBankTransfer
+	}
+	if (in.Mode == CashModeUPI || in.Mode == CashModeBankTransfer) && in.FromBankID == nil {
 		return nil, ErrExpenseBankRequired
 	}
 	// A loan source's category is its repayment — capped at the principal.
@@ -1677,61 +1715,17 @@ func ErrInsufficientCashInHand(available, required float64) error {
 	return httpx.NewConflict(fmt.Sprintf("Insufficient balance in hand: available ₹%.2f, required ₹%.2f", available, required))
 }
 
-// openingFor is the carried-forward opening cash for a day: yesterday's
-// closing Balance in Hand. It starts from the latest manually entered Cash
-// opening balance on or before the day (a seed; 0 from the beginning when
-// none exists) and rolls every movement and cash expense since then forward
-// up to the start of the day. A nil branchID sums every branch — seeded
-// branches individually, the rest (and branch-less movements) from the
-// beginning.
+// openingFor is the carried-forward opening balance for a day: yesterday's
+// closing Balance in Hand (cash side + bank side), summed from the full
+// movement and expense history — not rolled forward from a manually entered
+// opening balance, so a late or stray seed can never hide earlier entries. A
+// nil branchID sums every branch plus branch-less movements.
 func (s *SummaryService) openingFor(ctx context.Context, branchID *uint, date time.Time) (float64, error) {
-	day := startOfDay(date)
-	if branchID == nil {
-		ids, err := s.openingSvc.repo.CashSeedBranchIDs(ctx, day)
-		if err != nil {
-			return 0, err
-		}
-		var total float64
-		for _, id := range ids {
-			id := id
-			v, err := s.openingFor(ctx, &id, day)
-			if err != nil {
-				return 0, err
-			}
-			total += v
-		}
-		in, out, err := s.movementRepo.SumByTypeBetween(ctx, nil, ids, time.Time{}, day)
-		if err != nil {
-			return 0, err
-		}
-		exp, err := s.expenseRepo.SumCashBetween(ctx, nil, ids, time.Time{}, day)
-		if err != nil {
-			return 0, err
-		}
-		return total + in - out - exp, nil
-	}
-
-	var seed float64
-	var from time.Time
-	rec, err := s.openingSvc.repo.FindLatestCashOnOrBefore(ctx, *branchID, day)
-	switch {
-	case err == nil:
-		seed, from = rec.Amount, startOfDay(rec.BalanceDate)
-		if !from.Before(day) {
-			return seed, nil
-		}
-	case !errors.Is(err, gorm.ErrRecordNotFound):
-		return 0, err
-	}
-	in, out, err := s.movementRepo.SumByTypeBetween(ctx, branchID, nil, from, day)
+	cash, bank, err := s.balancesBefore(ctx, branchID, startOfDay(date))
 	if err != nil {
 		return 0, err
 	}
-	exp, err := s.expenseRepo.SumCashBetween(ctx, branchID, nil, from, day)
-	if err != nil {
-		return 0, err
-	}
-	return seed + in - out - exp, nil
+	return cash + bank, nil
 }
 
 // CashInHand is the branch's Balance in Hand right now — the figure every
@@ -1789,6 +1783,19 @@ func (s *SummaryService) GetExpectedCash(ctx context.Context, branchID *uint, da
 	if err != nil {
 		return Summary{}, err
 	}
+	// Expenses that reduce the held balance on the day: the same cash-side and
+	// bank-side expense sums balancesBefore uses, so Opening + In − Out −
+	// Expenses closes on the same figure as Cash in hand + Bank balance.
+	day := startOfDay(date)
+	var heldExpenses float64
+	for _, sc := range []BalanceScope{{Bank: false}, {Bank: true}} {
+		sc.BranchID, sc.From, sc.To = branchID, day, day.AddDate(0, 0, 1)
+		e, err := s.expenseRepo.SumByScope(ctx, sc)
+		if err != nil {
+			return Summary{}, err
+		}
+		heldExpenses += e
+	}
 	return Summary{
 		BankBalance:            bankBalance,
 		CashInHand:             cashInHand,
@@ -1798,29 +1805,33 @@ func (s *SummaryService) GetExpectedCash(ctx context.Context, branchID *uint, da
 		Disbursements:          out,
 		CashExpenses:           cashExpenses,
 		ExpensesToday:          expensesToday,
-		ExpectedCash:           opening + in - out - cashExpenses,
+		ExpectedCash:           opening + in - out - heldExpenses,
 		CollectionsBreakdown:   inBreakdown,
 		DisbursementsBreakdown: outBreakdown,
 	}, nil
 }
 
 // liveBalances returns the branch's (nil = all branches) cash in hand and
-// total bank balance as of now, from the movements model:
+// total bank balance as of now — see balancesBefore.
+func (s *SummaryService) liveBalances(ctx context.Context, branchID *uint) (cashInHand, bankBalance float64, err error) {
+	return s.balancesBefore(ctx, branchID, startOfDay(time.Now()).AddDate(0, 0, 1))
+}
+
+// balancesBefore computes the cash-side and bank-side balances over the whole
+// recorded history up to (not including) to, from the movements model:
 //
-//	cashInHand  = Cash opening seed + Σ cash-side movements − approved Cash expenses
-//	bankBalance = Σ bank opening rows + Σ bank-side movements − approved bank expenses
+//	cashInHand  = Σ cash-side movements − approved Cash expenses
+//	bankBalance = Σ bank-side movements − approved bank expenses
 //
 // Cash side = Mode Cash or no Mode; bank side = UPI/Bank Transfer/Cheque, so
 // each movement hits exactly one figure. Movements with expense_id are left
 // out (the expenses table is summed instead); bank-to-bank transfers
-// (to_bank_id set) are skipped as they net to zero across all banks.
-func (s *SummaryService) liveBalances(ctx context.Context, branchID *uint) (cashInHand, bankBalance float64, err error) {
-	today := startOfDay(time.Now())
-	to := today.AddDate(0, 0, 1)
-
-	// net of one scope: movements less expenses.
+// (to_bank_id set) are skipped as they net to zero across all banks. Manual
+// opening balances are deliberately not used: the balances are always the sum
+// of every entry ever recorded, so they agree with the Cash and bank ledgers.
+func (s *SummaryService) balancesBefore(ctx context.Context, branchID *uint, to time.Time) (cashInHand, bankBalance float64, err error) {
 	net := func(sc BalanceScope) (float64, error) {
-		sc.To = to
+		sc.BranchID, sc.To = branchID, to
 		m, err := s.movementRepo.NetByScope(ctx, sc)
 		if err != nil {
 			return 0, err
@@ -1831,66 +1842,11 @@ func (s *SummaryService) liveBalances(ctx context.Context, branchID *uint) (cash
 		}
 		return m - e, nil
 	}
-
-	// Cash: seeded branches roll forward from their latest Cash opening;
-	// everything else (and branch-less movements) from the beginning.
-	var seeded []uint
-	if branchID == nil {
-		if seeded, err = s.openingSvc.repo.CashSeedBranchIDs(ctx, today); err != nil {
-			return 0, 0, err
-		}
-	} else {
-		seeded = []uint{*branchID}
-	}
-	for _, id := range seeded {
-		id := id
-		sc := BalanceScope{BranchID: &id}
-		rec, ferr := s.openingSvc.repo.FindLatestCashOnOrBefore(ctx, id, today)
-		switch {
-		case ferr == nil:
-			cashInHand += rec.Amount
-			sc.From = startOfDay(rec.BalanceDate)
-		case !errors.Is(ferr, gorm.ErrRecordNotFound):
-			return 0, 0, ferr
-		}
-		v, nerr := net(sc)
-		if nerr != nil {
-			return 0, 0, nerr
-		}
-		cashInHand += v
-	}
-	if branchID == nil {
-		v, nerr := net(BalanceScope{ExcludeBranches: seeded})
-		if nerr != nil {
-			return 0, 0, nerr
-		}
-		cashInHand += v
-	}
-
-	// Bank: each (branch, bank, mode) opening row rolls forward from its date;
-	// movements on accounts with no opening row count from the beginning.
-	openings, err := s.openingSvc.repo.LatestBankOpenings(ctx, branchID, today)
-	if err != nil {
+	if cashInHand, err = net(BalanceScope{}); err != nil {
 		return 0, 0, err
 	}
-	bankBalance, err = net(BalanceScope{Bank: true, BranchID: branchID})
-	if err != nil {
+	if bankBalance, err = net(BalanceScope{Bank: true}); err != nil {
 		return 0, 0, err
-	}
-	for _, o := range openings {
-		o := o
-		base := BalanceScope{Bank: true, BranchID: &o.BranchID, BankID: o.BankID, Mode: o.Mode}
-		all, nerr := net(base)
-		if nerr != nil {
-			return 0, 0, nerr
-		}
-		base.From = startOfDay(o.BalanceDate)
-		since, nerr := net(base)
-		if nerr != nil {
-			return 0, 0, nerr
-		}
-		// swap the account's all-time net for opening + net since its date.
-		bankBalance += o.Amount + since - all
 	}
 	return cashInHand, bankBalance, nil
 }

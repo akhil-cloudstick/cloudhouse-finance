@@ -191,3 +191,27 @@ func BackfillPenalColumns(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// BackfillDisbursementSplitColumns adds PersonalLoan's disbursement-mode
+// numeric columns ahead of AutoMigrate — same column-add-with-DEFAULT
+// mechanics as BackfillPenalColumns, since a bare AutoMigrate ADD COLUMN ...
+// NOT NULL fails on a table that already has rows. Every pre-existing loan was
+// disbursed with no mode chosen, so 0 (booked as one unmoded row) is the
+// truthful value. disbursement_bank_id is nullable and needs no DEFAULT.
+// Must run BEFORE AutoMigrate.
+func BackfillDisbursementSplitColumns(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable(&PersonalLoan{}) {
+		return nil // fresh install — AutoMigrate creates the whole table
+	}
+	for _, col := range []string{"disbursement_cash_amount", "disbursement_upi_amount", "disbursement_bank_transfer_amount", "disbursement_cheque_amount"} {
+		if m.HasColumn(&PersonalLoan{}, col) {
+			continue
+		}
+		if err := db.Exec(fmt.Sprintf(`ALTER TABLE personal_loans ADD COLUMN %s numeric(16,2) NOT NULL DEFAULT 0`, col)).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.%s with a default for pre-existing rows", col)
+	}
+	return nil
+}

@@ -1378,6 +1378,13 @@ type bankPledgeRequest struct {
 	// operator explicitly asks for it. An unrecognised value is rejected rather
 	// than being coerced, so a typo cannot silently suppress a real cash entry.
 	CashTreatment string `json:"cashTreatment"`
+
+	// How a CashIn advance was received. All-zero means all Cash.
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+	ReceivedBankID     *uint   `json:"receivedBankId"`
 }
 
 func (h *Handler) RecordBankPledge(c *gin.Context) {
@@ -1423,6 +1430,13 @@ func (h *Handler) RecordBankPledge(c *gin.Context) {
 		ReferenceNumber:   req.ReferenceNumber,
 		BankPledgeDueDate: dueDate,
 		CashTreatment:     cashTreatment,
+
+		CashAmount:         req.CashAmount,
+		UpiAmount:          req.UpiAmount,
+		BankTransferAmount: req.BankTransferAmount,
+		ChequeAmount:       req.ChequeAmount,
+		ReceivedBankID:     req.ReceivedBankID,
+
 		ActorEmployeeID:   actorID,
 		ActorRole:         actorRole,
 	})
@@ -1445,8 +1459,29 @@ func (h *Handler) ReleaseBankPledge(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	// Optional body: how the pledged amount is paid back to the bank. An empty
+	// body (older clients) books the whole amount as Cash.
+	var req struct {
+		CashAmount         float64 `json:"cashAmount"`
+		UpiAmount          float64 `json:"upiAmount"`
+		BankTransferAmount float64 `json:"bankTransferAmount"`
+		ChequeAmount       float64 `json:"chequeAmount"`
+		BankID             *uint   `json:"bankId"`
+	}
+	if c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+			return
+		}
+	}
 	actorID, actorRole, _ := actorPtr(c)
-	rec, err := h.svc.ReleaseBankPledge(ctx, loanID, pledgeID, platform.GetBranchScope(c), actorID, actorRole)
+	rec, err := h.svc.ReleaseBankPledge(ctx, loanID, pledgeID, platform.GetBranchScope(c), BankPledgeReleaseInput{
+		CashAmount:         req.CashAmount,
+		UpiAmount:          req.UpiAmount,
+		BankTransferAmount: req.BankTransferAmount,
+		ChequeAmount:       req.ChequeAmount,
+		BankID:             req.BankID,
+	}, actorID, actorRole)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

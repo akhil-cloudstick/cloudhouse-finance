@@ -43,6 +43,7 @@ export function WithdrawInvestmentModalContent({
   const [reference, setReference] = useState("");
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -68,6 +69,7 @@ export function WithdrawInvestmentModalContent({
         occurredOn: occurredOn ? new Date(occurredOn).toISOString() : undefined,
         reference: reference.trim(),
         ...split,
+        bankId,
       });
       onSaved(updated);
       closeModal();
@@ -101,7 +103,7 @@ export function WithdrawInvestmentModalContent({
           <div><label className="f">Reference</label><input className="inp" placeholder="Optional note" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
         </div>
         <div className="frow">
-          <SplitPaymentInput totalAmount={total} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
+          <SplitPaymentInput totalAmount={total} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>

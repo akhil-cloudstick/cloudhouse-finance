@@ -201,3 +201,26 @@ func BackfillSchemeSnapshot(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// BackfillBankPledgeSplitColumns adds BankPledgeRecord's received-mode numeric
+// columns ahead of AutoMigrate — a bare AutoMigrate ADD COLUMN ... NOT NULL
+// fails on a table that already has rows, so each ADD carries its own DEFAULT.
+// 0 is truthful for existing pledges (an all-zero split reverses as Cash, which
+// is how every earlier pledge was booked). received_bank_id is nullable. Must
+// run BEFORE AutoMigrate.
+func BackfillBankPledgeSplitColumns(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable(&BankPledgeRecord{}) {
+		return nil // fresh install — AutoMigrate creates the whole table
+	}
+	for _, col := range []string{"cash_amount", "upi_amount", "bank_transfer_amount", "cheque_amount", "release_cash_amount", "release_upi_amount", "release_bank_transfer_amount", "release_cheque_amount"} {
+		if m.HasColumn(&BankPledgeRecord{}, col) {
+			continue
+		}
+		if err := db.Exec(fmt.Sprintf(`ALTER TABLE bank_pledge_records ADD COLUMN %s numeric(16,2) NOT NULL DEFAULT 0`, col)).Error; err != nil {
+			return err
+		}
+		log.Printf("added bank_pledge_records.%s with a default for pre-existing rows", col)
+	}
+	return nil
+}

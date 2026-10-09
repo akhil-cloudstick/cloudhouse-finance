@@ -9,6 +9,7 @@ import { recordBankPledge, searchLoansPage, type BankPledgeCashTreatment, type L
 import { searchBanksPage, type BackendBank } from "@/product/pages/banks/services/bankService";
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { DatePicker } from "@/product/components/ui/DatePicker";
+import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { ApiError } from "@/product/services/httpClient";
 import { useIsSmallScreen } from "@/product/utils/responsive";
 import { singleFlight } from "@/product/utils/singleFlight";
@@ -49,12 +50,17 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
    * fixed by voiding the record), so the consequence is spelled out below the
    * control rather than left to be discovered afterwards. */
   const [cashTreatment, setCashTreatment] = useState<BankPledgeCashTreatment>("RecordOnly");
+  // How the bank's advance reached the branch — only asked for "CashIn".
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [remaining, setRemaining] = useState(0);
+  const [receivedBankId, setReceivedBankId] = useState<number | undefined>(undefined);
 
   async function save() { return singleFlight("modal:repledge:save", async () => {
     if (!bank.trim()) { setErr("Please enter the bank to repledge with."); return; }
     if (!date) { setErr("Please select the pledge date."); return; }
     const amount = +amt;
     if (!amount || amount <= 0) { setErr("Please enter the pledged amount."); return; }
+    if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the pledged amount."); return; }
     setSaving(true);
     try {
       await recordBankPledge(loan.numericId, {
@@ -66,6 +72,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
         referenceNumber: referenceNumber.trim() || undefined,
         bankPledgeDueDate: dueDate || undefined,
         cashTreatment,
+        ...(cashTreatment === "CashIn" ? { ...split, receivedBankId } : {}),
       });
       onSaved();
       closeModal();
@@ -200,6 +207,12 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
             </label>
           </div>
         </div>
+
+        {cashTreatment === "CashIn" && (
+          <div className="frow" style={{ marginTop: 10 }}>
+            <SplitPaymentInput totalAmount={+amt || 0} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setReceivedBankId(bid); }} />
+          </div>
+        )}
 
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

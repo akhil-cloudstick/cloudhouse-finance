@@ -7,6 +7,7 @@ import { useSchemes } from "@/product/pages/schemes/store/SchemesProvider";
 import { useLoans } from "@/product/pages/loans/store/LoansProvider";
 import { useGoldRates } from "@/product/pages/gold-rates/store/GoldRatesProvider";
 import { useModal } from "@/product/components/Modal";
+import { SafeImage } from "@/product/components/ui/SafeImage";
 import { useToast } from "@/product/components/Toast";
 import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import { stageByPending } from "@/product/services/approvalWorkflowService";
@@ -451,7 +452,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
     openModal(
       <>
         <div className="hd"><h3>{r.n}{r.imgName ? " — " + r.imgName : ""}</h3><button className="x" onClick={closeModal}>×</button></div>
-        <div className="bd" style={{ textAlign: "center" }}><img src={r.img} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt={r.n} /></div>
+        <div className="bd" style={{ textAlign: "center" }}><SafeImage src={r.img} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt={r.n} /></div>
       </>,
       true
     );
@@ -939,7 +940,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                   <td style={{ textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8, paddingRight: 2 }}>
                     {r.img ? (
                       <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "flex-start" }}>
-                        <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
+                        <SafeImage src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
                         {ornPhotoMenu(i, "↺", "Replace photo", { padding: "0 7px", height: 31 })}
                         <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
                       </div>
@@ -1014,7 +1015,7 @@ export function NewLoan({ customerId }: { customerId?: string } = {}) {
                   <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Photo</span>
                   {r.img ? (
                     <div style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
-                      <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
+                      <SafeImage src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
                       {ornPhotoMenu(i, "↺", "Replace photo", { padding: "0 7px", height: 31 })}
                       <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
                     </div>

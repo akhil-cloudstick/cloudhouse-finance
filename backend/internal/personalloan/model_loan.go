@@ -107,6 +107,18 @@ type PersonalLoan struct {
 	// OutstandingAmount purposes below) is Principal + InterestAmount.
 	DisbursedAmount float64 `json:"disbursedAmount" gorm:"not null;type:numeric(16,2)"`
 
+	// DisbursementCashAmount/…UpiAmount/…BankTransferAmount/…ChequeAmount and
+	// DisbursementBankID record how DisbursedAmount is handed over, chosen when
+	// the loan is created. Persisted (not just a creation input) because with
+	// the approval chain on the money only leaves at the final stage, which
+	// books the cash-out from these. All 0 for loans from before a mode could
+	// be chosen (booked as one unmoded row).
+	DisbursementCashAmount         float64 `json:"disbursementCashAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	DisbursementUpiAmount          float64 `json:"disbursementUpiAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	DisbursementBankTransferAmount float64 `json:"disbursementBankTransferAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	DisbursementChequeAmount       float64 `json:"disbursementChequeAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	DisbursementBankID             *uint   `json:"disbursementBankId,omitempty"`
+
 	// FullDisbursement, when true, means the full principal was handed to the
 	// customer with no interest withheld upfront — the customer owes
 	// principal + the full interest back instead of today's default

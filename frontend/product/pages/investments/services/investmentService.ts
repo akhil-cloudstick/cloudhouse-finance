@@ -155,6 +155,13 @@ export type CreateInvestmentInput = {
   planId: number;
   principalAmount: number;
   startDate?: string; // RFC3339, optional — defaults to now on the backend
+  /* How the investor paid the deposit, and the bank account a UPI/Bank
+   * Transfer/Cheque share landed in. Omitted = all Cash. */
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
 };
 
 export function createInvestment(input: CreateInvestmentInput): Promise<BackendInvestment> {
@@ -229,11 +236,12 @@ export function getInvestmentSchedulePage(id: number, page: number): Promise<{ i
 export function markPayoutPaid(
   investmentId: number,
   payoutId: number,
-  split: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number }
+  split: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number },
+  bankId?: number
 ): Promise<BackendInvestmentPayout> {
   return apiFetch<BackendInvestmentPayout>(`/investments/${investmentId}/payouts/${payoutId}/pay`, {
     method: "POST",
-    body: JSON.stringify(split),
+    body: JSON.stringify({ ...split, bankId }),
   });
 }
 
@@ -256,6 +264,8 @@ export type AddCashInput = SplitAmounts & {
   amount: number;
   occurredOn?: string; // RFC3339, optional — defaults to now on the backend
   reference?: string;
+  /* Branch bank account a UPI/Bank Transfer/Cheque share landed in. */
+  bankId?: number;
 };
 
 export function addCashToInvestment(investmentId: number, input: AddCashInput): Promise<BackendInvestment> {
@@ -272,6 +282,8 @@ export type WithdrawInput = SplitAmounts & {
   principalAmount: number;
   occurredOn?: string;
   reference?: string;
+  /* Branch bank account a UPI/Bank Transfer/Cheque share leaves from. */
+  bankId?: number;
 };
 
 export function withdrawFromInvestment(investmentId: number, input: WithdrawInput): Promise<BackendInvestment> {

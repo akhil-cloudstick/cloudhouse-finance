@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useModal } from "@/product/components/Modal";
+import { SafeImage } from "@/product/components/ui/SafeImage";
 import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
@@ -18,7 +19,7 @@ import { FileInput } from "@/product/components/ui/FileInput";
 import { useLoanBalance } from "@/product/hooks/useLoanBalance";
 import { singleFlight } from "@/product/utils/singleFlight";
 
-const MODES = ["Cash", "UPI", "Bank"];
+const MODES = ["Cash", "UPI", "Bank Transfer"];
 const MODE_OPTIONS = MODES.map((m) => ({ value: m, label: m }));
 
 /* Ported from legacy/app.js's `openExpenseModal()` / `saveExpense()`. Now
@@ -48,11 +49,11 @@ export function ExpenseModalContent({ onSaved, tabs }: { onSaved?: () => void; t
     : "";
   const [mode, setMode] = useState(MODES[0]);
   // From Bank — the branch account the expense is paid from, required when
-  // Mode is UPI/Bank (see backend/internal/cash/service.go's
+  // Mode is UPI/Bank Transfer (see backend/internal/cash/service.go's
   // ExpenseService.Record).
   const [fromBankId, setFromBankId] = useState("");
   const [fromBankName, setFromBankName] = useState("");
-  const banksRequired = mode === "UPI" || mode === "Bank";
+  const banksRequired = mode === "UPI" || mode === "Bank Transfer";
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
@@ -127,7 +128,7 @@ export function ExpenseModalContent({ onSaved, tabs }: { onSaved?: () => void; t
             <Select
               options={MODE_OPTIONS}
               value={mode}
-              onChange={(v) => { setMode(v); if (v !== "UPI" && v !== "Bank") { setFromBankId(""); setFromBankName(""); } }}
+              onChange={(v) => { setMode(v); if (v !== "UPI" && v !== "Bank Transfer") { setFromBankId(""); setFromBankName(""); } }}
             /></div>
         </div>
         {banksRequired && (
@@ -182,7 +183,7 @@ export function ReceiptViewModalContent({ e }: { e: ExpenseView }) {
     <>
       <div className="hd"><h3>Receipt — {e.cat} ({fmt(e.amt)})</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll" style={{ textAlign: "center" }}>
-        <img src={e.img} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt="Receipt" />
+        <SafeImage src={e.img} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt="Receipt" />
       </div>
     </>
   );
@@ -210,9 +211,11 @@ export function BillViewModalContent({ title, url }: { title: string; url: strin
     <>
       <div className="hd"><h3>Bill — {title}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll" style={{ textAlign: "center" }}>
-        {src
-          ? <img src={src} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt="Bill" />
-          : <p style={{ color: "var(--muted)", fontSize: 13 }}>Loading bill…</p>}
+        {failed
+          ? <SafeImage alt="Bill" />
+          : src
+            ? <img src={src} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt="Bill" />
+            : <p style={{ color: "var(--muted)", fontSize: 13 }}>Loading bill…</p>}
         {failed && <p style={{ color: "var(--muted)", fontSize: 12.5 }}>Could not load this bill.</p>}
       </div>
     </>

@@ -16,7 +16,22 @@ import { BillViewModalContent } from "@/product/components/modals/ExpenseModal";
 // particularsFor mirrors LedgerExportView.tsx's "Particulars" column — the
 // same purpose-or-source text, with a party link layered on top (category /
 // customer / bank drill-down).
+// "Bank pledge — <bank> — LN-00007" / "Bank pledge release — <bank> — LN-00007"
+// (see cash.MovementService.RecordBankPledgeCashIn/CashOut). The loan number is
+// already in the Ref No column, so the row reads just "Bank pledge" with the
+// bank's name on the line below.
+const BANK_PLEDGE_RE = /^(Bank pledge(?: release)?) — (.+) — (?:LN|PL|INV)-\S+$/;
+
 export function particularsFor(m: CashMovementView, categoryIds: Record<string, number>) {
+  const pledge = m.purpose ? BANK_PLEDGE_RE.exec(m.purpose) : null;
+  if (pledge) {
+    return (
+      <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 1.3 }}>
+        <span>{pledge[1]}</span>
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>{pledge[2]}</span>
+      </span>
+    );
+  }
   // A gold-loan repayment (source "Collection", LN- reference) reads "Gold
   // Loan"; personal-loan collections keep their existing label.
   const source = m.source === "Collection" && loanNumberFor(m).startsWith("LN-") ? "Gold Loan" : m.source;

@@ -83,8 +83,8 @@ type PacketMover interface {
 // same way as PacketCreator/PacketMover so internal/loan doesn't import
 // internal/cash directly.
 type CashRecorder interface {
-	RecordBankPledgeCashIn(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time) (movementID uint, err error)
-	RecordBankPledgeCashOut(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (movementID uint, err error)
+	RecordBankPledgeCashIn(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time) (movementID uint, err error)
+	RecordBankPledgeCashOut(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time, branchID uint) (movementID uint, err error)
 	RecordBankPledgeReleaseExpense(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
 
 	// HeadOfficeBranchID is the branch every bank-pledge movement is booked
@@ -3304,6 +3304,15 @@ type BankPledgeInput struct {
 	// for an omitted value, so cash only moves on an explicit opt-in.
 	CashTreatment string
 
+	// CashAmount/UpiAmount/BankTransferAmount/ChequeAmount split how the
+	// advance was received (CashIn only; all-zero means all Cash), and
+	// ReceivedBankID is the branch bank account the non-cash share landed in.
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+	ReceivedBankID     *uint
+
 	// ActorEmployeeID/ActorRole identify the real authenticated staff member
 	// for the audit trail — read from JWT claims via platform.ActorFromContext,
 	// never from the request body.
@@ -3372,8 +3381,19 @@ func (s *Service) RecordBankPledge(ctx context.Context, loanID uint, branchID *u
 	// Booked BEFORE the pledge is saved so a failure is returned to the
 	// operator instead of leaving a CashIn pledge with no cash entry.
 	var cashMovementID *uint
+	var recvCash, recvUpi, recvBankTransfer, recvCheque float64
+	var recvBankID *uint
+	if in.CashTreatment == BankPledgeCashTreatmentCashIn {
+		recvCash, recvUpi, recvBankTransfer, recvCheque, err = platform.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, platform.RoundMoney(in.PledgedAmount), in.ReceivedBankID)
+		if err != nil {
+			return nil, err
+		}
+		if recvUpi+recvBankTransfer+recvCheque > 0 {
+			recvBankID = in.ReceivedBankID
+		}
+	}
 	if in.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
-		id, err := s.cashRecorder.RecordBankPledgeCashIn(ctx, loanID, in.BankName, platform.RoundMoney(in.PledgedAmount), in.PledgeDate)
+		id, err := s.cashRecorder.RecordBankPledgeCashIn(ctx, loanID, l.LoanNumber, in.BankName, platform.RoundMoney(in.PledgedAmount), recvCash, recvUpi, recvBankTransfer, recvCheque, recvBankID, in.PledgeDate)
 		if err != nil {
 			return nil, fmt.Errorf("could not record the pledge in Cash-in-Hand, pledge not saved: %w", err)
 		}
@@ -3392,6 +3412,11 @@ func (s *Service) RecordBankPledge(ctx context.Context, loanID uint, branchID *u
 		PledgedGrossWeight: grossWeight,
 		PledgedNetWeight:   l.TotalNetWeight,
 		CashTreatment:      in.CashTreatment,
+		CashAmount:         recvCash,
+		UpiAmount:          recvUpi,
+		BankTransferAmount: recvBankTransfer,
+		ChequeAmount:       recvCheque,
+		ReceivedBankID:     recvBankID,
 		Status:             BankPledgeStatusRecordActive,
 		CashMovementID:     cashMovementID,
 	}
@@ -5546,13 +5571,24 @@ func (s *Service) completePartialRelease(ctx context.Context, l *Loan, approved 
 	return s.Get(ctx, l.ID, nil)
 }
 
+// BankPledgeReleaseInput is the optional body of PUT /loans/:id/bank-pledge/
+// :pledgeId/release: how the pledged amount is paid back to the bank. An
+// all-zero split books the whole amount as Cash, as releases always did.
+type BankPledgeReleaseInput struct {
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+	BankID             *uint
+}
+
 // ReleaseBankPledge reclaims a loan's gold from the bank. Its cash effect
 // MIRRORS whatever was chosen when the pledge was created: a CashIn pledge
 // books the amount back out, while a RecordOnly pledge is a symmetric no-op —
 // nothing was booked in, so nothing is booked out. Without that symmetry a
 // RecordOnly pledge would credit the till on release for money that never
 // arrived.
-func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, actorID *uint, actorRole string) (*Loan, error) {
+func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, in BankPledgeReleaseInput, actorID *uint, actorRole string) (*Loan, error) {
 	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -5564,15 +5600,28 @@ func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, 
 	if err != nil || p.LoanID != loanID {
 		return nil, ErrNotFound
 	}
-	// A CashIn pledge's release pays the pledged amount back out of the till.
+	// How the money goes back to the bank — only a CashIn pledge moves any.
+	var relCash, relUpi, relBankTransfer, relCheque float64
+	var relBankID *uint
+	if p.CashTreatment == BankPledgeCashTreatmentCashIn {
+		relCash, relUpi, relBankTransfer, relCheque, err = platform.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, p.PledgedAmount, in.BankID)
+		if err != nil {
+			return nil, err
+		}
+		if relUpi+relBankTransfer+relCheque > 0 {
+			relBankID = in.BankID
+		}
+	}
+	// A CashIn pledge's release pays the cash share of the pledged amount back
+	// out of the till (UPI/Bank Transfer/Cheque leave a bank account instead).
 	// The pledge's cash lives on the Head Office till (see
 	// CashRecorder.HeadOfficeBranchID), so that is the balance to check.
-	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
+	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil && relCash > 0 {
 		hoID, err := s.cashRecorder.HeadOfficeBranchID(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.ensureCashInHand(ctx, hoID, p.PledgedAmount); err != nil {
+		if err := s.ensureCashInHand(ctx, hoID, relCash); err != nil {
 			return nil, err
 		}
 	}
@@ -5595,7 +5644,7 @@ func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, 
 		// cash-out movement above already covers the same amount, so a
 		// "Cash" expense would subtract it twice from Expected Cash in Hand
 		// (see cash.SummaryService.ForDate, which offsets only Mode "Cash").
-		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(ctx, loanID, l.LoanNumber, p.BankName, p.PledgedAmount, relCash, relUpi, relBankTransfer, relCheque, relBankID, now, l.BranchID)
 		if err != nil {
 			return nil, fmt.Errorf("could not record the pledge release in Cash-in-Hand, release not saved: %w", err)
 		}
@@ -5675,7 +5724,9 @@ func (s *Service) VoidBankPledge(ctx context.Context, loanID, pledgeID uint, bra
 	// Only a pledge that actually credited the till needs a reversal. Voiding a
 	// RecordOnly pledge touches no cash, exactly as creating it didn't.
 	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
-		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+		// Reverse in the same modes the advance arrived in (an all-zero split,
+		// i.e. a pledge from before modes existed, reverses as Cash).
+		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(ctx, loanID, l.LoanNumber, p.BankName, p.PledgedAmount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, p.ReceivedBankID, now, l.BranchID)
 		if err != nil {
 			return nil, fmt.Errorf("could not record the compensating cash-out, pledge not voided: %w", err)
 		}

@@ -1026,6 +1026,14 @@ export type BankPledgeInput = {
    * corrected by voiding the record (voidBankPledge) and re-creating it, never
    * by editing, since rewriting it would falsify booked cash history. */
   cashTreatment?: BankPledgeCashTreatment;
+
+  /* How a "CashIn" advance was received, and the branch bank account a UPI/
+   * Bank Transfer/Cheque share landed in. Omitted = all Cash. */
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  receivedBankId?: number;
 };
 
 export type BankPledgeCashTreatment = "CashIn" | "RecordOnly";
@@ -1038,9 +1046,17 @@ export async function recordBankPledge(loanId: number, input: BankPledgeInput): 
   return toView(rec);
 }
 
-export async function releaseBankPledge(loanId: number, pledgeId: number): Promise<LoanView> {
+/* `payment` is how the pledged amount is paid back to the bank (only used for
+ * a "CashIn" pledge; omitted = all Cash) and the branch bank account a UPI/
+ * Bank Transfer/Cheque share leaves from. */
+export async function releaseBankPledge(
+  loanId: number,
+  pledgeId: number,
+  payment?: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }
+): Promise<LoanView> {
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge/${pledgeId}/release`, {
     method: "PUT",
+    ...(payment ? { body: JSON.stringify(payment) } : {}),
   });
   return toView(rec);
 }
