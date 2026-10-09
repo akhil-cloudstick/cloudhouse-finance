@@ -52,8 +52,8 @@ const ALLOCATION_MODES = [
  *
  * `over` is what the amount could not place in any bucket the mode is allowed
  * to touch — the condition the backend turns into ErrExceedsOutstanding —
- * except for Full Settlement, which is instead SHORT when the amount doesn't
- * cover everything owed. */
+ * for Full Settlement the ceiling is everything owed (incl. any additional
+ * charge): SHORT below it, OVER above it. */
 function previewAllocation(loan: LoanView, mode: string, amount: number) {
   const feeOwed = loan.outstandingProcessingFee;
   const penalOwed = loan.outstandingPenalInterest;
@@ -62,7 +62,7 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
 
   if (mode === "Full Settlement") {
     const total = feeOwed + penalOwed + interestOwed + principalOwed;
-    return { fee: feeOwed, penal: penalOwed, interest: interestOwed, principal: principalOwed, over: 0, short: Math.max(0, total - amount) };
+    return { fee: feeOwed, penal: penalOwed, interest: interestOwed, principal: principalOwed, over: Math.max(0, amount - total), short: Math.max(0, total - amount) };
   }
 
   // Every mode clears an outstanding fee first; the buckets after that are
@@ -114,7 +114,11 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
 // initialMode preselects "Apply Payment To" (and so the prefilled Amount) —
 // e.g. the top-up modal's "pay the interest first" redirect opens this on
 // "Interest". Ignored if it isn't one of ALLOCATION_MODES.
-//
+
+// Prefilled money figures are accrued/prorated, so they carry long decimals —
+// show them to the paisa.
+const prefill = (v: number) => (v > 0 ? String(Math.round(v * 100) / 100) : "");
+
 // Record Payment never posts straight away: it first pops a confirmation
 // summary (amount, where it lands, how it was paid) on top of the form, and
 // only that popup's Confirm Payment actually records it.
@@ -140,10 +144,10 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       // Only overwrite the prefill if the user hasn't already touched it —
       // an in-flight refresh landing after they've started typing their
       // own override would otherwise clobber it mid-edit.
-      if (!interestTouchedRef.current) setInterestRaw(fresh.outstandingInterest > 0 ? String(fresh.outstandingInterest) : "");
+      if (!interestTouchedRef.current) setInterestRaw(prefill(fresh.outstandingInterest));
       if (!amountTouchedRef.current) {
         const v = amountForMode(fresh, mode);
-        setAmt(v > 0 ? String(v) : "");
+        setAmt(v > 0 ? prefill(v) : "");
       }
     }).catch(() => { /* keep the possibly-stale prop rather than blocking the form */ });
     return () => { cancelled = true; };
@@ -173,7 +177,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 
   const [amt, setAmt] = useState(() => {
     const v = amountForMode(initialLoan, startMode);
-    return v > 0 ? String(v) : "";
+    return v > 0 ? prefill(v) : "";
   });
   // Set the instant a mode is picked, before the user has typed their own
   // Amount — once they touch the field by hand this stops overwriting it, same
@@ -189,7 +193,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     setMode(nextMode);
     if (nextMode !== "Partial" || !amountTouchedRef.current) {
       const v = amountForMode(loan, nextMode);
-      setAmt(v > 0 ? String(v) : "");
+      setAmt(v > 0 ? prefill(v) : "");
     }
   }
   function setAmount(v: string) {
@@ -202,7 +206,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // order, and staff need to be able to charge a different actual amount
   // for a specific settlement. Cleared by hand means "use whatever the
   // system calculates".
-  const [interest, setInterestRaw] = useState(initialLoan.outstandingInterest > 0 ? String(initialLoan.outstandingInterest) : "");
+  const [interest, setInterestRaw] = useState(prefill(initialLoan.outstandingInterest));
   const interestTouchedRef = useRef(false);
   function setInterest(v: string) {
     interestTouchedRef.current = true;
@@ -243,7 +247,12 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // A fee entered here is added to the loan's owed fee BEFORE Amount is
   // allocated (see this component's doc comment), so the preview has to see
   // it too or it would under-report what the fee bucket swallows.
-  const previewAmount = +amt || 0;
+  // Additional Charges are collected ON TOP of Amount — the customer pays
+  // Amount + charges, and the charge settles the fee bucket so none of Amount
+  // is eaten by it. previewAmount is that total cash handed over.
+  const typedAmount = +amt || 0;
+  const charge = +fee > 0 ? +fee : 0;
+  const previewAmount = typedAmount > 0 ? typedAmount + charge : 0;
   // An Interest override replaces the computed interest server-side (see
   // PaymentInput.InterestOverride), so the preview uses it the same way.
   const previewLoan = {
@@ -255,10 +264,11 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   const splitBalanced = Math.abs(remaining) < 0.01;
 
   async function save() { return singleFlight("modal:payment:save", async () => {
-    const amount = +amt;
-    if (!amount || amount <= 0) { setErr("Please enter a valid payment amount."); return; }
+    const typed = +amt;
+    if (!typed || typed <= 0) { setErr("Please enter a valid payment amount."); return; }
     const processingFee = fee.trim() ? +fee : 0;
     if (processingFee < 0) { setErr("Processing fee cannot be negative."); return; }
+    const amount = typed + processingFee;
     const interestOverride = interest.trim() ? +interest : undefined;
     if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative."); return; }
     if (!date) { setErr("Please select the payment date."); return; }
@@ -386,8 +396,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     : alloc.short > 0.01
       ? `${fmt(alloc.short)} short. Closing the loan needs the full ${fmt(previewAmount + alloc.short)}.`
       : "";
-  const interestQuick = amountForMode(previewLoan, "Interest");
-  const settleQuick = amountForMode(previewLoan, "Full Settlement") + (+fee || 0);
+  // Quick-fill figures exclude the typed charge — it is added on top.
+  const interestQuick = amountForMode({ ...previewLoan, outstandingProcessingFee: loan.outstandingProcessingFee }, "Interest");
+  const settleQuick = amountForMode(loan, "Full Settlement");
 
   // Quick-fill chips set the mode along with the amount, so the receipt and
   // the backend both read the payment the same way the chip's label says.
@@ -438,7 +449,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                   <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
                 ) : (
                   <div><label className="f">Additional Charges (₹)</label>
-                    <input className="inp" type="number" min={0} placeholder="e.g. late fee" value={fee} onChange={(e) => setFee(e.target.value)} />
+                    <input className="inp" type="number" min={0} placeholder="e.g. late fee — added on top of Amount" value={fee} onChange={(e) => setFee(e.target.value)} />
                   </div>
                 )}
               </div>

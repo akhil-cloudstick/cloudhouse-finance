@@ -146,7 +146,7 @@ function BankTable({ reloadKey, afterChange, inModal }: { reloadKey: number; aft
   if (banks.length === 0) return <p style={{ color: "var(--muted)", fontSize: 13.5 }}>No banks yet. Click &quot;Add Bank&quot; to create one.</p>;
 
   return (
-    <div className={`card tbl-card tbl-card-fill${inModal ? " tbl-flat tbl-scroll-paged" : ""}`}>
+    <div className={`card tbl-card tbl-card-fill${inModal ? " tbl-flat tbl-scroll-paged" : " tbl-rounded"}`}>
       <div className="tbl-wrap" ref={wrapRef} onScroll={inModal ? onWrapScroll : undefined}>
         <table className="tbl">
           <thead>

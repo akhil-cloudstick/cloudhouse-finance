@@ -87,6 +87,15 @@ type CashRecorder interface {
 	RecordBankPledgeCashOut(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (movementID uint, err error)
 	RecordBankPledgeReleaseExpense(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
 
+	// HeadOfficeBranchID is the branch every bank-pledge movement is booked
+	// on (the branchID passed to the pledge methods above is ignored), so the
+	// release balance check must look at that till, not the loan's.
+	HeadOfficeBranchID(ctx context.Context) (uint, error)
+	// DeleteCashMovement undoes one movement — used to roll a cash entry back
+	// when the step that follows it fails, so a half-finished operation
+	// never leaves cash in the books for something that was not saved.
+	DeleteCashMovement(ctx context.Context, id uint) error
+
 	// cashAmount/upiAmount/bankTransferAmount/chequeAmount split amount
 	// across the mode CashMovement rows actually written (see
 	// cash.MovementService.recordSplitCashMovement) — amount stays the
@@ -111,7 +120,7 @@ type CashRecorder interface {
 	// leaves the till (it's deducted from what's paid out, not paid out
 	// and then collected back), so this is a plain single-mode cash-in,
 	// not a split like the other Record*CashOut/CashIn methods here.
-	RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+	RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, bankID *uint) (movementID uint, err error)
 
 	// RecordAuctionSaleCashIn books the NET proceeds of an auction (sale price
 	// less auction expenses) into Cash-in-Hand. Previously an auction recorded
@@ -636,6 +645,11 @@ type CreateInput struct {
 	// AdditionalInfo is free text captured at creation time — see Loan's
 	// own field doc.
 	AdditionalInfo string
+
+	// ServiceChargeMode overrides the scheme's default collection mode for
+	// this loan (the operator chooses it at creation). Empty = use the
+	// scheme's.
+	ServiceChargeMode string
 }
 
 // rateForPurity lives in purity.go (parses "22K"/"91.6%" and resolves the
@@ -799,6 +813,16 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 		LastAccrualDate: in.OpenedDate,
 	}
 	rec.applySchemeSnapshot(sch)
+	switch in.ServiceChargeMode {
+	case "":
+	case scheme.ServiceChargeModeWithheldFromPayout, scheme.ServiceChargeModeAddedToPrincipal:
+		rec.ServiceChargeMode = in.ServiceChargeMode
+	default:
+		return nil, httpx.NewBadRequest("invalid serviceChargeMode")
+	}
+	if rec.ServiceChargeMode == "" {
+		rec.ServiceChargeMode = scheme.ServiceChargeModeWithheldFromPayout
+	}
 	recalculateTotals(rec, ornaments)
 
 	// The service charge amount is computed once here, against the
@@ -824,12 +848,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	// amount is a float product of weight × rate × LTV, so a figure displayed
 	// as 453900.00 can be 453899.9999… underneath and would reject the very
 	// amount the operator was shown.
-	if platform.RoundMoney(finalPrincipal) > platform.RoundMoney(rec.EligibleLoanAmount) {
-		if finalPrincipal > in.PrincipalAmount {
-			return nil, httpx.NewBadRequest(fmt.Sprintf(
-				"principal ₹%.2f plus the ₹%.2f service charge (₹%.2f) cannot exceed the eligible loan amount ₹%.2f — enter a lower amount",
-				in.PrincipalAmount, rec.ServiceChargeAmount, finalPrincipal, rec.EligibleLoanAmount))
-		}
+	// The cap applies to the amount the operator entered (the loan amount to
+	// disburse), NOT to the final principal: an AddedToPrincipal charge sits
+	// on top of the eligible amount rather than eating into it.
+	if platform.RoundMoney(in.PrincipalAmount) > platform.RoundMoney(rec.EligibleLoanAmount) {
 		return nil, ErrPrincipalTooHigh
 	}
 	rec.EligibleLoanAmount = platform.RoundMoney(rec.EligibleLoanAmount)
@@ -1453,8 +1475,19 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 	// Re-checked on the edit path against the (possibly re-snapshotted)
 	// scheme LTV and the current ornaments, same as Create — the UI's
 	// "Max ₹X (based on scheme LTV)" is advisory only.
-	if platform.RoundMoney(l.PrincipalAmount) > platform.RoundMoney(l.EligibleLoanAmount) {
-		return nil, httpx.NewBadRequest(fmt.Sprintf("principal amount ₹%.2f cannot exceed the eligible loan amount ₹%.2f (based on scheme LTV)", l.PrincipalAmount, l.EligibleLoanAmount))
+	// An AddedToPrincipal charge is already folded into PrincipalAmount, and
+	// sits on top of the eligible cap (see Create) — compare the entered base.
+	capped := l.PrincipalAmount
+	if l.ServiceChargeMode == scheme.ServiceChargeModeAddedToPrincipal && l.ServiceChargeValue > 0 {
+		switch l.ServiceChargeType {
+		case scheme.ServiceChargeTypeFlat:
+			capped = l.PrincipalAmount - l.ServiceChargeValue
+		case scheme.ServiceChargeTypePercent:
+			capped = l.PrincipalAmount / (1 + l.ServiceChargeValue/100)
+		}
+	}
+	if platform.RoundMoney(capped) > platform.RoundMoney(l.EligibleLoanAmount) {
+		return nil, httpx.NewBadRequest(fmt.Sprintf("principal amount ₹%.2f cannot exceed the eligible loan amount ₹%.2f (based on scheme LTV)", capped, l.EligibleLoanAmount))
 	}
 
 	// Re-derived for consistency whenever the scheme or principal changed
@@ -1938,6 +1971,17 @@ type ApprovalInput struct {
 	// meaningful (and only stored) at the FinalSanction stage that triggers
 	// the actual cash-out movement.
 	BankID *uint
+
+	// Charge* is how the operator records the withheld service charge —
+	// split across payment modes the same way as the payout above. Only used
+	// at the disbursing stage of a WithheldFromPayout loan. All zero means
+	// "record it as Cash"; otherwise it must sum to the loan's service charge
+	// and name ChargeBankID for any non-cash part.
+	ChargeCashAmount         float64
+	ChargeUpiAmount          float64
+	ChargeBankTransferAmount float64
+	ChargeChequeAmount       float64
+	ChargeBankID             *uint
 }
 
 // Approve advances (or terminates) a loan's sanction chain. By default:
@@ -2006,18 +2050,6 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 		}
 	}
 
-	audit := &LoanApproval{
-		LoanID:          loanID,
-		Stage:           stage,
-		Action:          in.Action,
-		ActorEmployeeID: in.ActorEmployeeID,
-		ActorRole:       in.ActorRole,
-		Remarks:         in.Remarks,
-	}
-	if err := s.approvalRepo.Create(ctx, audit); err != nil {
-		return nil, err
-	}
-
 	disbursing := false
 	rejected := in.Action == ApprovalStageRejected
 	var nextStageLabel string
@@ -2063,10 +2095,17 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 		if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.DisbursedAmount); err != nil {
 			return nil, err
 		}
-	}
-
-	if err := s.repo.Update(ctx, l); err != nil {
-		return nil, err
+		if l.ServiceChargeMode == scheme.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
+			chargeSum := in.ChargeCashAmount + in.ChargeUpiAmount + in.ChargeBankTransferAmount + in.ChargeChequeAmount
+			if chargeSum > 0 {
+				if err := platform.ValidateSplit(in.ChargeCashAmount, in.ChargeUpiAmount, in.ChargeBankTransferAmount, in.ChargeChequeAmount, l.ServiceChargeAmount); err != nil {
+					return nil, err
+				}
+				if in.ChargeBankID == nil && in.ChargeUpiAmount+in.ChargeBankTransferAmount+in.ChargeChequeAmount > 0 {
+					return nil, ErrBankRequiredForSplitMode
+				}
+			}
+		}
 	}
 
 	// The principal only actually leaves the till once the loan clears its
@@ -2074,9 +2113,13 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	// cash going out for a loan that might still be rejected. DisbursedAmount
 	// (not PrincipalAmount) is what's actually handed over — see this
 	// field's own doc comment just above for why they can differ.
+	//
+	// Booked BEFORE the loan is saved so a failure is returned to the operator
+	// and the loan stays at its approval stage, instead of becoming Active
+	// with no cash entry (the old behaviour just logged the error).
 	if disbursing && s.cashRecorder != nil {
 		if _, _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.DisbursedAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, time.Now(), l.CustomerID, in.BankID); err != nil {
-			log.Printf("cash-out movement (disbursement) failed for loan %d: %v", l.ID, err)
+			return nil, fmt.Errorf("could not record the disbursement in Cash-in-Hand, loan not approved: %w", err)
 		}
 		// The withheld charge is real cash the branch keeps rather than
 		// pays out — booked as its own cash-in (income) so it shows up in
@@ -2084,10 +2127,33 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 		// on the loan (see item #11's CashTransactionGroupID work for the
 		// same "make it visible in the ledger" rationale).
 		if l.ServiceChargeMode == scheme.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
-			if _, err := s.cashRecorder.RecordServiceChargeCashIn(ctx, l.ID, l.LoanNumber, l.ServiceChargeAmount, l.BranchID, time.Now()); err != nil {
-				log.Printf("cash-in movement (service charge) failed for loan %d: %v", l.ID, err)
+			if _, err := s.cashRecorder.RecordServiceChargeCashIn(ctx, l.ID, l.LoanNumber, l.ServiceChargeAmount, in.ChargeCashAmount, in.ChargeUpiAmount, in.ChargeBankTransferAmount, in.ChargeChequeAmount, l.BranchID, time.Now(), in.ChargeBankID); err != nil {
+				s.undoDisbursementCash(ctx, l.LoanNumber)
+				return nil, fmt.Errorf("could not record the service charge in Cash-in-Hand, loan not approved: %w", err)
 			}
 		}
+	}
+
+	audit := &LoanApproval{
+		LoanID:          loanID,
+		Stage:           stage,
+		Action:          in.Action,
+		ActorEmployeeID: in.ActorEmployeeID,
+		ActorRole:       in.ActorRole,
+		Remarks:         in.Remarks,
+	}
+	if err := s.approvalRepo.Create(ctx, audit); err != nil {
+		if disbursing {
+			s.undoDisbursementCash(ctx, l.LoanNumber)
+		}
+		return nil, err
+	}
+
+	if err := s.repo.Update(ctx, l); err != nil {
+		if disbursing {
+			s.undoDisbursementCash(ctx, l.LoanNumber)
+		}
+		return nil, err
 	}
 
 	// Mirrors the cash-out movement above as a row on the loan's OWN ledger
@@ -2305,7 +2371,9 @@ func allocatePayment(l *Loan, paymentType string, amount float64, interestOverri
 
 	case PaymentTypeFullSettlement:
 		total := feeOutstanding + penalOutstanding + interestOutstanding + principalOutstanding
-		if amount+epsilon < total {
+		// Exactly what is owed (incl. any additional charge) — neither short nor
+		// over: an overpayment would record cash the loan never applies.
+		if amount+epsilon < total || amount > total+epsilon {
 			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
 		fee, penal, interest, principal = feeOutstanding, penalOutstanding, interestOutstanding, principalOutstanding
@@ -3292,6 +3360,26 @@ func (s *Service) RecordBankPledge(ctx context.Context, loanID uint, branchID *u
 		return nil, ErrInvalidCashTreatment
 	}
 
+	// Cash is touched ONLY when the operator explicitly chose CashIn. A
+	// RecordOnly pledge is pure book-keeping: no movement at all, and
+	// correspondingly no reversal on release (see ReleaseBankPledge).
+	//
+	// A pledge books cash IN only — the bank's advance is borrowing, not
+	// spending, so no expense is recorded here. The expense is booked at
+	// release (RecordBankPledgeReleaseExpense), when the money actually
+	// goes back to the bank.
+	//
+	// Booked BEFORE the pledge is saved so a failure is returned to the
+	// operator instead of leaving a CashIn pledge with no cash entry.
+	var cashMovementID *uint
+	if in.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
+		id, err := s.cashRecorder.RecordBankPledgeCashIn(ctx, loanID, in.BankName, platform.RoundMoney(in.PledgedAmount), in.PledgeDate)
+		if err != nil {
+			return nil, fmt.Errorf("could not record the pledge in Cash-in-Hand, pledge not saved: %w", err)
+		}
+		cashMovementID = &id
+	}
+
 	p := &BankPledgeRecord{
 		LoanID:             loanID,
 		BankID:             in.BankID,
@@ -3305,8 +3393,10 @@ func (s *Service) RecordBankPledge(ctx context.Context, loanID uint, branchID *u
 		PledgedNetWeight:   l.TotalNetWeight,
 		CashTreatment:      in.CashTreatment,
 		Status:             BankPledgeStatusRecordActive,
+		CashMovementID:     cashMovementID,
 	}
 	if err := s.pledgeRepo.Create(ctx, p); err != nil {
+		s.undoCashMovement(ctx, cashMovementID)
 		return nil, err
 	}
 
@@ -3321,30 +3411,33 @@ func (s *Service) RecordBankPledge(ctx context.Context, loanID uint, branchID *u
 		}
 	}
 
-	// Cash is touched ONLY when the operator explicitly chose CashIn. A
-	// RecordOnly pledge is pure book-keeping: no movement at all, and
-	// correspondingly no reversal on release (see ReleaseBankPledge).
-	//
-	// A pledge books cash IN only — the bank's advance is borrowing, not
-	// spending, so no expense is recorded here. The expense is booked at
-	// release (RecordBankPledgeReleaseExpense), when the money actually
-	// goes back to the bank.
-	if in.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
-		movementID, err := s.cashRecorder.RecordBankPledgeCashIn(ctx, loanID, in.BankName, p.PledgedAmount, in.PledgeDate)
-		if err != nil {
-			log.Printf("cash-in movement (bank pledge) failed for loan %d: %v", loanID, err)
-		} else {
-			p.CashMovementID = &movementID
-		}
-
-		if err := s.pledgeRepo.Update(ctx, p); err != nil {
-			log.Printf("saving cash movement link (bank pledge) failed for loan %d: %v", loanID, err)
-		}
-	}
-
 	s.recordPledgeEvent(ctx, p, BankPledgeEventPledged, in.ActorEmployeeID, in.ActorRole, pledgeTreatmentRemark(in.CashTreatment))
 
 	return s.Get(ctx, l.ID, nil)
+}
+
+// undoDisbursementCash retracts the disbursement cash-out and withheld-charge
+// cash-in booked for loanNumber when the approval that triggered them could
+// not be saved — see Service.Approve.
+func (s *Service) undoDisbursementCash(ctx context.Context, loanNumber string) {
+	if s.cashRecorder == nil {
+		return
+	}
+	if err := s.cashRecorder.DeleteLoanDisbursementCashMovements(ctx, loanNumber); err != nil {
+		log.Printf("could not roll back disbursement cash for %s after a failed approval: %v", loanNumber, err)
+	}
+}
+
+// undoCashMovement rolls back a movement booked just before a step that then
+// failed. Best-effort — if the delete itself fails the orphan is logged for
+// manual clean-up rather than masking the original error.
+func (s *Service) undoCashMovement(ctx context.Context, id *uint) {
+	if id == nil || s.cashRecorder == nil {
+		return
+	}
+	if err := s.cashRecorder.DeleteCashMovement(ctx, *id); err != nil {
+		log.Printf("could not roll back cash movement %d after a failed save: %v", *id, err)
+	}
 }
 
 // pledgeTreatmentRemark renders the cash decision in plain words, so the audit
@@ -3982,10 +4075,9 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 	if disposition == AuctionSurplusRefundedToCustomer && s.cashRecorder != nil {
 		movementID, err := s.cashRecorder.RecordAuctionSurplusCashOut(ctx, loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now)
 		if err != nil {
-			log.Printf("cash-out movement (auction surplus refund) failed for loan %d: %v", loanID, err)
-		} else {
-			rec.SurplusPaidOutMovementID = &movementID
+			return nil, fmt.Errorf("could not record the surplus refund in Cash-in-Hand, settlement not saved: %w", err)
 		}
+		rec.SurplusPaidOutMovementID = &movementID
 	}
 
 	rec.SurplusDisposition = disposition
@@ -3996,6 +4088,7 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 	}
 	rec.Stage = AuctionStageSettled
 	if err := s.auctionRepo.Update(ctx, rec); err != nil {
+		s.undoCashMovement(ctx, rec.SurplusPaidOutMovementID)
 		return nil, err
 	}
 
@@ -5472,8 +5565,14 @@ func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, 
 		return nil, ErrNotFound
 	}
 	// A CashIn pledge's release pays the pledged amount back out of the till.
-	if p.CashTreatment == BankPledgeCashTreatmentCashIn {
-		if err := s.ensureCashInHand(ctx, l.BranchID, p.PledgedAmount); err != nil {
+	// The pledge's cash lives on the Head Office till (see
+	// CashRecorder.HeadOfficeBranchID), so that is the balance to check.
+	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
+		hoID, err := s.cashRecorder.HeadOfficeBranchID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.ensureCashInHand(ctx, hoID, p.PledgedAmount); err != nil {
 			return nil, err
 		}
 	}
@@ -5481,21 +5580,10 @@ func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, 
 	now := time.Now()
 	p.ReleaseDate = &now
 	p.Status = BankPledgeStatusRecordReleased
-	if err := s.pledgeRepo.Update(ctx, p); err != nil {
-		return nil, err
-	}
 
-	l.BankPledgeStatus = BankPledgeStatusReleased
-	if err := s.repo.Update(ctx, l); err != nil {
-		return nil, err
-	}
-
-	if s.packetMover != nil {
-		if err := s.packetMover.RecordBankReleaseMovement(ctx, loanID, "Gold returned from bank: "+p.BankName); err != nil {
-			log.Printf("packet bank-release movement failed for loan %d: %v", loanID, err)
-		}
-	}
-
+	// Cash first: a failed cash entry is returned to the operator with the
+	// pledge still active, instead of a released pledge with no cash-out.
+	var releaseMovementID, releaseExpenseID *uint
 	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
 		// The original cash-in movement from the pledge stays untouched as
 		// permanent history; releasing the gold books the same amount back
@@ -5509,20 +5597,33 @@ func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, 
 		// (see cash.SummaryService.ForDate, which offsets only Mode "Cash").
 		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
 		if err != nil {
-			log.Printf("cash-out movement (bank release) failed for loan %d: %v", loanID, err)
-		} else {
-			p.ReleaseCashMovementID = &movementID
+			return nil, fmt.Errorf("could not record the pledge release in Cash-in-Hand, release not saved: %w", err)
 		}
+		releaseMovementID = &movementID
 
 		expenseID, err := s.cashRecorder.RecordBankPledgeReleaseExpense(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
 		if err != nil {
-			log.Printf("release expense entry (bank release) failed for loan %d: %v", loanID, err)
-		} else {
-			p.ReleaseExpenseID = &expenseID
+			s.undoCashMovement(ctx, releaseMovementID)
+			return nil, fmt.Errorf("could not record the pledge release expense, release not saved: %w", err)
 		}
+		releaseExpenseID = &expenseID
+		p.ReleaseCashMovementID = releaseMovementID
+		p.ReleaseExpenseID = releaseExpenseID
+	}
 
-		if err := s.pledgeRepo.Update(ctx, p); err != nil {
-			log.Printf("saving cash-out movement/expense links (bank release) failed for loan %d: %v", loanID, err)
+	if err := s.pledgeRepo.Update(ctx, p); err != nil {
+		s.undoCashMovement(ctx, releaseMovementID)
+		return nil, err
+	}
+
+	l.BankPledgeStatus = BankPledgeStatusReleased
+	if err := s.repo.Update(ctx, l); err != nil {
+		return nil, err
+	}
+
+	if s.packetMover != nil {
+		if err := s.packetMover.RecordBankReleaseMovement(ctx, loanID, "Gold returned from bank: "+p.BankName); err != nil {
+			log.Printf("packet bank-release movement failed for loan %d: %v", loanID, err)
 		}
 	}
 
@@ -5576,13 +5677,13 @@ func (s *Service) VoidBankPledge(ctx context.Context, loanID, pledgeID uint, bra
 	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
 		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
 		if err != nil {
-			log.Printf("compensating cash-out (pledge void) failed for loan %d: %v", loanID, err)
-		} else {
-			p.VoidCashMovementID = &movementID
+			return nil, fmt.Errorf("could not record the compensating cash-out, pledge not voided: %w", err)
 		}
+		p.VoidCashMovementID = &movementID
 	}
 
 	if err := s.pledgeRepo.Update(ctx, p); err != nil {
+		s.undoCashMovement(ctx, p.VoidCashMovementID)
 		return nil, err
 	}
 
@@ -5796,6 +5897,7 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 	// The lender's own particulars come from the tenant profile, not from
 	// the loan — see renderBondHTML for the fallback order.
 	legalName, addressLine, kmlRegNo, policy := s.lenderProfile(ctx)
+	lenderAge, lenderPAN, lenderAadhaar := s.lenderIdentity(ctx)
 
 	return BondData{
 		LoanNumber:      l.LoanNumber,
@@ -5816,6 +5918,9 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		LegalName:       legalName,
 		AddressLine:     addressLine,
 		KMLRegNo:        kmlRegNo,
+		LenderAge:       lenderAge,
+		LenderPAN:       lenderPAN,
+		LenderAadhaar:   lenderAadhaar,
 		Policy:          policy,
 		DueDate:         l.DueDate,
 		LenderSignature: s.lenderSignature(ctx),
@@ -5851,6 +5956,7 @@ func (s *Service) bondDisbursements(ctx context.Context, l *Loan) []BondDisburse
 // lender, wrong document family and no signature.
 func (s *Service) FillLenderProfile(ctx context.Context, data *BondData) {
 	data.LegalName, data.AddressLine, data.KMLRegNo, data.Policy = s.lenderProfile(ctx)
+	data.LenderAge, data.LenderPAN, data.LenderAadhaar = s.lenderIdentity(ctx)
 	data.BusinessName = s.businessName(ctx)
 	data.LenderSignature = s.lenderSignature(ctx)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"cloudhouse/backend/internal/platform"
@@ -51,6 +52,12 @@ type ProfileInput struct {
 	LockupTagline string
 	AddressLine   string
 	KMLRegNo      string
+	// Lender identity for the GML pledge agreement — required when Policy is
+	// GML, left untouched otherwise. See lenderIdentity.
+	ContactPhone  string
+	LenderAge     string
+	LenderPAN     string
+	LenderAadhaar string
 	AppURL        string
 	// Policy is the document family, one of tenant.KnownPolicies. Empty is
 	// read as the KML default rather than rejected, so a console that has not
@@ -84,6 +91,11 @@ func (s *Service) UpdateProfile(ctx context.Context, actor *SuperAdminUser, id u
 	t.LockupTagline = strings.TrimSpace(in.LockupTagline)
 	t.AddressLine = strings.TrimSpace(in.AddressLine)
 	t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
+	contactPhone, perr := normalizeContactPhone(in.ContactPhone, false)
+	if perr != nil {
+		return nil, perr
+	}
+	t.ContactPhone = contactPhone
 	t.AppURL = strings.TrimSpace(in.AppURL)
 	// SetPolicy, not a bare assignment: switching family re-filters the
 	// stored languages through the new one, so a business moved from KML to
@@ -91,6 +103,15 @@ func (s *Service) UpdateProfile(ctx context.Context, actor *SuperAdminUser, id u
 	beforePolicy := t.PolicyOrDefault()
 	beforeLanguages := t.DocumentLanguages
 	t.SetPolicy(in.Policy)
+	// Only under GML: other policies leave what is stored untouched, so a
+	// business switched to KML and back keeps its lender identity.
+	if t.PolicyOrDefault() == tenant.PolicyGML {
+		age, pan, aadhaar, lerr := lenderIdentity(tenant.PolicyGML, in.LenderAge, in.LenderPAN, in.LenderAadhaar)
+		if lerr != nil {
+			return nil, lerr
+		}
+		t.LenderAge, t.LenderPAN, t.LenderAadhaar = age, pan, aadhaar
+	}
 	if err := s.tenantRepo.Update(ctx, t); err != nil {
 		return nil, err
 	}
@@ -619,4 +640,60 @@ func optionalReason(reason string) string {
 		return noReasonGiven
 	}
 	return reason
+}
+
+var (
+	panPattern     = regexp.MustCompile(`^[A-Z]{5}[0-9]{4}[A-Z]$`)
+	aadhaarPattern = regexp.MustCompile(`^[0-9]{12}$`)
+)
+
+// lenderIdentity validates the lender's age, PAN and Aadhaar for the GML
+// pledge agreement, which names the licensee as a party. Required under GML;
+// under any other policy the inputs are ignored and empty values come back;
+// UpdateProfile then skips assigning them so what is stored survives a
+// switch to KML and back.
+//
+// Aadhaar is accepted with or without spaces and stored as 12 bare digits.
+func lenderIdentity(policy, age, pan, aadhaar string) (string, string, string, error) {
+	if policy != tenant.PolicyGML {
+		return "", "", "", nil
+	}
+	age = strings.TrimSpace(age)
+	pan = strings.ToUpper(strings.TrimSpace(pan))
+	aadhaar = strings.Join(strings.Fields(aadhaar), "")
+	n, err := strconv.Atoi(age)
+	if err != nil || n < 18 || n > 120 {
+		return "", "", "", httpx.NewBadRequest("lender age is required for a GML business (18–120)")
+	}
+	if !panPattern.MatchString(pan) {
+		return "", "", "", httpx.NewBadRequest("lender PAN is required for a GML business, e.g. ABCDE1234F")
+	}
+	if !aadhaarPattern.MatchString(aadhaar) {
+		return "", "", "", httpx.NewBadRequest("lender Aadhaar is required for a GML business (12 digits)")
+	}
+	return strconv.Itoa(n), pan, aadhaar, nil
+}
+
+var contactPhonePattern = regexp.MustCompile(`^\+?[0-9][0-9 ()\-]{5,18}$`)
+
+// normalizeContactPhone validates the business's contact number(s): one or
+// more numbers separated by commas, each 6–19 characters of digits with an
+// optional leading + and spaces/hyphens/brackets. Returns the numbers
+// re-joined as "a, b". required=true (registration) also rejects empty.
+func normalizeContactPhone(raw string, required bool) (string, error) {
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !contactPhonePattern.MatchString(p) {
+			return "", httpx.NewBadRequest("contact phone must be one or more valid numbers separated by commas, e.g. +91 9000012345")
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 && required {
+		return "", httpx.NewBadRequest("contact phone number is required")
+	}
+	return strings.Join(out, ", "), nil
 }

@@ -164,6 +164,18 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// Pledge movements first (it spots unlinked legacy pledge-ins by their
+	// blank mode), then the missing movements, then the blank-mode fill-in.
+	if err := cash.BackfillBankPledgeBranch(db); err != nil {
+		return err
+	}
+	if err := cash.BackfillMissingLoanMovements(db); err != nil {
+		return err
+	}
+	if err := cash.BackfillBlankMovementMode(db); err != nil {
+		return err
+	}
+
 	// Must run AFTER AutoMigrate: it backfills the scheme_* snapshot columns
 	// AutoMigrate itself creates on loans. See loan.BackfillSchemeSnapshot.
 	if err := loan.BackfillSchemeSnapshot(db); err != nil {

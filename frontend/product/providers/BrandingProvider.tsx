@@ -56,6 +56,8 @@ export type BrandingValue = {
   lockupTagline: string;
   addressLine: string;
   kmlRegNo: string;
+  contactPhone: string;
+  policy: string;
   brandColor: string;
   /** Empty means "not set" — see frontend/common/config/theme.ts. */
   secondaryColor: string;
@@ -116,6 +118,8 @@ const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "l
   lockupTagline: "",
   addressLine: "",
   kmlRegNo: "",
+  contactPhone: "",
+  policy: "",
   brandColor: DEFAULT_BRAND_COLOR,
   secondaryColor: "",
   accentColor: "",
@@ -271,6 +275,8 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           lockupTagline: b.lockupTagline || "",
           addressLine: b.addressLine || "",
           kmlRegNo: b.kmlRegNo || "",
+          contactPhone: b.contactPhone || "",
+          policy: b.policy || "",
           brandColor: b.brandColor || DEFAULT_BRAND_COLOR,
           secondaryColor: b.secondaryColor || "",
           accentColor: b.accentColor || "",
@@ -323,6 +329,8 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         cacheBrandProfile(slug, {
           legalName: next.legalName,
           kmlRegNo: next.kmlRegNo,
+          contactPhone: next.contactPhone,
+          policy: next.policy,
           addressLine: next.addressLine,
           // Also the pre-paint identity — see readCachedBrandIdentity.
           name: next.name,
@@ -392,6 +400,8 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
       cacheBrandProfile(slug, {
         legalName: pub.legalName || pub.name || "",
         kmlRegNo: "",
+        contactPhone: "",
+        policy: "",
         addressLine: "",
         name: pub.name || "",
         shortName: pub.shortName || pub.name || "",

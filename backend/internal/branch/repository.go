@@ -2,6 +2,7 @@ package branch
 
 import (
 	"context"
+	"errors"
 
 	"gorm.io/gorm"
 
@@ -151,6 +152,26 @@ func (r *Repository) FirstOrCreateByName(ctx context.Context, name string) (*Bra
 		Attrs(Branch{Name: name, Code: "HO", Address: "Unknown", IsActive: true}).
 		FirstOrCreate(&b).Error
 	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// FindHeadOffice returns the business's Head Office branch: the active branch
+// named "Head Office", or — for a business that renamed it — its oldest active
+// branch. Bank-pledge cash is booked against it rather than the pledged loan's
+// own branch, because a pledge is the company borrowing from a bank, not a
+// branch-level transaction.
+func (r *Repository) FindHeadOffice(ctx context.Context) (*Branch, error) {
+	var b Branch
+	err := r.db.WithContext(ctx).Where("name = ? AND is_active = ?", "Head Office", true).Order("id").First(&b).Error
+	if err == nil {
+		return &b, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).Where("is_active = ? AND name <> ''", true).Order("id").First(&b).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil

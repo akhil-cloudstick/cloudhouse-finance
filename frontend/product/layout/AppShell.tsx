@@ -265,6 +265,20 @@ function AppShellInner() {
     setSidebarOpen(false);
   }, [route, arg]);
 
+  /* A focused <input type="number"> steps its value on every mouse-wheel tick,
+   * so scrolling the page with the pointer over one silently changes an
+   * amount. One document-level listener for every number field (modals
+   * included) rather than an onWheel on each: blurring the focused field
+   * stops the browser stepping it, and the wheel still scrolls the page. */
+  useEffect(() => {
+    function onWheel(e: WheelEvent) {
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement && el.type === "number" && e.target === el) el.blur();
+    }
+    document.addEventListener("wheel", onWheel, { passive: true, capture: true });
+    return () => document.removeEventListener("wheel", onWheel, true);
+  }, []);
+
   // .page (not the window) is the only scroller since .shell became a fixed
   // 100vh box (see app.css's .main comment), and it isn't remounted on
   // navigation — only View is keyed — so its scrollTop survived route

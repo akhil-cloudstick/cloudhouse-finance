@@ -6248,9 +6248,14 @@ table.tbl {
     height: 38px;
   }
 
+  /* The sidebar stays on screen above 900px wide (the ≤900px block earlier
+   * is what slides it off-canvas), so .main must keep reserving its 210px
+   * here — zeroing margin-left unconditionally put the sidebar on top of
+   * the left 210px of every page on a short desktop-width window. ≤900px
+   * already gets margin-left:0 from that earlier block. */
   .main {
-    margin-left: 0;
-    width: 100%
+    margin-left: 210px;
+    width: calc(100% - 210px)
   }
 
   .top {
@@ -6263,6 +6268,15 @@ table.tbl {
 
   .modal-bg {
     padding: 12px
+  }
+}
+
+/* Phone landscape: the sidebar is off-canvas (≤900px block), so the 210px
+ * reservation in the short-landscape block above must not apply. */
+@media (max-height: 480px) and (orientation: landscape) and (max-width: 900px) {
+  .main {
+    margin-left: 0;
+    width: 100%
   }
 }
 
@@ -7810,6 +7824,14 @@ html.has-titlebar body {
   .page > .tbl-card > .tbl-wrap:not(.auction-history-tbl-wrap),
   .page > .tbl-card-fill > .tbl-wrap {
     flex: 0 0 auto;
+  }
+
+  /* The Cash ledger card keeps a 360px floor (.cash-tbl-card above). Its table
+   * must grow into that floor, otherwise a short/empty table leaves the footer
+   * stuck under it with blank space below the footer instead of at the
+   * card's bottom edge. */
+  .page > .tbl-card-fill.cash-tbl-card > .tbl-wrap {
+    flex: 1 1 auto;
   }
 }
 

@@ -159,6 +159,23 @@ type Tenant struct {
 	// customer-facing lending documents.
 	KMLRegNo string `json:"kmlRegNo" gorm:"size:60"`
 
+	// LenderAge/LenderPAN/LenderAadhaar identify the LENDER (the licensee)
+	// on the GML pledge agreement, which names them as a party the way it
+	// names the borrower. Collected by the superadmin console only when the
+	// business's policy is GML (the KML paperwork has no such lines), and
+	// required then; empty falls back to the demo placeholders in
+	// loan/indemnitybond.go. LenderAge is kept as text ("52") so an unset
+	// value is distinguishable from 0. Superadmin-only: branding.publicOf
+	// builds its own response and never copies these.
+	// ContactPhone is the business's own contact number(s), printed in the
+	// header of its slips and statements. Collected at registration in the
+	// superadmin console; one or more numbers separated by commas.
+	ContactPhone string `json:"contactPhone" gorm:"size:120"`
+
+	LenderAge     string `json:"lenderAge" gorm:"size:3"`
+	LenderPAN     string `json:"lenderPan" gorm:"size:10"`
+	LenderAadhaar string `json:"lenderAadhaar" gorm:"size:12"`
+
 	// Policy is the regulatory regime this business lends under, one of
 	// tenant.KnownPolicies ("kml"/"gml"). It selects which FAMILY of
 	// customer-facing paperwork the business issues — the kml-* or the gml-*

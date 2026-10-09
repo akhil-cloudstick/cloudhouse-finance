@@ -958,6 +958,11 @@ function BusinessWizard({
   const [taglineTouched, setTaglineTouched] = useState(!isCreate);
   const [addressLine, setAddressLine] = useState(business?.addressLine ?? "");
   const [kmlRegNo, setKmlRegNo] = useState(business?.kmlRegNo ?? "");
+  /* GML only: the lender's own identity, printed on the GML pledge agreement. */
+  const [contactPhone, setContactPhone] = useState(business?.contactPhone ?? "");
+  const [lenderAge, setLenderAge] = useState(business?.lenderAge ?? "");
+  const [lenderPan, setLenderPan] = useState(business?.lenderPan ?? "");
+  const [lenderAadhaar, setLenderAadhaar] = useState(business?.lenderAadhaar ?? "");
   /* The document policy — which FAMILY of customer-facing paperwork this
    * business issues. Chosen before languages, because it decides which
    * languages are offered at all (see policyLanguages below). Defaults to the
@@ -1241,6 +1246,10 @@ function BusinessWizard({
         tagline !== initialTagline ||
         addressLine !== (business.addressLine ?? "") ||
         kmlRegNo !== (business.kmlRegNo ?? "") ||
+        contactPhone !== (business.contactPhone ?? "") ||
+        lenderAge !== (business.lenderAge ?? "") ||
+        lenderPan !== (business.lenderPan ?? "") ||
+        lenderAadhaar !== (business.lenderAadhaar ?? "") ||
         policy !== initialPolicy ||
         appUrl !== (business.appUrl ?? "")),
     theme:
@@ -1304,6 +1313,10 @@ function BusinessWizard({
           legalName,
           addressLine,
           kmlRegNo,
+          contactPhone,
+          lenderAge,
+          lenderPan,
+          lenderAadhaar,
           policy,
           appUrl,
           brandColor: color,
@@ -1320,7 +1333,7 @@ function BusinessWizard({
         if (signatureFile) await uploadSignature(created.id, signatureFile, reason);
         if (shortName || tagline) {
           await updateProfile(created.id, {
-            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, policy, appUrl, reason,
+            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, contactPhone, lenderAge, lenderPan, lenderAadhaar, policy, appUrl, reason,
           });
         }
         if (themeBeyondDefault) {
@@ -1343,7 +1356,7 @@ function BusinessWizard({
         if (changed.plan) await changeTier(business.id, tierId, reason);
         if (changed.profile) {
           await updateProfile(business.id, {
-            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, policy, appUrl, reason,
+            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, contactPhone, lenderAge, lenderPan, lenderAadhaar, policy, appUrl, reason,
           });
         }
         if (changed.theme) {
@@ -1478,6 +1491,16 @@ function BusinessWizard({
                   <input value={kmlRegNo} onChange={(e) => setKmlRegNo(e.target.value)} />
                   <span className="sa-hint">Printed on this business&rsquo;s lending documents.</span>
                 </div>
+                <div className="sa-field">
+                  <label>Business phone{isCreate ? " *" : ""}</label>
+                  <input
+                    value={contactPhone}
+                    inputMode="tel"
+                    placeholder="+91 9000012345, +91 9000067890"
+                    onChange={(e) => setContactPhone(e.target.value.replace(/[^0-9+,\-() ]/g, ""))}
+                  />
+                  <span className="sa-hint">Printed in the header of this business&rsquo;s slips and statements. Separate several numbers with commas.</span>
+                </div>
               </div>
 
               <div className="sa-field">
@@ -1490,6 +1513,46 @@ function BusinessWizard({
                 />
                 <span className="sa-hint">Decides the pledge agreement and narrows document languages on the Grants step.</span>
               </div>
+
+              {/* GML deeds name the licensee as a party, so their own age, PAN
+                  and Aadhaar are needed on the pledge agreement. The server
+                  requires all three under GML (superadmin.lenderIdentity). The
+                  Aadhaar is a plain, visible field — not masked. */}
+              {policy === "gml" && (
+                <div className="sa-grid-2">
+                  <div className="sa-field">
+                    <label>Lender age</label>
+                    <input
+                      value={lenderAge}
+                      inputMode="numeric"
+                      maxLength={3}
+                      onChange={(e) => setLenderAge(e.target.value.replace(/\D/g, ""))}
+                    />
+                  </div>
+                  <div className="sa-field">
+                    <label>Lender PAN</label>
+                    <input
+                      value={lenderPan}
+                      maxLength={10}
+                      placeholder="ABCDE1234F"
+                      onChange={(e) => setLenderPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                    />
+                  </div>
+                  <div className="sa-field">
+                    <label>Lender Aadhaar no.</label>
+                    <input
+                      value={lenderAadhaar}
+                      inputMode="numeric"
+                      maxLength={12}
+                      placeholder="12 digits"
+                      onChange={(e) => setLenderAadhaar(e.target.value.replace(/\D/g, ""))}
+                    />
+                  </div>
+                  <span className="sa-hint" style={{ gridColumn: "1 / -1" }}>
+                    Required for GML. Printed on the pledge agreement as the lender&rsquo;s particulars.
+                  </span>
+                </div>
+              )}
 
               <div className="sa-field">
                 <label>Registered address</label>
@@ -1756,6 +1819,8 @@ function BusinessWizard({
                 <ReviewRow label="Short name" value={shortName || "(falls back to business name)"} changed={changed.profile} />
                 <ReviewRow label="Address" value={addressLine} changed={changed.profile} />
                 <ReviewRow label="Registration no." value={kmlRegNo} changed={changed.profile} />
+<ReviewRow label="Business phone" value={contactPhone} changed={changed.profile} />
+{policy === "gml" && <ReviewRow label="Lender age" value={lenderAge} changed={changed.profile} />}                {policy === "gml" && <ReviewRow label="Lender PAN" value={lenderPan} changed={changed.profile} />}                {policy === "gml" && <ReviewRow label="Lender Aadhaar" value={lenderAadhaar} changed={changed.profile} />}
                 <ReviewRow
                   label="Document policy"
                   value={catalogue.policies.find((p) => p.code === policy)?.label ?? policy}

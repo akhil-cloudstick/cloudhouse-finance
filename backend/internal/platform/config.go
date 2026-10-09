@@ -103,6 +103,11 @@ type Config struct {
 	// the bond's last page, used when a document has no measured slots.
 	SurepassEsignSignX int
 	SurepassEsignSignY int
+	// SurepassEsignYFromBottom says Suresign measures a stamp's y from the
+	// BOTTOM of the page (PDF-native, the default — a stamp sent with a
+	// top-measured y landed at the top of the page). Set false to send y
+	// measured from the top instead.
+	SurepassEsignYFromBottom bool
 	// Razorpay* configure the Razorpay Orders API used for customer-app
 	// online loan payments (see platform/razorpay.go). Plain env vars,
 	// following the same convention as Surepass* above, rather than the
@@ -201,6 +206,7 @@ func LoadConfig() Config {
 		SurepassEsignBaseURL: getEnv("SUREPASS_ESIGN_BASE_URL", "https://prod-esign-api-v2.surepass.app"),
 		SurepassEsignSignX:   getEnvInt("SUREPASS_ESIGN_SIGN_X", 110),
 		SurepassEsignSignY:   getEnvInt("SUREPASS_ESIGN_SIGN_Y", 730),
+		SurepassEsignYFromBottom: getEnv("SUREPASS_ESIGN_Y_FROM_BOTTOM", "true") != "false",
 
 		RazorpayKeyID:         getEnv("RAZORPAY_KEY_ID", ""),
 		RazorpayKeySecret:     getEnv("RAZORPAY_KEY_SECRET", ""),

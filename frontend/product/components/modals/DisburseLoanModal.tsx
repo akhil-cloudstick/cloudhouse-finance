@@ -40,13 +40,26 @@ export function DisburseLoanModalContent({
   const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  // How the withheld service charge is recorded in the cash book (its own mode
+  // split, since the charge never physically moves — the operator says which
+  // mode to book it under).
+  const [chargeSplit, setChargeSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [chargeRemaining, setChargeRemaining] = useState(0);
+  const [chargeBankId, setChargeBankId] = useState<number | undefined>(undefined);
   const balanced = Math.abs(remaining) < 0.01;
+  // A WithheldFromPayout service charge is kept by the branch, so the cash
+  // actually handed over is principal minus the charge (mirrors backend
+  // Service.Approve's DisbursedAmount).
+  const withheld = loan.serviceChargeMode === "WithheldFromPayout" ? loan.serviceChargeAmount : 0;
+  const payout = Math.round((loan.principal - withheld) * 100) / 100;
+  const chargeBalanced = withheld <= 0 || Math.abs(chargeRemaining) < 0.01;
   // Disbursement is blocked until the branch has enough balance in hand.
   const balanceInHand = useBalanceInHand(loan.branchId);
-  const insufficient = balanceInHand !== null && loan.principal > balanceInHand + 0.005;
+  const insufficient = balanceInHand !== null && payout > balanceInHand + 0.005;
 
   async function save() { return singleFlight("modal:disburseloan:save", async () => {
-    if (!balanced) { setErr("The payment breakdown must add up to the principal amount."); return; }
+    if (!balanced) { setErr("The payment breakdown must add up to the payout amount."); return; }
+    if (withheld > 0 && !chargeBalanced) { setErr("The service charge breakdown must add up to the service charge."); return; }
     if (insufficient) { setErr("Insufficient balance in hand to disburse this loan."); return; }
     setSaving(true);
     setErr("");
@@ -59,8 +72,15 @@ export function DisburseLoanModalContent({
         bankTransferAmount: split.bankTransferAmount,
         chequeAmount: split.chequeAmount,
         bankId,
+        ...(withheld > 0 ? {
+          chargeCashAmount: chargeSplit.cashAmount,
+          chargeUpiAmount: chargeSplit.upiAmount,
+          chargeBankTransferAmount: chargeSplit.bankTransferAmount,
+          chargeChequeAmount: chargeSplit.chequeAmount,
+          chargeBankId,
+        } : {}),
       });
-      toast(`${isVerify ? "Verified" : "Approved"} — ${fmt(loan.principal)} disbursed to the customer`);
+      toast(`${isVerify ? "Verified" : "Approved"} — ${fmt(payout)} disbursed to the customer`);
       onSaved(updated);
       closeModal();
     } catch (e) {
@@ -75,8 +95,19 @@ export function DisburseLoanModalContent({
       <div className="hd" style={{ minHeight: 66 }}><h3>{actionLabel} — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow">
-          <SplitPaymentInput totalAmount={loan.principal} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+          <SplitPaymentInput totalAmount={payout} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
         </div>
+        {withheld > 0 && (
+          <>
+            <p style={{ fontSize: 12.5, marginTop: 8, color: "var(--muted)" }}>
+              Principal {fmt(loan.principal)} − service charge {fmt(withheld)} (withheld) = <strong>{fmt(payout)}</strong> payout
+            </p>
+            <label className="f" style={{ marginTop: 12 }}>Record service charge {fmt(withheld)} as</label>
+            <div className="frow">
+              <SplitPaymentInput totalAmount={withheld} onChange={(s, r, bid) => { setChargeSplit(s); setChargeRemaining(r); setChargeBankId(bid); }} />
+            </div>
+          </>
+        )}
         {balanceInHand !== null && (
           <p style={{ fontSize: 12.5, marginTop: 8, color: insufficient ? "var(--red)" : "var(--muted)" }}>
             Balance in hand: <strong>{fmt(balanceInHand)}</strong>
@@ -87,7 +118,7 @@ export function DisburseLoanModalContent({
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !balanced || insufficient} onClick={save}>{saving ? (isVerify ? "Verifying…" : "Approving…") : `${actionLabel} ${fmt(loan.principal)}`}</button>
+        <button className="btn" disabled={saving || !balanced || !chargeBalanced || insufficient} onClick={save}>{saving ? (isVerify ? "Verifying…" : "Approving…") : `${actionLabel} ${fmt(payout)}`}</button>
       </div>
     </>
   );

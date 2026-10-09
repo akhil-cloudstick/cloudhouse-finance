@@ -170,6 +170,20 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     numericId
   );
 
+  // The renewal chain links by numeric id; resolve each to its loan number
+  // (PL-xxxxx) so the links read like the rest of the module.
+  const [linkedNumbers, setLinkedNumbers] = useState<Record<number, string>>({});
+  const renewedFromId = loan?.renewedFromLoanId;
+  const renewedToId = loan?.renewedToLoanId;
+  useEffect(() => {
+    [renewedFromId, renewedToId].forEach((lid) => {
+      if (!lid) return;
+      getPersonalLoan(lid)
+        .then((l) => setLinkedNumbers((m) => ({ ...m, [lid]: l.loanNumber })))
+        .catch(() => undefined);
+    });
+  }, [renewedFromId, renewedToId]);
+
   // Branch Balance in Hand — the final approval stage pays the loan out of it.
   const balanceInHand = useBalanceInHand(loan?.status === "Pending Approval" ? loan.branchId : undefined);
 
@@ -242,7 +256,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     <>
       <div className="page-h">
         <div>
-          <h1>Loan {loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
+          <h1>{loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
         </div>
         <div className="sp" />
         {pendingApproval && approvalStageView && (canActOnApproval ? (
@@ -337,10 +351,10 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         <div className="kpis-strip-item"><span className="l">Status</span><StatusChip status={loan.status} /></div>
         <div className="kpis-strip-item"><span className="l">Frequency</span><span className="v">{loan.frequency}</span></div>
         {loan.renewedFromLoanId && (
-          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={routeHref(`personalloan/${loan.renewedFromLoanId}`)}>Loan #{loan.renewedFromLoanId}</a></div>
+          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={routeHref(`personalloan/${loan.renewedFromLoanId}`)}>{linkedNumbers[loan.renewedFromLoanId] || "…"}</a></div>
         )}
         {loan.renewedToLoanId && (
-          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={routeHref(`personalloan/${loan.renewedToLoanId}`)}>Loan #{loan.renewedToLoanId}</a></div>
+          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={routeHref(`personalloan/${loan.renewedToLoanId}`)}>{linkedNumbers[loan.renewedToLoanId] || "…"}</a></div>
         )}
         {loan.penalCycleCount > 0 && (
           <div className="kpis-strip-item"><span className="l">Penal Interest</span><span className="v">{fmt(loan.totalPenalInterestCharged)}</span><span className="s">(cycle {loan.penalCycleCount})</span></div>

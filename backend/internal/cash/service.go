@@ -722,11 +722,17 @@ func (s *MovementService) recordSplitCashMovement(ctx context.Context, base Cash
 // without special-casing on the frontend. Returns the new movement's ID so
 // the caller can store it on the pledge record and reverse it later.
 func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time) (uint, error) {
+	hoID, err := s.HeadOfficeBranchID(ctx)
+	if err != nil {
+		return 0, err
+	}
 	rec := &CashMovement{
-		Type:   "in",
-		Source: "Bank",
-		Bank:   bankName,
-		Amount: amount,
+		Type:     "in",
+		Source:   "Bank",
+		Bank:     bankName,
+		Amount:   amount,
+		Mode:     CashModeCash,
+		BranchID: &hoID,
 	}
 	if occurredOn.IsZero() {
 		rec.OccurredOn = time.Now()
@@ -746,23 +752,30 @@ func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uin
 // disbursement cash-out). Source "Service Charge" is its own value —
 // distinct from "Collection" (a customer repayment) — since this is a fee
 // the branch itself keeps, not money coming back on a loan already lent.
-func (s *MovementService) RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
-	rec := &CashMovement{
+//
+// The operator picks how the charge is recorded (cash/upi/bank/cheque split,
+// plus the bank for non-cash modes) — an all-zero split falls back to one
+// Cash row, so callers that don't ask (e.g. older clients) still book it.
+func (s *MovementService) RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, bankID *uint) (uint, error) {
+	base := CashMovement{
 		Type:     "in",
 		Source:   "Service Charge",
 		Purpose:  "Service charge — " + loanNumber,
-		Amount:   amount,
 		BranchID: &branchID,
+		BankID:   bankID,
 	}
 	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
+		base.OccurredOn = time.Now()
 	} else {
-		rec.OccurredOn = occurredOn
+		base.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(ctx, rec); err != nil {
-		return 0, err
-	}
-	return rec.ID, nil
+	id, _, err := s.recordSplitCashMovement(ctx, base, amount, []splitComponent{
+		{CashModeCash, cashAmount},
+		{CashModeUPI, upiAmount},
+		{CashModeBankTransfer, bankTransferAmount},
+		{CashModeCheque, chequeAmount},
+	})
+	return id, err
 }
 
 // RecordLoanDisbursementCashOut creates the cash-out movement(s) for a
@@ -865,12 +878,19 @@ func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID ui
 // movement recorded at pledge time — that stays as permanent history —
 // this books the release as its own, separately visible transaction.
 func (s *MovementService) RecordBankPledgeCashOut(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+	// branchID (the pledged loan's branch) is ignored on purpose: every
+	// pledge movement lives on the Head Office till, in and out alike.
+	hoID, err := s.HeadOfficeBranchID(ctx)
+	if err != nil {
+		return 0, err
+	}
 	rec := &CashMovement{
 		Type:     "out",
 		Purpose:  "Bank pledge release — " + bankName,
 		Bank:     bankName,
 		Amount:   amount,
-		BranchID: &branchID,
+		Mode:     CashModeCash,
+		BranchID: &hoID,
 	}
 	if occurredOn.IsZero() {
 		rec.OccurredOn = time.Now()
@@ -930,6 +950,7 @@ func (s *MovementService) RecordInvestmentDepositCashIn(ctx context.Context, inv
 		Source:   "Investment",
 		Purpose:  "Investment deposit — " + investmentNumber,
 		Amount:   amount,
+		Mode:     CashModeCash,
 		BranchID: &branchID,
 	}
 	if customerID != 0 {
@@ -993,6 +1014,7 @@ func (s *MovementService) RecordAuctionSaleCashIn(ctx context.Context, loanID ui
 		Source:   "Auction",
 		Purpose:  "Auction sale proceeds — " + loanNumber,
 		Amount:   amount,
+		Mode:     CashModeCash,
 		BranchID: &branchID,
 	}
 	if occurredOn.IsZero() {
@@ -1021,6 +1043,7 @@ func (s *MovementService) RecordAuctionSurplusCashOut(ctx context.Context, loanI
 		Type:     "out",
 		Purpose:  "Auction surplus refunded to customer — " + loanNumber,
 		Amount:   amount,
+		Mode:     CashModeCash,
 		BranchID: &branchID,
 	}
 	if occurredOn.IsZero() {
@@ -1098,7 +1121,23 @@ func (s *MovementService) RecordGoldSaleCashOut(ctx context.Context, ornamentTyp
 // ExpenseRepository.SumCashByDate and doesn't double-count against Expected
 // Cash in Hand, which already reflects the matching cash-out movement.
 func (s *MovementService) RecordBankPledgeReleaseExpense(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
-	return s.recordSystemExpense(ctx, "Bank Pledge Release", bankName, amount, occurredOn, branchID)
+	hoID, err := s.HeadOfficeBranchID(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return s.recordSystemExpense(ctx, "Bank Pledge Release", bankName, amount, occurredOn, hoID)
+}
+
+// HeadOfficeBranchID is the branch every bank-pledge movement is booked on —
+// see branch.Repository.FindHeadOffice. Also exposed through
+// loan.CashRecorder so the pledge release's balance check looks at the same
+// till the money actually leaves.
+func (s *MovementService) HeadOfficeBranchID(ctx context.Context) (uint, error) {
+	b, err := s.branchRepo.FindHeadOffice(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("finding the Head Office branch for the bank pledge: %w", err)
+	}
+	return b.ID, nil
 }
 
 // recordSystemExpense creates a pre-approved Expense row for a system-driven

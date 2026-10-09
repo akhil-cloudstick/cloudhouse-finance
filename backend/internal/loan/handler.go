@@ -81,6 +81,11 @@ type loanRequest struct {
 	LockerID        *uint             `json:"lockerId"`
 	AdditionalInfo  string            `json:"additionalInfo"`
 
+	// ServiceChargeMode is the operator's per-loan choice of how the scheme's
+	// service charge is collected (WithheldFromPayout / AddedToPrincipal).
+	// Optional — empty falls back to the scheme's configured mode.
+	ServiceChargeMode string `json:"serviceChargeMode"`
+
 	// DraftID, when the loan was submitted from a saved draft, is that
 	// draft's id — discarded once the real loan exists so the staff member's
 	// draft list doesn't keep offering a form they've already turned into a
@@ -112,6 +117,8 @@ func (req loanRequest) toInput() (CreateInput, error) {
 		Ornaments:       ornaments,
 		LockerID:        req.LockerID,
 		AdditionalInfo:  req.AdditionalInfo,
+
+		ServiceChargeMode: req.ServiceChargeMode,
 	}, nil
 }
 
@@ -509,6 +516,14 @@ type approvalRequest struct {
 	// meaningful (and only stored) at the FinalSanction stage that triggers
 	// the actual cash-out movement.
 	BankID *uint `json:"bankId"`
+
+	// Charge* — how the withheld service charge is recorded; see
+	// ApprovalInput.ChargeCashAmount.
+	ChargeCashAmount         float64 `json:"chargeCashAmount"`
+	ChargeUpiAmount          float64 `json:"chargeUpiAmount"`
+	ChargeBankTransferAmount float64 `json:"chargeBankTransferAmount"`
+	ChargeChequeAmount       float64 `json:"chargeChequeAmount"`
+	ChargeBankID             *uint   `json:"chargeBankId"`
 }
 
 func (h *Handler) Approve(c *gin.Context) {
@@ -539,6 +554,12 @@ func (h *Handler) Approve(c *gin.Context) {
 		BankTransferAmount: req.BankTransferAmount,
 		ChequeAmount:       req.ChequeAmount,
 		BankID:             req.BankID,
+
+		ChargeCashAmount:         req.ChargeCashAmount,
+		ChargeUpiAmount:          req.ChargeUpiAmount,
+		ChargeBankTransferAmount: req.ChargeBankTransferAmount,
+		ChargeChequeAmount:       req.ChargeChequeAmount,
+		ChargeBankID:             req.ChargeBankID,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -2369,4 +2390,24 @@ func (h *Handler) GetLedger(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, page)
+}
+
+// DownloadPledgeSlip backs GET /loans/:id/pledge-slip — the Gold Loan Pledge
+// Slip as an A4 PDF, or its HTML document with ?format=html (used when the
+// slip is printed together with the packet label).
+func (h *Handler) DownloadPledgeSlip(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	body, contentType, filename, err := h.svc.RenderPledgeSlip(platform.RequestContext(c), id, platform.GetBranchScope(c), c.Query("format"))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if filename != "" {
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	}
+	c.Data(http.StatusOK, contentType, body)
 }

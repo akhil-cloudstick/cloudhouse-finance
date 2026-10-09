@@ -8,7 +8,7 @@
  * document.write into a fresh document, so none of the app's CSS custom
  * properties exist inside it — every colour here has to be a literal, which
  * is why they come from PRINT_COLORS rather than var(). */
-import { BRAND, BRAND_PHONES, printBrand, printColors } from "@/product/config/brand";
+import { BRAND, printBrand, printColors } from "@/product/config/brand";
 
 /** Escapes text interpolated into the print HTML strings. */
 const esc = (s: string) =>
@@ -123,7 +123,7 @@ export function brandHeader(docTitle?: string): string {
   return `<header class="brandhead">
     <div class="bh-name">${esc(B.legalName.toUpperCase())}</div>
     <div class="bh-desc">${esc(BRAND.descriptor)}</div>
-    <div class="bh-meta">${esc(B.kmlRegLabel)} &nbsp;·&nbsp; ${esc(BRAND_PHONES)}</div>${B.addressLine ? `
+    <div class="bh-meta">${esc(B.kmlRegLabel)} &nbsp;·&nbsp; ${esc(B.phones)}</div>${B.addressLine ? `
     <div class="bh-meta">${esc(B.addressLine)}</div>` : ""}
     <div class="bh-rule"></div>
     ${docTitle ? `<h2>${esc(docTitle)}</h2>` : ""}

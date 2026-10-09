@@ -47,6 +47,10 @@ export type PublicBranding = {
 export type MyBranding = PublicBranding & {
   addressLine: string;
   kmlRegNo: string;
+  /** The business's own contact number(s), printed in slip/statement headers. */
+  contactPhone?: string;
+  /** Document family ("kml"/"gml"); decides the registration label on printed documents. */
+  policy?: string;
   /** Optional modules this business has been granted (tenant.KnownModules). */
   modules: string[];
   /** Languages this business may issue customer documents in; always has "en". */

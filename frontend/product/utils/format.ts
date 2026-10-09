@@ -6,9 +6,15 @@ import type { SchemeView } from "@/product/pages/schemes/services/schemeService"
 // rupees used to make component lines disagree with their own total (₹5,487.60
 // principal + ₹1.40 interest rendered as "₹5,488 + ₹1 = ₹5,490"), which reads
 // as a maths error to a cashier and invites over-collection by a rupee or two.
-export const fmt = (n: number) =>
-  "₹" + (n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-export const fmtW = (n: number) => n.toFixed(1) + " g";
+// A NaN/Infinity (e.g. a 0/0 ratio, or a figure derived from a response that
+// never arrived because the backend was down) renders as "-" rather than
+// "₹NaN" (Infinity too). null/undefined still read as zero.
+export const fmt = (n: number) => {
+  const v = n ?? 0;
+  if (!Number.isFinite(v)) return "-";
+  return "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+export const fmtW = (n: number) => (Number.isFinite(n) ? n.toFixed(1) + " g" : "-");
 
 const CUSTOMER_FALLBACK = { name: "—", id: "—" };
 export const custOf = (customers: CustomerView[], id: string) =>

@@ -39,16 +39,19 @@ export function PersonalLoans() {
   const smallScreen = useIsSmallScreen();
   const pageSize = useResponsivePageSize(15, 15);
 
-  const [freq, setFreq] = usePersistedState<"All" | Frequency>("personalloans:freq", "All");
+  // Both filters are multi-select, stored (and sent to the API) as
+  // comma-separated lists; "" means no filter.
+  const [freq, setFreq] = usePersistedState<string>("personalloans:freq:multi", "");
   const [q, setQ] = usePersistedState("personalloans:q", "");
   const [status, setStatus] = usePersistedState("personalloans:status", "");
   const [page, setPage] = useState(1);
-  // One grouped filter: Frequency and Status (single choice each).
+  // One grouped filter: Frequency and Status. Selections show as a count in
+  // the panel, not as chips.
   const filterCategories: FilterCategory[] = [
-    { key: "freq", label: "Frequency", kind: "static", singleSelect: true, options: FREQS.filter((f) => f !== "All").map((f) => ({ value: f, label: f })) },
-    { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUS_OPTIONS },
+    { key: "freq", label: "Frequency", kind: "static", options: FREQS.filter((f) => f !== "All").map((f) => ({ value: f, label: f })) },
+    { key: "status", label: "Status", kind: "static", options: STATUS_OPTIONS },
   ];
-  const filterValue: FilterValue = { freq: freq === "All" ? [] : [freq], status: status ? [status] : [] };
+  const filterValue: FilterValue = { freq: freq ? freq.split(",") : [], status: status ? status.split(",") : [] };
   const [loans, setLoans] = useState<BackendPersonalLoan[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -63,7 +66,7 @@ export function PersonalLoans() {
     setLoading(true);
     setError("");
     try {
-      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq === "All" ? undefined : freq, status: status || undefined, pageSize });
+      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq || undefined, status: status || undefined, pageSize });
       setLoans(res?.items || []);
       setHasMore(!!res?.hasMore);
       setTotal(res?.total || 0);
@@ -111,9 +114,8 @@ export function PersonalLoans() {
           categories={filterCategories}
           value={filterValue}
           onChange={(next) => {
-            const f = Array.isArray(next.freq) ? next.freq[0] : undefined;
-            setFreq((f as Frequency | undefined) || "All");
-            setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+            setFreq(Array.isArray(next.freq) ? next.freq.join(",") : "");
+            setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
           }}
           hideChips
           hideClearAll

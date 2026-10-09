@@ -2,6 +2,7 @@ package personalloan
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -79,6 +80,17 @@ func (r *Repository) LockByID(ctx context.Context, tx *gorm.DB, id uint, branchI
 	return &rec, nil
 }
 
+// splitCSV turns "Active,Closed" into its trimmed, non-empty parts.
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // ListFilter narrows FindAll's results; zero-value fields are ignored.
 type ListFilter struct {
 	BranchID   *uint
@@ -109,11 +121,12 @@ func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]PersonalLoan,
 	if f.CustomerID != nil {
 		q = q.Where("personal_loans.customer_id = ?", *f.CustomerID)
 	}
-	if f.Status != "" {
-		q = q.Where("personal_loans.status = ?", f.Status)
+	// Status/Frequency accept a comma-separated list (multi-select filter).
+	if vals := splitCSV(f.Status); len(vals) > 0 {
+		q = q.Where("personal_loans.status IN ?", vals)
 	}
-	if f.Frequency != "" {
-		q = q.Where("personal_loans.frequency = ?", f.Frequency)
+	if vals := splitCSV(f.Frequency); len(vals) > 0 {
+		q = q.Where("personal_loans.frequency IN ?", vals)
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"

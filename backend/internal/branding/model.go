@@ -103,6 +103,10 @@ type Self struct {
 	Public
 	AddressLine string   `json:"addressLine"`
 	KMLRegNo    string   `json:"kmlRegNo"`
+	ContactPhone string  `json:"contactPhone"`
+	// Policy is the document family ("kml"/"gml"); decides the registration
+	// label printed on documents (KML Reg. No / GML Reg. No).
+	Policy string `json:"policy"`
 	Modules     []string `json:"modules"`
 	Languages   []string `json:"languages"`
 	// SingleBranch tells the app to lock every branch picker to the one

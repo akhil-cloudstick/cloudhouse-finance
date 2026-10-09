@@ -124,13 +124,10 @@ func TestEnrich_ClearedInterestDoesNotFlagDefault(t *testing.T) {
 
 // Once a loan is past its first month (i.e. this isn't the very first
 // accrual — see TestProjectAccrual_FirstMonthFloorChargedImmediately for
-// that case), a part-way-through cycle now owes a running daily charge —
-// `OutstandingAmount × (monthlyRate/30) × days` — rather than nothing, and
-// the anchor advances to asOf every call so those days are never
-// recounted. The whole-month lump still lands in full the moment the
-// month actually completes, with the leftover exactly zero right at that
-// boundary (no double-count).
-func TestProjectAccrual_DailyProrationPastFirstMonth(t *testing.T) {
+// that case), a part-way-through cycle owes nothing — interest posts only
+// when a whole month completes, so the figure shown to the customer does
+// not creep up on every page view. The anchor stays at the last boundary.
+func TestProjectAccrual_NoDailyProrationPastFirstMonth(t *testing.T) {
 	sch := scheme.Scheme{InterestRate: 12, InterestMethod: "Monthly simple interest"}
 	from := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
 	l := &Loan{
@@ -143,21 +140,17 @@ func TestProjectAccrual_DailyProrationPastFirstMonth(t *testing.T) {
 		SchemePenalRate:      sch.PenalRate,
 	}
 
-	// 100,000 × (0.01/30) × days = 33.333/day.
 	for _, days := range []int{1, 12, 29} {
 		i, p, anchor := projectAccrual(l, from.AddDate(0, 0, days), nil)
-		nearly(t, i, 100_000*0.01/30*float64(days), "daily-prorated interest")
-		if p != 0 {
-			t.Fatalf("day %d: no penal interest owed with no overdue months, got %.4f", days, p)
+		if i != 0 || p != 0 {
+			t.Fatalf("day %d: nothing accrues mid-month, got interest %.4f penal %.4f", days, i, p)
 		}
-		if !anchor.Equal(from.AddDate(0, 0, days)) {
-			t.Fatalf("day %d: anchor should advance to asOf so these days aren't recounted, got %s", days, anchor)
+		if !anchor.Equal(from) {
+			t.Fatalf("day %d: anchor must stay at the last boundary, got %s", days, anchor)
 		}
 	}
 
-	// The month completes on the 15th — the full month lands at once, with
-	// zero leftover exactly at the boundary (not the whole month PLUS a
-	// day's worth of proration).
+	// The month completes on the 15th — the full month lands at once.
 	i, _, anchor := projectAccrual(l, from.AddDate(0, 1, 0), nil)
 	nearly(t, i, 1000, "one completed month at 12% p.a. on 100,000, no double-count at the boundary")
 	if !anchor.Equal(from.AddDate(0, 1, 0)) {
@@ -281,11 +274,10 @@ func TestProjectAccrual_TopUpAfterFirstMonthUsesOrdinaryAccrual(t *testing.T) {
 	nearly(t, i, 1500, "ordinary whole-month charge on the current 150,000 balance, unaffected by firstMonthTopUps")
 }
 
-// The daily-proration base must match whichever base that method's own
-// whole-month charge already uses — Flat monthly charges (and prorates)
-// off the original PrincipalAmount, ignoring repayments, never off the
-// (possibly much smaller) reducing OutstandingAmount.
-func TestProjectAccrual_FlatMonthlyProratesOffPrincipalNotOutstanding(t *testing.T) {
+// Flat monthly charges off the original PrincipalAmount, ignoring
+// repayments, never off the (possibly much smaller) reducing
+// OutstandingAmount.
+func TestProjectAccrual_FlatMonthlyChargesOffPrincipalNotOutstanding(t *testing.T) {
 	sch := scheme.Scheme{InterestRate: 12, InterestMethod: "Flat monthly"}
 	from := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
 	l := &Loan{
@@ -299,8 +291,8 @@ func TestProjectAccrual_FlatMonthlyProratesOffPrincipalNotOutstanding(t *testing
 		SchemePenalRate:      sch.PenalRate,
 	}
 
-	i, _, _ := projectAccrual(l, from.AddDate(0, 0, 10), nil)
-	nearly(t, i, 100_000*0.01/30*10, "Flat monthly's daily proration uses PrincipalAmount")
+	i, _, _ := projectAccrual(l, from.AddDate(0, 1, 0), nil)
+	nearly(t, i, 100_000*0.01, "Flat monthly's monthly charge uses PrincipalAmount")
 }
 
 // A loan read many times a day must accrue exactly as much as one read at the
@@ -380,10 +372,9 @@ func TestProjectAccrual_MonthEndClampsInsteadOfOverflowing(t *testing.T) {
 	}
 
 	// 2026 is not a leap year, so the cycle completes on 28 Feb, not 3 Mar.
-	// 27 Feb is still mid-cycle (27 days of daily proration since 31 Jan),
-	// not the full month yet.
+	// 27 Feb is still mid-cycle, so nothing accrues yet.
 	iMidCycle, _, _ := projectAccrual(l, time.Date(2026, 2, 27, 0, 0, 0, 0, time.UTC), nil)
-	nearly(t, iMidCycle, 100_000*0.01/30*27, "27 days' daily proration, not the full month yet")
+	nearly(t, iMidCycle, 0, "mid-cycle: not the full month yet")
 	i, _, anchor := projectAccrual(l, time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC), nil)
 	nearly(t, i, 1000, "cycle completes on 28 Feb")
 	if anchor.Day() != 28 || anchor.Month() != time.February {

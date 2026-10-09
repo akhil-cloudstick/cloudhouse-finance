@@ -24,10 +24,6 @@ const CHARGE_TYPE_OPTIONS: { value: ServiceChargeType; label: string }[] = [
   { value: "Flat", label: "Flat amount (₹)" },
   { value: "Percent", label: "Percentage of principal" },
 ];
-const CHARGE_MODE_OPTIONS: { value: ServiceChargeMode; label: string }[] = [
-  { value: "WithheldFromPayout", label: "Deduct from loan amount" },
-  { value: "AddedToPrincipal", label: "Add to loan amount" },
-];
 
 /* Ported from legacy/app.js's `openSchemeModal(id)` / `saveScheme(id)`
  * (legacy/app.js:1154-1219). Now calls the Go backend (`POST`/`PUT
@@ -47,7 +43,9 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
   const [active, setActive] = useState(s ? s.active : true);
   const [chargeType, setChargeType] = useState<ServiceChargeType>(s?.serviceChargeType || "None");
   const [chargeValue, setChargeValue] = useState(s && s.serviceChargeType !== "None" ? String(s.serviceChargeValue) : "");
-  const [chargeMode, setChargeMode] = useState<ServiceChargeMode>(s?.serviceChargeMode || "WithheldFromPayout");
+  // Not edited here any more — chosen per loan at creation. Passed through
+  // unchanged so an existing scheme keeps its stored value.
+  const chargeMode: ServiceChargeMode = s?.serviceChargeMode || "WithheldFromPayout";
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
@@ -142,8 +140,9 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
           )}
         </div>
         {chargeType !== "None" && (
-          <div className="frow scheme-frow"><div><label className="f">How the charge is collected *</label>
-            <Select options={CHARGE_MODE_OPTIONS} value={chargeMode} onChange={(v) => setChargeMode(v as ServiceChargeMode)} /></div></div>
+          <p style={{ fontSize: 12.5, color: "var(--muted)", margin: "0 0 8px" }}>
+            Whether the charge is deducted from the loan amount or added to it is chosen per loan, when the loan is created.
+          </p>
         )}
         <div className="frow c2 scheme-frow">
           <div><label className="f">Status</label>

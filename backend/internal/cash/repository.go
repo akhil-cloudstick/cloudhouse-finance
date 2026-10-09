@@ -20,6 +20,12 @@ func NewMovementRepository(db platform.DB) *MovementRepository {
 }
 
 func (r *MovementRepository) Create(ctx context.Context, m *CashMovement) error {
+	// Every movement records how it was paid. A blank mode used to be read as
+	// cash by the balance totals but dropped by the mode-filtered Cash ledger,
+	// so the two disagreed — default to Cash here so no movement is mode-less.
+	if strings.TrimSpace(m.Mode) == "" {
+		m.Mode = CashModeCash
+	}
 	return r.db.WithContext(ctx).Create(m).Error
 }
 

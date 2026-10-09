@@ -54,11 +54,12 @@ function RateTile({ k, r }: { k: string; r: number }) {
 
 function Donut({ parts }: { parts: [string, number, string][] }) {
   const total = parts.reduce((s, p) => s + p[1], 0);
+  const divisor = total || 1; // avoid 0/0 → NaN degrees when there is no data
   let acc = 0;
   const stops = parts.map((p) => {
-    const a = (acc / total) * 360;
+    const a = (acc / divisor) * 360;
     acc += p[1];
-    return `${p[2]} ${a}deg ${(acc / total) * 360}deg`;
+    return `${p[2]} ${a}deg ${(acc / divisor) * 360}deg`;
   }).join(",");
 
   return (

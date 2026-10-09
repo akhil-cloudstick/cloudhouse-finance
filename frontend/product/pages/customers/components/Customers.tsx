@@ -113,7 +113,7 @@ export function Customers() {
           hideClearAll
         />
       </div>
-      <div className="card tbl-card tbl-card-fill">
+      <div className="card tbl-card tbl-card-fill tbl-rounded">
       <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">
         <thead><tr><th>Customer</th><th>Contact</th><th>Branch</th><th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>

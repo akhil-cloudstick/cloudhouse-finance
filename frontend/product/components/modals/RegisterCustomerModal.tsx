@@ -176,11 +176,11 @@ export function RegisterCustomerModalContent({
         <label className="f" style={{ marginTop: 6 }}>Documents</label>
         <div className="frow c3">
           <div><label className="f">Customer Photograph</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" camera /></div>
-          <div><label className="f">Identity Proof</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" /></div>
-          <div><label className="f">Address Proof</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" /></div>
+          <div><label className="f">Identity Proof</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" camera /></div>
+          <div><label className="f">Address Proof</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" camera /></div>
         </div>
         <div className="frow c3">
-          <div><label className="f">Supporting KYC Document</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" /></div>
+          <div><label className="f">Supporting KYC Document</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" camera /></div>
         </div>
 
         <label className="f" style={{ marginTop: 6 }}>Nominee (optional)</label>

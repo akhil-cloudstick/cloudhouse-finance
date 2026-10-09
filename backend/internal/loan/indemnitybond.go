@@ -67,6 +67,12 @@ type BondData struct {
 	LegalName   string
 	AddressLine string
 	KMLRegNo    string
+	// LenderAge/LenderPAN/LenderAadhaar are the licensee's own identity for
+	// the GML deed, from the tenant profile (empty falls back to the demo
+	// placeholders in renderBondHTML).
+	LenderAge     string
+	LenderPAN     string
+	LenderAadhaar string
 
 	// Policy is the business's document family, one of tenant.KnownPolicies,
 	// resolved from the same tenant profile the three fields above come from.
@@ -477,9 +483,12 @@ ol li{margin-bottom:10px;text-align:justify}
  * the A4 printable height (11.69in less the 0.75in header and 0.55in footer
  * bands = 10.39in = 264mm, minus a hair so it never spills onto a blank page),
  * and .sig-bottom's margin-top:auto pins the Borrower/Lender row to the bottom
- * of that page — a fixed spot for the eSign stamp (SUREPASS_ESIGN_SIGN_X/Y). */
-.deed-end{page-break-before:always;break-inside:avoid;min-height:262mm;display:flex;flex-direction:column}
-.deed-end .sig-bottom{margin-top:auto}
+ * of that page. UPDATE: no longer pinned — a fixed 56px gap follows the Place/Date lines instead, so the last page is not mostly empty space; the eSign stamp position is measured from the rendered block (see esignSlotsJS), not fixed. */
+.deed-end{page-break-before:always;break-inside:avoid}
+.deed-end .sig-bottom{margin-top:56px}
+/* Borrower/Lender row: a taller gap between the party label and its line, so the 36pt eSign stamp (data-esign-dy) fits between them instead of overlapping "The Borrower". The lender image is re-seated to match. */
+.deed-end .sig-bottom .sig:last-child span{margin-top:68px}
+.deed-end .sig-bottom .sig:last-child .lender-sig{top:42px}
 `
 
 // bondPageStyleMalayalam is bondPageStyle with a font stack that leads with
@@ -550,9 +559,12 @@ ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
  * the A4 printable height (11.69in less the 0.75in header and 0.55in footer
  * bands = 10.39in = 264mm, minus a hair so it never spills onto a blank page),
  * and .sig-bottom's margin-top:auto pins the Borrower/Lender row to the bottom
- * of that page — a fixed spot for the eSign stamp (SUREPASS_ESIGN_SIGN_X/Y). */
-.deed-end{page-break-before:always;break-inside:avoid;min-height:262mm;display:flex;flex-direction:column}
-.deed-end .sig-bottom{margin-top:auto}
+ * of that page. UPDATE: no longer pinned — a fixed 56px gap follows the Place/Date lines instead, so the last page is not mostly empty space; the eSign stamp position is measured from the rendered block (see esignSlotsJS), not fixed. */
+.deed-end{page-break-before:always;break-inside:avoid}
+.deed-end .sig-bottom{margin-top:56px}
+/* Borrower/Lender row: a taller gap between the party label and its line, so the 36pt eSign stamp (data-esign-dy) fits between them instead of overlapping "The Borrower". The lender image is re-seated to match. */
+.deed-end .sig-bottom .sig:last-child span{margin-top:68px}
+.deed-end .sig-bottom .sig:last-child .lender-sig{top:42px}
 `
 
 // bondTemplateData wraps BondData with the extra pre-formatted fields the
@@ -678,10 +690,10 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		// Tenant profile first, demo constants only as a fallback.
 		LenderName:            firstNonEmpty(data.LegalName, data.BusinessName, lenderName),
 		LenderRegNo:           firstNonEmpty(data.KMLRegNo, lenderKMLRegNo),
-		LenderAge:             lenderAge,
+		LenderAge:             firstNonEmpty(data.LenderAge, lenderAge),
 		LenderBusiness:        firstNonEmpty(data.LegalName, data.BusinessName, lenderBusiness),
-		LenderAadhaar:         lenderAadhaar,
-		LenderPAN:             lenderPAN,
+		LenderAadhaar:         lenderAadhaarDisplay(data.LenderAadhaar),
+		LenderPAN:             firstNonEmpty(data.LenderPAN, lenderPAN),
 		LenderAddress:         firstNonEmpty(data.AddressLine, lenderAddress),
 		LenderAddressShort: firstNonEmpty(data.AddressLine, lenderAddressShort),
 		Age:                   ageOrBlank(data.Age),
@@ -747,4 +759,14 @@ func CountPDFPages(pdfBytes []byte) int {
 		return len(matches)
 	}
 	return 1
+}
+
+// lenderAadhaarDisplay prints the lender's Aadhaar in full, grouped 4-4-4 —
+// deliberately NOT masked: it identifies the licensee on a deed the borrower
+// signs. Falls back to the placeholder when none is on the tenant profile.
+func lenderAadhaarDisplay(aadhaar string) string {
+	if len(aadhaar) != 12 {
+		return lenderAadhaar
+	}
+	return aadhaar[0:4] + " " + aadhaar[4:8] + " " + aadhaar[8:12]
 }

@@ -25,6 +25,10 @@ type updateProfileRequest struct {
 	LockupTagline string `json:"lockupTagline"`
 	AddressLine   string `json:"addressLine"`
 	KMLRegNo      string `json:"kmlRegNo"`
+	ContactPhone  string `json:"contactPhone"`
+	LenderAge     string `json:"lenderAge"`
+	LenderPAN     string `json:"lenderPan"`
+	LenderAadhaar string `json:"lenderAadhaar"`
 	AppURL        string `json:"appUrl"`
 	Policy        string `json:"policy"`
 	Reason        string `json:"reason"`
@@ -48,6 +52,10 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		LockupTagline: req.LockupTagline,
 		AddressLine:   req.AddressLine,
 		KMLRegNo:      req.KMLRegNo,
+		ContactPhone:  req.ContactPhone,
+		LenderAge:     req.LenderAge,
+		LenderPAN:     req.LenderPAN,
+		LenderAadhaar: req.LenderAadhaar,
 		AppURL:        req.AppURL,
 		Policy:        req.Policy,
 	}, req.Reason)
