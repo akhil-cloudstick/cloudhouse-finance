@@ -4,6 +4,7 @@ import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import BrandLogo from "@/product/components/BrandLogo";
+import BrandHeader from "@/product/layout/BrandHeader";
 import { routeHref } from "@/product/services/appRoutes";
 import { resolveLockup } from "@/product/utils/brandLockup";
 
@@ -67,7 +68,17 @@ export const NAV: [string, NavItem[]][] = [
 
 export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; open: boolean; onNavigateSameRoute?: () => void }) {
   const { can } = useAuth();
-  const { hasModule, name: businessName, shortName, lockupTagline } = useBranding();
+  const {
+    hasModule,
+    name: businessName,
+    legalName,
+    shortName,
+    shortNameSet,
+    lockupTagline,
+    headerLayout,
+    logoUrl,
+    logoDisplay,
+  } = useBranding();
 
   /* Which two lines to show, and at what size, is resolveLockup's call — see
    * common/utils/brandLockup.ts for why it is a shared pure function rather
@@ -83,6 +94,22 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
 
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">
+      {/* A business whose header the vendor arranged (superadmin console,
+        * Branding step) gets exactly that; every other business keeps the
+        * classic lockup below, unchanged. The arranged title is the short name
+        * only when one was actually set — no fallback to the business name,
+        * since a logo-led header usually already carries it. */}
+      {headerLayout ? (
+        <BrandHeader
+          layout={headerLayout}
+          logoUrl={logoUrl}
+          logoDisplay={logoDisplay}
+          title={shortNameSet ? shortName : ""}
+          subtitle={lockupTagline}
+          logoAlt={legalName || businessName}
+          className="side-bh"
+        />
+      ) : (
       <div className="brand">
         {/* One lockup: the logo, then a text column of up to two lines. Both
           * share a single left edge — an earlier version put the second line
@@ -104,6 +131,7 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
           {lockup.bottom && <span className="brand-full" data-fit={lockup.bottomFit}>{lockup.bottom}</span>}
         </div>
       </div>
+      )}
       <nav className="nav" id="navBox">
         {NAV.map(([group, items]) => {
           // A permission-gated item is filtered OUT of the array (never

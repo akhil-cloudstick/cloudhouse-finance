@@ -3,6 +3,7 @@ import {
   BRAND_FAVICON_KEY_PREFIX,
   BRAND_LOGO_KEY_PREFIX,
   BRAND_TITLE_KEY_PREFIX,
+  BRAND_VARS_KEY_PREFIX,
   DEFAULT_BRAND_COLOR,
 } from "@/product/config/theme";
 
@@ -65,6 +66,18 @@ const script = `
       document.documentElement.style.setProperty(steps[i][0],
         "oklch(" + steps[i][1] + " " + c.toFixed(3) + " " + H.toFixed(1) + ")");
     }
+    }
+    // The sidebar ground and the text colours on it and on buttons, resolved
+    // by theme.ts (cacheBrandTheme) and stored as plain values — so a business
+    // with a light sidebar never flashes the default dark one with white text.
+    // Only known names, and only plain colour values, are ever applied.
+    var vars = JSON.parse(localStorage.getItem(${JSON.stringify(BRAND_VARS_KEY_PREFIX)} + slug) || "null");
+    if (vars && typeof vars === "object") {
+      var names = ["--nav", "--nav-2", "--nav-fg", "--on-brand", "--nav-ink"];
+      for (var k = 0; k < names.length; k++) {
+        var v = vars[names[k]];
+        if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) document.documentElement.style.setProperty(names[k], v);
+      }
     }
     // The browser tab TEXT — same problem, same fix: a static export bakes
     // one title for every business at build time (see app/layout.tsx's

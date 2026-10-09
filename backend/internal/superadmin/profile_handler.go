@@ -71,7 +71,12 @@ type setBrandingRequest struct {
 	FontScale      string `json:"fontScale"`
 	LogoScale      string `json:"logoScale"`
 	LogoDisplay    string `json:"logoDisplay"`
-	Reason         string `json:"reason"`
+	// "" = automatic text colour; see tenant.Tenant.NavTextColor.
+	NavTextColor     string `json:"navTextColor"`
+	OnBrandTextColor string `json:"onBrandTextColor"`
+	// The arranged sidebar header as a JSON string; "" = classic lockup.
+	HeaderLayout string `json:"headerLayout"`
+	Reason       string `json:"reason"`
 }
 
 func (h *Handler) SetBranding(c *gin.Context) {
@@ -94,6 +99,10 @@ func (h *Handler) SetBranding(c *gin.Context) {
 		FontScale:      req.FontScale,
 		LogoScale:      req.LogoScale,
 		LogoDisplay:    req.LogoDisplay,
+
+		NavTextColor:     req.NavTextColor,
+		OnBrandTextColor: req.OnBrandTextColor,
+		HeaderLayout:     req.HeaderLayout,
 	}, req.Reason)
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -139,6 +148,22 @@ func (h *Handler) SetLogo(c *gin.Context) {
 	}
 	rec, err := h.svc.SetLogo(platform.RequestContext(c), actor(c), id,
 		fileHeader.Filename, data, c.PostForm("reason"))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// ClearLogo mirrors ClearSignature: the reason rides the query string, since
+// a DELETE carries no body.
+func (h *Handler) ClearLogo(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.ClearLogo(platform.RequestContext(c), actor(c), id, c.Query("reason"))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

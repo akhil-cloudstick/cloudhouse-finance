@@ -46,6 +46,17 @@
   --nav:   oklch(0.14 0.025 285);         /* #080813  POS sidebar        */
   --nav-2: oklch(0.14 0.025 285);         /* #080813  = --nav (flat)     */
 
+  /* Text colours, set per business by applyBrandTheme (product/config/theme.ts):
+     --nav-fg   text ON the --nav ground (sidebar, login panel, toast);
+     --on-brand text ON --brand fills (buttons, selected days);
+     --nav-ink  --nav used as a TEXT colour on white pages (headings). It is
+                --nav while that is dark, and a dark shade of its hue when a
+                business picks a light sidebar, so headings never go pale.
+     The defaults below are what every business had before these existed. */
+  --nav-fg:   oklch(0.95 0.006 290);
+  --on-brand: #fff;
+  --nav-ink:  var(--nav);
+
   /* Accent — the amber POS's gradient lands on. NOTE: all three currently have
      zero var() consumers; they survive only to feed PRINT_COLORS. */
   --accent:      oklch(0.76 0.17  65);    /* #f99603  POS brand-amber   */
@@ -108,7 +119,7 @@
      wordmark's cqi sizing, which is tuned to Montserrat's metrics) — only
      `body`'s base text opts in, so a business's font choice changes running
      text without silently reflowing the tuned brand lockup. */
-  --brand-font-family: 'Inter', sans-serif;
+  --brand-font-family: var(--font-sans, 'Inter'), sans-serif;
   --brand-font-scale: 1;
 }
 
@@ -230,7 +241,7 @@ h3,
   /* No gradient rail along the top edge — removed by request; the sidebar
    * is just the plain top-to-bottom --nav-2/--nav ground now. */
   background: linear-gradient(180deg, var(--nav-2) 0%, var(--nav) 100%);
-  color: oklch(0.95 0.006 290);
+  color: var(--nav-fg);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -238,7 +249,7 @@ h3,
   bottom: 0;
   left: 0;
   z-index: 40;
-  border-right: 1px solid oklch(1 0 0 / 7%);
+  border-right: 1px solid color-mix(in oklab, var(--nav-fg) 7%, transparent);
 }
 
 /* One horizontal lockup: logo, then a text column. 20px left matches
@@ -282,7 +293,7 @@ h3,
   font-size: calc(var(--lockup-bottom, 8.4px) * var(--lockup-rail, 1));
   letter-spacing: .1em;
   text-transform: uppercase;
-  color: oklch(0.95 0.006 290 / 55%);
+  color: color-mix(in oklab, var(--nav-fg) 55%, transparent);
   line-height: 1.45;
   overflow-wrap: anywhere;
   /* pre-line, so a line break the vendor typed in the subtitle box is
@@ -333,7 +344,7 @@ h3,
    * step, so it can never be the one that overflows. */
   font-size: calc(var(--lockup-top, 14px) * var(--lockup-rail, 1));
   letter-spacing: .04em;
-  color: #fff;
+  color: var(--nav-fg);
   font-weight: 700;
   /* line-height:1 so the cap-height centres against the logo instead of
    * sitting low by the font's descender space. */
@@ -379,7 +390,7 @@ h3,
   /* --nav-label, not a flat white-at-alpha — see theme.ts's derivation for
    * why (a fixed opacity looked "faded" the same way for every tenant,
    * unlike the reference's actual muted-same-hue-as-primary technique). */
-  color: var(--nav-label, oklch(0.95 0.006 290 / 50%));
+  color: var(--nav-label, color-mix(in oklab, var(--nav-fg) 50%, transparent));
   padding: 16px 16px 7px 20px;
 }
 
@@ -390,7 +401,7 @@ h3,
   padding: 9px 15px 9px 18px;
   margin: 1px 7px 1px 10px;
   border-radius: 6px;
-  color: oklch(0.95 0.006 290 / 70%);
+  color: color-mix(in oklab, var(--nav-fg) 70%, transparent);
   text-decoration: none;
   font-size: 14px;
   letter-spacing: .02em;
@@ -416,7 +427,7 @@ h3,
  * whatever colour each tenant has actually set. */
 .nav a:hover {
   background: color-mix(in oklab, var(--brand) 12%, transparent);
-  color: oklch(0.95 0.006 290)
+  color: var(--nav-fg)
 }
 
 .nav a.on {
@@ -424,7 +435,7 @@ h3,
     color-mix(in oklab, var(--brand) 24%, transparent),
     color-mix(in oklab, var(--brand) 9%, transparent));
   border-color: color-mix(in oklab, var(--brand) 35%, transparent);
-  color: oklch(0.99 0 0);
+  color: var(--nav-fg);
 }
 
 .nav a.on svg {
@@ -434,8 +445,8 @@ h3,
 .nav a .pill {
   margin-left: auto;
   font-size: 10.5px;
-  background: oklch(0.20 0.03 285);
-  color: oklch(0.95 0.006 290);
+  background: color-mix(in oklab, var(--nav-fg) 14%, transparent);
+  color: var(--nav-fg);
   border-radius: 9px;
   padding: 1px 7px;
 }
@@ -447,10 +458,10 @@ h3,
 .side .sfoot {
   flex-shrink: 0;
   padding: 13px 20px 15px;
-  border-top: 1px solid rgba(255, 255, 255, .08);
+  border-top: 1px solid color-mix(in oklab, var(--nav-fg) 8%, transparent);
   font-size: 10.5px;
   letter-spacing: .16em;
-  color: oklch(0.95 0.006 290 / 50%);
+  color: color-mix(in oklab, var(--nav-fg) 50%, transparent);
   white-space: nowrap;
 }
 
@@ -560,7 +571,7 @@ h3,
   width: 100%;
   font: inherit;
   font-size: 13.5px;
-  color: var(--nav);
+  color: var(--nav-ink);
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 20px;
@@ -761,7 +772,7 @@ h3,
 
 .gs-results a .tx b {
   font-size: 13.5px;
-  color: var(--nav);
+  color: var(--nav-ink);
   font-weight: 500;
   display: block;
   white-space: nowrap;
@@ -1530,7 +1541,7 @@ button.fi-trigger {
 
 .dp-hd b {
   font-size: 13px;
-  color: var(--nav)
+  color: var(--nav-ink)
 }
 
 .dp-title {
@@ -1538,7 +1549,7 @@ button.fi-trigger {
   background: transparent;
   font-size: 13px;
   font-weight: 600;
-  color: var(--nav);
+  color: var(--nav-ink);
   cursor: pointer;
   border-radius: 6px;
   padding: 2px 8px
@@ -1581,7 +1592,7 @@ button.fi-trigger {
 
 .dp-year.sel {
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
   font-weight: 600
 }
 
@@ -1643,7 +1654,7 @@ button.fi-trigger {
 
 .dp-day.sel {
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
   font-weight: 600
 }
 
@@ -1722,7 +1733,7 @@ button.fi-trigger {
 
 .connect-qr-name {
   font-weight: 600;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .connect-qr-code small {
@@ -1816,7 +1827,7 @@ button.fi-trigger {
   flex-shrink: 0;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--brand-light), var(--brand-deep));
-  color: var(--nav);
+  color: var(--nav-ink);
   display: grid;
   place-content: center;
   font-weight: 600;
@@ -1971,7 +1982,7 @@ button.fi-trigger {
   flex-shrink: 0;
   border-radius: 7px;
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
   display: grid;
   place-content: center;
 }
@@ -2176,7 +2187,7 @@ button.fi-trigger {
   font-size: 30px;
   font-weight: 600;
   letter-spacing: .03em;
-  color: var(--nav)
+  color: var(--nav-ink)
 }
 
 .page-h p {
@@ -2788,7 +2799,7 @@ button.fi-trigger {
   font-size: 19px;
   font-weight: 600;
   letter-spacing: .03em;
-  color: var(--nav)
+  color: var(--nav-ink)
 }
 
 .card .hd .sp {
@@ -2888,7 +2899,7 @@ button.fi-trigger {
   font-family: var(--font-display), 'Montserrat', sans-serif;
   font-size: 21px;
   font-weight: 700;
-  color: var(--nav);
+  color: var(--nav-ink);
   margin-top: 3px;
   line-height: 1
 }
@@ -2962,7 +2973,7 @@ button.fi-trigger {
 
 .kpis-strip-item .v {
   font-weight: 700;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .kpis-strip-item .s {
@@ -3097,7 +3108,7 @@ button.fi-trigger {
   font-weight: 600;
   letter-spacing: .16em;
   text-transform: uppercase;
-  color: #fff;
+  color: var(--on-brand);
   border: 1px solid var(--brand);
   border-radius: 5px;
   cursor: pointer;
@@ -3331,7 +3342,7 @@ select.inp,
 textarea.inp {
   font: inherit;
   font-size: 14px;
-  color: var(--nav);
+  color: var(--nav-ink);
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -4719,7 +4730,7 @@ table.tbl {
 .modal .hd h3 {
   font-size: 22px;
   font-weight: 600;
-  color: var(--nav)
+  color: var(--nav-ink)
 }
 
 /* Spacer between a modal title and header action buttons (Banks' "Add Bank")
@@ -4999,7 +5010,7 @@ table.tbl {
 .mini-list .tx b {
   font-weight: 600;
   font-size: 13.5px;
-  color: var(--nav)
+  color: var(--nav-ink)
 }
 
 .mini-list .tx small {
@@ -5018,7 +5029,7 @@ table.tbl {
 .mini-list .rt b {
   display: block;
   font-size: 13px;
-  color: var(--nav)
+  color: var(--nav-ink)
 }
 
 /* bar chart (pure css) */
@@ -5097,7 +5108,7 @@ table.tbl {
 .donut .c b {
   font-family: var(--font-display), 'Montserrat', sans-serif;
   font-size: 14px;
-  color: var(--nav)
+  color: var(--nav-ink)
 }
 
 .donut .c small {
@@ -5284,7 +5295,7 @@ table.tbl {
   height: 58px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--brand-light), var(--brand-deep));
-  color: var(--nav);
+  color: var(--nav-ink);
   display: grid;
   place-content: center;
   font-weight: 600;
@@ -5323,7 +5334,7 @@ table.tbl {
 
 .kv .i .v {
   font-size: 14px;
-  color: var(--nav);
+  color: var(--nav-ink);
   margin-top: 2px;
   font-weight: 500
 }
@@ -5389,7 +5400,7 @@ table.tbl {
   left: 50%;
   transform: translateX(-50%) translateY(20px);
   background: var(--nav);
-  color: oklch(0.95 0.006 290);
+  color: var(--nav-fg);
   font-size: 13.5px;
   letter-spacing: .03em;
   padding: 11px 22px;
@@ -5942,7 +5953,7 @@ table.tbl {
   padding: 5px 9px;
   border-radius: 6px;
   background: var(--nav);
-  color: #fff;
+  color: var(--nav-fg);
   font-size: 11.5px;
   font-weight: 500;
   line-height: 1.4;
@@ -6096,7 +6107,7 @@ table.tbl {
 .ccheck b {
   font-size: 14px;
   font-weight: 600;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .ccheck-hint {
@@ -6227,7 +6238,8 @@ table.tbl {
    * their own step (see .side .brand .t b), so this scales the whole scale by
    * the width ratio in one place instead of restating each step — a step
    * added later is covered automatically. */
-  .side .brand .t {
+  .side .brand .t,
+  .side .side-bh {
     --lockup-rail: .84;
   }
 
@@ -6709,7 +6721,7 @@ table.tbl {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .wf-head p {
@@ -6886,7 +6898,7 @@ table.tbl {
   height: 20px;
   border-radius: 50%;
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
   font-size: 10.5px;
   font-weight: 700;
 }
@@ -7188,7 +7200,7 @@ table.tbl {
   font-size: 22px;
   font-weight: 700;
   line-height: 1.2;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .bill-cur-sub { color: var(--muted); font-size: 13px; margin: 2px 0 14px }
@@ -7261,7 +7273,7 @@ table.tbl {
   font-family: var(--font-display), 'Montserrat', sans-serif;
   font-size: 17px;
   font-weight: 700;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .bill-plans-h span { font-size: 12.5px; color: var(--muted) }
@@ -7305,7 +7317,7 @@ table.tbl {
   font-size: 16px;
   font-weight: 700;
   line-height: 1.25;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .bill-plan-br { display: flex; align-items: baseline; gap: 6px }
@@ -7352,7 +7364,7 @@ table.tbl {
 .bill-tile { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px }
 .bill-tile.to { border-color: var(--brand); background: var(--brand-faint) }
 .bill-tile small { font-size: 9.5px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--muted) }
-.bill-tile b { display: block; margin-top: 2px; font-size: 14px; color: var(--nav) }
+.bill-tile b { display: block; margin-top: 2px; font-size: 14px; color: var(--nav-ink) }
 .bill-tile span { font-size: 12px; color: var(--muted) }
 
 .bill-arrow {
@@ -7391,7 +7403,7 @@ table.tbl {
   margin: 0;
   font-family: var(--font-display), 'Montserrat', sans-serif;
   font-size: 17px;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .bill-proc p { margin: 0; max-width: 36ch; font-size: 13px; color: var(--muted) }
@@ -7513,7 +7525,7 @@ table.tbl {
 .pay-sec-t {
   font-size: 13.5px;
   font-weight: 700;
-  color: var(--nav);
+  color: var(--nav-ink);
   margin-bottom: 12px;
 }
 
@@ -7571,7 +7583,7 @@ table.tbl {
   border-radius: 10px;
   padding: 16px;
   font-size: 12.5px;
-  color: var(--nav);
+  color: var(--nav-ink);
 }
 
 .pay-r-cap {
@@ -7584,7 +7596,7 @@ table.tbl {
   text-align: center;
   font-size: 24px;
   font-weight: 800;
-  color: var(--nav);
+  color: var(--nav-ink);
   margin: 2px 0 4px;
   font-variant-numeric: tabular-nums;
 }
@@ -7729,7 +7741,7 @@ html.has-titlebar body {
   align-items: stretch;
   justify-content: space-between;
   background: var(--nav);
-  color: oklch(0.95 0.006 290);
+  color: var(--nav-fg);
   font-size: 12px;
   user-select: none;
   --wails-draggable: drag;

@@ -45,7 +45,7 @@ export default function BrandLogo({ size = 46, className, scalable = true }: Pro
    * that, one business's broken logo would leave the flag stuck on and the
    * next business signed into the same tab would render the platform mark
    * even though its own logo is fine. */
-  const { logoUrl, legalName, name, loaded, cached, logoScale, logoDisplay } = useBranding();
+  const { logoUrl, legalName, name, loaded, cached, logoScale, logoDisplay, headerLayout } = useBranding();
   /* No platform fallback, by product rule: a business must never be shown a
    * brand that is not its own — not another tenant's and not the vendor's,
    * not even for the frames before its branding arrives. So an absent logo
@@ -75,6 +75,29 @@ export default function BrandLogo({ size = 46, className, scalable = true }: Pro
   // flex layout (the text column next to it is flex:1) accommodates.
   const effectiveSize = Math.round(size * scale);
   const display = logoDisplay || DEFAULT_LOGO_DISPLAY;
+  /* A logo the vendor marked WIDE (superadmin Branding step) is a wordmark:
+   * fitted into this square slot it shrinks to a thin strip, which is how it
+   * looked on the sign-in page. The fixed slots (sign-in, forgot/reset
+   * password — the non-scalable ones) give it a wide box instead: about twice
+   * the slot's width, never taller than the logo needs, never wider than its
+   * container. The sidebar slot is unaffected — an arranged header draws its
+   * own logo at the width the vendor dragged it to. */
+  const wide = !scalable && headerLayout?.logoShape === "wide" && !!src;
+  const wideStyle: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    width: Math.round(size * 2.1),
+    maxWidth: "100%",
+    flexShrink: 0,
+    boxSizing: "border-box",
+    ...(display === "transparent"
+      ? {}
+      : {
+          borderRadius: 12,
+          background: display === "dark-pad" ? "rgba(0,0,0,0.72)" : "#fff",
+          padding: Math.round(size * 0.08),
+        }),
+  };
   // "light-pad"/"dark-pad" give a logo that only reads against one
   // background a backing swatch + a little breathing room, without
   // permanently cropping or recolouring the asset itself.
@@ -131,6 +154,19 @@ export default function BrandLogo({ size = 46, className, scalable = true }: Pro
         {!settled && (
           <style>{"@keyframes brandLogoPulse{0%,100%{opacity:.45}50%{opacity:.9}}"}</style>
         )}
+      </span>
+    );
+  }
+
+  if (wide && !failed) {
+    return (
+      <span style={wideStyle} className={className}>
+        <img
+          src={src}
+          alt={alt}
+          style={{ width: "100%", height: "auto", maxHeight: Math.round(size * 0.75), objectFit: "contain", objectPosition: "left center" }}
+          onError={() => setFailedSrc(src)}
+        />
       </span>
     );
   }

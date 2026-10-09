@@ -219,11 +219,17 @@ function clearNamedRamp(root: CSSStyleDeclaration, prefix: string): void {
  * a way to inject CSS, not just a typo. Keep this list in the same order and
  * with the same keys as the backend's.
  */
+/* Each choice leads with the font the app actually LOADS. next/font registers
+ * a self-hosted face under a generated name, exposed only through its CSS
+ * variable (app/(product)/layout.tsx), so a bare "Inter" or "Poppins" here
+ * matched nothing and fell through to the system font — Inter and Poppins
+ * looked identical to System. The quoted name after each var() is only the
+ * fallback for a page where the variable is not defined. */
 export const FONT_FAMILIES: Record<string, string> = {
-  inter: '"Inter", system-ui, -apple-system, "Segoe UI", sans-serif',
+  inter: 'var(--font-sans, "Inter"), system-ui, -apple-system, "Segoe UI", sans-serif',
   system: '-apple-system, system-ui, "Segoe UI", Roboto, sans-serif',
-  lora: '"Lora", Georgia, "Times New Roman", serif',
-  poppins: '"Poppins", system-ui, -apple-system, "Segoe UI", sans-serif',
+  lora: 'var(--font-lora, "Lora"), Georgia, "Times New Roman", serif',
+  poppins: 'var(--font-poppins, "Poppins"), system-ui, -apple-system, "Segoe UI", sans-serif',
 };
 export const DEFAULT_FONT_FAMILY = "inter";
 
@@ -282,7 +288,113 @@ export type BrandTheme = {
   secondary?: string | null;
   fontFamily?: string | null;
   fontScale?: string | null;
+  /** Text on the sidebar ground; empty = automatic (see autoTextColor). */
+  navText?: string | null;
+  /** Text on primary-colour fills; empty = automatic. */
+  onBrandText?: string | null;
 };
+
+/* --- Text colours on the brand grounds ----------------------------------------
+ *
+ * Sidebar and button text used to be hardcoded white. That is right for the
+ * dark grounds most businesses pick, and unreadable on the light secondary
+ * colour some logos need. So the text colour is now a setting, and its
+ * automatic value follows one rule: white, unless white would fail WCAG AA
+ * (4.5:1) on that ground AND a dark ink of the ground's own hue reads better.
+ * A vendor-picked colour always wins over the rule.
+ *
+ * The superadmin console's live preview calls these same functions, so what
+ * the vendor sees while editing is exactly what the business's app renders.
+ */
+const AA_CONTRAST = 4.5;
+
+function hexLuminance(hex: string): number {
+  const rgb = parseHexColor(hex) ?? [0, 0, 0];
+  return relativeLuminance(...rgb);
+}
+
+/** WCAG contrast ratio between two "#rrggbb" colours (1–21). */
+export function hexContrast(a: string, b: string): number {
+  return contrastRatio(hexLuminance(a), hexLuminance(b));
+}
+
+/** A dark ink on a colour's own hue — text that reads on that colour when it is light. */
+export function inkFor(hex: string): string {
+  const c = hexToOklch(hex) ?? hexToOklch(DEFAULT_BRAND_COLOR)!;
+  return oklchToHex({ l: 0.24, c: Math.min(c.c, 0.06), h: c.h });
+}
+
+/** The automatic text colour for a ground: white, or a dark ink when white would not read. */
+export function autoTextColor(bgHex: string): string {
+  const white = hexContrast("#ffffff", bgHex);
+  if (white >= AA_CONTRAST) return "#ffffff";
+  const ink = inkFor(bgHex);
+  return hexContrast(ink, bgHex) > white ? ink : "#ffffff";
+}
+
+/* The sidebar ground: the secondary colour when set, otherwise a dark shade on
+ * the primary's own hue (calibrated against a real hand-picked navy, #0e2050:
+ * L≈0.26 C≈0.091). One function so the app and the console preview agree. */
+function navOklchFor(primary: string, secondary: string | null | undefined): Oklch {
+  const primaryOklch = hexToOklch(primary || DEFAULT_BRAND_COLOR) ?? hexToOklch(DEFAULT_BRAND_COLOR)!;
+  const sidebarSourceOklch = secondary ? hexToOklch(secondary) : null;
+  return sidebarSourceOklch
+    ? gamutFit(sidebarSourceOklch)
+    : gamutFit({ l: 0.22, c: Math.min(primaryOklch.c * 0.65, 0.11), h: primaryOklch.h });
+}
+
+/* The second gradient stop: a step LIGHTER than a dark ground (the reference
+ * sidebar's own subtle top-to-bottom gradient), but a step DARKER than a light
+ * one — lightening an already-light ground just clips to white. */
+function nav2OklchFor(nav: Oklch): Oklch {
+  return nav.l > 0.6
+    ? gamutFit({ l: nav.l - 0.03, c: nav.c, h: nav.h })
+    : gamutFit({ l: nav.l + 0.07, c: nav.c * 1.2, h: nav.h });
+}
+
+export type BrandColors = {
+  /** The --brand colour as hex (the exact pick, gamut-fitted). */
+  brand: string;
+  /** Sidebar / login-panel ground, and its gradient partner. */
+  nav: string;
+  nav2: string;
+  /** Text on the nav ground. */
+  navFg: string;
+  /** Text on --brand fills. */
+  onBrand: string;
+  /** --nav as a text colour on white pages — never pale. */
+  navInk: string;
+};
+
+/** Resolves every colour a theme puts on screen, as hex. Pure: no DOM. */
+export function resolveBrandColors(t: BrandTheme): BrandColors {
+  const brand = oklchToHex(deriveBrandRamp(t.primary || DEFAULT_BRAND_COLOR)["--brand"]);
+  const navOklch = navOklchFor(t.primary || DEFAULT_BRAND_COLOR, t.secondary);
+  const nav = oklchToHex(navOklch);
+  const valid = (v: string | null | undefined) => (v && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : "");
+  return {
+    brand,
+    nav,
+    nav2: oklchToHex(nav2OklchFor(navOklch)),
+    navFg: valid(t.navText) || autoTextColor(nav),
+    onBrand: valid(t.onBrandText) || autoTextColor(brand),
+    navInk: navOklch.l <= 0.45 ? nav : oklchToHex({ l: 0.25, c: Math.min(navOklch.c, 0.08), h: navOklch.h }),
+  };
+}
+
+/** The CSS variables a theme sets that the console preview also needs, scoped
+ * to an element instead of the document. */
+export function brandPreviewVars(t: BrandTheme): Record<string, string> {
+  const c = resolveBrandColors(t);
+  return {
+    "--brand": c.brand,
+    "--nav": c.nav,
+    "--nav-2": c.nav2,
+    "--nav-fg": c.navFg,
+    "--on-brand": c.onBrand,
+    "--nav-ink": c.navInk,
+  };
+}
 
 /**
  * applyBrandTheme writes the ramp(s), font variables onto the document root,
@@ -347,13 +459,17 @@ export function applyBrandTheme(theme: string | null | undefined | BrandTheme): 
   // automatically from whichever colour --nav itself resolved to, so this
   // never needs its own separate setting either.
   const primaryOklch = hexToOklch(t.primary || DEFAULT_BRAND_COLOR) ?? hexToOklch(DEFAULT_BRAND_COLOR)!;
-  const sidebarSourceOklch = t.secondary ? hexToOklch(t.secondary) : null;
-  const navOklch = sidebarSourceOklch
-    ? gamutFit(sidebarSourceOklch)
-    : gamutFit({ l: 0.22, c: Math.min(primaryOklch.c * 0.65, 0.11), h: primaryOklch.h });
-  const nav2Oklch = gamutFit({ l: navOklch.l + 0.07, c: navOklch.c * 1.2, h: navOklch.h });
+  const navOklch = navOklchFor(t.primary || DEFAULT_BRAND_COLOR, t.secondary);
   root.style.setProperty("--nav", oklchToCss(navOklch));
-  root.style.setProperty("--nav-2", oklchToCss(nav2Oklch));
+  root.style.setProperty("--nav-2", oklchToCss(nav2OklchFor(navOklch)));
+
+  // Text on those grounds — see resolveBrandColors. Set every time (never
+  // left over from a previous business), since a light sidebar with white
+  // text is unreadable.
+  const colors = resolveBrandColors(t);
+  root.style.setProperty("--nav-fg", colors.navFg);
+  root.style.setProperty("--on-brand", colors.onBrand);
+  root.style.setProperty("--nav-ink", colors.navInk);
 
   // --nav-label — the sidebar's section headings ("OVERVIEW", "LENDING",
   // etc.). Was a flat oklch(0.95 0.006 290 / 50%) — a near-white at low
@@ -550,17 +666,17 @@ function initialsOf(name: string): string {
   return letters.join("").toUpperCase();
 }
 
-function monogramFavicon(brandColor: string, name: string): string | null {
+/* text is the exact letters to draw (already chosen by the caller), up to 3. */
+function monogramFavicon(brandColor: string, text: string): string | null {
   const ctx = newCanvas(FAVICON_SIZE, FAVICON_SIZE);
   if (!ctx) return null;
   const rgb = parseHexColor(brandColor) ?? parseHexColor(DEFAULT_BRAND_COLOR)!;
   const tileLum = relativeLuminance(...rgb);
   roundedTile(ctx, `rgb(${rgb.join(",")})`);
-  const text = initialsOf(name);
   if (text) {
     // White or near-black letters, whichever reads better on this colour.
     ctx.fillStyle = contrastRatio(tileLum, 1) >= contrastRatio(tileLum, relativeLuminance(17, 17, 17)) ? "#fff" : "#111";
-    ctx.font = `700 ${text.length > 1 ? 28 : 38}px ${FAVICON_FONT}`;
+    ctx.font = `700 ${text.length > 2 ? 21 : text.length > 1 ? 28 : 38}px ${FAVICON_FONT}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, FAVICON_SIZE / 2, FAVICON_SIZE / 2 + 2);
@@ -663,9 +779,18 @@ function logoFavicon(img: HTMLImageElement): string | null {
  * whenever the browser allows it. Never throws. Falls back to the raw logo URL
  * only when the logo loads but cannot be read (a cross-origin logo without
  * CORS) — exactly the pre-normalisation behaviour, so this never does worse. */
-export async function buildFavicon(opts: { logoUrl: string; brandColor: string; name: string }): Promise<string | null> {
+export type FaviconSource = {
+  logoUrl: string;
+  brandColor: string;
+  name: string;
+  /** Letters to draw instead of the logo — set when the logo is WIDE, since a
+   * wordmark shrunk to 16px is an unreadable smear. Up to 3 characters. */
+  monogram?: string;
+};
+
+export async function buildFavicon(opts: FaviconSource): Promise<string | null> {
   if (typeof document === "undefined") return null;
-  if (opts.logoUrl) {
+  if (opts.logoUrl && !opts.monogram) {
     let img: HTMLImageElement | null = null;
     let readable = true;
     try {
@@ -689,7 +814,7 @@ export async function buildFavicon(opts: { logoUrl: string; brandColor: string; 
     }
   }
   try {
-    return monogramFavicon(opts.brandColor, opts.name);
+    return monogramFavicon(opts.brandColor, opts.monogram || initialsOf(opts.name));
   } catch {
     return opts.logoUrl || null;
   }
@@ -729,14 +854,14 @@ let faviconBuildSeq = 0;
  * is known: build (or reuse) the normalised icon, show it, cache it. */
 export async function applyBrandFavicon(
   slug: string | null,
-  brand: { logoUrl: string; brandColor: string; name: string }
+  brand: FaviconSource
 ): Promise<void> {
   if (typeof window === "undefined") return;
   // Nothing to build from yet — keep whatever is showing.
   if (!brand.logoUrl && !brand.name) return;
   // FAVICON_VERSION first: bumping it rebuilds every cached icon after a
   // change to how icons are drawn.
-  const src = [FAVICON_VERSION, brand.logoUrl, brand.brandColor, brand.name].join("|");
+  const src = [FAVICON_VERSION, brand.logoUrl, brand.brandColor, brand.name, brand.monogram || ""].join("|");
   const cached = readCachedFavicon(slug);
   if (cached && cached.src === src) {
     applyFavicon(cached.icon);
@@ -851,12 +976,23 @@ export function readCachedBrandColor(slug: string | null): string | null {
  * readCachedBrandColor for exactly that transition case). */
 export const BRAND_THEME_KEY_PREFIX = "cloudhouse_brand_theme::";
 
+/* The resolved sidebar ground and text colours, replayed by brand-preload.tsx
+ * before first paint. Without it a business with a light sidebar would flash
+ * the default dark one (with white text) on every load. Plain hex values, so
+ * the inline script needs no colour maths of its own. */
+export const BRAND_VARS_KEY_PREFIX = "cloudhouse_brand_vars::";
+
 export function cacheBrandTheme(slug: string | null, theme: BrandTheme): void {
   if (typeof window === "undefined") return;
   try {
     if (theme.primary) {
       window.localStorage.setItem(BRAND_COLOR_KEY_PREFIX + (slug || "default"), theme.primary);
     }
+    const c = resolveBrandColors(theme);
+    window.localStorage.setItem(
+      BRAND_VARS_KEY_PREFIX + (slug || "default"),
+      JSON.stringify({ "--nav": c.nav, "--nav-2": c.nav2, "--nav-fg": c.navFg, "--on-brand": c.onBrand, "--nav-ink": c.navInk })
+    );
     window.localStorage.setItem(BRAND_THEME_KEY_PREFIX + (slug || "default"), JSON.stringify(theme));
   } catch {
     /* Private mode / storage disabled — the theme still applies for this
