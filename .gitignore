@@ -21,3 +21,4 @@ backups/
 
 # Built/deployed artifacts (compiled frontend + server binary) - live on the server, never commit
 deploy/
+.claude/
