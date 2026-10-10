@@ -1,7 +1,7 @@
 import { Stack } from "expo-router";
-import { colors } from "../../../src/theme/colors";
+import { colors } from "@/common/theme/colors";
 
-// Same module stack as settings/_layout.tsx: screens own their headers, and a
+// Same module stack as app/(tabs)/settings/_layout.tsx: screens own their headers, and a
 // page opened from the More sheet (openPage marks it `direct`) just appears.
 export default function ModuleLayout() {
   return (

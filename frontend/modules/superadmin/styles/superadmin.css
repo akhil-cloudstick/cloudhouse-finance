@@ -1,0 +1,1835 @@
+/* Superadmin console — CloudHouse Technologies' own operator tool.
+ *
+ * Deliberately its own stylesheet, not common/styles/app.css. Two reasons, and the
+ * second is the important one:
+ *
+ *  1. This console is never themed by a tenant. Every other surface in the
+ *     app re-colours itself to whichever business is signed in (see
+ *     common/config/theme.ts); this one must stay constant, or an operator
+ *     managing twelve businesses would see the chrome change under them and
+ *     lose track of which tool they are in.
+ *  2. So the tokens below are LITERAL, never var(--brand*). Reading the
+ *     branded variables here is the bug this comment exists to prevent.
+ *
+ * The tokens mirror app.css's neutral ramp (same oklch values) so the two
+ * still look like one product family. The chrome is LIGHT — a white sidebar
+ * and topbar matching the ERP staff panel. It used to be near-black, which
+ * said "vendor tooling" at a glance; that signal now comes from the fixed
+ * violet accent and the vendor lockup instead, and rule 2 above — literal
+ * values, never var(--brand*) — is unchanged and is the part that matters.
+ */
+
+/* The only global rule in this file, and it earns its place: this app ships
+   no CSS reset at all (no next/font, no globals.css — see app/(product)/layout.tsx),
+   so the browser default `body { margin: 8px }` was live. That inset the
+   whole console by 8px and, more visibly, made every 100vh element overflow
+   by 16px and put a scrollbar on the sign-in page. Safe as a global because
+   this stylesheet is imported only by the superadmin pages. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+.sa-shell,
+.sa-login {
+  /* Vendor palette. Fixed — see the header comment. */
+  --sa-brand: oklch(0.515 0.162 284);
+  --sa-brand-deep: oklch(0.4 0.145 284);
+  --sa-brand-pale: oklch(0.955 0.02 284);
+
+  --sa-ink: oklch(0.18 0.02 285);
+  --sa-muted: oklch(0.5 0.02 285);
+  --sa-bg: oklch(0.972 0.004 290);
+  --sa-card: oklch(1 0 0);
+  --sa-line: oklch(0.915 0.006 290);
+
+  /* The --sa-nav/--sa-nav-2/--sa-on-dark* tokens that used to sit here are
+     gone with the dark chrome that was their only consumer. */
+
+  --sa-green: oklch(0.51 0.14 150);
+  --sa-green-bg: oklch(0.95 0.04 150);
+  --sa-red: oklch(0.52 0.2 25);
+  --sa-red-bg: oklch(0.95 0.025 25);
+  --sa-amber: oklch(0.53 0.114 70);
+  --sa-amber-bg: oklch(0.96 0.029 70);
+  --sa-blue: oklch(0.52 0.15 255);
+  --sa-blue-bg: oklch(0.95 0.03 255);
+
+  /* Light chrome. The sidebar and topbar are WHITE here, not the near-black
+     they were: this console now matches the ERP staff panel's shell, and the
+     "vendor tooling at a glance" signal the old dark chrome carried is
+     handled by the fixed violet accent and the vendor lockup instead. The
+     tokens are still literal and still never read from --brand*, which is
+     the rule the file header is actually about. */
+  --sa-side: oklch(1 0 0);
+  --sa-side-ink: oklch(0.34 0.015 285);
+  --sa-side-hover: oklch(0.965 0.004 290);
+  --sa-side-active-bg: oklch(0.962 0.018 284);
+
+  /* The near-black used for the sign-in page's solid primary button. Kept
+     distinct from --sa-ink (body text) so changing text colour cannot
+     silently restyle a button. */
+  --sa-dark: oklch(0.21 0.03 265);
+  --sa-dark-hover: oklch(0.28 0.035 265);
+
+  --sa-radius: 12px;
+  --sa-radius-sm: 8px;
+  --sa-shadow: 0 1px 2px oklch(0.2 0.02 285 / 6%), 0 1px 3px oklch(0.2 0.02 285 / 4%);
+  --sa-shadow-lg: 0 10px 30px oklch(0.2 0.02 285 / 12%), 0 2px 8px oklch(0.2 0.02 285 / 6%);
+  --sa-ring: 0 0 0 3px oklch(0.515 0.162 284 / 18%);
+
+  /* The select caret, drawn once here so every <select> in the console gets
+     the same one — a native caret is the single most obvious "unstyled
+     control" tell, and it cannot be coloured any other way. Mirrors the
+     tenant app's own --select-caret token. */
+  --sa-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b6b80' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* --- Sign in ---
+
+   A centred card on a soft gradient, matching the CloudHouse sign-in design:
+   mark, "Welcome back", then filled icon-led fields and one solid dark
+   action. Light, like the console it opens into — sign-in and console are one
+   product, and the dark radial-gradient card this replaced made them look
+   like two.
+
+   The page deliberately does NOT scroll: it is one short card, and a
+   scrollbar on it only ever means something is overflowing. */
+
+.sa-login {
+  /* dvh, not vh: on mobile Safari/Chrome the browser chrome makes 100vh
+     taller than the visible viewport, which is itself a scroll. */
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 20px;
+  box-sizing: border-box;
+  color: var(--sa-ink);
+  background:
+    radial-gradient(900px 620px at 78% 8%, oklch(0.93 0.045 240) 0%, transparent 62%),
+    radial-gradient(760px 560px at 12% 96%, oklch(0.93 0.05 305) 0%, transparent 60%),
+    oklch(0.975 0.008 265);
+}
+
+/* The one escape hatch for the no-scroll rule: on a very short window (a
+   landscape phone, a half-height browser) hiding the overflow would put the
+   sign-in button out of reach entirely. Unreachable beats ugly is never the
+   right trade for a login form. */
+@media (max-height: 620px) {
+  .sa-login {
+    height: auto;
+    min-height: 100dvh;
+    overflow-y: auto;
+  }
+}
+
+.sa-login-card {
+  background: var(--sa-card);
+  border: 1px solid oklch(1 0 0 / 60%);
+  border-radius: 16px;
+  padding: 34px 32px 28px;
+  /* border-box so the card can never exceed the viewport: with content-box
+     the side padding sits OUTSIDE the declared width and pushed it past the
+     screen edge on a phone. */
+  box-sizing: border-box;
+  width: 400px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 18px 50px oklch(0.3 0.04 265 / 10%), 0 2px 8px oklch(0.3 0.04 265 / 5%);
+}
+
+/* --- Card head: mark, welcome, subtitle — all centred --- */
+
+.sa-login-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.sa-login-head img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  margin-bottom: 10px;
+}
+.sa-login-head h1 {
+  margin: 0;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--sa-ink);
+}
+.sa-login-head p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--sa-muted);
+}
+
+/* --- Fields --- */
+
+.sa-login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sa-login-field > span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sa-ink);
+}
+/* The icon sits inside the field, so the input carries padding on that side
+   rather than the icon being a sibling that pushes it — that way the filled
+   background and the focus ring still cover the whole control. */
+.sa-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.sa-input-wrap .sa-input-icon {
+  position: absolute;
+  left: 12px;
+  width: 17px;
+  height: 17px;
+  color: var(--sa-muted);
+  pointer-events: none;
+}
+.sa-login .sa-input-wrap input {
+  background: oklch(0.965 0.006 265);
+  border-color: transparent;
+  border-radius: 10px;
+  padding: 11px 12px 11px 38px;
+  font-size: 14px;
+}
+.sa-login .sa-input-wrap input:hover:not(:disabled) {
+  border-color: oklch(0.9 0.008 265);
+}
+.sa-login .sa-input-wrap input:focus-visible {
+  background: var(--sa-card);
+}
+/* Room for the reveal toggle, so a long password never runs under it. */
+.sa-input-wrap.has-toggle input {
+  padding-right: 42px;
+}
+.sa-eye {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--sa-muted);
+  border-radius: 8px;
+}
+.sa-eye:hover {
+  color: var(--sa-ink);
+}
+.sa-eye svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* --- Action --- */
+
+.sa-login-card button[type="submit"] {
+  background: var(--sa-dark);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14.5px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.sa-login-card button[type="submit"]:hover:not(:disabled) {
+  background: var(--sa-dark-hover);
+}
+.sa-login-card button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* The vendor line under the card, outside it — the same role the wordmark
+   played beside the mark before, moved out so the card head stays a clean
+   centred stack. */
+.sa-login-foot {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--sa-muted);
+  text-align: center;
+}
+
+/* .sa-error appears on BOTH the sign-in card and the console. Both are light
+ * now, but it stays background-less: an error inside a form field group reads
+ * better as coloured text than as another filled box. */
+.sa-error {
+  color: oklch(0.63 0.19 25);
+  font-size: 13px;
+  margin: 0;
+}
+.sa-shell .sa-error {
+  color: var(--sa-red);
+}
+
+/* --- Shell ---------------------------------------------------------------
+
+   Two columns: a fixed sidebar and a scrolling main pane, matching the ERP
+   staff panel. The tab strip this replaced is gone — the three views are now
+   sidebar rows (see NAV in modules/superadmin/pages/SuperAdminDashboardPage.tsx), which is why there is no .sa-tab
+   rule below any more. */
+
+.sa-shell {
+  min-height: 100vh;
+  background: var(--sa-bg);
+  color: var(--sa-ink);
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+}
+
+/* --- Sidebar --- */
+
+.sa-side {
+  background: var(--sa-side);
+  border-right: 1px solid var(--sa-line);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.sa-side-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--sa-line);
+  min-width: 0;
+}
+.sa-side-brand img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.sa-wordmark {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+.sa-wordmark b {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sa-ink);
+}
+.sa-wordmark span {
+  font-size: 11px;
+  color: var(--sa-muted);
+}
+
+.sa-nav {
+  padding: 14px 12px;
+  flex: 1;
+}
+.sa-nav-group + .sa-nav-group {
+  margin-top: 18px;
+}
+/* The small uppercase section label over each group — the "Main Navigation" /
+   "Quick Actions" rule the ERP panel groups its nav with. */
+.sa-nav-label {
+  margin: 0 0 6px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sa-muted);
+}
+.sa-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  /* border-box for the same reason as the form controls below: width:100%
+     plus padding overflows the sidebar's content box without it. */
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 10px;
+  margin-bottom: 2px;
+  border: none;
+  border-radius: var(--sa-radius-sm);
+  background: none;
+  color: var(--sa-side-ink);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.sa-nav-item:hover {
+  background: var(--sa-side-hover);
+  color: var(--sa-ink);
+}
+.sa-nav-item.active {
+  background: var(--sa-side-active-bg);
+  color: var(--sa-brand-deep);
+  font-weight: 600;
+}
+.sa-nav-item .sa-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.sa-nav-item.active .sa-icon {
+  opacity: 1;
+}
+.sa-side-foot {
+  padding: 14px 18px;
+  border-top: 1px solid var(--sa-line);
+  font-size: 11px;
+  color: var(--sa-muted);
+}
+
+/* --- Main pane and topbar --- */
+
+.sa-main {
+  min-width: 0;
+}
+.sa-topbar {
+  background: var(--sa-card);
+  border-bottom: 1px solid var(--sa-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+/* Page title + subtitle, so each view names itself rather than leaving the
+   operator to infer it from the table under it. */
+.sa-topbar-head h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--sa-ink);
+}
+.sa-topbar-head p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--sa-muted);
+}
+.sa-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sa-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--sa-line);
+  border-radius: 50%;
+  background: var(--sa-card);
+  color: var(--sa-muted);
+}
+.sa-icon-btn .sa-icon {
+  width: 17px;
+  height: 17px;
+}
+.sa-topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 4px;
+}
+.sa-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--sa-brand-pale);
+  color: var(--sa-brand-deep);
+}
+.sa-avatar .sa-icon {
+  width: 17px;
+  height: 17px;
+}
+.sa-topbar-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sa-ink);
+}
+
+/* --- Stat tiles --- */
+
+.sa-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  padding: 20px 24px 0;
+}
+.sa-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius);
+  box-shadow: var(--sa-shadow);
+  padding: 15px 16px;
+}
+/* The pastel rounded icon square. Tinted per tile so the row reads as four
+   distinct figures at a glance rather than four identical boxes. */
+.sa-card-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  flex-shrink: 0;
+}
+.sa-card-icon .sa-icon {
+  width: 20px;
+  height: 20px;
+}
+.sa-card-icon.violet {
+  background: var(--sa-brand-pale);
+  color: var(--sa-brand);
+}
+.sa-card-icon.green {
+  background: var(--sa-green-bg);
+  color: var(--sa-green);
+}
+.sa-card-icon.amber {
+  background: var(--sa-amber-bg);
+  color: var(--sa-amber);
+}
+.sa-card-icon.blue {
+  background: var(--sa-blue-bg);
+  color: var(--sa-blue);
+}
+.sa-card .sa-card-label {
+  font-size: 12px;
+  color: var(--sa-muted);
+}
+.sa-card .sa-card-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.sa-content {
+  padding: 20px 24px 40px;
+}
+
+/* --- Controls, themed BY ELEMENT ------------------------------------------
+
+   Scoped to .sa-shell/.sa-login so nothing leaks, but matched on the ELEMENT
+   rather than a class: a control added to this console later is themed
+   whether or not whoever adds it remembers a class name. The class-based
+   rules further down layer on top of these for the controls that need more.
+
+   This is the difference between "most inputs look right" and "no input can
+   look wrong", which is the point — a native select caret or a default focus
+   ring in the middle of the wizard is exactly what gives a console away. */
+
+.sa-shell input,
+.sa-shell select,
+.sa-shell textarea,
+.sa-login input,
+.sa-login select,
+.sa-login textarea {
+  /* border-box is REQUIRED here, not a preference: this stylesheet has no
+     box-sizing reset, so with the default content-box a `width: 100%` control
+     renders 100% PLUS its padding and border — 24px wider than the column it
+     sits in. In the two-column wizard rows that overflowed into the field
+     beside it, which is what put a textarea's resize grip on top of the
+     neighbouring hint text. Scoped to the controls rather than set globally
+     because the rest of the console was authored without it, and a blanket
+     reset would silently resize the login card and other fixed-width boxes. */
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius-sm);
+  background: var(--sa-card);
+  color: var(--sa-ink);
+  font: inherit;
+  font-size: 13.5px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.sa-shell textarea,
+.sa-login textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+/* One focus ring for every control in the console, keyboard-only
+   (:focus-visible) so a mouse click does not leave a ring behind. */
+.sa-shell :is(input, select, textarea, button, [tabindex]):focus-visible,
+.sa-login :is(input, select, textarea, button, [tabindex]):focus-visible {
+  outline: none;
+  border-color: var(--sa-brand);
+  box-shadow: var(--sa-ring);
+}
+.sa-shell :is(input, select, textarea):hover:not(:disabled),
+.sa-login :is(input, select, textarea):hover:not(:disabled) {
+  border-color: oklch(0.85 0.01 290);
+}
+.sa-shell :is(input, select, textarea, button):disabled,
+.sa-login :is(input, select, textarea, button):disabled {
+  background: var(--sa-bg);
+  color: var(--sa-muted);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+.sa-shell ::placeholder,
+.sa-login ::placeholder {
+  color: oklch(0.65 0.015 285);
+}
+
+/* Native carets cannot be coloured, so the caret is drawn as a background
+   image and the native one removed. padding-right leaves room for it.
+   Kept for any <select> that is still native — the console's own dropdowns
+   use the Select component below, because styling the closed control is as
+   far as CSS can go. */
+.sa-shell select,
+.sa-login select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: var(--sa-caret);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  cursor: pointer;
+}
+
+/* --- Dropdown (common/components/ui/Select.tsx) ------------------------------
+
+   A native <select> draws its open list in the OPERATING SYSTEM, outside the
+   page, where CSS cannot reach it: every dropdown in the wizard was themed
+   until it was opened and then showed a raw platform list inside a themed
+   modal. This is the markup that replaces it — a button plus a listbox that
+   are both ordinary elements, and so can actually take the theme. */
+
+.sa-select {
+  position: relative;
+}
+.sa-select-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius-sm);
+  background: var(--sa-card);
+  color: var(--sa-ink);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.sa-select-btn:hover:not(:disabled) {
+  border-color: oklch(0.85 0.01 290);
+}
+/* Open is a held state, not a transient focus one, so it keeps the ring
+   whether the list was opened by mouse or by keyboard. */
+.sa-select.open .sa-select-btn {
+  border-color: var(--sa-brand);
+  box-shadow: var(--sa-ring);
+}
+.sa-select-btn:disabled {
+  background: var(--sa-bg);
+  color: var(--sa-muted);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+.sa-select-placeholder {
+  color: oklch(0.65 0.015 285);
+}
+.sa-select-caret {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--sa-muted);
+  transition: transform 0.15s;
+}
+.sa-select.open .sa-select-caret {
+  transform: rotate(180deg);
+}
+
+.sa-select-list {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  /* Scrolls itself past this height rather than growing until it is clipped
+     by the modal body's own overflow. */
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius-sm);
+  box-shadow: var(--sa-shadow-lg);
+}
+/* Set by the component when there is not enough room below the control — see
+   its openList(). The 240px max-height above is the measurement it uses, so
+   the two must change together. */
+.sa-select-list.up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+.sa-select-option {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  color: var(--sa-ink);
+  cursor: pointer;
+}
+/* `active` is the keyboard/hover row, `selected` is the stored value. They
+   are separate because arrowing through a list must not look like it has
+   already changed the value. */
+.sa-select-option.active {
+  background: var(--sa-side-hover);
+}
+.sa-select-option.selected {
+  color: var(--sa-brand-deep);
+  font-weight: 600;
+}
+.sa-select-option.selected.active {
+  background: var(--sa-side-active-bg);
+}
+
+/* The date picker's calendar button is a shadow-DOM part; this is the only
+   handle CSS has on it, and without it the one control in the wizard that
+   opens a picker keeps its grey browser default. */
+.sa-shell input[type="date"]::-webkit-calendar-picker-indicator,
+.sa-login input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.55;
+  filter: invert(31%) sepia(43%) saturate(1620%) hue-rotate(232deg) brightness(88%) contrast(94%);
+}
+.sa-shell input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* A colour input is a swatch, not a text box — the shared padding above would
+   inset the colour inside a white border. */
+.sa-shell input[type="color"] {
+  width: 44px;
+  height: 34px;
+  padding: 3px;
+  cursor: pointer;
+}
+.sa-shell input[type="checkbox"],
+.sa-shell input[type="radio"] {
+  width: auto;
+  accent-color: var(--sa-brand);
+  cursor: pointer;
+}
+.sa-shell input[type="file"] {
+  padding: 7px 9px;
+  cursor: pointer;
+}
+.sa-shell input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  padding: 5px 11px;
+  border: 1px solid var(--sa-line);
+  border-radius: 6px;
+  background: var(--sa-bg);
+  color: var(--sa-ink);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+/* Every button gets the base treatment; .sa-btn/.primary/.danger below only
+   adjust colour, so an unclassed <button> is still a themed button. */
+.sa-shell button,
+.sa-login button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--sa-radius-sm);
+}
+
+/* Tables scroll inside their own box rather than pushing the page sideways —
+   the businesses table gained several columns and overflows on a laptop. */
+/* The viewport-relative max-height needs the floor: on a short window
+   (or a laptop with a large browser chrome) calc() alone resolves to a
+   sliver, and the table would scroll inside ~40px. */
+.sa-table-wrap {
+  overflow: auto;
+  max-height: max(320px, calc(100vh - 290px));
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius);
+  box-shadow: var(--sa-shadow);
+}
+/* min-width over width alone: the businesses table carries eight columns and
+   an actions cell, and below this it stops being readable. Past that point it
+   scrolls inside .sa-table-wrap — a horizontal scroll on a wide table is a
+   better answer on a phone than columns crushed to one word per line. */
+.sa-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+/* Sticky header: these tables now scroll inside their own box (the wrap has a
+   max-height), and a long business list otherwise scrolls its own column
+   headings out of view. */
+/* The businesses table fits its card instead of scrolling sideways: no
+   min-width, cells wrap, and the chip lists wrap onto extra lines. The Code
+   column drops out first on a narrower laptop — the code is already in the
+   URL beside it. Only a phone (see the 720px block) falls back to a scroll. */
+.sa-table-wrap-fit {
+  overflow-x: hidden;
+}
+.sa-table-biz {
+  min-width: 0;
+}
+.sa-table-biz th,
+.sa-table-biz td {
+  padding: 10px 10px;
+}
+.sa-table-biz td {
+  overflow-wrap: anywhere;
+}
+.sa-table-biz .sa-biz-sub {
+  display: block;
+}
+.sa-table-biz .sa-chips {
+  max-width: 240px;
+}
+.sa-table-biz .sa-signin-row .sa-btn {
+  white-space: nowrap;
+}
+@media (max-width: 1400px) {
+  .sa-table-biz .sa-col-code {
+    display: none;
+  }
+  .sa-table-biz .sa-chips {
+    max-width: 180px;
+  }
+}
+.sa-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  background: var(--sa-bg);
+  padding: 11px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sa-muted);
+  border-bottom: 1px solid var(--sa-line);
+  white-space: nowrap;
+}
+.sa-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--sa-line);
+  vertical-align: middle;
+}
+.sa-table tbody tr:hover td {
+  background: var(--sa-side-hover);
+}
+.sa-table tr:last-child td {
+  border-bottom: none;
+}
+.sa-table code {
+  background: var(--sa-bg);
+  border: 1px solid var(--sa-line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+/* The business's own identity, shown as it will appear to their staff. */
+.sa-biz {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sa-biz-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: var(--sa-bg);
+  border: 1px solid var(--sa-line);
+  flex-shrink: 0;
+}
+.sa-biz-swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--sa-line);
+  flex-shrink: 0;
+}
+.sa-biz-name {
+  font-weight: 600;
+}
+.sa-biz-sub {
+  font-size: 11.5px;
+  color: var(--sa-muted);
+}
+.sa-url {
+  font-size: 12px;
+  color: var(--sa-brand-deep);
+  text-decoration: none;
+  word-break: break-all;
+}
+.sa-url:hover {
+  text-decoration: underline;
+}
+.sa-signin-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.sa-signin-row .sa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sa-signin-row .sa-btn .sa-icon {
+  width: 13px;
+  height: 13px;
+}
+/* A smaller, square variant of .sa-icon-btn (that one is the round 34px
+   topbar size) for sitting inline next to the copy button in a table row. */
+.sa-signin-row .sa-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.sa-signin-row .sa-icon-btn .sa-icon {
+  width: 14px;
+  height: 14px;
+}
+.sa-signin-row .sa-icon-btn:hover {
+  background: var(--sa-bg);
+  color: var(--sa-ink);
+}
+
+.sa-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sa-chip.active { background: var(--sa-green-bg); color: var(--sa-green); }
+.sa-chip.suspended { background: var(--sa-red-bg); color: var(--sa-red); }
+.sa-chip.trial,
+.sa-chip.grace,
+.sa-chip.past_due,
+.sa-chip.over_quota { background: var(--sa-amber-bg); color: var(--sa-amber); }
+.sa-chip.cancelled { background: var(--sa-bg); color: var(--sa-muted); }
+/* Module/language grants, shown as neutral tags — they are facts about the
+   account, not states needing attention, so they take no status colour. */
+.sa-chip.tag { background: var(--sa-brand-pale); color: var(--sa-brand-deep); }
+.sa-chip.off { background: var(--sa-bg); color: var(--sa-muted); font-weight: 500; }
+.sa-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* NOTE: this class is on the <td> itself, so it must not change the cell's
+   display. It used to be `display:flex`, which took the cell out of table
+   layout — the Actions column then sized and aligned independently of its
+   own row, leaving the column visibly out of step with every other one.
+   The buttons are laid out with margins instead, and the cell stays a cell. */
+.sa-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.sa-actions .sa-btn {
+  /* Inline-block buttons sit on the text baseline by default, which drops
+     them a few pixels below the middle-aligned text in the cells beside
+     them — the same misalignment, just smaller, that this column had. */
+  vertical-align: middle;
+}
+.sa-actions .sa-btn + .sa-btn {
+  margin-left: 6px;
+}
+.sa-actions .sa-toggle {
+  margin-left: 6px;
+}
+.sa-actions .sa-toggle + .sa-btn {
+  margin-left: 6px;
+}
+
+/* Active/inactive switch. A checkbox drives it (real focus/keyboard support)
+   but is visually hidden — the track+thumb pair is what's on screen. */
+.sa-toggle {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+}
+.sa-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.sa-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--sa-red-bg);
+  border: 1px solid var(--sa-red);
+  border-radius: 999px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.sa-toggle input:checked + .sa-toggle-track {
+  background: var(--sa-green);
+  border-color: var(--sa-green);
+}
+.sa-toggle-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px oklch(0.2 0.02 285 / 25%);
+  transition: transform 0.15s ease;
+}
+.sa-toggle input:checked + .sa-toggle-track .sa-toggle-thumb {
+  transform: translateX(16px);
+}
+.sa-toggle input:focus-visible + .sa-toggle-track {
+  outline: 2px solid var(--sa-brand);
+  outline-offset: 2px;
+}
+.sa-btn {
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--sa-ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sa-btn:hover:not(:disabled) { background: var(--sa-bg); }
+.sa-btn.primary { background: var(--sa-brand); border-color: var(--sa-brand); color: #fff; }
+.sa-btn.primary:hover:not(:disabled) { background: var(--sa-brand-deep); border-color: var(--sa-brand-deep); }
+.sa-btn.danger { background: var(--sa-card); border-color: var(--sa-red); color: var(--sa-red); }
+.sa-btn.danger:hover:not(:disabled) { background: var(--sa-red-bg); }
+.sa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sa-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+/* --- Modal --- */
+
+.sa-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Lighter than the near-black it was, with a blur: over light chrome a 55%
+     black scrim reads as a different application rather than a layer over
+     this one. */
+  background: oklch(0.35 0.02 285 / 35%);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+/* The scrolling shell. The modal itself is a flex COLUMN that never scrolls;
+   only .sa-modal-body does. That is what keeps the title and the action
+   buttons on screen for a long form — previously the whole modal scrolled, so
+   "Cancel" and "Create business" sat below the fold and you had to scroll to
+   the bottom to find out a form could even be submitted. */
+.sa-modal {
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius);
+  width: 100%;
+  max-width: 460px;
+  max-height: 90vh;
+  box-shadow: var(--sa-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.sa-modal.wide { max-width: 720px; height: 720px; max-height: 90vh; }
+.sa-modal h2 {
+  font-size: 16px;
+  /* No bottom margin: spacing is the head's padding now, since every modal
+     puts its title in .sa-modal-head. */
+  margin: 0;
+}
+.sa-modal-note {
+  font-size: 12.5px;
+  color: var(--sa-muted);
+  /* Was -8px, to pull it up under a title that sat in the same padded box.
+     The title lives in .sa-modal-head now, so the note starts the body. */
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+.sa-modal-note.danger {
+  color: var(--sa-red);
+  font-weight: 600;
+}
+
+/* The label colour here was the console's one real bug: it read
+   oklch(0.95 ...) — near-white — against the white modal, so every field
+   label was invisible. It now takes the same muted ink the rest of the light
+   surface uses. */
+.sa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--sa-muted);
+}
+.sa-field > label {
+  font-weight: 500;
+  color: var(--sa-ink);
+}
+.sa-field .sa-hint {
+  font-size: 11.5px;
+  color: var(--sa-muted);
+  line-height: 1.45;
+}
+/* The inputs inside a field take the console-wide element-level treatment
+   (see "Controls, themed BY ELEMENT" above) — there is deliberately no
+   per-field override here any more. The block that used to sit here re-set
+   padding, and so cancelled the padding-right that reserves room for the
+   custom select caret: the caret ended up printed over the selected text in
+   every dropdown in the wizard. */
+
+/* `align-items: start` so a short field is not stretched to match a tall one
+   beside it, and `min-width: 0` on the children because a grid item defaults
+   to min-width:auto — without it a long hint refuses to wrap below its
+   content width and pushes its column over the neighbouring one. The row gap
+   was 0, which let a tall field's hint collide with the row below. */
+.sa-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  align-items: start;
+}
+.sa-grid-2 > * {
+  min-width: 0;
+}
+/* 700px, not 520px: these rows live inside a modal that is up to 620px wide
+   plus its 24px side padding, so a viewport breakpoint below that collapsed
+   them far later than the columns actually became too narrow to use. */
+@media (max-width: 700px) {
+  .sa-grid-2 { grid-template-columns: 1fr; }
+}
+
+/* --- Responsive ----------------------------------------------------------
+
+   Three things have to survive every width: the shell (sidebar + content),
+   the tables, and the modals. The tables are handled above — they scroll
+   inside their own box rather than squashing — so what is left is the shell
+   collapsing and the modals going full-bleed. */
+
+/* Very wide screens: cap the reading width. Left unbounded, the topbar's
+   title sits a metre from the user chip on an ultrawide and the tables
+   stretch their columns into unreadable bands. */
+@media (min-width: 1700px) {
+  .sa-topbar,
+  .sa-cards,
+  .sa-content {
+    max-width: 1600px;
+    margin-inline: auto;
+  }
+}
+
+/* Below 900px the fixed 248px sidebar costs more than it gives, so the shell
+   collapses to one column and the sidebar becomes a horizontal strip above
+   the content: the nav is three items plus one action, which fits a scrolling
+   row without needing a drawer and the state machinery a drawer would add. */
+@media (max-width: 900px) {
+  .sa-shell {
+    grid-template-columns: 1fr;
+  }
+  .sa-side {
+    position: static;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--sa-line);
+  }
+  .sa-nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 10px 12px;
+  }
+  .sa-nav-group + .sa-nav-group {
+    margin-top: 0;
+  }
+  .sa-nav-group {
+    display: flex;
+    gap: 6px;
+  }
+  /* The group headings are the one thing that does not survive the collapse:
+     stacked over a horizontal row they would double its height for a label
+     the row's four items do not need. */
+  .sa-nav-label {
+    display: none;
+  }
+  .sa-nav-item {
+    width: auto;
+    margin-bottom: 0;
+    white-space: nowrap;
+  }
+  .sa-side-foot {
+    display: none;
+  }
+  /* Both were sticky; stacked they would eat most of a short screen. */
+  .sa-topbar {
+    position: static;
+  }
+  .sa-table-wrap {
+    max-height: none;
+  }
+}
+
+/* Tablet and below: tighten the gutters so the tables and cards get the width
+   back, and let the topbar stack rather than squeeze. */
+@media (max-width: 720px) {
+  .sa-table-wrap-fit {
+    overflow-x: auto;
+  }
+  .sa-table-biz {
+    min-width: 640px;
+  }
+  .sa-topbar {
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .sa-topbar-head p {
+    display: none;
+  }
+  .sa-cards,
+  .sa-content {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .sa-cards {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  .sa-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+/* Phones: the modal stops being a centred card and becomes the screen. A
+   460px card inside a 380px viewport is the classic mobile-modal failure —
+   the action buttons end up off the edge. */
+@media (max-width: 560px) {
+  .sa-modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .sa-modal,
+  .sa-modal.wide {
+    max-width: none;
+    max-height: 100vh;
+    height: 100vh;
+    border: none;
+    border-radius: 0;
+  }
+  .sa-modal-head {
+    padding: 16px 16px 12px;
+  }
+  .sa-modal-body {
+    padding: 16px;
+  }
+  .sa-modal-foot {
+    padding: 12px 16px;
+    /* The footer holds "Step N of 5", Cancel and Next. Wrapping keeps the
+       primary action on screen instead of pushing it past the right edge. */
+    flex-wrap: wrap;
+  }
+  .sa-login-card {
+    width: 100%;
+  }
+  .sa-card {
+    padding: 13px 14px;
+  }
+  .sa-card .sa-card-value {
+    font-size: 19px;
+  }
+}
+
+/* Checkbox rows for module/language grants. Laid out as full-width rows with
+   the control first, so the hit area covers the label text too. */
+.sa-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--sa-line);
+  border-radius: 7px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--sa-ink);
+}
+.sa-check:hover { background: var(--sa-bg); }
+.sa-check input { margin-top: 2px; flex-shrink: 0; accent-color: var(--sa-brand); }
+.sa-check.locked { opacity: 0.75; cursor: default; }
+/* Square off the bottom edge so the confirmation below reads as part of the
+   same block rather than a separate card. */
+.sa-check.confirming { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.sa-check.locked:hover { background: none; }
+.sa-check .sa-check-sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--sa-muted);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+/* A module whose grant hands the business a destructive action rather than
+   revealing a page. Tinted only once it is actually ON: an unticked row is
+   a neutral choice, and colouring it red before anything has been granted
+   just teaches the operator to ignore the colour. */
+.sa-check.danger { border-color: color-mix(in oklab, var(--sa-red) 35%, transparent); }
+.sa-check.danger:has(input:checked) { background: var(--sa-red-bg); border-color: var(--sa-red); }
+.sa-check.danger input { accent-color: var(--sa-red); }
+/* The confirmation that appears under a destructive module when it is being
+   GRANTED. Pulled up by the row's own bottom margin so it reads as attached
+   to that row rather than floating between two of them. */
+.sa-grant-confirm {
+  margin: 0 0 6px;
+  padding: 11px 13px;
+  border: 1px solid var(--sa-red);
+  border-top: none;
+  border-radius: 0 0 7px 7px;
+  background: var(--sa-red-bg);
+}
+.sa-grant-confirm-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sa-red);
+}
+.sa-grant-confirm-body {
+  margin: 5px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--sa-ink);
+}
+.sa-grant-confirm-actions {
+  display: flex;
+  gap: 7px;
+  margin-top: 11px;
+}
+.sa-grant-confirm-actions .sa-btn { flex: 1; }
+
+.sa-check-flag {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--sa-red-bg);
+  color: var(--sa-red);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+/* --- Colour picker --- */
+
+.sa-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sa-color-row input[type="color"] {
+  width: 44px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--sa-line);
+  border-radius: 6px;
+  background: var(--sa-card);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sa-color-row input[type="text"] {
+  width: 110px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: lowercase;
+}
+
+/* The derived ramp, shown so the operator sees the whole palette their one
+   pick produces — not just the primary. Mirrors deriveBrandRamp's six steps
+   in the same order. */
+.sa-ramp {
+  display: flex;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid var(--sa-line);
+  height: 34px;
+  flex: 1;
+  min-width: 120px;
+}
+.sa-ramp span {
+  flex: 1;
+}
+
+/* One clickable swatch per colour extracted from an uploaded logo — see
+   dominantColor.ts. Deliberately plain buttons, not colour inputs: these
+   only ever fill another field on click, they are never themselves a value
+   being edited. */
+.sa-swatch-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  border: 1px solid var(--sa-line);
+  cursor: pointer;
+  padding: 0;
+}
+.sa-swatch-btn:hover {
+  outline: 2px solid var(--sa-line);
+  outline-offset: 1px;
+}
+
+.sa-link-btn {
+  background: none;
+  border: none;
+  color: var(--sa-accent, #6054bf);
+  cursor: pointer;
+  font-size: 12.5px;
+  padding: 0 4px;
+  text-decoration: underline;
+}
+
+.sa-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sa-logo-preview {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  border: 1px solid var(--sa-line);
+  background: var(--sa-bg);
+  object-fit: contain;
+  flex-shrink: 0;
+}
+/* Signatures are wide and short; on white, as they will print. */
+.sa-sign-preview {
+  width: 140px;
+  background: #fff;
+}
+
+/* Also previously near-white on white. */
+.sa-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--sa-muted);
+  font-size: 13px;
+}
+
+/* --- Modal shell: sticky head, scrolling body, sticky foot --- */
+
+.sa-modal-head {
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--sa-line);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background: var(--sa-card);
+  z-index: 1;
+}
+.sa-modal-head h2 {
+  margin: 0;
+}
+.sa-modal-body {
+  padding: 18px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.sa-modal-foot {
+  padding: 14px 24px;
+  border-top: 1px solid var(--sa-line);
+  background: var(--sa-card);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+}
+/* Pushes the primary actions right while leaving room for a Back button and
+   the step counter on the left. */
+.sa-modal-foot .sa-foot-spacer { margin-left: auto; }
+.sa-foot-step {
+  font-size: 12px;
+  color: var(--sa-muted);
+}
+
+/* --- Wizard step rail --- */
+
+/* A stepper, on ONE row. These were pills with `flex-wrap: wrap`, so five
+   steps broke onto a second line and read as two unrelated groups rather than
+   one sequence. Now each step is a numbered marker with a connector to the
+   one before it, the connectors absorb the spare width, and the labels
+   truncate rather than wrap — so the rail stays a single row at any width. */
+.sa-steps {
+  display: flex;
+  align-items: center;
+  margin-top: 14px;
+  width: 100%;
+}
+/* Steps are buttons, not decoration: an operator editing an existing business
+   wants to jump straight to Branding without clicking Next three times. In
+   create mode the unvisited ones are disabled, because skipping ahead past a
+   required field would only produce a validation error later. */
+.sa-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--sa-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The connector to the previous step. It is a flex child INSIDE the button
+   and carries `flex: 1`, so the connectors — not the labels — take up the
+   spare width; that is what keeps the five steps evenly spread on one row
+   however wide the modal is. */
+.sa-step + .sa-step::before {
+  content: "";
+  flex: 1 1 12px;
+  min-width: 10px;
+  height: 1px;
+  background: var(--sa-line);
+}
+.sa-step.active::before,
+.sa-step.done::before {
+  background: var(--sa-brand-pale);
+}
+.sa-step:disabled { cursor: not-allowed; opacity: 0.55; }
+.sa-step .sa-step-n {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--sa-line);
+  background: var(--sa-card);
+  color: var(--sa-muted);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sa-step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sa-step.active {
+  color: var(--sa-ink);
+  font-weight: 600;
+}
+.sa-step.active .sa-step-n {
+  background: var(--sa-brand);
+  border-color: var(--sa-brand);
+  color: #fff;
+}
+.sa-step.done {
+  color: var(--sa-ink);
+}
+.sa-step.done .sa-step-n {
+  background: var(--sa-brand-pale);
+  border-color: var(--sa-brand-pale);
+  color: var(--sa-brand-deep);
+}
+
+/* Below this the labels cost more than they tell you — the numbers plus the
+   "Step N of 5" line in the footer carry the same information. */
+@media (max-width: 560px) {
+  .sa-step-label {
+    display: none;
+  }
+}
+
+/* --- Review step --- */
+
+.sa-review {
+  border: 1px solid var(--sa-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.sa-review-row {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--sa-bg);
+}
+.sa-review-row:last-child { border-bottom: none; }
+.sa-review-row dt {
+  width: 150px;
+  flex-shrink: 0;
+  color: var(--sa-muted);
+  margin: 0;
+}
+.sa-review-row dd {
+  margin: 0;
+  word-break: break-word;
+}
+/* The padding/text-align/font-size resets are not cosmetic — they are a
+   defence. common/styles/app.css is imported by the ROOT layout, so it loads on
+   /superadmin too, and it defines a bare `.empty` (app.css:3211) for the
+   tenant app's "no rows here" panels: 34px of padding and centred text. That
+   selector is only 0-1-0, so the colour below already beats it, but
+   specificity is resolved per-property — anything this rule does not name is
+   inherited from that panel style, which turned every unset row into a 100px
+   block with its value floating in the middle. Keep all four declarations
+   together; dropping one silently brings the tall rows back. */
+.sa-review-row dd.empty {
+  color: var(--sa-muted);
+  padding: 0;
+  text-align: left;
+  font-size: inherit;
+}
+/* Marks the fields this save will actually change, so an operator can see at
+   a glance what they are about to write — and so an accidental edit is
+   visible before it is committed rather than after. */
+.sa-review-row.changed dd { font-weight: 600; }
+.sa-review-row.changed dt::after {
+  content: " •";
+  color: var(--sa-brand);
+}
+
+/* ---- Business list: the whole row opens the detail page. ---------------- */
+.sa-row-link {
+  cursor: pointer;
+}
+.sa-row-link:hover > td {
+  background: var(--sa-side-hover);
+}
+
+/* The Deployment URL disclosure on wizard step 1. */
+.sa-advanced {
+  border: 1px dashed var(--sa-line);
+  border-radius: var(--sa-radius-sm);
+  padding: 8px 12px;
+}
+.sa-advanced > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sa-muted);
+}
+.sa-advanced[open] > summary {
+  margin-bottom: 10px;
+}
+
+/* ---- Business detail page ---------------------------------------------- */
+.sa-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/* Holds the detail toolbar above the summary cards; same gutters as .sa-cards. */
+.sa-detail-bar {
+  padding: 20px 24px 0;
+}
+.sa-detail-bar .sa-toolbar {
+  margin-bottom: 0;
+}
+.sa-detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  /* Back button on the left; the spacer pushes the actions right. */
+  justify-content: flex-start;
+}
+.sa-detail-toolbar .sa-foot-spacer {
+  margin-left: auto;
+}
+.sa-panel {
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius);
+  box-shadow: var(--sa-shadow);
+  padding: 16px 18px;
+  min-width: 0;
+}
+.sa-panel h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.sa-panel > .sa-hint {
+  display: block;
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--sa-muted);
+}
+.sa-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.sa-panel-head h3 {
+  margin: 0;
+}
+.sa-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sa-detail-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.sa-detail-title h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+.sa-detail-title p {
+  margin: 0 0 4px;
+  color: var(--sa-muted);
+  font-size: 13px;
+}
+/* Reuses .sa-cards' grid, minus its page-level padding. */
+.sa-cards.sa-detail-stats {
+  padding: 0;
+}
+.sa-stat.amber {
+  border-color: var(--sa-amber);
+  background: var(--sa-amber-bg);
+}
+.sa-stat-sub {
+  font-size: 11.5px;
+  color: var(--sa-muted);
+  margin-top: 2px;
+}
+.sa-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+.sa-kv {
+  display: grid;
+  grid-template-columns: minmax(120px, 38%) 1fr;
+  gap: 8px 14px;
+  margin: 0;
+  font-size: 13.5px;
+}
+.sa-kv dt {
+  color: var(--sa-muted);
+}
+.sa-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.sa-link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--sa-brand);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.sa-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+}
+.sa-activity li {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--sa-line);
+}
+.sa-activity li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.sa-activity-when {
+  color: var(--sa-muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 640px) {
+  .sa-activity li,
+  .sa-kv {
+    grid-template-columns: 1fr;
+  }
+  .sa-kv dt {
+    margin-top: 6px;
+  }
+}

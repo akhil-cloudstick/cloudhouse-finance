@@ -747,7 +747,7 @@ elsewhere, auth requires:
 
 | Var | Purpose |
 |---|---|
-| `JWT_SECRET` | Signs/verifies login JWTs. No safe default — falls back to a fixed, publicly-known dev-only secret (with a loud warning) if unset; set a real value in production. |
+| `JWT_SECRET` | Signs/verifies login JWTs. Required — the backend refuses to start if it is unset or empty. |
 | `JWT_EXPIRY` | Login token lifetime, e.g. `3d` or `168h`. Falls back to `168h` (7 days) if unset/unparseable. |
 
 No SMS-gateway env vars exist — `platform.OpenWASender` (the sole

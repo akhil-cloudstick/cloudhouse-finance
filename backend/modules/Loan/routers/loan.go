@@ -1,0 +1,73 @@
+package routers
+
+import (
+	"cloudhouse/backend/auth"
+	loan "cloudhouse/backend/modules/Loan/controllers"
+
+	"github.com/labstack/echo/v4"
+)
+
+var loanPath = "/api/v1/users/:user_id/loans"
+
+func LoanRoutes(e *echo.Echo) *echo.Echo {
+	perms := auth.CRUDPermissions("loans")
+	bankpledgesPerms := auth.CRUDPermissions("bankpledges")
+	e.POST(loanPath, loan.CreateLoan, auth.Staff(perms.Create)...)
+	e.GET(loanPath, loan.ListLoans, auth.Staff(perms.Read)...)
+	e.POST(loanPath+"/drafts", loan.SaveLoanDraft, auth.Staff(perms.Create)...)
+	e.GET(loanPath+"/drafts", loan.ListLoanDrafts, auth.Staff(perms.Read)...)
+	e.GET(loanPath+"/drafts/:draft_id", loan.GetLoanDraft, auth.Staff(perms.Read)...)
+	e.PATCH(loanPath+"/drafts/:draft_id/update", loan.UpdateLoanDraft, auth.Staff(perms.Update)...)
+	e.DELETE(loanPath+"/drafts/:draft_id/delete", loan.DeleteLoanDraft, auth.Staff(perms.Delete)...)
+	e.GET(loanPath+"/by-number/:loan_number", loan.GetLoanByNumber, auth.Staff(perms.Read)...)
+	e.GET(loanPath+"/interest-collected", loan.GetInterestCollected, auth.Staff(perms.Read)...)
+	e.GET(loanPath+"/next-number", loan.GetNextLoanNumber, auth.Staff(perms.Read)...)
+	e.GET(loanPath+"/risk-assessment", loan.ListRiskAssessment, auth.Staff(perms.Read)...)
+	e.GET(loanPath+"/:id", loan.GetLoanById, auth.Staff(perms.Read)...)
+	e.PATCH(loanPath+"/:id", loan.UpdateLoan, auth.Staff(perms.Update)...)
+	e.GET(loanPath+"/:id/statement", loan.GetLoanStatement, auth.Staff(perms.Read, perms.Export)...)
+	e.GET(loanPath+"/:id/ledger", loan.GetLoanLedger, auth.Staff(perms.Read)...)
+	e.POST(loanPath+"/:id/ornaments", loan.AddOrnament, auth.Staff(perms.Update)...)
+	e.PATCH(loanPath+"/ornaments/:ornament_id/update", loan.UpdateOrnament, auth.Staff(perms.Update)...)
+	e.DELETE(loanPath+"/ornaments/:ornament_id/delete", loan.DeleteOrnament, auth.Staff(perms.Update)...)
+	e.POST(loanPath+"/ornaments/:ornament_id/purity-test", loan.RecordPurityTest, auth.Staff(perms.Update)...)
+	e.POST(loanPath+"/ornaments/:ornament_id/images", loan.AddOrnamentImage, auth.Staff(perms.Update)...)
+	e.POST(loanPath+"/:id/approve", loan.ApproveLoan, auth.Staff(perms.Update)...)
+	e.GET(loanPath+"/:id/approvals", loan.ListApprovals, auth.Staff(perms.Read)...)
+	e.POST(loanPath+"/:id/indemnity-bond/esign/start", loan.StartIndemnityBondEsign, auth.Staff(perms.Update)...)
+	e.GET(loanPath+"/:id/indemnity-bond/esign/status", loan.CheckIndemnityBondEsign, auth.Staff(perms.Read)...)
+	e.GET(loanPath+"/:id/indemnity-bond/pdf", loan.DownloadIndemnityBondPDF, auth.Staff(perms.Read)...)
+	e.GET(loanPath+"/:id/pledge-slip", loan.DownloadPledgeSlip, auth.Staff(perms.Read)...)
+	e.GET(loanPath+"/:id/release-agreement/pdf", loan.DownloadReleaseAgreementPDF, auth.Staff(perms.Read)...)
+	e.POST(loanPath+"/indemnity-bond/preview-pdf", loan.PreviewIndemnityBondPDF, auth.Staff(perms.Create)...)
+	e.POST(loanPath+"/:id/payments", loan.RecordLoanPayment, auth.Staff(perms.Update)...)
+	e.POST(loanPath+"/:id/topup", loan.TopUpLoan, auth.Staff(perms.Read, auth.RequirePermission("can top up loan"))...)
+	e.GET(loanPath+"/:id/topups", loan.ListTopUps, auth.Staff(perms.Read)...)
+	e.POST(loanPath+"/topups/:top_up_id/approve", loan.ApproveTopUp, auth.Staff(perms.Update)...)
+	e.GET(loanPath+"/auctions/concluded", loan.ListConcludedAuctions, auth.Staff(perms.Read, auth.RequirePermission("can view auction module"))...)
+	e.GET(loanPath+"/auctions/decisions/pending", loan.ListPendingAuctionDecisions, auth.Staff(perms.Read, auth.RequirePermission("can view auction module"))...)
+	e.GET(loanPath+"/:id/auction", loan.GetLoanAuction, auth.Staff(perms.Read, auth.RequirePermission("can view auction module"))...)
+	e.GET(loanPath+"/:id/auction/history", loan.GetAuctionHistory, auth.Staff(perms.Read, auth.RequirePermission("can view auction module"))...)
+	e.POST(loanPath+"/:id/auction/eligible", loan.MarkAuctionEligible, auth.Staff(perms.Update, auth.RequirePermission("can view auction module"))...)
+	e.POST(loanPath+"/:id/auction/notice", loan.IssueAuctionNotice, auth.Staff(perms.Update, auth.RequirePermission("can view auction module"))...)
+	e.POST(loanPath+"/:id/auction/schedule", loan.ScheduleAuction, auth.Staff(perms.Update, auth.RequirePermission("can view auction module"))...)
+	e.POST(loanPath+"/:id/auction/sale", loan.RecordAuctionSale, auth.Staff(perms.Update, auth.RequirePermission("can view auction module"))...)
+	e.POST(loanPath+"/:id/auction/settle", loan.SettleAuction, auth.Staff(perms.Update, auth.RequirePermission("can view auction module"))...)
+	e.POST(loanPath+"/:id/auction/decision", loan.ResolveAuctionDecision, auth.Staff(perms.Update, auth.RequirePermission("can view auction module"))...)
+	e.GET(loanPath+"/bank-pledges/history", loan.ListBankPledgeHistory, auth.Staff(bankpledgesPerms.Read)...)
+	e.POST(loanPath+"/:id/bank-pledge", loan.RecordBankPledge, auth.Staff(bankpledgesPerms.Create)...)
+	e.GET(loanPath+"/:id/bank-pledge/history", loan.GetBankPledgeHistory, auth.Staff(bankpledgesPerms.Read)...)
+	e.PATCH(loanPath+"/:id/bank-pledge/:pledge_id/release", loan.ReleaseBankPledge, auth.Staff(bankpledgesPerms.Update)...)
+	e.PATCH(loanPath+"/:id/bank-pledge/:pledge_id/void", loan.VoidBankPledge, auth.Staff(bankpledgesPerms.Update)...)
+	e.POST(loanPath+"/:id/extension-request", loan.CreateExtensionRequest, auth.Staff(perms.Update)...)
+	e.POST(loanPath+"/:id/release-request", loan.CreateReleaseRequest, auth.Staff(perms.Update)...)
+	e.GET(loanPath+"/requests", loan.ListRequests, auth.Staff(perms.Read)...)
+	e.PATCH(loanPath+"/requests/:request_id/decide", loan.DecideRequest, auth.Staff(perms.Update)...)
+	e.PATCH(loanPath+"/requests/:request_id/verify", loan.VerifyReleaseChecklist, auth.Staff(perms.Update)...)
+	e.POST(loanPath+"/requests/:request_id/release-payment", loan.RecordReleasePayment, auth.Staff(perms.Update)...)
+	e.POST(loanPath+"/requests/:request_id/approve", loan.ApproveRequest, auth.Staff(perms.Update)...)
+	e.POST(loanPath+"/:id/complete-release", loan.CompleteRelease, auth.Staff(perms.Update)...)
+	e.GET(loanPath+"/requests/:request_id/partial-release-receipt/pdf", loan.DownloadPartialReleaseReceiptPDF, auth.Staff(perms.Read)...)
+	e.DELETE(loanPath+"/:id/hard-delete", loan.HardDeleteLoan, auth.Staff(auth.RequirePermission("can hard delete loan"))...)
+	return e
+}

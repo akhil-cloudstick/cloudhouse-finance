@@ -40,7 +40,7 @@ async function main() {
   }
 
   const shell = spawn("go", ["run", "-tags", "desktop,dev", "."], {
-    cwd: path.join(root, "core"),
+    cwd: path.join(root, "desktop"),
     stdio: "inherit",
     shell: true,
     env: { ...env, DESKTOP_DEV_URL: devURL },

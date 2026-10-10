@@ -1,6 +1,6 @@
 import { Tabs } from "expo-router/js-tabs";
-import { colors } from "../../src/theme/colors";
-import { AppTabBar } from "../../src/components/AppTabBar";
+import { colors } from "@/common/theme/colors";
+import { AppTabBar } from "@/common/components/layout/AppTabBar";
 
 // Bottom-bar nav for the customer app, 5 destinations per the Batch 1 plan:
 // Home (real) plus four ComingSoon stubs wired as real routes now so their

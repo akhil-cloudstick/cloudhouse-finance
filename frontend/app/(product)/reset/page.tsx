@@ -1,1 +1,1 @@
-export { default } from "@/product/login/ResetPage";
+export { default } from "@/modules/auth/pages/ResetPage";

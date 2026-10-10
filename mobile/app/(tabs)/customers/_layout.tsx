@@ -1,8 +1,8 @@
 import { Stack } from "expo-router";
-import { colors } from "../../../src/theme/colors";
+import { colors } from "@/common/theme/colors";
 
 // Screens own their headers (FlatHeader inside <Screen>, see
-// src/components/ui/Shell.tsx), so this stack never draws one. No anchor:
+// src/common/components/ui/shellContext.tsx), so this stack never draws one. No anchor:
 // a detail opened from another page (openPage) lands on its own, with Back
 // returning to that page instead of this module's list.
 export default function ModuleLayout() {

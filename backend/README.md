@@ -24,9 +24,9 @@ pulls in every module listed in `go.mod`/`go.sum`, including `chromedp`.
 
 ## Indemnity bond eSign (Chrome/Chromium requirement)
 
-`internal/loan/indemnitybond.go` renders the indemnity bond to PDF via a
+`modules/Loan/controllers/indemnity_bond.go` renders the indemnity bond to PDF via a
 **headless Chromium tab**, driven server-side by `chromedp`
-(`internal/platform/setu_esign.go` then uploads that PDF to Setu and starts
+(`config/surepass_client.go` then uploads that PDF to Setu and starts
 an Aadhaar eSign request). This was chosen over a pure-Go PDF library
 because Devanagari/Gujarati text (the bond's Hindi/Gujarati variants) needs
 real text shaping (matra reordering, conjunct consonants) that a bare Go PDF

@@ -1,1 +1,1 @@
-export { default } from "@/superadmin/page";
+export { default } from "@/modules/superadmin/pages/SuperAdminDashboardPage";
