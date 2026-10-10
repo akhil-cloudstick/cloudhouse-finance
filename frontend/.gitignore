@@ -20,8 +20,8 @@
 # desktop app: renderer build, installers, staged embed assets
 /dist-desktop/
 /dist/
-/core/assets/*
-!/core/assets/.gitkeep
+/desktop/assets/*
+!/desktop/assets/.gitkeep
 
 # misc
 .DS_Store

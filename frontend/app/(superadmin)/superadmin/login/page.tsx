@@ -1,1 +1,1 @@
-export { default } from "@/superadmin/login-page";
+export { default } from "@/modules/superadmin/pages/SuperAdminLoginPage";

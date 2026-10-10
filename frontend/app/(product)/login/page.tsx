@@ -1,1 +1,1 @@
-export { default } from "@/product/login/LoginPage";
+export { default } from "@/modules/auth/pages/LoginPage";

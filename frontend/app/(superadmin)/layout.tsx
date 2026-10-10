@@ -1,1 +1,1 @@
-export { default, metadata } from "@/superadmin/layout";
+export { default, metadata } from "@/modules/superadmin/components/SuperAdminRootLayout";

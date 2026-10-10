@@ -1,5 +1,5 @@
 import { Redirect } from "expo-router";
-import { useAuth } from "../src/auth/AuthContext";
+import { useAuth } from "@/common/providers/AuthProvider";
 
 // The app launches at "/" (cloudhouse:///), which had no screen of its own —
 // RootNavigation's useEffect redirect was the only thing moving it on, and in

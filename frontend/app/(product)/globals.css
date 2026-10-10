@@ -1,5 +1,5 @@
 /* Minimal reset only — page-specific visual styles live in login.css and
-   app/app/app.css, ported verbatim from the legacy static site. Keeping this
+   common/styles/app.css, ported verbatim from the legacy static site. Keeping this
    file intentionally thin so it doesn't leak any competing styles into either
    page's ported CSS. */
 /* Matches legacy/app.css and legacy/index.html's own `*{margin:0;padding:0;

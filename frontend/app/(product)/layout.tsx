@@ -1,19 +1,19 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import "@/product/styles/app.css";
-import { AuthProvider } from "@/product/providers/auth-context";
-import { DesktopTitleBar } from "@/product/components/DesktopTitleBar";
-import { DESKTOP_RUNTIME_LOADER } from "@/product/services/desktopBridge";
-import { BrandingProvider } from "@/product/providers/BrandingProvider";
-import { BrandPreload } from "./brand-preload";
-import { NEUTRAL_DOCUMENT_TITLE } from "@/product/config/theme";
+import "@/common/styles/app.css";
+import { AuthProvider } from "@/common/providers/AuthProvider";
+import { DesktopTitleBar } from "@/common/components/DesktopTitleBar";
+import { DESKTOP_RUNTIME_LOADER } from "@/common/services/desktopBridge";
+import { BrandingProvider } from "@/common/providers/BrandingProvider";
+import { BrandPreload } from "@/common/components/layout/BrandPreload";
+import { NEUTRAL_DOCUMENT_TITLE } from "@/common/config/theme";
 
 /* Montserrat carries the CloudHouse wordmark's voice — bold, geometric, tightly
  * tracked — so it takes the display role that Bodoni Moda used to hold.
  * Bodoni was dropped outright: its thick/thin contrast belonged to the old
  * jewellery brand, and mobile had already aliased it away as unreadable at
- * phone size (see mobile/src/theme/typography.ts).
+ * phone size (see mobile/src/common/theme/typography.ts).
  *
  * Unlike the fonts they replace, these are consumed through their CSS
  * variables — app.css and login.css reference var(--font-sans)/(--font-display)
@@ -42,7 +42,7 @@ const montserrat = localFont({
  * self-hosted for the same no-internet build reason as above. Not preloaded:
  * only a business that picked one ever downloads it — the browser fetches a
  * face the first time some text actually uses it. Their names reach the page
- * through --font-lora / --font-poppins, which product/config/theme.ts's
+ * through --font-lora / --font-poppins, which common/config/theme.ts's
  * FONT_FAMILIES puts first in each choice. */
 const lora = localFont({
   src: "./fonts/Lora-Variable-latin.woff2",
@@ -78,7 +78,7 @@ const poppins = localFont({
  * all — deliberately no `icons` here. A metadata icon is a React-owned
  * <link rel="icon"> that can commit after the business's own icon link and
  * win, since browsers use the last icon in tree order; that race left tabs
- * randomly blank. Instead app/brand-preload.tsx inserts the single icon link
+ * randomly blank. Instead common/components/layout/BrandPreload.tsx inserts the single icon link
  * before first paint (the cached business icon, or /blank-icon.svg), and
  * applyBrandFavicon / applyDocumentTitle replace both once branding loads.
  */

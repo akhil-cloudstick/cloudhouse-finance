@@ -23,7 +23,7 @@ function updateUrl() {
 }
 
 function stageAssets() {
-  const assets = path.join(root, "core", "assets");
+  const assets = path.join(root, "desktop", "assets");
   for (const entry of fs.readdirSync(assets)) {
     if (entry !== ".gitkeep") fs.rmSync(path.join(assets, entry), { recursive: true, force: true });
   }
@@ -40,7 +40,7 @@ const target = path.join(dist, file);
 
 const ldflags = `-H windowsgui -s -w -X main.version=${version} -X main.updateURL=${updateUrl()}`;
 run("go", ["build", "-tags", "desktop,production", "-ldflags", `"${ldflags}"`, "-o", `"${target}"`, "."], {
-  cwd: path.join(root, "core"),
+  cwd: path.join(root, "desktop"),
   env: { ...process.env, GOOS: "windows", GOARCH: "amd64", CGO_ENABLED: "0" },
 });
 

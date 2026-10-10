@@ -7,7 +7,7 @@ import type { NextConfig } from "next";
 // /uploads through the Next dev server (port 3000) to the Go backend
 // (port 8080), so the browser only ever talks to one port in dev too,
 // matching production's single-origin setup. apiFetch/apiUpload keep using
-// the relative "/api/v1" default (see lib/api.ts) — no NEXT_PUBLIC_API_BASE
+// the relative "/api/v1" default (see common/services/httpClient.ts) — no NEXT_PUBLIC_API_BASE
 // needed.
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN || "http://localhost:8080";
 
@@ -48,10 +48,10 @@ const nextConfig: NextConfig = {
       // Per-business links: /<slug>, /<slug>/login, /<slug>/reset,
       // /<slug>/<route> and /<slug>/<route>/<arg> all fall back to a plain
       // static page — /<slug> is NOT a Next dynamic route (see
-      // app/app/layout.tsx for why a [slug] segment doesn't work with
+      // common/components/layout/AuthGuard.tsx for why a [slug] segment doesn't work with
       // `output: "export"` + a runtime-created tenant slug). The real slug
       // is read client-side from window.location by parsePath()
-      // (product/services/appRoutes.ts), never from anything Next resolves.
+      // (common/services/appRoutes.ts), never from anything Next resolves.
       //
       // ORDER MATTERS. The two-segment page rules must precede the catch-all
       // route rules, or /ctfi/login would be served the app shell instead of

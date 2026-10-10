@@ -1,6 +1,6 @@
 name: cloudhousewild
 
-# 4 containers (db, frontend build job, migrate job, backend), all on one
+# 3 containers (db, frontend build job, backend), all on one
 # dedicated network isolated from every other app on this host, including
 # the separate, already-live `golddemo` deployment of this same repo (do not
 # reuse its container/network/port names — this is a fully independent
@@ -46,28 +46,6 @@ services:
     networks:
       - cloudhousewild_network
 
-  # One-off job: applies internal/migrate.Run (AutoMigrate + backfills +
-  # seeds the default admin login only if one doesn't already exist) then
-  # exits. Idempotent — safe to run on every `docker compose up`. Mirrors
-  # `go run ./cmd/migrate`, the same command the app's own docs call for
-  # before the server's first boot against a fresh database.
-  cloudhousewild_migrate:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: cloudhousewild_migrate
-    command: ["./migrate"]
-    env_file:
-      - .env
-    environment:
-      DB_HOST: cloudhousewild_db
-      DB_PORT: "5432"
-    depends_on:
-      cloudhousewild_db:
-        condition: service_healthy
-    networks:
-      - cloudhousewild_network
-
   cloudhousewild_backend:
     build:
       context: ./backend
@@ -82,8 +60,6 @@ services:
     depends_on:
       cloudhousewild_db:
         condition: service_healthy
-      cloudhousewild_migrate:
-        condition: service_completed_successfully
     ports:
       # Loopback-only, same convention as the other apps on this host —
       # but on 6790, not golddemo's 6789, since both run simultaneously.
