@@ -1179,7 +1179,7 @@ func netByBank(ctx context.Context, to time.Time) (map[uint]float64, error) {
 		WithContext(ctx).Model(&models.CashMovement{}).
 		Select("bank_id, COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END), 0) AS net").
 		Where("occurred_on < ? AND expense_id IS NULL AND bank_id IS NOT NULL", to).
-		Where("mode IN ? AND to_bank_id IS NULL", bankModes).
+		Where("to_bank_id IS NULL").
 		Group("bank_id").Scan(&rows).Error
 	if err != nil {
 		return nil, err

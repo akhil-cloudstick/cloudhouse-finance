@@ -1,0 +1,95 @@
+name: cloudhousewild
+
+# 3 containers (db, frontend build job, backend), all on one
+# dedicated network isolated from every other app on this host, including
+# the separate, already-live `golddemo` deployment of this same repo (do not
+# reuse its container/network/port names — this is a fully independent
+# deployment with its own fresh database).
+#
+# The backend is the only container bound to the host, on 127.0.0.1:6790 —
+# a different port from golddemo's 127.0.0.1:6789, since both stacks run on
+# this same server. Point this app's CloudStick/nginx vhost(s) at 6790.
+
+services:
+  cloudhousewild_db:
+    image: postgres:15
+    container_name: cloudhousewild_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - cloudhousewild_db_pgdata:/var/lib/postgresql/data
+    networks:
+      - cloudhousewild_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Build-only job: `npm run build` produces the Next.js static export and
+  # copies it into the cloudhousewild_frontend_out volume, then exits 0. Not
+  # a long-running server — static export has no server to run (see
+  # frontend/Dockerfile). cloudhousewild_backend waits for this to finish
+  # successfully before it starts.
+  cloudhousewild_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cloudhousewild_frontend
+    profiles: ["manual-build"]
+    mem_limit: 2048m
+    volumes:
+      - cloudhousewild_frontend_out:/shared-out
+    networks:
+      - cloudhousewild_network
+
+  cloudhousewild_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cloudhousewild_backend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB_HOST: cloudhousewild_db
+      DB_PORT: "5432"
+    depends_on:
+      cloudhousewild_db:
+        condition: service_healthy
+    ports:
+      # Loopback-only, same convention as the other apps on this host —
+      # but on 6790, not golddemo's 6789, since both run simultaneously.
+      - "127.0.0.1:6790:6789"
+    volumes:
+      - ./deploy/frontend-out:/app/frontend/out:ro
+      - ./deploy/server:/app/server:ro
+      - cloudhousewild_uploads:/app/uploads
+    networks:
+      - cloudhousewild_network
+
+volumes:
+  cloudhousewild_db_pgdata:
+  cloudhousewild_frontend_out:
+  cloudhousewild_uploads:
+
+networks:
+  cloudhousewild_network:
+    name: cloudhousewild_network
+    driver: bridge
+    # Pinned (rather than left to Docker's auto-assigned pool) because this
+    # host's firewall (CSF) explicitly allowlists each app's docker subnet
+    # by IP in /etc/csf/csfpost.sh (see that file for the pattern already
+    # used by melusiv_network, salesbot_network, izora_network,
+    # echotech_ecotech_erp_network, gold_website_network, etc.) — that rule
+    # needs a stable subnet to reference, not whatever Docker happens to
+    # pick on a given `docker compose up`. 172.31.0.0/16 was already taken
+    # by the golddemo stack's network at deploy time, so this one is pinned
+    # to 172.32.0.0/16 instead (allowlisted in /etc/csf/csfpost.sh as
+    # CLOUDHOUSEWILD_NET, same pattern as the other apps named above).
+    ipam:
+      config:
+        - subnet: 172.32.0.0/16

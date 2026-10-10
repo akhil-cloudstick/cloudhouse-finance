@@ -493,7 +493,7 @@ func sumByBank(ctx context.Context, to time.Time) (map[uint]float64, error) {
 		WithContext(ctx).Model(&models.Expense{}).
 		Select("from_bank_id, COALESCE(SUM(amount), 0) AS total").
 		Where("status = ? AND occurred_on < ? AND from_bank_id IS NOT NULL", "Approved", to).
-		Where("mode IN ? AND to_bank_id IS NULL", bankModes).
+		Where("to_bank_id IS NULL").
 		Group("from_bank_id").Scan(&rows).Error
 	if err != nil {
 		return nil, err
