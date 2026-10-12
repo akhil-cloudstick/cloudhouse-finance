@@ -87,8 +87,18 @@ func BuildLedger(l *models.PersonalLoan, payments []models.PersonalLoanPayment, 
 		}
 		events = append(events, ledgerEvent{at: at, rank: 0, rows: func(bal float64) []LedgerRow {
 			r := base("disbursement", "disbursement", at)
-			r.Particulars, r.Mode, r.Method = "Loan disbursed", "Cash", "Cash"
-			r.Debit, r.Amount, r.CashAmount = l.DisbursedAmount, l.DisbursedAmount, l.DisbursedAmount
+			// the mode the money really left by; a loan with no split recorded was paid in cash
+			cash, upi, bank, cheque := l.DisbursementCashAmount, l.DisbursementUpiAmount, l.DisbursementBankTransferAmount, l.DisbursementChequeAmount
+			if common.RoundMoney(cash+upi+bank+cheque) == 0 {
+				cash = l.DisbursedAmount
+			}
+			method := common.DeriveMethod(cash, upi, bank, cheque)
+			r.Particulars, r.Mode, r.Method = "Loan disbursed", method, method
+			r.Debit, r.Amount = l.DisbursedAmount, l.DisbursedAmount
+			r.CashAmount, r.UpiAmount, r.BankTransferAmount, r.ChequeAmount = cash, upi, bank, cheque
+			if upi+bank+cheque > 0 {
+				r.BankID = l.DisbursementBankID
+			}
 			r.Balance = bal + l.DisbursedAmount
 			r.RunningBalance = r.Balance
 			return []LedgerRow{r}

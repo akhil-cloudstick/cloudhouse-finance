@@ -2,6 +2,10 @@
 export type ServiceChargeType = "None" | "Flat" | "Percent";
 export type ServiceChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
 
+// One step of a "Multiple interest" ladder: the rate applies while interest has
+// been unpaid for up to `days` days. The last step has days 0 (thereafter).
+export type RateTier = { days: number; rate: number };
+
 export type Scheme = {
   id: number;
   branchId: number;
@@ -9,6 +13,8 @@ export type Scheme = {
   code: string;
   name: string;
   interestRate: number;
+  rateTiers?: RateTier[] | null;
+  minimumDays?: number;
   durationMonths: number;
   ltvPercent: number;
   interestMethod?: string;
@@ -28,6 +34,8 @@ export type SchemeInput = {
   name: string;
   branchId: number;
   interestRate: number;
+  rateTiers?: RateTier[];
+  minimumDays?: number;
   durationMonths: number;
   ltvPercent: number;
   interestMethod?: string;

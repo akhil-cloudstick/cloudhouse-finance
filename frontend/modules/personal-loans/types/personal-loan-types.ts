@@ -152,6 +152,12 @@ export type RenewInput = {
   interestValue: number;
   frequency: Frequency;
   tenureCount: number;
+  // how the payout to the customer was made (omit = all Cash); bankId is needed for UPI / Bank Transfer
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
 };
 export type RenewalPreview = {
   rollover: number;

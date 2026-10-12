@@ -14,7 +14,9 @@ const (
 	CashModeCash         = "Cash"
 	CashModeUPI          = "UPI"
 	CashModeBankTransfer = "Bank Transfer"
-	CashModeCheque       = "Cheque"
+	// CashModeCheque is retired: the application has three payment modes only (Cash, UPI, Bank Transfer).
+	// The constant stays so the legacy split parameters still compile; any amount sent against it is rejected.
+	CashModeCheque = "Cheque"
 )
 
 const (
@@ -46,6 +48,8 @@ type CashMovement struct {
 	PartyCustomer      *commonModels.Customer `json:"party_customer,omitempty" gorm:"foreignKey:PartyCustomerID"`
 	ExpenseID          *uint                  `json:"expense_id"`
 	ReceiptImage       string                 `json:"receipt_image,omitempty" gorm:"type:text"`
+	SourceType         string                 `json:"source_type,omitempty" gorm:"size:40;index:idx_cash_movements_source,priority:1"`
+	SourceID           *uint                  `json:"source_id,omitempty" gorm:"index:idx_cash_movements_source,priority:2"`
 	CreatedAt          time.Time              `json:"created_at"`
 }
 
@@ -165,5 +169,5 @@ func (m *CashMovement) BeforeCreate(tx *gorm.DB) error {
 }
 
 func isBankMode(mode string) bool {
-	return mode == CashModeUPI || mode == CashModeBankTransfer || mode == CashModeCheque
+	return mode == CashModeUPI || mode == CashModeBankTransfer
 }

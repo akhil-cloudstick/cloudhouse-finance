@@ -60,6 +60,12 @@ type matureRequest struct {
 	Action          string  `json:"action"`
 	PlanID          uint    `json:"plan_id"`
 	PrincipalAmount float64 `json:"principal_amount"`
+	// payout breakdown, used when closing a live-engine investment
+	CashAmount         float64 `json:"cash_amount"`
+	UpiAmount          float64 `json:"upi_amount"`
+	BankTransferAmount float64 `json:"bank_transfer_amount"`
+	ChequeAmount       float64 `json:"cheque_amount"`
+	BankID             *uint   `json:"bank_id"`
 }
 
 type addCashRequest struct {
@@ -119,6 +125,8 @@ type CreateInput struct {
 	BankTransferAmount  float64
 	ChequeAmount        float64
 	BankID              *uint
+	// Rollover marks a renewal: the old principal rolls into the new investment, so no cash moves.
+	Rollover bool
 }
 
 type ListInput struct {
@@ -435,13 +443,17 @@ func SaveInvestment(ctx context.Context, in CreateInput) (*models.Investment, er
 				return err
 			}
 		}
+		// the deposit's cash lines are saved with the investment (a renewal rolls the old principal over,
+		// so no cash moves for it)
+		if !in.Rollover {
+			if _, err := cashbook.RecordInvestmentDepositCashIn(cashbook.WithTx(ctx, tx), rec.ID, rec.InvestmentNumber, rec.PrincipalAmount, depCash, depUpi, depBankTransfer, depCheque, depBankID, rec.BranchID, startDate, rec.CustomerID); err != nil {
+				return fmt.Errorf("could not record the deposit in Cash-in-Hand, investment not saved: %w", err)
+			}
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	if _, err := cashbook.RecordInvestmentDepositCashIn(ctx, rec.ID, rec.InvestmentNumber, rec.PrincipalAmount, depCash, depUpi, depBankTransfer, depCheque, depBankID, rec.BranchID, startDate, rec.CustomerID); err != nil {
-		log.Printf("cash-in movement (investment deposit) failed for investment %d: %v", rec.ID, err)
 	}
 	return rec, nil
 }
@@ -554,7 +566,8 @@ func SavePayoutPayment(ctx context.Context, investmentID, payoutID uint, branchI
 	if err != nil {
 		return nil, err
 	}
-	if inv.Status != models.StatusActive && inv.Status != models.StatusMatured {
+	// A closed investment still owes its pending principal and interest payouts; closing only queues them.
+	if inv.Status != models.StatusActive && inv.Status != models.StatusMatured && inv.Status != "Closed" && inv.Status != "Renewed" {
 		return nil, common.NewConflict("investment is not active")
 	}
 	var payout models.InvestmentPayout
@@ -597,24 +610,24 @@ func SavePayoutPayment(ctx context.Context, investmentID, payoutID uint, branchI
 		if err := persistInvestment(ctx, tx, lockedInv); err != nil {
 			return err
 		}
+		// the payout's cash lines are saved with it: a failed cash line leaves the payout Pending
+		payoutType := "Interest payout"
+		if p.IsPrincipalReturn {
+			payoutType = "Principal return"
+		}
+		movementID, _, err := cashbook.RecordInvestmentPayoutCashOut(cashbook.WithTx(ctx, tx), lockedInv.ID, lockedInv.InvestmentNumber, p.Amount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, lockedInv.BranchID, *p.PaidAt, payoutType, lockedInv.CustomerID, nonCashBankID(in.BankID, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount))
+		if err != nil {
+			return fmt.Errorf("could not record the payout in Cash-in-Hand, payout not saved: %w", err)
+		}
+		p.CashMovementID = &movementID
+		if err := updatePayout(ctx, tx, p); err != nil {
+			return err
+		}
 		payout = *p
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	payoutType := "Interest payout"
-	if payout.IsPrincipalReturn {
-		payoutType = "Principal return"
-	}
-	{
-		movementID, _, err := cashbook.RecordInvestmentPayoutCashOut(ctx, inv.ID, inv.InvestmentNumber, payout.Amount, payout.CashAmount, payout.UpiAmount, payout.BankTransferAmount, payout.ChequeAmount, inv.BranchID, *payout.PaidAt, payoutType, inv.CustomerID, nonCashBankID(in.BankID, payout.UpiAmount, payout.BankTransferAmount, payout.ChequeAmount))
-		if err != nil {
-			log.Printf("cash-out movement (%s) failed for investment %d: %v", payoutType, inv.ID, err)
-		} else {
-			payout.CashMovementID = &movementID
-			_ = updatePayout(ctx, nil, &payout)
-		}
 	}
 	if !config.IsDemoRun(ctx) {
 		if err := notifyInterestPayout(ctx, inv.CustomerID, inv.InvestmentNumber, payout.Amount); err != nil {
@@ -645,13 +658,13 @@ func SweepMaturities(ctx context.Context) error {
 	return nil
 }
 
-func matureInvestment(ctx context.Context, investmentID uint, branchID *uint, action string, renewIn *RenewInput) (*models.Investment, error) {
+func matureInvestment(ctx context.Context, investmentID uint, branchID *uint, action string, renewIn *RenewInput, pay *MarkPayoutPaidInput, employeeID uint) (*models.Investment, error) {
 	inv, err := getInvestment(ctx, investmentID, branchID)
 	if err != nil {
 		return nil, err
 	}
-	if inv.Engine == models.EngineLive {
-		return nil, common.NewBadRequest("maturity decisions for live-engine investments are not yet supported — withdraw the outstanding balance instead")
+	if inv.Engine == models.EngineLive && action == "Close" {
+		return closeLiveInvestment(ctx, investmentID, branchID, pay, employeeID)
 	}
 	if inv.Status != models.StatusMatured {
 		return nil, common.NewConflict("investment has not matured yet")
@@ -705,6 +718,7 @@ func matureInvestment(ctx context.Context, investmentID uint, branchID *uint, ac
 			PlanID:              renewIn.PlanID,
 			PrincipalAmount:     renewIn.PrincipalAmount,
 			CreatedByEmployeeID: renewIn.CreatedByEmployeeID,
+			Rollover:            true,
 		})
 		if err != nil {
 			return nil, err
@@ -713,6 +727,26 @@ func matureInvestment(ctx context.Context, investmentID uint, branchID *uint, ac
 			locked, err := lockByID(ctx, tx, investmentID, branchID)
 			if err != nil {
 				return err
+			}
+			if locked.Engine == models.EngineLive {
+				// the principal rolls into the new investment; interest earned up to maturity is queued as a
+				// pending payout so it is not lost (staff pay it with "Mark Paid")
+				if err := settleAndSave(ctx, tx, locked, locked.MaturityDate); err != nil {
+					return err
+				}
+				if interest := clampMoney(locked.AccruedInterest - locked.InterestWithdrawn); interest > epsilon {
+					seq := 1
+					if existing, err := findPayouts(ctx, investmentID, 1000, 0); err == nil && len(existing) > 0 {
+						seq = existing[len(existing)-1].SequenceNo + 1
+					}
+					p := &models.InvestmentPayout{InvestmentID: locked.ID, SequenceNo: seq, DueDate: time.Now(), Amount: interest, Status: "Pending"}
+					p.TenantID = locked.TenantID
+					if err := appendPayout(ctx, tx, p); err != nil {
+						return err
+					}
+					locked.InterestWithdrawn = common.RoundMoney(locked.InterestWithdrawn + interest)
+				}
+				locked.OutstandingPrincipal = 0
 			}
 			now := time.Now()
 			locked.Status = "Renewed"
@@ -758,8 +792,7 @@ func addCash(ctx context.Context, investmentID uint, branchID *uint, in AddCashI
 	if occurredOn.IsZero() {
 		occurredOn = time.Now()
 	}
-	var invID, branchOfInv, custID uint
-	var invNumber string
+	var invID uint
 	var txRow models.InvestmentTransaction
 	err := investmentDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		inv, err := lockByID(ctx, tx, investmentID, branchID)
@@ -778,7 +811,6 @@ func addCash(ctx context.Context, investmentID uint, branchID *uint, in AddCashI
 		if err := common.ValidateOccurredOn(occurredOn, inv.LastAccrualDate, time.Now()); err != nil {
 			return err
 		}
-		custID = inv.CustomerID
 		if err := settleAndSave(ctx, tx, inv, occurredOn); err != nil {
 			return err
 		}
@@ -811,17 +843,20 @@ func addCash(ctx context.Context, investmentID uint, branchID *uint, in AddCashI
 		if err := createTransaction(ctx, tx, &txRow); err != nil {
 			return err
 		}
-		invID, branchOfInv, invNumber = inv.ID, inv.BranchID, inv.InvestmentNumber
+		// the deposit's cash lines are saved with the transaction row
+		movementID, err := cashbook.RecordInvestmentDepositCashIn(cashbook.WithTx(ctx, tx), inv.ID, inv.InvestmentNumber, amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, nonCashBankID(in.BankID, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount), inv.BranchID, occurredOn, inv.CustomerID)
+		if err != nil {
+			return fmt.Errorf("could not record the deposit in Cash-in-Hand, cash not added: %w", err)
+		}
+		txRow.CashMovementID = &movementID
+		if err := updateTransaction(ctx, tx, &txRow); err != nil {
+			return err
+		}
+		invID = inv.ID
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	if movementID, err := cashbook.RecordInvestmentDepositCashIn(ctx, invID, invNumber, amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, nonCashBankID(in.BankID, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount), branchOfInv, occurredOn, custID); err != nil {
-		log.Printf("cash-in movement (investment add-cash) failed for investment %d: %v", invID, err)
-	} else {
-		txRow.CashMovementID = &movementID
-		_ = updateTransaction(ctx, nil, &txRow)
 	}
 	return getInvestment(ctx, invID, branchID)
 }
@@ -843,8 +878,7 @@ func withdrawInvestment(ctx context.Context, investmentID uint, branchID *uint, 
 	if occurredOn.IsZero() {
 		occurredOn = time.Now()
 	}
-	var invID, branchOfInv, custID uint
-	var invNumber string
+	var invID uint
 	var txRow models.InvestmentTransaction
 	err := investmentDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		inv, err := lockByID(ctx, tx, investmentID, branchID)
@@ -857,7 +891,7 @@ func withdrawInvestment(ctx context.Context, investmentID uint, branchID *uint, 
 		if inv.Engine != models.EngineLive {
 			return common.NewBadRequest("this action is only available for investments using the live accrual engine")
 		}
-		if inv.Status != models.StatusActive {
+		if inv.Status != models.StatusActive && inv.Status != models.StatusMatured {
 			return common.NewConflict("investment is not active")
 		}
 		if err := common.ValidateOccurredOn(occurredOn, inv.LastAccrualDate, time.Now()); err != nil {
@@ -905,13 +939,7 @@ func withdrawInvestment(ctx context.Context, investmentID uint, branchID *uint, 
 		if err := createTransaction(ctx, tx, &txRow); err != nil {
 			return err
 		}
-		invID, branchOfInv, invNumber, custID = inv.ID, inv.BranchID, inv.InvestmentNumber, inv.CustomerID
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	{
+		// the payout's cash lines are saved with the transaction row
 		payoutType := "Interest & Principal withdrawal"
 		switch {
 		case txRow.PrincipalAmount == 0:
@@ -919,13 +947,19 @@ func withdrawInvestment(ctx context.Context, investmentID uint, branchID *uint, 
 		case txRow.InterestAmount == 0:
 			payoutType = "Principal withdrawal"
 		}
-		movementID, _, err := cashbook.RecordInvestmentPayoutCashOut(ctx, invID, invNumber, total, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, branchOfInv, occurredOn, payoutType, custID, nonCashBankID(in.BankID, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount))
+		movementID, _, err := cashbook.RecordInvestmentPayoutCashOut(cashbook.WithTx(ctx, tx), inv.ID, inv.InvestmentNumber, total, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, inv.BranchID, occurredOn, payoutType, inv.CustomerID, nonCashBankID(in.BankID, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount))
 		if err != nil {
-			log.Printf("cash-out movement (investment withdrawal) failed for investment %d: %v", invID, err)
-		} else {
-			txRow.CashMovementID = &movementID
-			_ = updateTransaction(ctx, nil, &txRow)
+			return fmt.Errorf("could not record the withdrawal in Cash-in-Hand, withdrawal not saved: %w", err)
 		}
+		txRow.CashMovementID = &movementID
+		if err := updateTransaction(ctx, tx, &txRow); err != nil {
+			return err
+		}
+		invID = inv.ID
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return getInvestment(ctx, invID, branchID)
 }
@@ -1464,7 +1498,8 @@ func MatureInvestment(c echo.Context) error {
 			CreatedByEmployeeID: employeeID,
 		}
 	}
-	rec, err := matureInvestment(ctx, id, auth.GetBranchScope(c), req.Action, renewIn)
+	pay := &MarkPayoutPaidInput{CashAmount: req.CashAmount, UpiAmount: req.UpiAmount, BankTransferAmount: req.BankTransferAmount, ChequeAmount: req.ChequeAmount, BankID: req.BankID}
+	rec, err := matureInvestment(ctx, id, auth.GetBranchScope(c), req.Action, renewIn, pay, employeeID)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1555,7 +1590,25 @@ func GetInvestmentLedger(c echo.Context) error {
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	return common.Success(c, http.StatusOK, echo.Map{"items": rows})
+	// limit/offset page the rows (the running balance is already computed over the whole ledger);
+	// without a limit the whole ledger is returned, as before.
+	total := len(rows)
+	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	offset, _ := strconv.Atoi(c.QueryParam("offset"))
+	hasMore := false
+	if limit > 0 {
+		if offset < 0 || offset > total {
+			offset = total
+		}
+		end := offset + limit
+		if end < total {
+			hasMore = true
+		} else {
+			end = total
+		}
+		rows = rows[offset:end]
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"items": rows, "hasMore": hasMore, "total": total})
 }
 
 func GetInvestmentByNumber(c echo.Context) error {
@@ -1582,4 +1635,286 @@ func ListInvestmentTransactions(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessList(c, page, limit, common.NextPages(page, hasMore), recs)
+}
+
+// closeLiveInvestment pays a matured live-engine investment out in full: the interest accrued up to
+// maturity and the outstanding principal, in the modes staff chose. Interest is met from the chosen modes
+// first, then principal, and each becomes its own paid payout (so the ledger shows them separately).
+func closeLiveInvestment(ctx context.Context, investmentID uint, branchID *uint, pay *MarkPayoutPaidInput, employeeID uint) (*models.Investment, error) {
+	if pay == nil {
+		return nil, common.NewBadRequest("payout breakdown is required to close this investment")
+	}
+	var closed *models.Investment
+	var payouts []models.InvestmentPayout
+	err := investmentDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		locked, err := lockByID(ctx, tx, investmentID, branchID)
+		if err != nil {
+			return err
+		}
+		if locked.Engine != models.EngineLive {
+			return common.NewBadRequest("this action is only available for investments using the live accrual engine")
+		}
+		if locked.Status != models.StatusMatured {
+			return common.NewConflict("investment has not matured yet")
+		}
+		// interest stops at the maturity date (projectAccrual caps it)
+		if err := settleAndSave(ctx, tx, locked, locked.MaturityDate); err != nil {
+			return err
+		}
+		interest := clampMoney(locked.AccruedInterest - locked.InterestWithdrawn)
+		principal := locked.OutstandingPrincipal
+		total := common.RoundMoney(interest + principal)
+		now := time.Now()
+		if total > epsilon {
+			cash, upi, bank, cheque, err := common.NormalizeSplit(pay.CashAmount, pay.UpiAmount, pay.BankTransferAmount, pay.ChequeAmount, total, pay.BankID)
+			if err != nil {
+				return err
+			}
+			if !config.IsDemoRun(ctx) {
+				if err := cashbook.EnsurePayoutFunds(ctx, locked.BranchID, cash, pay.BankID, upi+bank); err != nil {
+					return err
+				}
+			}
+			nextSeq := 1
+			if existing, err := findPayouts(ctx, investmentID, 1000, 0); err != nil {
+				return err
+			} else if len(existing) > 0 {
+				nextSeq = existing[len(existing)-1].SequenceNo + 1
+			}
+			_ = cheque
+			rem := [3]float64{cash, upi, bank}
+			take := func(amount float64) [3]float64 {
+				var got [3]float64
+				for i := range rem {
+					t := math.Min(amount, rem[i])
+					got[i] = common.RoundMoney(t)
+					rem[i] = common.RoundMoney(rem[i] - t)
+					amount = common.RoundMoney(amount - t)
+				}
+				return got
+			}
+			add := func(amount float64, isPrincipal bool) error {
+				if amount <= epsilon {
+					return nil
+				}
+				got := take(amount)
+				p := models.InvestmentPayout{
+					InvestmentID: locked.ID, SequenceNo: nextSeq, DueDate: now, Amount: amount,
+					IsPrincipalReturn: isPrincipal, Status: "Paid", PaidAt: &now, PaidByEmployeeID: &employeeID,
+					CashAmount: got[0], UpiAmount: got[1], BankTransferAmount: got[2],
+				}
+				p.TenantID = locked.TenantID
+				nextSeq++
+				if err := appendPayout(ctx, tx, &p); err != nil {
+					return err
+				}
+				payouts = append(payouts, p)
+				return nil
+			}
+			if err := add(interest, false); err != nil {
+				return err
+			}
+			if err := add(principal, true); err != nil {
+				return err
+			}
+		}
+		// each payout's cash lines are saved with it, so closing never leaves a paid payout with no money
+		for i := range payouts {
+			p := &payouts[i]
+			payoutType := "Interest payout"
+			if p.IsPrincipalReturn {
+				payoutType = "Principal return"
+			}
+			movementID, _, err := cashbook.RecordInvestmentPayoutCashOut(cashbook.WithTx(ctx, tx), locked.ID, locked.InvestmentNumber, p.Amount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, locked.BranchID, *p.PaidAt, payoutType, locked.CustomerID, nonCashBankID(pay.BankID, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount))
+			if err != nil {
+				return fmt.Errorf("could not record the %s in Cash-in-Hand, investment not closed: %w", payoutType, err)
+			}
+			p.CashMovementID = &movementID
+			if err := updatePayout(ctx, tx, p); err != nil {
+				return err
+			}
+		}
+		locked.InterestWithdrawn = common.RoundMoney(locked.InterestWithdrawn + interest)
+		locked.TotalInterestPaid = common.RoundMoney(locked.TotalInterestPaid + interest)
+		locked.OutstandingPrincipal = 0
+		locked.Status = "Closed"
+		locked.ClosedAt = &now
+		if err := persistInvestment(ctx, tx, locked); err != nil {
+			return err
+		}
+		closed = locked
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return closed, nil
+}
+
+type payInterestRequest struct {
+	Amount             float64 `json:"amount"`
+	CashAmount         float64 `json:"cash_amount"`
+	UpiAmount          float64 `json:"upi_amount"`
+	BankTransferAmount float64 `json:"bank_transfer_amount"`
+	ChequeAmount       float64 `json:"cheque_amount"`
+	BankID             *uint   `json:"bank_id"`
+}
+
+// pendingInterestPayouts lists the unpaid interest months of a scheduled investment, oldest first.
+func pendingInterestPayouts(ctx context.Context, investmentID uint, branchID *uint) ([]models.InvestmentPayout, error) {
+	inv, err := getInvestment(ctx, investmentID, branchID)
+	if err != nil {
+		return nil, err
+	}
+	if inv.Engine == models.EngineLive {
+		return []models.InvestmentPayout{}, nil
+	}
+	var recs []models.InvestmentPayout
+	err = config.DB.WithContext(ctx).
+		Where("investment_id = ? AND status = ? AND is_principal_return = ?", investmentID, "Pending", false).
+		Order("sequence_no asc").Find(&recs).Error
+	return recs, err
+}
+
+// SaveInterestPayments pays several months of interest together: the amount is applied to the oldest unpaid
+// interest months in order, each month paid in full, and the payment breakdown is spread over those months
+// (interest first from the first mode, and so on) so every month gets its own paid payout and cash line. The
+// amount has to be a whole number of months: a part-month cannot be left half paid.
+func SaveInterestPayments(ctx context.Context, investmentID uint, branchID *uint, employeeID uint, amount float64, in MarkPayoutPaidInput) ([]models.InvestmentPayout, error) {
+	amount = common.RoundMoney(amount)
+	if amount <= 0 {
+		return nil, common.NewBadRequest("amount must be greater than zero")
+	}
+	inv, err := getInvestment(ctx, investmentID, branchID)
+	if err != nil {
+		return nil, err
+	}
+	if inv.Engine == models.EngineLive {
+		return nil, common.NewBadRequest("this investment pays interest through withdrawals, not a payout schedule")
+	}
+	if inv.Status != models.StatusActive && inv.Status != models.StatusMatured && inv.Status != "Closed" && inv.Status != "Renewed" {
+		return nil, common.NewConflict("investment is not active")
+	}
+	cash, upi, bank, _, err := common.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, amount, in.BankID)
+	if err != nil {
+		return nil, err
+	}
+	var paid []models.InvestmentPayout
+	err = investmentDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		lockedInv, err := lockByID(ctx, tx, investmentID, branchID)
+		if err != nil {
+			return err
+		}
+		var pending []models.InvestmentPayout
+		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("investment_id = ? AND status = ? AND is_principal_return = ?", investmentID, "Pending", false).
+			Order("sequence_no asc").Find(&pending).Error; err != nil {
+			return err
+		}
+		if len(pending) == 0 {
+			return common.NewConflict("there is no unpaid interest on this investment")
+		}
+		var chosen []models.InvestmentPayout
+		var covered float64
+		for _, p := range pending {
+			if covered+p.Amount > amount+0.01 {
+				break
+			}
+			chosen = append(chosen, p)
+			covered = common.RoundMoney(covered + p.Amount)
+		}
+		if len(chosen) == 0 {
+			return common.NewBadRequest(fmt.Sprintf("amount is less than the next month's interest of ₹%.2f", pending[0].Amount))
+		}
+		if math.Abs(covered-amount) > 0.01 {
+			msg := fmt.Sprintf("amount must cover whole months — ₹%.2f covers %d month(s)", covered, len(chosen))
+			if len(chosen) < len(pending) {
+				msg += fmt.Sprintf(", ₹%.2f covers %d", common.RoundMoney(covered+pending[len(chosen)].Amount), len(chosen)+1)
+			}
+			return common.NewBadRequest(msg)
+		}
+		if !config.IsDemoRun(ctx) {
+			if err := cashbook.EnsurePayoutFunds(ctx, lockedInv.BranchID, cash, in.BankID, upi+bank); err != nil {
+				return err
+			}
+		}
+		rem := [3]float64{cash, upi, bank}
+		take := func(need float64) [3]float64 {
+			var got [3]float64
+			for i := range rem {
+				t := math.Min(need, rem[i])
+				got[i] = common.RoundMoney(t)
+				rem[i] = common.RoundMoney(rem[i] - t)
+				need = common.RoundMoney(need - t)
+			}
+			return got
+		}
+		now := time.Now()
+		txCtx := cashbook.WithTx(ctx, tx)
+		for i := range chosen {
+			p := &chosen[i]
+			got := take(p.Amount)
+			p.Status = "Paid"
+			p.PaidAt = &now
+			p.PaidByEmployeeID = &employeeID
+			p.CashAmount, p.UpiAmount, p.BankTransferAmount = got[0], got[1], got[2]
+			movementID, _, err := cashbook.RecordInvestmentPayoutCashOut(txCtx, lockedInv.ID, lockedInv.InvestmentNumber, p.Amount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, 0, lockedInv.BranchID, now, "Interest payout", lockedInv.CustomerID, nonCashBankID(in.BankID, p.UpiAmount, p.BankTransferAmount, 0))
+			if err != nil {
+				return fmt.Errorf("could not record the interest payout in Cash-in-Hand, nothing paid: %w", err)
+			}
+			p.CashMovementID = &movementID
+			if err := updatePayout(ctx, tx, p); err != nil {
+				return err
+			}
+			lockedInv.TotalInterestPaid = common.RoundMoney(lockedInv.TotalInterestPaid + p.Amount)
+		}
+		if err := persistInvestment(ctx, tx, lockedInv); err != nil {
+			return err
+		}
+		paid = chosen
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !config.IsDemoRun(ctx) {
+		if err := notifyInterestPayout(ctx, inv.CustomerID, inv.InvestmentNumber, amount); err != nil {
+			log.Printf("notify interest payout failed for investment %d: %v", inv.ID, err)
+		}
+	}
+	return paid, nil
+}
+
+func ListPendingInterest(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	recs, err := pendingInterestPayouts(ctx, id, auth.GetBranchScope(c))
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"items": recs})
+}
+
+func PayInvestmentInterest(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	var req payInterestRequest
+	if err := common.BindJSON(c, &req); err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
+	}
+	employeeID, _, _ := auth.ActorFromContext(c)
+	paid, err := SaveInterestPayments(ctx, id, auth.GetBranchScope(c), employeeID, req.Amount, MarkPayoutPaidInput{
+		CashAmount: req.CashAmount, UpiAmount: req.UpiAmount, BankTransferAmount: req.BankTransferAmount,
+		ChequeAmount: req.ChequeAmount, BankID: req.BankID,
+	})
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"items": paid})
 }

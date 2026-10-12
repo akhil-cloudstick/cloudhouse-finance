@@ -4,11 +4,16 @@
  * scheme's tenure is a real field now — no more start/end date window. */
 export type ServiceChargeType = "None" | "Flat" | "Percent";
 export type ServiceChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
+/* One step of a "Multiple interest" ladder: the rate applies while interest
+ * has been unpaid for up to `days` days. The last step has days 0 (thereafter). */
+export type RateTier = { days: number; rate: number };
 export type BackendScheme = {
   id: number;
   code: string;
   name: string;
   interestRate: number;
+  rateTiers?: RateTier[] | null;
+  minimumDays?: number;
   durationMonths: number;
   ltvPercent: number;
   interestMethod: string;
@@ -33,6 +38,8 @@ export type SchemeView = {
   code: string;
   name: string;
   rate: number;
+  rateTiers: RateTier[];
+  minimumDays: number;
   durationMonths: number;
   ltv: number;
   method: string;
@@ -48,6 +55,8 @@ export type SchemeView = {
 export type SchemeFormInput = {
   name: string;
   rate: number;
+  rateTiers: RateTier[];
+  minimumDays: number;
   durationMonths: number;
   ltv: number;
   method: string;

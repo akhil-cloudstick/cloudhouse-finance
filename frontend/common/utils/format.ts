@@ -20,7 +20,7 @@ const CUSTOMER_FALLBACK = { name: "—", id: "—" };
 export const custOf = (customers: CustomerView[], id: string) =>
   customers.find((c) => c.id === id) || CUSTOMER_FALLBACK;
 
-const SCHEME_FALLBACK: SchemeView = { id: "—", code: "—", name: "—", rate: 0, durationMonths: 0, ltv: 0, method: "—", penal: 0, cond: "—", active: false, branchId: 0, branchName: "—", serviceChargeType: "None", serviceChargeValue: 0, serviceChargeMode: "WithheldFromPayout" };
+const SCHEME_FALLBACK: SchemeView = { id: "—", code: "—", name: "—", rate: 0, rateTiers: [], minimumDays: 0, durationMonths: 0, ltv: 0, method: "—", penal: 0, cond: "—", active: false, branchId: 0, branchName: "—", serviceChargeType: "None", serviceChargeValue: 0, serviceChargeMode: "WithheldFromPayout" };
 export const schemeOf = (schemes: SchemeView[], id: string) =>
   schemes.find((s) => s.id === id) || SCHEME_FALLBACK;
 

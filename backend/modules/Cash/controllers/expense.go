@@ -216,8 +216,13 @@ func SaveExpense(ctx context.Context, in RecordExpenseInput) (*models.Expense, e
 	if in.Mode == "Bank" {
 		in.Mode = models.CashModeBankTransfer
 	}
-	if (in.Mode == models.CashModeUPI || in.Mode == models.CashModeBankTransfer) && in.FromBankID == nil {
-		return nil, common.NewBadRequest("from bank is required when mode is UPI or Bank")
+	if !modeVocabulary[in.Mode] {
+		return nil, common.NewBadRequest("mode must be Cash, UPI or Bank Transfer")
+	}
+	if in.Mode == models.CashModeCash {
+		in.FromBankID = nil
+	} else if in.FromBankID == nil {
+		return nil, common.NewBadRequest("from bank is required when mode is UPI or Bank Transfer")
 	}
 	if err := ensureLoanRepayment(ctx, in.Category, in.Amount, true); err != nil {
 		return nil, err
@@ -385,8 +390,7 @@ func deleteByIDs(ctx context.Context, ids []uint) error {
 }
 
 func insertExpense(ctx context.Context, e *models.Expense) error {
-	return config.DB.
-		WithContext(ctx).Create(e).Error
+	return cashDB(ctx).Create(e).Error
 }
 
 func findExpenses(ctx context.Context, branchID *uint, search string, limit, offset int) ([]models.Expense, int64, error) {
@@ -439,8 +443,7 @@ func findExpenseByID(ctx context.Context, id uint) (*models.Expense, error) {
 }
 
 func persistExpense(ctx context.Context, e *models.Expense) error {
-	return config.DB.
-		WithContext(ctx).Save(e).Error
+	return cashDB(ctx).Save(e).Error
 }
 
 func sumCashByDate(ctx context.Context, branchID *uint, date time.Time) (float64, error) {
@@ -493,6 +496,7 @@ func sumByBank(ctx context.Context, to time.Time) (map[uint]float64, error) {
 		WithContext(ctx).Model(&models.Expense{}).
 		Select("from_bank_id, COALESCE(SUM(amount), 0) AS total").
 		Where("status = ? AND occurred_on < ? AND from_bank_id IS NOT NULL", "Approved", to).
+		Where("mode IN ?", bankModes).
 		Where("to_bank_id IS NULL").
 		Group("from_bank_id").Scan(&rows).Error
 	if err != nil {
@@ -658,4 +662,50 @@ func RejectExpense(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, rec)
+}
+
+// RecordAuctionExpense books an auction's expenses in the expense register like any other approved expense
+// (so it appears there, in the expense totals and as a cash-out line), paid in the given mode and bank.
+// auctionExpenseCategory is the expense category auction expenses are filed under, like any other expense.
+const auctionExpenseCategory = "Auction"
+
+func RecordAuctionExpense(ctx context.Context, loanNumber string, amount float64, mode string, fromBankID *uint, branchID uint, occurredOn time.Time) (uint, error) {
+	if _, _, err := findOrCreateCategory(ctx, auctionExpenseCategory, models.CategoryExpense); err != nil {
+		return 0, err
+	}
+	if mode == "" {
+		mode = models.CashModeCash
+	}
+	if mode == models.CashModeCash {
+		fromBankID = nil
+	}
+	now := time.Now()
+	if occurredOn.IsZero() {
+		occurredOn = now
+	}
+	rec := &models.Expense{
+		OccurredOn: occurredOn,
+		Category:   auctionExpenseCategory,
+		Amount:     amount,
+		Mode:       mode,
+		Payee:      "Auction — " + loanNumber,
+		FromBankID: fromBankID,
+		BranchID:   branchID,
+		Status:     "Approved",
+		ApprovedAt: &now,
+		ApprovedBy: strPtr("System"),
+		Remarks:    "Auction expenses for " + loanNumber,
+	}
+	if err := insertExpense(ctx, rec); err != nil {
+		return 0, err
+	}
+	movementID, err := recordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, nil, rec.Amount, rec.BranchID, rec.OccurredOn, "")
+	if err != nil {
+		return 0, err
+	}
+	rec.CashMovementID = &movementID
+	if err := persistExpense(ctx, rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
 }

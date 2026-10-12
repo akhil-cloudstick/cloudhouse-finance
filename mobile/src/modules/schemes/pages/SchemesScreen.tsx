@@ -76,7 +76,7 @@ export default function SchemesScreen() {
             <AccRow
               defaultOpen={i === 0}
               name={sc.name}
-              sub={`Interest ${sc.interestRate}% p.a.`}
+              sub={sc.rateTiers && sc.rateTiers.length > 1 ? `Interest ${sc.rateTiers[0].rate}% → ${sc.rateTiers[sc.rateTiers.length - 1].rate}% p.a.` : `Interest ${sc.interestRate}% p.a.`}
               status={sc.isActive ? "Active" : "Inactive"}
               details={[
                 { k: "LTV", v: `${sc.ltvPercent}%` },

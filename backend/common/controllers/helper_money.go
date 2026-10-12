@@ -16,6 +16,9 @@ func RoundMoney(f float64) float64 {
 }
 
 func ValidateSplit(cash, upi, bank, cheque, total float64) error {
+	if cheque > 0 {
+		return NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+	}
 	sum := RoundMoney(cash + upi + bank + cheque)
 	total = RoundMoney(total)
 	if math.Abs(sum-total) > 0.01 {
@@ -33,7 +36,7 @@ func NormalizeSplit(cash, upi, bank, cheque, total float64, bankID *uint) (float
 		return 0, 0, 0, 0, err
 	}
 	if upi+bank+cheque > 0 && bankID == nil {
-		return 0, 0, 0, 0, NewBadRequest("bank is required when the payment breakdown includes UPI, Bank Transfer, or Cheque")
+		return 0, 0, 0, 0, NewBadRequest("bank is required when the payment breakdown includes UPI or Bank Transfer")
 	}
 	return cash, upi, bank, cheque, nil
 }

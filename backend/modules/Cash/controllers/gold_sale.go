@@ -65,25 +65,6 @@ func recordGoldSaleCashIn(ctx context.Context, ornamentType string, amount float
 	return rec.ID, nil
 }
 
-func recordGoldSaleCashOut(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
-	rec := &models.CashMovement{
-		Type:     "out",
-		Purpose:  "Gold purchase cost — " + ornamentType,
-		Mode:     models.CashModeCash,
-		Amount:   amount,
-		BranchID: &branchID,
-	}
-	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
-	} else {
-		rec.OccurredOn = occurredOn
-	}
-	if err := insertMovement(ctx, rec); err != nil {
-		return 0, err
-	}
-	return rec.ID, nil
-}
-
 func createGoldSale(ctx context.Context, in RecordGoldSaleInput) (*models.GoldSale, error) {
 	if in.OrnamentType == "" {
 		return nil, common.NewBadRequest("ornament type is required")
@@ -106,6 +87,9 @@ func createGoldSale(ctx context.Context, in RecordGoldSaleInput) (*models.GoldSa
 	if mode == "" {
 		mode = models.CashModeCash
 	}
+	if !modeVocabulary[mode] {
+		return nil, common.NewBadRequest("mode must be Cash, UPI or Bank Transfer")
+	}
 	if (mode == models.CashModeUPI || mode == models.CashModeBankTransfer) && in.BankID == nil {
 		return nil, common.NewBadRequest("bank is required when mode is UPI or Bank Transfer")
 	}
@@ -117,14 +101,10 @@ func createGoldSale(ctx context.Context, in RecordGoldSaleInput) (*models.GoldSa
 	if err != nil {
 		return nil, err
 	}
+	// The cost is kept on the sale for profit reporting only. It is not booked as a cash-out: the sale
+	// proceeds are the only money that moved, and a purchase cost paid earlier (the loan disbursement,
+	// say) must not be counted a second time.
 	var costMovementID *uint
-	if in.CostAmount > 0 {
-		id, err := recordGoldSaleCashOut(ctx, in.OrnamentType, in.CostAmount, in.BranchID, soldOn)
-		if err != nil {
-			return nil, err
-		}
-		costMovementID = &id
-	}
 	rec := &models.GoldSale{
 		OrnamentType:       in.OrnamentType,
 		SoldAmount:         in.SoldAmount,

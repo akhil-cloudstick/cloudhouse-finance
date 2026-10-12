@@ -7,7 +7,8 @@ import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { searchBanksPage, createBank } from "@/modules/banks/services/bankService";
 import { type BackendBank } from "@/modules/banks/types/bank-types";
 
-export const SPLIT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
+// Cheque is not a payment mode in the application: Cash, UPI and Bank Transfer only.
+export const SPLIT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
 export type SplitPaymentMode = (typeof SPLIT_PAYMENT_MODES)[number];
 
 const MODE_OPTIONS = SPLIT_PAYMENT_MODES.map((m) => ({ value: m, label: m }));
@@ -23,11 +24,11 @@ export type SplitAmounts = {
   chequeAmount: number;
 };
 
-/* bankId/bankName are only meaningful when mode is UPI/Bank Transfer/
- * Cheque — a Cash line never carries one. */
+/* bankId/bankName are only meaningful when mode is UPI/Bank Transfer —
+ * a Cash line never carries one. */
 export type SplitPaymentLine = { mode: SplitPaymentMode; amount: string; bankId?: number; bankName?: string };
 
-export const NON_CASH_MODES: readonly SplitPaymentMode[] = ["UPI", "Bank Transfer", "Cheque"];
+export const NON_CASH_MODES: readonly SplitPaymentMode[] = ["UPI", "Bank Transfer"];
 
 /* One payment event stores exactly one BankID today (see
  * backend/internal/loan/model_payment.go's LoanPayment.BankID doc comment)
@@ -56,7 +57,6 @@ export function sumSplitLines(lines: SplitPaymentLine[]): SplitAmounts {
     if (l.mode === "Cash") split.cashAmount += amt;
     else if (l.mode === "UPI") split.upiAmount += amt;
     else if (l.mode === "Bank Transfer") split.bankTransferAmount += amt;
-    else if (l.mode === "Cheque") split.chequeAmount += amt;
   }
   return {
     cashAmount: Math.round(split.cashAmount * 100) / 100,
@@ -90,7 +90,7 @@ type SplitPaymentInputProps = {
 
 /**
  * Dynamic "Add Payment" line list for recording exactly how a payment or
- * disbursement was composed across Cash / UPI / Bank Transfer / Cheque —
+ * disbursement was composed across Cash / UPI / Bank Transfer —
  * the shared control every split-payment entry point in the app builds on
  * (gold-loan and personal-loan payment collection and disbursement,
  * investment payout/deposit/withdraw, gold-loan top-up).
@@ -196,7 +196,12 @@ export function SplitPaymentInput({
                 // Amount gets more room to fit larger figures comfortably,
                 // Bank is capped so it doesn't dominate the row, Close is a
                 // fixed square — all four share the input's 38px height.
-                gridTemplateColumns: "minmax(148px, auto) minmax(120px, 1.3fr) minmax(160px, 1fr) 38px",
+                // A lone line has no remove button, so it gets three columns and runs the full width of the
+                // form (level with the fields above it); the fourth, button-sized column only appears once
+                // there are two or more lines.
+                gridTemplateColumns: lines.length > 1
+                  ? "minmax(148px, auto) minmax(120px, 1.3fr) minmax(160px, 1fr) 38px"
+                  : "minmax(148px, auto) minmax(120px, 1.3fr) minmax(160px, 1fr)",
                 gap: 8,
                 alignItems: "center",
                 marginTop: i === 0 ? 6 : 8,
@@ -239,9 +244,7 @@ export function SplitPaymentInput({
                 >
                   ✕
                 </button>
-              ) : (
-                <span />
-              )}
+              ) : null}
             </div>
           );
         })}
@@ -255,4 +258,14 @@ export function SplitPaymentInput({
       </div>
     </div>
   );
+}
+
+/* The one mode a split uses, or null when it spans several (or is empty). For screens whose backend
+ * records a single payment mode and bank per event (auction proceeds and surplus refund). */
+export function singleSplitMode(s: SplitAmounts): SplitPaymentMode | null {
+  const used: SplitPaymentMode[] = [];
+  if (s.cashAmount > 0) used.push("Cash");
+  if (s.upiAmount > 0) used.push("UPI");
+  if (s.bankTransferAmount > 0) used.push("Bank Transfer");
+  return used.length === 1 ? used[0] : null;
 }

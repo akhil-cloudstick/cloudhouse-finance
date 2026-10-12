@@ -305,6 +305,7 @@ export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
     customerId: r.customerId,
     customerName: r.customerName,
     receiptImage: r.receiptImage,
+    memo: r.memo,
   };
 }
 

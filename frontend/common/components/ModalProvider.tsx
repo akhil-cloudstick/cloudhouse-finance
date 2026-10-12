@@ -35,6 +35,9 @@ export function ModalProvider({ children }: ModalProviderProps) {
   // new one every time, for every caller, without each one having to
   // remember to key its own modal content by hand.
   const keySeq = useRef(0);
+  // Whether the current press began on the backdrop. A drag that starts inside the modal (selecting text in
+  // a field, say) and is released over the backdrop fires a click on the backdrop; that must not close it.
+  const pressStartedOnBackdrop = useRef(false);
 
   const openModal = useCallback((node: React.ReactNode, isWide = false) => {
     keySeq.current += 1;
@@ -62,8 +65,12 @@ export function ModalProvider({ children }: ModalProviderProps) {
       <div
         id="modalBg"
         className={`modal-bg${open ? " open" : ""}`}
+        onMouseDown={(e) => {
+          pressStartedOnBackdrop.current = (e.target as HTMLElement).id === "modalBg";
+        }}
         onClick={(e) => {
-          if ((e.target as HTMLElement).id === "modalBg") closeModal();
+          if ((e.target as HTMLElement).id === "modalBg" && pressStartedOnBackdrop.current) closeModal();
+          pressStartedOnBackdrop.current = false;
         }}
       >
         <div id="modalBox" className={`modal${wide ? " wide" : ""}`} onKeyDown={onModalKeyDown}>

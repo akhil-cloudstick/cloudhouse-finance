@@ -21,6 +21,8 @@ func InvestmentRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(investmentPath+"/:id/bond/pdf", investment.DownloadInvestmentBond, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/:id/statement/pdf", investment.DownloadInvestmentStatement, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read, perms.Export)...)
 	e.POST(investmentPath+"/:id/payouts/:payout_id/pay", investment.PayInvestmentPayout, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
+	e.GET(investmentPath+"/:id/pending-interest", investment.ListPendingInterest, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
+	e.POST(investmentPath+"/:id/pay-interest", investment.PayInvestmentInterest, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.POST(investmentPath+"/:id/mature", investment.MatureInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.POST(investmentPath+"/:id/add-cash", investment.AddInvestmentCash, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.POST(investmentPath+"/:id/withdraw", investment.WithdrawInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)

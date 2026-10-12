@@ -51,6 +51,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
   const [amount, setAmount] = useState(initialAmount);
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [reference, setReference] = useState(initialReference);
   const [err, setErr] = useState("");
   const [shortfall, setShortfall] = useState(false);
@@ -121,6 +122,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
         upiAmount: split.upiAmount,
         bankTransferAmount: split.bankTransferAmount,
         chequeAmount: split.chequeAmount,
+        bankId,
         reference: reference.trim() || undefined,
         settleInterest: hasArrears ? settleMode : undefined,
       });
@@ -177,7 +179,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
           <div><label className="f">Top-up Amount (₹) *</label><input className="inp" type="number" min={1} max={headroom || undefined} placeholder="e.g. 5000" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
         </div>
         <div className="frow" style={{ marginTop: 4 }}>
-          <SplitPaymentInput totalAmount={amt} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
+          <SplitPaymentInput totalAmount={amt} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
         </div>
         <div className="frow"><div><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={80} /></div></div>
         {err && (

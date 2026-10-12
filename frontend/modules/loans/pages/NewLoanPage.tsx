@@ -20,7 +20,7 @@ import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeServic
 import { type SchemeView } from "@/modules/schemes/types/scheme-types";
 import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
-import { createLoan, addOrnamentImage, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber } from "@/modules/loans/services/loanService";
+import { createLoan, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber } from "@/modules/loans/services/loanService";
 import { type BackendLoanDraft, type SaveDraftInput } from "@/modules/loans/types/loan-types";
 import { publishGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
@@ -33,6 +33,7 @@ import { DatePicker } from "@/common/components/ui/DatePicker";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/PurityPicker";
 import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
+import { OrnamentPhotoSlider } from "@/modules/loans/components/OrnamentPhotoSlider";
 import { rateForPurityFull } from "@/common/utils/purity";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import { ApiError } from "@/common/services/httpClient";
@@ -62,13 +63,47 @@ import { navigate } from "@/common/services/appRoutes";
 // backend/internal/loan/service.go) and already prices GoldValue as
 // NetWeight × rate with no quantity factor — this frontend calc was the
 // one out of step, not the backend.
-type OrnRow = { n: string; p: string; w: number; lessWt: number; netW: number; q: number; img?: string; imgName?: string };
+type OrnRow = { n: string; p: string; w: number; lessWt: number; netW: number; q: number; imgs?: string[] };
 
 // A focused <input type="number"> steps its value on mouse-wheel scroll, so
 // scrolling the page past a weight/qty field silently changes it. Dropping
 // focus makes the wheel scroll the page instead.
 function blurOnWheel(e: React.WheelEvent<HTMLInputElement>) {
   e.currentTarget.blur();
+}
+
+// Weights carry up to 3 decimals. Rounding after every arithmetic step keeps
+// float noise (e.g. 10.1 − 0.3 = 9.8000000000000007) out of Net Wt.
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+// Weight field backed by a text draft so partial entries like ".", ".5" or
+// "0." survive typing — a controlled type="number" input reports "" for them,
+// which collapsed the field back to empty. The draft only resyncs from the
+// numeric value when that value differs from what the draft already parses to
+// (e.g. Net Wt recomputed after Gross/Less Wt changed).
+function WeightInput({ value, onChange, ...rest }: {
+  value: number;
+  onChange: (v: number) => void;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  const [text, setText] = useState(value === 0 ? "" : String(value));
+  const parsed = text === "" || text === "." ? 0 : parseFloat(text);
+  if (parsed !== value) {
+    setText(value === 0 ? "" : String(value));
+  }
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      value={text}
+      onChange={(e) => {
+        const t = e.target.value;
+        if (!/^\d*\.?\d{0,3}$/.test(t)) return;
+        setText(t);
+        onChange(t === "" || t === "." ? 0 : parseFloat(t));
+      }}
+    />
+  );
 }
 
 // "YYYY-MM-DD" in the browser's local timezone — toISOString() would give the
@@ -234,6 +269,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // Free text staff may want to record on this loan that no standard field
   // captures — carried through onto the printed Statement of Account.
   const [additionalInfo, setAdditionalInfo] = useState("");
+  // Uploaded URL of the single photo of the whole pledged lot ("" = none).
+  const [overallPhoto, setOverallPhoto] = useState("");
   // How the scheme's service charge is collected — chosen per loan here, not
   // on the scheme.
   const [chargeMode, setChargeMode] = useState<"WithheldFromPayout" | "AddedToPrincipal">("WithheldFromPayout");
@@ -312,7 +349,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // rejects a principal above ITS eligible amount — so the preview here must
   // use the same rate or it offers an amount the server then refuses.
   const rowVals = rows.map((r) => r.netW * (rateForPurityFull(rates, r.p) ?? 0));
-  const totalWeight = rows.reduce((s, r) => s + r.netW, 0);
+  const totalWeight = round3(rows.reduce((s, r) => s + r.netW, 0));
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
   const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
   // Clear a stale manual override whenever the eligible amount it was based
@@ -412,34 +449,46 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
       // Wt can't exceed Gross Wt.
       if (k === "netW" && typeof v === "number") {
         const netW = Math.min(Math.max(0, v), r.w);
-        return { ...r, netW, lessWt: Math.max(0, r.w - netW) };
+        return { ...r, netW, lessWt: round3(Math.max(0, r.w - netW)) };
       }
       const next = { ...r, [k]: clamped };
       // Gross Wt/Less Wt are the two inputs that drive Net Wt — any change
       // to either recomputes it here.
-      if (k === "w" || k === "lessWt") next.netW = Math.max(0, next.w - next.lessWt);
+      if (k === "w" || k === "lessWt") next.netW = round3(Math.max(0, next.w - next.lessWt));
       return next;
     }));
   }
 
-  // Gets the row's photo from PhotoSourceMenu — a file from the system or
-  // a webcam shot, both arrive as a File.
+  // Adds a photo to the row from PhotoSourceMenu — a file from the system
+  // (several may be picked at once) or a webcam shot, all arrive as a File.
+  // A row keeps any number of photos.
   async function ornImgPicked(i: number, f: File) {
     if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
     try {
       const url = await uploadFile(f);
-      setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, img: url, imgName: f.name } : r)));
+      setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, imgs: [...(r.imgs ?? []), url] } : r)));
     } catch {
       toast("Could not upload photo — try again");
     }
   }
-  function delOrnImg(i: number) {
+  function delOrnImg(i: number, url: string) {
     setRows((rs) => rs.map((r, idx) => {
       if (idx !== i) return r;
-      const { img, imgName, ...rest } = r;
-      void img; void imgName;
-      return rest as OrnRow;
+      const imgs = (r.imgs ?? []).filter((u) => u !== url);
+      const { imgs: old, ...rest } = r;
+      void old;
+      return (imgs.length ? { ...rest, imgs } : rest) as OrnRow;
     }));
+  }
+  // The photo shown for the whole pledged lot — one image, stored on the loan
+  // and shown on its Loan Details card.
+  async function overallPhotoPicked(f: File) {
+    if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
+    try {
+      setOverallPhoto(await uploadFile(f));
+    } catch {
+      toast("Could not upload photo — try again");
+    }
   }
   // One photo button per row: opens "Upload from system" / "Take photo
   // (webcam)". Each view (table + cards) mounts its own, each owning its own
@@ -447,6 +496,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   function ornPhotoMenu(i: number, content: React.ReactNode, title: string, style: React.CSSProperties) {
     return (
       <PhotoSourceMenu
+        multiple
         onFile={(f) => { void ornImgPicked(i, f); }}
         webcamTitle={`Ornament Photo${rows[i]?.n ? " — " + rows[i].n : ""}`}
         trigger={(t) => (
@@ -455,15 +505,28 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
       />
     );
   }
+  // The row's photo cell: first photo as the preview (with a count badge when
+  // there are more) that opens the slide viewer, plus a "+" to add more.
+  function ornPhotoCell(i: number) {
+    const imgs = rows[i]?.imgs ?? [];
+    if (!imgs.length) {
+      return ornPhotoMenu(i, <Icon name="camera" />, "Add ornament photos", { padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" });
+    }
+    return (
+      <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "flex-start" }}>
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <SafeImage src={imgs[0]} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={imgs.length > 1 ? `View all ${imgs.length} photos` : "View photo"} onClick={() => viewOrnImg(i)} />
+          {imgs.length > 1 && (
+            <span style={{ position: "absolute", right: -4, bottom: -4, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, background: "var(--brand-deep, #2b4a8c)", color: "#fff", fontSize: 10, lineHeight: "16px", textAlign: "center", pointerEvents: "none" }}>{imgs.length}</span>
+          )}
+        </span>
+        {ornPhotoMenu(i, "+", "Add more photos", { padding: "0 9px", height: 31 })}
+      </div>
+    );
+  }
   function viewOrnImg(i: number) {
     const r = rows[i];
-    openModal(
-      <>
-        <div className="hd"><h3>{r.n}{r.imgName ? " — " + r.imgName : ""}</h3><button className="x" onClick={closeModal}>×</button></div>
-        <div className="bd" style={{ textAlign: "center" }}><SafeImage src={r.img} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt={r.n} /></div>
-      </>,
-      true
-    );
+    openModal(<OrnamentPhotoSlider title={r.n || "Ornament"} urls={r.imgs ?? []} onClose={closeModal} onRemove={(u) => delOrnImg(i, u)} />, true);
   }
 
   /* --- "Save Draft" -------------------------------------------------------
@@ -486,6 +549,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
       // the eligible amount", which must stay computed rather than frozen
       // (a draft reopened next week has to use next week's gold rate).
       ...(principalOverride.trim() ? { principalOverride: +principalOverride } : {}),
+      ...(overallPhoto ? { overallPhotoUrl: overallPhoto } : {}),
       // Every row is sent, including blank ones, so the form comes back
       // looking exactly as it was left.
       ornaments: rows.map((r) => ({
@@ -493,8 +557,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
         purity: r.p,
         grossWeight: r.w,
         quantity: r.q,
-        ...(r.img ? { imageUrl: r.img } : {}),
-        ...(r.imgName ? { imageName: r.imgName } : {}),
+        ...(r.imgs?.length ? { imageUrl: r.imgs[0], imageUrls: r.imgs } : {}),
       })),
     };
   }
@@ -512,8 +575,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     if (branchId === "") { toast("Please select a branch before saving a draft"); return; }
     // A draft with nothing entered would just be an empty row in "Saved
     // drafts". Blank ornament rows (just added, nothing typed) don't count.
-    const hasOrnamentDetail = rows.some((r) => r.n.trim() || r.w > 0 || r.img);
-    if (!custId && !schemeId && lockerId === "" && !hasOrnamentDetail) {
+    const hasOrnamentDetail = rows.some((r) => r.n.trim() || r.w > 0 || r.imgs?.length);
+    if (!custId && !schemeId && lockerId === "" && !hasOrnamentDetail && !overallPhoto) {
       toast("Enter some loan details before saving a draft");
       return;
     }
@@ -546,6 +609,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     setLockerId("");
     setLockerLabel("");
     setRows([]);
+    setOverallPhoto("");
     setPrincipalOverride("");
     setPrincipalExceedsEligible(false);
     setAdditionalInfo("");
@@ -584,9 +648,10 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
       lessWt: 0,
       netW: o.grossWeight,
       q: o.quantity,
-      ...(o.imageUrl ? { img: o.imageUrl } : {}),
-      ...(o.imageName ? { imgName: o.imageName } : {}),
+      // Drafts saved before multi-photo only have the single imageUrl.
+      ...(o.imageUrls?.length ? { imgs: o.imageUrls } : o.imageUrl ? { imgs: [o.imageUrl] } : {}),
     })));
+    setOverallPhoto(d.overallPhotoUrl || "");
     // Restoring rows changes the eligible amount, which normally clears a
     // stale manual override (see the effect on roundedEligible). Here the
     // override arrived WITH those rows, so suppress that one reset — without
@@ -651,7 +716,10 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
           // same way (GrossWeight − DeductionWeight).
           deductionWeight: r.lessWt,
           quantity: r.q,
+          // Every photo is attached by the backend as the ornament is created.
+          ...(r.imgs?.length ? { images: r.imgs } : {}),
         })),
+        ...(overallPhoto ? { overallPhotoUrl: overallPhoto } : {}),
         ...(lockerId !== "" ? { lockerId: Number(lockerId) } : {}),
         // Hands the backend the draft this loan came from, so it's discarded
         // now that a real loan exists (fail-soft server-side — see
@@ -660,19 +728,6 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
         ...(additionalInfo.trim() ? { additionalInfo: additionalInfo.trim() } : {}),
         ...(sch && sch.serviceChargeType !== "None" ? { serviceChargeMode: chargeMode } : {}),
       });
-
-      // The backend creates + returns ornaments in the same order they were
-      // submitted (internal/loan/service.go's Create, then
-      // OrnamentRepository.FindByLoanID's "order by id asc") — safe to zip
-      // validRows with loan.ornaments by array index.
-      const createdOrnaments = loan.ornaments || [];
-      await Promise.all(
-        validRows.map((r, i) => {
-          const created = createdOrnaments[i];
-          if (r.img && created) return addOrnamentImage(created.id, r.img);
-          return Promise.resolve();
-        })
-      );
 
       // The draft (if any) was consumed server-side by the create call above.
       setDraftId(null);
@@ -939,22 +994,14 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                   </td>
                   <td style={{ paddingRight: 4 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 32, height: 31, textAlign: "center", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td style={{ paddingLeft: 4, paddingRight: 0 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={0} /></td>
-                  <td className="num" style={{ paddingLeft: 2, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="0.0gm" value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.0gm" value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num" style={{ paddingLeft: 2, paddingRight: 8 }}><WeightInput className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} placeholder="0.000" value={r.w} onChange={(v) => updOrn(i, "w", v)} /></td>
+                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><WeightInput className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} placeholder="0.000" value={r.lessWt} onChange={(v) => updOrn(i, "lessWt", v)} /></td>
                   {/* Net Wt is directly editable — editing it derives Less
                       Wt instead (see updOrn); Gross Wt never changes as a
                       side effect. */}
-                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.0gm" value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><WeightInput className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} placeholder="0.000" value={r.netW} onChange={(v) => updOrn(i, "netW", v)} /></td>
                   <td style={{ textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8, paddingRight: 2 }}>
-                    {r.img ? (
-                      <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "flex-start" }}>
-                        <SafeImage src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
-                        {ornPhotoMenu(i, "↺", "Replace photo", { padding: "0 7px", height: 31 })}
-                        <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
-                      </div>
-                    ) : (
-                      ornPhotoMenu(i, <Icon name="camera" />, "Add ornament photo", { padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" })
-                    )}
+                    {ornPhotoCell(i)}
                   </td>
                   <td style={{ textAlign: "center", paddingLeft: 2 }}>
                     <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
@@ -1007,29 +1054,21 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 <div className="orn-card-row" style={{ flexWrap: "wrap" }}>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Gross Wt (g)</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="0.00 " value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <WeightInput className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} placeholder="0.000" value={r.w} onChange={(v) => updOrn(i, "w", v)} />
                   </div>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Less Wt (g)</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.00 " value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <WeightInput className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} placeholder="0.000" value={r.lessWt} onChange={(v) => updOrn(i, "lessWt", v)} />
                   </div>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Net Wt (g)</label>
                     {/* Editable — editing derives Less Wt instead, see updOrn. */}
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.00 " value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <WeightInput className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} placeholder="0.000" value={r.netW} onChange={(v) => updOrn(i, "netW", v)} />
                   </div>
                 </div>
                 <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Photo</span>
-                  {r.img ? (
-                    <div style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
-                      <SafeImage src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
-                      {ornPhotoMenu(i, "↺", "Replace photo", { padding: "0 7px", height: 31 })}
-                      <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
-                    </div>
-                  ) : (
-                    ornPhotoMenu(i, <Icon name="camera" />, "Add ornament photo", { padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" })
-                  )}
+                  {ornPhotoCell(i)}
                 </div>
               </div>
             ))}
@@ -1070,7 +1109,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
         <div className="grid newloan-sidebar">
           <div className="card gtop"><div className="hd"><h3>Valuation</h3></div>
             <div className="bd" style={{ fontSize: 13.5 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Total net weight</span><b>{totalWeight.toFixed(1)} g</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Total net weight</span><b>{totalWeight.toFixed(3)} g</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Gross gold value</span><b>{fmt(totalGross)}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Scheme LTV</span><b>{sch ? sch.ltv + "%" : "—"}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
@@ -1168,6 +1207,32 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                   </>
                 );
               })()}
+              <div style={{ padding: "10px 0 2px" }}>
+                <label className="f">Overall Photo (optional)</label>
+                {/* One photo of the whole pledged lot — shown on the loan's
+                    Details card; each ornament's own photos are in the table. */}
+                {overallPhoto ? (
+                  <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                    <SafeImage src={overallPhoto} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)", cursor: "pointer" }} title="View overall photo" onClick={() => openModal(<OrnamentPhotoSlider title="Overall photo" urls={[overallPhoto]} onClose={closeModal} />, true)} />
+                    <PhotoSourceMenu
+                      onFile={(f) => { void overallPhotoPicked(f); }}
+                      webcamTitle="Overall Photo"
+                      trigger={(t) => (
+                        <button ref={t.ref} type="button" className="btn plain sm" title="Replace overall photo" aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}>↺</button>
+                      )}
+                    />
+                    <button type="button" className="btn plain sm" title="Remove overall photo" onClick={() => setOverallPhoto("")}>✕</button>
+                  </div>
+                ) : (
+                  <PhotoSourceMenu
+                    onFile={(f) => { void overallPhotoPicked(f); }}
+                    webcamTitle="Overall Photo"
+                    trigger={(t) => (
+                      <button ref={t.ref} type="button" className="btn plain sm" aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}><Icon name="camera" /> Add overall photo</button>
+                    )}
+                  />
+                )}
+              </div>
               <div style={{ padding: "10px 0 2px" }}>
                 <label className="f" htmlFor="additional-info-input">Additional Information (optional)</label>
                 <textarea

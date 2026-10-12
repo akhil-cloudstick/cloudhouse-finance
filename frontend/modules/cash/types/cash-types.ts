@@ -300,6 +300,7 @@ export type LedgerRowView = {
   customerId?: number;
   customerName?: string;
   receiptImage?: string; // bill attached to the entry behind this row
+  memo?: boolean; // records how money was applied (an auction applied to a loan), not money moving
 };
 export type BackendLedgerRow = {
   id: number;
@@ -316,5 +317,6 @@ export type BackendLedgerRow = {
   customerId?: number;
   customerName?: string;
   receiptImage?: string;
+  memo?: boolean;
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];

@@ -123,7 +123,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
       for (const r of rows) {
         const input = {
           name: r.name.trim(), purity: r.purity, grossWeight: +r.gross,
-          deductionWeight: Math.max(0, +r.gross - +r.net), quantity: +r.qty || 1,
+          deductionWeight: Math.round(Math.max(0, +r.gross - +r.net) * 1000) / 1000, quantity: +r.qty || 1,
         };
         if (r.removed) {
           if (r.id) await deleteOrnament(r.id);
@@ -225,9 +225,9 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                   every other `.frow.c3` row already gets for free. */}
               <div className="frow c3">
                 <div><label className="f">Gross (g)</label>
-                  <input className="inp" type="number" min={0} value={r.gross} onChange={(e) => updRow(i, { gross: e.target.value })} /></div>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.gross} onChange={(e) => { if (/^d*.?d{0,3}$/.test(e.target.value)) updRow(i, { gross: e.target.value }); }} /></div>
                 <div><label className="f">Net (g)</label>
-                  <input className="inp" type="number" min={0} value={r.net} onChange={(e) => updRow(i, { net: e.target.value })} /></div>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.net} onChange={(e) => { if (/^d*.?d{0,3}$/.test(e.target.value)) updRow(i, { net: e.target.value }); }} /></div>
                 <div><label className="f">Qty</label>
                   <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
               </div>

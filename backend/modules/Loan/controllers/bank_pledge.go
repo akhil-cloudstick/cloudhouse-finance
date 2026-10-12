@@ -110,7 +110,6 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 	default:
 		return nil, common.NewBadRequest("cash_treatment must be either \"CashIn\" or \"RecordOnly\"")
 	}
-	var cashMovementID *uint
 	var recvCash, recvUpi, recvBankTransfer, recvCheque float64
 	var recvBankID *uint
 	if in.CashTreatment == models.BankPledgeCashTreatmentCashIn {
@@ -121,13 +120,6 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 		if recvUpi+recvBankTransfer+recvCheque > 0 {
 			recvBankID = in.ReceivedBankID
 		}
-	}
-	if in.CashTreatment == models.BankPledgeCashTreatmentCashIn {
-		id, err := cashbook.RecordBankPledgeCashIn(ctx, loanID, l.LoanNumber, in.BankName, common.RoundMoney(in.PledgedAmount), recvCash, recvUpi, recvBankTransfer, recvCheque, recvBankID, in.PledgeDate)
-		if err != nil {
-			return nil, fmt.Errorf("could not record the pledge in Cash-in-Hand, pledge not saved: %w", err)
-		}
-		cashMovementID = &id
 	}
 	p := &models.BankPledgeRecord{
 		LoanID:             loanID,
@@ -147,14 +139,22 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 		ChequeAmount:       recvCheque,
 		ReceivedBankID:     recvBankID,
 		Status:             models.BankPledgeStatusRecordActive,
-		CashMovementID:     cashMovementID,
 	}
-	if err := insertBankPledge(ctx, p); err != nil {
-		undoCashMovement(ctx, cashMovementID)
-		return nil, err
-	}
-	l.BankPledgeStatus = models.BankPledgeStatusPledged
-	if err := persistLoan(ctx, l); err != nil {
+	// The pledge's cash lines, the pledge record and the loan's pledge status are saved together.
+	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if in.CashTreatment == models.BankPledgeCashTreatmentCashIn {
+			id, err := cashbook.RecordBankPledgeCashIn(cashbook.WithTx(ctx, tx), loanID, l.LoanNumber, in.BankName, common.RoundMoney(in.PledgedAmount), recvCash, recvUpi, recvBankTransfer, recvCheque, recvBankID, in.PledgeDate)
+			if err != nil {
+				return fmt.Errorf("could not record the pledge in Cash-in-Hand, pledge not saved: %w", err)
+			}
+			p.CashMovementID = &id
+		}
+		if err := tx.Create(p).Error; err != nil {
+			return err
+		}
+		l.BankPledgeStatus = models.BankPledgeStatusPledged
+		return updateLoanTx(ctx, tx, l)
+	}); err != nil {
 		return nil, err
 	}
 	if err := packet.RecordBankPledgeMovement(ctx, loanID, "Bank pledge: "+in.BankName); err != nil {
@@ -176,6 +176,10 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 	if err != nil || p.LoanID != loanID {
 		return nil, common.NewNotFound("loan not found")
 	}
+	// A pledge that is already released or voided must not pay out (or book its expense) a second time.
+	if p.Status != models.BankPledgeStatusRecordActive {
+		return nil, common.NewConflict("only an active bank pledge can be released — this one is already released or voided")
+	}
 	var relCash, relUpi, relBankTransfer, relCheque float64
 	var relBankID *uint
 	if p.CashTreatment == models.BankPledgeCashTreatmentCashIn {
@@ -187,40 +191,39 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 			relBankID = in.BankID
 		}
 	}
-	if p.CashTreatment == models.BankPledgeCashTreatmentCashIn && relCash > 0 {
+	if p.CashTreatment == models.BankPledgeCashTreatmentCashIn && (relCash > 0 || relUpi+relBankTransfer > 0) {
 		hoID, err := cashbook.HeadOfficeBranchID(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if err := ensureCashInHand(ctx, hoID, relCash); err != nil {
+		if err := ensurePayoutFunds(ctx, hoID, relCash, relBankID, relUpi+relBankTransfer); err != nil {
 			return nil, err
 		}
 	}
 	now := time.Now()
 	p.ReleaseDate = &now
 	p.Status = "Released"
-	var releaseMovementID, releaseExpenseID *uint
-	if p.CashTreatment == models.BankPledgeCashTreatmentCashIn {
-		movementID, err := cashbook.RecordBankPledgeCashOut(ctx, loanID, l.LoanNumber, p.BankName, p.PledgedAmount, relCash, relUpi, relBankTransfer, relCheque, relBankID, now, l.BranchID)
-		if err != nil {
-			return nil, fmt.Errorf("could not record the pledge release in Cash-in-Hand, release not saved: %w", err)
+	// The release's cash lines, its expense row, the pledge record and the loan status are saved together.
+	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if p.CashTreatment == models.BankPledgeCashTreatmentCashIn {
+			txCtx := cashbook.WithTx(ctx, tx)
+			movementID, err := cashbook.RecordBankPledgeCashOut(txCtx, loanID, l.LoanNumber, p.BankName, p.PledgedAmount, relCash, relUpi, relBankTransfer, relCheque, relBankID, now, l.BranchID)
+			if err != nil {
+				return fmt.Errorf("could not record the pledge release in Cash-in-Hand, release not saved: %w", err)
+			}
+			expenseID, err := cashbook.RecordBankPledgeReleaseExpense(txCtx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+			if err != nil {
+				return fmt.Errorf("could not record the pledge release expense, release not saved: %w", err)
+			}
+			p.ReleaseCashMovementID = &movementID
+			p.ReleaseExpenseID = &expenseID
 		}
-		releaseMovementID = &movementID
-		expenseID, err := cashbook.RecordBankPledgeReleaseExpense(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
-		if err != nil {
-			undoCashMovement(ctx, releaseMovementID)
-			return nil, fmt.Errorf("could not record the pledge release expense, release not saved: %w", err)
+		if err := tx.Save(p).Error; err != nil {
+			return err
 		}
-		releaseExpenseID = &expenseID
-		p.ReleaseCashMovementID = releaseMovementID
-		p.ReleaseExpenseID = releaseExpenseID
-	}
-	if err := persistBankPledge(ctx, p); err != nil {
-		undoCashMovement(ctx, releaseMovementID)
-		return nil, err
-	}
-	l.BankPledgeStatus = "Released"
-	if err := persistLoan(ctx, l); err != nil {
+		l.BankPledgeStatus = "Released"
+		return updateLoanTx(ctx, tx, l)
+	}); err != nil {
 		return nil, err
 	}
 	if err := packet.RecordBankReleaseMovement(ctx, loanID, "Gold returned from bank: "+p.BankName); err != nil {
@@ -252,19 +255,21 @@ func voidBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, 
 	p.Status = "Voided"
 	p.VoidedAt = &now
 	p.VoidReason = reason
-	if p.CashTreatment == models.BankPledgeCashTreatmentCashIn {
-		movementID, err := cashbook.RecordBankPledgeCashOut(ctx, loanID, l.LoanNumber, p.BankName, p.PledgedAmount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, p.ReceivedBankID, now, l.BranchID)
-		if err != nil {
-			return nil, fmt.Errorf("could not record the compensating cash-out, pledge not voided: %w", err)
+	// The compensating cash line, the voided pledge and the loan status are saved together.
+	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if p.CashTreatment == models.BankPledgeCashTreatmentCashIn {
+			movementID, err := cashbook.RecordBankPledgeCashOut(cashbook.WithTx(ctx, tx), loanID, l.LoanNumber, p.BankName, p.PledgedAmount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, p.ReceivedBankID, now, l.BranchID)
+			if err != nil {
+				return fmt.Errorf("could not record the compensating cash-out, pledge not voided: %w", err)
+			}
+			p.VoidCashMovementID = &movementID
 		}
-		p.VoidCashMovementID = &movementID
-	}
-	if err := persistBankPledge(ctx, p); err != nil {
-		undoCashMovement(ctx, p.VoidCashMovementID)
-		return nil, err
-	}
-	l.BankPledgeStatus = "Not Pledged"
-	if err := persistLoan(ctx, l); err != nil {
+		if err := tx.Save(p).Error; err != nil {
+			return err
+		}
+		l.BankPledgeStatus = "Not Pledged"
+		return updateLoanTx(ctx, tx, l)
+	}); err != nil {
 		return nil, err
 	}
 	if err := packet.RecordBankReleaseMovement(ctx, loanID, "Bank pledge voided: "+reason); err != nil {

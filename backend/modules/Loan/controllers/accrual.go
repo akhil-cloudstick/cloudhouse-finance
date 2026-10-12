@@ -2,6 +2,7 @@ package controllers
 
 import (
 	common "cloudhouse/backend/common/controllers"
+	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
@@ -51,6 +52,8 @@ func startAccrualAtDisbursement(l *models.Loan, disbursedAt time.Time) {
 	l.OpenedDate = l.OpenedDate.AddDate(0, 0, days)
 	l.DueDate = l.DueDate.AddDate(0, 0, days)
 	l.LastAccrualDate = l.OpenedDate
+	l.RateTierLevel = 0
+	l.ArrearsSince = nil
 	l.DueSoonNotifiedAt = nil
 	l.OverdueNotifiedAt = nil
 }
@@ -113,7 +116,123 @@ func firstMonthTopUpSegments(l *models.Loan, topUps []models.LoanTopUp, monthEnd
 	return segments
 }
 
+func dayDiff(a, b time.Time) int {
+	return int(math.Round(b.Sub(a).Hours() / 24))
+}
+
+// multipleDayRate is the interest on one rupee for one day at an annual rate:
+// Multiple-interest loans accrue on the actual number of days, over a 365-day year.
+func multipleDayRate(annualPercent float64) float64 {
+	return annualPercent / 100 / 365
+}
+
+// ladderThreshold is the unpaid-days count that, once passed, moves the loan
+// from step `level` to the next: the days of rows 0..level added together.
+func ladderThreshold(tiers []commonModels.RateTier, level int) int {
+	total := 0
+	for i := 0; i <= level && i < len(tiers); i++ {
+		total += tiers[i].Days
+	}
+	return total
+}
+
+// projectMultipleInterest accrues a "Multiple interest" loan. Interest is
+// worked out on the actual days (outstanding × rate ÷ 365 × days in the period)
+// and charged one calendar month at a time. When the days since interest was
+// last paid pass a step's limit, the interest already accrued over those days
+// is re-priced at the new rate: the extra is outstanding × (new − old) ÷ 365 ×
+// days already accrued, added to the period being charged. Returns the
+// interest, the new anchor, the step the loan ends on, and the interest split
+// by month (each month's share includes any re-pricing it triggered) so the
+// ledger can show one entry per month.
+func projectMultipleInterest(l *models.Loan, asOf, from time.Time, firstAccrual bool, firstMonthTopUps []models.LoanTopUp) (interest float64, anchor time.Time, level int, parts []accrualPart) {
+	tiers := l.SchemeRateTiers
+	level = l.RateTierLevel
+	if level < 0 {
+		level = 0
+	}
+	if level > len(tiers)-1 {
+		level = len(tiers) - 1
+	}
+	start := l.OpenedDate
+	if l.ArrearsSince != nil {
+		start = *l.ArrearsSince
+	}
+	raise := func(periodStart, periodEnd time.Time) {
+		watch := dayDiff(start, periodEnd)
+		for level < len(tiers)-1 && watch > ladderThreshold(tiers, level) {
+			accrued := dayDiff(start, periodStart)
+			if accrued > 0 {
+				interest += l.OutstandingAmount * multipleDayRate(tiers[level+1].Rate-tiers[level].Rate) * float64(accrued)
+			}
+			level++
+		}
+	}
+	charge := func(base float64, periodStart, periodEnd time.Time) {
+		if days := dayDiff(periodStart, periodEnd); days > 0 {
+			interest += base * multipleDayRate(tiers[level].Rate) * float64(days)
+		}
+	}
+	if firstAccrual {
+		anchor = addMonths(l.OpenedDate, 1)
+		if l.SchemeMinimumDays > 0 {
+			if floor := l.OpenedDate.AddDate(0, 0, l.SchemeMinimumDays); floor.After(anchor) {
+				anchor = floor
+			}
+		}
+		raise(l.OpenedDate, anchor)
+		if segments := firstMonthTopUpSegments(l, firstMonthTopUps, anchor); segments != nil {
+			for _, seg := range segments {
+				charge(seg.base, seg.start, seg.end)
+			}
+		} else {
+			charge(l.OutstandingAmount, l.OpenedDate, anchor)
+		}
+		return interest, anchor, level, []accrualPart{{On: anchor, Interest: interest}}
+	}
+	periods, boundary := completedPeriods(from, asOf, 1)
+	for k := 1; k <= periods; k++ {
+		ps, pe := addMonths(from, k-1), addMonths(from, k)
+		before := interest
+		raise(ps, pe)
+		charge(l.OutstandingAmount, ps, pe)
+		parts = append(parts, accrualPart{On: pe, Interest: interest - before})
+	}
+	return interest, boundary, level, parts
+}
+
+// accrualPart is one month's share of an accrual, dated at the month's end.
+type accrualPart struct {
+	On       time.Time
+	Interest float64
+}
+
+// resetRateCycle sends a Multiple-interest loan back to its first rate and
+// restarts the unpaid-days count from the payment date.
+func resetRateCycle(l *models.Loan, paidOn time.Time) {
+	if l.SchemeInterestMethod != commonModels.InterestMethodMultiple {
+		return
+	}
+	l.RateTierLevel = 0
+	l.ArrearsSince = &paidOn
+}
+
 func projectAccrual(l *models.Loan, asOf time.Time, firstMonthTopUps []models.LoanTopUp) (interestDelta, penalDelta float64, newAnchor time.Time) {
+	interestDelta, penalDelta, newAnchor, _ = projectAccrualState(l, asOf, firstMonthTopUps)
+	return
+}
+
+// projectAccrualState is projectAccrual plus the rate step the loan ends on,
+// for callers that save the result.
+func projectAccrualState(l *models.Loan, asOf time.Time, firstMonthTopUps []models.LoanTopUp) (interestDelta, penalDelta float64, newAnchor time.Time, newLevel int) {
+	interestDelta, penalDelta, newAnchor, newLevel, _ = projectAccrualDetail(l, asOf, firstMonthTopUps)
+	return
+}
+
+// projectAccrualDetail is projectAccrualState plus, for Multiple-interest
+// loans, the interest split by month.
+func projectAccrualDetail(l *models.Loan, asOf time.Time, firstMonthTopUps []models.LoanTopUp) (interestDelta, penalDelta float64, newAnchor time.Time, newLevel int, parts []accrualPart) {
+	newLevel = l.RateTierLevel
 	from := l.LastAccrualDate
 	firstAccrual := from.IsZero() || from.Equal(l.OpenedDate)
 	if from.IsZero() {
@@ -122,15 +241,17 @@ func projectAccrual(l *models.Loan, asOf time.Time, firstMonthTopUps []models.Lo
 	switch l.Status {
 	case models.StatusActive, models.StatusDueSoon, models.StatusOverdue:
 	default:
-		return 0, 0, from
+		return 0, 0, from, newLevel, nil
 	}
 	if !asOf.After(from) || l.OutstandingAmount <= 0 {
-		return 0, 0, from
+		return 0, 0, from, newLevel, nil
 	}
 	annualRate := l.SchemeInterestRate / 100
 	monthlyRate := annualRate / 12
 	var anchor time.Time
-	if firstAccrual {
+	if l.SchemeInterestMethod == commonModels.InterestMethodMultiple && len(l.SchemeRateTiers) > 0 {
+		interestDelta, anchor, newLevel, parts = projectMultipleInterest(l, asOf, from, firstAccrual, firstMonthTopUps)
+	} else if firstAccrual {
 		anchor = addMonths(l.OpenedDate, 1)
 		if segments := firstMonthTopUpSegments(l, firstMonthTopUps, anchor); segments != nil {
 			for _, seg := range segments {
@@ -194,7 +315,28 @@ func projectAccrual(l *models.Loan, asOf time.Time, firstMonthTopUps []models.Lo
 			}
 		}
 	}
-	return interestDelta, penalDelta, anchor
+	return interestDelta, penalDelta, anchor, newLevel, parts
+}
+
+// accrualRows turns an accrual into the rows saved for the ledger: one per month
+// when the projection came in parts, otherwise a single row. Rounding is settled
+// on the last month so the rows add up to exactly the interest added to the loan.
+func accrualRows(loanID uint, interest, penal float64, anchor time.Time, parts []accrualPart) []models.LoanAccrual {
+	if len(parts) < 2 {
+		return []models.LoanAccrual{{LoanID: loanID, AccruedOn: anchor, Interest: common.RoundMoney(interest), PenalInterest: common.RoundMoney(penal)}}
+	}
+	rows := make([]models.LoanAccrual, 0, len(parts))
+	var sum float64
+	for i, p := range parts {
+		amount := common.RoundMoney(p.Interest)
+		if i == len(parts)-1 {
+			amount = common.RoundMoney(common.RoundMoney(interest) - sum)
+		}
+		sum = common.RoundMoney(sum + amount)
+		rows = append(rows, models.LoanAccrual{LoanID: loanID, AccruedOn: p.On, Interest: amount})
+	}
+	rows[len(rows)-1].PenalInterest = common.RoundMoney(penal)
+	return rows
 }
 
 func accrueAndSave(ctx context.Context, l *models.Loan) bool {
@@ -205,13 +347,14 @@ func accrueAndSave(ctx context.Context, l *models.Loan) bool {
 			firstMonthTopUps = ups
 		}
 	}
-	interestDelta, penalDelta, anchor := projectAccrual(l, now, firstMonthTopUps)
+	interestDelta, penalDelta, anchor, level, parts := projectAccrualDetail(l, now, firstMonthTopUps)
 	if interestDelta <= 0 && penalDelta <= 0 {
 		if refreshServicingStatus(l, now) {
 			return persistLoan(ctx, l) == nil
 		}
 		return false
 	}
+	l.RateTierLevel = level
 	l.AccruedInterest = common.RoundMoney(l.AccruedInterest + interestDelta)
 	l.AccruedPenalInterest = common.RoundMoney(l.AccruedPenalInterest + penalDelta)
 	l.LastAccrualDate = anchor
@@ -219,11 +362,9 @@ func accrueAndSave(ctx context.Context, l *models.Loan) bool {
 	if err := persistLoan(ctx, l); err != nil {
 		return false
 	}
+	rows := accrualRows(l.ID, interestDelta, penalDelta, anchor, parts)
 	_ = config.DB.
-		WithContext(ctx).Create(&models.LoanAccrual{
-		LoanID: l.ID, AccruedOn: anchor,
-		Interest: common.RoundMoney(interestDelta), PenalInterest: common.RoundMoney(penalDelta),
-	}).Error
+		WithContext(ctx).Create(&rows).Error
 	return true
 }
 
@@ -289,7 +430,7 @@ func enrichStatusFlags(l *models.Loan, asOf time.Time) {
 
 func isCashPaymentType(t string) bool {
 	switch t {
-	case models.PaymentTypeInterest, models.PaymentTypePrincipal, models.PaymentTypePartial, models.PaymentTypeFullSettlement:
+	case models.PaymentTypeInterest, models.PaymentTypePenalInterest, models.PaymentTypePrincipal, models.PaymentTypePartial, models.PaymentTypeFullSettlement:
 		return true
 	default:
 		return false

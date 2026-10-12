@@ -64,16 +64,16 @@ func validCategoryType(typ string) bool {
 func categoryWhere(category string) (string, []interface{}) {
 	switch category {
 	case "loan":
-		return "((source ILIKE ? OR purpose LIKE ?) AND purpose NOT LIKE ?)", []interface{}{"Loan%", "Loan disbursement — %", "%PL-%"}
+		return "((source ILIKE ? OR purpose LIKE ? OR purpose LIKE ?) AND purpose NOT LIKE ?)", []interface{}{"Loan%", "Loan disbursement — %", "Loan top-up — %", "%PL-%"}
 	case "auction":
-		return "(source = ? OR purpose LIKE ?)", []interface{}{"Auction", "Auction surplus refunded%"}
+		return "(source = ? OR purpose LIKE ?)", []interface{}{"Auction", "Auction surplus settlement%"}
 	case "collection":
 		return "(source = ? AND purpose NOT LIKE ?)", []interface{}{"Collection", "%PL-%"}
 	case "expenses":
-		return "(type = ? AND source IS DISTINCT FROM ? AND source IS DISTINCT FROM ? AND (purpose IS NULL OR (purpose NOT LIKE ? AND purpose NOT LIKE ? AND purpose NOT LIKE ?)))",
-			[]interface{}{"out", "Loan", "Auction", "Loan disbursement — %", "Auction surplus refunded%", "Bank pledge release — %"}
+		return "(type = ? AND source IS DISTINCT FROM ? AND source IS DISTINCT FROM ? AND (purpose IS NULL OR (purpose NOT LIKE ? AND purpose NOT LIKE ? AND purpose NOT LIKE ? AND purpose NOT LIKE ? AND purpose NOT LIKE ?)))",
+			[]interface{}{"out", "Loan", "Auction", "Loan disbursement — %", "Auction surplus settlement%", "Bank pledge release — %", "Loan top-up — %", "%— INV-%"}
 	case "personal loan":
-		return "((source = ? OR source = ?) AND purpose LIKE ?)", []interface{}{"Loan", "Collection", "%PL-%"}
+		return "(((source = ? OR source = ?) AND purpose LIKE ?) OR purpose LIKE ?)", []interface{}{"Loan", "Collection", "%PL-%", "Loan disbursement — PL-%"}
 	case "investment":
 		return "(source = ? OR purpose LIKE ?)", []interface{}{"Investment", "%INV-%"}
 	}

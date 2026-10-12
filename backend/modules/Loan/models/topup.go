@@ -26,6 +26,7 @@ type LoanTopUp struct {
 	Status                string    `json:"status" gorm:"not null;size:15;default:'Active'"`
 	ApprovalStage         string    `json:"approval_stage" gorm:"size:30;default:''"`
 	SettleInterest        string    `json:"settle_interest" gorm:"size:10;default:''"`
+	BankID                *uint     `json:"bank_id"`
 	ReversalOfMovementID  *uint     `json:"reversal_of_movement_id"`
 	CreatedAt             time.Time `json:"created_at"`
 }

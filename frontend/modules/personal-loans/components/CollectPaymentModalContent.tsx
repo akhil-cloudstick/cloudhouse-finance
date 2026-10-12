@@ -25,8 +25,6 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
-  const [reference, setReference] = useState("");
-  const [description, setDescription] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -47,8 +45,6 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
         bankTransferAmount: split.bankTransferAmount,
         chequeAmount: split.chequeAmount,
         bankId,
-        reference: reference.trim() || undefined,
-        description: description.trim() || undefined,
       });
       toast(`Payment of ${fmt(amt)} recorded against ${loan.loanNumber}`);
       onSaved();
@@ -69,10 +65,6 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
         </div>
         <div className="frow" style={{ marginTop: 4 }}>
           <SplitPaymentInput totalAmount={amt} onChange={(s, r, b) => { setSplit(s); setRemaining(r); setBankId(b); }} />
-        </div>
-        <div className="frow c2">
-          <div><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={80} /></div>
-          <div><label className="f">Note</label><input className="inp" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={255} /></div>
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>

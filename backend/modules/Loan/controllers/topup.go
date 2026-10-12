@@ -9,7 +9,7 @@ import (
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
 	"errors"
-	"log"
+	"fmt"
 	"math"
 	"net/http"
 	"time"
@@ -28,6 +28,7 @@ type TopUpInput struct {
 	OccurredOn           time.Time
 	Reference            string
 	SettleInterest       string
+	BankID               *uint
 	ReceivedByEmployeeID uint
 }
 
@@ -49,6 +50,7 @@ type topUpRequest struct {
 	OccurredOn         string  `json:"occurred_on"`
 	Reference          string  `json:"reference"`
 	SettleInterest     string  `json:"settle_interest"`
+	BankID             *uint   `json:"bank_id"`
 }
 
 func topUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*models.Loan, error) {
@@ -63,11 +65,38 @@ func topUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*models.Loan, e
 	return requestTopUp(ctx, loanID, in, first)
 }
 
+// validateTopUpSplit checks the payout split adds up and that UPI / Bank Transfer name a bank.
+func validateTopUpSplit(in TopUpInput) error {
+	if err := common.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.Amount); err != nil {
+		return err
+	}
+	if in.ChequeAmount > 0 {
+		return common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+	}
+	if in.UpiAmount+in.BankTransferAmount > 0 && in.BankID == nil {
+		return common.NewBadRequest("bank is required when the payment breakdown includes UPI or Bank Transfer")
+	}
+	return nil
+}
+
+// topUpInterestSplit books the interest taken out of a top-up the way most of the top-up moved, so the
+// interest entry follows the top-up's own mode and bank instead of a forced Cash.
+func topUpInterestSplit(in TopUpInput, interest float64) (cash, upi, bankTransfer float64) {
+	switch {
+	case in.CashAmount >= in.UpiAmount && in.CashAmount >= in.BankTransferAmount:
+		return interest, 0, 0
+	case in.UpiAmount >= in.BankTransferAmount:
+		return 0, interest, 0
+	default:
+		return 0, 0, interest
+	}
+}
+
 func requestTopUp(ctx context.Context, loanID uint, in TopUpInput, first common.StageDef) (*models.Loan, error) {
 	if in.Amount <= 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
 	}
-	if err := common.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.Amount); err != nil {
+	if err := validateTopUpSplit(in); err != nil {
 		return nil, err
 	}
 	l, err := findLoanByID(ctx, loanID)
@@ -108,6 +137,7 @@ func requestTopUp(ctx context.Context, loanID uint, in TopUpInput, first common.
 		Status:                models.TopUpStatusPending,
 		ApprovalStage:         first.Pending,
 		SettleInterest:        in.SettleInterest,
+		BankID:                in.BankID,
 	}
 	if in.ReceivedByEmployeeID != 0 {
 		t.ReceivedByEmployeeID = &in.ReceivedByEmployeeID
@@ -166,6 +196,7 @@ func approveTopUp(ctx context.Context, topUpID uint, branchID *uint, in TopUpApp
 			OccurredOn:           time.Now(),
 			Reference:            t.Reference,
 			SettleInterest:       t.SettleInterest,
+			BankID:               t.BankID,
 			ReceivedByEmployeeID: in.ActorEmployeeID,
 		}, t); err != nil {
 			return nil, err
@@ -182,7 +213,7 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 	if in.Amount <= 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
 	}
-	if err := common.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.Amount); err != nil {
+	if err := validateTopUpSplit(in); err != nil {
 		return nil, err
 	}
 	occurredOn := in.OccurredOn
@@ -193,7 +224,6 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 	var eligibleAtTopUp float64
 	var cashOut float64
 	var settledInterest, settledPenal, balanceAfter float64
-	var interestGroupID string
 	err := config.DB.
 		WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		l, err := lockByID(ctx, tx, loanID)
@@ -239,8 +269,9 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 				firstMonthTopUps = ups
 			}
 		}
-		interestDelta, penalDelta, anchor := projectAccrual(l, now, firstMonthTopUps)
+		interestDelta, penalDelta, anchor, level := projectAccrualState(l, now, firstMonthTopUps)
 		if interestDelta > 0 || penalDelta > 0 {
+			l.RateTierLevel = level
 			l.AccruedInterest = common.RoundMoney(l.AccruedInterest + interestDelta)
 			l.AccruedPenalInterest = common.RoundMoney(l.AccruedPenalInterest + penalDelta)
 			l.LastAccrualDate = anchor
@@ -270,7 +301,11 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 				return common.NewBadRequest("outstanding interest and penal interest must be paid before a top-up can proceed, or set the top-up to deduct it from the payout instead")
 			}
 		}
-		if err := ensureCashInHand(ctx, l.BranchID, common.RoundMoney(amount-deductedFromPayout)); err != nil {
+		// The interest taken from the payout comes back in the top-up's own mode, so what has to be
+		// available is the top-up split less that interest.
+		intCash, intUpi, intBank := topUpInterestSplit(in, deductedFromPayout)
+		if err := ensurePayoutFunds(ctx, l.BranchID, common.RoundMoney(in.CashAmount-intCash), in.BankID,
+			common.RoundMoney(in.UpiAmount+in.BankTransferAmount-intUpi-intBank)); err != nil {
 			return err
 		}
 		l.PrincipalAmount = common.RoundMoney(l.PrincipalAmount + amount)
@@ -308,52 +343,51 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 		}
 		cashOut = cashOutAmount
 		balanceAfter = common.RoundMoney(l.OutstandingAmount + clampMoney(l.AccruedInterest-l.InterestPaid) + clampMoney(l.AccruedPenalInterest-l.PenalInterestPaid) + l.OutstandingProcessingFee)
+		// The cash lines join this transaction, so a failed cash line undoes the top-up too. The full top-up
+		// goes out in the split staff chose; the interest taken from it is its own separate cash-in entry
+		// (not netted off the payout), booked in the same mode and bank.
+		deducted := common.RoundMoney(in.Amount - cashOut)
+		txCtx := cashbook.WithTx(ctx, tx)
+		if _, _, err := cashbook.RecordLoanTopUpCashOut(txCtx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, occurredOn, l.CustomerID, in.BankID); err != nil {
+			return fmt.Errorf("could not record the top-up in Cash-in-Hand, top-up not saved: %w", err)
+		}
+		if deducted > 0.01 {
+			_, groupID, err := cashbook.RecordLoanPaymentCashIn(txCtx, l.ID, l.LoanNumber, deducted, intCash, intUpi, intBank, 0, l.BranchID, occurredOn, "Interest (top-up settlement)", l.CustomerID, in.BankID)
+			if err != nil {
+				return fmt.Errorf("could not record the top-up interest in Cash-in-Hand, top-up not saved: %w", err)
+			}
+			var interestBankID *uint
+			if intUpi+intBank > 0 {
+				interestBankID = in.BankID
+			}
+			p := &models.LoanPayment{
+				LoanID:                 l.ID,
+				Amount:                 deducted,
+				Type:                   models.PaymentTypeInterest,
+				PaidOn:                 occurredOn.Add(time.Millisecond),
+				Description:            "Interest settled from top-up payout",
+				Method:                 common.DeriveMethod(intCash, intUpi, intBank, 0),
+				CashAmount:             intCash,
+				UpiAmount:              intUpi,
+				BankTransferAmount:     intBank,
+				BankID:                 interestBankID,
+				PenalInterestApplied:   settledPenal,
+				InterestApplied:        settledInterest,
+				RunningBalance:         balanceAfter,
+				CashTransactionGroupID: groupID,
+			}
+			if in.ReceivedByEmployeeID != 0 {
+				p.ReceivedByEmployeeID = &in.ReceivedByEmployeeID
+			}
+			if err := createPaymentTx(ctx, tx, p); err != nil {
+				return err
+			}
+		}
 		result = l
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	{
-		cashAmt, upiAmt, bankAmt, chequeAmt := in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount
-		if cashOut < in.Amount-0.01 && in.Amount > 0 {
-			scale := cashOut / in.Amount
-			cashAmt = common.RoundMoney(in.CashAmount * scale)
-			upiAmt = common.RoundMoney(in.UpiAmount * scale)
-			bankAmt = common.RoundMoney(in.BankTransferAmount * scale)
-			chequeAmt = common.RoundMoney(cashOut - cashAmt - upiAmt - bankAmt)
-		}
-		if _, _, err := cashbook.RecordLoanTopUpCashOut(ctx, result.ID, result.LoanNumber, cashOut, cashAmt, upiAmt, bankAmt, chequeAmt, result.BranchID, occurredOn, result.CustomerID); err != nil {
-			log.Printf("cash-out movement (top-up) failed for loan %d: %v", result.ID, err)
-		}
-		if deducted := common.RoundMoney(in.Amount - cashOut); deducted > 0.01 {
-			if _, groupID, err := cashbook.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, deducted, deducted, 0, 0, 0, result.BranchID, occurredOn, "Interest (top-up settlement)", result.CustomerID, nil); err != nil {
-				log.Printf("cash-in movement (top-up interest settlement) failed for loan %d: %v", result.ID, err)
-			} else {
-				interestGroupID = groupID
-			}
-		}
-	}
-	if deducted := common.RoundMoney(in.Amount - cashOut); deducted > 0.01 {
-		p := &models.LoanPayment{
-			LoanID:                 result.ID,
-			Amount:                 deducted,
-			Type:                   models.PaymentTypeInterest,
-			PaidOn:                 occurredOn.Add(time.Millisecond),
-			Description:            "Interest settled from top-up payout",
-			Method:                 common.DeriveMethod(deducted, 0, 0, 0),
-			CashAmount:             deducted,
-			PenalInterestApplied:   settledPenal,
-			InterestApplied:        settledInterest,
-			RunningBalance:         balanceAfter,
-			CashTransactionGroupID: interestGroupID,
-		}
-		if in.ReceivedByEmployeeID != 0 {
-			p.ReceivedByEmployeeID = &in.ReceivedByEmployeeID
-		}
-		if err := insertPayment(ctx, p); err != nil {
-			log.Printf("loan-payment ledger row (top-up interest settlement) failed for loan %d: %v", result.ID, err)
-		}
 	}
 	return GetLoan(ctx, result.ID, nil)
 }
@@ -454,6 +488,7 @@ func TopUpLoan(c echo.Context) error {
 		OccurredOn:           occurredOn,
 		Reference:            req.Reference,
 		SettleInterest:       req.SettleInterest,
+		BankID:               req.BankID,
 		ReceivedByEmployeeID: actorEmployeeID,
 	})
 	if err != nil {

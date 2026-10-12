@@ -15,7 +15,8 @@ function toOrnamentView(o: BackendOrnament): OrnamentView {
     quantity: o.quantity,
     goldValue: o.goldValue,
     remarks: o.remarks,
-    photoUrl: o.images && o.images.length ? o.images[o.images.length - 1].imageUrl : undefined,
+    photoUrl: o.images && o.images.length ? o.images[0].imageUrl : undefined,
+    photoUrls: (o.images || []).map((im) => im.imageUrl),
     releasedAt: o.releasedAt ?? null,
   };
 }
@@ -98,6 +99,7 @@ export function toView(l: BackendLoan): LoanView {
     opened: l.openedDate ? l.openedDate.slice(0, 10) : "",
     due: l.dueDate ? l.dueDate.slice(0, 10) : "",
     additionalInfo: l.additionalInfo || "",
+    overallPhotoUrl: l.overallPhotoUrl || "",
     totalNetWeight: l.totalNetWeight,
     totalGoldValue: l.totalGoldValue,
     eligibleLoanAmount: l.eligibleLoanAmount,
@@ -653,9 +655,9 @@ export async function scheduleAuction(loanId: number, auctionDate: string, refer
   );
 }
 
-export async function recordAuctionSale(loanId: number, saleAmount: number, auctionExpenses: number): Promise<AuctionRecordView> {
+export async function recordAuctionSale(loanId: number, saleAmount: number, auctionExpenses: number, payment?: { cashAmount: number; upiAmount: number; bankTransferAmount: number; bankId?: number }): Promise<AuctionRecordView> {
   return toAuctionRecordView(
-    await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/sale`, { method: "POST", body: JSON.stringify({ saleAmount, auctionExpenses }) })
+    await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/sale`, { method: "POST", body: JSON.stringify({ saleAmount, auctionExpenses, ...(payment ?? {}) }) })
   );
 }
 
@@ -670,11 +672,13 @@ export async function settleAuction(
   loanId: number,
   disposition: AuctionSurplusDisposition,
   remarks?: string,
+  mode?: string,
+  bankId?: number,
 ): Promise<AuctionRecordView> {
   return toAuctionRecordView(
     await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/settle`, {
       method: "POST",
-      body: JSON.stringify({ disposition, remarks }),
+      body: JSON.stringify({ disposition, remarks, mode, bankId }),
     })
   );
 }
@@ -690,7 +694,7 @@ export async function getAuctionHistory(loanId: number): Promise<AuctionRecordVi
 }
 
 function toLedgerEntry(e: BackendLoanLedgerEntry): LoanLedgerEntry {
-  const base = { key: e.key, date: e.date, amount: e.amount, part: e.part };
+  const base = { key: e.key, date: e.date, amount: e.amount, part: e.part, component: e.component, mode: e.mode };
   const auction = e.auction ? toAuctionRecordView(e.auction) : null;
   switch (e.kind) {
     case "sanction":
@@ -701,6 +705,7 @@ function toLedgerEntry(e: BackendLoanLedgerEntry): LoanLedgerEntry {
       return { ...base, kind: "topup", balance: e.balance ?? 0, row: e.topUp! };
     case "interest":
     case "penal":
+    case "service-charge":
       return { ...base, kind: e.kind, balance: e.balance ?? 0 } as LoanLedgerEntry;
     case "auction-sale":
       return { ...base, kind: "auction-sale", balance: null, row: auction! };

@@ -12,6 +12,8 @@ const MENU_H = 92;
 type PhotoSourceMenuProps = {
   onFile: (f: File) => void;
   accept?: string;
+  /** Lets "Upload from system" pick several files — onFile then fires once per file. */
+  multiple?: boolean;
   webcamTitle?: string;
   trigger: (t: { ref: RefObject<HTMLButtonElement | null>; toggle: () => void; open: boolean }) => ReactNode;
 };
@@ -32,6 +34,7 @@ type PhotoSourceMenuProps = {
 export function PhotoSourceMenu({
   onFile,
   accept = "image/*",
+  multiple = false,
   webcamTitle,
   trigger,
 }: PhotoSourceMenuProps) {
@@ -70,11 +73,12 @@ export function PhotoSourceMenu({
         ref={inputRef}
         type="file"
         accept={accept}
+        multiple={multiple}
         style={{ display: "none" }}
         onChange={(e) => {
-          const f = e.target.files?.[0];
+          const files = Array.from(e.target.files ?? []);
           e.target.value = "";
-          if (f) onFile(f);
+          (multiple ? files : files.slice(0, 1)).forEach(onFile);
         }}
       />
       {trigger({ ref: triggerRef, toggle, open })}

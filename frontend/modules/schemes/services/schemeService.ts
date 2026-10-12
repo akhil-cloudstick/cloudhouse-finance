@@ -8,6 +8,8 @@ function toView(s: BackendScheme): SchemeView {
     code: s.code,
     name: s.name,
     rate: s.interestRate,
+    rateTiers: s.rateTiers || [],
+    minimumDays: s.minimumDays || 0,
     durationMonths: s.durationMonths,
     ltv: s.ltvPercent,
     method: s.interestMethod,
@@ -26,6 +28,8 @@ function toRequestBody(input: SchemeFormInput) {
   return {
     name: input.name,
     interestRate: input.rate,
+    rateTiers: input.rateTiers,
+    minimumDays: input.minimumDays,
     durationMonths: input.durationMonths,
     ltvPercent: input.ltv,
     interestMethod: input.method,

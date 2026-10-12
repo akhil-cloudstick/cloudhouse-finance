@@ -112,6 +112,7 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `actorName` | `actor_name` |
 | `actorRole` | `actor_role` |
 | `additionalInfo` | `additional_info` |
+| `overallPhotoUrl` | `overall_photo_url` |
 | `addressLine` | `address_line` |
 | `addressProofUrl` | `address_proof_url` |
 | `adminName` | `admin_name` |
@@ -275,6 +276,7 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `headerLayout` | `header_layout` |
 | `identityProofUrl` | `identity_proof_url` |
 | `imageName` | `image_name` |
+| `imageUrls` | `image_urls` |
 | `imageUrl` | `image_url` |
 | `inCount` | `in_count` |
 | `inLocker` | `in_locker` |

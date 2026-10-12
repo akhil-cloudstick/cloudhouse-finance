@@ -3,17 +3,16 @@ package controllers
 import (
 	"cloudhouse/backend/auth"
 	common "cloudhouse/backend/common/controllers"
-	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/config"
 	cashbook "cloudhouse/backend/modules/Cash/controllers"
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 var sanctionLimits = map[string]float64{
@@ -22,38 +21,28 @@ var sanctionLimits = map[string]float64{
 }
 
 type ApprovalInput struct {
-	Stage                    string
-	Action                   string
-	ActorEmployeeID          uint
-	ActorRole                string
-	ActorRoleID              uint
-	Remarks                  string
-	CashAmount               float64
-	UpiAmount                float64
-	BankTransferAmount       float64
-	ChequeAmount             float64
-	BankID                   *uint
-	ChargeCashAmount         float64
-	ChargeUpiAmount          float64
-	ChargeBankTransferAmount float64
-	ChargeChequeAmount       float64
-	ChargeBankID             *uint
+	Stage              string
+	Action             string
+	ActorEmployeeID    uint
+	ActorRole          string
+	ActorRoleID        uint
+	Remarks            string
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+	BankID             *uint
 }
 
 type approvalRequest struct {
-	Stage                    string  `json:"stage" binding:"required"`
-	Action                   string  `json:"action" binding:"required"`
-	Remarks                  string  `json:"remarks"`
-	CashAmount               float64 `json:"cash_amount"`
-	UpiAmount                float64 `json:"upi_amount"`
-	BankTransferAmount       float64 `json:"bank_transfer_amount"`
-	ChequeAmount             float64 `json:"cheque_amount"`
-	BankID                   *uint   `json:"bank_id"`
-	ChargeCashAmount         float64 `json:"charge_cash_amount"`
-	ChargeUpiAmount          float64 `json:"charge_upi_amount"`
-	ChargeBankTransferAmount float64 `json:"charge_bank_transfer_amount"`
-	ChargeChequeAmount       float64 `json:"charge_cheque_amount"`
-	ChargeBankID             *uint   `json:"charge_bank_id"`
+	Stage              string  `json:"stage" binding:"required"`
+	Action             string  `json:"action" binding:"required"`
+	Remarks            string  `json:"remarks"`
+	CashAmount         float64 `json:"cash_amount"`
+	UpiAmount          float64 `json:"upi_amount"`
+	BankTransferAmount float64 `json:"bank_transfer_amount"`
+	ChequeAmount       float64 `json:"cheque_amount"`
+	BankID             *uint   `json:"bank_id"`
 }
 
 func firstSanctionStage(ctx context.Context) (string, error) {
@@ -125,11 +114,7 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
 	}
 	if final && in.Action != models.ApprovalStageRejected {
-		payout := l.PrincipalAmount
-		if l.ServiceChargeMode == commonModels.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
-			payout = common.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
-		}
-		if err := ensureCashInHand(ctx, l.BranchID, payout); err != nil {
+		if err := ensurePayoutFunds(ctx, l.BranchID, in.CashAmount, in.BankID, in.UpiAmount+in.BankTransferAmount); err != nil {
 			return nil, err
 		}
 	}
@@ -155,10 +140,9 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 			disbursing = true
 			now := time.Now()
 			l.SanctionedAmount = l.PrincipalAmount
-			l.DisbursedAmount = l.PrincipalAmount
-			if l.ServiceChargeMode == commonModels.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
-				l.DisbursedAmount = common.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
-			}
+			// The customer is paid the principal less the service charge, whether the charge is withheld
+			// from the payout or added to the principal (the loan then carries the charge).
+			l.DisbursedAmount = common.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
 			l.DisbursementDate = &now
 			startAccrualAtDisbursement(l, now)
 		}
@@ -167,27 +151,14 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 		if err := common.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.DisbursedAmount); err != nil {
 			return nil, err
 		}
-		if l.ServiceChargeMode == commonModels.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
-			chargeSum := in.ChargeCashAmount + in.ChargeUpiAmount + in.ChargeBankTransferAmount + in.ChargeChequeAmount
-			if chargeSum > 0 {
-				if err := common.ValidateSplit(in.ChargeCashAmount, in.ChargeUpiAmount, in.ChargeBankTransferAmount, in.ChargeChequeAmount, l.ServiceChargeAmount); err != nil {
-					return nil, err
-				}
-				if in.ChargeBankID == nil && in.ChargeUpiAmount+in.ChargeBankTransferAmount+in.ChargeChequeAmount > 0 {
-					return nil, common.NewBadRequest("bank is required when the payment breakdown includes UPI, Bank Transfer, or Cheque")
-				}
-			}
-		}
 	}
+	// The main ledger records only what was paid out to the customer, in the mode staff chose. The service
+	// charge needs no payment breakdown: it is a debit on the loan's own ledger, with no mode.
+	var payoutParts []cashbook.SplitPart
 	if disbursing {
-		if _, _, err := cashbook.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.DisbursedAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, time.Now(), l.CustomerID, in.BankID); err != nil {
-			return nil, fmt.Errorf("could not record the disbursement in Cash-in-Hand, loan not approved: %w", err)
-		}
-		if l.ServiceChargeMode == commonModels.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
-			if _, err := cashbook.RecordServiceChargeCashIn(ctx, l.ID, l.LoanNumber, l.ServiceChargeAmount, in.ChargeCashAmount, in.ChargeUpiAmount, in.ChargeBankTransferAmount, in.ChargeChequeAmount, l.BranchID, time.Now(), in.ChargeBankID); err != nil {
-				undoDisbursementCash(ctx, l.LoanNumber)
-				return nil, fmt.Errorf("could not record the service charge in Cash-in-Hand, loan not approved: %w", err)
-			}
+		var err error
+		if payoutParts, err = cashbook.SplitParts(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.BankID); err != nil {
+			return nil, err
 		}
 	}
 	audit := &models.LoanApproval{
@@ -198,20 +169,25 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 		ActorRole:       in.ActorRole,
 		Remarks:         in.Remarks,
 	}
-	if err := insertApproval(ctx, audit); err != nil {
+	// The disbursement lines, the approval record, the loan and its ledger row are saved together: if any
+	// of them fails none is kept, so the loan can never read "approved" without its cash lines (or the
+	// other way round).
+	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if disbursing {
-			undoDisbursementCash(ctx, l.LoanNumber)
+			if _, err := cashbook.RecordLoanDisbursementGross(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, payoutParts, nil, l.BranchID, time.Now(), l.CustomerID); err != nil {
+				return fmt.Errorf("could not record the disbursement in Cash-in-Hand, loan not approved: %w", err)
+			}
 		}
-		return nil, err
-	}
-	if err := persistLoan(ctx, l); err != nil {
-		if disbursing {
-			undoDisbursementCash(ctx, l.LoanNumber)
+		if err := tx.Create(audit).Error; err != nil {
+			return err
 		}
-		return nil, err
-	}
-	if disbursing {
-		p := &models.LoanPayment{
+		if err := updateLoanTx(ctx, tx, l); err != nil {
+			return err
+		}
+		if !disbursing {
+			return nil
+		}
+		return createPaymentTx(ctx, tx, &models.LoanPayment{
 			LoanID:             l.ID,
 			Amount:             l.DisbursedAmount,
 			Type:               models.PaymentTypeDisbursement,
@@ -224,10 +200,9 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 			ChequeAmount:       in.ChequeAmount,
 			BankID:             in.BankID,
 			RunningBalance:     l.OutstandingAmount,
-		}
-		if err := insertPayment(ctx, p); err != nil {
-			log.Printf("loan-payment ledger row (disbursement) failed for loan %d: %v", l.ID, err)
-		}
+		})
+	}); err != nil {
+		return nil, err
 	}
 	switch {
 	case disbursing:
@@ -285,22 +260,17 @@ func ApproveLoan(c echo.Context) error {
 	}
 	actorEmployeeID, actorRole, actorRoleID := auth.ActorFromContext(c)
 	rec, err := SaveLoanApproval(ctx, loanID, ApprovalInput{
-		Stage:                    req.Stage,
-		Action:                   req.Action,
-		ActorEmployeeID:          actorEmployeeID,
-		ActorRole:                actorRole,
-		ActorRoleID:              actorRoleID,
-		Remarks:                  req.Remarks,
-		CashAmount:               req.CashAmount,
-		UpiAmount:                req.UpiAmount,
-		BankTransferAmount:       req.BankTransferAmount,
-		ChequeAmount:             req.ChequeAmount,
-		BankID:                   req.BankID,
-		ChargeCashAmount:         req.ChargeCashAmount,
-		ChargeUpiAmount:          req.ChargeUpiAmount,
-		ChargeBankTransferAmount: req.ChargeBankTransferAmount,
-		ChargeChequeAmount:       req.ChargeChequeAmount,
-		ChargeBankID:             req.ChargeBankID,
+		Stage:              req.Stage,
+		Action:             req.Action,
+		ActorEmployeeID:    actorEmployeeID,
+		ActorRole:          actorRole,
+		ActorRoleID:        actorRoleID,
+		Remarks:            req.Remarks,
+		CashAmount:         req.CashAmount,
+		UpiAmount:          req.UpiAmount,
+		BankTransferAmount: req.BankTransferAmount,
+		ChequeAmount:       req.ChequeAmount,
+		BankID:             req.BankID,
 	})
 	if err != nil {
 		return common.FailErr(c, err)

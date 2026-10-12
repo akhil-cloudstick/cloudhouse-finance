@@ -21,6 +21,7 @@ type DraftOrnamentInput struct {
 	Quantity    int
 	ImageURL    string
 	ImageName   string
+	ImageURLs   []string
 }
 
 type DraftInput struct {
@@ -29,16 +30,18 @@ type DraftInput struct {
 	SchemeID          *uint
 	LockerID          *uint
 	PrincipalOverride *float64
+	OverallPhotoURL   string
 	Ornaments         []DraftOrnamentInput
 }
 
 type draftOrnamentRequest struct {
-	Name        string  `json:"name"`
-	Purity      string  `json:"purity"`
-	GrossWeight float64 `json:"gross_weight"`
-	Quantity    int     `json:"quantity"`
-	ImageURL    string  `json:"image_url"`
-	ImageName   string  `json:"image_name"`
+	Name        string   `json:"name"`
+	Purity      string   `json:"purity"`
+	GrossWeight float64  `json:"gross_weight"`
+	Quantity    int      `json:"quantity"`
+	ImageURL    string   `json:"image_url"`
+	ImageName   string   `json:"image_name"`
+	ImageURLs   []string `json:"image_urls"`
 }
 
 type draftRequest struct {
@@ -47,6 +50,7 @@ type draftRequest struct {
 	SchemeID          *uint                  `json:"scheme_id"`
 	LockerID          *uint                  `json:"locker_id"`
 	PrincipalOverride *float64               `json:"principal_override"`
+	OverallPhotoURL   string                 `json:"overall_photo_url"`
 	Ornaments         []draftOrnamentRequest `json:"ornaments"`
 }
 
@@ -64,6 +68,7 @@ func SaveDraft(ctx context.Context, actorEmployeeID uint, in DraftInput) (*model
 		SchemeID:            in.SchemeID,
 		LockerID:            in.LockerID,
 		PrincipalOverride:   in.PrincipalOverride,
+		OverallPhotoURL:     in.OverallPhotoURL,
 		Ornaments:           in.toOrnamentRows(),
 	}
 	if err := insertDraft(ctx, d); err != nil {
@@ -90,6 +95,7 @@ func updateDraft(ctx context.Context, draftID, actorEmployeeID uint, in DraftInp
 	existing.SchemeID = in.SchemeID
 	existing.LockerID = in.LockerID
 	existing.PrincipalOverride = in.PrincipalOverride
+	existing.OverallPhotoURL = in.OverallPhotoURL
 	existing.Ornaments = in.toOrnamentRows()
 	if err := draftReplace(ctx, existing); err != nil {
 		return nil, err
@@ -152,6 +158,7 @@ func (req draftRequest) toInput() DraftInput {
 			Quantity:    o.Quantity,
 			ImageURL:    o.ImageURL,
 			ImageName:   o.ImageName,
+			ImageURLs:   o.ImageURLs,
 		}
 	}
 	return DraftInput{
@@ -160,6 +167,7 @@ func (req draftRequest) toInput() DraftInput {
 		SchemeID:          req.SchemeID,
 		LockerID:          req.LockerID,
 		PrincipalOverride: req.PrincipalOverride,
+		OverallPhotoURL:   req.OverallPhotoURL,
 		Ornaments:         ornaments,
 	}
 }
