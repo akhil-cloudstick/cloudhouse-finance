@@ -276,7 +276,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                       <td>{r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} /> : "—"}</td>
                     )}
                     <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
-                    <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
+                    <td className="num" style={r.memo ? { color: "var(--muted)", fontStyle: "italic" } : { color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
                     <td className="num">{fmt(r.runningBalance)}</td>
                   </tr>
                   );

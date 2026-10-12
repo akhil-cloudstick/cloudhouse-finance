@@ -81,6 +81,10 @@ func projectAccrual(inv *models.Investment, asOf time.Time) (interestDelta float
 	default:
 		return 0, from
 	}
+	// A live-engine investment stops earning at its maturity date, however late it is looked at.
+	if inv.Engine == models.EngineLive && !inv.MaturityDate.IsZero() && asOf.After(inv.MaturityDate) {
+		asOf = inv.MaturityDate
+	}
 	if !asOf.After(from) || inv.OutstandingPrincipal <= 0 {
 		return 0, from
 	}

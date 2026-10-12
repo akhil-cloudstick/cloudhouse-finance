@@ -18,12 +18,14 @@ var modeVocabulary = map[string]bool{
 	"Cash":          true,
 	"UPI":           true,
 	"Bank Transfer": true,
-	"Cheque":        true,
 }
 
 const SelfTransferSource = "Self Transfer"
 
-var bankModes = []string{models.CashModeUPI, models.CashModeBankTransfer, models.CashModeCheque}
+var bankModes = []string{models.CashModeUPI, models.CashModeBankTransfer}
+
+// bankModeSQL is bankModes as a SQL list, for the ledger scans that build their WHERE clause as text.
+const bankModeSQL = "('UPI','Bank Transfer')"
 
 type selfTransferRequest struct {
 	Category     string  `json:"category" binding:"required"`
@@ -339,7 +341,10 @@ func ErrInsufficientCashInHand(available, required float64) error {
 }
 
 func ensureBuiltInCategories(ctx context.Context) error {
-	_, _, err := findOrCreateCategory(ctx, "Gold Sale", models.CategoryCashIn)
+	if _, _, err := findOrCreateCategory(ctx, "Gold Sale", models.CategoryCashIn); err != nil {
+		return err
+	}
+	_, _, err := findOrCreateCategory(ctx, auctionExpenseCategory, models.CategoryExpense)
 	return err
 }
 
@@ -350,4 +355,8 @@ func startOfDay(t time.Time) time.Time {
 
 func bankSideBranch(table, bankCol string) string {
 	return "COALESCE((SELECT bk.branch_id FROM banks bk WHERE bk.id = " + table + "." + bankCol + "), " + table + ".branch_id)"
+}
+
+func ErrInsufficientBankBalance(available, required float64) error {
+	return common.NewConflict(fmt.Sprintf("Insufficient balance in the selected bank: available ₹%.2f, required ₹%.2f", available, required))
 }

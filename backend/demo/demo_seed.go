@@ -715,7 +715,7 @@ func seedAuctions(ctx context.Context, st *state, rep *Report) error {
 		if p.stage == loanModels.AuctionStageScheduled {
 			continue
 		}
-		if _, err := loan.SaveAuctionSale(ctx, id, nil, p.saleAmount, 2500, &actor, role, st.adminRoleID); err != nil {
+		if _, err := loan.SaveAuctionSale(ctx, id, nil, p.saleAmount, 2500, loan.AuctionSalePayment{}, &actor, role, st.adminRoleID); err != nil {
 			return fmt.Errorf("record auction sale on loan index %d: %w", p.loanIdx, err)
 		}
 	}

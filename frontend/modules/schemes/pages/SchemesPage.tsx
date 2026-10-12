@@ -189,7 +189,7 @@ export function SchemesPage() {
             </div>
             <div className="bd" style={smallScreen ? { padding: "8px 12px" } : undefined}>
               <div className="kv scheme-kv" style={{ gridTemplateColumns: "1fr 1fr", gap: smallScreen ? "6px 12px" : undefined }}>
-                <div className="i"><div className="k">Interest</div><div className="v" style={{ color: "var(--gold-deep)", fontWeight: 600 }}>{s.rate}% p.a.</div></div>
+                <div className="i"><div className="k">Interest</div><div className="v" style={{ color: "var(--gold-deep)", fontWeight: 600 }}>{s.rateTiers.length > 1 ? `${s.rateTiers[0].rate}% → ${s.rateTiers[s.rateTiers.length - 1].rate}% p.a.` : `${s.rate}% p.a.`}</div></div>
                 <div className="i"><div className="k">Duration</div><div className="v">{s.durationMonths} months</div></div>
                 <div className="i"><div className="k">LTV</div><div className="v">{s.ltv}%</div></div>
                 <div className="i"><div className="k">Method</div><div className="v">{s.method || "—"}</div></div>

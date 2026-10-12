@@ -28,7 +28,7 @@ func normalizeOpeningMode(mode string, bankID *uint) (string, *uint, error) {
 		mode = models.CashModeCash
 	}
 	if !modeVocabulary[mode] {
-		return "", nil, common.NewBadRequest("mode must be Cash, UPI, Bank Transfer or Cheque")
+		return "", nil, common.NewBadRequest("mode must be Cash, UPI or Bank Transfer")
 	}
 	if mode == models.CashModeCash {
 		return mode, nil, nil

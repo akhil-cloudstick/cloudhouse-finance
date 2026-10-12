@@ -4638,6 +4638,11 @@ table.tbl {
   max-width: 820px
 }
 
+/* Approve & Disburse: 230px narrower than the shared wide size. */
+.modal.wide:has(.disburse-modal-bd) {
+  max-width: 590px
+}
+
 /* PaymentModal's confirmation popup — a second, default-width modal stacked
  * over the open Record Payment modal (z-index 80) instead of replacing it. */
 .modal-bg.pay-confirm-bg {
@@ -4892,6 +4897,15 @@ table.tbl {
   margin: auto;
   align-self: center;
   overflow: hidden;
+}
+
+/* New Loan Scheme modal: capped at its single-rate form height (~660px) so the
+ * Multiple-interest rate table scrolls inside `.bd-scroll` instead of growing
+ * the modal. Short screens keep the tighter cap from the ≤850px block below. */
+@media (min-height: 851px) {
+  .modal:has(> .bd-scroll .scheme-frow) {
+    max-height: min(660px, calc(100dvh - 32px));
+  }
 }
 
 /* Neither bar may absorb the shrink */
@@ -5638,6 +5652,29 @@ table.tbl {
     grid-template-rows: minmax(min-content, 1fr);
     align-items: stretch
   }
+}
+
+
+/* InvestmentDetailPage.tsx's Ledger and Interest Payout Schedule cards sit side by side on big screens
+ * (the ledger gets the wider share, it has seven columns) and stack — as before — below the same
+ * width/height boundary `.pl-detail-grid` uses. Both tables are paged, so rows size to their content
+ * and the cards never shrink below it. */
+.inv-detail-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
+.inv-detail-grid > .card{flex-shrink:0;min-height:auto;margin-bottom:0}
+.inv-detail-grid .tbl{min-width:0}
+.inv-detail-grid .tbl-wrap{max-height:none}
+.inv-detail-grid td:first-child,.inv-detail-grid th:first-child{white-space:nowrap}
+@media (max-width: 1560px), (max-height: 850px) {
+  .inv-detail-grid{grid-template-columns:1fr}
+}
+/* Big screens: the two cards fill down to `.page`'s bottom gap and share one bottom edge, like every other
+ * table page. The row is `minmax(0,1fr)` so it takes only the height left under the header and tiles
+ * (never more), each card's table scrolls inside the card and each pager stays pinned to the card's bottom
+ * - so the page itself does not scroll. */
+@media (min-width: 1561px) and (min-height: 851px) {
+  .inv-detail-grid{flex:1 1 auto;min-height:0;grid-template-rows:minmax(0,1fr);align-items:stretch}
+  .inv-detail-grid > .card{min-height:0}
+  .inv-detail-grid .tbl-wrap{flex:1 1 auto;min-height:0;overflow-y:auto}
 }
 
 @keyframes expandSearchRight {

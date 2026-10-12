@@ -50,6 +50,11 @@ type LoanLedgerEntry struct {
 	TopUp   *models.LoanTopUp     `json:"top_up,omitempty"`
 	Auction *models.AuctionRecord `json:"auction,omitempty"`
 	Note    string                `json:"note,omitempty"`
+	// Component names what a split repayment row was applied to (Interest, Penal Interest, Service Charge,
+	// Principal); empty for a payment shown as one row.
+	Component string `json:"component,omitempty"`
+	// Mode is the payment mode of a split repayment row (Cash, UPI, Bank Transfer).
+	Mode string `json:"mode,omitempty"`
 }
 
 type LoanLedgerQuery struct {
@@ -87,7 +92,7 @@ type ledgerSource struct {
 func ledgerColumnTotals(rows []LoanLedgerEntry) (debit, credit float64) {
 	for _, r := range rows {
 		switch r.Kind {
-		case "sanction", "topup", "interest", "penal":
+		case "sanction", "topup", "interest", "penal", "service-charge":
 			debit += r.Amount
 		case "payment":
 			credit += r.Amount
@@ -226,8 +231,12 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 			if !at.Before(p.PaidOn) {
 				at = p.PaidOn.Add(-time.Millisecond)
 			}
-		} else if at.After(time.Now()) {
-			continue
+		} else if now := time.Now(); at.After(now) {
+			// interest charged ahead (the first month of a new loan): shown from when it was charged, not skipped
+			at = now
+			if !a.CreatedAt.IsZero() && a.CreatedAt.Before(now) {
+				at = a.CreatedAt
+			}
 		}
 		if a.Interest > 0.004 {
 			sources = append(sources, ledgerSource{kind: "interest", date: ledgerDate(at), sortKey: ledgerSortKey(at), rank: 2, accrualAmount: a.Interest, note: fmt.Sprintf("interest-%d", a.ID)})
@@ -313,6 +322,11 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 		e := LoanLedgerEntry{Kind: "sanction", Date: ledgerDate(date), Balance: ledgerBalance(balance), Payment: disbursement}
 		first := balance
 		out = append(out, expandLedgerParts(e, amount, parts, "sanction", func(later float64, _ LoanLedgerPart) float64 { return first - later })...)
+		// The service charge is part of the principal (withheld from the payout, or added to it), so it
+		// shows as its own debit row with no mode and leaves the balance as it is.
+		if l.ServiceChargeAmount > 0 {
+			out = append(out, LoanLedgerEntry{Kind: "service-charge", Key: "service-charge", Date: ledgerDate(date), Amount: l.ServiceChargeAmount, Balance: ledgerBalance(first)})
+		}
 	}
 	for _, src := range sources {
 		switch src.kind {
@@ -337,6 +351,59 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 						break
 					}
 				}
+			}
+			// Auction proceeds are shown the way the loan was paid down: one credit row per component
+			// (service charge, penal interest, interest, principal) in the mode the buyer paid by, like the
+			// repayment rows elsewhere. Components are met from the modes in order.
+			if comps := auctionPaymentComponents(p); p.Type == models.PaymentTypeAuctionSale && comps != nil {
+				type modePart struct {
+					mode   string
+					amount float64
+				}
+				var modes []modePart
+				for _, m := range []modePart{{"Cash", p.CashAmount}, {"UPI", p.UpiAmount}, {"Bank Transfer", p.BankTransferAmount}} {
+					if m.amount > 0.004 {
+						modes = append(modes, m)
+					}
+				}
+				if len(modes) == 0 {
+					modes = []modePart{{"", p.Amount}}
+				}
+				type row struct {
+					component, mode string
+					amount          float64
+				}
+				var rows []row
+				mi, left := 0, modes[0].amount
+				for _, c := range comps {
+					need := c.amount
+					for need > 0.004 && mi < len(modes) {
+						take := math.Min(need, left)
+						rows = append(rows, row{c.label, modes[mi].mode, common.RoundMoney(take)})
+						need -= take
+						left -= take
+						if left <= 0.004 {
+							mi++
+							if mi < len(modes) {
+								left = modes[mi].amount
+							}
+						}
+					}
+				}
+				end := balance
+				later := 0.0
+				for _, r := range rows {
+					later += r.amount
+				}
+				for i, r := range rows {
+					later -= r.amount
+					ce := LoanLedgerEntry{Kind: "payment", Key: fmt.Sprintf("payment-%d-%d", p.ID, i), Date: src.date, Amount: r.amount, Balance: ledgerBalance(end + later), Payment: p, Component: r.component, Mode: r.mode}
+					if i == 0 {
+						ce.Auction = e.Auction
+					}
+					out = append(out, ce)
+				}
+				continue
 			}
 			parts := ledgerSplitParts(p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount)
 			out = append(out, expandLedgerParts(e, p.Amount, parts, fmt.Sprintf("payment-%d", p.ID), func(later float64, _ LoanLedgerPart) float64 { return balance + later })...)
@@ -507,4 +574,32 @@ func GetLoanLedger(c echo.Context) error {
 	return common.SuccessPage(c, page, led.Limit, int64(led.Total), led.Items, echo.Map{
 		"total_debit": led.TotalDebit, "total_credit": led.TotalCredit,
 	})
+}
+
+type ledgerComponent struct {
+	label  string
+	amount float64
+}
+
+// auctionPaymentComponents lists what an auction's proceeds were applied to, in the order the loan is
+// paid down. It returns nil when the parts do not add up to the payment (an older row), so the payment is
+// shown as one row as before.
+func auctionPaymentComponents(p *models.LoanPayment) []ledgerComponent {
+	var comps []ledgerComponent
+	var sum float64
+	for _, c := range []ledgerComponent{
+		{"Service Charge", p.ProcessingFeeApplied},
+		{"Penal Interest", p.PenalInterestApplied},
+		{"Interest", p.InterestApplied},
+		{"Principal", p.PrincipalApplied},
+	} {
+		if c.amount > 0.004 {
+			comps = append(comps, c)
+			sum += c.amount
+		}
+	}
+	if len(comps) == 0 || sum < p.Amount-0.01 || sum > p.Amount+0.01 {
+		return nil
+	}
+	return comps
 }

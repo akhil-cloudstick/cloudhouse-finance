@@ -57,6 +57,15 @@ export async function resolveInvestmentNumber(number: string): Promise<number> {
   return (await apiFetch<{ id: number }>(`/investments/by-number/${encodeURIComponent(number)}`)).id;
 }
 
+/* One server page of the ledger; `page` is 0-based like getInvestmentSchedulePage. */
+export const INVESTMENT_LEDGER_PAGE_SIZE = 10;
+
+export async function getInvestmentLedgerPage(id: number, page: number): Promise<{ items: InvestmentLedgerRow[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ limit: String(INVESTMENT_LEDGER_PAGE_SIZE), offset: String(page * INVESTMENT_LEDGER_PAGE_SIZE) });
+  const res = await apiFetch<{ items: InvestmentLedgerRow[] | null; hasMore?: boolean }>(`/investments/${id}/ledger?${params}`);
+  return { items: res.items || [], hasMore: !!res.hasMore };
+}
+
 export async function getInvestmentLedger(id: number): Promise<InvestmentLedgerRow[]> {
   return (await apiFetch<{ items: InvestmentLedgerRow[] | null }>(`/investments/${id}/ledger`)).items || [];
 }
@@ -85,7 +94,7 @@ export function markPayoutPaid(
 
 export function matureInvestment(
   investmentId: number,
-  input: { action: MaturityAction; planId?: number; principalAmount?: number }
+  input: { action: MaturityAction; planId?: number; principalAmount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number }
 ): Promise<BackendInvestment> {
   return apiFetch<BackendInvestment>(`/investments/${investmentId}/mature`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -170,3 +179,21 @@ export async function printInvestmentStatementPdf(investmentId: number): Promise
   return printPdfJob(() => fetchInvestmentStatementPdf(investmentId));
 }
 
+
+/* The unpaid interest months of a scheduled investment, oldest first. */
+export async function getPendingInterest(investmentId: number): Promise<BackendInvestmentPayout[]> {
+  return (await apiFetch<{ items: BackendInvestmentPayout[] | null }>(`/investments/${investmentId}/pending-interest`)).items || [];
+}
+
+/* Pays several months of interest together: the amount is applied to the oldest unpaid months in order, and the
+ * payment breakdown (mode split + bank) is spread over them. The amount must be a whole number of months. */
+export async function payInterestMonths(
+  investmentId: number,
+  input: { amount: number; cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }
+): Promise<BackendInvestmentPayout[]> {
+  const res = await apiFetch<{ items: BackendInvestmentPayout[] | null }>(`/investments/${investmentId}/pay-interest`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.items || [];
+}

@@ -6,6 +6,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { Select } from "@/common/components/ui/Select";
+import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { matureInvestment, listInvestmentPlans } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPlan, type MaturityAction } from "@/modules/investments/types/investment-types";
 
@@ -29,6 +30,12 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   const [principal, setPrincipal] = useState(String(investment.principalAmount));
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  // A live-engine investment is paid out in full when it is closed, so the close asks how.
+  const isLive = investment.engine === "Live";
+  const payable = Math.round(((investment.outstandingPrincipal || 0) + (investment.outstandingInterest || 0)) * 100) / 100;
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     listInvestmentPlans(true)
@@ -43,6 +50,10 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
       if (!planId) { setErr("Please select an investment plan for the renewed investment."); return; }
       if (!principalNum || principalNum <= 0) { setErr("Please enter the principal amount for the renewed investment."); return; }
     }
+    if (isLive && action === "Close") {
+      if (Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the amount payable."); return; }
+      if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { setErr("Pick the bank the payout was made from."); return; }
+    }
     setSaving(true);
     setErr("");
     try {
@@ -50,8 +61,9 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
         action,
         planId: action === "Renew" ? Number(planId) : undefined,
         principalAmount: action === "Renew" ? principalNum : undefined,
+        ...(isLive && action === "Close" ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: split.chequeAmount, bankId } : {}),
       });
-      toast(action === "Close" ? "Investment closed — principal return payout added to the schedule" : "Investment renewed");
+      toast(action === "Close" ? (isLive ? "Investment closed — principal and interest paid out" : "Investment closed — principal return payout added to the schedule") : "Investment renewed");
       onSaved();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not apply the maturity decision — try again.");
@@ -63,7 +75,7 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   return (
     <>
       <div className="hd"><h3>Maturity Decision — {investment.investmentNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 14 }}>
           This investment matured on <strong>{fmtDate(investment.maturityDate)}</strong>. Principal of <strong>{fmt(investment.principalAmount)}</strong> is outstanding — choose how to proceed.
         </div>
@@ -79,6 +91,17 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
             </label>
           </div>
         </div></div>
+
+        {isLive && action === "Close" && (
+          <>
+            <p style={{ fontSize: 12.5, margin: "4px 0 8px", color: "var(--muted)" }}>
+              Payable now: principal <strong>{fmt(investment.outstandingPrincipal || 0)}</strong> + interest to maturity <strong>{fmt(investment.outstandingInterest || 0)}</strong> = <strong>{fmt(payable)}</strong>
+            </p>
+            <div className="frow">
+              <SplitPaymentInput totalAmount={payable} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+            </div>
+          </>
+        )}
 
         {action === "Renew" && (
           <div className="frow c2">

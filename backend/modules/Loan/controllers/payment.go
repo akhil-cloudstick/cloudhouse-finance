@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"strings"
@@ -265,7 +264,7 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 			return nil, err
 		}
 		if (in.UpiAmount > 0 || in.BankTransferAmount > 0 || in.ChequeAmount > 0) && in.BankID == nil {
-			return nil, common.NewBadRequest("bank is required when the payment breakdown includes UPI, Bank Transfer, or Cheque")
+			return nil, common.NewBadRequest("bank is required when the payment breakdown includes UPI or Bank Transfer")
 		}
 	}
 	if in.InterestOverride != nil && *in.InterestOverride < 0 {
@@ -292,6 +291,10 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 	if l.OutstandingAmount < 0 {
 		l.OutstandingAmount = 0
 	}
+	if isCashPaymentType(in.Type) {
+		// any repayment sends a Multiple-interest loan back to its first rate
+		resetRateCycle(l, in.PaidOn)
+	}
 	outstandingInterest := l.AccruedInterest - l.InterestPaid
 	outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
 	if l.OutstandingAmount <= 0 && outstandingInterest <= 0.01 && outstandingPenal <= 0.01 &&
@@ -300,9 +303,6 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 		l.Status = models.StatusClosureRequested
 	} else {
 		refreshServicingStatus(l, time.Now())
-	}
-	if err := persistLoan(ctx, l); err != nil {
-		return nil, err
 	}
 	runningBalance := l.OutstandingAmount + math.Max(0, outstandingInterest) + math.Max(0, outstandingPenal) + l.OutstandingProcessingFee
 	p := &models.LoanPayment{
@@ -326,17 +326,28 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 		PrincipalApplied:     principal,
 		RunningBalance:       runningBalance,
 	}
-	if err := insertPayment(ctx, p); err != nil {
-		return nil, err
-	}
-	if isCashPaymentType(in.Type) {
-		if _, groupID, err := cashbook.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, in.PaidOn, in.Type, l.CustomerID, in.BankID); err != nil {
-			log.Printf("cash-in movement (payment) failed for loan %d: %v", l.ID, err)
-		} else if groupID != "" {
-			if err := setCashTransactionGroupID(ctx, p.ID, groupID); err != nil {
-				log.Printf("linking payment %d to cash movement group failed: %v", p.ID, err)
-			}
+	// The loan, its payment row and the cash lines are saved together: a failed cash line now undoes the
+	// payment instead of leaving a payment on the ledger that the cards never saw.
+	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := updateLoanTx(ctx, tx, l); err != nil {
+			return err
 		}
+		if err := createPaymentTx(ctx, tx, p); err != nil {
+			return err
+		}
+		if !isCashPaymentType(in.Type) {
+			return nil
+		}
+		_, groupID, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, in.PaidOn, in.Type, l.CustomerID, in.BankID)
+		if err != nil {
+			return fmt.Errorf("could not record the payment in Cash-in-Hand, payment not saved: %w", err)
+		}
+		if groupID == "" {
+			return nil
+		}
+		return tx.Model(&models.LoanPayment{}).Where("id = ?", p.ID).Update("cash_transaction_group_id", groupID).Error
+	}); err != nil {
+		return nil, err
 	}
 	auctionNotified := resolveAuctionAfterPayment(ctx, l, p)
 	if !auctionNotified {

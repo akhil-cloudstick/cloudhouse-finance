@@ -8,6 +8,8 @@ export type OrnamentRequestInput = {
   deductionWeight: number;
   quantity: number;
   remarks?: string;
+  // Every photo of this ornament, attached when the loan is created.
+  images?: string[];
 };
 /* Mirrors backend/internal/loan/handler.go's loanRequest exactly. */
 export type CreateLoanInput = {
@@ -28,6 +30,8 @@ export type CreateLoanInput = {
   // Optional free text captured at creation — anything the standard fields
   // don't cover, carried through onto the printed Statement of Account.
   additionalInfo?: string;
+  // One photo of the whole pledged lot, shown on the loan details card.
+  overallPhotoUrl?: string;
   // Per-loan choice of how the scheme's service charge is collected.
   serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal";
 };
@@ -159,6 +163,7 @@ export type BackendLoan = {
   openedDate: string;
   dueDate: string;
   additionalInfo?: string;
+  overallPhotoUrl?: string;
   totalNetWeight: number;
   totalGoldValue: number;
   eligibleLoanAmount: number;
@@ -224,6 +229,8 @@ export type OrnamentView = {
   goldValue: number;
   remarks: string;
   photoUrl?: string;
+  // All photos of this ornament, oldest first; photoUrl is the preview.
+  photoUrls: string[];
   // Set once CompleteRelease actually hands this ornament back — null while
   // still physically pledged. See backend/internal/loan/model_ornament.go's
   // Ornament.ReleasedAt doc comment.
@@ -292,6 +299,7 @@ export type LoanView = {
   opened: string; // "YYYY-MM-DD"
   due: string;
   additionalInfo: string;
+  overallPhotoUrl: string;
   totalNetWeight: number;
   totalGoldValue: number;
   eligibleLoanAmount: number;
@@ -366,9 +374,11 @@ export type DraftOrnamentInput = {
   quantity: number;
   imageUrl?: string;
   imageName?: string;
+  imageUrls?: string[];
 };
 export type SaveDraftInput = {
   branchId: number;
+  overallPhotoUrl?: string;
   customerId?: number;
   schemeId?: number;
   lockerId?: number;
@@ -386,6 +396,7 @@ export type BackendLoanDraft = {
   scheme?: { id: number; name: string };
   lockerId?: number;
   principalOverride?: number;
+  overallPhotoUrl?: string;
   ornaments: {
     id: number;
     name: string;
@@ -394,6 +405,7 @@ export type BackendLoanDraft = {
     quantity: number;
     imageUrl: string;
     imageName: string;
+    imageUrls?: string[] | null;
     position: number;
   }[];
   createdAt: string;
@@ -523,6 +535,7 @@ export type TopUpInput = {
   upiAmount?: number;
   bankTransferAmount?: number;
   chequeAmount?: number;
+  bankId?: number; // required when the breakdown includes UPI or Bank Transfer
   occurredOn?: string; // "YYYY-MM-DD" — omit for today
   reference?: string;
   // "require" (default, if omitted) blocks the top-up when the loan has
@@ -740,13 +753,15 @@ export type ConcludedAuctionRowView = AuctionRecordView & { loanNumber: string; 
  * payment/payout/top-up split across modes is one row per mode — `part` is
  * that row's share. */
 export type LoanLedgerPart = { mode: string; amount: number; index: number; count: number };
-type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart };
+// component names what a split repayment row was applied to (e.g. an auction's proceeds).
+type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string };
 export type LoanLedgerEntry =
   | (LedgerEntryBase & { kind: "sanction"; balance: number; payment: PaymentView | null })
   | (LedgerEntryBase & { kind: "payment"; balance: number; row: PaymentView; auction: AuctionRecordView | null })
   | (LedgerEntryBase & { kind: "topup"; balance: number; row: LoanTopUpView })
   | (LedgerEntryBase & { kind: "interest"; balance: number })
   | (LedgerEntryBase & { kind: "penal"; balance: number })
+  | (LedgerEntryBase & { kind: "service-charge"; balance: number })
   | (LedgerEntryBase & { kind: "auction-sale"; balance: null; row: AuctionRecordView })
   | (LedgerEntryBase & { kind: "auction-surplus"; balance: null; row: AuctionRecordView });
 // totalDebit/totalCredit sum the Debit/Credit columns over every row in the
@@ -771,6 +786,8 @@ export type BackendLoanLedgerEntry = {
   amount: number;
   balance: number | null;
   part?: LoanLedgerPart;
+  component?: string;
+  mode?: string;
   payment?: BackendLoanPayment;
   topUp?: LoanTopUpView;
   auction?: BackendAuctionRecord;

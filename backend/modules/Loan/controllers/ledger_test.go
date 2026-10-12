@@ -143,3 +143,78 @@ func TestScaleSplit(t *testing.T) {
 		t.Errorf("scaled = %v %v %v %v", c, u, b, ch)
 	}
 }
+
+func TestBuildLoanLedgerSplitsAuctionProceedsByComponent(t *testing.T) {
+	disbursed := ledgerTestDay("2026-10-02")
+	l := &models.Loan{SanctionedAmount: 100000, DisbursedAmount: 100000, DisbursementDate: &disbursed}
+	payments := []models.LoanPayment{
+		{ID: 1, Type: models.PaymentTypeDisbursement, Amount: 100000, PaidOn: disbursed, CashAmount: 100000},
+		{
+			ID: 2, Type: models.PaymentTypeAuctionSale, Amount: 105000, PaidOn: ledgerTestDay("2026-10-20"), Method: "Auction",
+			ProcessingFeeApplied: 1000, PenalInterestApplied: 500, InterestApplied: 3500, PrincipalApplied: 100000, RunningBalance: 0,
+		},
+	}
+	got := buildLoanLedger(l, payments, nil, nil, nil)
+	var rows []LoanLedgerEntry
+	for _, e := range got {
+		if e.Kind == "payment" {
+			rows = append(rows, e)
+		}
+	}
+	want := []struct {
+		component string
+		amount    float64
+		balance   float64
+	}{{"Service Charge", 1000, 104000}, {"Penal Interest", 500, 103500}, {"Interest", 3500, 100000}, {"Principal", 100000, 0}}
+	if len(rows) != len(want) {
+		t.Fatalf("got %d payment rows, want %d: %+v", len(rows), len(want), rows)
+	}
+	var credit float64
+	for i, w := range want {
+		r := rows[i]
+		if r.Component != w.component || r.Amount != w.amount || r.Balance == nil || *r.Balance != w.balance {
+			t.Errorf("row %d = %s %.2f bal %v, want %s %.2f bal %.2f", i, r.Component, r.Amount, r.Balance, w.component, w.amount, w.balance)
+		}
+		credit += r.Amount
+	}
+	if _, totalCredit := ledgerColumnTotals(rows); totalCredit != credit || credit != 105000 {
+		t.Errorf("credit total = %.2f, want 105000", credit)
+	}
+}
+
+func TestBuildLoanLedgerAuctionRowsKeepTheSalesModes(t *testing.T) {
+	disbursed := ledgerTestDay("2026-10-02")
+	l := &models.Loan{SanctionedAmount: 100000, DisbursedAmount: 100000, DisbursementDate: &disbursed}
+	payments := []models.LoanPayment{
+		{ID: 1, Type: models.PaymentTypeDisbursement, Amount: 100000, PaidOn: disbursed, CashAmount: 100000},
+		{
+			ID: 2, Type: models.PaymentTypeAuctionSale, Amount: 105000, PaidOn: ledgerTestDay("2026-10-20"),
+			CashAmount: 3000, UpiAmount: 102000,
+			ProcessingFeeApplied: 1000, PenalInterestApplied: 500, InterestApplied: 3500, PrincipalApplied: 100000,
+		},
+	}
+	var got []struct {
+		component, mode string
+		amount          float64
+	}
+	for _, e := range buildLoanLedger(l, payments, nil, nil, nil) {
+		if e.Kind == "payment" {
+			got = append(got, struct {
+				component, mode string
+				amount          float64
+			}{e.Component, e.Mode, e.Amount})
+		}
+	}
+	want := []struct {
+		component, mode string
+		amount          float64
+	}{{"Service Charge", "Cash", 1000}, {"Penal Interest", "Cash", 500}, {"Interest", "Cash", 1500}, {"Interest", "UPI", 2000}, {"Principal", "UPI", 100000}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}

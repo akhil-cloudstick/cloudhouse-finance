@@ -7,10 +7,11 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { StatusChip } from "@/common/components/ui/StatusChip";
-import { getInvestment, getInvestmentSchedulePage, getInvestmentLedger, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf } from "@/modules/investments/services/investmentService";
+import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModalContent";
+import { PayInterestModalContent } from "@/modules/investments/components/PayInterestModalContent";
 import { MarkPayoutPaidModalContent } from "@/modules/investments/components/MarkPayoutPaidModalContent";
 import { AddInvestmentCashModalContent } from "@/modules/investments/components/AddInvestmentCashModalContent";
 import { WithdrawInvestmentModalContent } from "@/modules/investments/components/WithdrawInvestmentModalContent";
@@ -104,22 +105,15 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
       .catch((e) => { setError(e instanceof ApiError ? e.message : "Investment not found."); setLoading(false); });
   }, [id]);
 
-  const [ledger, setLedger] = useState<InvestmentLedgerRow[]>([]);
-  const [ledgerLoading, setLedgerLoading] = useState(true);
-  const [ledgerError, setLedgerError] = useState("");
-  const refreshLedger = useCallback(async () => {
-    if (!numericId) return;
-    setLedgerLoading(true);
-    try {
-      setLedger(await getInvestmentLedger(numericId));
-      setLedgerError("");
-    } catch (e) {
-      setLedgerError(e instanceof ApiError ? e.message : "Could not load the ledger.");
-    } finally {
-      setLedgerLoading(false);
-    }
-  }, [numericId]);
-  useEffect(() => { void refreshLedger(); }, [refreshLedger]);
+  // The ledger is paged on the server (the running balance is computed over the whole ledger there).
+  const ledgerTable = usePagedTable<InvestmentLedgerRow>(
+    useCallback((page) => (numericId ? getInvestmentLedgerPage(numericId, page) : Promise.resolve({ items: [], hasMore: false })), [numericId]),
+    numericId
+  );
+  const ledger = ledgerTable.items;
+  const ledgerLoading = ledgerTable.loading;
+  const ledgerError = ledgerTable.error;
+  const refreshLedger = ledgerTable.reload;
   useLedgerFocus("investment-ledger", !ledgerLoading, [ledger]);
 
   const refreshInvestment = useCallback(async () => {
@@ -161,6 +155,11 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         }}
       />
     );
+  }
+
+  function openPayInterest() {
+    if (!investment) return;
+    openModal(<PayInterestModalContent investmentId={investment.id} investmentNumber={investment.investmentNumber} onSaved={() => { void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true);
   }
 
   function openMaturity() {
@@ -256,7 +255,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             </div>
           )}
         </div>
-        {canUpdate && isLive && investment.status === "Active" && (
+        {canUpdate && isLive && (investment.status === "Active" || investment.status === "Matured") && (
           <div className="docs-dd" ref={cashMenuRef} onKeyDown={onCashMenuKeyDown}>
             <button
               ref={cashMenuTriggerRef}
@@ -269,9 +268,9 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             </button>
             {cashMenuOpen && (
               <div className="docs-dd-menu" role="menu">
-                <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openAddCash(); }}>
+                {investment.status === "Active" && <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openAddCash(); }}>
                   <Icon name="plus" /><span className="tx">Add Cash</span>
-                </a>
+                </a>}
                 <a href="#" title="Withdraw" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openWithdraw(); }}>
                   <Icon name="coin" /><span className="tx">Withdraw</span>
                 </a>
@@ -279,7 +278,10 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             )}
           </div>
         )}
-        {canUpdate && !isLive && investment.status === "Matured" && (
+        {canUpdate && !isLive && (investment.status === "Active" || investment.status === "Matured") && (
+          <button className="btn" onClick={openPayInterest}><Icon name="coin" /> Pay Interest</button>
+        )}
+        {canUpdate && investment.status === "Matured" && (
           <button className="btn" onClick={openMaturity}>Close / Renew</button>
         )}
       </div>
@@ -305,7 +307,8 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
       {/* The investment's ledger — opening deposit, then every Add Cash/
         * Withdraw (Live) or paid payout (Schedule). Balance is the principal
         * still owed to the investor after each row. */}
-      <div className="card tbl-card" style={{ marginBottom: 16 }}>
+      <div className={isLive ? undefined : "inv-detail-grid"}>
+      <div className="card tbl-card tbl-card-fill" style={isLive ? { marginBottom: 16 } : undefined}>
         <div className="hd">
           <h3>Ledger</h3>
           <div className="sp" />
@@ -329,7 +332,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
               return (
                 <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount}>
                   <td>{fmtDate(r.date)}</td>
-                  <td>{r.reference || "—"}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{r.reference || "—"}</td>
                   <td>
                     {r.description || r.type}
                     {split && r.debitOrCredit === "debit" && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{split}</div>}
@@ -345,6 +348,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             })}
           </tbody>
         </table></div>
+        <Pager page={ledgerTable.page} totalPages={ledgerTable.totalPages} onChange={ledgerTable.setPage} />
       </div>
 
       {!isLive && (
@@ -377,6 +381,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
           <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
         </div>
       )}
+      </div>
     </>
   );
 }

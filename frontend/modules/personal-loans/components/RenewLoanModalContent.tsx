@@ -6,6 +6,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { previewRenewal, renewPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
+import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { type BackendPersonalLoan, type Frequency, type InterestType, type RenewalPreview } from "@/modules/personal-loans/types/personal-loan-types";
 
 type RenewLoanModalContentProps = { loan: BackendPersonalLoan; onSaved: () => void };
@@ -30,6 +31,9 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
   const [previewError, setPreviewError] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
 
   const principalNum = +principal || 0;
   const interestValueNum = +interestValue || 0;
@@ -49,10 +53,16 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
     const tenureNum = +tenureCount || 0;
     if (!principalNum || principalNum <= 0) { setErr("Please enter the new principal amount."); return; }
     if (!tenureNum || tenureNum <= 0) { setErr("Please enter the number of installments."); return; }
+    const payout = preview?.disbursedAmount ?? 0;
+    if (payout > 0 && Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the cash paid to the customer."); return; }
+    if (payout > 0 && split.upiAmount + split.bankTransferAmount > 0 && !bankId) { setErr("Pick the bank the payout was made from."); return; }
     setSaving(true);
     setErr("");
     try {
-      await renewPersonalLoan(loan.id, { principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: tenureNum });
+      await renewPersonalLoan(loan.id, {
+        principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: tenureNum,
+        ...(payout > 0 ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: split.chequeAmount, bankId } : {}),
+      });
       toast(`${loan.loanNumber} renewed — new loan created`);
       onSaved();
     } catch (e) {
@@ -65,7 +75,7 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
   return (
     <>
       <div className="hd"><h3>Renew Loan — {loan.loanNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16 }}>Current outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></div>
         <div className="frow c2">
           <div><label className="f">New Principal Amount (₹) *</label><input className="inp" type="number" min={1} value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
@@ -105,6 +115,11 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
             <div>Cash paid to customer: <strong>{fmt(preview.disbursedAmount)}</strong></div>
             <div>New repayment obligation: <strong>{fmt(principalNum)}</strong></div>
             {preview.shortfall && <div style={{ color: "var(--red, #c21725)", marginTop: 6 }}>⚠ New principal is not enough to cover the outstanding balance and interest.</div>}
+          </div>
+        )}
+        {preview && preview.disbursedAmount > 0 && (
+          <div className="frow" style={{ marginTop: 10 }}>
+            <SplitPaymentInput totalAmount={preview.disbursedAmount} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
           </div>
         )}
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}

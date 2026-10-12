@@ -139,3 +139,23 @@ func TestProjectAccrual_WithdrawnInterestStopsCompounding(t *testing.T) {
 	want2 := principal * monthlyRate
 	approxEqual(t, d2, want2, "after withdrawing all interest, next period is flat again")
 }
+
+func TestProjectAccrual_LiveStopsAtMaturity(t *testing.T) {
+	inv := &models.Investment{
+		Status:               models.StatusMatured,
+		Engine:               models.EngineLive,
+		InterestRateType:     models.InterestRateTypeSimple,
+		PayoutFrequency:      models.PayoutFrequencyMonthly,
+		InterestRatePercent:  12,
+		OutstandingPrincipal: 100,
+		StartDate:            day(0),
+		LastAccrualDate:      day(0),
+		MaturityDate:         day(30),
+	}
+	atMaturity, anchor := projectAccrual(inv, day(30))
+	later, laterAnchor := projectAccrual(inv, day(90))
+	approxEqual(t, later, atMaturity, "interest looked at 60 days after maturity")
+	if !laterAnchor.Equal(anchor) || !laterAnchor.Equal(day(30)) {
+		t.Fatalf("anchor should stay at maturity, got %v", laterAnchor)
+	}
+}

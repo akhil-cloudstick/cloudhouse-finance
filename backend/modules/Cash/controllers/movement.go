@@ -102,6 +102,9 @@ func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amou
 		if c.amount <= 0 {
 			continue
 		}
+		if c.mode == models.CashModeCheque {
+			return 0, "", common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+		}
 		rec := base
 		rec.Mode = c.mode
 		rec.Amount = c.amount
@@ -119,6 +122,7 @@ func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amou
 	}
 	if wrote == 0 {
 		rec := base
+		rec.Mode = models.CashModeCash
 		rec.Amount = amount
 		rec.TransactionGroupID = groupID
 		if err := insertMovement(ctx, &rec); err != nil {
@@ -127,17 +131,6 @@ func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amou
 		firstID = rec.ID
 	}
 	return firstID, groupID, nil
-}
-
-func DeleteCashMovement(ctx context.Context, id uint) error {
-	return removeMovement(ctx, id)
-}
-
-func DeleteLoanDisbursementCashMovements(ctx context.Context, loanNumber string) error {
-	return deleteByPurposes(ctx, []string{
-		"Loan disbursement — " + loanNumber,
-		"Service charge — " + loanNumber,
-	})
 }
 
 func movementQueryFilter(c echo.Context) MovementFilter {
@@ -287,15 +280,18 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		if in.Mode == "" {
 			return nil, common.NewBadRequest("mode of cash is required for cash-in movements")
 		}
-		if (in.Mode == models.CashModeUPI || in.Mode == models.CashModeBankTransfer) && in.BankID == nil && in.Bank == "" {
-			return nil, common.NewBadRequest("bank is required when mode is UPI or Bank Transfer")
-		}
 		rec.Source = in.Source
 	} else {
 		if in.Purpose == "" {
 			return nil, common.NewBadRequest("purpose is required for cash-out movements")
 		}
 		rec.Purpose = in.Purpose
+		if rec.Mode == "" {
+			rec.Mode = models.CashModeCash
+		}
+	}
+	if err := validateMovementMode(rec); err != nil {
+		return nil, err
 	}
 	isLoan := in.Type == "in" && IsLoanSource(in.Source)
 	var src *models.CashSource
@@ -333,7 +329,7 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		if rec.Bank == "" && src.Bank != nil {
 			rec.Bank = src.Bank.Name
 		}
-		if rec.BankID == nil {
+		if rec.BankID == nil && rec.Mode != models.CashModeCash {
 			bankID := *src.BankID
 			rec.BankID = &bankID
 		}
@@ -381,7 +377,8 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 		}
 	}
 	toBankID, toBank := in.ToBankID, in.ToBank
-	if IsLoanSource(category) {
+	toLender := IsLoanSource(category)
+	if toLender {
 		src, err := resolveLoanSource(ctx, category)
 		if err != nil {
 			return nil, err
@@ -408,9 +405,9 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 	switch mode {
 	case "":
 		mode = models.CashModeBankTransfer
-	case models.CashModeBankTransfer, models.CashModeUPI, models.CashModeCash:
+	case models.CashModeBankTransfer, models.CashModeUPI:
 	default:
-		return nil, common.NewBadRequest("mode must be Bank Transfer, UPI or Cash")
+		return nil, common.NewBadRequest("mode must be Bank Transfer or UPI for a transfer between banks")
 	}
 	occurred := in.OccurredOn
 	if occurred.IsZero() {
@@ -431,6 +428,16 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 	}
 	if err := insertMovement(ctx, debit); err != nil {
 		return nil, err
+	}
+	if toLender {
+		// A repayment to a lender leaves the business: the lender's account is not one of ours, so only the
+		// debit from our bank is booked (a credit leg used to put the money straight back into the bank total).
+		// loanRepaid counts it against the loan by its purpose, and the lender's ledger lists it.
+		d, err := findMovementByID(ctx, debit.ID)
+		if err != nil {
+			return nil, err
+		}
+		return []models.CashMovement{*d}, nil
 	}
 	if err := insertMovement(ctx, credit); err != nil {
 		_ = removeMovement(ctx, debit.ID)
@@ -472,36 +479,6 @@ func getMovement(ctx context.Context, id uint, branchID *uint) (*models.CashMove
 		return nil, common.NewNotFound("cash movement not found")
 	}
 	return rec, nil
-}
-
-func RecordBankPledgeCashIn(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time) (uint, error) {
-	hoID, err := pledgeBranchID(ctx, bankID, upiAmount+bankTransferAmount+chequeAmount)
-	if err != nil {
-		return 0, err
-	}
-	base := models.CashMovement{
-		Type:     "in",
-		Source:   "Bank",
-		Purpose:  "Bank pledge — " + bankName + " — " + loanNumber,
-		Bank:     bankName,
-		BankID:   bankID,
-		BranchID: &hoID,
-	}
-	if occurredOn.IsZero() {
-		base.OccurredOn = time.Now()
-	} else {
-		base.OccurredOn = occurredOn
-	}
-	if cashAmount+upiAmount+bankTransferAmount+chequeAmount == 0 {
-		cashAmount = amount
-	}
-	id, _, err := recordSplitCashMovement(ctx, base, amount, []splitComponent{
-		{models.CashModeCash, cashAmount},
-		{models.CashModeUPI, upiAmount},
-		{models.CashModeBankTransfer, bankTransferAmount},
-		{models.CashModeCheque, chequeAmount},
-	})
-	return id, err
 }
 
 func RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, bankID *uint) (uint, error) {
@@ -549,11 +526,239 @@ func RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber 
 	})
 }
 
-func RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, string, error) {
+// SplitPart is one payment mode of a split together with the bank it moved through (nil for Cash), so a
+// split across two banks keeps each part on its own bank.
+type SplitPart struct {
+	Mode   string
+	Amount float64
+	BankID *uint
+	// BranchID, when set, books this part under that branch instead of the base line's.
+	BranchID *uint
+}
+
+// SplitParts turns the four legacy split amounts and the one bank the screen sent into SplitParts. A
+// cheque amount is rejected: the application has no Cheque mode.
+func SplitParts(cash, upi, bankTransfer, cheque float64, bankID *uint) ([]SplitPart, error) {
+	if cheque > 0 {
+		return nil, common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+	}
+	var out []SplitPart
+	if cash > 0 {
+		out = append(out, SplitPart{Mode: models.CashModeCash, Amount: cash})
+	}
+	if upi > 0 {
+		out = append(out, SplitPart{Mode: models.CashModeUPI, Amount: upi, BankID: bankID})
+	}
+	if bankTransfer > 0 {
+		out = append(out, SplitPart{Mode: models.CashModeBankTransfer, Amount: bankTransfer, BankID: bankID})
+	}
+	return out, nil
+}
+
+// SumSplitParts is the total of the parts.
+func SumSplitParts(parts []SplitPart) float64 {
+	var total float64
+	for _, p := range parts {
+		total += p.Amount
+	}
+	return common.RoundMoney(total)
+}
+
+// mergeSplitParts adds up parts that share the same mode and bank.
+func mergeSplitParts(groups ...[]SplitPart) []SplitPart {
+	type key struct {
+		mode string
+		bank uint
+	}
+	idx := map[key]int{}
+	var out []SplitPart
+	for _, g := range groups {
+		for _, p := range g {
+			if p.Amount <= 0 {
+				continue
+			}
+			k := key{mode: p.Mode}
+			if p.BankID != nil {
+				k.bank = *p.BankID
+			}
+			if i, ok := idx[k]; ok {
+				out[i].Amount = common.RoundMoney(out[i].Amount + p.Amount)
+				continue
+			}
+			idx[k] = len(out)
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// LargestSplitPart is the biggest part of a split; a charge with no split of its own follows it.
+func LargestSplitPart(parts []SplitPart) (SplitPart, bool) {
+	var best SplitPart
+	found := false
+	for _, p := range parts {
+		if !found || p.Amount > best.Amount {
+			best, found = p, true
+		}
+	}
+	return best, found
+}
+
+// recordPartsMovement writes one cash line per part, each on its own bank, under one transaction group.
+func recordPartsMovement(ctx context.Context, base models.CashMovement, parts []SplitPart) (uint, string, error) {
+	groupID := common.NewTransactionGroupID()
+	var firstID uint
+	wrote := 0
+	for _, p := range parts {
+		if p.Amount <= 0 {
+			continue
+		}
+		rec := base
+		rec.Mode = p.Mode
+		rec.Amount = p.Amount
+		rec.BankID = p.BankID
+		if p.BranchID != nil {
+			rec.BranchID = p.BranchID
+		}
+		rec.TransactionGroupID = groupID
+		if err := insertMovement(ctx, &rec); err != nil {
+			return 0, "", err
+		}
+		if wrote == 0 {
+			firstID = rec.ID
+		}
+		wrote++
+	}
+	if wrote == 0 {
+		return 0, "", common.NewBadRequest("payment breakdown is required")
+	}
+	return firstID, groupID, nil
+}
+
+const (
+	SourceLoanDisbursement         = "loan_disbursement"
+	SourceLoanServiceCharge        = "loan_service_charge"
+	SourceLoanDisbursementReversed = "loan_disbursement_reversed"
+)
+
+// DeleteCashBySource removes every cash line a record produced, found by its source link.
+func DeleteCashBySource(ctx context.Context, sourceType string, sourceID uint) error {
+	return config.DB.
+		WithContext(ctx).Where("source_type = ? AND source_id = ?", sourceType, sourceID).
+		Delete(&models.CashMovement{}).Error
+}
+
+// RecordLoanDisbursementGross books a gold-loan disbursement as the full principal going out, with the
+// service charge as its own cash-in entry when it was withheld from the payout. Net effect per mode is
+// the payout that actually reached the customer. payout is how the customer was paid; charge is how the
+// withheld charge is booked (empty when the charge is added to the principal, which moves no cash).
+func RecordLoanDisbursementGross(ctx context.Context, loanID uint, loanNumber string, payout, charge []SplitPart, branchID uint, occurredOn time.Time, customerID uint) (string, error) {
+	if occurredOn.IsZero() {
+		occurredOn = time.Now()
+	}
+	src := loanID
+	out := models.CashMovement{
+		Type: "out", Purpose: "Loan disbursement — " + loanNumber,
+		BranchID: &branchID, OccurredOn: occurredOn,
+		SourceType: SourceLoanDisbursement, SourceID: &src,
+	}
+	if customerID != 0 {
+		out.PartyCustomerID = &customerID
+	}
+	_, groupID, err := recordPartsMovement(ctx, out, mergeSplitParts(payout, charge))
+	if err != nil {
+		_ = DeleteCashBySource(ctx, SourceLoanDisbursement, loanID)
+		return "", err
+	}
+	if SumSplitParts(charge) > 0 {
+		in := models.CashMovement{
+			Type: "in", Source: "Service Charge", Purpose: "Service charge — " + loanNumber,
+			BranchID: &branchID, OccurredOn: occurredOn,
+			SourceType: SourceLoanServiceCharge, SourceID: &src,
+		}
+		if _, _, err := recordPartsMovement(ctx, in, charge); err != nil {
+			_ = DeleteCashBySource(ctx, SourceLoanServiceCharge, loanID)
+			_ = DeleteCashBySource(ctx, SourceLoanDisbursement, loanID)
+			return "", err
+		}
+	}
+	return groupID, nil
+}
+
+// LoanDisbursementReversal is what ReverseLoanDisbursementCash gave back to the till, so the loan ledger
+// can show the same split.
+type LoanDisbursementReversal struct {
+	Gross, Cash, Upi, BankTransfer float64
+	BankID                         *uint
+	GroupID                        string
+}
+
+// ReverseLoanDisbursementCash mirrors every cash line a loan's disbursement wrote (found by the source
+// link): the principal comes back in, the withheld charge goes back out. The originals and the mirrors
+// are then retagged so a later re-approval and reversal never touch them again. It returns nil when the
+// loan has no linked lines (a disbursement from before the link existed).
+func ReverseLoanDisbursementCash(ctx context.Context, loanID uint, loanNumber string, occurredOn time.Time) (*LoanDisbursementReversal, error) {
+	var rows []models.CashMovement
+	if err := config.DB.WithContext(ctx).
+		Where("source_id = ? AND source_type IN ?", loanID, []string{SourceLoanDisbursement, SourceLoanServiceCharge}).
+		Order("id asc").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	if occurredOn.IsZero() {
+		occurredOn = time.Now()
+	}
+	res := &LoanDisbursementReversal{GroupID: common.NewTransactionGroupID()}
+	src := loanID
+	err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, r := range rows {
+			m := models.CashMovement{
+				Amount: r.Amount, Mode: r.Mode, BankID: r.BankID, BranchID: r.BranchID,
+				PartyCustomerID: r.PartyCustomerID, OccurredOn: occurredOn, TransactionGroupID: res.GroupID,
+				SourceType: SourceLoanDisbursementReversed, SourceID: &src,
+			}
+			if r.SourceType == SourceLoanDisbursement {
+				m.Type, m.Source, m.Purpose = "in", "Collection", "Disbursement Reversal — "+loanNumber
+				res.Gross = common.RoundMoney(res.Gross + r.Amount)
+				switch r.Mode {
+				case models.CashModeCash:
+					res.Cash = common.RoundMoney(res.Cash + r.Amount)
+				case models.CashModeUPI:
+					res.Upi = common.RoundMoney(res.Upi + r.Amount)
+				case models.CashModeBankTransfer:
+					res.BankTransfer = common.RoundMoney(res.BankTransfer + r.Amount)
+				}
+				if res.BankID == nil && r.BankID != nil {
+					res.BankID = r.BankID
+				}
+			} else {
+				m.Type, m.Purpose = "out", "Service charge reversed — "+loanNumber
+			}
+			if err := tx.Create(&m).Error; err != nil {
+				return err
+			}
+		}
+		ids := make([]uint, len(rows))
+		for i, r := range rows {
+			ids[i] = r.ID
+		}
+		return tx.Model(&models.CashMovement{}).Where("id IN ?", ids).
+			Update("source_type", SourceLoanDisbursementReversed).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint, bankID *uint) (uint, string, error) {
 	base := models.CashMovement{
 		Type:     "out",
 		Purpose:  "Loan top-up — " + loanNumber,
 		BranchID: &branchID,
+		BankID:   bankID,
 	}
 	if occurredOn.IsZero() {
 		base.OccurredOn = time.Now()
@@ -595,42 +800,14 @@ func RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string
 	})
 }
 
-func RecordBankPledgeCashOut(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time, branchID uint) (uint, error) {
-	hoID, err := pledgeBranchID(ctx, bankID, upiAmount+bankTransferAmount+chequeAmount)
-	if err != nil {
-		return 0, err
-	}
-	base := models.CashMovement{
-		Type:     "out",
-		Purpose:  "Bank pledge release — " + bankName + " — " + loanNumber,
-		Bank:     bankName,
-		BankID:   bankID,
-		BranchID: &hoID,
-	}
-	if occurredOn.IsZero() {
-		base.OccurredOn = time.Now()
-	} else {
-		base.OccurredOn = occurredOn
-	}
-	if cashAmount+upiAmount+bankTransferAmount+chequeAmount == 0 {
-		cashAmount = amount
-	}
-	id, _, err := recordSplitCashMovement(ctx, base, amount, []splitComponent{
-		{models.CashModeCash, cashAmount},
-		{models.CashModeUPI, upiAmount},
-		{models.CashModeBankTransfer, bankTransferAmount},
-		{models.CashModeCheque, chequeAmount},
-	})
-	return id, err
-}
-
 func RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, branchID uint, occurredOn time.Time, customerID uint) (uint, error) {
 	base := models.CashMovement{
-		Type:     "in",
-		Source:   "Investment",
-		Purpose:  "Investment deposit — " + investmentNumber,
-		BankID:   bankID,
-		BranchID: &branchID,
+		Type:       "in",
+		Source:     "Investment",
+		Purpose:    "Investment deposit — " + investmentNumber,
+		BankID:     bankID,
+		BranchID:   &branchID,
+		SourceType: "investment_deposit", SourceID: &investmentID,
 	}
 	if customerID != 0 {
 		base.PartyCustomerID = &customerID
@@ -654,10 +831,11 @@ func RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, inves
 
 func RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint, bankID *uint) (uint, string, error) {
 	base := models.CashMovement{
-		Type:     "out",
-		Purpose:  fmt.Sprintf("%s — %s", payoutType, investmentNumber),
-		BankID:   bankID,
-		BranchID: &branchID,
+		Type:       "out",
+		Purpose:    fmt.Sprintf("%s — %s", payoutType, investmentNumber),
+		BankID:     bankID,
+		BranchID:   &branchID,
+		SourceType: "investment_payout", SourceID: &investmentID,
 	}
 	if occurredOn.IsZero() {
 		base.OccurredOn = time.Now()
@@ -675,33 +853,17 @@ func RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, inves
 	})
 }
 
-func RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
-	rec := &models.CashMovement{
-		Type:     "in",
-		Source:   "Auction",
-		Purpose:  "Auction sale proceeds — " + loanNumber,
-		Amount:   amount,
-		Mode:     models.CashModeCash,
-		BranchID: &branchID,
-	}
-	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
-	} else {
-		rec.OccurredOn = occurredOn
-	}
-	if err := insertMovement(ctx, rec); err != nil {
-		return 0, err
-	}
-	return rec.ID, nil
-}
-
-func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint) (uint, error) {
 	rec := &models.CashMovement{
 		Type:     "out",
-		Purpose:  "Auction surplus refunded to customer — " + loanNumber,
+		Purpose:  "Auction surplus settlement — " + loanNumber,
 		Amount:   amount,
-		Mode:     models.CashModeCash,
+		Mode:     auctionMode(mode),
+		BankID:   bankID,
 		BranchID: &branchID,
+	}
+	if customerID != 0 {
+		rec.PartyCustomerID = &customerID
 	}
 	if occurredOn.IsZero() {
 		rec.OccurredOn = time.Now()
@@ -811,12 +973,27 @@ func partyInBranchScope(c echo.Context, ctx context.Context, table string, id ui
 	return branchID == *scope, nil
 }
 
-func insertMovement(ctx context.Context, m *models.CashMovement) error {
-	if strings.TrimSpace(m.Mode) == "" {
-		m.Mode = models.CashModeCash
+// validateMovementMode enforces the three payment modes: Cash never carries a bank, UPI and Bank Transfer
+// must name one. A blank or unknown mode is rejected rather than silently booked as Cash.
+func validateMovementMode(m *models.CashMovement) error {
+	switch m.Mode {
+	case models.CashModeCash:
+		m.BankID = nil
+	case models.CashModeUPI, models.CashModeBankTransfer:
+		if m.BankID == nil || *m.BankID == 0 {
+			return common.NewBadRequest("bank is required when mode is UPI or Bank Transfer")
+		}
+	default:
+		return common.NewBadRequest("mode must be Cash, UPI or Bank Transfer")
 	}
-	return config.DB.
-		WithContext(ctx).Create(m).Error
+	return nil
+}
+
+func insertMovement(ctx context.Context, m *models.CashMovement) error {
+	if err := validateMovementMode(m); err != nil {
+		return err
+	}
+	return cashDB(ctx).Create(m).Error
 }
 
 func findMovements(ctx context.Context, branchID *uint, fromDate, toDate time.Time, category, search string, limit, offset int) ([]models.CashMovement, int64, error) {
@@ -984,14 +1161,6 @@ func removeMovement(ctx context.Context, id uint) error {
 		WithContext(ctx).Delete(&models.CashMovement{}, id).Error
 }
 
-func deleteByPurposes(ctx context.Context, purposes []string) error {
-	if len(purposes) == 0 {
-		return nil
-	}
-	return config.DB.
-		WithContext(ctx).Where("purpose IN ?", purposes).Delete(&models.CashMovement{}).Error
-}
-
 func deleteByPurposeSuffixOrIDs(ctx context.Context, suffix string, ids []uint) error {
 	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(suffix)
 	q := config.DB.
@@ -1083,7 +1252,7 @@ func sumBreakdownByDate(ctx context.Context, branchID *uint, date time.Time) (Ca
 				out.LoanDisbursements += rw.Amount
 			case strings.HasPrefix(rw.Purpose, "Bank pledge release — "):
 				out.BankReleases += rw.Amount
-			case strings.HasPrefix(rw.Purpose, "Auction surplus refunded"):
+			case strings.HasPrefix(rw.Purpose, "Auction surplus settlement"):
 				out.AuctionRefunds += rw.Amount
 			case strings.HasPrefix(rw.Purpose, "Gold purchase cost — "):
 				out.GoldPurchases += rw.Amount
@@ -1179,6 +1348,7 @@ func netByBank(ctx context.Context, to time.Time) (map[uint]float64, error) {
 		WithContext(ctx).Model(&models.CashMovement{}).
 		Select("bank_id, COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END), 0) AS net").
 		Where("occurred_on < ? AND expense_id IS NULL AND bank_id IS NOT NULL", to).
+		Where("mode IN ?", bankModes).
 		Where("to_bank_id IS NULL").
 		Group("bank_id").Scan(&rows).Error
 	if err != nil {
@@ -1205,7 +1375,7 @@ func netByScope(ctx context.Context, s BalanceScope) (float64, error) {
 			q = q.Where("mode = ?", s.Mode)
 		}
 	} else {
-		q = q.Where("(mode IS NULL OR mode NOT IN ?)", bankModes)
+		q = q.Where("mode = ?", models.CashModeCash)
 	}
 	if !s.From.IsZero() {
 		q = q.Where("occurred_on >= ?", s.From)
@@ -1340,7 +1510,7 @@ func GetModeLedger(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	mode := c.QueryParam("mode")
 	if !modeVocabulary[mode] {
-		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid mode: expected Cash, UPI, Bank Transfer or Cheque"})
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid mode: expected Cash, UPI or Bank Transfer"})
 	}
 	var bankID *uint
 	if raw := c.QueryParam("bank_id"); raw != "" {
@@ -1683,4 +1853,174 @@ func UpdateMovementStatus(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, rec)
+}
+
+// auctionMode keeps an auction entry booked as Cash when the screen sent no mode (an older client).
+func auctionMode(mode string) string {
+	if strings.TrimSpace(mode) == "" {
+		return models.CashModeCash
+	}
+	return mode
+}
+
+// pledgeParts splits a bank-pledge payment by mode and books each part under the branch the money really
+// sits in: Cash with Head Office (where the cash-in-hand check looks), UPI / Bank Transfer with the branch
+// of the bank account it moved through. Before, any bank part moved the cash part into the bank's branch.
+func pledgeParts(ctx context.Context, amount, cash, upi, bankTransfer, cheque float64, bankID *uint) ([]SplitPart, uint, error) {
+	hoID, err := HeadOfficeBranchID(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	if cash+upi+bankTransfer+cheque == 0 {
+		cash = amount
+	}
+	parts, err := SplitParts(cash, upi, bankTransfer, cheque, bankID)
+	if err != nil {
+		return nil, 0, err
+	}
+	bankBranch := hoID
+	if upi+bankTransfer > 0 {
+		if bankBranch, err = pledgeBranchID(ctx, bankID, upi+bankTransfer); err != nil {
+			return nil, 0, err
+		}
+	}
+	for i := range parts {
+		branch := hoID
+		if parts[i].Mode != models.CashModeCash {
+			branch = bankBranch
+		}
+		parts[i].BranchID = &branch
+	}
+	return parts, hoID, nil
+}
+
+func RecordBankPledgeCashIn(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time) (uint, error) {
+	parts, hoID, err := pledgeParts(ctx, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount, bankID)
+	if err != nil {
+		return 0, err
+	}
+	base := models.CashMovement{
+		Type:     "in",
+		Source:   "Bank",
+		Purpose:  "Bank pledge — " + bankName + " — " + loanNumber,
+		Bank:     bankName,
+		BranchID: &hoID,
+	}
+	if occurredOn.IsZero() {
+		base.OccurredOn = time.Now()
+	} else {
+		base.OccurredOn = occurredOn
+	}
+	id, _, err := recordPartsMovement(ctx, base, parts)
+	return id, err
+}
+
+func RecordBankPledgeCashOut(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time, branchID uint) (uint, error) {
+	parts, hoID, err := pledgeParts(ctx, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount, bankID)
+	if err != nil {
+		return 0, err
+	}
+	base := models.CashMovement{
+		Type:     "out",
+		Purpose:  "Bank pledge release — " + bankName + " — " + loanNumber,
+		Bank:     bankName,
+		BranchID: &hoID,
+	}
+	if occurredOn.IsZero() {
+		base.OccurredOn = time.Now()
+	} else {
+		base.OccurredOn = occurredOn
+	}
+	id, _, err := recordPartsMovement(ctx, base, parts)
+	return id, err
+}
+
+type txCtxKey struct{}
+
+// WithTx returns a context whose cash lines are written through tx. A flow that saves its own record and
+// its cash lines together opens one transaction and passes this context to the Record… functions, so a
+// failed cash line undoes the record too (and nothing is left half-saved).
+func WithTx(ctx context.Context, tx *gorm.DB) context.Context {
+	return context.WithValue(ctx, txCtxKey{}, tx)
+}
+
+func cashDB(ctx context.Context) *gorm.DB {
+	if tx, ok := ctx.Value(txCtxKey{}).(*gorm.DB); ok && tx != nil {
+		return tx
+	}
+	return config.DB.WithContext(ctx)
+}
+
+// RecordAuctionSaleCashIn books the money received for an auction sale the way the loan was paid down, so it
+// reads like any other repayment in the ledger: one credit line per component the sale cleared (service
+// charge, penal interest, interest, principal), each in the mode(s) the buyer paid by, filed as a Collection
+// (the same source a normal repayment uses). What is left of the sale after the loan — the surplus and the
+// auction expenses — is one "Auction sale proceeds" line per mode. Together the lines add up to the full sale
+// amount. With no split sent the sale is all Cash. It returns the transaction group id the lines share.
+func RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount float64, bankID *uint, branchID uint, occurredOn time.Time, fee, penal, interest, principal float64, customerID uint) (uint, string, error) {
+	if cashAmount+upiAmount+bankTransferAmount == 0 {
+		cashAmount = amount
+	}
+	parts, err := SplitParts(cashAmount, upiAmount, bankTransferAmount, 0, bankID)
+	if err != nil {
+		return 0, "", err
+	}
+	if occurredOn.IsZero() {
+		occurredOn = time.Now()
+	}
+	groupID := common.NewTransactionGroupID()
+	var firstID uint
+	write := func(source, purpose string, p SplitPart, amt float64) error {
+		if amt <= 0.004 {
+			return nil
+		}
+		rec := &models.CashMovement{
+			Type: "in", Source: source, Purpose: purpose, Mode: p.Mode, BankID: p.BankID, Amount: common.RoundMoney(amt),
+			BranchID: &branchID, OccurredOn: occurredOn, TransactionGroupID: groupID,
+		}
+		if customerID != 0 {
+			rec.PartyCustomerID = &customerID
+		}
+		if err := insertMovement(ctx, rec); err != nil {
+			return err
+		}
+		if firstID == 0 {
+			firstID = rec.ID
+		}
+		return nil
+	}
+	left := make([]float64, len(parts))
+	for i, p := range parts {
+		left[i] = p.Amount
+	}
+	mi := 0
+	for _, c := range []struct {
+		label  string
+		amount float64
+	}{{"Service Charge", fee}, {"Penal Interest", penal}, {"Interest", interest}, {"Principal", principal}} {
+		need := c.amount
+		for need > 0.004 && mi < len(parts) {
+			take := need
+			if left[mi] < take {
+				take = left[mi]
+			}
+			if err := write("Collection", fmt.Sprintf("%s (Auction Sale) — %s", c.label, loanNumber), parts[mi], take); err != nil {
+				return 0, "", err
+			}
+			need -= take
+			left[mi] -= take
+			if left[mi] <= 0.004 {
+				mi++
+			}
+		}
+	}
+	for i, p := range parts {
+		if err := write("Auction", "Auction sale proceeds — "+loanNumber, p, left[i]); err != nil {
+			return 0, "", err
+		}
+	}
+	if firstID == 0 {
+		return 0, "", common.NewBadRequest("payment breakdown is required")
+	}
+	return firstID, groupID, nil
 }

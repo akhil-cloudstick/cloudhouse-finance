@@ -18,6 +18,10 @@ const (
 	ServiceChargeModeAddedToPrincipal   = "AddedToPrincipal"
 )
 
+const InterestMethodMultiple = "Multiple interest"
+
+// RateTier is one step of a Multiple-interest ladder: the rate applies while
+// interest has been unpaid for up to Days days (the last step has Days 0 = thereafter).
 type RateTier struct {
 	Days int     `json:"days"`
 	Rate float64 `json:"rate"`

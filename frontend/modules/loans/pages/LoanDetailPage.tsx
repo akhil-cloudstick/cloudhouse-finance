@@ -7,6 +7,7 @@ import { toDataURL } from "qrcode";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { useModal } from "@/common/components/ModalProvider";
 import { SafeImage } from "@/common/components/ui/SafeImage";
+import { OrnamentPhotoSlider } from "@/modules/loans/components/OrnamentPhotoSlider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import {
@@ -138,6 +139,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         { value: "topup", label: "Top-Up" },
         { value: "interest", label: "Interest" },
         { value: "penal", label: "Penal Interest" },
+        { value: "service-charge", label: "Service Charge" },
         { value: "auction", label: "Auction" },
       ],
     },
@@ -324,16 +326,10 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // release or edit.
   const isFinished = l.status === "Closed" || l.status === "Rejected";
 
-  function viewOrnImg(url: string, name: string) {
-    openModal(
-      <>
-        <div className="hd"><h3>{name} — {l.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-        <div className="bd" style={{ textAlign: "center" }}>
-          <SafeImage src={url} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt={name} />
-        </div>
-      </>,
-      true
-    );
+  // Opens the slide viewer over every photo of the ornament (one photo just
+  // shows without the arrows/thumbnails).
+  function viewOrnImg(urls: string[], name: string) {
+    openModal(<OrnamentPhotoSlider title={`${name} — ${l.id}`} urls={urls} onClose={closeModal} />, true);
   }
 
   async function doApprove(stage: string, action: "Approved" | "Rejected" | "Verified") {
@@ -473,7 +469,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
           loan={l}
           stage={pendingStage}
           onSaved={(updated) => { setLoan(updated); refreshLoans(); }}
-        />
+        />,
+        true
       );
       return;
     }
@@ -1276,6 +1273,14 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>}
               <div className="i"><div className="k">Opening Date</div><div className="v">{fmtDate(l.opened)}</div></div>
               <div className="i"><div className="k">Due Date</div><div className="v" style={l.isOverdue ? { color: "var(--red)" } : undefined}>{fmtDate(l.due)}{l.isOverdue ? ` · ${l.daysOverdue}d overdue` : ""}</div></div>
+              {l.overallPhotoUrl && (
+                <div className="i" style={{ gridColumn: "1 / -1" }}>
+                  <div className="k">Overall Photo</div>
+                  <div className="v">
+                    <SafeImage src={l.overallPhotoUrl} style={{ width: "100%", maxHeight: 150, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)", cursor: "pointer" }} title="View overall photo" alt="Overall photo of pledged ornaments" onClick={() => viewOrnImg([l.overallPhotoUrl], "Overall photo")} />
+                  </div>
+                </div>
+              )}
             </div></div></div>
       </div>
 
@@ -1320,13 +1325,13 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                         );
                       }
 
-                      if (entry.kind === "interest" || entry.kind === "penal") {
+                      if (entry.kind === "interest" || entry.kind === "penal" || entry.kind === "service-charge") {
                         const penal = entry.kind === "penal";
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td>{fmtDate(entry.date)}</td>
                             <td>{l.loanNumber}</td>
-                            <td>{penal ? "Penal Interest Charged" : "Interest Charged"}</td>
+                            <td>{entry.kind === "service-charge" ? "Service Charge" : penal ? "Penal Interest Charged" : "Interest Charged"}</td>
                             <td>—</td>
                             <td className="num" style={{ color: "var(--red)" }}>{fmt(entry.amount)}</td>
                             <td className="num">—</td>
@@ -1413,6 +1418,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                       // The allocation breakdown is the whole payment's —
                       // shown once, on its first part.
                       const firstPart = !part || part.index === 0;
+                      // A repayment row split by what it paid (auction proceeds): this row is one component.
+                      const component = entry.component;
                       // Interest/Principal/Partial/Full Settlement/Waiver all
                       // reduce what's owed (credit); an Adjustment can go
                       // either way depending on what it corrected — shown as a
@@ -1435,7 +1442,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                           <td>{fmtDate(p.paidOn)}</td>
                           <td>{p.reference || "—"}</td>
                           <td>
-                            {p.type}
+                            {component ? `${component} — ${p.type}` : p.type}
                             {part && <SplitPartNote part={part} total={p.amount} />}
                             {firstPart && p.processingFee > 0 && (
                               <div style={{ fontSize: "0.85em", color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
@@ -1444,16 +1451,16 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                               const a = entry.auction;
                               return a ? <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{auctionBreakdown(a)}</div> : null;
                             })()}
-                            {firstPart && breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
+                            {firstPart && !component && breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
                             {p.bankId && part?.mode !== "Cash" && (
                               <div style={{ marginTop: 4 }}>
                                 <LedgerRefLink kind="bank" id={p.bankId} label={p.bankName || "Bank"} />
                               </div>
                             )}
                           </td>
-                          <td>{isCash ? modeCellFor(part?.mode || p.method) : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
+                          <td>{isCash ? modeCellFor(entry.mode || part?.mode || p.method) : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
                           <td className="num">—</td>
-                          <td className="num" style={{ color: "var(--green)" }}>{fmt(part ? part.amount : p.amount)}</td>
+                          <td className="num" style={{ color: "var(--green)" }}>{fmt(part ? part.amount : component ? entry.amount : p.amount)}</td>
                           <td className="num">{fmt(entry.balance)}</td>
                         </tr>
                       );
@@ -1487,14 +1494,14 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     <td>{o.name}</td>
                     <td><span className="chip brand">{o.purity}</span></td>
                     <td className="num">{o.quantity}</td>
-                    <td className="num">{o.grossWeight.toFixed(1)} g</td>
-                    <td className="num">{o.netWeight.toFixed(1)} g</td>
+                    <td className="num">{o.grossWeight.toFixed(3)} g</td>
+                    <td className="num">{o.netWeight.toFixed(3)} g</td>
                     <td className="num">{fmt(o.goldValue)}</td>
                     <td>
                       {o.photoUrl ? (
                         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <SafeImage src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(o.photoUrl!, o.name)} />
-                          <button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrl!, o.name)}>View</button>
+                          <SafeImage src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={o.photoUrls.length > 1 ? `View all ${o.photoUrls.length} photos` : "View photo"} onClick={() => viewOrnImg(o.photoUrls, o.name)} />
+                          <button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrls, o.name)}>{o.photoUrls.length > 1 ? `View all (${o.photoUrls.length})` : "View"}</button>
                         </span>
                       ) : (
                         <span style={{ color: "var(--muted)" }}>—</span>

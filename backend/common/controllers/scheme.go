@@ -16,7 +16,7 @@ import (
 type schemeRequest struct {
 	Name               string                  `json:"name" binding:"required"`
 	BranchID           uint                    `json:"branch_id"`
-	InterestRate       float64                 `json:"interest_rate" binding:"required"`
+	InterestRate       float64                 `json:"interest_rate"`
 	DurationMonths     int                     `json:"duration_months" binding:"required"`
 	LTVPercent         float64                 `json:"ltv_percent" binding:"required"`
 	InterestMethod     string                  `json:"interest_method"`
@@ -187,7 +187,7 @@ func schemeMaxCodeSuffix(ctx context.Context) (int, error) {
 }
 
 func normalizeTiers(in *SchemeCreateInput) {
-	if in.InterestMethod != "Multiple interest" {
+	if in.InterestMethod != commonModels.InterestMethodMultiple {
 		in.RateTiers = nil
 		in.MinimumDays = 0
 		return
@@ -199,22 +199,22 @@ func normalizeTiers(in *SchemeCreateInput) {
 }
 
 func validateTiers(in SchemeCreateInput) error {
-	if in.InterestMethod != "Multiple interest" {
+	if in.InterestMethod != commonModels.InterestMethodMultiple {
 		return nil
 	}
 	if len(in.RateTiers) < 2 {
-		return NewBadRequest("multiple interest needs at least two rate rows, each with a positive rate and (except the last) a positive number of days, and a non-negative minimum period")
+		return NewBadRequest("multiple interest needs at least two rate rows")
 	}
 	for i, t := range in.RateTiers {
 		if t.Rate <= 0 {
-			return NewBadRequest("multiple interest needs at least two rate rows, each with a positive rate and (except the last) a positive number of days, and a non-negative minimum period")
+			return NewBadRequest(fmt.Sprintf("rate row %d needs a rate above zero", i+1))
 		}
 		if i < len(in.RateTiers)-1 && t.Days <= 0 {
-			return NewBadRequest("multiple interest needs at least two rate rows, each with a positive rate and (except the last) a positive number of days, and a non-negative minimum period")
+			return NewBadRequest(fmt.Sprintf("rate row %d needs a number of days above zero", i+1))
 		}
 	}
 	if in.MinimumDays < 0 {
-		return NewBadRequest("multiple interest needs at least two rate rows, each with a positive rate and (except the last) a positive number of days, and a non-negative minimum period")
+		return NewBadRequest("minimum period cannot be negative")
 	}
 	return nil
 }
@@ -231,6 +231,9 @@ func schemeValidate(in SchemeCreateInput) error {
 	}
 	if in.InterestRate < 0 {
 		return NewBadRequest("interest rate must be non-negative")
+	}
+	if in.InterestMethod != commonModels.InterestMethodMultiple && in.InterestRate <= 0 {
+		return NewBadRequest("interest rate is required")
 	}
 	switch in.ServiceChargeType {
 	case "", commonModels.ServiceChargeTypeNone:

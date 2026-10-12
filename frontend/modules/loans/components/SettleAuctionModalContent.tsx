@@ -9,6 +9,7 @@ import { settleAuction } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type AuctionSurplusDisposition, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { SplitPaymentInput, ZERO_SPLIT, singleSplitMode, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 
 type SettleAuctionModalContentProps = { loan: LoanView; rec: AuctionRecordView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void };
 
@@ -28,6 +29,9 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
   const [remarks, setRemarks] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
 
   const surplus = rec.surplusPayableAmount;
   // Guards a double-click/double-Enter that fires both calls before React
@@ -47,10 +51,17 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
       setErr("Please state why the surplus is being retained.");
       return;
     }
+    let mode: string | undefined;
+    if (disposition === "RefundedToCustomer") {
+      if (Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the surplus."); return; }
+      mode = singleSplitMode(split) ?? undefined;
+      if (!mode) { setErr("Refund the surplus in one payment mode — Cash, UPI or Bank Transfer."); return; }
+      if (mode !== "Cash" && !bankId) { setErr("Pick the bank the refund was paid from."); return; }
+    }
     submittingRef.current = true;
     setSaving(true);
     try {
-      const updated = await settleAuction(loan.numericId, disposition, remarks.trim() || undefined);
+      const updated = await settleAuction(loan.numericId, disposition, remarks.trim() || undefined, mode, mode ? bankId : undefined);
       onSaved(updated);
       closeModal();
       toast(disposition === "RefundedToCustomer"
@@ -106,6 +117,11 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
             </label>
           </div>
         </div></div>
+        {disposition === "RefundedToCustomer" && (
+          <div className="frow">
+            <SplitPaymentInput totalAmount={surplus} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+          </div>
+        )}
         <div className="frow"><div>
           <label className="f">Remarks {disposition === "RecordedAsIncome" ? "*" : ""}</label>
           <input className="inp" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="reason / reference" maxLength={255} />

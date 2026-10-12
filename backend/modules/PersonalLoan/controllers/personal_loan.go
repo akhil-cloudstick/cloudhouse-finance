@@ -63,11 +63,16 @@ type approvalRequest struct {
 }
 
 type renewRequest struct {
-	PrincipalAmount float64 `json:"principal_amount"`
-	InterestType    string  `json:"interest_type"`
-	InterestValue   float64 `json:"interest_value"`
-	Frequency       string  `json:"frequency"`
-	TenureCount     int     `json:"tenure_count"`
+	PrincipalAmount    float64 `json:"principal_amount"`
+	InterestType       string  `json:"interest_type"`
+	InterestValue      float64 `json:"interest_value"`
+	Frequency          string  `json:"frequency"`
+	TenureCount        int     `json:"tenure_count"`
+	CashAmount         float64 `json:"cash_amount"`
+	UpiAmount          float64 `json:"upi_amount"`
+	BankTransferAmount float64 `json:"bank_transfer_amount"`
+	ChequeAmount       float64 `json:"cheque_amount"`
+	BankID             *uint   `json:"bank_id"`
 }
 
 type CashRecorder interface {
@@ -136,6 +141,18 @@ type RenewInput struct {
 	Frequency           string
 	TenureCount         int
 	CreatedByEmployeeID uint
+	// how the renewal payout to the customer was made (blank = all Cash)
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+	BankID             *uint
+}
+
+// renewPayout is how the renewal payout to the customer was split by payment mode.
+type renewPayout struct {
+	cash, upi, bankTransfer, cheque float64
+	bankID                          *uint
 }
 
 type RenewResult struct {
@@ -169,13 +186,6 @@ type CalendarInstallment struct {
 	BranchID     uint
 	DueDate      time.Time
 	Amount       float64
-}
-
-func ensureCashInHand(ctx context.Context, branchID uint, amount float64) error {
-	if config.IsDemoRun(ctx) {
-		return nil
-	}
-	return cashbook.EnsureCashInHand(ctx, branchID, amount)
 }
 
 func validateFrequency(freq string) bool {
@@ -258,7 +268,7 @@ func SavePersonalLoan(ctx context.Context, in CreateInput) (*models.PersonalLoan
 	}
 	firstStage, needsApproval := chain.First()
 	if !needsApproval {
-		if err := ensureCashInHand(ctx, in.BranchID, disbursed); err != nil {
+		if err := ensurePayoutFunds(ctx, in.BranchID, dCash, dBankID, dUpi+dBankTransfer); err != nil {
 			return nil, err
 		}
 	}
@@ -312,13 +322,13 @@ func SavePersonalLoan(ctx context.Context, in CreateInput) (*models.PersonalLoan
 		if needsApproval {
 			return nil
 		}
-		return activateTx(ctx, tx, rec, now)
+		if err := activateTx(ctx, tx, rec, now); err != nil {
+			return err
+		}
+		return recordDisbursement(cashbook.WithTx(ctx, tx), rec, now)
 	})
 	if err != nil {
 		return nil, err
-	}
-	if !needsApproval {
-		recordDisbursement(ctx, rec, now)
 	}
 	return rec, nil
 }
@@ -337,10 +347,13 @@ func activateTx(ctx context.Context, tx *gorm.DB, rec *models.PersonalLoan, now 
 	}
 }
 
-func recordDisbursement(ctx context.Context, rec *models.PersonalLoan, now time.Time) {
+// recordDisbursement books the loan's disbursement in the cash book. It runs inside the transaction that
+// saves the loan (the context carries it), so a failed cash line means the loan is not created either.
+func recordDisbursement(ctx context.Context, rec *models.PersonalLoan, now time.Time) error {
 	if _, _, err := cashbook.RecordLoanDisbursementCashOut(ctx, rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.DisbursementCashAmount, rec.DisbursementUpiAmount, rec.DisbursementBankTransferAmount, rec.DisbursementChequeAmount, rec.BranchID, now, rec.CustomerID, rec.DisbursementBankID); err != nil {
-		log.Printf("cash-out movement (personal loan disbursement) failed for loan %d: %v", rec.ID, err)
+		return fmt.Errorf("could not record the disbursement in Cash-in-Hand, loan not saved: %w", err)
 	}
+	return nil
 }
 
 func approveLoan(ctx context.Context, id uint, branchID *uint, in ApprovalInput) (*models.PersonalLoan, error) {
@@ -375,7 +388,7 @@ func approveLoan(ctx context.Context, id uint, branchID *uint, in ApprovalInput)
 	case hasNext:
 		rec.ApprovalStage = next.Pending
 	default:
-		if err := ensureCashInHand(ctx, rec.BranchID, rec.DisbursedAmount); err != nil {
+		if err := ensurePayoutFunds(ctx, rec.BranchID, rec.DisbursementCashAmount, rec.DisbursementBankID, rec.DisbursementUpiAmount+rec.DisbursementBankTransferAmount); err != nil {
 			return nil, err
 		}
 		disbursing = true
@@ -389,15 +402,15 @@ func approveLoan(ctx context.Context, id uint, branchID *uint, in ApprovalInput)
 			return err
 		}
 		if disbursing {
-			return activateTx(ctx, tx, rec, now)
+			if err := activateTx(ctx, tx, rec, now); err != nil {
+				return err
+			}
+			return recordDisbursement(cashbook.WithTx(ctx, tx), rec, now)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	if disbursing {
-		recordDisbursement(ctx, rec, now)
 	}
 	common.RecordAction(ctx, &commonModels.ApprovalAction{
 		Flow: common.FlowPersonalLoan, EntityID: rec.ID, Stage: step.Key, Action: in.Action,
@@ -657,14 +670,14 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 		if err := allocatePaymentToInstallments(ctx, tx, rec.ID, amount); err != nil {
 			return err
 		}
+		if _, _, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), rec.ID, rec.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, rec.BranchID, paidOn, "Personal Loan Payment", rec.CustomerID, in.BankID); err != nil {
+			return fmt.Errorf("could not record the payment in Cash-in-Hand, payment not saved: %w", err)
+		}
 		result = rec
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	if _, _, err := cashbook.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, result.BranchID, paidOn, "Personal Loan Payment", result.CustomerID, in.BankID); err != nil {
-		log.Printf("cash-in movement (personal loan payment) failed for loan %d: %v", result.ID, err)
 	}
 	return result, nil
 }
@@ -765,6 +778,7 @@ func renewLoan(ctx context.Context, loanID uint, branchID *uint, in RenewInput) 
 		return nil, common.NewBadRequest("interest value must not be negative")
 	}
 	var result RenewResult
+	var payout renewPayout
 	err := personalLoanDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		old, err := lockByID(ctx, tx, loanID, branchID)
 		if err != nil {
@@ -791,11 +805,35 @@ func renewLoan(ctx context.Context, loanID uint, branchID *uint, in RenewInput) 
 		if interestAmount >= principal {
 			return common.NewBadRequest("interest amount must be less than the principal amount")
 		}
-		if err := ensureCashInHand(ctx, old.BranchID, disbursed); err != nil {
-			return err
+		// How the customer was paid out. With nothing sent the payout is all Cash; the till is only
+		// checked for the cash part, since a UPI / Bank Transfer payout leaves from a bank.
+		if disbursed > epsilon {
+			payCash, payUpi, payBank, payCheque, err := common.NormalizeSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, disbursed, in.BankID)
+			if err != nil {
+				return err
+			}
+			payout = renewPayout{cash: payCash, upi: payUpi, bankTransfer: payBank, cheque: payCheque}
+			if payUpi+payBank+payCheque > 0 {
+				payout.bankID = in.BankID
+			}
+			if payCash > epsilon || payUpi+payBank > epsilon {
+				if err := ensurePayoutFunds(ctx, old.BranchID, payCash, payout.bankID, payUpi+payBank); err != nil {
+					return err
+				}
+			}
 		}
 		now := time.Now()
 		newLoan := &models.PersonalLoan{
+			// how the renewal payout reached the customer, so the loan ledger shows the real mode
+			DisbursementCashAmount:         payout.cash,
+			DisbursementUpiAmount:          payout.upi,
+			DisbursementBankTransferAmount: payout.bankTransfer,
+			DisbursementChequeAmount:       payout.cheque,
+			DisbursementBankID:             payout.bankID,
+			// the renewed loan keeps the old loan's penal terms, or it would never charge penal interest
+			PenalInterestRate:   old.PenalInterestRate,
+			PenalFlatAmount:     old.PenalFlatAmount,
+			GracePeriodDays:     old.GracePeriodDays,
 			BranchID:            old.BranchID,
 			CustomerID:          old.CustomerID,
 			CreatedByEmployeeID: in.CreatedByEmployeeID,
@@ -860,16 +898,16 @@ func renewLoan(ctx context.Context, loanID uint, branchID *uint, in RenewInput) 
 			fmt.Sprintf("Loan opened for ₹%.2f (renewed from loan %s)", newLoan.PrincipalAmount, old.LoanNumber), newLoan.PrincipalAmount, &old.ID, now); err != nil {
 			return err
 		}
+		if newLoan.DisbursedAmount > epsilon {
+			if _, _, err := cashbook.RecordLoanDisbursementCashOut(cashbook.WithTx(ctx, tx), newLoan.ID, newLoan.LoanNumber, newLoan.DisbursedAmount, payout.cash, payout.upi, payout.bankTransfer, payout.cheque, newLoan.BranchID, newLoan.DisbursedAt, newLoan.CustomerID, payout.bankID); err != nil {
+				return fmt.Errorf("could not record the renewal payout in Cash-in-Hand, renewal not saved: %w", err)
+			}
+		}
 		result = RenewResult{OldLoan: old, NewLoan: newLoan}
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	if result.NewLoan.DisbursedAmount > epsilon {
-		if _, _, err := cashbook.RecordLoanDisbursementCashOut(ctx, result.NewLoan.ID, result.NewLoan.LoanNumber, result.NewLoan.DisbursedAmount, 0, 0, 0, 0, result.NewLoan.BranchID, result.NewLoan.DisbursedAt, result.NewLoan.CustomerID, nil); err != nil {
-			log.Printf("cash-out movement (personal loan renewal disbursement) failed for loan %d: %v", result.NewLoan.ID, err)
-		}
 	}
 	return &result, nil
 }
@@ -1354,6 +1392,11 @@ func RenewPersonalLoan(c echo.Context) error {
 		Frequency:           req.Frequency,
 		TenureCount:         req.TenureCount,
 		CreatedByEmployeeID: employeeID,
+		CashAmount:          req.CashAmount,
+		UpiAmount:           req.UpiAmount,
+		BankTransferAmount:  req.BankTransferAmount,
+		ChequeAmount:        req.ChequeAmount,
+		BankID:              req.BankID,
 	})
 	if err != nil {
 		return common.FailErr(c, err)
@@ -1390,4 +1433,13 @@ func ListPersonalLoansForCustomer(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, recs)
+}
+
+// ensurePayoutFunds checks a payout by how it moves: the Cash part against cash in hand, the UPI / Bank
+// Transfer part against the bank it leaves from. Skipped in demo runs, like ensureCashInHand.
+func ensurePayoutFunds(ctx context.Context, branchID uint, cash float64, bankID *uint, bankAmount float64) error {
+	if config.IsDemoRun(ctx) {
+		return nil
+	}
+	return cashbook.EnsurePayoutFunds(ctx, branchID, cash, bankID, bankAmount)
 }

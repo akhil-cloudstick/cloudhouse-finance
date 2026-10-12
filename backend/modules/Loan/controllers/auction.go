@@ -48,14 +48,20 @@ type auctionScheduleRequest struct {
 }
 
 type auctionSaleRequest struct {
-	SaleAmount      float64 `json:"sale_amount" binding:"required"`
-	AuctionExpenses float64 `json:"auction_expenses"`
+	SaleAmount         float64 `json:"sale_amount" binding:"required"`
+	AuctionExpenses    float64 `json:"auction_expenses"`
+	CashAmount         float64 `json:"cash_amount"`
+	UpiAmount          float64 `json:"upi_amount"`
+	BankTransferAmount float64 `json:"bank_transfer_amount"`
+	BankID             *uint   `json:"bank_id"`
 }
 
 type auctionSettleRequest struct {
 	Disposition      string `json:"disposition"`
 	SettlementStatus string `json:"settlement_status"`
 	Remarks          string `json:"remarks"`
+	Mode             string `json:"mode"`
+	BankID           *uint  `json:"bank_id"`
 }
 
 type ConcludedAuctionRow struct {
@@ -392,7 +398,7 @@ func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date 
 	return loadAuctionRecord(ctx, loanID)
 }
 
-func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmount, expenses float64, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
+func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmount, expenses float64, pay AuctionSalePayment, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can record auction sale") {
 		return nil, common.NewForbidden("your role does not have permission to perform this auction step")
 	}
@@ -401,6 +407,9 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 	}
 	if expenses < 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
+	}
+	if expenses > saleAmount {
+		return nil, common.NewBadRequest("auction expenses cannot be more than the sale amount")
 	}
 	rec, err := loadAuctionRecord(ctx, loanID)
 	if err != nil {
@@ -430,6 +439,11 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 	enrichLoan(ctx, l)
 	saleAmount = common.RoundMoney(saleAmount)
 	expenses = common.RoundMoney(expenses)
+	payCash, payUpi, payBank, _, splitErr := common.NormalizeSplit(pay.CashAmount, pay.UpiAmount, pay.BankTransferAmount, 0, saleAmount, pay.BankID)
+	if splitErr != nil {
+		return nil, splitErr
+	}
+	pay = AuctionSalePayment{CashAmount: payCash, UpiAmount: payUpi, BankTransferAmount: payBank, BankID: pay.BankID}
 	netProceeds := common.RoundMoney(saleAmount - expenses)
 	totalDebt := common.RoundMoney(l.TotalOutstandingBalance)
 	fullyCovered := netProceeds >= totalDebt-0.01
@@ -439,6 +453,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 	}
 	auctionDate := time.Now()
 	var payment *models.LoanPayment
+	var appFee, appPenal, appInterest, appPrincipal float64 // what the sale cleared on the loan
 	txErr := config.DB.
 		WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if applied > 0 {
@@ -446,19 +461,30 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 			if err != nil {
 				return err
 			}
+			appFee, appPenal, appInterest, appPrincipal = fee, penal, interest, principal
 			l.OutstandingProcessingFee = common.RoundMoney(math.Max(0, l.OutstandingProcessingFee-fee))
 			l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
 			l.InterestPaid = common.RoundMoney(l.InterestPaid + interest)
 			l.OutstandingAmount = common.RoundMoney(math.Max(0, l.OutstandingAmount-principal))
 			outstandingInterest := l.AccruedInterest - l.InterestPaid
 			outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
+			// the loan's share of the proceeds keeps the modes the buyer paid by, so the ledger shows the same mode
+			appliedCash, appliedUpi, appliedBank := pay.proRata(applied, saleAmount)
+			var appliedBankID *uint
+			if appliedUpi+appliedBank > 0 {
+				appliedBankID = pay.BankID
+			}
 			payment = &models.LoanPayment{
 				LoanID:               loanID,
 				Amount:               applied,
 				Type:                 models.PaymentTypeAuctionSale,
 				PaidOn:               auctionDate,
 				ReceivedByEmployeeID: actorID,
-				Method:               "Auction",
+				Method:               common.DeriveMethod(appliedCash, appliedUpi, appliedBank, 0),
+				CashAmount:           appliedCash,
+				UpiAmount:            appliedUpi,
+				BankTransferAmount:   appliedBank,
+				BankID:               appliedBankID,
 				Reference:            rec.AuctionReferenceNumber,
 				Description:          fmt.Sprintf("Auction proceeds applied (sale ₹%.2f less expenses ₹%.2f)", saleAmount, expenses),
 				ProcessingFeeApplied: fee,
@@ -533,13 +559,31 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 				return err
 			}
 		}
+		// The sale lines and the expense-register entry are saved with the sale
+		// itself: if either fails, the sale is not recorded, so the loan ledger and the cards never disagree.
+		txCtx := cashbook.WithTx(ctx, tx)
+		// The sale is written the way the loan was paid down: one repayment line per component it cleared
+		// (service charge, penal interest, interest, principal), then what is left of the sale. The payment
+		// row is linked to those lines, so the ledgers show them as an ordinary repayment.
+		_, groupID, err := cashbook.RecordAuctionSaleCashIn(txCtx, loanID, l.LoanNumber, saleAmount, pay.CashAmount, pay.UpiAmount, pay.BankTransferAmount, pay.BankID, l.BranchID, auctionDate, appFee, appPenal, appInterest, appPrincipal, l.CustomerID)
+		if err != nil {
+			return fmt.Errorf("could not record the auction sale in Cash-in-Hand, sale not recorded: %w", err)
+		}
+		if payment != nil {
+			if err := tx.Model(&models.LoanPayment{}).Where("id = ?", payment.ID).Update("cash_transaction_group_id", groupID).Error; err != nil {
+				return err
+			}
+		}
+		if expenses > 0.01 {
+			expMode, expBank := pay.expenseMode()
+			if _, err := cashbook.RecordAuctionExpense(txCtx, l.LoanNumber, expenses, expMode, expBank, l.BranchID, auctionDate); err != nil {
+				return fmt.Errorf("could not record the auction expenses, sale not recorded: %w", err)
+			}
+		}
 		return nil
 	})
 	if txErr != nil {
 		return nil, txErr
-	}
-	if _, err := cashbook.RecordAuctionSaleCashIn(ctx, loanID, l.LoanNumber, netProceeds, l.BranchID, auctionDate); err != nil {
-		log.Printf("cash-in movement (auction sale) failed for loan %d: %v", loanID, err)
 	}
 	if err := packet.RecordGoldReleaseMovement(ctx, loanID, fmt.Sprintf("Auction sale — sold for ₹%.2f", saleAmount)); err != nil {
 		log.Printf("packet movement (auction sale) failed for loan %d: %v", loanID, err)
@@ -574,7 +618,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 	return loadAuctionRecord(ctx, loanID)
 }
 
-func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
+func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition, remarks, mode string, bankID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can settle auction") {
 		return nil, common.NewForbidden("your role does not have permission to perform this auction step")
 	}
@@ -618,22 +662,23 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 		return nil, common.NewConflict("this auction's surplus has already been disposed of")
 	}
 	now := time.Now()
-	if disposition == AuctionSurplusRefundedToCustomer {
-		movementID, err := cashbook.RecordAuctionSurplusCashOut(ctx, loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now)
-		if err != nil {
-			return nil, fmt.Errorf("could not record the surplus refund in Cash-in-Hand, settlement not saved: %w", err)
+	// The refund's cash line and the settled auction record are saved together: a failed refund line
+	// leaves the auction unsettled instead of settled with no money recorded.
+	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if disposition == AuctionSurplusRefundedToCustomer {
+			movementID, err := cashbook.RecordAuctionSurplusCashOut(cashbook.WithTx(ctx, tx), loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now, mode, bankID, l.CustomerID)
+			if err != nil {
+				return fmt.Errorf("could not record the surplus refund in Cash-in-Hand, settlement not saved: %w", err)
+			}
+			rec.SurplusPaidOutMovementID = &movementID
+			rec.FinalSettlementStatus = "SettledToCustomer"
+		} else {
+			rec.FinalSettlementStatus = "SettledToLoanCo"
 		}
-		rec.SurplusPaidOutMovementID = &movementID
-	}
-	rec.SurplusDisposition = disposition
-	if disposition == AuctionSurplusRefundedToCustomer {
-		rec.FinalSettlementStatus = "SettledToCustomer"
-	} else {
-		rec.FinalSettlementStatus = "SettledToLoanCo"
-	}
-	rec.Stage = models.AuctionStageSettled
-	if err := persistAuction(ctx, rec); err != nil {
-		undoCashMovement(ctx, rec.SurplusPaidOutMovementID)
+		rec.SurplusDisposition = disposition
+		rec.Stage = models.AuctionStageSettled
+		return tx.Save(rec).Error
+	}); err != nil {
 		return nil, err
 	}
 	recordAuctionEvent(ctx, nil, rec.ID, "Settled", actorID, actorRole, fmt.Sprintf(
@@ -1210,7 +1255,7 @@ func RecordAuctionSale(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
 	actorID, actorRole, actorRoleID := actorPtr(c)
-	rec, err := SaveAuctionSale(ctx, loanID, auth.GetBranchScope(c), req.SaleAmount, req.AuctionExpenses, actorID, actorRole, actorRoleID)
+	rec, err := SaveAuctionSale(ctx, loanID, auth.GetBranchScope(c), req.SaleAmount, req.AuctionExpenses, AuctionSalePayment{CashAmount: req.CashAmount, UpiAmount: req.UpiAmount, BankTransferAmount: req.BankTransferAmount, BankID: req.BankID}, actorID, actorRole, actorRoleID)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1232,9 +1277,51 @@ func SettleAuction(c echo.Context) error {
 		disposition = req.SettlementStatus
 	}
 	actorID, actorRole, actorRoleID := actorPtr(c)
-	rec, err := settleAuction(ctx, loanID, auth.GetBranchScope(c), disposition, req.Remarks, actorID, actorRole, actorRoleID)
+	rec, err := settleAuction(ctx, loanID, auth.GetBranchScope(c), disposition, req.Remarks, req.Mode, req.BankID, actorID, actorRole, actorRoleID)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, rec)
+}
+
+// AuctionSalePayment is how the buyer's money was received: the payment breakdown for the full sale amount,
+// with the bank it reached for the UPI / Bank Transfer parts. With nothing sent it is all Cash.
+type AuctionSalePayment struct {
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	BankID             *uint
+}
+
+// expenseMode picks the mode an auction's expenses are booked in: the one most of the sale was received by.
+func (p AuctionSalePayment) expenseMode() (string, *uint) {
+	switch {
+	case p.CashAmount >= p.UpiAmount && p.CashAmount >= p.BankTransferAmount:
+		return "Cash", nil
+	case p.UpiAmount >= p.BankTransferAmount:
+		return "UPI", p.BankID
+	default:
+		return "Bank Transfer", p.BankID
+	}
+}
+
+// proRata splits an amount over the modes of the sale in proportion, the last non-zero mode taking the
+// rounding remainder, so the loan's share of the proceeds keeps the sale's modes.
+func (p AuctionSalePayment) proRata(part, whole float64) (cash, upi, bank float64) {
+	if whole <= 0 {
+		return 0, 0, 0
+	}
+	cash = common.RoundMoney(p.CashAmount * part / whole)
+	upi = common.RoundMoney(p.UpiAmount * part / whole)
+	bank = common.RoundMoney(p.BankTransferAmount * part / whole)
+	diff := common.RoundMoney(part - cash - upi - bank)
+	switch {
+	case p.BankTransferAmount > 0:
+		bank = common.RoundMoney(bank + diff)
+	case p.UpiAmount > 0:
+		upi = common.RoundMoney(upi + diff)
+	default:
+		cash = common.RoundMoney(cash + diff)
+	}
+	return cash, upi, bank
 }

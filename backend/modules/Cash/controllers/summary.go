@@ -26,11 +26,17 @@ type Summary struct {
 }
 
 func cashInHand(ctx context.Context, branchID uint) (float64, error) {
-	sum, err := getExpectedCash(ctx, &branchID, time.Now())
+	cash, _, err := liveBalances(ctx, &branchID)
+	return cash, err
+}
+
+// bankBalance is what the Banks page shows for one bank right now.
+func bankBalance(ctx context.Context, bankID uint) (float64, error) {
+	per, _, err := BankBalances(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	return sum.ExpectedCash, nil
+	return per[bankID], nil
 }
 
 func EnsureCashInHand(ctx context.Context, branchID uint, amount float64) error {
@@ -45,6 +51,34 @@ func EnsureCashInHand(ctx context.Context, branchID uint, amount float64) error 
 		return ErrInsufficientCashInHand(available, amount)
 	}
 	return nil
+}
+
+// EnsureBankBalance refuses a UPI / Bank Transfer payout the chosen bank cannot cover.
+func EnsureBankBalance(ctx context.Context, bankID uint, amount float64) error {
+	if amount <= 0 || bankID == 0 {
+		return nil
+	}
+	available, err := bankBalance(ctx, bankID)
+	if err != nil {
+		return err
+	}
+	if amount > available+0.005 {
+		return ErrInsufficientBankBalance(available, amount)
+	}
+	return nil
+}
+
+// EnsurePayoutFunds checks a payout split the way the money actually moves: the Cash part against cash in
+// hand, the UPI / Bank Transfer part against the bank it leaves from. Cash in hand never blocks a bank
+// payout, and a bank balance never blocks a cash one.
+func EnsurePayoutFunds(ctx context.Context, branchID uint, cash float64, bankID *uint, bankAmount float64) error {
+	if err := EnsureCashInHand(ctx, branchID, cash); err != nil {
+		return err
+	}
+	if bankID == nil {
+		return nil
+	}
+	return EnsureBankBalance(ctx, *bankID, bankAmount)
 }
 
 func getExpectedCash(ctx context.Context, branchID *uint, date time.Time) (Summary, error) {

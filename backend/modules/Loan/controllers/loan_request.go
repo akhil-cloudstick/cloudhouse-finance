@@ -26,6 +26,7 @@ type loanRequest struct {
 	LockerID          *uint             `json:"locker_id"`
 	AdditionalInfo    string            `json:"additional_info"`
 	ServiceChargeMode string            `json:"service_charge_mode"`
+	OverallPhotoURL   string            `json:"overall_photo_url"`
 	DraftID           *uint             `json:"draft_id"`
 }
 
@@ -119,6 +120,7 @@ func (req loanRequest) toInput() (CreateInput, error) {
 		LockerID:          req.LockerID,
 		AdditionalInfo:    req.AdditionalInfo,
 		ServiceChargeMode: req.ServiceChargeMode,
+		OverallPhotoURL:   req.OverallPhotoURL,
 	}, nil
 }
 

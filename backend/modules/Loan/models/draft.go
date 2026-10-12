@@ -18,6 +18,7 @@ type LoanDraft struct {
 	Scheme              *commonModels.Scheme   `json:"scheme,omitempty" gorm:"foreignKey:SchemeID"`
 	LockerID            *uint                  `json:"locker_id,omitempty"`
 	PrincipalOverride   *float64               `json:"principal_override,omitempty" gorm:"type:numeric(16,2)"`
+	OverallPhotoURL     string                 `json:"overall_photo_url" gorm:"size:512"`
 	Ornaments           []LoanDraftOrnament    `json:"ornaments" gorm:"foreignKey:DraftID"`
 	CreatedAt           time.Time              `json:"created_at"`
 	UpdatedAt           time.Time              `json:"updated_at"`
@@ -25,13 +26,14 @@ type LoanDraft struct {
 
 type LoanDraftOrnament struct {
 	config.TenantScoped
-	ID          uint    `json:"id" gorm:"primaryKey"`
-	DraftID     uint    `json:"draft_id" gorm:"not null;index"`
-	Name        string  `json:"name" gorm:"size:80"`
-	Purity      string  `json:"purity" gorm:"size:10"`
-	GrossWeight float64 `json:"gross_weight"`
-	Quantity    int     `json:"quantity"`
-	ImageURL    string  `json:"image_url" gorm:"size:512"`
-	ImageName   string  `json:"image_name" gorm:"size:255"`
-	Position    int     `json:"position" gorm:"not null;default:0"`
+	ID          uint     `json:"id" gorm:"primaryKey"`
+	DraftID     uint     `json:"draft_id" gorm:"not null;index"`
+	Name        string   `json:"name" gorm:"size:80"`
+	Purity      string   `json:"purity" gorm:"size:10"`
+	GrossWeight float64  `json:"gross_weight"`
+	Quantity    int      `json:"quantity"`
+	ImageURL    string   `json:"image_url" gorm:"size:512"`
+	ImageName   string   `json:"image_name" gorm:"size:255"`
+	ImageURLs   []string `json:"image_urls" gorm:"serializer:json;type:text"`
+	Position    int      `json:"position" gorm:"not null;default:0"`
 }

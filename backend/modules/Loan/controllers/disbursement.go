@@ -10,7 +10,45 @@ import (
 	"time"
 )
 
-func reverseDisbursement(ctx context.Context, l *models.Loan, disbursed, withheldCharge float64) {
+func reverseDisbursement(ctx context.Context, l *models.Loan, disbursed float64) {
+	now := time.Now()
+	// A disbursement booked with a source link is mirrored line by line: the principal comes back in and
+	// a withheld charge goes back out, so the till returns exactly to where it was.
+	rev, err := cashbook.ReverseLoanDisbursementCash(ctx, l.ID, l.LoanNumber, now)
+	if err != nil {
+		log.Printf("reversing disbursement cash failed for loan %d: %v", l.ID, err)
+		return
+	}
+	if rev == nil {
+		reverseLegacyDisbursement(ctx, l, disbursed, now)
+		return
+	}
+	p := &models.LoanPayment{
+		LoanID:             l.ID,
+		Amount:             rev.Gross,
+		Type:               "Disbursement Reversal",
+		PaidOn:             now,
+		Description:        "Disbursement reversed — loan edited, resubmitted for approval",
+		Method:             common.DeriveMethod(rev.Cash, rev.Upi, rev.BankTransfer, 0),
+		CashAmount:         rev.Cash,
+		UpiAmount:          rev.Upi,
+		BankTransferAmount: rev.BankTransfer,
+		BankID:             rev.BankID,
+		RunningBalance:     0,
+	}
+	if err := insertPayment(ctx, p); err != nil {
+		log.Printf("disbursement reversal ledger row failed for loan %d: %v", l.ID, err)
+		return
+	}
+	if err := setCashTransactionGroupID(ctx, p.ID, rev.GroupID); err != nil {
+		log.Printf("linking disbursement reversal %d to cash movement group failed: %v", p.ID, err)
+	}
+}
+
+// reverseLegacyDisbursement handles a disbursement booked before cash lines carried a source link: it
+// returns the net payout in the original split. (The old code also subtracted the withheld charge from
+// a figure that was already net of it.)
+func reverseLegacyDisbursement(ctx context.Context, l *models.Loan, disbursed float64, now time.Time) {
 	payments, err := findPaymentByLoanID(ctx, l.ID)
 	if err != nil {
 		log.Printf("reversing disbursement failed for loan %d: %v", l.ID, err)
@@ -26,12 +64,11 @@ func reverseDisbursement(ctx context.Context, l *models.Loan, disbursed, withhel
 	if orig == nil {
 		return
 	}
-	amount := common.RoundMoney(disbursed - withheldCharge)
+	amount := common.RoundMoney(disbursed)
 	if amount <= 0.01 {
 		return
 	}
 	cash, upi, bank, cheque := scaleSplit(orig.CashAmount, orig.UpiAmount, orig.BankTransferAmount, orig.ChequeAmount, orig.Amount, amount)
-	now := time.Now()
 	p := &models.LoanPayment{
 		LoanID:             l.ID,
 		Amount:             amount,
@@ -56,12 +93,6 @@ func reverseDisbursement(ctx context.Context, l *models.Loan, disbursed, withhel
 		if err := setCashTransactionGroupID(ctx, p.ID, groupID); err != nil {
 			log.Printf("linking disbursement reversal %d to cash movement group failed: %v", p.ID, err)
 		}
-	}
-}
-
-func undoDisbursementCash(ctx context.Context, loanNumber string) {
-	if err := cashbook.DeleteLoanDisbursementCashMovements(ctx, loanNumber); err != nil {
-		log.Printf("could not roll back disbursement cash for %s after a failed approval: %v", loanNumber, err)
 	}
 }
 

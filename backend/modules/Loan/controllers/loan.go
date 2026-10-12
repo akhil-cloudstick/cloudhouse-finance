@@ -55,14 +55,12 @@ type CashRecorder interface {
 	RecordBankPledgeCashOut(ctx context.Context, loanID uint, loanNumber, bankName string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, bankID *uint, occurredOn time.Time, branchID uint) (movementID uint, err error)
 	RecordBankPledgeReleaseExpense(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
 	HeadOfficeBranchID(ctx context.Context) (uint, error)
-	DeleteCashMovement(ctx context.Context, id uint) error
 	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint, bankID *uint) (movementID uint, groupID string, err error)
 	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint, bankID *uint) (movementID uint, groupID string, err error)
-	RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, groupID string, err error)
+	RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint, bankID *uint) (movementID uint, groupID string, err error)
 	RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, bankID *uint) (movementID uint, err error)
-	RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
-	RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
-	DeleteLoanDisbursementCashMovements(ctx context.Context, loanNumber string) error
+	RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount float64, bankID *uint, branchID uint, occurredOn time.Time, fee, penal, interest, principal float64, customerID uint) (movementID uint, groupID string, err error)
+	RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint) (movementID uint, err error)
 	DeleteAllLoanCashEntries(ctx context.Context, loanNumber string, movementIDs, expenseIDs []uint) error
 }
 
@@ -81,6 +79,7 @@ type CreateInput struct {
 	LockerID          *uint
 	AdditionalInfo    string
 	ServiceChargeMode string
+	OverallPhotoURL   string
 }
 
 type UpdateLoanInput struct {
@@ -234,13 +233,6 @@ func loanChain(ctx context.Context, flow string) (*common.Chain, error) {
 	return common.WorkflowChain(ctx, flow)
 }
 
-func ensureCashInHand(ctx context.Context, branchID uint, amount float64) error {
-	if config.IsDemoRun(ctx) {
-		return nil
-	}
-	return cashbook.EnsureCashInHand(ctx, branchID, amount)
-}
-
 func checkStagePermission(ctx context.Context, roleID uint, permissionName string) bool {
 	allowed, err := common.IsAllowed(ctx, roleID, permissionName)
 	if err != nil {
@@ -365,6 +357,7 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 		OpenedDate:       in.OpenedDate,
 		DueDate:          in.DueDate,
 		AdditionalInfo:   in.AdditionalInfo,
+		OverallPhotoURL:  in.OverallPhotoURL,
 		Status:           models.StatusPendingApproval,
 		ApprovalStage:    firstStage,
 		BankPledgeStatus: "Not Pledged",
@@ -405,6 +398,14 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 		ornaments[i].LoanID = rec.ID
 		if err := insertOrnament(ctx, &ornaments[i]); err != nil {
 			return nil, err
+		}
+		for _, url := range in.Ornaments[i].Images {
+			if url = strings.TrimSpace(url); url == "" {
+				continue
+			}
+			if err := addImage(ctx, &models.OrnamentImage{OrnamentID: ornaments[i].ID, ImageURL: url}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	created, err := findLoanByID(ctx, rec.ID)
@@ -549,10 +550,6 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount))
 	wasDisbursed := l.DisbursementDate != nil
 	priorDisbursed := l.DisbursedAmount
-	priorCharge := 0.0
-	if l.ServiceChargeMode == commonModels.ServiceChargeModeWithheldFromPayout {
-		priorCharge = l.ServiceChargeAmount
-	}
 	if in.SchemeID != nil {
 		sch, err := common.FindSchemeByID(ctx, *in.SchemeID)
 		if err != nil {
@@ -609,7 +606,7 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 		return nil, err
 	}
 	if materialChange && wasDisbursed {
-		reverseDisbursement(ctx, l, priorDisbursed, priorCharge)
+		reverseDisbursement(ctx, l, priorDisbursed)
 	}
 	if materialChange {
 		audit := &models.LoanApproval{
@@ -815,15 +812,6 @@ func customerInBranchScope(ctx context.Context, customerID uint, scope *uint) (b
 		return false, nil
 	}
 	return c.BranchID == *scope, nil
-}
-
-func undoCashMovement(ctx context.Context, id *uint) {
-	if id == nil {
-		return
-	}
-	if err := cashbook.DeleteCashMovement(ctx, *id); err != nil {
-		log.Printf("could not roll back cash movement %d after a failed save: %v", *id, err)
-	}
 }
 
 func requireNoPendingDecision(ctx context.Context, recID uint) error {
@@ -1431,4 +1419,13 @@ func HardDeleteLoan(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, echo.Map{"deleted": true})
+}
+
+// ensurePayoutFunds checks a payout by how it moves: the Cash part against cash in hand, the UPI / Bank
+// Transfer part against the bank it leaves from. Skipped in demo runs, like ensureCashInHand.
+func ensurePayoutFunds(ctx context.Context, branchID uint, cash float64, bankID *uint, bankAmount float64) error {
+	if config.IsDemoRun(ctx) {
+		return nil
+	}
+	return cashbook.EnsurePayoutFunds(ctx, branchID, cash, bankID, bankAmount)
 }

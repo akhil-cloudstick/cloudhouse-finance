@@ -82,7 +82,7 @@ func getLedger(ctx context.Context, investmentID uint, branchID *uint) ([]Ledger
 			DebitOrCredit: "debit",
 			Amount:        p.Amount,
 			InterestPart:  p.Amount,
-			Description:   fmt.Sprintf("Interest payout #%d (due %s)", p.SequenceNo, p.DueDate.Format("02-Jan-2006")),
+			Description:   fmt.Sprintf("Interest payout #%d (due %s)", p.SequenceNo, p.DueDate.Format("02-Jan-06")),
 		}
 		if p.PaidAt != nil {
 			row.Date = *p.PaidAt
@@ -93,7 +93,7 @@ func getLedger(ctx context.Context, investmentID uint, branchID *uint) ([]Ledger
 			row.Type = "Principal return"
 			row.PrincipalPart = inv.PrincipalAmount
 			row.InterestPart = common.RoundMoney(p.Amount - inv.PrincipalAmount)
-			row.Description = fmt.Sprintf("Principal return with final interest (#%d)", p.SequenceNo)
+			row.Description = fmt.Sprintf("Principal + final interest #%d", p.SequenceNo)
 			balance = 0
 		}
 		row.RunningBalance = balance
@@ -165,9 +165,6 @@ func openingRows(ctx context.Context, inv *models.Investment, amount float64) []
 
 func openingRow(inv *models.Investment, amount float64) LedgerRow {
 	desc := "Investment deposit"
-	if inv.Plan.Name != "" {
-		desc += " — " + inv.Plan.Name
-	}
 	return LedgerRow{
 		ID:             fmt.Sprintf("open-%d", inv.ID),
 		Date:           inv.StartDate,

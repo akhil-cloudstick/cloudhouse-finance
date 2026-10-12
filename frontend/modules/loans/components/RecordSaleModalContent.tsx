@@ -8,9 +8,8 @@ import { fmt } from "@/common/utils/format";
 import { recordAuctionSale } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
-import { useApprovalWorkflow } from "@/common/providers/AuthProvider";
-import { isFlowOff } from "@/common/services/approvalWorkflowService";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 
 type RecordSaleModalContentProps = { loan: LoanView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void };
 
@@ -21,20 +20,22 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
   const [expenses, setExpenses] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
 
   const sale = +amount || 0;
   const exp = +expenses || 0;
   const preview = sale - exp - loan.totalOutstandingBalance;
-  // With the auction_shortfall approval flow off no decision request is
-  // raised — the balance is simply pursued (the loan moves to Overdue).
-  const { config: workflow } = useApprovalWorkflow();
-  const shortfallAuto = isFlowOff(workflow, "auction_shortfall");
 
   async function save() { return singleFlight("auction-modal:save:3", async () => {
     if (!sale || sale <= 0) { setErr("Please enter the sale amount."); return; }
+    if (exp > sale) { setErr("Auction expenses cannot be more than the sale amount."); return; }
+    if (Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the sale amount."); return; }
+    if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { setErr("Pick the bank the proceeds were received in."); return; }
     setSaving(true);
     try {
-      const rec = await recordAuctionSale(loan.numericId, sale, exp);
+      const rec = await recordAuctionSale(loan.numericId, sale, exp, { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId });
       onSaved(rec);
       closeModal();
       toast(`Auction sale recorded for ${loan.id}`);
@@ -57,6 +58,9 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
           <div><label className="f">Sale Amount (₹) *</label><input className="inp" type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
           <div><label className="f">Auction Expenses (₹)</label><input className="inp" type="number" min={0} value={expenses} onChange={(e) => setExpenses(e.target.value)} /></div>
         </div>
+        <div className="frow">
+          <SplitPaymentInput totalAmount={Math.max(0, sale)} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+        </div>
         <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontWeight: 600, color: preview >= 0 ? "var(--green)" : "var(--red)" }}>
           <span>{preview >= 0 ? "Surplus" : "Shortfall"}</span><span>{fmt(Math.abs(preview))}</span>
         </div>
@@ -71,16 +75,9 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
           <div className="notice" style={{ fontSize: 12.5 }}>
             <Icon name="shield" />
             <span>
-              {preview >= 0 ? (
-                <>Full recovery — the loan will be <b>closed</b>. Net proceeds of {fmt(sale - exp)} will be added to Cash-in-Hand
-                {preview > 0.01 ? <>, and a surplus of <b>{fmt(preview)}</b> will be payable back to {loan.customerName}</> : null}.</>
-              ) : (
-                <>Partial recovery — net proceeds of {fmt(sale - exp)} will be added to Cash-in-Hand and applied to the debt,
-                leaving <b>{fmt(Math.abs(preview))}</b> still owing. The loan stays open and{" "}
-                {shortfallAuto
-                  ? <>the balance is pursued automatically — no decision is needed.</>
-                  : <>a decision request goes to the Branch Manager to write the balance off or pursue it.</>}</>
-              )}
+              {preview >= 0
+                ? (preview > 0.01 ? <>Amount payable <b>{fmt(preview)}</b></> : <>Loan will be closed</>)
+                : <>Balance owing <b>{fmt(Math.abs(preview))}</b></>}
             </span>
           </div>
         )}

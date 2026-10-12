@@ -23,6 +23,7 @@ type OrnamentInput struct {
 	DeductionWeight float64
 	Quantity        int
 	Remarks         string
+	Images          []string
 }
 
 type AddOrnamentInput = OrnamentInput
@@ -30,12 +31,13 @@ type AddOrnamentInput = OrnamentInput
 type UpdateOrnamentInput = OrnamentInput
 
 type ornamentRequest struct {
-	Name            string  `json:"name" binding:"required"`
-	Purity          string  `json:"purity" binding:"required"`
-	GrossWeight     float64 `json:"gross_weight" binding:"required"`
-	DeductionWeight float64 `json:"deduction_weight"`
-	Quantity        int     `json:"quantity"`
-	Remarks         string  `json:"remarks"`
+	Name            string   `json:"name" binding:"required"`
+	Purity          string   `json:"purity" binding:"required"`
+	GrossWeight     float64  `json:"gross_weight" binding:"required"`
+	DeductionWeight float64  `json:"deduction_weight"`
+	Quantity        int      `json:"quantity"`
+	Remarks         string   `json:"remarks"`
+	Images          []string `json:"images"`
 }
 
 type ornamentImageRequest struct {
@@ -187,6 +189,7 @@ func (in DraftInput) toOrnamentRows() []models.LoanDraftOrnament {
 			Quantity:    o.Quantity,
 			ImageURL:    o.ImageURL,
 			ImageName:   o.ImageName,
+			ImageURLs:   o.ImageURLs,
 			Position:    i,
 		}
 	}
@@ -213,6 +216,7 @@ func (r ornamentRequest) toInput() OrnamentInput {
 		DeductionWeight: r.DeductionWeight,
 		Quantity:        r.Quantity,
 		Remarks:         r.Remarks,
+		Images:          r.Images,
 	}
 }
 

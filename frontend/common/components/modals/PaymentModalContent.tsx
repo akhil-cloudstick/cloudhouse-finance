@@ -148,10 +148,6 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       // an in-flight refresh landing after they've started typing their
       // own override would otherwise clobber it mid-edit.
       if (!interestTouchedRef.current) setInterestRaw(prefill(fresh.outstandingInterest));
-      if (!amountTouchedRef.current) {
-        const v = amountForMode(fresh, mode);
-        setAmt(v > 0 ? prefill(v) : "");
-      }
     }).catch(() => { /* keep the possibly-stale prop rather than blocking the form */ });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,12 +188,10 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // the picker look broken (the receipt still showed the old amount, now
   // overshooting the new mode). Only "Both" keeps a typed amount, since any
   // figure is valid there.
+  // The Amount refill itself lives in the effect below (it also depends on
+  // Interest and Additional Charges), so picking a mode only sets the mode.
   function selectMode(nextMode: string) {
     setMode(nextMode);
-    if (nextMode !== "Partial" || !amountTouchedRef.current) {
-      const v = amountForMode(loan, nextMode);
-      setAmt(v > 0 ? prefill(v) : "");
-    }
   }
   function setAmount(v: string) {
     amountTouchedRef.current = true;
@@ -223,8 +217,6 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
-  const [reference, setReference] = useState("");
-  const [description, setDescription] = useState("");
   // Release-context only (releaseRequestId set) — a negotiated reduction
   // with no cash movement, posted alongside the payment as a real
   // PaymentTypeDiscount ledger entry (see backend/internal/loan/service.go's
@@ -253,9 +245,11 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // Additional Charges are collected ON TOP of Amount — the customer pays
   // Amount + charges, and the charge settles the fee bucket so none of Amount
   // is eaten by it. previewAmount is that total cash handed over.
-  const typedAmount = +amt || 0;
+  // Amount is the total cash handed over — the picked bucket(s) PLUS any
+  // Additional Charges — so the figure typed/prefilled here is what the
+  // customer pays and what gets recorded.
   const charge = +fee > 0 ? +fee : 0;
-  const previewAmount = typedAmount > 0 ? typedAmount + charge : 0;
+  const previewAmount = +amt > 0 ? +amt : 0;
   // An Interest override replaces the computed interest server-side (see
   // PaymentInput.InterestOverride), so the preview uses it the same way.
   const previewLoan = {
@@ -264,6 +258,15 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     outstandingInterest: interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest,
   };
   const alloc = previewAllocation(previewLoan, mode, previewAmount);
+  // Prefill Amount with what the picked option owes (interest override
+  // respected) plus the Additional Charges. "Both" keeps a hand-typed figure
+  // since any amount is valid there.
+  const interestForAmount = interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest;
+  const modeTotal = amountForMode({ ...loan, outstandingInterest: interestForAmount, settlementAmount: loan.settlementAmount - loan.outstandingInterest + interestForAmount }, mode) + charge;
+  useEffect(() => {
+    if (mode === "Partial" && amountTouchedRef.current) return;
+    setAmt(modeTotal > 0 ? prefill(modeTotal) : "");
+  }, [mode, modeTotal]);
   const splitBalanced = Math.abs(remaining) < 0.01;
 
   async function save() { return singleFlight("modal:payment:save", async () => {
@@ -271,11 +274,13 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     if (!typed || typed <= 0) { setErr("Please enter a valid payment amount."); return; }
     const processingFee = fee.trim() ? +fee : 0;
     if (processingFee < 0) { setErr("Processing fee cannot be negative."); return; }
-    const amount = typed + processingFee;
+    const amount = typed;
+    if (processingFee > amount + 0.001) { setErr("Additional charges cannot exceed the amount."); return; }
     const interestOverride = interest.trim() ? +interest : undefined;
     if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative."); return; }
     if (!date) { setErr("Please select the payment date."); return; }
     if (!splitBalanced) { setErr("The payment breakdown must add up to the amount."); return; }
+    if (bankMissing) { setErr("Select a bank"); return; }
     if (allocWarning) { setErr(allocWarning); return; }
     const discountAmount = discount.trim() ? +discount : 0;
     if (discountAmount < 0) { setErr("Discount cannot be negative."); return; }
@@ -339,7 +344,6 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           bankTransferAmount: scaledSplit.bankTransferAmount,
           chequeAmount: scaledSplit.chequeAmount,
           bankId,
-          reference: reference.trim() || undefined,
           interestOverride: effectiveInterestOverride,
         });
       } else {
@@ -350,8 +354,6 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           bankTransferAmount: split.bankTransferAmount,
           chequeAmount: split.chequeAmount,
           bankId,
-          reference: reference.trim() || undefined,
-          description: description.trim() || undefined,
           interestOverride,
         });
       }
@@ -394,21 +396,13 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   const interestLeft = Math.max(0, previewLoan.outstandingInterest + previewLoan.outstandingPenalInterest - alloc.interest - alloc.penal);
   const feeLeft = Math.max(0, previewLoan.outstandingProcessingFee - alloc.fee);
   const closesLoan = previewAmount > 0 && alloc.short < 0.01 && principalLeft + interestLeft + feeLeft < 0.01;
+  // UPI / Bank Transfer money has to say which bank it went through.
+  const bankMissing = split.upiAmount + split.bankTransferAmount > 0 && !bankId;
   const allocWarning = alloc.over > 0.01
-    ? `${fmt(alloc.over)} more than "${modeLabel(mode)}" can take. Lower the amount or choose another option.`
+    ? `Amount greater than ${modeShort(mode)}`
     : alloc.short > 0.01
       ? `${fmt(alloc.short)} short. Closing the loan needs the full ${fmt(previewAmount + alloc.short)}.`
       : "";
-  // Quick-fill figures exclude the typed charge — it is added on top.
-  const interestQuick = amountForMode({ ...previewLoan, outstandingProcessingFee: loan.outstandingProcessingFee }, "Interest");
-  const settleQuick = amountForMode(loan, "Full Settlement");
-
-  // Quick-fill chips set the mode along with the amount, so the receipt and
-  // the backend both read the payment the same way the chip's label says.
-  function quickFill(m: string, v: number) {
-    setMode(m);
-    setAmount(String(Math.round(v * 100) / 100));
-  }
 
   return (
     <>
@@ -425,15 +419,23 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                 <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} />
               </div></div>
               <div className="frow c2">
+                <div><label className="f">Payment Date *</label><DatePicker value={date} onChange={setDate} /></div>
+                <div><label className="f">Interest (₹)</label>
+                  <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} />
+                </div>
+              </div>
+              <div className="frow c2">
+                {releaseRequestId != null ? (
+                  <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
+                ) : (
+                  <div><label className="f">Additional Charges (₹)</label>
+                    <input className="inp" type="number" min={0} placeholder="e.g. late fee" value={fee} onChange={(e) => setFee(e.target.value)} />
+                  </div>
+                )}
                 <div>
                   <label className="f">Amount (₹) *</label>
                   <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} />
-                  <div className="pay-chips">
-                    {interestQuick > 0.01 && <button type="button" className="pay-chip" onClick={() => quickFill("Interest", interestQuick)}>Interest {fmt(interestQuick)}</button>}
-                    {settleQuick > 0.01 && <button type="button" className="pay-chip" onClick={() => quickFill("Full Settlement", settleQuick)}>Close {fmt(settleQuick)}</button>}
-                  </div>
                 </div>
-                <div><label className="f">Payment Date *</label><DatePicker value={date} onChange={setDate} /></div>
               </div>
             </div>
 
@@ -442,27 +444,6 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
               <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} />
             </div>
 
-            <div className="pay-sec">
-              <div className="pay-sec-t">Details <small>Optional</small></div>
-              <div className="frow c2">
-                <div><label className="f">Interest (₹)</label>
-                  <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} />
-                </div>
-                {releaseRequestId != null ? (
-                  <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
-                ) : (
-                  <div><label className="f">Additional Charges (₹)</label>
-                    <input className="inp" type="number" min={0} placeholder="e.g. late fee — added on top of Amount" value={fee} onChange={(e) => setFee(e.target.value)} />
-                  </div>
-                )}
-              </div>
-              <div className="frow c2">
-                <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
-                <div><label className="f">Description</label>
-                  <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} disabled={releaseRequestId != null} />
-                </div>
-              </div>
-            </div>
           </div>
 
           <aside className="pay-receipt">
@@ -491,16 +472,15 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
             <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Interest{previewLoan.outstandingPenalInterest > 0 ? " + penal" : ""}</span><b>{fmt(interestLeft)}</b></div>
             {feeLeft > 0.01 && <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Fees / charges</span><b>{fmt(feeLeft)}</b></div>}
             {closesLoan && <div className="pay-r-ok"><Icon name="check" /> Loan will be closed</div>}
-            {allocWarning && <div className="pay-r-warn">{allocWarning}</div>}
           </aside>
         </div>
       </div>
       <div className="ft">
         {/* Never a silently disabled button: whatever is blocking Review
           * (or the server's last rejection) is spelled out here. */}
-        <span className="pay-ft-msg">{err || (!splitBalanced && previewAmount > 0 ? `Payment breakdown is ${fmt(Math.abs(remaining))} ${remaining > 0 ? "short of" : "over"} the amount` : "")}</span>
+        <span className="pay-ft-msg">{allocWarning || (bankMissing ? "Select a bank" : "") || err || (!splitBalanced && previewAmount > 0 ? `Payment breakdown is ${fmt(Math.abs(remaining))} ${remaining > 0 ? "short of" : "over"} the amount` : "")}</span>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || confirming}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
+        <button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
       </div>
       {/* Portalled to <body> so it stacks over the whole Record Payment modal
         * as its own smaller popup instead of replacing its content. React
@@ -520,34 +500,44 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                 <div style={{ fontSize: 26, fontWeight: 700 }}>{fmt(previewAmount)}</div>
                 <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{loan.id} · {loan.customerName}</div>
               </div>
-              <div className="notice" style={{ marginBottom: 4, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 16px", fontSize: 13 }}>
-                  {([
-                    ["Apply payment to", modeLabel(mode)],
-                    ["Payment date", fmtDate(date)],
-                    ...paidBy.map(([label, v]) => [`Paid by ${label}`, fmt(v)]),
-                    ...(+fee > 0 ? [["Additional charges", fmt(+fee)]] : []),
-                    ...(+discount > 0 ? [["Discount", fmt(+discount)]] : []),
-                    ...(reference.trim() ? [["Reference", reference.trim()]] : []),
-                  ] as [string, string][]).map(([label, value]) => (
-                    <Fragment key={label}>
-                      <span>{label}</span>
-                      <b style={{ textAlign: "right" }}>{value}</b>
-                    </Fragment>
-                  ))}
-                </div>
-              </div>
-              <div className="notice" style={{ marginTop: 12, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-                <div><Icon name="coin" /> Applied as:</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 16px", fontSize: 13 }}>
-                  {allocRows.map(([label, value]) => (
-                    <Fragment key={label}>
-                      <span>{label}</span>
-                      <b style={{ textAlign: "right" }}>{fmt(value)}</b>
-                    </Fragment>
-                  ))}
-                </div>
-              </div>
+              {/* One plain list, top to bottom: what the payment is for and how it was paid, then what it
+                * paid in the order the loan is cleared (penal interest, interest, charges, principal),
+                * then the total being paid. No boxes — rules between the groups only. */}
+              {(() => {
+                const row = (label: string, value: string, opts?: { indent?: boolean; strong?: boolean; color?: string }) => (
+                  <Fragment key={label}>
+                    <span style={{ paddingLeft: opts?.indent ? 16 : 0, color: opts?.indent ? "var(--muted)" : undefined }}>{label}</span>
+                    <b style={{ textAlign: "right", color: opts?.color, fontSize: opts?.strong ? 15 : undefined }}>{value}</b>
+                  </Fragment>
+                );
+                const applied: [string, number, string][] = [
+                  ["Penal interest", alloc.penal, "var(--red)"],
+                  ["Interest", alloc.interest, "var(--brand)"],
+                  ["Additional charges", alloc.fee, "var(--accent)"],
+                  ["Principal", alloc.principal, "var(--green)"],
+                ];
+                const rule = { borderTop: "1px solid var(--line, #e3e6ee)", marginTop: 10, paddingTop: 10 } as const;
+                const grid = { display: "grid", gridTemplateColumns: "1fr auto", gap: "6px 16px", fontSize: 13 } as const;
+                return (
+                  <>
+                    <div style={grid}>
+                      {row("Apply payment to", modeLabel(mode))}
+                      {row("Payment date", fmtDate(date))}
+                      {paidBy.map(([label, v]) => row(`Paid by ${label}`, fmt(v), { indent: true }))}
+                    </div>
+                    <div style={rule}>
+                      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>Applied as</div>
+                      <div style={grid}>
+                        {applied.filter(([, v]) => v > 0.001).map(([label, v, color]) => row(label, fmt(v), { indent: true, color }))}
+                        {+discount > 0 && row("Discount", fmt(+discount), { indent: true })}
+                      </div>
+                    </div>
+                    <div style={rule}>
+                      <div style={grid}>{row("Amount paying", fmt(previewAmount), { strong: true })}</div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
             <div className="ft">
               <button className="btn ghost" onClick={() => setConfirming(false)} disabled={saving}>Back</button>
@@ -559,6 +549,16 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       )}
     </>
   );
+}
+
+// What the chosen option can take, in a word or two, for the over-payment message.
+function modeShort(mode: string) {
+  switch (mode) {
+    case "Interest": return "interest";
+    case "Penal Interest": return "penal interest";
+    case "Principal": return "principal";
+    default: return "amount due";
+  }
 }
 
 function modeLabel(mode: string) {
