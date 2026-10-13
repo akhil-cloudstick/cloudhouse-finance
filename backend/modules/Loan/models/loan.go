@@ -93,6 +93,7 @@ type Loan struct {
 	DaysOverdue                int                     `json:"days_overdue" gorm:"-"`
 	DueSoonNotifiedAt          *time.Time              `json:"-"`
 	OverdueNotifiedAt          *time.Time              `json:"-"`
+	InterestRemindedAt         *time.Time              `json:"-"`
 	ApprovalWarning            string                  `json:"approval_warning" gorm:"-"`
 	Status                     string                  `json:"status" gorm:"not null;size:30"`
 	ApprovalStage              string                  `json:"approval_stage" gorm:"not null;size:30"`

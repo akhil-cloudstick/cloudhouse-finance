@@ -30,6 +30,7 @@ function LoginPageInner() {
     shortName,
     legalName,
     kmlRegNo,
+    policy,
     loaded: brandingLoaded,
     cached: brandingCached,
   } = useBranding();
@@ -227,7 +228,7 @@ function LoginPageInner() {
             * platform contact numbers that sat below it are gone: branding
             * carries no per-business phone numbers, so there is nothing
             * truthful to show in their place. */}
-          {kmlRegNo && <p className="bp-reg">{`KML Reg. No: ${kmlRegNo}`}</p>}
+          {kmlRegNo && <p className="bp-reg">{`${policy === "gml" ? "GML" : policy === "tml" ? "TML" : "KML"} Reg. No: ${kmlRegNo}`}</p>}
         </aside>
 
         <main className="card">

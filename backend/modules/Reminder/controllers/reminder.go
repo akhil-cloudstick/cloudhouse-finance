@@ -243,7 +243,7 @@ func sendWhatsApp(ctx context.Context, id uint) (*models.Reminder, error) {
 		message = fmt.Sprintf("This is a reminder from %s regarding your %s.", businessName(ctx), rec.Type)
 	}
 	sendErr := config.WhatsApp.
-		Send(rec.Customer.Phone, message)
+		Send(ctx, rec.Customer.Phone, message)
 	if !config.IsDemoRun(ctx) {
 		logRec := &commonModels.CommunicationLog{
 			RecipientName:     rec.Customer.Name,

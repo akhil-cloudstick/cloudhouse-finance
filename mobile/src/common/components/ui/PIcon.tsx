@@ -26,6 +26,7 @@ const DEFS: Record<string, Def> = {
   coin: { size: 18, stroke: 2, body: <><Circle cx="12" cy="12" r="9" /><Path d="M9 9h3.5a1.8 1.8 0 1 1 0 3.5H9m0 0h3.8a1.9 1.9 0 1 1 0 3.5H9M11 7v10" /></> },
   check: { size: 18, stroke: 2.2, body: <Polyline points="20 6 9 17 4 12" /> },
   edit: { size: 18, stroke: 2, body: <><Path d="M12 20h9" /><Path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></> },
+  info: { size: 17, stroke: 2, body: <><Circle cx="12" cy="12" r="9" /><Line x1="12" y1="11" x2="12" y2="16" /><Line x1="12" y1="8" x2="12.01" y2="8" /></> },
   transfer: { size: 18, stroke: 2, body: <><Polyline points="17 1 21 5 17 9" /><Path d="M3 11V9a4 4 0 0 1 4-4h14" /><Polyline points="7 23 3 19 7 15" /><Path d="M21 13v2a4 4 0 0 1-4 4H3" /></> },
   alert: { size: 18, stroke: 2, body: <><Path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><Line x1="12" y1="9" x2="12" y2="13" /><Line x1="12" y1="17" x2="12.01" y2="17" /></> },
   layers: { size: 19, stroke: 2, body: <><Polygon points="12 2 2 7 12 12 22 7 12 2" /><Polyline points="2 17 12 22 22 17" /><Polyline points="2 12 12 17 22 12" /></> },

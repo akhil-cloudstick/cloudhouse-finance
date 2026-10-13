@@ -1,7 +1,9 @@
 package controllers
 
 import (
+	common "cloudhouse/backend/common/controllers"
 	commonModels "cloudhouse/backend/common/models"
+	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/PersonalLoan/models"
 	"context"
 	"encoding/base64"
@@ -124,7 +126,44 @@ func findTemplatesDir() string {
 	}
 }
 
-func renderBondHTML(data BondData) (string, error) {
+type bondFinancier struct {
+	name, address, regNo string
+}
+
+func (f bondFinancier) establishment() template.HTML {
+	var parts []string
+	if f.address != "" {
+		parts = append(parts, template.HTMLEscapeString(f.address))
+	}
+	if f.regNo != "" {
+		parts = append(parts, "M L L No: "+template.HTMLEscapeString(f.regNo)+" രജിസ്റ്റർ നമ്പറിൽ പ്രവർത്തിച്ചുവരുന്ന")
+	}
+	return template.HTML(strings.Join(parts, " ")) //nolint:gosec // every part is escaped above
+}
+
+func bondFinancierFor(ctx context.Context) bondFinancier {
+	if id, ok := config.TenantFromContext(ctx); ok {
+		if t, err := common.FindTenantByID(ctx, id); err == nil {
+			return bondFinancier{
+				name:    firstNonEmpty(t.LegalName, t.Name),
+				address: t.AddressLine,
+				regNo:   t.KMLRegNo,
+			}
+		}
+	}
+	return bondFinancier{name: bondBlank}
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func renderBondHTML(data BondData, financier bondFinancier) (string, error) {
 	td := bondTemplateData{
 		BondData: BondData{
 			LoanNumber: data.LoanNumber,
@@ -148,8 +187,8 @@ p{margin:0 0 14px;text-align:justify}
 .witness div{margin-bottom:10px}
 `),
 		Blank:                bondBlank,
-		FinancierName:        "ക്ലൗഡ്ഹൗസ് ഗോൾഡ് ഫിനാൻസ്",
-		EstablishmentAddress: template.HTML("എറണാകുളം ജില്ല ഡെമോ താലൂക്ക് ഡെമോ വില്ലേജിൽ 0/000 നമ്പർ മുറിയിൽ M L L No: DEMO-0000000000 രജിസ്റ്റർ നമ്പറിൽ പ്രവർത്തിച്ചുവരുന്ന"), //nolint:gosec // fixed constant, not user input
+		FinancierName:        financier.name,
+		EstablishmentAddress: financier.establishment(),
 		Age:                  bondAgeOrBlank(data.Age),
 		Aadhaar:              bondAadhaarOrBlank(data.AadhaarNumber),
 		Address:              bondOrBlank(data.Address),
@@ -173,7 +212,7 @@ p{margin:0 0 14px;text-align:justify}
 
 func GenerateBondPDF(ctx context.Context, loan *models.PersonalLoan, cust *commonModels.Customer, aadhaar string) ([]byte, error) {
 	data := bondDataForLoan(loan, cust, aadhaar)
-	html, err := renderBondHTML(data)
+	html, err := renderBondHTML(data, bondFinancierFor(ctx))
 	if err != nil {
 		return nil, err
 	}

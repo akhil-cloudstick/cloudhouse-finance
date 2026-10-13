@@ -2,7 +2,7 @@
 
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { BackLink } from "@/common/components/ui/BackLink";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { fmt, fmtDate } from "@/common/utils/format";
@@ -17,7 +17,8 @@ import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { refTitleFor, refCellFor } from "@/modules/cash/utils/ledgerCells";
-import { BillLink } from "@/modules/cash/components/BillLink";
+import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
+import { rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 
 const ZERO_TOTALS: PartyTotals = { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 };
 const PAGE_SIZE = 12;
@@ -64,7 +65,9 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
   const [items, setItems] = useState<CashMovementView[]>([]);
   const [total, setTotal] = useState(0);
   const [totals, setTotals] = useState<PartyTotals>(ZERO_TOTALS);
-  const [page, setPage] = useState(1);
+  // Back from a drill-down, this ledger reopens on the page the user left, on the row they clicked.
+  const [page, setPage] = useState(() => rememberedLedgerPage("branch") ?? 1);
+  useEffect(() => { saveLedgerPosition({ branch: page }); }, [page]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -75,7 +78,14 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
   const typeValues = Array.isArray(filters.type) ? filters.type : [];
   const customerValues = Array.isArray(filters.customer) ? filters.customer : [];
 
-  useEffect(() => { setPage(1); }, [fromDate, toDate, filters.type, filters.customer]);
+  // Any filter change resets to page 1 (not on mount, where the remembered page applies).
+  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(filters.type)}|${JSON.stringify(filters.customer)}`;
+  const prevFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (prevFilterKey.current === filterKey) return;
+    prevFilterKey.current = filterKey;
+    setPage(1);
+  }, [filterKey]);
 
   const categories: FilterCategory[] = [
     { key: "type", label: "Transaction Type", kind: "static", options: TRANSACTION_TYPE_OPTIONS },
@@ -120,6 +130,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
   }, [branchId, page, fromDate, toDate, JSON.stringify(typeValues), JSON.stringify(customerValues)]);
 
   useEffect(() => { refresh(); }, [refresh]);
+  useLedgerFocus("branch", !loading, [items]);
 
   async function onExport() { return singleFlight("branch-ledger:export", async () => {
     setExporting(true);
@@ -177,7 +188,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl tbl-center">
+          <table className="tbl tbl-center" data-ledger-scope="branch" data-ledger-page={page}>
             <thead>
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
@@ -194,13 +205,13 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
                   return { m, balance: running };
                 });
                 return withBalance.reverse().map(({ m, balance }) => (
-                  <tr key={m.id}>
+                  <tr key={m.id} data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
                     <td>{fmtDate(m.d)}</td>
                     <td className="ledger-ref" title={refTitleFor(m)}>{refCellFor(m)}</td>
-                    <td style={{ textAlign: "center" }}>{m.purpose || m.source || "—"}<BillLink url={m.receiptImage} title={m.purpose || m.source || "Entry"} /></td>
+                    <td style={{ textAlign: "center" }}>{m.purpose || m.source || "—"}</td>
                     <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
                     <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
-                    <td className="num">{fmt(balance)}</td>
+                    <td className="num">{fmt(balance)}<LedgerEntryActions entryId={m.id} editable={m.editable} onChanged={refresh} /></td>
                   </tr>
                 ));
               })()}

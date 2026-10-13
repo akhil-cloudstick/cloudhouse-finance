@@ -23,6 +23,7 @@ import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { listCashMovementsByCustomer, exportPartyStatementByCustomer, MODE_LEDGER_ROUTE } from "@/modules/cash/services/cashService";
 import { type LedgerRowView } from "@/modules/cash/types/cash-types";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
+import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -725,7 +726,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                         </td>
                         <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                         <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                        <td className="num">{fmt(r.runningBalance)}</td>
+                        <td className="num">{fmt(r.runningBalance)}<LedgerEntryActions entryId={r.entryId} editable={r.editable} onChanged={transactionPager.refresh} /></td>
                       </tr>
                       );
                     })}

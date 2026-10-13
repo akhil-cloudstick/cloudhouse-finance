@@ -35,6 +35,10 @@ type Config struct {
 	SurepassEsignSignX       int
 	SurepassEsignSignY       int
 	SurepassEsignYFromBottom bool
+	SurepassEsignWitness1X   int
+	SurepassEsignWitness1Y   int
+	SurepassEsignWitness2X   int
+	SurepassEsignWitness2Y   int
 	RazorpayKeyID            string
 	RazorpayKeySecret        string
 	RazorpayWebhookSecret    string
@@ -66,6 +70,10 @@ func LoadConfig() Config {
 		SurepassEsignSignX:       getEnvInt("SUREPASS_ESIGN_SIGN_X", 110),
 		SurepassEsignSignY:       getEnvInt("SUREPASS_ESIGN_SIGN_Y", 730),
 		SurepassEsignYFromBottom: getEnv("SUREPASS_ESIGN_Y_FROM_BOTTOM", "true") != "false",
+		SurepassEsignWitness1X:   getEnvInt("SUREPASS_ESIGN_WITNESS1_X", 103),
+		SurepassEsignWitness1Y:   getEnvInt("SUREPASS_ESIGN_WITNESS1_Y", 338),
+		SurepassEsignWitness2X:   getEnvInt("SUREPASS_ESIGN_WITNESS2_X", 396),
+		SurepassEsignWitness2Y:   getEnvInt("SUREPASS_ESIGN_WITNESS2_Y", 338),
 		RazorpayKeyID:            getEnv("RAZORPAY_KEY_ID", ""),
 		RazorpayKeySecret:        getEnv("RAZORPAY_KEY_SECRET", ""),
 		RazorpayWebhookSecret:    getEnv("RAZORPAY_WEBHOOK_SECRET", ""),

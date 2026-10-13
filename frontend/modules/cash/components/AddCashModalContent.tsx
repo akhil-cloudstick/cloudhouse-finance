@@ -6,7 +6,9 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
-import { createCashMovement, createGoldSale, uploadReceipt } from "@/modules/cash/services/cashService";
+import { createCashMovement, createGoldSale, updateMovementEntry, uploadReceipt } from "@/modules/cash/services/cashService";
+import { PaymentBreakdownFields, newPaymentRow, paymentRowsError, paymentRowsToInput, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
+import { type EntryInfo } from "@/modules/cash/types/cash-types";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
@@ -42,7 +44,8 @@ const GOLD_SALE = "Gold Sale";
 // source search already returns it.
 const searchSourcesWithGoldSale = searchCashSourcesPage;
 
-type AddCashModalContentProps = { onSaved?: () => void; defaultBranchId?: number; tabs?: ReactNode };
+// `edit` opens the form on an existing cash-in (from the ledger's Edit button).
+type AddCashModalContentProps = { onSaved?: () => void; defaultBranchId?: number; tabs?: ReactNode; edit?: EntryInfo };
 
 /* Ported from legacy/app.js's `openAddCashModal()` / `acSourceChanged()` /
  * `saveAddCash()` — now posts to the real POST /cash-movements endpoint.
@@ -66,34 +69,42 @@ type AddCashModalContentProps = { onSaved?: () => void; defaultBranchId?: number
  *
  * The built-in "Gold Sale" source (see GOLD_SALE) swaps in the gold-sale
  * fields — ornament type, cost, branch, remarks — and records a gold sale. */
-export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashModalContentProps) {
+export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: AddCashModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
   // The whole picked row, not just its name — a loan source carries its
-  // already-captured details (principalAmount etc.).
-  const [sourceRec, setSourceRec] = useState<BackendCashSource | null>(null);
+  // already-captured details (principalAmount etc.). Editing starts from the
+  // entry's category name only (a loan-drawn cash-in is not editable).
+  const [sourceRec, setSourceRec] = useState<BackendCashSource | null>(edit ? ({ id: 0, name: edit.category } as BackendCashSource) : null);
   const source = sourceRec?.name ?? "";
-  const [mode, setMode] = useState("");
+  // Gold Sale keeps its own single Mode / Bank; every other category uses the
+  // payment breakdown below.
+  const [mode, setMode] = useState(edit?.kind === "gold_sale" ? edit.lines[0]?.mode ?? "" : "");
   // The branch's own account the UPI/transfer landed in.
-  const [bank, setBank] = useState("");
-  const [bankId, setBankId] = useState("");
+  const [bank, setBank] = useState(edit?.kind === "gold_sale" ? edit.lines[0]?.bankName ?? "" : "");
+  const [bankId, setBankId] = useState(edit?.kind === "gold_sale" && edit.lines[0]?.bankId ? String(edit.lines[0].bankId) : "");
+  const [payRows, setPayRows] = useState<PaymentRow[]>(() =>
+    edit
+      ? edit.lines.map((l) => newPaymentRow({ mode: l.mode, amount: String(l.amount), bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName || "", auto: false }))
+      : [newPaymentRow()]
+  );
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [amt, setAmt] = useState("");
-  const [date, setDate] = useState(today);
+  const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
+  const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
   const isLoan = isLoanSource(source);
   const isGoldSale = source === GOLD_SALE;
   // A loan source asks for its details only once — on its first entry.
-  const needsLoanDetails = isLoan && sourceRec?.principalAmount == null;
+  const needsLoanDetails = isLoan && sourceRec?.principalAmount == null && !edit;
 
   // Gold Sale fields — only shown/required when source is GOLD_SALE.
-  const [ornamentType, setOrnamentType] = useState("");
-  const [costAmount, setCostAmount] = useState("");
-  const [remarks, setRemarks] = useState("");
+  const [ornamentType, setOrnamentType] = useState(edit?.ornamentType ?? "");
+  const [costAmount, setCostAmount] = useState(edit?.costAmount ? String(edit.costAmount) : "");
+  const [remarks, setRemarks] = useState(edit?.remarks ?? "");
   // Every cash-in lands in one branch's till — without a branch it never
   // reaches any branch's Balance in Hand (cash.SummaryService only sums a
   // branch's own movements), so Branch is required for every source.
@@ -107,7 +118,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
   // active, the same way a single-branch business locks it.
   const lockedBranchId = useLockedBranchId();
   const branchLocked = singleBranch || lockedBranchId != null;
-  const [branchId, setBranchId] = useState<number | "">(defaultBranchId || lockedBranchId || "");
+  const [branchId, setBranchId] = useState<number | "">(edit?.branchId || defaultBranchId || lockedBranchId || "");
   useEffect(() => {
     listActiveBranches().then((list) => {
       setBranches(list);
@@ -132,7 +143,8 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
   // draw. Blocks the Add Cash button (the backend refuses it too).
   const loanBal = useLoanBalance(sourceRec);
   const drawAmount = +amt || 0;
-  const loanLimit = needsLoanDetails ? (+principalAmount || 0) : loanBal ? loanBal.balance : 0;
+  // Editing a draw: its own amount is already counted as drawn, so it is available again to the edit.
+  const loanLimit = needsLoanDetails ? (+principalAmount || 0) : loanBal ? loanBal.balance + (edit ? edit.amount : 0) : 0;
   const loanExceeded = isLoan && !isGoldSale && drawAmount > 0 && (needsLoanDetails ? loanLimit > 0 : !!loanBal) && drawAmount > loanLimit + 0.005;
   const loanWarning = loanExceeded
     ? `Loan principal amount exceeded — only ${fmt(Math.max(loanLimit, 0))} is left to draw on ${source}.`
@@ -155,6 +167,16 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
     setSaving(true);
     try {
       const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
+      if (edit) {
+        await updateMovementEntry(edit.movementId, {
+          category: GOLD_SALE, ornamentType: type, costAmount: cost, amount: sold, occurredOn: date, remarks: remarks.trim(), branchId,
+          mode, bankId: bankRequired ? +bankId : undefined, receiptImage,
+        });
+        onSaved?.();
+        closeModal();
+        toast("Gold sale updated");
+        return;
+      }
       await createGoldSale({
         ornamentType: type, soldAmount: sold, costAmount: cost, branchId,
         mode, bankId: bankRequired ? +bankId : undefined,
@@ -172,16 +194,20 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
 
   async function save() { return singleFlight("modal:addcash:save", async () => {
     if (!source) { setErr("Please select where the cash is coming from."); return; }
-    if (!mode) { setErr("Please select the mode of cash."); return; }
-    if (bankRequired && !bankId) {
-      setErr("Please select the bank.");
+    if (isGoldSale) {
+      if (edit && edit.kind !== "gold_sale") { setErr("A gold sale can't be recorded from here — pick another category."); return; }
+      if (!mode) { setErr("Please select the mode of cash."); return; }
+      if (bankRequired && !bankId) { setErr("Please select the bank."); return; }
+      if (!branchId) { setErr("Please select a branch."); return; }
+      await saveGoldSale();
       return;
     }
-    if (!branchId) { setErr("Please select a branch."); return; }
-    if (isGoldSale) { await saveGoldSale(); return; }
     const amount = +amt;
     if (!(amount > 0)) { setErr("Please enter a valid cash amount."); return; }
     if (!date) { setErr(needsLoanDetails ? "Please select the date of the loan." : "Please select the date."); return; }
+    const payErr = paymentRowsError(payRows, amount);
+    if (payErr) { setErr(payErr); return; }
+    if (!branchId) { setErr("Please select a branch."); return; }
 
     // Only a loan source's first entry sends its details — later entries
     // reuse the ones the backend already holds on the source.
@@ -198,18 +224,28 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
     setSaving(true);
     try {
       const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
+      const payments = paymentRowsToInput(payRows);
+      if (edit) {
+        await updateMovementEntry(edit.movementId, {
+          category: source, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
+        });
+        onSaved?.();
+        closeModal();
+        toast("Cash-in updated");
+        return;
+      }
       await createCashMovement({
-        type: "in", source, mode, receiptImage,
-        bank: bankRequired ? bank : needsLoanDetails ? loanBankName : undefined,
-        bankId: bankRequired ? +bankId : undefined,
+        type: "in", source, receiptImage,
+        bank: needsLoanDetails ? loanBankName : undefined,
         amount, branchId, occurredOn: date, loanSource,
+        remarks: remarks.trim() || undefined, payments,
       });
       // A loan's first entry also created its repayment category server
       // side — reload the category links so its ledger link appears.
       if (loanSource) window.dispatchEvent(new Event(EXPENSE_CATEGORIES_CHANGED));
       onSaved?.();
       closeModal();
-      toast(`${fmt(amount)} added to cash (${source} · ${mode})`);
+      toast(`${fmt(amount)} added to cash (${source} · ${payments.map((p) => p.mode).join(" + ")})`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
     } finally {
@@ -221,6 +257,8 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
     <div><label className="f">Category *</label>
       <SearchableSelect<BackendCashSource>
         portal
+        // A gold sale's category stays Gold Sale.
+        disabled={edit?.kind === "gold_sale"}
         value={source}
         onChange={(_id, item) => {
           setSourceRec(item);
@@ -275,20 +313,20 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
       /></div>
   );
 
-  // Every entry form follows one order: Category → Date → Mode → Amount →
-  // Branch → Bill. Category-specific fields (a new loan's details, a gold
-  // sale's ornament/cost) sit right after the Category, and a Bank appears
-  // after Mode when the mode is not Cash.
+  // Credit and Debit follow one order: Category → Amount → Date → Mode (with
+  // its payment breakdown) → Branch → Bill → Remarks. Category-specific fields
+  // (a new loan's details) sit right after the Category. A Gold Sale keeps the
+  // older single-mode layout: Category → Date → Mode → Bank → Amount → Branch.
   return (
     <>
-      <div className="hd"><h3>Add Cash</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="hd"><h3>{edit ? (edit.kind === "gold_sale" ? "Edit Gold Sale" : "Edit Cash-In") : "Add Cash"}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll entry-form">
         {tabs}
         <div className="frow">{categoryField}</div>
 
         {needsLoanDetails && (
-          <div style={{ border: "1px dashed var(--line)", borderRadius: 8, padding: 12, marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent, #8a6d3b)", marginBottom: 12 }}>LOAN DETAILS</div>
+          <div style={{ marginBottom: 14 }}>
+            <label className="f" style={{ display: "block", marginBottom: 12 }}>Loan Details</label>
             <div className="frow c2">
               <div><label className="f">Bank *</label>
                 <SearchableSelect<BackendBank>
@@ -320,12 +358,25 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
           </div>
         )}
 
-        <div className="frow c2">
-          <div><label className="f">{needsLoanDetails ? "Date of Loan *" : "Date *"}</label><DatePicker value={date} onChange={setDate} /></div>
-          {modeField}
-        </div>
-        {bankRequired && <div className="frow">{bankField}</div>}
-        <div className={showBranch ? "frow c2" : "frow"}>{amountField}{showBranch && branchField}</div>
+        {isGoldSale ? (
+          <>
+            <div className="frow c2">
+              <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
+              {modeField}
+            </div>
+            {bankRequired && <div className="frow">{bankField}</div>}
+            <div className={showBranch ? "frow c2" : "frow"}>{amountField}{showBranch && branchField}</div>
+          </>
+        ) : (
+          <>
+            <div className="frow c2">
+              {amountField}
+              <div><label className="f">{needsLoanDetails ? "Date of Loan *" : "Date *"}</label><DatePicker value={date} onChange={setDate} /></div>
+            </div>
+            <PaymentBreakdownFields total={+amt || 0} rows={payRows} onChange={setPayRows} />
+            {showBranch && <div className="frow">{branchField}</div>}
+          </>
+        )}
         {isGoldSale && amt && (
           <div className="notice" style={{ marginBottom: 4 }}>
             {profit >= 0 ? "Profit" : "Loss"}: <strong style={{ color: profit >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(Math.abs(profit))}</strong>
@@ -336,17 +387,15 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs }: AddCashM
             {loanWarning}
           </div>
         )}
-        <div className="frow"><div><label className="f">Bill</label>
+        <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
-        {isGoldSale && (
-          <div className="frow"><div><label className="f">Remarks</label>
-            <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
-        )}
+        <div className="frow"><div><label className="f">Remarks</label>
+          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : isGoldSale ? "Record Sale" : "Add Cash"}</button>
+        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : isGoldSale ? "Record Sale" : "Add Cash"}</button>
       </div>
     </>
   );

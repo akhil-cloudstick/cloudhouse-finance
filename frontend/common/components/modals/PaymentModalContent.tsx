@@ -441,7 +441,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 
             <div className="pay-sec">
               <div className="pay-sec-t">Payment breakdown <small>How the customer paid</small></div>
-              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} />
+              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} label={null} />
             </div>
 
           </div>
@@ -478,7 +478,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       <div className="ft">
         {/* Never a silently disabled button: whatever is blocking Review
           * (or the server's last rejection) is spelled out here. */}
-        <span className="pay-ft-msg">{allocWarning || (bankMissing ? "Select a bank" : "") || err || (!splitBalanced && previewAmount > 0 ? `Payment breakdown is ${fmt(Math.abs(remaining))} ${remaining > 0 ? "short of" : "over"} the amount` : "")}</span>
+        <span className="pay-ft-msg">{allocWarning || (bankMissing ? "Select a bank" : "") || err}</span>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
       </div>

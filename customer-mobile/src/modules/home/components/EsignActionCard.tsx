@@ -24,6 +24,7 @@ const URL_RE = /https?:\/\/\S+/;
 
 function langFromBody(body: string): string {
   if (/gujarati/i.test(body)) return "Gujarati";
+  if (/tamil/i.test(body)) return "Tamil";
   if (/hindi/i.test(body)) return "Hindi";
   return "English";
 }

@@ -35,6 +35,8 @@ type RecordExpenseInput struct {
 	BranchID     uint
 	Remarks      string
 	ReceiptImage string
+	// GroupID ties the debit lines of one payment breakdown together.
+	GroupID string
 }
 
 type ExpenseActor struct {
@@ -61,6 +63,8 @@ type expenseRequest struct {
 	BranchID     uint    `json:"branch_id" binding:"required"`
 	Remarks      string  `json:"remarks"`
 	ReceiptImage string  `json:"receipt_image"`
+	// Payments splits the debit across modes; each line is saved as its own expense.
+	Payments []paymentPartRequest `json:"payments"`
 }
 
 type approveExpenseRequest struct {
@@ -95,12 +99,45 @@ func recordExpenseCashOut(ctx context.Context, expenseID uint, category, mode st
 	return rec.ID, nil
 }
 
+// recordExpenseLine books the cash-out line of a debit keyed in on the ledger form; it is marked manual so
+// the ledger offers Edit on it, and carries the remarks and the payment group of its expense.
+func recordExpenseLine(ctx context.Context, e *models.Expense) (uint, error) {
+	rec := &models.CashMovement{
+		Type:               "out",
+		Purpose:            debitPurposePrefix + e.Category,
+		Mode:               e.Mode,
+		BankID:             e.FromBankID,
+		ToBankID:           e.ToBankID,
+		Amount:             e.Amount,
+		BranchID:           &e.BranchID,
+		ExpenseID:          &e.ID,
+		ReceiptImage:       e.ReceiptImage,
+		Remarks:            e.Remarks,
+		TransactionGroupID: e.GroupID,
+		IsManual:           true,
+		OccurredOn:         e.OccurredOn,
+	}
+	if rec.OccurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	}
+	if err := insertMovement(ctx, rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+// bankPledgeReleaseCategory is the expense category a bank pledge release is filed under.
+const bankPledgeReleaseCategory = "Bank Pledge Release"
+
 func RecordBankPledgeReleaseExpense(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
 	hoID, err := HeadOfficeBranchID(ctx)
 	if err != nil {
 		return 0, err
 	}
-	return recordSystemExpense(ctx, "Bank Pledge Release", bankName, amount, occurredOn, hoID)
+	if _, _, err := findOrCreateCategory(ctx, bankPledgeReleaseCategory, models.CategoryExpense); err != nil {
+		return 0, err
+	}
+	return recordSystemExpense(ctx, bankPledgeReleaseCategory, bankName, amount, occurredOn, hoID)
 }
 
 func recordSystemExpense(ctx context.Context, category, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
@@ -161,7 +198,37 @@ func authorizeDecision(ctx context.Context, id uint, actor ExpenseActor, branchI
 	return &expenseDecision{rec: rec, chain: chain, step: step, name: name}, nil
 }
 
+// pendingGroupMates are the other still-pending debit lines of the same payment breakdown; approving or
+// rejecting one line decides the whole entry.
+func pendingGroupMates(ctx context.Context, rec *models.Expense) []uint {
+	if rec == nil || rec.GroupID == "" {
+		return nil
+	}
+	var ids []uint
+	config.DB.WithContext(ctx).Model(&models.Expense{}).
+		Where("group_id = ? AND id <> ? AND status = ?", rec.GroupID, rec.ID, "Pending").
+		Order("id").Pluck("id", &ids)
+	return ids
+}
+
 func approveAs(ctx context.Context, id uint, actor ExpenseActor, branchID *uint) (*models.Expense, error) {
+	mates := []uint(nil)
+	if rec, err := findExpenseByID(ctx, id); err == nil {
+		mates = pendingGroupMates(ctx, rec)
+	}
+	rec, err := approveOne(ctx, id, actor, branchID)
+	if err != nil {
+		return nil, err
+	}
+	for _, mate := range mates {
+		if _, err := approveOne(ctx, mate, actor, branchID); err != nil {
+			return nil, err
+		}
+	}
+	return rec, nil
+}
+
+func approveOne(ctx context.Context, id uint, actor ExpenseActor, branchID *uint) (*models.Expense, error) {
 	d, err := authorizeDecision(ctx, id, actor, branchID)
 	if err != nil {
 		return nil, err
@@ -181,6 +248,23 @@ func approveAs(ctx context.Context, id uint, actor ExpenseActor, branchID *uint)
 }
 
 func rejectAs(ctx context.Context, id uint, actor ExpenseActor, remarks string, branchID *uint) (*models.Expense, error) {
+	mates := []uint(nil)
+	if rec, err := findExpenseByID(ctx, id); err == nil {
+		mates = pendingGroupMates(ctx, rec)
+	}
+	rec, err := rejectOne(ctx, id, actor, remarks, branchID)
+	if err != nil {
+		return nil, err
+	}
+	for _, mate := range mates {
+		if _, err := rejectOne(ctx, mate, actor, remarks, branchID); err != nil {
+			return nil, err
+		}
+	}
+	return rec, nil
+}
+
+func rejectOne(ctx context.Context, id uint, actor ExpenseActor, remarks string, branchID *uint) (*models.Expense, error) {
 	d, err := authorizeDecision(ctx, id, actor, branchID)
 	if err != nil {
 		return nil, err
@@ -237,6 +321,11 @@ func SaveExpense(ctx context.Context, in RecordExpenseInput) (*models.Expense, e
 			return nil, err
 		}
 	}
+	if chain.Off() {
+		if err := ensureExpenseBank(ctx, in.Mode, in.FromBankID, in.Amount); err != nil {
+			return nil, err
+		}
+	}
 	now := time.Now()
 	occurredOn := in.OccurredOn
 	if occurredOn.IsZero() {
@@ -256,6 +345,7 @@ func SaveExpense(ctx context.Context, in RecordExpenseInput) (*models.Expense, e
 			Status:        "Pending",
 			Remarks:       in.Remarks,
 			ReceiptImage:  in.ReceiptImage,
+			GroupID:       in.GroupID,
 		}
 		if err := insertExpense(ctx, rec); err != nil {
 			return nil, err
@@ -275,11 +365,12 @@ func SaveExpense(ctx context.Context, in RecordExpenseInput) (*models.Expense, e
 		ApprovedAt:   &now,
 		Remarks:      in.Remarks,
 		ReceiptImage: in.ReceiptImage,
+		GroupID:      in.GroupID,
 	}
 	if err := insertExpense(ctx, rec); err != nil {
 		return nil, err
 	}
-	movementID, err := recordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, rec.ToBankID, rec.Amount, rec.BranchID, rec.OccurredOn, rec.ReceiptImage)
+	movementID, err := recordExpenseLine(ctx, rec)
 	if err != nil {
 		return nil, err
 	}
@@ -322,6 +413,9 @@ func SaveExpenseApproval(ctx context.Context, id uint, approvedBy string, branch
 			return nil, err
 		}
 	}
+	if err := ensureExpenseBank(ctx, rec.Mode, rec.FromBankID, rec.Amount); err != nil {
+		return nil, err
+	}
 	if err := ensureLoanRepayment(ctx, rec.Category, rec.Amount, false); err != nil {
 		return nil, err
 	}
@@ -331,7 +425,7 @@ func SaveExpenseApproval(ctx context.Context, id uint, approvedBy string, branch
 		rec.ApprovedBy = &approvedBy
 	}
 	rec.ApprovedAt = &now
-	movementID, err := recordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, rec.ToBankID, rec.Amount, rec.BranchID, rec.OccurredOn, rec.ReceiptImage)
+	movementID, err := recordExpenseLine(ctx, rec)
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +650,16 @@ func RecordExpense(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	input.BranchID = auth.EnforceBranchOnWrite(c, input.BranchID)
-	rec, err := SaveExpense(ctx, input)
+	var rec *models.Expense
+	if len(req.Payments) > 0 {
+		parts, perr := paymentParts(req.Payments, input.Amount)
+		if perr != nil {
+			return common.FailErr(c, perr)
+		}
+		rec, err = SaveExpenseParts(ctx, input, parts)
+	} else {
+		rec, err = SaveExpense(ctx, input)
+	}
 	if err != nil {
 		return common.FailErr(c, err)
 	}

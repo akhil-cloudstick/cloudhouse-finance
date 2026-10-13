@@ -17,6 +17,7 @@ export type BackendExpenseCategory = {
  * balance = what is still owed (the principal once drawn in full). */
 export type LoanLedgerSummary = {
   sourceId: number;
+  bankId?: number;
   name: string;
   bankName: string;
   loanNumber: string;

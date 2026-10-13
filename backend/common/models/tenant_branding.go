@@ -11,9 +11,10 @@ const (
 	ModuleBranches      = "branches"
 	ModulePersonalLoans = "personal_loans"
 	ModuleInvestments   = "investments"
+	ModuleWhatsApp      = "whatsapp"
 )
 
-var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments}
+var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp}
 
 const (
 	LangEnglish = "en"
@@ -22,13 +23,15 @@ const (
 const (
 	PolicyKML = "kml"
 	PolicyGML = "gml"
+	PolicyTML = "tml"
 )
 
-var KnownPolicies = []string{PolicyKML, PolicyGML}
+var KnownPolicies = []string{PolicyKML, PolicyGML, PolicyTML}
 
 var PolicyLanguages = map[string][]string{
 	PolicyKML: {LangEnglish, "ml"},
 	PolicyGML: {LangEnglish, "gu"},
+	PolicyTML: {LangEnglish, "ta"},
 }
 
 func PolicyOrDefault(policy string) string {

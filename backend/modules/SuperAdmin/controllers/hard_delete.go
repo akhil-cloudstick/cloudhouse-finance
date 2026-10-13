@@ -59,6 +59,7 @@ var hardDeleteOrder = []string{
 	"approval_stage_settings",
 	"approval_actions",
 	"communication_logs",
+	"whatsapp_sessions",
 	"audit_log_entries",
 	"purity_standards",
 	"uploaded_files",

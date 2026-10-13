@@ -17,7 +17,7 @@ import { useShowBranch, useShowBranchFilter } from "@/common/hooks/use-branch-sw
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { useExpenseCategoryIds } from "@/common/hooks/use-expense-category-ids";
 import { particularsFor, refTitleFor, refCellFor, modeCellFor } from "@/modules/cash/utils/ledgerCells";
-import { BillLink } from "@/modules/cash/components/BillLink";
+import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
 import { singleFlight } from "@/common/utils/singleFlight";
 
 // Mirrors backend/internal/cash/repository.go's Category* constants.
@@ -82,6 +82,8 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
+  // Bumped after an entry is edited from a row, to reload the preview.
+  const [reloadKey, setReloadKey] = useState(0);
   // Category name -> id, for the category-ledger links on expense rows.
   const categoryIds = useExpenseCategoryIds();
 
@@ -138,7 +140,7 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
         setError(e instanceof ApiError ? e.message : "Could not load the ledger.");
       })
       .finally(() => setLoading(false));
-  }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate, page]);
+  }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate, page, reloadKey]);
 
   async function onDownload(format: "pdf" | "xlsx") { return singleFlight("reports:ledger-export:"+format, async () => {
     setExporting(true);
@@ -212,11 +214,11 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
                   <td>{fmtDate(m.d)}</td>
                   {/* Same clickable cells as Cash.tsx's Ledger tab (ledgerCells.tsx). */}
                   <td className="ledger-ref" title={refTitleFor(m)}>{refCellFor(m, categoryIds)}</td>
-                  <td style={{ textAlign: "center" }}>{particularsFor(m, categoryIds)}<BillLink url={m.receiptImage} title={m.purpose || m.source || "Entry"} /></td>
+                  <td style={{ textAlign: "center" }}>{particularsFor(m, categoryIds)}</td>
                   <td>{modeCellFor(m.mode)}</td>
                   <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
                   <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
-                  <td className="num">{fmt(balance)}</td>
+                  <td className="num">{fmt(balance)}<LedgerEntryActions entryId={m.id} editable={m.editable} onChanged={() => setReloadKey((k) => k + 1)} /></td>
                 </tr>
               ))}
             </tbody>

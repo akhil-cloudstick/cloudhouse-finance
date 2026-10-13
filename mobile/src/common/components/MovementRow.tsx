@@ -3,6 +3,7 @@ import { dmy, inr } from "@/common/utils/format";
 import type { CashMovement } from "@/modules/cash/types/cash-types";
 import { billDetail, expenseCategoryOf, modeLink, openLedger, openLoanByNumber } from "./LedgerList";
 import { LedgerLink } from "./LedgerLink";
+import { EntrySub, useEntryActions } from "@/modules/cash/components/EntryActions";
 
 // loanRefFor pulls the loan number back out of `purpose` — every
 // loan-related movement's Purpose carries it as a "… — LN-00049" suffix
@@ -35,7 +36,11 @@ export function MovementRow({
   defaultOpen,
 }: MovementRowProps) {
   const ref = loanRefFor(m);
+  // A cash-in / debit / self transfer a person keyed in: info icon + Edit.
+  const entry = useEntryActions(m.id, m.editable);
   const bankName = m.bankRef?.name || m.bank || "Bank";
+  // Links on this row open the other ledgers on this same transaction.
+  const focus = { date: m.occurredOn, amount: m.amount };
   // A self transfer reads "Self transfer — <category>"; a loan category links
   // to that loan's own ledger, same as web.
   const isSelf = m.source === "Self Transfer";
@@ -47,41 +52,45 @@ export function MovementRow({
   const bankBacked = m.expenseId != null || category !== null || (m.type === "in" && m.source?.trim().toLowerCase().startsWith("loan"));
   const refValue = isSelf
     ? categoryId
-      ? <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!)} />
+      ? <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!, focus)} />
       : "—"
     : bankBacked
     ? m.bankId
-      ? <LedgerLink label={bankName} to="/cash" onPress={() => openLedger("bank", m.bankId!, bankName)} />
+      ? <LedgerLink label={bankName} to="/cash" onPress={() => openLedger("bank", m.bankId!, bankName, focus)} />
       : m.bankRef?.name || m.bank || "—"
     : ref
       ? <LedgerLink label={ref} to="/loans" onPress={() => openLoanByNumber(ref)} />
       : "—";
   return (
+    <>
     <AccRow
       defaultOpen={defaultOpen}
       name={inr(m.amount)}
-      sub={m.purpose || m.source}
+      sub={entry.infoButton ? <EntrySub text={m.purpose || m.source} infoButton={entry.infoButton} /> : m.purpose || m.source}
+      actions={entry.actions}
       status={m.type === "in" ? "Cash in" : "Cash out"}
       statusTone={m.type === "in" ? "active" : "due"}
       details={[
         { k: "Date", v: dmy(m.occurredOn) },
         { k: "Ref No", v: refValue },
-        { k: "Mode", v: modeLink(m.mode) },
+        { k: "Mode", v: modeLink(m.mode, focus) },
         { k: "Debit", v: m.type === "out" ? inr(m.amount) : "—" },
         { k: "Credit", v: m.type === "in" ? inr(m.amount) : "—" },
         { k: "Balance", v: inr(balance) },
         m.bankId
-          ? { k: "Bank", v: <LedgerLink label={bankName} to="/cash" onPress={() => openLedger("bank", m.bankId!, bankName)} /> }
+          ? { k: "Bank", v: <LedgerLink label={bankName} to="/cash" onPress={() => openLedger("bank", m.bankId!, bankName, focus)} /> }
           : m.bank
             ? { k: "Bank", v: m.bank }
             : { k: "Branch", v: m.branch?.name || "—" },
         ...(m.partyCustomerId
-          ? [{ k: "Customer", v: <LedgerLink label={m.partyCustomer?.name || "Customer"} to="/cash" onPress={() => openLedger("customer", m.partyCustomerId!, m.partyCustomer?.name || "Customer")} /> }]
+          ? [{ k: "Customer", v: <LedgerLink label={m.partyCustomer?.name || "Customer"} to="/cash" onPress={() => openLedger("customer", m.partyCustomerId!, m.partyCustomer?.name || "Customer", focus)} /> }]
           : []),
-        ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
+        ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!, focus)} /> }] : []),
         ...(m.status ? [{ k: "Status", v: m.status }] : []),
         ...billDetail(m.receiptImage),
       ]}
     />
+    {entry.sheets}
+    </>
   );
 }

@@ -4,7 +4,6 @@ import (
 	common "cloudhouse/backend/common/controllers"
 	"cloudhouse/backend/config"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"html/template"
 	"math"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 )
 
@@ -32,16 +32,26 @@ func renderA4PDFWithSlots(htmlDoc, label string) ([]byte, []config.SignatureSlot
 	defer cancel()
 	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	encoded := base64.StdEncoding.EncodeToString([]byte(htmlDoc))
 	var pdfBytes []byte
 	var rawSlots []struct {
 		X, Y, H float64
 		Last    bool
+		Role    string
 	}
 	wantSlots := strings.Contains(htmlDoc, "esign-slot")
 	err := chromedp.Run(ctx,
-		chromedp.Navigate("data:text/html;charset=utf-8;base64,"+encoded),
+		// Set the document directly: a data: URL fails to load once the page embeds
+		// photos (Chrome caps navigable data URLs at about 2 MB).
+		chromedp.Navigate("about:blank"),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			tree, err := page.GetFrameTree().Do(ctx)
+			if err != nil {
+				return err
+			}
+			return page.SetDocumentContent(tree.Frame.ID, htmlDoc).Do(ctx)
+		}),
 		chromedp.WaitReady("body"),
+		chromedp.Evaluate(`Promise.all(Array.from(document.images).map(function(i){return i.complete?1:new Promise(function(r){i.onload=i.onerror=r})}))`, nil, func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			if !wantSlots {
 				return nil
@@ -55,7 +65,7 @@ func renderA4PDFWithSlots(htmlDoc, label string) ([]byte, []config.SignatureSlot
 	var dx=e.getAttribute('data-esign-dx'), dy=e.getAttribute('data-esign-dy');
 	return {x: dx!==null ? r.left+parseFloat(dx) : r.right+6,
 		y: (br ? r.top-br.top : r.top+window.scrollY) + (dy!==null ? parseFloat(dy) : 0),
-		last: !!b, h: br ? br.height : 0}})`, &rawSlots).Do(ctx)
+		last: !!b, h: br ? br.height : 0, role: e.getAttribute('data-esign-role')||''}})`, &rawSlots).Do(ctx)
 		}),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			buf, _, err := page.PrintToPDF().
@@ -102,6 +112,7 @@ Page <span class="pageNumber"></span> of <span class="totalPages"></span>
 			Page: strconv.Itoa(page),
 			X:    int(math.Round(pageSideMargin*72 + r.X*0.75)),
 			Y:    int(math.Round(0.75*72 + r.Y*0.75)),
+			Role: r.Role,
 		})
 	}
 	return pdfBytes, slots, nil

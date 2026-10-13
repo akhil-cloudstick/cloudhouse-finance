@@ -14,6 +14,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// goldSaleSource is the source of the cash-in line a gold sale books.
+const goldSaleSource = "GoldSale"
+
 type RecordGoldSaleInput struct {
 	OrnamentType string
 	SoldAmount   float64
@@ -44,15 +47,18 @@ type GoldSaleTotals struct {
 	TotalProfit float64 `json:"total_profit"`
 }
 
-func recordGoldSaleCashIn(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint) (uint, error) {
+func recordGoldSaleCashIn(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, remarks, receipt string) (uint, error) {
 	rec := &models.CashMovement{
-		Type:     "in",
-		Source:   "GoldSale",
-		Purpose:  "Gold sale — " + ornamentType,
-		Amount:   amount,
-		Mode:     mode,
-		BankID:   bankID,
-		BranchID: &branchID,
+		Type:         "in",
+		Source:       goldSaleSource,
+		Purpose:      "Gold sale — " + ornamentType,
+		Amount:       amount,
+		Mode:         mode,
+		BankID:       bankID,
+		BranchID:     &branchID,
+		Remarks:      strings.TrimSpace(remarks),
+		ReceiptImage: receipt,
+		IsManual:     true,
 	}
 	if occurredOn.IsZero() {
 		rec.OccurredOn = time.Now()
@@ -97,7 +103,7 @@ func createGoldSale(ctx context.Context, in RecordGoldSaleInput) (*models.GoldSa
 	if soldOn.IsZero() {
 		soldOn = time.Now()
 	}
-	movementID, err := recordGoldSaleCashIn(ctx, in.OrnamentType, in.SoldAmount, in.BranchID, soldOn, mode, in.BankID)
+	movementID, err := recordGoldSaleCashIn(ctx, in.OrnamentType, in.SoldAmount, in.BranchID, soldOn, mode, in.BankID, in.Remarks, in.ReceiptImage)
 	if err != nil {
 		return nil, err
 	}

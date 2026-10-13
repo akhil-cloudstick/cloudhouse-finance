@@ -11,12 +11,14 @@ import { useShowBranch } from "@/common/hooks/use-branch-switch";
 type ExpenseRowProps = {
   e: ExpenseView; categoryId?: number; onViewReceipt: () => void;
   canApprove: boolean; awaiting?: string; busy: boolean; onApprove: () => void; onReject: () => void;
+  // Opens the edit form — offered on a pending or approved expense a person keyed in.
+  onEdit?: () => void;
 };
 
 /* canApprove/onApprove/onReject drive the Approve/Reject pair shown on a
  * Pending row (the expense approval flow) — shown only to the role of the
  * step the expense waits at (or Administrator); awaiting names that role. */
-export function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, onApprove, onReject }: ExpenseRowProps) {
+export function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, onApprove, onReject, onEdit }: ExpenseRowProps) {
   const showBranch = useShowBranch();
   return (
     <tr data-ledger-key={`e-${e.id}`} data-ledger-date={e.d} data-ledger-amount={e.amt}>
@@ -39,6 +41,11 @@ export function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting,
             <button className="btn danger sm" disabled={busy} onClick={onReject}>Reject</button>
           </div>
         )}
+      </td>
+      <td data-label="Edit" style={{ textAlign: "center" }}>
+        {e.editable && onEdit
+          ? <button type="button" title="Edit expense" aria-label="Edit expense" onClick={onEdit} style={{ border: 0, background: "none", cursor: "pointer", padding: 2, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}><Icon name="edit" /></button>
+          : <span style={{ color: "var(--muted)" }}>—</span>}
       </td>
       <td data-label="Receipt" style={{ textAlign: "center" }}>
         {e.img

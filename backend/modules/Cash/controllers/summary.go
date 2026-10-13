@@ -3,6 +3,8 @@ package controllers
 import (
 	"cloudhouse/backend/auth"
 	common "cloudhouse/backend/common/controllers"
+	"cloudhouse/backend/config"
+	"cloudhouse/backend/modules/Cash/models"
 	"context"
 	"net/http"
 	"strconv"
@@ -205,4 +207,31 @@ func GetCashSummary(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, summary)
+}
+
+// ensureBankCanPay stops a UPI / Bank Transfer cash-out from taking the bank it leaves from below zero. It
+// guards every line written through insertMovement, so a payout, release, refund, self transfer or debit
+// can't be missed by a flow that forgot to check. Lines whose flow already checks the payout itself
+// (loan disbursement, investment — they carry a source type) and expense lines (counted through their own
+// expense record, see ensureExpenseBank) are left to those checks.
+func ensureBankCanPay(ctx context.Context, m *models.CashMovement) error {
+	if m.Type != "out" || m.BankID == nil || m.SourceType != "" || m.ExpenseID != nil || m.ToBankID != nil {
+		return nil
+	}
+	if m.Mode != models.CashModeUPI && m.Mode != models.CashModeBankTransfer {
+		return nil
+	}
+	if config.IsDemoRun(ctx) {
+		return nil
+	}
+	return EnsureBankBalance(ctx, *m.BankID, m.Amount)
+}
+
+// ensureExpenseBank is the same stop for an expense paid by UPI / Bank Transfer, checked before the expense
+// is booked (once booked it is already part of the bank's balance).
+func ensureExpenseBank(ctx context.Context, mode string, bankID *uint, amount float64) error {
+	if bankID == nil || (mode != models.CashModeUPI && mode != models.CashModeBankTransfer) || config.IsDemoRun(ctx) {
+		return nil
+	}
+	return EnsureBankBalance(ctx, *bankID, amount)
 }

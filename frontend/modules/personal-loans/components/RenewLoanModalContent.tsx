@@ -72,60 +72,61 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
     }
   }
 
+  const installmentAmount = +tenureCount > 0 && principalNum > 0 ? Math.round((principalNum / +tenureCount) * 100) / 100 : 0;
+  const v = (n: number | undefined) => (preview && n !== undefined ? fmt(n) : "—");
+
   return (
     <>
       <div className="hd"><h3>Renew Loan — {loan.loanNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="bd bd-scroll pl-modal">
         <div className="notice" style={{ marginBottom: 16 }}>Current outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></div>
+        <div className="pl-sec-h">Loan terms</div>
         <div className="frow c2">
-          <div><label className="f">New Principal Amount (₹) *</label><input className="inp" type="number" min={1} value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
-          <div><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} value={tenureCount} onChange={(e) => setTenureCount(e.target.value)} /></div>
+          <div><label className="f">New Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
+          <div><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} placeholder="e.g. 50" value={tenureCount} onChange={(e) => setTenureCount(e.target.value)} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Interest Type *</label>
-            <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
-              <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
-                <input type="radio" name="renewInterestType" checked={interestType === "Flat"} onChange={() => setInterestType("Flat")} />
-                <span className="mark" /><span>Flat (₹)</span>
-              </label>
-              <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
-                <input type="radio" name="renewInterestType" checked={interestType === "Percentage"} onChange={() => setInterestType("Percentage")} />
-                <span className="mark" /><span>Percentage (%)</span>
-              </label>
+            <div className="pl-seg" role="radiogroup">
+              {([["Flat", "Flat ₹"], ["Percentage", "Percent %"]] as [InterestType, string][]).map(([val, label]) => (
+                <button key={val} type="button" role="radio" aria-checked={interestType === val}
+                  className={interestType === val ? "on" : ""} onClick={() => setInterestType(val)}>{label}</button>
+              ))}
             </div>
           </div>
-          <div><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} value={interestValue} onChange={(e) => setInterestValue(e.target.value)} /></div>
+          <div><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => setInterestValue(e.target.value)} /></div>
         </div>
         <div className="frow"><div><label className="f">Collection Frequency *</label>
-          <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
+          <div className="pl-seg" role="radiogroup">
             {(["Daily", "Weekly", "Monthly"] as Frequency[]).map((f) => (
-              <label key={f} className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
-                <input type="radio" name="renewFrequency" checked={frequency === f} onChange={() => setFrequency(f)} />
-                <span className="mark" /><span>{f}</span>
-              </label>
+              <button key={f} type="button" role="radio" aria-checked={frequency === f}
+                className={frequency === f ? "on" : ""} onClick={() => setFrequency(f)}>{f}</button>
             ))}
           </div>
         </div></div>
 
-        {previewError && <div className="notice" style={{ marginTop: 10 }}>{previewError}</div>}
-        {preview && (
-          <div className="notice" style={{ marginTop: 10 }}>
-            <div>Rollover (old outstanding): <strong>{fmt(preview.rollover)}</strong></div>
-            <div>New interest: <strong>{fmt(preview.interestAmount)}</strong></div>
-            <div>Cash paid to customer: <strong>{fmt(preview.disbursedAmount)}</strong></div>
-            <div>New repayment obligation: <strong>{fmt(principalNum)}</strong></div>
-            {preview.shortfall && <div style={{ color: "var(--red, #c21725)", marginTop: 6 }}>⚠ New principal is not enough to cover the outstanding balance and interest.</div>}
-          </div>
-        )}
         {preview && preview.disbursedAmount > 0 && (
-          <div className="frow" style={{ marginTop: 10 }}>
-            <SplitPaymentInput totalAmount={preview.disbursedAmount} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
-          </div>
+          <>
+            <div className="pl-sec-h">Disbursement method</div>
+            <div className="frow">
+              <SplitPaymentInput totalAmount={preview.disbursedAmount} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+            </div>
+          </>
         )}
+
+        {/* Live preview — dashes until the backend preview comes back. */}
+        <div className="pl-sum">
+          <div><span>Rollover</span><b>{v(preview?.rollover)}</b></div>
+          <div><span>New interest</span><b>{v(preview?.interestAmount)}</b></div>
+          <div><span>Customer gets</span><b>{v(preview?.disbursedAmount)}</b></div>
+          <div><span>Per installment</span><b>{installmentAmount > 0 ? fmt(installmentAmount) : "—"}</b>{installmentAmount > 0 && <small>/ {frequency.toLowerCase()}</small>}</div>
+        </div>
+        {preview?.shortfall && <div className="notice" style={{ marginTop: 10, color: "var(--red, #c21725)" }}>⚠ New principal is not enough to cover the outstanding balance and interest.</div>}
+        {previewError && <div className="notice" style={{ marginTop: 10 }}>{previewError}</div>}
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
+        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
         <button className="btn" disabled={saving || !!preview?.shortfall} onClick={save}>{saving ? "Renewing…" : "Confirm Renewal"}</button>
       </div>
     </>

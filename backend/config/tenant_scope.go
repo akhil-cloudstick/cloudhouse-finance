@@ -44,6 +44,7 @@ var tenantScopedTables = map[string]bool{
 	"loan_accruals":           true,
 	"approval_stage_settings": true, "approval_actions": true,
 	"approval_chains": true, "approval_category_modes": true,
+	"whatsapp_sessions": true,
 }
 
 type Conn interface {

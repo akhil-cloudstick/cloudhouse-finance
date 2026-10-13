@@ -683,6 +683,10 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `POST /api/v1/cash-movements` | `POST /api/v1/users/:user_id/cash-movements` |
 | `GET /api/v1/cash-movements/:id` | `GET /api/v1/users/:user_id/cash-movements/:id` |
 | `PATCH /api/v1/cash-movements/:id/status` | `PATCH /api/v1/users/:user_id/cash-movements/:id/status` |
+| `GET /api/v1/cash-movements/:id/entry` | `GET /api/v1/users/:user_id/cash-movements/:id/entry` |
+| `PUT /api/v1/cash-movements/:id` | `PUT /api/v1/users/:user_id/cash-movements/:id` |
+| `GET /api/v1/expenses/:id/entry` | `GET /api/v1/users/:user_id/expenses/:id/entry` |
+| `PUT /api/v1/expenses/:id` | `PUT /api/v1/users/:user_id/expenses/:id` |
 | `GET /api/v1/cash-movements/cash-ledger` | `GET /api/v1/users/:user_id/cash-movements/cash-ledger` |
 | `GET /api/v1/cash-movements/export` | `GET /api/v1/users/:user_id/cash-movements/export` |
 | `GET /api/v1/cash-movements/loan-sources` | `GET /api/v1/users/:user_id/cash-movements/loan-sources` |
@@ -698,6 +702,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `POST /api/v1/cash-sources` | `POST /api/v1/users/:user_id/cash-sources` |
 | `GET /api/v1/cash-sources/:id` | `GET /api/v1/users/:user_id/cash-sources/:id` |
 | `GET /api/v1/cash-sources/:id/ledger` | `GET /api/v1/users/:user_id/cash-sources/:id/ledger` |
+| `PATCH /api/v1/cash-sources/:id/loan` | `PATCH /api/v1/users/:user_id/cash-sources/:id/loan` |
 | `GET /api/v1/cash/opening-balance` | `GET /api/v1/users/:user_id/cash/opening-balance` |
 | `POST /api/v1/cash/opening-balance` | `POST /api/v1/users/:user_id/cash/opening-balance` |
 | `GET /api/v1/cash/summary` | `GET /api/v1/users/:user_id/cash/summary` |
@@ -992,3 +997,14 @@ It is not wired into any app yet. The other option is to migrate each app's serv
 - Deleting a role that is still assigned answers 400 `Cannot delete: this role is assigned to N employee(s): a, b, c` (up to 5 names).
 - Updating a role without `is_active` keeps its current state instead of re-activating it. Creating or updating a role with an empty or blank `name` answers 400 `name is required`.
 - `GET /uploads/:key` with a customer token serves only the customer's own files (photo and KYC documents, ornament photos and signed indemnity bonds of their loans); any other key answers 404 `file not found`.
+
+## Round 5 (per-business WhatsApp)
+
+- New business module `whatsapp` (superadmin ticks it per business, like `personal_loans`). Every route below answers **403** `this feature is not available for your business` without it, and needs the `settings` module permissions (view to read, update to connect/disconnect).
+- `GET /api/v1/users/:user_id/integrations/whatsapp` -> `{status, connected, phone}`. `status` is OpenWA's (`created`, `initializing`, `qr_ready`, `authenticating`, `ready`, `disconnected`, `failed`) or `not_connected` when the business has no session yet.
+- `POST /api/v1/users/:user_id/integrations/whatsapp/connect` creates the business's session in OpenWA on first use and starts it. Returns the same shape as the GET.
+- `GET /api/v1/users/:user_id/integrations/whatsapp/qr` -> `{qr_code, status}`; `qr_code` is a `data:image/png;base64,...` URL, empty until `status` is `qr_ready`. Poll it (about every 3s) and poll the GET above for `connected`.
+- `POST /api/v1/users/:user_id/integrations/whatsapp/pairing-code` with `{phone}` (country code + number, any punctuation) -> `{pairing_code, status}`. The user types the 8-character code under WhatsApp > Linked devices > Link with phone number.
+- `POST /api/v1/users/:user_id/integrations/whatsapp/disconnect` logs the session out and deletes it.
+- Messages (reminders, OTPs, loan notices) go out from the business's own number once its session is `ready`; businesses without one keep using the shared server session.
+- Migration `0043_create_whatsapp_sessions.sql`.

@@ -2,7 +2,9 @@ import { useState } from "react";
 import { View } from "react-native";
 import { C, ConfirmSheet, Sheet, SheetListItem, Txt, Avatar } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { TENANT_MODULES } from "@/common/config/tenantModules";
 import { useTheme } from "@/common/theme/ThemeProvider";
+import { SettingsSheet } from "@/modules/integrations/components/SettingsSheet";
 
 type ProfileSheetProps = { visible: boolean; onClose: () => void };
 
@@ -11,12 +13,13 @@ type ProfileSheetProps = { visible: boolean; onClose: () => void };
 // ---------------------------------------------------------------------------
 export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const { employee, signOut, exitBusiness } = useAuth();
-  const { businessName } = useTheme();
+  const { businessName, hasModule } = useTheme();
   // Unlike Sign out (which keeps the business, so the next sign-in goes
   // straight to its login page), this also forgets the business and sends
   // the app back to the "enter a business" screen (app/(auth)/connect.tsx).
   // Confirmed in the app's own sheet, not a native Alert.
   const [confirmExit, setConfirmExit] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <>
       <Sheet visible={visible} onClose={onClose} title="Profile" maxHeightPct={50}>
@@ -29,6 +32,15 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
             </Txt>
           </View>
         </View>
+        {hasModule(TENANT_MODULES.whatsapp) ? (
+          <SheetListItem
+            icon="gear"
+            title="Settings"
+            sub="Integrations — connect WhatsApp"
+            first
+            onPress={() => setSettingsOpen(true)}
+          />
+        ) : null}
         <SheetListItem
           icon="logout"
           title="Sign out"
@@ -41,6 +53,7 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
         />
         <SheetListItem icon="home" title="Exit business" sub={`Disconnect ${businessName} from this device`} warn onPress={() => setConfirmExit(true)} />
       </Sheet>
+      <SettingsSheet visible={visible && settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ConfirmSheet
         visible={visible && confirmExit}
         onClose={() => setConfirmExit(false)}

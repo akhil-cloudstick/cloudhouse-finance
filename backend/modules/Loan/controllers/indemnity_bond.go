@@ -48,6 +48,10 @@ var bondDocs = map[string]map[string]bondDoc{
 		BondLangEnglish:  {mustLoadTemplate("bond_gml_en", "gml_bond_english.html", bondTemplateFuncs), bondPageStyle},
 		BondLangGujarati: {mustLoadTemplate("bond_gml_gu", "gml_bond_gujarati.html", bondTemplateFuncs), bondPageStyleGujarati},
 	},
+	commonModels.PolicyTML: {
+		BondLangEnglish: {mustLoadTemplate("bond_tml_en", "tml_bond_english.html", bondTemplateFuncs), bondPageStyleTML},
+		BondLangTamil:   {mustLoadTemplate("bond_tml_ta", "tml_bond_tamil.html", bondTemplateFuncs), bondPageStyleTML},
+	},
 }
 
 const bondPageStyle = `
@@ -95,7 +99,7 @@ ol li{margin-bottom:10px;text-align:justify}
 .deed-end{page-break-before:always;break-inside:avoid}
 .deed-end .sig-bottom{margin-top:56px}
 /* Borrower/Lender row: a taller gap between the party label and its line, so the 36pt eSign stamp (data-esign-dy) fits between them instead of overlapping "The Borrower". The lender image is re-seated to match. */
-.deed-end .sig-bottom .sig:last-child span{margin-top:68px}
+.deed-end .sig-bottom .sig span{margin-top:68px}
 .deed-end .sig-bottom .sig:last-child .lender-sig{top:42px}
 `
 
@@ -149,7 +153,7 @@ ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
 .deed-end{page-break-before:always;break-inside:avoid}
 .deed-end .sig-bottom{margin-top:56px}
 /* Borrower/Lender row: a taller gap between the party label and its line, so the 36pt eSign stamp (data-esign-dy) fits between them instead of overlapping "The Borrower". The lender image is re-seated to match. */
-.deed-end .sig-bottom .sig:last-child span{margin-top:68px}
+.deed-end .sig-bottom .sig span{margin-top:68px}
 .deed-end .sig-bottom .sig:last-child .lender-sig{top:42px}
 `
 
@@ -157,12 +161,18 @@ const (
 	BondLangEnglish   = "en"
 	BondLangMalayalam = "ml"
 	BondLangGujarati  = "gu"
+	BondLangTamil     = "ta"
 )
+
+func validBondLang(lang string) bool {
+	return lang == BondLangEnglish || lang == BondLangMalayalam || lang == BondLangGujarati || lang == BondLangTamil
+}
 
 var pdfPagePattern = regexp.MustCompile(`(?s)/Type\s*/Page[^s]`)
 
 type BondOrnament struct {
 	Name        string
+	Quantity    int
 	Purity      string
 	GrossWeight float64
 	NetWeight   float64
@@ -195,6 +205,19 @@ type BondData struct {
 	DueDate         time.Time
 	LenderSignature template.HTML
 	Disbursements   []BondDisbursement
+	Witness1Name    string
+	Witness2Name    string
+	// TML pledge-book sheet only (tml_bond_*.html): loan date, lender phones and the two photos.
+	OpenedDate    time.Time
+	Phones        string
+	CustomerPhoto template.URL
+	OverallPhoto  template.URL
+	Logo          template.URL
+}
+
+type tmlBondItem struct {
+	Name string
+	Qty  int
 }
 
 type BondDisbursement struct {
@@ -241,12 +264,33 @@ type bondTemplateData struct {
 	ItemWeights        string
 	AmountWords        string
 	Distribution       []bondDistRow
+	LoanDateDisplay    string
+	PrintTime          string
+	Items              []tmlBondItem
+	GrossTotal         string
+	NetTotal           string
+	TotalQty           int
 }
 
+// Signer roles stamped on the GML pledge agreement's eSign slots (data-esign-role in the templates).
+const (
+	RoleGMLEsignWitness1 = "gml_esign_witness1"
+	RoleGMLEsignWitness2 = "gml_esign_witness2"
+	RoleGMLEsignBorrower = "gml_esign_borrower"
+)
+
 type startIndemnityBondEsignRequest struct {
-	Lang        string `json:"lang" binding:"required"`
-	RedirectURL string `json:"redirect_url" binding:"required"`
-	DeliverBy   string `json:"deliver_by"`
+	Lang        string             `json:"lang" binding:"required"`
+	RedirectURL string             `json:"redirect_url" binding:"required"`
+	DeliverBy   string             `json:"deliver_by"`
+	Witnesses   []bondWitnessInput `json:"witnesses"`
+}
+
+// bondWitnessInput is one extra signer (a witness) who signs their own box on the
+// same pledge agreement with their own Aadhaar.
+type bondWitnessInput struct {
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
 }
 
 type indemnityBondPreviewOrnament struct {
@@ -473,6 +517,21 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		DueDate:            dueDateOrBlank(data.DueDate),
 	}
 	td.CustomerName = orBlank(data.CustomerName)
+	td.LoanDateDisplay = time.Now().Format("02-01-2006")
+	if !data.OpenedDate.IsZero() {
+		td.LoanDateDisplay = data.OpenedDate.Format("02-01-2006")
+	}
+	td.PrintTime = time.Now().Format("02-01-2006 03:04 PM")
+	var gross, net float64
+	for _, o := range data.Ornaments {
+		qty := max(o.Quantity, 1)
+		td.Items = append(td.Items, tmlBondItem{Name: o.Name, Qty: qty})
+		td.TotalQty += qty
+		gross += o.GrossWeight
+		net += o.NetWeight
+	}
+	td.GrossTotal = fmt.Sprintf("%.2f", gross)
+	td.NetTotal = fmt.Sprintf("%.2f", net)
 	for _, d := range data.Disbursements {
 		td.Distribution = append(td.Distribution, bondDistRow{
 			Date:    d.Date.Format("02/01/2006"),
@@ -516,8 +575,8 @@ func lenderAadhaarDisplay(aadhaar string) string {
 }
 
 func renderIndemnityBondPDFForLoan(ctx context.Context, loanID uint, branchID *uint, lang string) ([]byte, string, error) {
-	if lang != BondLangEnglish && lang != BondLangMalayalam && lang != BondLangGujarati {
-		return nil, "", common.NewBadRequest("lang must be \"en\", \"ml\" or \"gu\"")
+	if !validBondLang(lang) {
+		return nil, "", common.NewBadRequest("lang must be \"en\", \"ml\", \"gu\" or \"ta\"")
 	}
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
@@ -536,16 +595,18 @@ func renderIndemnityBondPDFForLoan(ctx context.Context, loanID uint, branchID *u
 		filename = "Pledge-Agreement-Malayalam-" + l.LoanNumber + ".pdf"
 	case BondLangGujarati:
 		filename = "Pledge-Agreement-Gujarati-" + l.LoanNumber + ".pdf"
+	case BondLangTamil:
+		filename = "Pledge-Agreement-Tamil-" + l.LoanNumber + ".pdf"
 	}
 	return pdfBytes, filename, nil
 }
 
-func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, lang string, redirectURL string, deliverBy string) (*config.SignatureRequest, error) {
+func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, lang string, redirectURL string, deliverBy string, witnesses []bondWitnessInput) (*config.SignatureRequest, error) {
 	if config.Esign == nil || config.IsDemoRun(ctx) {
 		return nil, common.NewUnavailable("indemnity bond eSign is not configured")
 	}
-	if lang != BondLangEnglish && lang != BondLangMalayalam && lang != BondLangGujarati {
-		return nil, common.NewBadRequest("lang must be \"en\", \"ml\" or \"gu\"")
+	if !validBondLang(lang) {
+		return nil, common.NewBadRequest("lang must be \"en\", \"ml\", \"gu\" or \"ta\"")
 	}
 	if !tenantAllowsLanguage(ctx, lang) {
 		return nil, common.NewForbidden("this business is not set up to issue documents in that language")
@@ -555,6 +616,21 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 	}
 	if deliverBy != "open" && deliverBy != "whatsapp" && deliverBy != "dashboard" {
 		return nil, common.NewBadRequest("deliver_by must be \"open\", \"whatsapp\" or \"dashboard\"")
+	}
+	if len(witnesses) != 0 && len(witnesses) != 2 {
+		return nil, common.NewBadRequest("exactly two witnesses are required")
+	}
+	witnessSigners := make([]config.Signer, 0, len(witnesses))
+	for i, w := range witnesses {
+		wPhone := digitsOnly(w.Phone)
+		if len(wPhone) > 10 {
+			wPhone = wPhone[len(wPhone)-10:]
+		}
+		wName := strings.TrimSpace(w.Name)
+		if len(wPhone) != 10 || len(wName) < 3 {
+			return nil, common.NewBadRequest(fmt.Sprintf("witness %d needs a name and a 10-digit mobile number", i+1))
+		}
+		witnessSigners = append(witnessSigners, config.Signer{Identifier: wPhone, DisplayName: wName})
 	}
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
@@ -572,25 +648,52 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 			return nil, err
 		}
 	}
-	pdfBytes, slots, err := RenderIndemnityBondPDFWithSlots(bondDataForLoan(ctx, l), lang)
+	bond := bondDataForLoan(ctx, l)
+	if len(witnessSigners) == 2 {
+		bond.Witness1Name = witnessSigners[0].DisplayName
+		bond.Witness2Name = witnessSigners[1].DisplayName
+	}
+	pdfBytes, slots, err := RenderIndemnityBondPDFWithSlots(bond, lang)
 	if err != nil {
 		return nil, err
+	}
+	var borrowerSlots, witness1Slots, witness2Slots []config.SignatureSlot
+	for _, s := range slots {
+		switch s.Role {
+		case RoleGMLEsignWitness1:
+			witness1Slots = append(witness1Slots, s)
+		case RoleGMLEsignWitness2:
+			witness2Slots = append(witness2Slots, s)
+		case RoleGMLEsignBorrower:
+			borrowerSlots = append(borrowerSlots, s)
+		default: // KML templates mark no role; their only slot is the borrower's
+			borrowerSlots = append(borrowerSlots, s)
+		}
+	}
+	// When a box could not be measured (layout without witness boxes, or an
+	// over-tall last page) fall back to the SUREPASS_ESIGN_WITNESS*_X/Y positions.
+	if len(witnessSigners) == 2 {
+		lastPageNo := strconv.Itoa(max(CountPDFPages(pdfBytes), 1))
+		if len(witness1Slots) == 0 {
+			witness1Slots = []config.SignatureSlot{{Page: lastPageNo, X: config.Env.SurepassEsignWitness1X, Y: config.Env.SurepassEsignWitness1Y, Role: RoleGMLEsignWitness1}}
+		}
+		if len(witness2Slots) == 0 {
+			witness2Slots = []config.SignatureSlot{{Page: lastPageNo, X: config.Env.SurepassEsignWitness2X, Y: config.Env.SurepassEsignWitness2Y, Role: RoleGMLEsignWitness2}}
+		}
 	}
 	docTitle := "Pledge Agreement - " + l.LoanNumber
 	if lang == BondLangMalayalam {
 		docTitle = "Pledge Agreement (Malayalam) - " + l.LoanNumber
+	}
+	if lang == BondLangTamil {
+		docTitle = "Pledge Agreement (Tamil) - " + l.LoanNumber
 	}
 	doc, err := config.Esign.
 		UploadDocument(pdfBytes, docTitle)
 	if err != nil {
 		return nil, err
 	}
-	phone := strings.Map(func(r rune) rune {
-		if r >= '0' && r <= '9' {
-			return r
-		}
-		return -1
-	}, l.Customer.Phone)
+	phone := digitsOnly(l.Customer.Phone)
 	if len(phone) > 10 {
 		phone = phone[len(phone)-10:]
 	}
@@ -611,14 +714,21 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 		Signature: &config.SignatureConfig{
 			OnPages:  []string{lastPage},
 			Position: "bottom-right",
-			Slots:    slots,
+			Slots:    borrowerSlots,
 		},
 	}
 	if !l.Customer.DOB.IsZero() {
 		signer.BirthYear = strconv.Itoa(l.Customer.DOB.Year())
 	}
+	signers := []config.Signer{signer}
+	if len(witnessSigners) == 2 {
+		for i, wSlots := range [][]config.SignatureSlot{witness1Slots, witness2Slots} {
+			witnessSigners[i].Signature = &config.SignatureConfig{OnPages: []string{lastPage}, Slots: wSlots}
+		}
+		signers = append(signers, witnessSigners...)
+	}
 	req, err := config.Esign.
-		CreateSignatureRequest(doc.ID, signer, redirectURL)
+		CreateSignatureRequestMulti(doc.ID, signers, redirectURL)
 	if err != nil {
 		return nil, err
 	}
@@ -631,13 +741,32 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 	if req.URL != "" {
 		deliverEsignLink(ctx, l, req.URL, lang, deliverBy, phone)
 	}
+	// Witnesses are not customers, so only WhatsApp can reach them; with other
+	// delivery modes the staff hands over the link returned in the response.
+	if deliverBy == "whatsapp" {
+		for _, w := range req.Signers[1:] {
+			deliverEsignLink(ctx, l, w.URL, lang, deliverBy, w.Identifier)
+		}
+	}
 	return req, nil
+}
+
+func digitsOnly(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 func deliverEsignLink(ctx context.Context, l *models.Loan, url, lang, deliverBy, phone string) {
 	langLabel := "English"
-	if lang == BondLangMalayalam {
+	switch lang {
+	case BondLangMalayalam:
 		langLabel = "Malayalam"
+	case BondLangTamil:
+		langLabel = "Tamil"
 	}
 	title := "Sign Your Pledge Agreement"
 	body := fmt.Sprintf(
@@ -659,7 +788,7 @@ func deliverEsignLink(ctx context.Context, l *models.Loan, url, lang, deliverBy,
 				}
 			}()
 			sendErr := config.WhatsApp.
-				Send(phone, body)
+				Send(ctx, phone, body)
 			if sendErr != nil {
 				log.Printf("indemnity bond eSign WhatsApp send failed (loan %d, phone %s): %v", l.ID, phone, sendErr)
 			}
@@ -763,7 +892,7 @@ func StartIndemnityBondEsign(c echo.Context) error {
 	if err := common.BindJSON(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
-	signReq, err := startIndemnityBondSign(ctx, loanID, auth.GetBranchScope(c), req.Lang, req.RedirectURL, req.DeliverBy)
+	signReq, err := startIndemnityBondSign(ctx, loanID, auth.GetBranchScope(c), req.Lang, req.RedirectURL, req.DeliverBy, req.Witnesses)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -772,6 +901,7 @@ func StartIndemnityBondEsign(c echo.Context) error {
 		"document_id": signReq.DocumentID,
 		"status":      signReq.Status,
 		"url":         signReq.URL,
+		"signers":     signReq.Signers,
 	})
 }
 
@@ -812,8 +942,8 @@ func PreviewIndemnityBondPDF(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
 	lang := common.DefaultQuery(c, "lang", BondLangEnglish)
-	if lang != BondLangEnglish && lang != BondLangMalayalam && lang != BondLangGujarati {
-		return common.FailErr(c, common.NewBadRequest("lang must be \"en\", \"ml\" or \"gu\""))
+	if !validBondLang(lang) {
+		return common.FailErr(c, common.NewBadRequest("lang must be \"en\", \"ml\", \"gu\" or \"ta\""))
 	}
 	age := 0
 	if req.DOB != "" {
@@ -863,6 +993,9 @@ func PreviewIndemnityBondPDF(c echo.Context) error {
 	filename := "Pledge-Agreement-Preview.pdf"
 	if lang == BondLangGujarati {
 		filename = "Pledge-Agreement-Preview-Gujarati.pdf"
+	}
+	if lang == BondLangTamil {
+		filename = "Pledge-Agreement-Preview-Tamil.pdf"
 	}
 	c.Response().Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	return c.Blob(http.StatusOK, "application/pdf", pdfBytes)

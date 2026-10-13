@@ -225,7 +225,7 @@ func notifyAdmins(ctx context.Context, t commonModels.Tenant, now time.Time) {
 			continue
 		}
 		sendErr := config.WhatsApp.
-			Send(admin.Phone, message)
+			Send(ctx, admin.Phone, message)
 		{
 			logRec := &commonModels.CommunicationLog{
 				RecipientName:     admin.Name,

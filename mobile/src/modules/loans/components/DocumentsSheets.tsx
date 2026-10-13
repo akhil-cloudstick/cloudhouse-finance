@@ -11,7 +11,7 @@ import {
   printPledgeAgreementPdf,
   printReleaseAgreementPdf,
   printStatement,
-  PLEDGE_AGREEMENT_LANGS,
+  pledgeAgreementLangs,
   RELEASE_AGREEMENT_LANGS,
   DOC_LANG_LABELS,
   type DocLang,
@@ -20,8 +20,7 @@ import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { ErrorText } from "@/common/components/ErrorText";
 import { useAuth } from "@/common/providers/AuthProvider";
 
-const BOND_LANGS = ["en", "ml", "gu"] as const;
-const BOND_LANG_NAMES: Record<BondLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati" };
+const BOND_LANG_NAMES: Record<BondLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati", ta: "Tamil" };
 
 function esignStatusText(l: Loan) {
   const st = l.indemnityBondSignStatus;
@@ -45,6 +44,7 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [esignOpen, setEsignOpen] = useState(false);
   const [esignLang, setEsignLang] = useState<BondLang>("en");
+  const bondLangs = pledgeAgreementLangs();
   const [notice, setNotice] = useState<string | null>(null);
   const { can } = useAuth();
   const canSendEsign = can("Loan_Management", "can_update_loan");
@@ -187,10 +187,10 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
             { k: "eSign status", v: status.text, color: status.color },
           ]}
         />
-        {PLEDGE_AGREEMENT_LANGS.map((lang: DocLang) => (
+        {bondLangs.map((lang: DocLang) => (
           <PrimaryButton
             key={lang}
-            label={PLEDGE_AGREEMENT_LANGS.length > 1 ? `Download PDF — ${DOC_LANG_LABELS[lang]}` : "Download PDF"}
+            label={bondLangs.length > 1 ? `Download PDF — ${DOC_LANG_LABELS[lang]}` : "Download PDF"}
             variant={lang === "en" ? "primary" : "outline"}
             style={{ marginBottom: 10 }}
             loading={busy === `pledge-${lang}`}
@@ -232,7 +232,7 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
           {l.customer?.phone ? ` · ${l.customer.phone}` : ""}
         </Txt>
         <Field label="Bond language">
-          <ChipToggle options={BOND_LANGS} value={esignLang} onChange={setEsignLang} labels={BOND_LANG_NAMES} wrap />
+          <ChipToggle options={bondLangs} value={esignLang} onChange={setEsignLang} labels={BOND_LANG_NAMES} wrap />
         </Field>
         <Field label="How should the customer sign?" />
         {start.isPending ? (

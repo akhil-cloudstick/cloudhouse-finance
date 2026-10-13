@@ -17,6 +17,7 @@ import (
 	reportsRouters "cloudhouse/backend/modules/Reports/routers"
 	superAdminRouters "cloudhouse/backend/modules/SuperAdmin/routers"
 	webApp "cloudhouse/backend/modules/WebApp/controllers"
+	whatsappRouters "cloudhouse/backend/modules/WhatsApp/routers"
 	"log"
 	"time"
 
@@ -50,6 +51,7 @@ func InitRoutes(e *echo.Echo) *echo.Echo {
 	lockerRouters.LockerModuleRoutes(e)
 	packetRouters.PacketModuleRoutes(e)
 	reminderRouters.ReminderModuleRoutes(e)
+	whatsappRouters.WhatsAppModuleRoutes(e)
 	personalLoanRouters.PersonalLoanModuleRoutes(e)
 	investmentRouters.InvestmentModuleRoutes(e)
 	reportsRouters.ReportsModuleRoutes(e)

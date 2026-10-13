@@ -292,6 +292,8 @@ export type CreateLoanInput = {
   principalAmount: number;
   ornaments: CreateOrnamentInput[];
   lockerId?: number;
+  // One photo of the whole pledged lot ("/uploads/..."); required for TML businesses.
+  overallPhotoUrl?: string;
   // Optional free text captured at creation — anything the standard fields
   // don't cover, carried through onto the printed Statement of Account.
   additionalInfo?: string;
@@ -334,7 +336,7 @@ export type UpdateLoanInput = { schemeId?: number; principalAmount?: number };
 // CheckIndemnityBondEsign).
 
 // Backend accepts gu only for businesses allowed Gujarati; it rejects otherwise.
-export type BondLang = "en" | "ml" | "gu";
+export type BondLang = "en" | "ml" | "gu" | "ta";
 // How the signing URL reaches the customer, in addition to always being
 // returned to the caller (see backend/internal/loan/service.go's
 // StartIndemnityBondSign doc comment):

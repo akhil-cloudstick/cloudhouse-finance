@@ -200,7 +200,7 @@ func underscored(s string) string {
 }
 
 func (e *RoleInUseError) Error() string {
-	return fmt.Sprintf("Cannot delete: this role is assigned to %d employee(s): %s", e.Total, strings.Join(e.Names, ", "))
+	return fmt.Sprintf("This role can't be deleted because %d employee(s) still use it (%s). Move them to another role first.", e.Total, strings.Join(e.Names, ", "))
 }
 
 func (e *ParentDisabledError) Error() string {
@@ -535,14 +535,14 @@ func GetPermissionsByEmployee(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	employeeID, roleID, ok := actingIdentity(c)
 	if !ok {
-		return c.JSON(http.StatusUnauthorized, echo.Map{"success": false, "error": "not authenticated"})
+		return c.JSON(http.StatusUnauthorized, echo.Map{"success": false, "error": "Please log in again to continue."})
 	}
 	pathID, err := IDParam(c, "id")
 	if err != nil {
 		return FailErr(c, err)
 	}
 	if pathID != employeeID {
-		return c.JSON(http.StatusUnauthorized, echo.Map{"success": false, "error": "Invalid user"})
+		return c.JSON(http.StatusUnauthorized, echo.Map{"success": false, "error": "We could not identify your account. Please log in again."})
 	}
 	data, err := bootstrapPermissions(ctx, roleID)
 	if err != nil {
@@ -555,7 +555,7 @@ func GetPermissionMatrix(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	roleID64, err := strconv.ParseUint(c.QueryParam("role_id"), 10, 64)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "role_id query parameter is required"})
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Please select a role first."})
 	}
 	roleID := uint(roleID64)
 	role, err := getRole(ctx, roleID)
@@ -592,12 +592,12 @@ func UpdatePermissions(c echo.Context) error {
 	}
 	var updates []RolePermissionUpdate
 	if err := BindJSON(c, &updates); err != nil || len(updates) == 0 {
-		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Provide an array of {permission_id, permission}"})
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Nothing to save. Please change at least one permission and try again."})
 	}
 	changed, err := updateRolePermissions(ctx, roleID, updates)
 	if err != nil {
 		if IsPermissionNotFoundInCatalogue(err) {
-			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "permission not found"})
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "This permission no longer exists. Please refresh the page and try again."})
 		}
 		if msg, ok := IsParentDisabled(err); ok {
 			return c.JSON(http.StatusConflict, echo.Map{"success": false, "error": msg})
@@ -699,7 +699,7 @@ func DeleteRole(c echo.Context) error {
 			return FailErr(c, err)
 		}
 		if used {
-			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": fmt.Sprintf("Cannot delete: this role is an approver in the %s approval workflow — remove it there first", flow)})
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": fmt.Sprintf("This role can't be deleted because it is an approver in the %s approval workflow. Remove it from that workflow first.", flow)})
 		}
 	}
 	if err := deleteRole(ctx, id); err != nil {

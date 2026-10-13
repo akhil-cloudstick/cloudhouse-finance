@@ -124,6 +124,12 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   edit: <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />,
+  info: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5M12 8h.01" />
+    </>
+  ),
   trash: (
     <>
       <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />

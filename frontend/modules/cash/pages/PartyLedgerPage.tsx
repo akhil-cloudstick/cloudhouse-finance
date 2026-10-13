@@ -10,9 +10,11 @@ import { ApiError } from "@/common/services/httpClient";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { CategoryChip } from "@/common/components/CategoryChip";
 import { loanCatRef } from "@/modules/cash/utils/ledgerCells";
-import { BillLink } from "@/modules/cash/components/BillLink";
+import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
+import { EditLoanDetailsModalContent } from "@/modules/cash/components/EditLoanDetailsModalContent";
+import { useModal } from "@/common/components/ModalProvider";
 import { useExpenseCategoryIds } from "@/common/hooks/use-expense-category-ids";
-import { rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
+import { ledgerFocusTarget, rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { goBack, routeHref } from "@/common/services/appRoutes";
 import { listCashMovementsByCustomer, getBankLedger, getModeLedger, downloadLedger, PARTY_PAGE_SIZE, MODE_LEDGER_ROUTE, LEDGER_MODES } from "@/modules/cash/services/cashService";
 import { type LedgerMode, type LedgerRowView } from "@/modules/cash/types/cash-types";
@@ -52,6 +54,8 @@ type PartyLedgerPageProps = { kind: "bank" | "customer" | "category"; id?: strin
 export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
+  const canUpdateCash = can("Cash_Management", "can_update_cash");
+  const { openModal } = useModal();
   const numericId = Number(id);
   const categoryIds = useExpenseCategoryIds();
   const [label, setLabel] = useState("");
@@ -113,9 +117,12 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   }, [filterKey]);
   const ledgerKey = `${kind}/${numericId}`;
   const prevLedgerKey = useRef(ledgerKey);
+  // Opened from another ledger on a transaction: the first load asks the server for the page holding it.
+  const focusPending = useRef(true);
   useEffect(() => {
     if (prevLedgerKey.current === ledgerKey) return;
     prevLedgerKey.current = ledgerKey;
+    focusPending.current = true;
     setPage(rememberedLedgerPage("party") ?? 1);
   }, [ledgerKey]);
 
@@ -127,7 +134,11 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
     if (!numericId) return;
     const reqId = ++requestIdRef.current;
     setLoading(true);
-    const range = { fromDate: fromDate || undefined, toDate: toDate || undefined };
+    const target = focusPending.current ? ledgerFocusTarget("party") : null;
+    const range = {
+      fromDate: fromDate || undefined, toDate: toDate || undefined,
+      ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount } : {}),
+    };
     const call =
       kind === "bank" ? getBankLedger(numericId, page, { ...range, modes: modeValues }, PARTY_PAGE_SIZE)
       : kind === "category" ? getExpenseCategoryLedger(numericId, page, range, EXPENSE_CATEGORY_LEDGER_PAGE_SIZE)
@@ -135,6 +146,8 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
     call
       .then((res) => {
         if (reqId !== requestIdRef.current) return;
+        focusPending.current = false;
+        if (res.focusPage && res.focusPage !== page) setPage(res.focusPage);
         setItems(res.items);
         setTotal(res.total);
         setTotals({ debit: res.totalDebit, credit: res.totalCredit });
@@ -189,10 +202,16 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
           <h1>{label || "Loading…"}</h1>
           {!loan && <p>{`Every ${kind === "category" ? "expense recorded under this category" : `transaction ever recorded against this ${kind}`}`}</p>}
         </div>
+        {loan && canUpdateCash && (
+          <button className="btn ghost" style={{ marginLeft: "auto" }} onClick={() => openModal(<EditLoanDetailsModalContent loan={loan} onSaved={refresh} />)}>
+            <Icon name="edit" /> Edit Loan
+          </button>
+        )}
       </div>
       <hr className="gold-rule" />
 
       <div className="kpis" style={{ marginBottom: 16 }}>
+        {loan && <div className="kpi"><div className="l">Loan Principal</div><div className="v">{fmt(loan.principal)}</div></div>}
         <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totalCredit - totalDebit)}</div></div>
         <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totalCredit)}</div></div>
         <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totalDebit)}</div></div>
@@ -264,7 +283,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
                     )}
                   </td>
                   <td style={{ textAlign: "center" }}>
-                    {r.description || r.type}<BillLink url={r.receiptImage} title={r.description || r.type} />
+                    {r.description || r.type}
                     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4, marginTop: 4 }}>
                       {kind !== "customer" && r.customerId ? (
                         <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} />
@@ -285,7 +304,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
                   )}
                   <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                   <td className="num" style={r.memo ? { color: "var(--muted)", fontStyle: "italic" } : { color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                  <td className="num">{fmt(r.runningBalance)}</td>
+                  <td className="num">{fmt(r.runningBalance)}<LedgerEntryActions entryId={r.entryId} editable={r.editable} onChanged={refresh} /></td>
                 </tr>
                 );
               })}

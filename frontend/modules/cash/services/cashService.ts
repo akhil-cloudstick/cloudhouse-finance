@@ -2,7 +2,7 @@ import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken } from "@/comm
 import { uploadFile } from "@/common/services/uploadService";
 import { categoryLedgerPath } from "./expenseCategoryService";
 import { branchHeader } from "@/common/services/branchSelection";
-import type { BackendCashMovement, CashMovementView, CashMovementInput, CashMovementFilters, SelfTransferInput, BackendExpense, ExpenseView, ExpenseFormInput, CashSummary, BackendGoldSale, GoldSaleView, GoldSaleInput, PartyTotals, PartyDateRange, LedgerRowView, BackendLedgerRow, LedgerMode } from "@/modules/cash/types/cash-types";
+import type { BackendCashMovement, CashMovementView, CashMovementInput, CashMovementFilters, SelfTransferInput, BackendExpense, ExpenseView, ExpenseFormInput, CashSummary, BackendGoldSale, GoldSaleView, GoldSaleInput, PartyTotals, PartyDateRange, LedgerRowView, BackendLedgerRow, LedgerMode, EntryInfo, EntryUpdateInput } from "@/modules/cash/types/cash-types";
 
 function movementToView(m: BackendCashMovement): CashMovementView {
   return {
@@ -27,6 +27,8 @@ function movementToView(m: BackendCashMovement): CashMovementView {
     counterBankName: m.counterBankRef?.name,
     partyCustomerId: m.partyCustomerId,
     loanSource: m.loanSource,
+    remarks: m.remarks,
+    editable: m.editable,
   };
 }
 
@@ -45,6 +47,7 @@ function movementFilterParams(filters?: CashMovementFilters): URLSearchParams {
   if (filters?.branchIds?.length) params.set("branchIds", filters.branchIds.join(","));
   if (filters?.customerIds?.length) params.set("customerIds", filters.customerIds.join(","));
   if (filters?.types?.length) params.set("types", filters.types.join(","));
+  if (filters?.modes?.length) params.set("modes", filters.modes.join(","));
   return params;
 }
 
@@ -127,6 +130,37 @@ export async function createSelfTransfer(input: SelfTransferInput): Promise<void
   });
 }
 
+/* The info popup's data for a cash-in, debit or self-transfer ledger row —
+ * `id` is the row's cash movement (CashMovementView.id / LedgerRowView.entryId). */
+export async function getMovementEntry(id: number): Promise<EntryInfo> {
+  return apiFetch<EntryInfo>(`/cash-movements/${id}/entry`);
+}
+
+/* Edits a cash-in, debit or self transfer from the ledger: the whole entry
+ * (every payment part, or both legs of a self transfer) is replaced by the
+ * edited version. Needs no permission of its own. */
+export async function updateMovementEntry(id: number, input: EntryUpdateInput): Promise<void> {
+  await apiFetch<{ id: number }>(`/cash-movements/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/* The Expense Register's Edit form data for a pending or approved expense —
+ * `id` is the expense id (ExpenseView.id). */
+export async function getExpenseEntry(id: number): Promise<EntryInfo> {
+  return apiFetch<EntryInfo>(`/expenses/${id}/entry`);
+}
+
+/* Saves an edit made in an entry form: from the Expense Register it goes to
+ * PUT /expenses/:id, from a ledger row to PUT /cash-movements/:id. */
+export async function saveEntryEdit(info: EntryInfo, input: EntryUpdateInput): Promise<void> {
+  await apiFetch<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}` : `/cash-movements/${info.movementId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function setCashMovementLoanStatus(id: number, status: "Open" | "Closed"): Promise<CashMovementView> {
   const rec = await apiFetch<BackendCashMovement>(`/cash-movements/${id}/status`, {
     method: "PATCH",
@@ -151,6 +185,7 @@ function expenseToView(e: BackendExpense): ExpenseView {
     approvalStage: e.approvalStage,
     remarks: e.remarks,
     img: e.receiptImage,
+    editable: e.editable,
   };
 }
 
@@ -273,6 +308,11 @@ function partyRangeParams(range?: PartyDateRange): URLSearchParams {
   if (range?.loanNumber) params.set("loanNumber", range.loanNumber);
   if (range?.loanNumbers?.length) params.set("loanNumbers", range.loanNumbers.join(","));
   if (range?.modes?.length) params.set("modes", range.modes.join(","));
+  // Opened from another ledger on a transaction: the server answers with the page holding it (focusPage).
+  if (range?.focusAmount != null) {
+    params.set("focusAmount", String(range.focusAmount));
+    if (range.focusDate) params.set("focusDate", range.focusDate);
+  }
   return params;
 }
 
@@ -306,6 +346,8 @@ export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
     customerName: r.customerName,
     receiptImage: r.receiptImage,
     memo: r.memo,
+    entryId: r.entryId,
+    editable: r.editable,
   };
 }
 
@@ -320,12 +362,12 @@ export async function listCashMovementsByCustomer(
   page: number,
   range?: PartyDateRange,
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; focusPage?: number }> {
   const params = partyRangeParams(range);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number }>(`/cash-movements/transactions/customer/${customerId}?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; focusPage?: number }>(`/cash-movements/transactions/customer/${customerId}?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, focusPage: rec?.focusPage };
 }
 
 /* Bank drill-down's combined ledger — same shape/rationale as the customer
@@ -337,12 +379,12 @@ export async function getBankLedger(
   page: number,
   range?: PartyDateRange,
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; focusPage?: number }> {
   const params = partyRangeParams(range);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number }>(`/banks/${bankId}/ledger?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; focusPage?: number }>(`/banks/${bankId}/ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, focusPage: rec?.focusPage };
 }
 
 /* Cash Ledger — the Cash-mode-only sub-ledger drill-down off the Cash
@@ -357,13 +399,13 @@ export async function getCashLedger(
   page: number,
   range?: PartyDateRange & { branchIds?: number[] },
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; focusPage?: number }> {
   const params = partyRangeParams(range);
   if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number }>(`/cash-movements/cash-ledger?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; focusPage?: number }>(`/cash-movements/cash-ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, focusPage: rec?.focusPage };
 }
 
 export const LEDGER_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
@@ -391,7 +433,7 @@ export async function getModeLedger(
   page: number,
   range?: PartyDateRange & { branchIds?: number[]; bankId?: number; types?: string[] },
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; focusPage?: number }> {
   const params = partyRangeParams(range);
   params.set("mode", mode);
   if (range?.types?.length) params.set("types", range.types.join(","));
@@ -399,8 +441,8 @@ export async function getModeLedger(
   if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number }>(`/cash-movements/mode-ledger?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; focusPage?: number }>(`/cash-movements/mode-ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, focusPage: rec?.focusPage };
 }
 
 /* PDF of every row in a ledger matching the date range (and bank/branch

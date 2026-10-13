@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,7 +15,7 @@ var WhatsApp SMSSender
 var nonDigits = regexp.MustCompile(`\D`)
 
 type SMSSender interface {
-	Send(phone, message string) error
+	Send(ctx context.Context, phone, message string) error
 }
 
 type WhatsAppConfig struct {
@@ -23,7 +24,7 @@ type WhatsAppConfig struct {
 	SessionID string `json:"sessionId"`
 }
 
-type WhatsAppConfigLoader func() (WhatsAppConfig, error)
+type WhatsAppConfigLoader func(ctx context.Context) (WhatsAppConfig, error)
 
 type OpenWASender struct {
 	loadConfig WhatsAppConfigLoader
@@ -64,8 +65,8 @@ func toChatID(phone string) string {
 	return digits + "@c.us"
 }
 
-func (o *OpenWASender) Send(phone, message string) error {
-	cfg, err := o.loadConfig()
+func (o *OpenWASender) Send(ctx context.Context, phone, message string) error {
+	cfg, err := o.loadConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("whatsapp: loading config: %w", err)
 	}

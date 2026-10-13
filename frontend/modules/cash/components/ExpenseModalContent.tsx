@@ -10,11 +10,11 @@ import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
-import { createExpense, uploadReceipt } from "@/modules/cash/services/cashService";
+import { createExpense, saveEntryEdit, uploadReceipt } from "@/modules/cash/services/cashService";
 import { searchExpenseCategoriesPage, createExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
 import { type BackendExpenseCategory } from "@/modules/cash/types/expense-category-types";
-import { searchBanksPage, createBank } from "@/modules/banks/services/bankService";
-import { type BackendBank } from "@/modules/banks/types/bank-types";
+import { type EntryInfo } from "@/modules/cash/types/cash-types";
+import { PaymentBreakdownFields, newPaymentRow, paymentRowsError, paymentRowsToInput, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
 import { Select } from "@/common/components/ui/Select";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { DatePicker } from "@/common/components/ui/DatePicker";
@@ -22,10 +22,8 @@ import { FileInput } from "@/common/components/ui/FileInput";
 import { useLoanBalance } from "@/modules/cash/hooks/use-loan-balance";
 import { singleFlight } from "@/common/utils/singleFlight";
 
-const MODES = ["Cash", "UPI", "Bank Transfer"];
-const MODE_OPTIONS = MODES.map((m) => ({ value: m, label: m }));
-
-type ExpenseModalContentProps = { onSaved?: () => void; tabs?: ReactNode };
+// `edit` opens the form on an existing approved debit (from the ledger's Edit button).
+type ExpenseModalContentProps = { onSaved?: () => void; tabs?: ReactNode; edit?: EntryInfo };
 
 /* Ported from legacy/app.js's `openExpenseModal()` / `saveExpense()`. Now
  * posts to the real POST /expenses endpoint: branch options come from the
@@ -33,16 +31,19 @@ type ExpenseModalContentProps = { onSaved?: () => void; tabs?: ReactNode };
  * shared /uploads endpoint first (see cashApi.ts's uploadReceipt), storing
  * the returned URL — no more base64 blobs. Recorded expenses always start
  * "Pending" server-side and go through the approve/reject flow on
- * Cash.tsx's Expense Register. */
-export function ExpenseModalContent({ onSaved, tabs }: ExpenseModalContentProps) {
+ * Cash.tsx's Expense Register.
+ *
+ * Mode is a payment breakdown: one or more lines (mode, amount, bank), each
+ * saved as its own expense and approved together. */
+export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
-  const [amt, setAmt] = useState("");
-  const [date, setDate] = useState(today);
-  const [cat, setCat] = useState("");
+  const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
+  const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
+  const [cat, setCat] = useState(edit?.category ?? "");
   const [catRec, setCatRec] = useState<BackendExpenseCategory | null>(null);
   // An expense under a loan is a repayment — it can't exceed what has been
   // drawn and not yet repaid. Blocks the button (the backend refuses it too).
@@ -52,13 +53,15 @@ export function ExpenseModalContent({ onSaved, tabs }: ExpenseModalContentProps)
   const loanWarning = loanExceeded
     ? `Repayment exceeds what has been paid on ${cat} — only ${fmt(owed)} is outstanding.`
     : "";
-  const [mode, setMode] = useState(MODES[0]);
-  // From Bank — the branch account the expense is paid from, required when
-  // Mode is UPI/Bank Transfer (see backend/internal/cash/service.go's
-  // ExpenseService.Record).
-  const [fromBankId, setFromBankId] = useState("");
-  const [fromBankName, setFromBankName] = useState("");
-  const banksRequired = mode === "UPI" || mode === "Bank Transfer";
+  // The payment breakdown — each line is the mode, its amount and, for UPI /
+  // Bank Transfer, the branch account the expense is paid from (see
+  // backend/internal/cash/service.go's ExpenseService.Record).
+  const [payRows, setPayRows] = useState<PaymentRow[]>(() =>
+    edit
+      ? edit.lines.map((l) => newPaymentRow({ mode: l.mode, amount: String(l.amount), bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName || "", auto: false }))
+      : [newPaymentRow({ mode: "Cash" })]
+  );
+  const [remarks, setRemarks] = useState(edit?.remarks ?? "");
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
@@ -68,7 +71,7 @@ export function ExpenseModalContent({ onSaved, tabs }: ExpenseModalContentProps)
   // active, the same way a single-branch business locks it.
   const lockedBranchId = useLockedBranchId();
   const branchLocked = singleBranch || lockedBranchId != null;
-  const [branchId, setBranchId] = useState<number | "">(lockedBranchId || "");
+  const [branchId, setBranchId] = useState<number | "">(edit?.branchId || lockedBranchId || "");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -84,18 +87,28 @@ export function ExpenseModalContent({ onSaved, tabs }: ExpenseModalContentProps)
     const amount = +amt;
     if (!(amount > 0)) { setErr("Please enter a valid amount."); return; }
     if (!date) { setErr("Please select the date."); return; }
+    const payErr = paymentRowsError(payRows, amount);
+    if (payErr) { setErr(payErr); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
-    if (banksRequired && !fromBankId) { setErr("Please select the From Bank."); return; }
 
     setSaving(true);
     try {
       let receiptImage: string | undefined;
       if (receiptFile) receiptImage = await uploadReceipt(receiptFile);
+      const payments = paymentRowsToInput(payRows);
 
+      if (edit) {
+        await saveEntryEdit(edit, {
+          category: cat, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
+        });
+        onSaved?.();
+        closeModal();
+        toast("Expense updated");
+        return;
+      }
       const created = await createExpense({
-        category: cat, amount, mode, branchId,
-        fromBankId: banksRequired ? +fromBankId : undefined,
-        occurredOn: date, receiptImage,
+        category: cat, amount, mode: payments[0].mode, branchId,
+        occurredOn: date, receiptImage, remarks: remarks.trim() || undefined, payments,
       });
       onSaved?.();
       closeModal();
@@ -111,10 +124,10 @@ export function ExpenseModalContent({ onSaved, tabs }: ExpenseModalContentProps)
 
   return (
     <>
-      <div className="hd"><h3>Record Expense</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="hd"><h3>{edit ? "Edit Expense" : "Record Expense"}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll entry-form">
         {tabs}
-        {/* Same order as every entry form: Category → Date → Mode → Amount → Branch → Bill. */}
+        {/* Same order as the Credit form: Category → Amount → Date → Mode (payment breakdown) → Branch → Bill → Remarks. */}
         <div className="frow"><div><label className="f">Category *</label>
           <SearchableSelect<BackendExpenseCategory>
             portal
@@ -134,34 +147,12 @@ export function ExpenseModalContent({ onSaved, tabs }: ExpenseModalContentProps)
             onCreate={createExpenseCategory}
           /></div></div>
         <div className="frow c2">
+          <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={(e) => e.currentTarget.blur()} /></div>
           <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
-          <div><label className="f">Mode *</label>
-            <Select
-              options={MODE_OPTIONS}
-              value={mode}
-              onChange={(v) => { setMode(v); if (v !== "UPI" && v !== "Bank Transfer") { setFromBankId(""); setFromBankName(""); } }}
-            /></div>
         </div>
-        {banksRequired && (
+        <PaymentBreakdownFields total={+amt || 0} rows={payRows} onChange={setPayRows} />
+        {showBranch && (
           <div className="frow">
-            <div><label className="f">Bank *</label>
-              <SearchableSelect<BackendBank>
-                portal
-                value={fromBankName}
-                onChange={(id, item) => { setFromBankId(id); setFromBankName(item.name); }}
-                fetchFn={searchBanksPage}
-                searchHint="Searches: bank name"
-                getLabel={(b) => b.name}
-                getId={(b) => String(b.id)}
-                placeholder="Search or add a bank…"
-                allowCreate
-                onCreate={createBank}
-              /></div>
-          </div>
-        )}
-        <div className={showBranch ? "frow c2" : "frow"}>
-          <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-          {showBranch && (
             <div><label className="f">Branch *</label>
               <Select
                 disabled={branchLocked}
@@ -170,10 +161,12 @@ export function ExpenseModalContent({ onSaved, tabs }: ExpenseModalContentProps)
                 onChange={(v) => setBranchId(v ? Number(v) : "")}
                 placeholder="Select branch…"
               /></div>
-          )}
-        </div>
-        <div className="frow"><div><label className="f">Bill</label>
+          </div>
+        )}
+        <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
+        <div className="frow"><div><label className="f">Remarks</label>
+          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         {loanWarning && (
           <div className="notice" style={{ marginBottom: 4, borderLeft: "3px solid var(--red)", color: "var(--red)" }}>
             {loanWarning}
@@ -183,7 +176,7 @@ export function ExpenseModalContent({ onSaved, tabs }: ExpenseModalContentProps)
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : "Record Expense"}</button>
+        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Expense"}</button>
       </div>
     </>
   );

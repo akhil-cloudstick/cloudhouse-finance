@@ -6,7 +6,8 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
-import { createSelfTransfer, uploadReceipt } from "@/modules/cash/services/cashService";
+import { createSelfTransfer, updateMovementEntry, uploadReceipt } from "@/modules/cash/services/cashService";
+import { type EntryInfo } from "@/modules/cash/types/cash-types";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
@@ -35,42 +36,54 @@ const noWheelStep = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.b
 
 const searchTransferCategories = searchCategoriesPage("self_transfer");
 
-type SelfTransferModalContentProps = { onSaved?: () => void; defaultBranchId?: number; tabs?: ReactNode };
+// `edit` opens the form on an existing self transfer (from the ledger's Edit button).
+type SelfTransferModalContentProps = { onSaved?: () => void; defaultBranchId?: number; tabs?: ReactNode; edit?: EntryInfo };
 
 /* Self Transfer tab of the Ledger's Add Entry modal. Moves money between two
  * of the business's own banks: the backend records a debit on From Bank and a
  * credit on To Bank. A loan category locks To Bank to the loan's bank and
  * books the transfer as a repayment on that loan's ledger. */
-export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs }: SelfTransferModalContentProps) {
+export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit }: SelfTransferModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [catRec, setCatRec] = useState<BackendCategory | null>(null);
+  // Editing starts from the entry's category name; the full row (a loan's
+  // bank) is looked up below.
+  const [catRec, setCatRec] = useState<BackendCategory | null>(edit ? ({ id: 0, name: edit.category } as BackendCategory) : null);
   const category = catRec?.name ?? "";
+  useEffect(() => {
+    if (!edit || !isLoanSource(edit.category)) return;
+    searchTransferCategories(edit.category, 0).then((r) => {
+      const found = r.items.find((c) => c.name === edit.category);
+      if (found) setCatRec(found);
+    }).catch(() => {});
+  }, [edit]);
   // A loan category (name starts with "Loan") makes this a repayment to the loan's bank.
   const loan = catRec && isLoanSource(catRec.name) ? catRec : null;
   const loanBank = loan?.bank?.name ?? "";
   const loanReady = !!loan && loan.principalAmount != null && !!loan.bankId;
 
-  const [fromBank, setFromBank] = useState("");
-  const [fromBankId, setFromBankId] = useState("");
-  const [toBank, setToBank] = useState("");
-  const [toBankId, setToBankId] = useState("");
-  const [mode, setMode] = useState("Bank Transfer");
+  const [fromBank, setFromBank] = useState(edit?.fromBank ?? "");
+  const [fromBankId, setFromBankId] = useState(edit?.fromBankId ? String(edit.fromBankId) : "");
+  const [toBank, setToBank] = useState(edit?.toBank ?? "");
+  const [toBankId, setToBankId] = useState(edit?.toBankId ? String(edit.toBankId) : "");
+  const [mode, setMode] = useState(edit?.lines[0]?.mode || "Bank Transfer");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [amt, setAmt] = useState("");
+  const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
+  const [remarks, setRemarks] = useState(edit?.remarks ?? "");
 
   // A transfer to a loan is a repayment — it can't exceed what has been drawn
-  // and not yet repaid. Blocks the button (the backend refuses it too).
+  // and not yet repaid. Blocks the button (the backend refuses it too). When
+  // editing, the entry's own amount is already counted as repaid.
   const loanBal = useLoanBalance(loan);
-  const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) : 0;
+  const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit ? edit.amount : 0) : 0;
   const loanExceeded = !!loanBal && (+amt || 0) > owed + 0.005;
   const loanWarning = loanExceeded
     ? `Repayment exceeds what has been paid on ${category} — only ${fmt(owed)} is outstanding.`
     : "";
 
-  const [date, setDate] = useState(today);
+  const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -82,7 +95,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs }: Sel
   // active, the same way a single-branch business locks it.
   const lockedBranchId = useLockedBranchId();
   const branchLocked = singleBranch || lockedBranchId != null;
-  const [branchId, setBranchId] = useState<number | "">(defaultBranchId || lockedBranchId || "");
+  const [branchId, setBranchId] = useState<number | "">(edit?.branchId || defaultBranchId || lockedBranchId || "");
   useEffect(() => {
     listActiveBranches().then((list) => {
       setBranches(list);
@@ -104,10 +117,21 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs }: Sel
     setSaving(true);
     try {
       const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
+      if (edit) {
+        await updateMovementEntry(edit.movementId, {
+          category, amount, fromBankId: +fromBankId, fromBank, mode, receiptImage,
+          toBankId: loan ? undefined : +toBankId, toBank: loan ? loanBank : toBank,
+          branchId, occurredOn: date, remarks: remarks.trim(),
+        });
+        onSaved?.();
+        closeModal();
+        toast("Self transfer updated");
+        return;
+      }
       await createSelfTransfer({
         category, amount, fromBankId: +fromBankId, fromBank, mode, receiptImage,
         toBankId: loan ? undefined : +toBankId, toBank: loan ? loanBank : toBank,
-        branchId, occurredOn: date,
+        branchId, occurredOn: date, remarks: remarks.trim() || undefined,
       });
       onSaved?.();
       closeModal();
@@ -136,8 +160,8 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs }: Sel
 
   return (
     <>
-      <div className="hd"><h3>Self Transfer</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="hd"><h3>{edit ? "Edit Self Transfer" : "Self Transfer"}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll entry-form">
         {tabs}
         {/* Same order as every entry form: Category → Date → Mode → Amount → Branch → Bill
             (the From/To banks sit with Mode, since they replace the usual Bank field). */}
@@ -185,8 +209,10 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs }: Sel
               /></div>
           )}
         </div>
-        <div className="frow"><div><label className="f">Bill</label>
+        <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
+        <div className="frow"><div><label className="f">Remarks</label>
+          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         {loanWarning && (
           <div className="notice" style={{ marginBottom: 4, borderLeft: "3px solid var(--red)", color: "var(--red)" }}>
             {loanWarning}
@@ -196,7 +222,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs }: Sel
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : "Record Transfer"}</button>
+        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Transfer"}</button>
       </div>
     </>
   );

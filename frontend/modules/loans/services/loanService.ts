@@ -3,7 +3,7 @@ import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
 import { printPdfJob } from "@/common/utils/print";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
-import type { OrnamentRequestInput, CreateLoanInput, BackendOrnament, BackendLoanPayment, BackendBankPledgeRecord, BackendLoan, OrnamentView, PaymentView, BankPledgeView, LoanView, BackendCustomerOrnamentRow, CustomerOrnamentRowView, BackendCustomerPaymentRow, CustomerPaymentRowView, BackendCustomerBankPledgeRow, CustomerBankPledgeRowView, SaveDraftInput, BackendLoanDraft, IndemnityBondEsignStart, IndemnityBondDeliverBy, IndemnityBondEsignCheck, LoanFilters, PurityTestInput, SanctionStage, ApprovalStageRecord, ApprovalInput, UpdateLoanInput, PaymentInput, TopUpInput, LoanTopUpView, TopUpApprovalInput, BankPledgeInput, BankPledgeCashTreatment, BankPledgeRecordView, AuctionStage, AuctionSettlementStatus, AuctionSurplusDisposition, AuctionDecisionStatus, AuctionDecisionRequestView, AuctionRecordView, BackendAuctionDecisionRequest, BackendAuctionRecord, BackendCustomerAuctionRow, CustomerAuctionRowView, BackendConcludedAuctionRow, ConcludedAuctionRowView, LoanLedgerEntry, LoanLedgerPage, LoanLedgerQuery, BackendLoanLedgerEntry, BackendLoanRequest, RequestView, LoanRequestFilters, LoanRiskLevel, LoanRiskRow, LoanRiskCounts, ChecklistInput, ReleasePaymentInput, ReleaseApprovalInput, ExtensionApprovalInput, IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types";
+import type { OrnamentRequestInput, CreateLoanInput, BackendOrnament, BackendLoanPayment, BackendBankPledgeRecord, BackendLoan, OrnamentView, PaymentView, BankPledgeView, LoanView, BackendCustomerOrnamentRow, CustomerOrnamentRowView, BackendCustomerPaymentRow, CustomerPaymentRowView, BackendCustomerBankPledgeRow, CustomerBankPledgeRowView, SaveDraftInput, BackendLoanDraft, IndemnityBondEsignStart, EsignWitnessInput, IndemnityBondDeliverBy, IndemnityBondEsignCheck, LoanFilters, PurityTestInput, SanctionStage, ApprovalStageRecord, ApprovalInput, UpdateLoanInput, PaymentInput, TopUpInput, LoanTopUpView, TopUpApprovalInput, BankPledgeInput, BankPledgeCashTreatment, BankPledgeRecordView, AuctionStage, AuctionSettlementStatus, AuctionSurplusDisposition, AuctionDecisionStatus, AuctionDecisionRequestView, AuctionRecordView, BackendAuctionDecisionRequest, BackendAuctionRecord, BackendCustomerAuctionRow, CustomerAuctionRowView, BackendConcludedAuctionRow, ConcludedAuctionRowView, LoanLedgerEntry, LoanLedgerPage, LoanLedgerQuery, BackendLoanLedgerEntry, BackendLoanRequest, RequestView, LoanRequestFilters, LoanRiskLevel, LoanRiskRow, LoanRiskCounts, ChecklistInput, ReleasePaymentInput, ReleaseApprovalInput, ExtensionApprovalInput, IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types";
 
 function toOrnamentView(o: BackendOrnament): OrnamentView {
   return {
@@ -199,11 +199,12 @@ export async function startIndemnityBondEsign(
   // new language is one edit.
   lang: BondLang,
   redirectUrl: string,
-  deliverBy: IndemnityBondDeliverBy = "open"
+  deliverBy: IndemnityBondDeliverBy = "open",
+  witnesses?: EsignWitnessInput[]
 ): Promise<IndemnityBondEsignStart> {
   return apiFetch<IndemnityBondEsignStart>(`/loans/${loanId}/indemnity-bond/esign/start`, {
     method: "POST",
-    body: JSON.stringify({ lang, redirectUrl, deliverBy }),
+    body: JSON.stringify({ lang, redirectUrl, deliverBy, ...(witnesses?.length ? { witnesses } : {}) }),
   });
 }
 
@@ -1116,6 +1117,29 @@ async function pledgeSlipResponse(loanNumericId: number, format?: "html"): Promi
 
 export async function downloadPledgeSlipPDF(loanNumericId: number): Promise<void> {
   return printPdfJob(async () => (await pledgeSlipResponse(loanNumericId)).blob());
+}
+
+/* TML payment receipt (the TML "statement") — rendered server-side from
+ * backend/templates/tml_statement.html for the loan's latest payment
+ * (GET /loans/:id/statement-receipt) and sent straight to the print dialog. */
+export async function downloadTmlStatementReceipt(loanNumericId: number): Promise<void> {
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await apiRawFetch(`/loans/${loanNumericId}/statement-receipt`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
+    }
+    return res.blob();
+  });
 }
 
 /* The same slip as an HTML document, for printing it together with the

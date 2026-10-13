@@ -1778,6 +1778,150 @@ button.fi-trigger {
   line-height: 1.7;
 }
 
+/* SettingsModal (modules/integrations) — a sidebar of integrations beside the
+ * selected one's panel. Rides the shared .modal.wide / .bd-scroll, so it scrolls
+ * inside the modal; below 640px the sidebar becomes a row of pills on top. */
+.set-wrap {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.set-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.set-nav-h {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 0 10px 4px;
+}
+
+.set-nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.set-nav button:hover {
+  background: var(--bg);
+}
+
+.set-nav button.on {
+  background: var(--brand-pale);
+  color: var(--brand-deep);
+  font-weight: 600;
+}
+
+.set-nav button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.set-pane {
+  min-width: 0;
+}
+
+.set-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.set-card-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.set-card-hd h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.set-sub {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.set-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.set-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.set-actions .btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.set-chip {
+  background: var(--green-bg);
+  color: var(--green);
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.set-card .connect-qr-steps {
+  text-align: left;
+  max-width: 360px;
+}
+
+.set-phone {
+  width: 100%;
+  max-width: 320px;
+  text-align: left;
+}
+
+/* The pairing code is 9 characters, so the shared 34px/224px box is too tight. */
+.connect-code-big.set-pair {
+  width: auto;
+  height: auto;
+  padding: 18px 28px;
+  font-size: 30px;
+}
+
+@media (max-width: 640px) {
+  .set-wrap {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .set-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .set-nav-h {
+    display: none;
+  }
+}
+
 /* Header account chip + dropdown (common/components/layout/AccountMenu.tsx): Connect mobile
  * app, the update check/download row, and Sign out. Every row is the same
  * height — the update row swaps its icon for a spinner or progress ring
@@ -4908,6 +5052,14 @@ table.tbl {
   }
 }
 
+/* Credit / Debit / Self Transfer entry modals: capped so a long payment breakdown scrolls inside
+ * `.bd-scroll` instead of growing the modal. Short screens keep the tighter viewport cap above. */
+@media (min-height: 700px) {
+  .modal:has(> .bd-scroll.entry-form) {
+    max-height: min(640px, calc(100dvh - 32px));
+  }
+}
+
 /* Neither bar may absorb the shrink */
 .modal:has(> .bd-scroll) > .hd,
 .modal:has(> .bd-scroll) > .ft {
@@ -7989,14 +8141,119 @@ html.has-titlebar body {
   white-space: nowrap;
 }
 
+/* The entry info icon at the end of a ledger row: out of the flow, inside the
+ * Balance cell's right padding, so it never widens the fixed-width column. */
+.tbl td:has(> .ledger-info) {
+  position: relative;
+}
+
+.ledger-info {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+}
+
+@media (max-width: 1279px) {
+  .tbl-stack .ledger-info {
+    position: static;
+    transform: none;
+    margin-left: 8px;
+  }
+}
+
 /* Ledger tables with Debit / Credit / Balance: the three amount columns get
  * one fixed width so the footer's totals (FooterTotals `aligned`, which uses
  * the same width + padding) sit exactly under Debit and Credit. */
 .tbl.ledger-amt th.num,
 .tbl.ledger-amt td.num {
-  width: 140px;
-  min-width: 140px;
+  width: var(--ledger-amt-w, 140px);
+  min-width: var(--ledger-amt-w, 140px);
   box-sizing: border-box;
+}
+
+/* Balance is the last column and carries the entry info icon: on a wide
+ * window it gets extra width and right padding so the icon sits clear of both
+ * the figure and the table edge. FooterTotals reads the same variable. */
+:root {
+  --ledger-bal-w: 176px;
+}
+
+.tbl.ledger-amt th.num:last-child,
+.tbl.ledger-amt td.num:last-child {
+  width: var(--ledger-bal-w);
+  min-width: var(--ledger-bal-w);
+  padding-right: 40px;
+}
+
+.tbl.ledger-amt td.num:last-child .ledger-info {
+  right: 14px;
+}
+
+/* Narrower windows: the three fixed amount columns (and FooterTotals, which
+ * reads the same variable) shrink and the cells tighten, so Balance is never
+ * pushed past the card edge and clipped. */
+@media (max-width: 1500px) {
+  :root {
+    --ledger-amt-w: 116px;
+    --ledger-bal-w: 140px;
+  }
+
+  /* Balance keeps a gutter for the info icon: figure, gap, icon. */
+  .tbl.ledger-amt td.num:last-child .ledger-info {
+    right: 6px;
+  }
+
+  .tbl.ledger-amt th.num:last-child,
+  .tbl.ledger-amt td.num:last-child {
+    padding-right: 28px;
+  }
+
+  /* Ref No is the column that gave the least: a narrower cap leaves its room
+   * to Particulars, and long words/chips wrap instead of widening the table. */
+  .tbl.ledger-amt td.ledger-ref {
+    max-width: 96px;
+  }
+
+  .tbl.ledger-amt td:not(.num) {
+    overflow-wrap: anywhere;
+  }
+
+  .tbl.ledger-amt .ledger-ref-chip {
+    white-space: normal;
+    text-align: center;
+    max-width: 100%;
+  }
+
+  .tbl.ledger-amt th,
+  .tbl.ledger-amt td {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .tbl.ledger-amt td:first-child,
+  .tbl.ledger-amt th:first-child {
+    padding-left: 14px;
+  }
+
+  .tbl.ledger-amt td:last-child,
+  .tbl.ledger-amt th:last-child {
+    padding-right: 14px;
+  }
+}
+
+/* Stacked cards: Balance is just another label/value line, with no gutter. */
+@media (max-width: 1279px) {
+  .tbl.tbl-stack.ledger-amt td.num:last-child {
+    width: var(--ledger-amt-w, 140px);
+    min-width: var(--ledger-amt-w, 140px);
+    padding-right: 0;
+  }
+
+  .tbl.tbl-stack.ledger-amt td.num:last-child .ledger-info {
+    right: auto;
+  }
 }
 
 /* Customer detail (.cust-360) on a short window. The stacked layout (≤1060px)

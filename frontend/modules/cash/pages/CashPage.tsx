@@ -27,6 +27,7 @@ import { singleFlight } from "@/common/utils/singleFlight";
 import { Kpi } from "@/modules/cash/components/Kpi";
 import { MovementRow } from "@/modules/cash/components/MovementRow";
 import { ExpenseRow } from "@/modules/cash/components/ExpenseRow";
+import { EditEntryModalContent } from "@/modules/cash/components/EditEntryModalContent";
 import { GoldSaleRow } from "@/modules/cash/components/GoldSaleRow";
 
 // Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
@@ -133,6 +134,8 @@ export function CashPage() {
   // selection (it would intersect the global branch to an empty page).
   const movementsBranchIds = showBranchFilter ? savedMovementsBranchIds : NO_BRANCHES;
   const [movementsCustomerIds, setMovementsCustomerIds] = usePersistedState<string[]>("cash:customers", []);
+  // The Mode section of the Ledger filter: Cash / UPI / Bank Transfer.
+  const [movementsModes, setMovementsModes] = usePersistedState<string[]>("cash:modes", []);
   const [allBranches, setAllBranches] = useState<BranchView[]>([]);
   const [downloadingMovements, setDownloadingMovements] = useState(false);
   const [downloadingExpenses, setDownloadingExpenses] = useState(false);
@@ -172,12 +175,21 @@ export function CashPage() {
         { value: "expenses", label: "Expenses" },
       ],
     },
+    {
+      key: "mode", label: "Mode", kind: "static", searchHint: "Searches: payment mode",
+      options: [
+        { value: "Cash", label: "Cash" },
+        { value: "UPI", label: "UPI" },
+        { value: "Bank Transfer", label: "Bank Transfer" },
+      ],
+    },
     { key: "__date", label: "Date", kind: "date" },
   ];
   const movementsFilterValue: FilterValue = {
     branch: movementsBranchIds,
     customer: movementsCustomerIds,
     type: movementsTypes,
+    mode: movementsModes,
     __dateFrom: movementsFrom || undefined,
     __dateTo: movementsTo || undefined,
   };
@@ -197,6 +209,7 @@ export function CashPage() {
       branchIds: movementsBranchIds.length ? movementsBranchIds : undefined,
       customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
       types: movementsTypes.length ? movementsTypes : undefined,
+      modes: movementsModes.length ? movementsModes : undefined,
     }).then(({ items, hasMore, total, totalDebit, totalCredit, pageBalance }) => {
       setMovements(items);
       setMovementsPageBalance(pageBalance);
@@ -224,7 +237,7 @@ export function CashPage() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes]);
+  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes]);
 
   useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0, [movements]);
   useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0, [expenses]);
@@ -274,6 +287,7 @@ export function CashPage() {
         branchIds: movementsBranchIds.length ? movementsBranchIds : undefined,
         customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
         types: movementsTypes.length ? movementsTypes : undefined,
+        modes: movementsModes.length ? movementsModes : undefined,
       });
     } catch {
       toast("Could not download cash movements — try again.");
@@ -404,6 +418,7 @@ export function CashPage() {
                   const nextBranchIds = Array.isArray(next.branch) ? next.branch : [];
                   setMovementsBranchIds(nextBranchIds);
                   setMovementsCustomerIds(Array.isArray(next.customer) ? next.customer : []);
+                  setMovementsModes(Array.isArray(next.mode) ? next.mode : []);
                   setMovementsPage(1);
                 }}
                 hideChips
@@ -420,7 +435,7 @@ export function CashPage() {
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {movements.length
-                  ? movementsWithBalance.map(({ m, balance }) => <MovementRow key={m.id} m={m} balance={balance} categoryIds={categoryIdByName} />)
+                  ? movementsWithBalance.map(({ m, balance }) => <MovementRow key={m.id} m={m} balance={balance} categoryIds={categoryIdByName} onChanged={refresh} />)
                   : <tr><td colSpan={7} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
               </tbody>
             </table>
@@ -454,7 +469,7 @@ export function CashPage() {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-expenses" data-ledger-page={expensesPage}>
-              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th>{showBranch && <th>Branch</th>}<th>Status</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
+              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th>{showBranch && <th>Branch</th>}<th>Status</th><th style={{ textAlign: "center" }}>Edit</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
               <tbody>
                 {expenses.length
                   ? expenses.map((e) => (
@@ -468,9 +483,10 @@ export function CashPage() {
                       busy={decidingExpenseId === e.id}
                       onApprove={() => onApproveExpense(e)}
                       onReject={() => onRejectExpense(e)}
+                      onEdit={() => openModal(<EditEntryModalContent entryId={e.id} viaExpense onSaved={refresh} />)}
                     />
                   ))
-                  : <tr><td colSpan={showBranch ? 7 : 6} className="empty">No expenses recorded yet.</td></tr>}
+                  : <tr><td colSpan={showBranch ? 8 : 7} className="empty">No expenses recorded yet.</td></tr>}
               </tbody>
             </table>
           </div>

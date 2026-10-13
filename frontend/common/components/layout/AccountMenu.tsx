@@ -7,6 +7,7 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useBranchSwitch } from "@/common/hooks/use-branch-switch";
+import { SettingsModalContent } from "@/modules/integrations/components/SettingsModalContent";
 import {
   checkForUpdate,
   downloadUpdate,
@@ -38,7 +39,7 @@ const subscribeNever = () => () => {};
  * It scopes the whole app, so the chosen branch is echoed under the name. */
 export function AccountMenu() {
   const { employee, logout } = useAuth();
-  const { name: businessName } = useBranding();
+  const { name: businessName, hasModule } = useBranding();
   const { openModal } = useModal();
   const [open, setOpen] = useState(false);
   const [upd, setUpd] = useState<UpdateState>("idle");
@@ -97,6 +98,11 @@ export function AccountMenu() {
   function connectMobile() {
     setOpen(false);
     openModal(<ConnectMobileModalContent />);
+  }
+
+  function openSettings() {
+    setOpen(false);
+    openModal(<SettingsModalContent />, true);
   }
 
   function signOut() {
@@ -232,6 +238,12 @@ export function AccountMenu() {
             <span className="i"><Icon name="smartphone" /></span>
             <span className="lbl">Connect mobile app</span>
           </button>
+          {hasModule("whatsapp") && (
+            <button type="button" role="menuitem" className="acct-item" onClick={openSettings}>
+              <span className="i"><Icon name="gear" /></span>
+              <span className="lbl">Settings</span>
+            </button>
+          )}
           {desktop && (
             <button
               type="button"

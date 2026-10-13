@@ -38,6 +38,7 @@ type selfTransferRequest struct {
 	ReceiptImage string  `json:"receipt_image"`
 	BranchID     *uint   `json:"branch_id"`
 	OccurredOn   string  `json:"occurred_on"`
+	Remarks      string  `json:"remarks"`
 }
 
 type setStatusRequest struct {
@@ -62,6 +63,7 @@ type RecordSelfTransferInput struct {
 	ReceiptImage string
 	BranchID     *uint
 	OccurredOn   time.Time
+	Remarks      string
 }
 
 type PartyTotals struct {
@@ -239,6 +241,9 @@ func ledgerPaging(c echo.Context) (page, limit, offset int, export bool) {
 func respondLedger(c echo.Context, page, limit int, export bool, title, filename string, fromDate, toDate time.Time, rows []LedgerRow, total int64, totals LedgerTotals, extra echo.Map) error {
 	if !export {
 		body := echo.Map{"total_debit": totals.TotalDebit, "total_credit": totals.TotalCredit}
+		if totals.FocusPage > 0 {
+			body["focus_page"] = totals.FocusPage
+		}
 		for k, v := range extra {
 			body[k] = v
 		}
@@ -293,7 +298,7 @@ func respondLoanLedger(c echo.Context, src *models.CashSource, bal LoanBalance) 
 	respondLedger(c, page, limit, export, "Loan Ledger — "+src.Name, "loan-ledger.pdf", fromDate, toDate, rows, total, totals, echo.Map{
 		"category_name": src.Name,
 		"loan": echo.Map{
-			"source_id": src.ID, "name": src.Name, "bank_name": bankName, "loan_number": src.LoanNumber,
+			"source_id": src.ID, "name": src.Name, "bank_id": src.BankID, "bank_name": bankName, "loan_number": src.LoanNumber,
 			"principal": bal.Principal, "drawn": bal.Drawn, "repaid": bal.Repaid, "balance": bal.Balance,
 		},
 	})
@@ -344,7 +349,11 @@ func ensureBuiltInCategories(ctx context.Context) error {
 	if _, _, err := findOrCreateCategory(ctx, "Gold Sale", models.CategoryCashIn); err != nil {
 		return err
 	}
-	_, _, err := findOrCreateCategory(ctx, auctionExpenseCategory, models.CategoryExpense)
+	if _, _, err := findOrCreateCategory(ctx, auctionExpenseCategory, models.CategoryExpense); err != nil {
+		return err
+	}
+	// A bank pledge release is filed under its own expense category, like any other, so it has a category ledger.
+	_, _, err := findOrCreateCategory(ctx, bankPledgeReleaseCategory, models.CategoryExpense)
 	return err
 }
 
