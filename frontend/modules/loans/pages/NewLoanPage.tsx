@@ -122,7 +122,9 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   const { isCrossBranch, can, selectedBranchId } = useAuth();
   const canPublishRate = can("Gold_Rate_Management", "can_create_gold_rate");
   // Single-branch business: the Branch picker is locked to its one branch.
-  const { singleBranch } = useBranding();
+  const { singleBranch, policy } = useBranding();
+  /* TML businesses must attach an overall (jewel) photo — it prints on the pledge book. */
+  const overallPhotoRequired = policy === "tml";
   // Single-branch plan: no branch is ever shown — the Branch picker is not
   // rendered and locker labels drop the branch name.
   const showBranch = useShowBranch();
@@ -683,6 +685,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     if (branchId === "") { toast("Please select a branch"); return; }
 
     if (!(principal > 0)) { toast("Please enter a valid loan amount"); return; }
+    if (overallPhotoRequired && !overallPhoto) { toast("Please add the overall photo of the ornaments"); return; }
     if (!isTodaySet) {
       toast("Today's gold rate must be set before creating a loan.");
       setShakeRateBanner(false);
@@ -1208,7 +1211,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 );
               })()}
               <div style={{ padding: "10px 0 2px" }}>
-                <label className="f">Overall Photo (optional)</label>
+                <label className="f">{overallPhotoRequired ? "Overall Photo *" : "Overall Photo (optional)"}</label>
                 {/* One photo of the whole pledged lot — shown on the loan's
                     Details card; each ornament's own photos are in the table. */}
                 {overallPhoto ? (

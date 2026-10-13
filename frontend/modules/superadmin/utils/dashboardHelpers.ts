@@ -57,9 +57,11 @@ export const MODULE_LABELS: Record<string, string> = {
   settings: "Settings",
   branches: "Branch Management",
   demo_reset: "Demo Reset",
+  whatsapp: "WhatsApp",
 };
 export const LANGUAGE_LABELS: Record<string, string> = {
   en: "English",
   ml: "Malayalam",
   gu: "Gujarati",
+  ta: "Tamil",
 };

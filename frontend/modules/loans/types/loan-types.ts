@@ -416,7 +416,10 @@ export type IndemnityBondEsignStart = {
   documentId: string;
   status: string;
   url: string;
+  // One signing link per signer, borrower first, then witness 1 and 2.
+  signers?: { identifier: string; displayName: string; url: string }[];
 };
+export type EsignWitnessInput = { name: string; phone: string };
 /* Renders the loan's indemnity bond (in `lang`) server-side, uploads it to
  * Setu, and starts an Aadhaar eSign request — returns the signing URL the
  * CUSTOMER must open themselves (their own device/browser) to complete

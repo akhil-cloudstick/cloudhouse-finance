@@ -122,6 +122,7 @@ type SignatureSlot struct {
 	Page string `json:"page"`
 	X    int    `json:"x"`
 	Y    int    `json:"y"`
+	Role string `json:"role,omitempty"`
 }
 
 type Signer struct {
@@ -137,6 +138,14 @@ type SignatureRequest struct {
 	DocumentID string `json:"documentId"`
 	Status     string `json:"status"`
 	URL        string `json:"url"`
+	// Signers holds one invite link per signer, in request order; URL is the first.
+	Signers []SignerLink `json:"signers,omitempty"`
+}
+
+type SignerLink struct {
+	Identifier  string `json:"identifier"`
+	DisplayName string `json:"displayName"`
+	URL         string `json:"url"`
 }
 
 type esignElement struct {
@@ -463,23 +472,36 @@ func (c *EsignClient) elementsFor(sig *SignatureConfig) []esignElement {
 }
 
 func (c *EsignClient) CreateSignatureRequest(documentID string, signer Signer, redirectURL string) (*SignatureRequest, error) {
-	sg := map[string]any{
-		"full_name":    signer.DisplayName,
-		"mobile":       signer.Identifier,
-		"country_code": "+91",
-		"reason":       "Pledge agreement signing",
-		"notification": map[string]bool{"invite": false, "completion": false, "whatsapp": false},
-		"elements":     c.elementsFor(signer.Signature),
+	return c.CreateSignatureRequestMulti(documentID, []Signer{signer}, redirectURL)
+}
+
+// CreateSignatureRequestMulti starts one eSign session for every signer on the
+// same document; each signer gets their own invite link and signature boxes.
+func (c *EsignClient) CreateSignatureRequestMulti(documentID string, signers []Signer, redirectURL string) (*SignatureRequest, error) {
+	if len(signers) == 0 {
+		return nil, fmt.Errorf("esign: at least one signer is required")
 	}
-	if signer.Email != "" {
-		sg["email"] = signer.Email
+	sgs := make([]any, 0, len(signers))
+	for _, signer := range signers {
+		sg := map[string]any{
+			"full_name":    signer.DisplayName,
+			"mobile":       signer.Identifier,
+			"country_code": "+91",
+			"reason":       "Pledge agreement signing",
+			"notification": map[string]bool{"invite": false, "completion": false, "whatsapp": false},
+			"elements":     c.elementsFor(signer.Signature),
+		}
+		if signer.Email != "" {
+			sg["email"] = signer.Email
+		}
+		sgs = append(sgs, sg)
 	}
 	body, err := json.Marshal(map[string]any{
 		"sign_type":      "aadhaar",
 		"auth_mode":      1,
 		"file_id":        documentID,
 		"expiry_seconds": esignExpirySeconds,
-		"signers":        []any{sg},
+		"signers":        sgs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("esign: encode request: %w", err)
@@ -493,14 +515,22 @@ func (c *EsignClient) CreateSignatureRequest(documentID string, signer Signer, r
 	if err := c.do(http.MethodPost, "/api/v1/esign/initialize-esign", "application/json", bytes.NewReader(body), &data); err != nil {
 		return nil, err
 	}
-	if data.ClientID == "" || len(data.Signers) == 0 || data.Signers[0].InviteURL == "" {
+	if data.ClientID == "" || len(data.Signers) < len(signers) {
 		return nil, fmt.Errorf("esign: initialize returned no signing link")
+	}
+	links := make([]SignerLink, 0, len(signers))
+	for i, signer := range signers {
+		if data.Signers[i].InviteURL == "" {
+			return nil, fmt.Errorf("esign: initialize returned no signing link")
+		}
+		links = append(links, SignerLink{Identifier: signer.Identifier, DisplayName: signer.DisplayName, URL: data.Signers[i].InviteURL})
 	}
 	return &SignatureRequest{
 		ID:         data.ClientID,
 		DocumentID: documentID,
 		Status:     "sign_initiated",
-		URL:        data.Signers[0].InviteURL,
+		URL:        links[0].URL,
+		Signers:    links,
 	}, nil
 }
 

@@ -26,8 +26,8 @@ import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { ledgerFocusTarget, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
-import { getLoanByNumber, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF } from "@/modules/loans/services/loanService";
-import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView } from "@/modules/loans/types/loan-types";
+import { getLoanByNumber, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF } from "@/modules/loans/services/loanService";
+import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView, type EsignWitnessInput } from "@/modules/loans/types/loan-types";
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
@@ -36,6 +36,7 @@ import { printColors, tenantLenderProfile } from "@/common/config/brand";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
+import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModalContent";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModalContent";
@@ -85,6 +86,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // pre-change status until a full page reload re-fetched everything.
   const { refresh: refreshLoans } = useLoans();
   const { can, role, isSystem } = useAuth();
+  const { policy } = useBranding();
   const canExport = can("Ledger_Export", "can_export_ledger");
   // Which sanction/top-up stages apply is per-business configuration — see
   // approvalWorkflowService.ts.
@@ -672,6 +674,17 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
    * without ever producing a file) rather than silently generating a PDF. */
   async function printStatement() { return singleFlight("loan:print-statement:"+l.numericId, async () => {
     setPrintingStatement(true);
+    if (policy === "tml") {
+      /* TML businesses print the server-rendered payment receipt instead. */
+      try {
+        await downloadTmlStatementReceipt(l.numericId);
+      } catch (e) {
+        toast(e instanceof ApiError ? e.message : "Could not print the statement — try again.");
+      } finally {
+        setPrintingStatement(false);
+      }
+      return;
+    }
     try {
       const c = await getCustomer(l.customerId);
       const rows = l.payments.length
@@ -859,13 +872,38 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // print-and-sign-by-hand buttons, not a replacement — eSign needs the
   // customer's own device and network, so the wet-signature route stays
   // available regardless.
-  async function startIndemnityEsign(lang: BondLang, deliverBy: EsignDeliverBy = "whatsapp") {
+  async function startIndemnityEsign(lang: BondLang, deliverBy: EsignDeliverBy = "whatsapp", witnesses?: EsignWitnessInput[]) {
     setEsigning(true);
     try {
       const redirectUrl = `${window.location.origin}/esign-callback`;
-      const started = await startIndemnityBondEsign(l.numericId, lang, redirectUrl, deliverBy);
+      const started = await startIndemnityBondEsign(l.numericId, lang, redirectUrl, deliverBy, witnesses);
       if (deliverBy === "open" && started.url) {
         window.open(started.url, "_blank", "noopener,noreferrer");
+      }
+      // Witnesses are not app users: only WhatsApp reaches them directly, so for the
+      // other modes show their links for staff to hand over.
+      const witnessLinks = (started.signers ?? []).slice(1);
+      if (witnessLinks.length > 0 && deliverBy !== "whatsapp") {
+        // Deferred: the picker modal calls closeModal() right after onConfirm resolves, which would close this one.
+        setTimeout(() => openModal(
+          <>
+            <div className="hd"><h3>Witness signing links</h3><button className="x" onClick={closeModal}>×</button></div>
+            <div className="bd bd-scroll">
+              <p style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Each witness must open their own link and sign with their own Aadhaar OTP.</p>
+              {witnessLinks.map((w, i) => (
+                <div key={w.url} style={{ marginBottom: 12 }}>
+                  <label className="f">Witness {i + 1} — {w.displayName} ({w.identifier})</label>
+                  {/* The URL itself is never shown: it carries a token. */}
+                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    <button className="btn ghost" onClick={() => window.open(w.url, "_blank", "noopener,noreferrer")}>Open link</button>
+                    <button className="btn ghost" onClick={() => navigator.clipboard.writeText(w.url).then(() => toast("Link copied"), () => toast("Could not copy the link"))}>Copy link</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="ft"><button className="btn" onClick={closeModal}>Done</button></div>
+          </>
+        ), 0);
       }
       setEsignStarted(true);
       if (deliverBy === "whatsapp") {
@@ -912,7 +950,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         customerName={l.customerName}
         customerPhone={phone}
         showDelivery={true}
-        onConfirm={(lang, deliverBy) => startIndemnityEsign(lang, deliverBy)}
+        showWitnesses={true}
+        onConfirm={(lang, deliverBy, witnesses) => startIndemnityEsign(lang, deliverBy, witnesses)}
       />
     );
   }

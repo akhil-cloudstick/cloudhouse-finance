@@ -75,7 +75,7 @@ function EditRoleModalContent({
       onSaved(role.id);
       closeModal();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not update role.");
+      setErr(e instanceof ApiError ? e.message : "Could not update the role. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -91,7 +91,7 @@ function EditRoleModalContent({
       onDeleted();
       closeModal();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not delete role.");
+      setErr(e instanceof ApiError ? e.message : "Could not delete the role. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -190,7 +190,7 @@ export function RolesPermissionsPage() {
           setRoleId(firstVisible.id);
         }
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load roles."));
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load roles. Please refresh the page and try again."));
   }
 
   useEffect(() => {
@@ -207,7 +207,7 @@ export function RolesPermissionsPage() {
         setMatrix(res.data);
         setError("");
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load permissions."));
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load permissions. Please refresh the page and try again."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roleId, employee, search]);
 
@@ -234,7 +234,7 @@ export function RolesPermissionsPage() {
   function blockedMessage(row: PermissionRow) {
     const missing = missingParents(row);
     if (missing.length === 0) return "";
-    return `Enable ${missing.map((p) => p.label).join(", ")} first`;
+    return `Please turn on ${missing.map((p) => p.label).join(", ")} first.`;
   }
 
   function toggle(row: PermissionRow) {
@@ -282,7 +282,7 @@ export function RolesPermissionsPage() {
       setMatrix(res.data);
       setPending({});
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not save — try again.");
+      setError(e instanceof ApiError ? e.message : "Could not save your changes. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -300,7 +300,7 @@ export function RolesPermissionsPage() {
       setMatrix(res.data);
       setPending({});
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not save — try again.");
+      setError(e instanceof ApiError ? e.message : "Could not save your changes. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -317,7 +317,7 @@ export function RolesPermissionsPage() {
       setNewRoleDesc("");
       loadRoles(created.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not create role.");
+      setError(e instanceof ApiError ? e.message : "Could not create the role. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -477,7 +477,7 @@ export function RolesPermissionsPage() {
                         const nested = (row.parents ?? []).some((p) => rows.some((r) => r.permissions.name === p.name));
                         return (
                           <label
-                            key={row.permission_id}
+                            key={`${row.permission_id}-${row.permissions.name}`}
                             className={`ccheck perm-list-row${blocked ? " blocked" : ""}`}
                             title={blocked || undefined}
                             style={{ paddingLeft: nested ? 28 : undefined }}

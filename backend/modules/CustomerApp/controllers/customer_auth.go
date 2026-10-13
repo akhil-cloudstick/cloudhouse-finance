@@ -164,7 +164,7 @@ func requestOTP(ctx context.Context, businessCode, phone string) error {
 	}
 	message := fmt.Sprintf("Your %s app sign-in code is %s. It expires in 5 minutes. Do not share this code with anyone.", businessName(ctx), code)
 	sendErr := config.WhatsApp.
-		Send(cust.Phone, message)
+		Send(ctx, cust.Phone, message)
 	{
 		logRec := &commonModels.CommunicationLog{
 			RecipientName:     cust.Name,

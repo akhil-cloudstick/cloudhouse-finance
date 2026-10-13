@@ -242,7 +242,7 @@ export function printBrand(): PrintBrand {
     const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string; contactPhone?: string; policy?: string };
     return {
       legalName: p.legalName || fallback.legalName,
-      kmlRegLabel: p.kmlRegNo ? `${p.policy === "gml" ? "GML" : "KML"} Reg. No: ${p.kmlRegNo}` : fallback.kmlRegLabel,
+      kmlRegLabel: p.kmlRegNo ? `${p.policy === "gml" ? "GML" : p.policy === "tml" ? "TML" : "KML"} Reg. No: ${p.kmlRegNo}` : fallback.kmlRegLabel,
       kmlRegNo: p.kmlRegNo || fallback.kmlRegNo,
       addressLine: p.addressLine || "",
       phones: p.contactPhone || fallback.phones,

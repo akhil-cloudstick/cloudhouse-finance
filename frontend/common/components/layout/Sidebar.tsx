@@ -54,7 +54,6 @@ const NAV: [string, NavItem[]][] = [
     { route: "banks", title: "Bank Management", icon: "bank" },
     { route: "roles-permissions", title: "Roles & Permissions", icon: "shield" },
     { route: "billing", title: "Billing", icon: "coin" },
-    { route: "settings", title: "Settings", icon: "gear" },
   ]],
 ];
 

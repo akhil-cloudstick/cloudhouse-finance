@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { AccRow, C, GroupedFilter, PillButton, ServerFlatList, Txt, emptyGroupedFilter, gfDate, gfFirst, gfValues, openPage, toast, type AccDetail, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
@@ -14,15 +14,21 @@ import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { shareLedgerPdf } from "@/common/utils/ledgerExport";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { LedgerLink } from "./LedgerLink";
+import { EntrySub, useEntryActions } from "@/modules/cash/components/EntryActions";
 
 // Mobile counterpart of the web ledger drill-downs (PartyLedger.tsx,
 // ModeLedgerPage.tsx): every bank / customer / payment mode / expense
 // category has its own ledger, and each row links on to the others it
 // touches — one shared screen, app/(tabs)/cash/[id].tsx, keyed by kind.
 
-/** Open a ledger. `ref` is the bank/customer/category id, or the mode name. */
-export function openLedger(kind: LedgerKind, ref: string | number, label: string) {
-  openPage(`/cash/${kind}?ref=${encodeURIComponent(String(ref))}&label=${encodeURIComponent(label)}`);
+/** The transaction a ledger link was followed from — the ledger it opens scrolls to and highlights the same one. */
+export type LedgerFocus = { date: string; amount: number };
+
+/** Open a ledger. `ref` is the bank/customer/category id, or the mode name. `focus` is the transaction the link
+ * was tapped on, so the ledger opens on the page holding it. */
+export function openLedger(kind: LedgerKind, ref: string | number, label: string, focus?: LedgerFocus) {
+  const f = focus ? `&focusDate=${encodeURIComponent(focus.date.slice(0, 10))}&focusAmount=${encodeURIComponent(String(focus.amount))}` : "";
+  openPage(`/cash/${kind}?ref=${encodeURIComponent(String(ref))}&label=${encodeURIComponent(label)}${f}`);
 }
 
 const isMode = (m?: string): m is string => !!m && (LEDGER_MODES as readonly string[]).includes(m);
@@ -87,14 +93,18 @@ function BillLink({ path }: BillLinkProps) {
   );
 }
 
-export const modeLink = (mode?: string) => (isMode(mode) ? <LedgerLink label={mode} to="/cash" onPress={() => openLedger("mode", mode, `${mode} Ledger`)} /> : mode || "—");
+export const modeLink = (mode?: string, focus?: LedgerFocus) => (isMode(mode) ? <LedgerLink label={mode} to="/cash" onPress={() => openLedger("mode", mode, `${mode} Ledger`, focus)} /> : mode || "—");
 
 export const loanRefOf = (text?: string) => (text ? text.match(/^LN-\d+/i)?.[0] || text.match(/—\s*(LN-\S+)\s*$/i)?.[1] || null : null);
 
-type LedgerRowItemProps = { r: LedgerRow; index: number; kind: LedgerKind; ledgerRef: string; categoryIds: Record<string, number> };
+type LedgerRowItemProps = { r: LedgerRow; index: number; kind: LedgerKind; ledgerRef: string; categoryIds: Record<string, number>; highlight?: boolean };
 
-function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds }: LedgerRowItemProps) {
+function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds, highlight }: LedgerRowItemProps) {
+  // Links on this row open the other ledgers on this same transaction.
+  const focus: LedgerFocus = { date: r.date, amount: r.amount };
   const isDebit = r.debitOrCredit === "debit";
+  // A cash-in / debit / self transfer a person keyed in: info icon + Edit.
+  const entry = useEntryActions(r.entryId, r.editable);
   const loanRef = loanRefOf(r.reference) || loanRefOf(r.description);
   const category = expenseCategoryOf(r.description);
   const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
@@ -105,36 +115,47 @@ function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds }: LedgerRowItem
   const details: AccDetail[] = [
     { k: "Date", v: dmy(r.date) },
     { k: "Ref No", v: loanRef ? <LedgerLink label={r.reference || loanRef} to="/loans" onPress={() => openLoanByNumber(loanRef)} /> : r.reference || "—" },
-    { k: "Mode", v: sameMode ? r.method : modeLink(r.method) },
-    ...(r.bankId && !sameBank ? [{ k: "Bank", v: <LedgerLink label={r.bankName || "Bank"} to="/cash" onPress={() => openLedger("bank", r.bankId!, r.bankName || "Bank")} /> }] : []),
-    ...(r.customerId && !sameCustomer ? [{ k: "Customer", v: <LedgerLink label={r.customerName || "Customer"} to="/cash" onPress={() => openLedger("customer", r.customerId!, r.customerName || "Customer")} /> }] : []),
-    ...(categoryId && kind !== "category" ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
+    { k: "Mode", v: sameMode ? r.method : modeLink(r.method, focus) },
+    ...(r.bankId && !sameBank ? [{ k: "Bank", v: <LedgerLink label={r.bankName || "Bank"} to="/cash" onPress={() => openLedger("bank", r.bankId!, r.bankName || "Bank", focus)} /> }] : []),
+    ...(r.customerId && !sameCustomer ? [{ k: "Customer", v: <LedgerLink label={r.customerName || "Customer"} to="/cash" onPress={() => openLedger("customer", r.customerId!, r.customerName || "Customer", focus)} /> }] : []),
+    ...(categoryId && kind !== "category" ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!, focus)} /> }] : []),
     { k: "Debit", v: isDebit ? inr(r.amount) : "—", color: isDebit ? C.red : C.muted },
     { k: "Credit", v: isDebit ? "—" : inr(r.amount), color: isDebit ? C.muted : C.green },
     { k: "Balance", v: inr(r.runningBalance), color: C.brandDeep },
     ...billDetail(r.receiptImage),
   ];
+  const subText = r.reference || r.method || undefined;
   return (
-    <AccRow
-      defaultOpen={index === 0}
-      id={dmy(r.date)}
-      name={r.description || r.type}
-      sub={r.reference || r.method || undefined}
-      amount={inr(r.amount)}
-      amountColor={isDebit ? C.red : C.green}
-      status={isDebit ? "Debit" : "Credit"}
-      statusTone={isDebit ? "overdue" : "active"}
-      details={details}
-    />
+    <>
+      <AccRow
+        defaultOpen={index === 0}
+        id={dmy(r.date)}
+        name={r.description || r.type}
+        sub={entry.infoButton ? <EntrySub text={subText} infoButton={entry.infoButton} /> : subText}
+        amount={inr(r.amount)}
+        amountColor={isDebit ? C.red : C.green}
+        status={isDebit ? "Debit" : "Credit"}
+        statusTone={isDebit ? "overdue" : "active"}
+        details={details}
+        actions={entry.actions}
+        style={highlight ? { borderColor: C.brandDeep, borderWidth: 2, backgroundColor: "#f3f3ff" } : undefined}
+      />
+      {entry.sheets}
+    </>
   );
 }
 
-type LedgerListProps = { kind: LedgerKind; ledgerRef: string; top?: React.ReactElement; onCategoryName?: (name: string) => void };
+type LedgerListProps = { kind: LedgerKind; ledgerRef: string; top?: React.ReactElement; onCategoryName?: (name: string) => void; focus?: LedgerFocus };
+
+// Most rows loaded while looking for the focused transaction.
+const FOCUS_MAX_ROWS = 600;
+
+const sameAmount = (a: number, b: number) => Math.abs(a - b) < 0.005;
 
 /** Paged ledger with a From/To date filter. `top` renders above the filter
  * (e.g. the customer detail's tabs). onCategoryName reports the category
  * ledger's resolved name for the screen title. */
-export function LedgerList({ kind, ledgerRef, top, onCategoryName }: LedgerListProps) {
+export function LedgerList({ kind, ledgerRef, top, onCategoryName, focus }: LedgerListProps) {
   // One grouped filter: Mode (bank ledger only), Branch + Bank (mode ledgers;
   // Cash has no bank of record), and Date — like web's PartyLedger / ModeLedgerPage.
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
@@ -210,11 +231,33 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: LedgerListP
     fresh: true,
   });
 
+  // Opened from another ledger on a transaction: keep loading pages until it shows up, then scroll to it and
+  // highlight it for a few seconds.
+  const focusIndex = focus
+    ? (() => {
+        const day = list.items.findIndex((r) => r.date.slice(0, 10) === focus.date.slice(0, 10) && sameAmount(r.amount, focus.amount));
+        return day >= 0 ? day : list.items.findIndex((r) => sameAmount(r.amount, focus.amount));
+      })()
+    : -1;
+  const [highlighted, setHighlighted] = useState(false);
+  useEffect(() => {
+    if (!focus || focusIndex >= 0 || list.isLoading || list.isFetchingNextPage || !list.hasNextPage || list.items.length >= FOCUS_MAX_ROWS) return;
+    list.fetchNextPage();
+  }, [focus, focusIndex, list.isLoading, list.isFetchingNextPage, list.hasNextPage, list.items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const found = focusIndex >= 0;
+  useEffect(() => {
+    if (!found) return;
+    setHighlighted(true);
+    const t = setTimeout(() => setHighlighted(false), 10000);
+    return () => clearTimeout(t);
+  }, [found]);
+
   return (
     <>
     <ServerFlatList
       list={list}
       items={list.items}
+      focusIndex={focusIndex}
       keyOf={(r) => `${r.type}-${r.id}-${r.method}`}
       emptyText="No transactions found."
       header={
@@ -237,7 +280,7 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName }: LedgerListP
           ) : null}
         </>
       }
-      renderItem={(r, i) => <LedgerRowItem r={r} index={i} kind={kind} ledgerRef={ledgerRef} categoryIds={categoryIds} />}
+      renderItem={(r, i) => <LedgerRowItem r={r} index={i} kind={kind} ledgerRef={ledgerRef} categoryIds={categoryIds} highlight={highlighted && i === focusIndex} />}
     />
     </>
   );

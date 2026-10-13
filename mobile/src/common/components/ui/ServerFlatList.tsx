@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { usePullRefresh } from "@/common/hooks/use-pull-refresh";
 import { FlatList, View, type StyleProp, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,6 +32,8 @@ type ServerFlatListProps<T> = {
   inSheet?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   stickyHeaderIndices?: number[];
+  /** A row to scroll to once it is loaded (-1 or omitted: none). */
+  focusIndex?: number;
 };
 
 /**
@@ -51,7 +53,16 @@ export function ServerFlatList<T>({
   inSheet,
   contentStyle,
   stickyHeaderIndices,
+  focusIndex = -1,
 }: ServerFlatListProps<T>) {
+  const listRef = useRef<FlatList>(null);
+  const scrolledTo = useRef(-1);
+  useEffect(() => {
+    if (focusIndex < 0 || scrolledTo.current === focusIndex) return;
+    scrolledTo.current = focusIndex;
+    const t = setTimeout(() => listRef.current?.scrollToIndex({ index: focusIndex, viewPosition: 0.25, animated: true }), 250);
+    return () => clearTimeout(t);
+  }, [focusIndex]);
   const insets = useSafeAreaInsets();
   const { pullRefreshing, onPull } = usePullRefresh(list.isRefreshing, list.refetch);
   const reloading = (list.isLoading && items.length > 0) || pullRefreshing;
@@ -61,6 +72,12 @@ export function ServerFlatList<T>({
     // One row open at a time across the whole list.
     <AccGroup>
     <ListComp
+      ref={listRef}
+      onScrollToIndexFailed={(info) => {
+        // Rows are not measured yet: jump near it, then try again.
+        listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+        setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.25, animated: true }), 150);
+      }}
       data={list.isLoading && items.length === 0 ? [] : items}
       keyExtractor={(it, i) => keyOf(it as T, i)}
       renderItem={({ item, index }) => (

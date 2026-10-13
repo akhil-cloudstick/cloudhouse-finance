@@ -14,11 +14,13 @@ const SUBTITLE: Record<LedgerKind, string> = {
 };
 
 export default function LedgerScreen() {
-  const { id, ref, label } = useLocalSearchParams<{ id: LedgerKind; ref: string; label?: string }>();
+  const { id, ref, label, focusDate, focusAmount } = useLocalSearchParams<{ id: LedgerKind; ref: string; label?: string; focusDate?: string; focusAmount?: string }>();
+  // Opened from a row of another ledger: that transaction is scrolled to and highlighted here.
+  const focus = focusDate && focusAmount && Number.isFinite(Number(focusAmount)) ? { date: String(focusDate), amount: Number(focusAmount) } : undefined;
   const [categoryName, setCategoryName] = useState<string>();
   return (
     <Screen header={<FlatHeader title={categoryName || label || "Ledger"} subtitle={SUBTITLE[id] ?? "Ledger"} back />}>
-      <LedgerList kind={id} ledgerRef={String(ref)} onCategoryName={setCategoryName} />
+      <LedgerList kind={id} ledgerRef={String(ref)} onCategoryName={setCategoryName} focus={focus} />
     </Screen>
   );
 }

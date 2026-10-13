@@ -17,14 +17,17 @@ func MovementRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(movementPath+"/export", cash.ExportMovements, auth.Staff(perms.Read, perms.Export)...)
 	e.GET(movementPath+"/transactions/bank/:bank_id", cash.ListMovementsByBank, auth.Staff(perms.Read, perms.ExportQuery)...)
 	e.GET(movementPath+"/transactions/bank/:bank_id/export", cash.ExportMovementsByBank, auth.Staff(perms.Read, perms.Export)...)
-	e.GET(movementPath+"/transactions/customer/:customer_id", cash.ListMovementsByCustomer, auth.Staff(perms.Read, perms.ExportQuery)...)
+	e.GET(movementPath+"/transactions/customer/:customer_id", cash.ListMovementsByCustomer, auth.Staff(perms.Read, perms.ExportQuery, cash.LedgerFocus())...)
 	e.GET(movementPath+"/transactions/customer/:customer_id/export", cash.ExportMovementsByCustomer, auth.Staff(perms.Read, perms.Export)...)
-	e.GET(movementPath+"/transactions/branch/:id", cash.ListMovementsByBranch, auth.Staff(auth.RequirePermission("can view branch ledger"), perms.ExportQuery)...)
+	e.GET(movementPath+"/transactions/branch/:id", cash.ListMovementsByBranch, auth.Staff(auth.RequirePermission("can view branch ledger"), perms.ExportQuery, cash.LedgerFocus())...)
 	e.GET(movementPath+"/transactions/branch/:id/export", cash.ExportMovementsByBranch, auth.Staff(auth.RequirePermission("can view branch ledger"), perms.Export)...)
-	e.GET(movementPath+"/cash-ledger", cash.GetCashLedger, auth.Staff(perms.Read, perms.ExportQuery)...)
-	e.GET(movementPath+"/mode-ledger", cash.GetModeLedger, auth.Staff(perms.Read, perms.ExportQuery)...)
+	e.GET(movementPath+"/cash-ledger", cash.GetCashLedger, auth.Staff(perms.Read, perms.ExportQuery, cash.LedgerFocus())...)
+	e.GET(movementPath+"/mode-ledger", cash.GetModeLedger, auth.Staff(perms.Read, perms.ExportQuery, cash.LedgerFocus())...)
 	e.GET(movementPath+"/loan-sources", cash.ListLoanSources, auth.Staff(perms.Read)...)
 	e.GET(movementPath+"/:id", cash.GetMovementById, auth.Staff(perms.Read)...)
+	e.GET(movementPath+"/:id/entry", cash.GetMovementEntry, auth.Staff(perms.Read)...)
+	// Editing a cash-in, debit or self transfer from the ledger needs no permission of its own.
+	e.PUT(movementPath+"/:id", cash.UpdateMovement, auth.Staff()...)
 	e.PATCH(movementPath+"/:id/status", cash.UpdateMovementStatus, auth.Staff(perms.Update)...)
 	return e
 }

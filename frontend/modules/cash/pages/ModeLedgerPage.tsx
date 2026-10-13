@@ -8,9 +8,9 @@ import { ApiError } from "@/common/services/httpClient";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { CategoryChip } from "@/common/components/CategoryChip";
 import { loanCatRef } from "@/modules/cash/utils/ledgerCells";
-import { BillLink } from "@/modules/cash/components/BillLink";
+import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
 import { useExpenseCategoryIds } from "@/common/hooks/use-expense-category-ids";
-import { rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
+import { ledgerFocusTarget, rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { getModeLedger, downloadLedger, PARTY_PAGE_SIZE } from "@/modules/cash/services/cashService";
 import { type LedgerMode, type LedgerRowView } from "@/modules/cash/types/cash-types";
 import { Icon } from "@/common/components/Icon";
@@ -101,9 +101,12 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
     setPage(1);
   }, [filterKey]);
   const prevMode = useRef(mode);
+  // Opened from another ledger on a transaction: the first load asks the server for the page holding it.
+  const focusPending = useRef(true);
   useEffect(() => {
     if (prevMode.current === mode) return;
     prevMode.current = mode;
+    focusPending.current = true;
     setPage(rememberedLedgerPage("mode") ?? 1);
   }, [mode]);
 
@@ -112,14 +115,17 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
   const refresh = useCallback(() => {
     const reqId = ++requestIdRef.current;
     setLoading(true);
+    const target = focusPending.current ? ledgerFocusTarget("mode") : null;
     getModeLedger(
       mode,
       page,
-      { fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined },
+      { ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount } : {}), fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined },
       PARTY_PAGE_SIZE
     )
-      .then(({ items, total, totalDebit, totalCredit }) => {
+      .then(({ items, total, totalDebit, totalCredit, focusPage }) => {
         if (reqId !== requestIdRef.current) return;
+        focusPending.current = false;
+        if (focusPage && focusPage !== page) setPage(focusPage);
         setItems(items);
         setTotal(total);
         setTotals({ debit: totalDebit, credit: totalCredit });
@@ -264,7 +270,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                       )}
                     </td>
                     <td style={{ textAlign: "center" }}>
-                    {r.description || r.type}<BillLink url={r.receiptImage} title={r.description || r.type} />
+                    {r.description || r.type}
                     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4, marginTop: 4 }}>
                       {r.customerId ? (
                         <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} />
@@ -277,7 +283,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                     )}
                     <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                     <td className="num" style={r.memo ? { color: "var(--muted)", fontStyle: "italic" } : { color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                    <td className="num">{fmt(r.runningBalance)}</td>
+                    <td className="num">{fmt(r.runningBalance)}<LedgerEntryActions entryId={r.entryId} editable={r.editable} onChanged={refresh} /></td>
                   </tr>
                   );
                 });

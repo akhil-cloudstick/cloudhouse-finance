@@ -79,15 +79,15 @@
 <p>તારીખ: {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
 <div class="sig-bottom">
 <div class="sig">
-<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
-<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
+<div><span class="esign-slot" data-esign-role="gml_esign_witness1" data-esign-dx="80" data-esign-dy="-58">સાક્ષી<br>નામ: {{with .Witness1Name}}{{.}}{{else}}{{.Blank}}{{end}}</span></div>
+<div><span class="esign-slot" data-esign-role="gml_esign_witness2" data-esign-dx="80" data-esign-dy="-58">સાક્ષી<br>નામ: {{with .Witness2Name}}{{.}}{{else}}{{.Blank}}{{end}}</span></div>
 </div>
 {{/* See the English template's identical reordering comment above
      bondHTMLEnglish's own .sig-page — the borrower's line must be the
      true bottom-most content so Setu's "bottom-right of last page" eSign
      stamp lands on it instead of the witness placeholder. */}}
 <div class="sig">
-<div>આડગીરો મૂકનાર<span class="esign-slot" data-esign-dx="80" data-esign-dy="-58">નામ: {{.CustomerName}}</span></div>
+<div>આડગીરો મૂકનાર<span class="esign-slot" data-esign-role="gml_esign_borrower" data-esign-dx="80" data-esign-dy="-58">નામ: {{.CustomerName}}</span></div>
 <div>આડગીરો લેનાર{{with .LenderSignature}}<div class="lender-sig">{{.}}</div>{{end}}<span>{{.LenderName}}</span></div>
 </div>
 </div>

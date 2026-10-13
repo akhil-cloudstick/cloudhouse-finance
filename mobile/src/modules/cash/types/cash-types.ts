@@ -28,6 +28,11 @@ export type CashMovement = {
   expenseId?: number | null;
   partyCustomerId?: number;
   partyCustomer?: { id: number; name: string };
+  // Remarks typed on a cash-in / debit / self transfer; shown in the info sheet.
+  remarks?: string;
+  // True for a cash-in / debit / self transfer a person keyed in — the ledger
+  // shows the info icon and Edit on it.
+  editable?: boolean;
   createdAt: string;
 };
 
@@ -45,6 +50,8 @@ export type Expense = {
   approvedBy?: string;
   approvedAt?: string;
   receiptImage?: string;
+  // A pending or approved expense a person keyed in — the list offers Edit on it.
+  editable?: boolean;
   createdAt: string;
 };
 
@@ -127,6 +134,66 @@ export type LedgerRow = {
   customerId?: number;
   customerName?: string;
   receiptImage?: string; // bill attached to the entry behind this row
+  // The cash movement behind a cash-in / debit / self-transfer row — the info
+  // sheet and Edit open it. Absent on every other row.
+  entryId?: number;
+  editable?: boolean;
+};
+// One line of a payment breakdown: how much was paid in which mode (and
+// through which bank for UPI / Bank Transfer). Each line of a Credit or Debit
+// entry becomes its own ledger entry; together they add up to the amount.
+export type PaymentPart = { mode: string; amount: number; bankId?: number };
+// The info sheet / Edit data for a cash-in, debit or self transfer
+// (GET/PUT /cash-movements/:id/entry — backend entry.go).
+export type EntryKind = "cash_in" | "debit" | "self_transfer" | "gold_sale";
+export type EntryLine = { movementId: number; mode: string; amount: number; bankId?: number | null; bankName?: string };
+export type EntryInfo = {
+  kind: EntryKind;
+  // True when opened from the Expenses list — saving then goes through PUT /expenses/:id.
+  viaExpense?: boolean;
+  editable: boolean;
+  movementId: number;
+  category: string;
+  amount: number;
+  occurredOn: string;
+  recordedAt: string;
+  remarks: string;
+  branchId?: number | null;
+  branchName: string;
+  receiptImage?: string;
+  lines: EntryLine[];
+  fromBankId?: number | null;
+  fromBank?: string;
+  toBankId?: number | null;
+  toBank?: string;
+  status?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  // A gold sale's ornament and what it cost.
+  ornamentType?: string;
+  costAmount?: number;
+  // A draw on a bank loan: the loan's number, its bank and its principal.
+  loanNumber?: string;
+  bankName?: string;
+  principalAmount?: number;
+};
+export type EntryUpdateInput = {
+  // A gold sale edit.
+  ornamentType?: string;
+  costAmount?: number;
+  bankId?: number;
+  category?: string;
+  amount: number;
+  occurredOn?: string;
+  remarks?: string;
+  receiptImage?: string;
+  branchId?: number;
+  payments?: PaymentPart[];
+  fromBankId?: number;
+  fromBank?: string;
+  toBankId?: number;
+  toBank?: string;
+  mode?: string;
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];
 export type LedgerKind = "bank" | "customer" | "category" | "mode";

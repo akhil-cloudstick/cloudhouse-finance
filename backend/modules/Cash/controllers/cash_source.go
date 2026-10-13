@@ -7,6 +7,7 @@ import (
 	"cloudhouse/backend/modules/Cash/models"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -266,4 +267,84 @@ func CreateCashSource(c echo.Context) error {
 		return common.Success(c, http.StatusOK, rec)
 	}
 	return common.Success(c, http.StatusOK, rec)
+}
+
+type updateLoanDetailsRequest struct {
+	BankID          uint    `json:"bank_id"`
+	LoanNumber      string  `json:"loan_number"`
+	PrincipalAmount float64 `json:"principal_amount"`
+}
+
+// updateLoanDetails changes a loan's lender bank, loan number and principal. The loan's name and every cash
+// amount stay as they are; the copy kept with each past draw is brought in line so the ledgers read the same.
+func updateLoanDetails(ctx context.Context, id uint, req updateLoanDetailsRequest) (*models.CashSource, LoanBalance, error) {
+	src, err := findCategoryByID(ctx, id)
+	if err != nil {
+		return nil, LoanBalance{}, common.NewNotFound("cash source not found")
+	}
+	if !IsLoanSource(src.Name) || !hasLoanDetails(src) {
+		return nil, LoanBalance{}, common.NewBadRequest("this is not a loan with details recorded")
+	}
+	number := strings.TrimSpace(req.LoanNumber)
+	if req.BankID == 0 {
+		return nil, LoanBalance{}, common.NewBadRequest("bank is required")
+	}
+	if number == "" {
+		return nil, LoanBalance{}, common.NewBadRequest("loan number is required")
+	}
+	if req.PrincipalAmount <= 0 {
+		return nil, LoanBalance{}, common.NewBadRequest("principal amount must be greater than zero")
+	}
+	var banks int64
+	if err := config.DB.WithContext(ctx).Table("banks").Where("id = ?", req.BankID).Count(&banks).Error; err != nil {
+		return nil, LoanBalance{}, err
+	}
+	if banks == 0 {
+		return nil, LoanBalance{}, common.NewBadRequest("bank does not exist")
+	}
+	cur, err := loanBalance(ctx, src, false)
+	if err != nil {
+		return nil, LoanBalance{}, err
+	}
+	if floor := cur.Drawn - cur.Repaid; req.PrincipalAmount < floor-0.005 {
+		return nil, LoanBalance{}, common.NewBadRequest(fmt.Sprintf("principal can't be less than ₹%.2f — the amount already drawn net of repayments", max(floor, 0)))
+	}
+	principal := common.RoundMoney(req.PrincipalAmount)
+	var movementIDs []uint
+	if err := config.DB.WithContext(ctx).Model(&models.CashMovement{}).
+		Where("type = ? AND source ILIKE ?", "in", src.Name).Pluck("id", &movementIDs).Error; err != nil {
+		return nil, LoanBalance{}, err
+	}
+	err = config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Category{}).Where("id = ?", src.ID).
+			Updates(map[string]interface{}{"bank_id": req.BankID, "loan_number": number, "principal_amount": principal}).Error; err != nil {
+			return err
+		}
+		if len(movementIDs) == 0 {
+			return nil
+		}
+		return tx.Model(&models.LoanCashSource{}).Where("cash_movement_id IN ?", movementIDs).
+			Updates(map[string]interface{}{"bank_id": req.BankID, "loan_number": number, "principal_amount": principal}).Error
+	})
+	if err != nil {
+		return nil, LoanBalance{}, err
+	}
+	return getCashSource(ctx, id)
+}
+
+func UpdateLoanDetails(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	var req updateLoanDetailsRequest
+	if err := common.BindJSON(c, &req); err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
+	}
+	src, bal, err := updateLoanDetails(ctx, id, req)
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"source": src, "is_loan": true, "balance": bal})
 }

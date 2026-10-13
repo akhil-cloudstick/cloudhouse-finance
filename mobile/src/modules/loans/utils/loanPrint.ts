@@ -14,7 +14,7 @@ import { listPackets } from "@/modules/packets/services/packetService";
 import { API_BASE_URL, apiUrl, API_ORIGIN, ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
-import { BRAND, printBrand, printColors } from "@/common/config/brand";
+import { BRAND, printBrand, printColors, printPolicy } from "@/common/config/brand";
 
 // Same CSS as openPrintWindow (frontend/common/utils/print.ts) — kept
 // byte-for-byte so a printed slip/statement/bond looks the same whichever
@@ -79,6 +79,8 @@ function fmtDate(d?: string | null) {
 // Ported from frontend/modules/loans/pages/LoanDetailPage.tsx's
 // printPledgeSlip.
 export async function printPledgeSlip(l: Loan) {
+  // TML businesses use the backend's TML slip (the endpoint picks the template).
+  if (printPolicy() === "tml") return printServerPdf(`/loans/${l.id}/pledge-slip`, `pledge-slip-${l.loanNumber}.pdf`);
   const topUps = await listTopUps(l.id).catch(() => [] as LoanTopUp[]);
   await printDoc(`Pledge Slip — ${l.loanNumber}`, pledgeSlipBody(l, topUps));
 }
@@ -161,6 +163,8 @@ export async function printLabelAndSlipOnePage(l: Loan) {
 // rate, debtor name/address), plus l.additionalInfo — whatever staff added
 // when the loan was created, just carried through here.
 export async function printStatement(l: Loan) {
+  // TML businesses print the backend's payment receipt for the latest payment.
+  if (printPolicy() === "tml") return printServerPdf(`/loans/${l.id}/statement-receipt`, `receipt-${l.loanNumber}.pdf`);
   const c = l.customer;
   const additionalInfo = l.additionalInfo || "";
   const payments = l.payments ?? [];
@@ -220,9 +224,13 @@ export async function printStatement(l: Loan) {
 // by the backend from its own per-language templates (backend/internal/loan/
 // indemnitybond.go, releaseagreement.go) — same PDFs the web downloads.
 // Languages each endpoint accepts (?lang=); anything else is a 400.
-export type DocLang = "en" | "ml" | "gu";
-export const DOC_LANG_LABELS: Record<DocLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati" };
-export const PLEDGE_AGREEMENT_LANGS: DocLang[] = ["en", "ml", "gu"];
+export type DocLang = "en" | "ml" | "gu" | "ta";
+export const DOC_LANG_LABELS: Record<DocLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati", ta: "Tamil" };
+// The pledge-agreement languages on offer for the signed-in business: TML
+// businesses have English + Tamil, everyone else the existing set.
+export function pledgeAgreementLangs(): DocLang[] {
+  return printPolicy() === "tml" ? ["en", "ta"] : ["en", "ml", "gu"];
+}
 export const RELEASE_AGREEMENT_LANGS: DocLang[] = ["en", "ml"];
 
 // Downloads an authenticated PDF into the cache dir and opens the OS print

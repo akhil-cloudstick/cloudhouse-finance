@@ -186,7 +186,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
   }
   function openRenew() {
     if (!loan) return;
-    openModal(<RenewLoanModalContent loan={loan} onSaved={() => { closeModal(); navigate("personalloans"); }} />);
+    openModal(<RenewLoanModalContent loan={loan} onSaved={() => { closeModal(); navigate("personalloans"); }} />, true);
   }
 
   async function handleDownloadBond() { return singleFlight("personal-loan:download-bond", async () => {

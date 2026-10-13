@@ -39,6 +39,10 @@ export type BackendCashMovement = {
   // loanSource is only present when source is "Loan" — see
   // backend/internal/cash/model.go's LoanCashSource.
   loanSource?: BackendLoanCashSource;
+  remarks?: string;
+  // True for a cash-in / debit / self transfer a person keyed in — the ledger
+  // shows the info icon and Edit on it.
+  editable?: boolean;
 };
 // Mirrors backend/internal/cash/model.go's LoanCashSource — the Loan
 // Details block AddCashModal.tsx captures when Source of Cash is "Loan".
@@ -81,6 +85,16 @@ export type CashMovementView = {
   counterBankName?: string;
   partyCustomerId?: number | null;
   loanSource?: BackendLoanCashSource;
+  remarks?: string;
+  editable?: boolean;
+};
+/* One line of a payment breakdown — how much was paid in which mode (and
+ * through which bank for UPI / Bank Transfer). The lines of a Credit or Debit
+ * entry must add up to its amount; each line becomes its own ledger entry. */
+export type PaymentPartInput = {
+  mode: string;
+  amount: number;
+  bankId?: number;
 };
 export type CashMovementInput = {
   type: "in" | "out";
@@ -95,6 +109,8 @@ export type CashMovementInput = {
   occurredOn?: string; // "YYYY-MM-DD"
   loanSource?: LoanSourceInput;
   receiptImage?: string; // bill — /uploads/... URL, from uploadReceipt()
+  remarks?: string;
+  payments?: PaymentPartInput[];
 };
 // Mirrors backend/internal/cash/repository.go's Category* constants —
 // "" (CategoryAll) applies no filter. Kept as a plain string union rather
@@ -113,6 +129,8 @@ export type CashMovementFilters = {
   branchIds?: string[];
   customerIds?: string[];
   types?: CashMovementCategory[];
+  // Cash / UPI / Bank Transfer — the Ledger filter's Mode section.
+  modes?: string[];
 };
 /* Bank-to-bank self transfer — the backend writes a debit row on the from
  * bank and a credit row on the to bank (see POST /cash-movements/self-transfer).
@@ -130,6 +148,7 @@ export type SelfTransferInput = {
   receiptImage?: string; // bill — /uploads/... URL
   branchId?: number;
   occurredOn: string;
+  remarks?: string;
 };
 /* Expense register. */
 export type BackendExpense = {
@@ -155,6 +174,7 @@ export type BackendExpense = {
   approvedAt?: string;
   receiptImage?: string;
   createdAt: string;
+  editable?: boolean;
 };
 export type ExpenseView = {
   id: number;
@@ -171,6 +191,8 @@ export type ExpenseView = {
   approvalStage?: string;
   remarks?: string;
   img?: string;
+  // A pending or approved expense a person keyed in — the register offers Edit on it.
+  editable?: boolean;
 };
 export type ExpenseFormInput = {
   category: string;
@@ -183,6 +205,65 @@ export type ExpenseFormInput = {
   occurredOn?: string; // "YYYY-MM-DD"
   remarks?: string;
   receiptImage?: string; // /uploads/... URL, from uploadReceipt()
+  payments?: PaymentPartInput[];
+};
+/* The ledger's info popup and Edit for a cash-in, a debit or a self transfer
+ * (GET/PUT /cash-movements/:id/entry — see backend entry.go). */
+export type EntryKind = "cash_in" | "debit" | "self_transfer" | "gold_sale";
+export type EntryLine = {
+  movementId: number;
+  mode: string;
+  amount: number;
+  bankId?: number | null;
+  bankName?: string;
+};
+export type EntryInfo = {
+  kind: EntryKind;
+  // True when opened from the Expense Register — saving then goes through PUT /expenses/:id.
+  viaExpense?: boolean;
+  editable: boolean;
+  movementId: number;
+  category: string;
+  amount: number;
+  occurredOn: string;
+  recordedAt: string;
+  remarks: string;
+  branchId?: number | null;
+  branchName: string;
+  receiptImage?: string;
+  lines: EntryLine[];
+  fromBankId?: number | null;
+  fromBank?: string;
+  toBankId?: number | null;
+  toBank?: string;
+  status?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  // A gold sale's ornament and what it cost.
+  ornamentType?: string;
+  costAmount?: number;
+  // A draw on a bank loan: the loan's number, its bank and its principal.
+  loanNumber?: string;
+  bankName?: string;
+  principalAmount?: number;
+};
+export type EntryUpdateInput = {
+  // A gold sale edit.
+  ornamentType?: string;
+  costAmount?: number;
+  bankId?: number;
+  category?: string;
+  amount: number;
+  occurredOn?: string;
+  remarks?: string;
+  receiptImage?: string;
+  branchId?: number;
+  payments?: PaymentPartInput[];
+  fromBankId?: number;
+  fromBank?: string;
+  toBankId?: number;
+  toBank?: string;
+  mode?: string;
 };
 /* Expected Cash in Hand summary — Opening + Collections - Disbursements - Cash Expenses.
  * Opening is carried forward: the previous day's closing Balance in Hand
@@ -278,7 +359,7 @@ export type PartyTotals = {
 };
 // loanNumbers is the customer drilldown's Loan filter, now multi-select —
 // loanNumber (singular) is kept for any caller still passing exactly one.
-export type PartyDateRange = { fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
+export type PartyDateRange = { focusDate?: string; focusAmount?: number; fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
 /* Combined ledger row shape returned by the customer/bank drill-down
  * endpoints (backend/internal/cash/ledger.go's LedgerRow) — a UNION of
  * CashMovement/LoanPayment/PersonalLoanPayment/GoldSale rows, not just plain
@@ -301,6 +382,10 @@ export type LedgerRowView = {
   customerName?: string;
   receiptImage?: string; // bill attached to the entry behind this row
   memo?: boolean; // records how money was applied (an auction applied to a loan), not money moving
+  // The cash movement behind a cash-in / debit / self-transfer row — the info
+  // popup and Edit open it. Absent on every other row.
+  entryId?: number;
+  editable?: boolean;
 };
 export type BackendLedgerRow = {
   id: number;
@@ -318,5 +403,7 @@ export type BackendLedgerRow = {
   customerName?: string;
   receiptImage?: string;
   memo?: boolean;
+  entryId?: number;
+  editable?: boolean;
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];

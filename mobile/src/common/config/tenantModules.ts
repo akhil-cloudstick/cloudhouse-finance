@@ -15,6 +15,7 @@ export const TENANT_MODULES = {
   settings: "settings",
   branches: "branches",
   demoReset: "demo_reset",
+  whatsapp: "whatsapp",
 } as const;
 
 export type TenantModule = (typeof TENANT_MODULES)[keyof typeof TENANT_MODULES];

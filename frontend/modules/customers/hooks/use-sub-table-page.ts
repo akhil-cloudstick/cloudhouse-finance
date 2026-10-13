@@ -47,5 +47,5 @@ export function useSubTablePage<T>(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setPage(1), [from, to]);
 
-  return { items, loading, page, setPage, hasMore, total };
+  return { items, loading, page, setPage, hasMore, total, refresh };
 }

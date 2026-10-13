@@ -13,7 +13,7 @@ type FooterTotalsProps = { items: { label?: string; value: number; color?: strin
 export function FooterTotals({ items, aligned }: FooterTotalsProps) {
   if (aligned) {
     // .ft has 18px of right padding; the table runs to the card edge.
-    const slot = { width: 140, boxSizing: "border-box" as const, padding: "0 14px", textAlign: "right" as const, whiteSpace: "nowrap" as const };
+    const slot = { width: "var(--ledger-amt-w, 140px)", boxSizing: "border-box" as const, padding: "0 14px", textAlign: "right" as const, whiteSpace: "nowrap" as const };
     return (
       <div style={{ marginLeft: "auto", marginRight: -18, display: "flex", alignItems: "center", fontSize: 12.5 }}>
         {items.slice(0, 2).map((t) => (
@@ -21,7 +21,7 @@ export function FooterTotals({ items, aligned }: FooterTotalsProps) {
             <b style={{ color: t.color || "var(--ink, inherit)", fontSize: 13.5 }}>{fmt(t.value)}</b>
           </span>
         ))}
-        <span style={slot} />
+        <span style={{ ...slot, width: "var(--ledger-bal-w, 140px)" }} />
       </div>
     );
   }

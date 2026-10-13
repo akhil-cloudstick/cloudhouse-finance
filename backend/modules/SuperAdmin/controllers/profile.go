@@ -31,6 +31,7 @@ const maxSignatureBytes = 1 << 20
 var policyLabels = map[string]string{
 	commonModels.PolicyKML: "KML — Kerala Money Lenders",
 	commonModels.PolicyGML: "GML — Gujarat Money Lenders",
+	commonModels.PolicyTML: "TML — Tamil Nadu Money Lenders",
 }
 
 var (

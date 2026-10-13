@@ -190,7 +190,7 @@ func forgotPassword(ctx context.Context, businessCode, username, phone string) e
 	}
 	message := fmt.Sprintf("Your %s password reset code is %s. It expires in 10 minutes. Do not share this code with anyone.", businessName(ctx), otp)
 	sendErr := config.WhatsApp.
-		Send(emp.Phone, message)
+		Send(ctx, emp.Phone, message)
 	{
 		logRec := &commonModels.CommunicationLog{
 			RecipientName:     emp.Name,

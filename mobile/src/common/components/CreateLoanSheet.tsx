@@ -34,6 +34,7 @@ import { latestGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { formatPurity, isFinenessInRange, isKaratInRange, rateForPurityString, type PurityUnit } from "@/common/utils/purity";
 import { inr, todayISO } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
+import { printPolicy } from "@/common/config/brand";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import type { Locker } from "@/modules/lockers/types/locker-types";
@@ -108,6 +109,10 @@ export function CreateLoanSheet({ visible, onClose }: CreateLoanSheetProps) {
   const [rows, setRows] = useState<OrnRow[]>([{ ...emptyRow }]);
   const [principal, setPrincipal] = useState("");
   const [info, setInfo] = useState("");
+  // One photo of the whole pledge — optional, but TML businesses must attach it
+  // (it prints on their pledge book).
+  const [overallPhoto, setOverallPhoto] = useState("");
+  const overallPhotoRequired = printPolicy() === "tml";
   // Loan (opened) date — same rule as the web NewLoan form: defaults to
   // today, may be backdated but never set in the future (the DateField's max
   // blocks it; the backend re-checks). Interest accrues from this date and
@@ -138,7 +143,7 @@ export function CreateLoanSheet({ visible, onClose }: CreateLoanSheetProps) {
   const goldValue = valid.reduce((sum, r) => sum + valueOf(r), 0);
   const eligible = scheme ? Math.round((goldValue * scheme.ltvPercent) / 100) : 0;
   const overEligible = !!scheme && valid.length > 0 && Number(principal) > eligible;
-  const canSubmit = canCreate && !!openedDate && openedDate <= today && !!branch && !!customer && !!scheme && Number(principal) > 0 && valid.length > 0 && isTodaySet && !lessExceeds;
+  const canSubmit = canCreate && !!openedDate && openedDate <= today && !!branch && !!customer && !!scheme && Number(principal) > 0 && valid.length > 0 && isTodaySet && !lessExceeds && (!overallPhotoRequired || !!overallPhoto);
 
   const reset = () => {
     setCustomer(null);
@@ -148,6 +153,7 @@ export function CreateLoanSheet({ visible, onClose }: CreateLoanSheetProps) {
     setRows([{ ...emptyRow }]);
     setPrincipal("");
     setInfo("");
+    setOverallPhoto("");
     setOpenedDate(todayISO());
     setError(null);
   };
@@ -173,6 +179,7 @@ export function CreateLoanSheet({ visible, onClose }: CreateLoanSheetProps) {
         dueDate: `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`,
         principalAmount: Number(principal),
         ornaments,
+        ...(overallPhoto ? { overallPhotoUrl: overallPhoto } : {}),
         ...(info.trim() ? { additionalInfo: info.trim() } : {}),
       });
     },
@@ -298,6 +305,8 @@ export function CreateLoanSheet({ visible, onClose }: CreateLoanSheetProps) {
       })}
 
       <DashedButton label="Add Ornament" onPress={() => setRows((p) => [...p, { ...emptyRow }])} />
+
+      <UploadField label={overallPhotoRequired ? "Overall photo *" : "Overall photo (optional)"} value={overallPhoto} onChange={setOverallPhoto} allowPdf={false} />
 
       <Card style={{ marginHorizontal: 0, marginBottom: 14, padding: 14 }}>
         <FieldGrid

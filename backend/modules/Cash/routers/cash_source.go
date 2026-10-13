@@ -14,6 +14,7 @@ func CashSourceRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(cashSourcePath, cash.ListCashSources, auth.Staff(perms.Read)...)
 	e.POST(cashSourcePath, cash.CreateCashSource, auth.Staff(perms.Create)...)
 	e.GET(cashSourcePath+"/:id", cash.GetCashSourceById, auth.Staff(perms.Read)...)
-	e.GET(cashSourcePath+"/:id/ledger", cash.GetCashSourceLedger, auth.Staff(perms.Read, perms.ExportQuery)...)
+	e.PATCH(cashSourcePath+"/:id/loan", cash.UpdateLoanDetails, auth.Staff(perms.Update)...)
+	e.GET(cashSourcePath+"/:id/ledger", cash.GetCashSourceLedger, auth.Staff(perms.Read, perms.ExportQuery, cash.LedgerFocus())...)
 	return e
 }

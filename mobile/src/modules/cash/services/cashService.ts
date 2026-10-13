@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest } from "@/common/services/httpClient";
-import { CashMovement, Expense, CashSummary, GoldSale, type LoanSourceInput, type CategoryType, type CashSource, type ExpenseCategory, type Category, type LedgerKind, type LedgerParams, type LedgerPage, type LoanBalance, type BranchLedgerPage } from "@/modules/cash/types/cash-types";
+import { CashMovement, Expense, CashSummary, GoldSale, type PaymentPart, type EntryInfo, type EntryUpdateInput, type LoanSourceInput, type CategoryType, type CashSource, type ExpenseCategory, type Category, type LedgerKind, type LedgerParams, type LedgerPage, type LoanBalance, type BranchLedgerPage } from "@/modules/cash/types/cash-types";
 
 // Cash movements — branch-scoped, no query params today.
 export function listCashMovements() {
@@ -53,8 +53,35 @@ export function createCashMovement(input: {
   loanSource?: LoanSourceInput;
   // Bill — an "/uploads/..." URL from the upload endpoint.
   receiptImage?: string;
+  remarks?: string;
+  // The payment breakdown — one ledger entry per line; must add up to amount.
+  payments?: PaymentPart[];
 }) {
   return apiRequest<CashMovement>("/cash-movements", { method: "POST", body: input });
+}
+
+// The info sheet's data for a cash-in, debit or self-transfer ledger row — `id`
+// is the row's cash movement (CashMovement.id / LedgerRow.entryId).
+export function getMovementEntry(id: number) {
+  return apiRequest<EntryInfo>(`/cash-movements/${id}/entry`);
+}
+
+// The Expenses list's Edit form data for a pending or approved expense — `id` is the expense id.
+export function getExpenseEntry(id: number) {
+  return apiRequest<EntryInfo>(`/expenses/${id}/entry`);
+}
+
+// Saves an edit made in an entry form: from the Expenses list it goes to PUT /expenses/:id, from a
+// ledger row to PUT /cash-movements/:id.
+export function saveEntryEdit(info: EntryInfo, input: EntryUpdateInput) {
+  return apiRequest<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}` : `/cash-movements/${info.movementId}`, { method: "PUT", body: input });
+}
+
+// Edits a cash-in, debit or self transfer from the ledger: the whole entry
+// (every payment line, or both legs of a transfer) is replaced by the edited
+// version. Needs no permission of its own.
+export function updateMovementEntry(id: number, input: EntryUpdateInput) {
+  return apiRequest<{ id: number }>(`/cash-movements/${id}`, { method: "PUT", body: input });
 }
 
 // Bank-to-bank self transfer — the backend writes a debit row on the from
@@ -72,6 +99,7 @@ export function createSelfTransfer(input: {
   receiptImage?: string;
   branchId?: number;
   occurredOn: string;
+  remarks?: string;
 }) {
   return apiRequest<CashMovement[]>("/cash-movements/self-transfer", { method: "POST", body: input });
 }
@@ -177,6 +205,8 @@ export function createExpense(input: {
   fromBankId?: number;
   remarks?: string;
   receiptImage?: string;
+  // The payment breakdown — each line is saved as its own expense.
+  payments?: PaymentPart[];
 }) {
   return apiRequest<Expense>("/expenses", { method: "POST", body: input });
 }

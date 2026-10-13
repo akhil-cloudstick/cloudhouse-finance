@@ -75,7 +75,7 @@ export function ApprovalWorkflowSettings() {
             .map((r) => ({ roleId: r.id, name: r.name, active: true })),
         );
       })
-      .catch((e) => alive && setLoadErr(e instanceof ApiError ? e.message : "Could not load the approval workflow."));
+      .catch((e) => alive && setLoadErr(e instanceof ApiError ? e.message : "Could not load the approval workflow. Please refresh the page and try again."));
     return () => { alive = false; };
   }, []);
 
@@ -134,7 +134,7 @@ export function ApprovalWorkflowSettings() {
       savedTimer.current = setTimeout(() => setJustSaved(false), 2500);
       await refresh();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+      setErr(e instanceof ApiError ? e.message : "Could not save your changes. Please try again.");
     } finally {
       setSaving(false);
     }

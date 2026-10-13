@@ -50,7 +50,10 @@ type CashMovement struct {
 	ReceiptImage       string                 `json:"receipt_image,omitempty" gorm:"type:text"`
 	SourceType         string                 `json:"source_type,omitempty" gorm:"size:40;index:idx_cash_movements_source,priority:1"`
 	SourceID           *uint                  `json:"source_id,omitempty" gorm:"index:idx_cash_movements_source,priority:2"`
-	CreatedAt          time.Time              `json:"created_at"`
+	Remarks            string                 `json:"remarks" gorm:"size:500"`
+	// IsManual marks a line a person keyed in (cash-in, debit, self transfer): the ledger offers Edit on it.
+	IsManual  bool      `json:"editable" gorm:"not null;default:false"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Expense struct {
@@ -74,7 +77,18 @@ type Expense struct {
 	ApprovedAt     *time.Time          `json:"approved_at,omitempty"`
 	ReceiptImage   string              `json:"receipt_image,omitempty" gorm:"type:text"`
 	CashMovementID *uint               `json:"cash_movement_id,omitempty"`
-	CreatedAt      time.Time           `json:"created_at"`
+	// GroupID ties the debit lines of one payment breakdown together (empty for a single-mode expense).
+	GroupID   string    `json:"group_id,omitempty" gorm:"size:40;index"`
+	CreatedAt time.Time `json:"created_at"`
+	// Editable is true for an expense the Expense Register may edit: a pending or approved one a person keyed in
+	// (not the ones the system books for an auction or a bank pledge release).
+	Editable bool `json:"editable" gorm:"-"`
+}
+
+func (e *Expense) AfterFind(_ *gorm.DB) error {
+	system := e.ApprovedBy != nil && *e.ApprovedBy == "System"
+	e.Editable = e.Status != "Rejected" && !system && e.Category != "Bank Pledge Release" && e.Category != "Auction"
+	return nil
 }
 
 type OpeningCashBalance struct {

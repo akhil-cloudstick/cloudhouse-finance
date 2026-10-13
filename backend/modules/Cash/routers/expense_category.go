@@ -18,7 +18,7 @@ func ExpenseCategoryRoutes(e *echo.Echo) *echo.Echo {
 
 func ExpenseCategoryLedgerRoutes(e *echo.Echo) *echo.Echo {
 	perms := auth.CRUDPermissions("cash")
-	e.GET(expenseCategoryPath+"/:id/ledger", cash.GetExpenseCategoryLedger, auth.Staff(perms.Read, perms.ExportQuery)...)
-	e.GET("/api/v1/users/:user_id/banks/:id/ledger", cash.GetBankLedger, auth.Staff(perms.Read, perms.ExportQuery)...)
+	e.GET(expenseCategoryPath+"/:id/ledger", cash.GetExpenseCategoryLedger, auth.Staff(perms.Read, perms.ExportQuery, cash.LedgerFocus())...)
+	e.GET("/api/v1/users/:user_id/banks/:id/ledger", cash.GetBankLedger, auth.Staff(perms.Read, perms.ExportQuery, cash.LedgerFocus())...)
 	return e
 }

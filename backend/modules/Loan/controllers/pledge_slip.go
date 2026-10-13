@@ -7,12 +7,10 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"html/template"
 	"math"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -21,8 +19,6 @@ import (
 )
 
 var pledgeSlipTemplate = mustLoadTemplate("pledge_slip", "pledge_slip.html", template.FuncMap{"inc": func(i int) int { return i + 1 }})
-
-const maxSlipPhotoBytes = 3 << 20
 
 var slipHexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
@@ -97,17 +93,7 @@ func slipPhoto(tenantID uint, images []models.OrnamentImage) template.URL {
 		"" || len(images) == 0 {
 		return ""
 	}
-	key := strings.TrimPrefix(images[0].ImageURL, "/uploads/")
-	b, err := os.ReadFile(common.ResolvePath(config.Env.UploadsDir,
-		tenantID, key))
-	if err != nil || len(b) == 0 || len(b) > maxSlipPhotoBytes {
-		return ""
-	}
-	ct := http.DetectContentType(b)
-	if !strings.HasPrefix(ct, "image/") {
-		return ""
-	}
-	return template.URL("data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(b)) //nolint:gosec // sniffed image MIME + base64 only
+	return uploadDataURL(tenantID, images[0].ImageURL)
 }
 
 func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData {
@@ -173,7 +159,12 @@ func renderPledgeSlip(ctx context.Context, loanID uint, branchID *uint, format s
 	if branchID != nil && l.BranchID != *branchID {
 		return nil, "", "", common.NewNotFound("loan not found")
 	}
-	htmlStr, err := renderPledgeSlipHTML(pledgeSlipData(ctx, l))
+	var htmlStr string
+	if t := tenantForContext(ctx); t != nil && commonModels.PolicyOrDefault(t.Policy) == commonModels.PolicyTML {
+		htmlStr, err = renderTMLSlipHTML(tmlSlipData(ctx, l))
+	} else {
+		htmlStr, err = renderPledgeSlipHTML(pledgeSlipData(ctx, l))
+	}
 	if err != nil {
 		return nil, "", "", err
 	}

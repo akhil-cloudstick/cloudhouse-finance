@@ -38,6 +38,10 @@ type LedgerRow struct {
 	CustomerID     uint      `json:"customer_id"`
 	CustomerName   string    `json:"customer_name"`
 	ReceiptImage   string    `json:"receipt_image,omitempty"`
+	// EntryID is the cash movement behind a cash-in, debit or self-transfer row; the info popup and Edit open
+	// it. Editable is false (and EntryID 0) for every other row.
+	EntryID  uint `json:"entry_id,omitempty"`
+	Editable bool `json:"editable,omitempty"`
 	// Memo marks a row that records how money was applied rather than money moving (an auction's proceeds
 	// applied to the loan): shown, but left out of the running balance and the totals.
 	Memo bool `json:"memo,omitempty"`
@@ -68,6 +72,8 @@ type splitParts struct {
 type LedgerTotals struct {
 	TotalDebit  float64 `json:"total_debit"`
 	TotalCredit float64 `json:"total_credit"`
+	// FocusPage is the page (1-based) holding the transaction the ledger was asked to focus; 0 when none was.
+	FocusPage int `json:"-"`
 }
 
 func (s splitParts) components() []splitComponent {
@@ -179,11 +185,6 @@ func combinedLedgerByBank(ctx context.Context, bankID uint, fromDate, toDate tim
 		return nil, err
 	}
 	rows = append(rows, drawRows...)
-	repayRows, err := scanLoanRepaymentsForLenderBank(db, bankID, fromDate, toDate)
-	if err != nil {
-		return nil, err
-	}
-	rows = append(rows, repayRows...)
 	return rows, nil
 }
 
@@ -585,6 +586,25 @@ func scanPersonalLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg ui
 	}
 	out := make([]ledgerSourceRow, 0, len(raw))
 	for _, p := range raw {
+		if p.Method == "Renewal Rollover" {
+			// the old loan closing into its renewal moves no money: shown so the closure is visible, but
+			// left out of the running balance and totals
+			out = append(out, ledgerSourceRow{
+				Kind:           "personal_loan_payment",
+				Memo:           true,
+				ID:             p.ID,
+				Date:           p.PaidOn,
+				Description:    personalLoanDescription(p.Description, p.LoanNumber),
+				Type:           "Renewal",
+				Method:         p.Method,
+				Reference:      personalLoanRef(p.LoanNumber, p.Reference),
+				Amount:         p.Amount,
+				RunningBalance: p.RunningBalance,
+				CustomerID:     p.CustomerID,
+				CustomerName:   p.CustomerName,
+			})
+			continue
+		}
 		if ledgerNonCashPaymentTypes[p.Method] {
 			continue
 		}
@@ -728,6 +748,13 @@ func paginateLedgerRows(ctx context.Context, rows []ledgerSourceRow, limit, offs
 	if offset < 0 {
 		offset = 0
 	}
+	// Opened from another ledger on a transaction: answer with the page that holds it.
+	if f, ok := ctx.Value(ledgerFocusKey{}).(ledgerFocus); ok && limit > 0 {
+		if i := focusRowIndex(rows, f); i >= 0 {
+			offset = (i / limit) * limit
+			totals.FocusPage = i/limit + 1
+		}
+	}
 	if offset > len(rows) {
 		offset = len(rows)
 	}
@@ -758,7 +785,83 @@ func paginateLedgerRows(ctx context.Context, rows []ledgerSourceRow, limit, offs
 	if err := attachReceipts(ctx, page, out); err != nil {
 		return nil, 0, LedgerTotals{}, err
 	}
+	if err := attachEntryMeta(ctx, page, out); err != nil {
+		return nil, 0, LedgerTotals{}, err
+	}
 	return out, total, totals, nil
+}
+
+// attachEntryMeta marks the rows that are a cash-in, a debit or a self transfer keyed in by a person: it sets
+// their EntryID (the cash movement, which for an expense row is the movement its approval wrote) and
+// Editable, so the ledger can show the info icon and Edit on them.
+func attachEntryMeta(ctx context.Context, src []ledgerSourceRow, out []LedgerRow) error {
+	var movementIDs, expenseIDs, goldIDs []uint
+	for _, row := range src {
+		switch row.Kind {
+		case "cash_movement":
+			movementIDs = append(movementIDs, row.ID)
+		case "expense":
+			expenseIDs = append(expenseIDs, row.ID)
+		case "gold_sale":
+			goldIDs = append(goldIDs, row.ID)
+		}
+	}
+	viaGold := map[uint]uint{}
+	if len(goldIDs) > 0 {
+		var recs []struct {
+			ID             uint
+			CashMovementID uint
+		}
+		if err := config.DB.WithContext(ctx).Table("gold_sales").Select("id, cash_movement_id").
+			Where("id IN ? AND cash_movement_id IS NOT NULL", goldIDs).Scan(&recs).Error; err != nil {
+			return err
+		}
+		for _, r := range recs {
+			viaGold[r.ID] = r.CashMovementID
+			movementIDs = append(movementIDs, r.CashMovementID)
+		}
+	}
+	viaExpense := map[uint]uint{}
+	if len(expenseIDs) > 0 {
+		var recs []struct {
+			ID             uint
+			CashMovementID uint
+		}
+		if err := config.DB.WithContext(ctx).Table("expenses").Select("id, cash_movement_id").
+			Where("id IN ? AND cash_movement_id IS NOT NULL", expenseIDs).Scan(&recs).Error; err != nil {
+			return err
+		}
+		for _, r := range recs {
+			viaExpense[r.ID] = r.CashMovementID
+			movementIDs = append(movementIDs, r.CashMovementID)
+		}
+	}
+	if len(movementIDs) == 0 {
+		return nil
+	}
+	var manual []uint
+	if err := config.DB.WithContext(ctx).Table("cash_movements").
+		Where("id IN ? AND is_manual = ?", movementIDs, true).Pluck("id", &manual).Error; err != nil {
+		return err
+	}
+	editable := make(map[uint]bool, len(manual))
+	for _, id := range manual {
+		editable[id] = true
+	}
+	for i, row := range src {
+		id := row.ID
+		if row.Kind == "expense" {
+			id = viaExpense[row.ID]
+		} else if row.Kind == "gold_sale" {
+			id = viaGold[row.ID]
+		} else if row.Kind != "cash_movement" {
+			continue
+		}
+		if editable[id] {
+			out[i].EntryID, out[i].Editable = id, true
+		}
+	}
+	return nil
 }
 
 func attachReceipts(ctx context.Context, src []ledgerSourceRow, out []LedgerRow) error {
@@ -1178,10 +1281,11 @@ func listLoanSourceLedger(ctx context.Context, src *models.CashSource, fromDate,
 	all := make([]LedgerRow, 0, len(rows))
 	balance := 0.0
 	for _, r := range rows {
+		// What is still owed to the lender: a draw (debit) raises it, a repayment (credit) lowers it.
 		if r.DebitOrCredit == "debit" {
-			balance -= r.Amount
-		} else {
 			balance += r.Amount
+		} else {
+			balance -= r.Amount
 		}
 		r.RunningBalance = balance
 		all = append(all, r)
@@ -1268,6 +1372,8 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 	type keyed struct {
 		row     LedgerRow
 		created time.Time
+		kind    string // the ledgerSourceRow kind of the record behind the row, for attachEntryMeta
+		id      uint
 	}
 	merged := make([]keyed, 0, len(draws)+len(repays))
 	for _, d := range draws {
@@ -1275,9 +1381,9 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 		if d.ToBank != "" && d.ToBank != lendingBank && d.Mode != models.CashModeCash {
 			desc += " → " + d.ToBank
 		}
-		merged = append(merged, keyed{created: d.CreatedAt, row: LedgerRow{
+		merged = append(merged, keyed{created: d.CreatedAt, kind: "cash_movement", id: d.ID, row: LedgerRow{
 			ID: d.ID, Date: d.OccurredOn, Description: desc, Type: src.Name, Method: d.Mode,
-			Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: d.Amount,
+			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: d.Amount,
 			BankID: src.BankID, BankName: lendingBank, ReceiptImage: d.Receipt,
 		}})
 	}
@@ -1289,9 +1395,9 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 		if e.Remarks != "" {
 			desc += " — " + e.Remarks
 		}
-		merged = append(merged, keyed{created: e.CreatedAt, row: LedgerRow{
+		merged = append(merged, keyed{created: e.CreatedAt, kind: "expense", id: e.ID, row: LedgerRow{
 			ID: e.ID, Date: e.OccurredOn, Description: desc, Type: src.Name, Method: e.Mode,
-			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: e.Amount,
+			Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: e.Amount,
 			BankID: e.FromBankID, BankName: e.FromBank, ReceiptImage: e.Receipt,
 		}})
 	}
@@ -1316,9 +1422,9 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 		return nil, err
 	}
 	for _, t := range transfers {
-		merged = append(merged, keyed{created: t.CreatedAt, row: LedgerRow{
+		merged = append(merged, keyed{created: t.CreatedAt, kind: "cash_movement", id: t.ID, row: LedgerRow{
 			ID: t.ID, Date: t.OccurredOn, Description: "Repayment — self transfer", Type: src.Name, Method: t.Mode,
-			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: t.Amount,
+			Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: t.Amount,
 			BankID: t.BankID, BankName: t.FromBank, ReceiptImage: t.Receipt,
 		}})
 	}
@@ -1329,8 +1435,13 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 		return merged[i].created.Before(merged[j].created)
 	})
 	out := make([]LedgerRow, len(merged))
+	meta := make([]ledgerSourceRow, len(merged))
 	for i := range merged {
 		out[i] = merged[i].row
+		meta[i] = ledgerSourceRow{Kind: merged[i].kind, ID: merged[i].id}
+	}
+	if err := attachEntryMeta(ctx, meta, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -1540,64 +1651,6 @@ func cashOutLabel(purpose string) string {
 		return "Bank Pledge"
 	}
 	return "Expense"
-}
-
-// scanLoanRepaymentsForLenderBank lists the repayments made to a lender's loan by transfer from one of our
-// banks, so the lender's ledger shows what was drawn and what was paid back. A transfer made before the
-// credit leg was dropped already shows through that leg, so only transfers without one are listed here.
-func scanLoanRepaymentsForLenderBank(db *gorm.DB, bankID uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
-	type src struct {
-		Name         string
-		LoanNumber   string
-		LoanOpenedAt *time.Time
-		CreatedAt    time.Time
-		BankName     string
-	}
-	var srcs []src
-	if err := db.Table("categories c").
-		Select("c.name, c.loan_number, c.loan_opened_at, c.created_at, b.name AS bank_name").
-		Joins("LEFT JOIN banks b ON b.id = c.bank_id").
-		Where("c.bank_id = ? AND c.loan_number <> ?", bankID, "").
-		Scan(&srcs).Error; err != nil {
-		return nil, err
-	}
-	var out []ledgerSourceRow
-	for _, s := range srcs {
-		since := s.CreatedAt
-		if s.LoanOpenedAt != nil {
-			since = *s.LoanOpenedAt
-		}
-		type repay struct {
-			ID         uint
-			OccurredOn time.Time
-			Mode       string
-			Amount     float64
-		}
-		q := db.Table("cash_movements m").
-			Select("m.id, m.occurred_on, m.mode, m.amount").
-			Where("m.type = ? AND m.source = ? AND LOWER(m.purpose) = LOWER(?) AND m.created_at >= ?",
-				"out", SelfTransferSource, "Self transfer — "+s.Name, since).
-			Where("NOT EXISTS (SELECT 1 FROM cash_movements c2 WHERE c2.transaction_group_id = m.transaction_group_id AND c2.type = 'in')")
-		if !fromDate.IsZero() {
-			q = q.Where("m.occurred_on >= ?", fromDate)
-		}
-		if !toDate.IsZero() {
-			q = q.Where("m.occurred_on < ?", toDate.AddDate(0, 0, 1))
-		}
-		var rows []repay
-		if err := q.Scan(&rows).Error; err != nil {
-			return nil, err
-		}
-		for _, r := range rows {
-			id := bankID
-			out = append(out, ledgerSourceRow{
-				Kind: "loan_repayment", ID: r.ID, Date: r.OccurredOn, Description: "Loan repaid — " + s.Name, Type: s.Name,
-				Method: r.Mode, Reference: s.LoanNumber, Amount: r.Amount, IsOut: false,
-				BankID: &id, BankName: s.BankName,
-			})
-		}
-	}
-	return out, nil
 }
 
 // legacyAuctionSplit gives an auction payment that was saved before it kept its modes the modes the sale was

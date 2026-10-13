@@ -8,7 +8,7 @@
  * was already dead code by the time of this cleanup — nothing called it —
  * and has been removed along with its now-unused IndemnityBondParty/
  * IndemnityBondOrnament types. */
-export type BondLang = "en" | "ml" | "gu";
+export type BondLang = "en" | "ml" | "gu" | "ta";
 
 /* Shared label set — the same options wherever a bond-language picker
  * appears (NewLoan.tsx's print toggle, LoanDetail.tsx's eSign modal).
@@ -20,6 +20,7 @@ export const BOND_LANG_OPTIONS: { value: BondLang; label: string; native: string
   { value: "en", label: "English", native: "Indemnity Bond" },
   { value: "ml", label: "Malayalam", native: "ആഭരണ പണയ കരാർ" },
   { value: "gu", label: "Gujarati", native: "ગીરો કરાર" },
+  { value: "ta", label: "Tamil", native: "அடகு ஒப்பந்தம்" },
 ];
 
 /* bondLangOptionsFor narrows the catalogue to what this business has been

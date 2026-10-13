@@ -252,7 +252,7 @@ func notifyCustomer(ctx context.Context, customerID uint, phone, title, message,
 				}
 			}()
 			sendErr := config.WhatsApp.
-				Send(phone, message)
+				Send(ctx, phone, message)
 			if sendErr != nil {
 				log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
 			}
@@ -299,6 +299,11 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	}
 	if in.PrincipalAmount <= 0 {
 		return nil, common.NewBadRequest("principal amount must be greater than zero")
+	}
+	if strings.TrimSpace(in.OverallPhotoURL) == "" {
+		if t := tenantForContext(ctx); t != nil && commonModels.PolicyOrDefault(t.Policy) == commonModels.PolicyTML {
+			return nil, common.NewBadRequest("overall photo is required")
+		}
 	}
 	if !in.DueDate.After(in.OpenedDate) {
 		return nil, common.NewBadRequest("due date must be after the opened date")
@@ -905,6 +910,7 @@ func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 	for _, o := range l.Ornaments {
 		ornaments = append(ornaments, BondOrnament{
 			Name:        o.Name,
+			Quantity:    o.Quantity,
 			Purity:      o.Purity,
 			GrossWeight: o.GrossWeight,
 			NetWeight:   o.NetWeight,
@@ -922,7 +928,13 @@ func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 	}
 	legalName, addressLine, kmlRegNo, policy := lenderProfile(ctx)
 	lenderAge, lenderPAN, lenderAadhaar := lenderIdentity(ctx)
+	phones, customerPhoto, overallPhoto, logo := tmlBondExtras(ctx, l, policy)
 	return BondData{
+		OpenedDate:      l.OpenedDate,
+		Phones:          phones,
+		CustomerPhoto:   customerPhoto,
+		OverallPhoto:    overallPhoto,
+		Logo:            logo,
 		LoanNumber:      l.LoanNumber,
 		CustomerName:    l.Customer.Name,
 		Age:             age,

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-var KnownLanguages = []string{commonModels.LangEnglish, "ml", "gu"}
+var KnownLanguages = []string{commonModels.LangEnglish, "ml", "gu", "ta"}
 
 func ValidateModules(keys []string) []string { return unknownOf(keys, commonModels.KnownModules) }
 

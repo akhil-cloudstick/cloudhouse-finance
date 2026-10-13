@@ -30,21 +30,28 @@ type RecordMovementInput struct {
 	ReceiptImage string
 	BranchID     *uint
 	OccurredOn   time.Time
+	Remarks      string
+	// GroupID ties the payment parts of one entry together.
+	GroupID string
+	// Manual marks a line a person keyed in, so the ledger offers Edit on it.
+	Manual bool
 }
 
 type movementRequest struct {
-	Type         string             `json:"type" binding:"required"`
-	Source       string             `json:"source"`
-	Purpose      string             `json:"purpose"`
-	Mode         string             `json:"mode"`
-	Bank         string             `json:"bank"`
-	BankID       *uint              `json:"bank_id"`
-	ToBankID     *uint              `json:"to_bank_id"`
-	Amount       float64            `json:"amount" binding:"required"`
-	ReceiptImage string             `json:"receipt_image"`
-	BranchID     *uint              `json:"branch_id"`
-	OccurredOn   string             `json:"occurred_on"`
-	LoanSource   *loanSourceRequest `json:"loan_source"`
+	Type         string               `json:"type" binding:"required"`
+	Source       string               `json:"source"`
+	Purpose      string               `json:"purpose"`
+	Mode         string               `json:"mode"`
+	Bank         string               `json:"bank"`
+	BankID       *uint                `json:"bank_id"`
+	ToBankID     *uint                `json:"to_bank_id"`
+	Amount       float64              `json:"amount" binding:"required"`
+	ReceiptImage string               `json:"receipt_image"`
+	BranchID     *uint                `json:"branch_id"`
+	OccurredOn   string               `json:"occurred_on"`
+	LoanSource   *loanSourceRequest   `json:"loan_source"`
+	Remarks      string               `json:"remarks"`
+	Payments     []paymentPartRequest `json:"payments"`
 }
 
 type movementResponse struct {
@@ -56,6 +63,8 @@ type MovementFilter struct {
 	BranchIDs   []uint
 	CustomerIDs []uint
 	Categories  []string
+	// Modes narrows the ledger to lines paid in Cash, UPI or Bank Transfer.
+	Modes []string
 }
 
 func listCashMovementsByBank(ctx context.Context, bankID uint, fromDate, toDate time.Time, limit, offset int) ([]models.CashMovement, int64, PartyTotals, error) {
@@ -133,11 +142,23 @@ func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amou
 	return firstID, groupID, nil
 }
 
+// validModes keeps only the payment modes the application has.
+func validModes(in []string) []string {
+	var out []string
+	for _, m := range in {
+		if modeVocabulary[m] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func movementQueryFilter(c echo.Context) MovementFilter {
 	return MovementFilter{
 		BranchIDs:   parseUintCSV(c.QueryParam("branch_ids")),
 		CustomerIDs: parseUintCSV(c.QueryParam("customer_ids")),
 		Categories:  parseStringCSV(c.QueryParam("types")),
+		Modes:       validModes(parseStringCSV(c.QueryParam("modes"))),
 	}
 }
 
@@ -152,6 +173,9 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 	}
 	if len(filter.CustomerIDs) > 0 {
 		q = q.Where("party_customer_id IN ?", filter.CustomerIDs)
+	}
+	if len(filter.Modes) > 0 {
+		q = q.Where("mode IN ?", filter.Modes)
 	}
 	if !fromDate.IsZero() {
 		q = q.Where("occurred_on >= ?", fromDate)
@@ -267,6 +291,9 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		ToBankID:     in.ToBankID,
 		BranchID:     in.BranchID,
 		ReceiptImage: in.ReceiptImage,
+		Remarks:      strings.TrimSpace(in.Remarks),
+
+		TransactionGroupID: in.GroupID,
 	}
 	if in.OccurredOn.IsZero() {
 		rec.OccurredOn = time.Now()
@@ -294,6 +321,7 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		return nil, err
 	}
 	isLoan := in.Type == "in" && IsLoanSource(in.Source)
+	rec.IsManual = in.Manual
 	var src *models.CashSource
 	newLoan := false
 	if isLoan {
@@ -414,17 +442,18 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 		occurred = time.Now()
 	}
 	groupID := common.NewTransactionGroupID()
+	remarks := strings.TrimSpace(in.Remarks)
 	purpose := "Self transfer — " + category
 	fromID, toID := in.FromBankID, toBankID
 	debit := &models.CashMovement{
 		Type: "out", Source: SelfTransferSource, Purpose: purpose, Mode: mode, ReceiptImage: in.ReceiptImage,
 		Bank: in.FromBank, BankID: &fromID, CounterBankID: &toID, Amount: in.Amount, BranchID: in.BranchID,
-		OccurredOn: occurred, TransactionGroupID: groupID,
+		OccurredOn: occurred, TransactionGroupID: groupID, Remarks: remarks, IsManual: true,
 	}
 	credit := &models.CashMovement{
 		Type: "in", Source: SelfTransferSource, Purpose: purpose, Mode: mode, ReceiptImage: in.ReceiptImage,
 		Bank: toBank, BankID: &toID, CounterBankID: &fromID, Amount: in.Amount, BranchID: in.BranchID,
-		OccurredOn: occurred, TransactionGroupID: groupID,
+		OccurredOn: occurred, TransactionGroupID: groupID, Remarks: remarks, IsManual: true,
 	}
 	if err := insertMovement(ctx, debit); err != nil {
 		return nil, err
@@ -933,6 +962,7 @@ func (req movementRequest) toInput() (RecordMovementInput, error) {
 		Type: req.Type, Source: req.Source, Purpose: req.Purpose, Mode: req.Mode,
 		Bank: req.Bank, BankID: req.BankID, ToBankID: req.ToBankID,
 		Amount: req.Amount, BranchID: req.BranchID, OccurredOn: occurred, ReceiptImage: req.ReceiptImage,
+		Remarks: req.Remarks,
 	}, nil
 }
 
@@ -991,6 +1021,9 @@ func validateMovementMode(m *models.CashMovement) error {
 
 func insertMovement(ctx context.Context, m *models.CashMovement) error {
 	if err := validateMovementMode(m); err != nil {
+		return err
+	}
+	if err := ensureBankCanPay(ctx, m); err != nil {
 		return err
 	}
 	return cashDB(ctx).Create(m).Error
@@ -1413,7 +1446,18 @@ func RecordMovement(c echo.Context) error {
 	} else if scope := auth.GetBranchScope(c); scope != nil {
 		input.BranchID = scope
 	}
-	rec, err := SaveMovement(ctx, input, req.toLoanSourceInput())
+	// A cash-in keyed in on the ledger form can be edited from the ledger later.
+	input.Manual = input.Type == "in"
+	var rec *models.CashMovement
+	if len(req.Payments) > 0 && input.Type == "in" {
+		parts, perr := paymentParts(req.Payments, input.Amount)
+		if perr != nil {
+			return common.FailErr(c, perr)
+		}
+		rec, err = SaveMovementParts(ctx, input, req.toLoanSourceInput(), parts)
+	} else {
+		rec, err = SaveMovement(ctx, input, req.toLoanSourceInput())
+	}
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1441,7 +1485,7 @@ func RecordSelfTransfer(c echo.Context) error {
 		Category: req.Category, Amount: req.Amount,
 		FromBankID: req.FromBankID, FromBank: req.FromBank,
 		ToBankID: req.ToBankID, ToBank: req.ToBank, Mode: req.Mode, ReceiptImage: req.ReceiptImage,
-		BranchID: branchID, OccurredOn: occurred,
+		BranchID: branchID, OccurredOn: occurred, Remarks: req.Remarks,
 	})
 	if err != nil {
 		return common.FailErr(c, err)

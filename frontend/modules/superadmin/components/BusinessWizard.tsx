@@ -20,6 +20,8 @@ function planLabelFor(tiers: Tier[], id: number): string {
 const MODULE_HINTS: Record<string, string> = {
   settings: "The Settings page (integration API keys).",
   branches: "The Branch Management page. Branches themselves keep working either way — only administering them is hidden.",
+  whatsapp:
+    "Settings > Integrations > WhatsApp: lets this business link its own WhatsApp number (QR or phone number) so messages go out from it. Without it the business keeps using the shared server number.",
   demo_reset:
     "Lets this business wipe its own data back to the admin login, optionally reloading the demo dataset. Leave OFF for a live client — every other module hides a page, this one hands out a delete button.",
 };
@@ -31,6 +33,7 @@ const LANGUAGE_HINTS: Record<string, string> = {
   en: "Always available; cannot be turned off.",
   ml: "Pledge agreement and release form in Malayalam.",
   gu: "Pledge agreement and release form in Gujarati. Note this is the Gujarat branch's own formal deed, not a translation of the English/Malayalam letter.",
+  ta: "Pledge book (indemnity and eSign bond) in Tamil for Tamil Nadu businesses.",
 };
 type Step = { id: StepId; label: string };
 function stepsFor(isCreate: boolean): Step[] {

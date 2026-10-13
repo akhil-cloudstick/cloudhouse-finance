@@ -41,7 +41,9 @@ func init() {
 	})
 }
 
-func whatsappConfig() (config.WhatsAppConfig, error) {
+// WhatsAppServerConfig is the server-wide OpenWA connection (origin + API key +
+// the shared session). Per-business sessions are layered on top by whatsappConfig.
+func WhatsAppServerConfig() (config.WhatsAppConfig, error) {
 	if config.Env.WhatsAppAPIKey != "" {
 		return config.WhatsAppConfig{
 			BaseURL:   config.Env.WhatsAppOrigin,
@@ -57,6 +59,41 @@ func whatsappConfig() (config.WhatsAppConfig, error) {
 		return config.WhatsAppConfig{}, nil
 	}
 	return config.ParseWhatsAppConfig(view.Value)
+}
+
+// whatsappConfig sends from the business's own connected session when it has
+// one, and from the shared server session otherwise.
+func whatsappConfig(ctx context.Context) (config.WhatsAppConfig, error) {
+	cfg, err := WhatsAppServerConfig()
+	if err != nil {
+		return cfg, err
+	}
+	tenantID, ok := config.TenantFromContext(ctx)
+	if !ok {
+		return cfg, nil
+	}
+	if sessionID := tenantSessionID(tenantID); sessionID != "" {
+		cfg.SessionID = sessionID
+	}
+	return cfg, nil
+}
+
+// tenantSessionID reads on its own pinned connection, never the caller's: most
+// sends run in a goroutine that outlives the request, whose connection is
+// closed or still in use by the handler by then (same reason as CreateBackground).
+func tenantSessionID(tenantID uint) string {
+	ctx := config.WithTenant(context.Background(), tenantID)
+	ctx, release, err := config.PinConn(ctx, config.BaseDB, tenantID)
+	if err != nil {
+		return ""
+	}
+	defer release()
+	var sessionID string
+	if err := config.NewConnPinner(config.BaseDB).WithContext(ctx).Table("whatsapp_sessions").
+		Select("openwa_session_id").Where("status = ?", "ready").Limit(1).Scan(&sessionID).Error; err != nil {
+		return ""
+	}
+	return sessionID
 }
 
 func CustomerToResponse(c *commonModels.Customer) commonModels.CustomerResponse {

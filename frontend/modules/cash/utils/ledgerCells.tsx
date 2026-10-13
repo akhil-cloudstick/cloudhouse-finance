@@ -104,6 +104,15 @@ export function refCellFor(m: CashMovementView, categoryIds?: Record<string, num
     // id), falling back to the loan's name when none is on file.
     return id ? <LedgerRefLink kind="category" id={id} label={loanNumberOfCategory(cat) || cat} /> : "—";
   }
+  // A repayment booked as an expense on a bank loan reads as that loan's number, linked to the loan's own
+  // ledger — not the bank it was paid from (that bank has its own column / ledger).
+  const expenseCat = expenseCategoryOf(m.purpose);
+  if (expenseCat && isLoanSource(expenseCat)) {
+    const loanId = categoryIds?.[expenseCat.toLowerCase()];
+    const number = loanNumberOfCategory(expenseCat) || expenseCat;
+    if (loanId) return <LedgerRefLink kind="category" id={loanId} label={number} />;
+    return number;
+  }
   const bankBacked = m.expenseId != null || expenseCategoryOf(m.purpose) !== null || (m.type === "in" && !!m.source && isLoanSource(m.source));
   if (bankBacked) {
     if (m.bankId && m.bankName) return <LedgerRefLink kind="bank" id={m.bankId} label={m.bankName} />;
@@ -150,6 +159,13 @@ function ModeLink({ route, mode }: ModeLinkProps) {
 // loan-sourced Add Cash entry (row `type` is its source name, e.g. "Loan …")
 // links to that loan's own ledger — its same-named repayment category.
 export function loanCatRef(r: { type: string; reference?: string; description?: string }, categoryIds: Record<string, number>) {
+  // A repayment booked as an expense on a bank loan: the loan's number, linked to the loan's ledger.
+  const expenseCat = expenseCategoryOf(r.description);
+  if (expenseCat && isLoanSource(expenseCat)) {
+    const loanId = categoryIds[expenseCat.toLowerCase()];
+    const number = loanNumberOfCategory(expenseCat) || expenseCat;
+    return loanId ? <LedgerRefLink kind="category" id={loanId} label={number} /> : number;
+  }
   // A self transfer to a loan: its category is the loan, named in the description.
   if (r.type === "Self Transfer") {
     const cat = selfTransferCategory(r.description);

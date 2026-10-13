@@ -74,6 +74,11 @@ export function setPrintProfile(profile: PrintProfile | null): void {
   printProfile = profile;
 }
 
+/** The signed-in business's document policy ("kml" | "gml" | "tml"), "" until its profile loads. */
+export function printPolicy(): string {
+  return printProfile?.policy || "";
+}
+
 export type PrintBrand = {
   name: string;
   legalName: string;
@@ -95,7 +100,7 @@ export function printBrand(): PrintBrand {
     name: p?.name || p?.legalName || BRAND.name,
     legalName: p?.legalName || p?.name || BRAND.legalName,
     kmlRegNo: p?.kmlRegNo || BRAND.kmlReg,
-    kmlRegLabel: p?.kmlRegNo ? `${p.policy === "gml" ? "GML" : "KML"} Reg. No: ${p.kmlRegNo}` : BRAND.kmlRegLabel,
+    kmlRegLabel: p?.kmlRegNo ? `${p.policy === "gml" ? "GML" : p.policy === "tml" ? "TML" : "KML"} Reg. No: ${p.kmlRegNo}` : BRAND.kmlRegLabel,
     addressLine: p?.addressLine || "",
     phones: p ? p.contactPhone : BRAND_PHONES,
   };

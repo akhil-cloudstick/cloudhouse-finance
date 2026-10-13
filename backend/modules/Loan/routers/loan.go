@@ -26,6 +26,7 @@ func LoanRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(loanPath+"/:id", loan.GetLoanById, auth.Staff(perms.Read)...)
 	e.PATCH(loanPath+"/:id", loan.UpdateLoan, auth.Staff(perms.Update)...)
 	e.GET(loanPath+"/:id/statement", loan.GetLoanStatement, auth.Staff(perms.Read, perms.Export)...)
+	e.GET(loanPath+"/:id/statement-receipt", loan.DownloadTMLStatementReceipt, auth.Staff(perms.Read, perms.Export)...)
 	e.GET(loanPath+"/:id/ledger", loan.GetLoanLedger, auth.Staff(perms.Read)...)
 	e.POST(loanPath+"/:id/ornaments", loan.AddOrnament, auth.Staff(perms.Update)...)
 	e.PATCH(loanPath+"/ornaments/:ornament_id/update", loan.UpdateOrnament, auth.Staff(perms.Update)...)
