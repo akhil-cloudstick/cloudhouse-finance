@@ -32,6 +32,8 @@ type EsignLanguageModalContentProps = {
   showDelivery?: boolean;
   // Adds two witness name/mobile rows; each witness signs their own box with their own Aadhaar.
   showWitnesses?: boolean;
+  // Overrides the business's granted bond languages, for a document with its own set (the personal loan bond).
+  options?: { value: BondLang; label: string; native: string }[];
 };
 
 export function EsignLanguageModalContent({
@@ -43,13 +45,14 @@ export function EsignLanguageModalContent({
   confirmLabel,
   showDelivery = false,
   showWitnesses = false,
+  options,
 }: EsignLanguageModalContentProps) {
   const { closeModal } = useModal();
-  const [lang, setLang] = useState<BondLang>("en");
+  const [lang, setLang] = useState<BondLang>(options?.[0]?.value ?? "en");
   // Only the languages this business was granted. English always survives
   // the filter, so the picker can never render empty.
   const { languages } = useBranding();
-  const langOptions = bondLangOptionsFor(languages);
+  const langOptions = options ?? bondLangOptionsFor(languages);
   const [deliverBy, setDeliverBy] = useState<EsignDeliverBy>("whatsapp");
   const [witnesses, setWitnesses] = useState<EsignWitnessInput[]>([{ name: "", phone: "" }, { name: "", phone: "" }]);
   const [busy, setBusy] = useState(false);

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 
 // /start blocks while OpenWA launches the WhatsApp engine (~12s here, longer on a cold or busy host)
 var openwaClient = &http.Client{Timeout: 60 * time.Second}
+
+const whatsappUnavailableMsg = "WhatsApp can't be connected right now. Please try again later or contact support."
 
 type openwaSession struct {
 	ID     string `json:"id"`
@@ -46,7 +49,8 @@ func openwaCall(method, path string, body, out any) error {
 		return fmt.Errorf("whatsapp: loading config: %w", err)
 	}
 	if cfg.BaseURL == "" || cfg.APIKey == "" {
-		return common.NewUnavailable("WhatsApp is not set up on this server yet")
+		log.Printf("whatsapp: OpenWA origin or API key is not configured")
+		return common.NewUnavailable(whatsappUnavailableMsg)
 	}
 	var rdr io.Reader
 	if body != nil {
@@ -64,7 +68,8 @@ func openwaCall(method, path string, body, out any) error {
 	req.Header.Set("X-API-Key", cfg.APIKey)
 	resp, err := openwaClient.Do(req)
 	if err != nil {
-		return common.NewUnavailable("WhatsApp service is unreachable, try again shortly")
+		log.Printf("whatsapp: OpenWA unreachable: %v", err)
+		return common.NewUnavailable(whatsappUnavailableMsg)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -82,7 +87,8 @@ func openwaCall(method, path string, body, out any) error {
 				msg = fmt.Sprint(m[0])
 			}
 		}
-		return &openwaError{status: resp.StatusCode, msg: msg}
+		log.Printf("whatsapp: OpenWA %s %s: %d %s", method, path, resp.StatusCode, msg)
+		return &openwaError{status: resp.StatusCode, msg: whatsappUnavailableMsg}
 	}
 	if out != nil && len(raw) > 0 {
 		return json.Unmarshal(raw, out)

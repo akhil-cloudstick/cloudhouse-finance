@@ -80,9 +80,8 @@ type entryInfo struct {
 	ToBank       string      `json:"to_bank,omitempty"`
 	Status       string      `json:"status,omitempty"`
 	OrnamentType string      `json:"ornament_type,omitempty"`
-	// A draw on a bank loan: the loan's number, its bank and its principal.
+	// A draw on a loan: the loan's number and its principal.
 	LoanNumber      string     `json:"loan_number,omitempty"`
-	BankName        string     `json:"bank_name,omitempty"`
 	PrincipalAmount float64    `json:"principal_amount,omitempty"`
 	CostAmount      float64    `json:"cost_amount,omitempty"`
 	ApprovedBy      string     `json:"approved_by,omitempty"`
@@ -221,7 +220,7 @@ func GetMovementEntry(c echo.Context) error {
 	}
 	kind := entryKind(m)
 	if !m.IsManual || kind == "" {
-		return common.FailErr(c, common.NewNotFound("no entry details for this line"))
+		return systemEntryInfo(c, ctx, m)
 	}
 	rows, err := entryMovements(ctx, m)
 	if err != nil {
@@ -280,12 +279,38 @@ func GetMovementEntry(c echo.Context) error {
 		info.Category = first.Source
 		if src := findLoanSource(ctx, first.Source); src != nil {
 			info.LoanNumber = src.LoanNumber
-			if src.Bank != nil {
-				info.BankName = src.Bank.Name
-			}
 			if src.PrincipalAmount != nil {
 				info.PrincipalAmount = *src.PrincipalAmount
 			}
+		}
+	}
+	return common.Success(c, http.StatusOK, info)
+}
+
+// systemEntryInfo is the read-only info popup for a movement the system recorded itself (loan
+// disbursement, repayment, auction, etc.): it never offers Edit.
+func systemEntryInfo(c echo.Context, ctx context.Context, m *models.CashMovement) error {
+	category := m.Purpose
+	if category == "" {
+		category = m.Source
+	}
+	info := entryInfo{
+		Kind: "system", Editable: false, MovementID: m.ID, Category: category, Amount: m.Amount,
+		OccurredOn: m.OccurredOn, RecordedAt: m.CreatedAt, Remarks: m.Remarks,
+		BranchID: m.BranchID, ReceiptImage: m.ReceiptImage,
+	}
+	if m.Branch != nil {
+		info.BranchName = m.Branch.Name
+	}
+	bankName := m.Bank
+	if m.BankRef != nil {
+		bankName = m.BankRef.Name
+	}
+	info.Lines = []entryLine{{MovementID: m.ID, Mode: m.Mode, Amount: m.Amount, BankID: m.BankID, BankName: bankName}}
+	if src := findLoanSource(ctx, m.Source); src != nil {
+		info.LoanNumber = src.LoanNumber
+		if src.PrincipalAmount != nil {
+			info.PrincipalAmount = *src.PrincipalAmount
 		}
 	}
 	return common.Success(c, http.StatusOK, info)

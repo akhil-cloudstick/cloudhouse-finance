@@ -14,6 +14,7 @@ const KIND_LABEL: Record<EntryKind, string> = {
   debit: "Debit (Expense)",
   self_transfer: "Self Transfer",
   gold_sale: "Gold Sale",
+  system: "Entry",
 };
 
 type EntryInfoModalContentProps = { entryId: number; onChanged?: () => void };
@@ -55,6 +56,7 @@ export function EntryInfoModalContent({ entryId, onChanged }: EntryInfoModalCont
         <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--brand-deep, #423591)", margin: "0 0 12px" }}>{KIND_LABEL[info.kind].toUpperCase()}</p>
         <div className="kv">
           {item("Category", info.category || "—")}
+          {info.loanNumber ? item("Loan", info.loanNumber) : null}
           {info.ornamentType ? item("Ornament", info.ornamentType) : null}
           {info.kind === "gold_sale" ? item("Cost", fmt(info.costAmount ?? 0)) : null}
           {item("Amount", fmt(info.amount))}

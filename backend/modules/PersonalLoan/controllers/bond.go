@@ -22,13 +22,25 @@ const bondBlank = "                "
 
 const templatesDir = "./templates"
 
-var bondTemplate = template.Must(func() (*template.Template, error) {
-	b, err := os.ReadFile(filepath.Join(findTemplatesDir(), "personal_loan_bond_malayalam.html"))
-	if err != nil {
-		return nil, fmt.Errorf("personal loan bond: read template: %w", err)
-	}
-	return template.New("personal_loan_bond").Parse(string(b))
-}())
+const (
+	BondLangEnglish   = "en"
+	BondLangMalayalam = "ml"
+)
+
+var bondTemplates = map[string]*template.Template{
+	BondLangEnglish:   mustLoadBondTemplate("personal_loan_bond_english.html"),
+	BondLangMalayalam: mustLoadBondTemplate("personal_loan_bond_malayalam.html"),
+}
+
+func mustLoadBondTemplate(fileName string) *template.Template {
+	return template.Must(func() (*template.Template, error) {
+		b, err := os.ReadFile(filepath.Join(findTemplatesDir(), fileName))
+		if err != nil {
+			return nil, fmt.Errorf("personal loan bond: read template: %w", err)
+		}
+		return template.New("personal_loan_bond").Parse(string(b))
+	}())
+}
 
 type BondData struct {
 	LoanNumber          string
@@ -130,10 +142,19 @@ type bondFinancier struct {
 	name, address, regNo string
 }
 
-func (f bondFinancier) establishment() template.HTML {
+func (f bondFinancier) establishment(lang string) template.HTML {
 	var parts []string
 	if f.address != "" {
 		parts = append(parts, template.HTMLEscapeString(f.address))
+	}
+	if lang == BondLangEnglish {
+		if f.regNo != "" {
+			parts = append(parts, "functioning under Registration No. M L L No: "+template.HTMLEscapeString(f.regNo))
+		}
+		if len(parts) == 0 {
+			return ""
+		}
+		return template.HTML(strings.Join(parts, ", ") + ",") //nolint:gosec // every part is escaped above
 	}
 	if f.regNo != "" {
 		parts = append(parts, "M L L No: "+template.HTMLEscapeString(f.regNo)+" രജിസ്റ്റർ നമ്പറിൽ പ്രവർത്തിച്ചുവരുന്ന")
@@ -163,7 +184,7 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-func renderBondHTML(data BondData, financier bondFinancier) (string, error) {
+func renderBondHTML(data BondData, financier bondFinancier, lang string) (string, error) {
 	td := bondTemplateData{
 		BondData: BondData{
 			LoanNumber: data.LoanNumber,
@@ -188,7 +209,7 @@ p{margin:0 0 14px;text-align:justify}
 `),
 		Blank:                bondBlank,
 		FinancierName:        financier.name,
-		EstablishmentAddress: financier.establishment(),
+		EstablishmentAddress: financier.establishment(lang),
 		Age:                  bondAgeOrBlank(data.Age),
 		Aadhaar:              bondAadhaarOrBlank(data.AadhaarNumber),
 		Address:              bondOrBlank(data.Address),
@@ -204,15 +225,15 @@ p{margin:0 0 14px;text-align:justify}
 	}
 	td.BorrowerName = bondOrBlank(data.BorrowerName)
 	var sb strings.Builder
-	if err := bondTemplate.Execute(&sb, td); err != nil {
+	if err := bondTemplates[lang].Execute(&sb, td); err != nil {
 		return "", fmt.Errorf("personal loan bond: render template: %w", err)
 	}
 	return sb.String(), nil
 }
 
-func GenerateBondPDF(ctx context.Context, loan *models.PersonalLoan, cust *commonModels.Customer, aadhaar string) ([]byte, error) {
+func GenerateBondPDF(ctx context.Context, loan *models.PersonalLoan, cust *commonModels.Customer, aadhaar, lang string) ([]byte, error) {
 	data := bondDataForLoan(loan, cust, aadhaar)
-	html, err := renderBondHTML(data, bondFinancierFor(ctx))
+	html, err := renderBondHTML(data, bondFinancierFor(ctx), lang)
 	if err != nil {
 		return nil, err
 	}

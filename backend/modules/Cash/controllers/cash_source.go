@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -18,7 +17,6 @@ import (
 )
 
 type LoanSourceInput struct {
-	BankID          uint
 	LoanNumber      string
 	PrincipalAmount float64
 	InterestRate    *float64
@@ -26,7 +24,6 @@ type LoanSourceInput struct {
 }
 
 type loanSourceRequest struct {
-	BankID          uint     `json:"bank_id"`
 	LoanNumber      string   `json:"loan_number"`
 	PrincipalAmount float64  `json:"principal_amount"`
 	InterestRate    *float64 `json:"interest_rate"`
@@ -80,8 +77,8 @@ func getCashSource(ctx context.Context, id uint) (*models.CashSource, LoanBalanc
 	return src, b, err
 }
 
-func searchLoanSources(ctx context.Context, query string, bankID uint, limit, offset int) ([]models.LoanCashSource, error) {
-	return searchDistinctLoans(ctx, query, bankID, limit, offset)
+func searchLoanSources(ctx context.Context, query string, limit, offset int) ([]models.LoanCashSource, error) {
+	return searchDistinctLoans(ctx, query, limit, offset)
 }
 
 func loanSourcesByMovementIDs(ctx context.Context, ids []uint) map[uint]*models.LoanCashSource {
@@ -101,7 +98,6 @@ func (req movementRequest) toLoanSourceInput() *LoanSourceInput {
 		return nil
 	}
 	return &LoanSourceInput{
-		BankID:          req.LoanSource.BankID,
 		LoanNumber:      req.LoanSource.LoanNumber,
 		PrincipalAmount: req.LoanSource.PrincipalAmount,
 		InterestRate:    req.LoanSource.InterestRate,
@@ -158,7 +154,7 @@ func insertLoanCashSource(ctx context.Context, rec *models.LoanCashSource) error
 		WithContext(ctx).Create(rec).Error
 }
 
-func searchDistinctLoans(ctx context.Context, query string, bankID uint, limit, offset int) ([]models.LoanCashSource, error) {
+func searchDistinctLoans(ctx context.Context, query string, limit, offset int) ([]models.LoanCashSource, error) {
 	var recs []models.LoanCashSource
 	q := config.DB.
 		WithContext(ctx).Model(&models.LoanCashSource{}).
@@ -167,28 +163,21 @@ func searchDistinctLoans(ctx context.Context, query string, bankID uint, limit, 
 	if query != "" {
 		q = q.Where("loan_number ILIKE ?", "%"+query+"%")
 	}
-	if bankID > 0 {
-		q = q.Where("bank_id = ?", bankID)
-	}
 	if limit > 0 {
 		q = q.Limit(limit).Offset(offset)
 	}
-	err := q.Preload("Bank").Find(&recs).Error
+	err := q.Find(&recs).Error
 	return recs, err
 }
 
 func ListLoanSources(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := common.PageParams(c)
-	bankID, _ := strconv.Atoi(c.QueryParam("bank_id"))
 	fetch := 0
 	if limit > 0 {
 		fetch = limit + 1
 	}
-	if bankID < 0 {
-		bankID = 0
-	}
-	rec, err := searchLoanSources(ctx, strings.TrimSpace(c.QueryParam("search")), uint(bankID), fetch, offset)
+	rec, err := searchLoanSources(ctx, strings.TrimSpace(c.QueryParam("search")), fetch, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -270,12 +259,11 @@ func CreateCashSource(c echo.Context) error {
 }
 
 type updateLoanDetailsRequest struct {
-	BankID          uint    `json:"bank_id"`
 	LoanNumber      string  `json:"loan_number"`
 	PrincipalAmount float64 `json:"principal_amount"`
 }
 
-// updateLoanDetails changes a loan's lender bank, loan number and principal. The loan's name and every cash
+// updateLoanDetails changes a loan's number and principal. The loan's name and every cash
 // amount stay as they are; the copy kept with each past draw is brought in line so the ledgers read the same.
 func updateLoanDetails(ctx context.Context, id uint, req updateLoanDetailsRequest) (*models.CashSource, LoanBalance, error) {
 	src, err := findCategoryByID(ctx, id)
@@ -286,21 +274,11 @@ func updateLoanDetails(ctx context.Context, id uint, req updateLoanDetailsReques
 		return nil, LoanBalance{}, common.NewBadRequest("this is not a loan with details recorded")
 	}
 	number := strings.TrimSpace(req.LoanNumber)
-	if req.BankID == 0 {
-		return nil, LoanBalance{}, common.NewBadRequest("bank is required")
-	}
 	if number == "" {
 		return nil, LoanBalance{}, common.NewBadRequest("loan number is required")
 	}
 	if req.PrincipalAmount <= 0 {
 		return nil, LoanBalance{}, common.NewBadRequest("principal amount must be greater than zero")
-	}
-	var banks int64
-	if err := config.DB.WithContext(ctx).Table("banks").Where("id = ?", req.BankID).Count(&banks).Error; err != nil {
-		return nil, LoanBalance{}, err
-	}
-	if banks == 0 {
-		return nil, LoanBalance{}, common.NewBadRequest("bank does not exist")
 	}
 	cur, err := loanBalance(ctx, src, false)
 	if err != nil {
@@ -317,14 +295,14 @@ func updateLoanDetails(ctx context.Context, id uint, req updateLoanDetailsReques
 	}
 	err = config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&models.Category{}).Where("id = ?", src.ID).
-			Updates(map[string]interface{}{"bank_id": req.BankID, "loan_number": number, "principal_amount": principal}).Error; err != nil {
+			Updates(map[string]interface{}{"loan_number": number, "principal_amount": principal}).Error; err != nil {
 			return err
 		}
 		if len(movementIDs) == 0 {
 			return nil
 		}
 		return tx.Model(&models.LoanCashSource{}).Where("cash_movement_id IN ?", movementIDs).
-			Updates(map[string]interface{}{"bank_id": req.BankID, "loan_number": number, "principal_amount": principal}).Error
+			Updates(map[string]interface{}{"loan_number": number, "principal_amount": principal}).Error
 	})
 	if err != nil {
 		return nil, LoanBalance{}, err

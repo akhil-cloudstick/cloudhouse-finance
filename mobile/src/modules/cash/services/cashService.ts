@@ -85,8 +85,8 @@ export function updateMovementEntry(id: number, input: EntryUpdateInput) {
 }
 
 // Bank-to-bank self transfer — the backend writes a debit row on the from
-// bank and a credit row on the to bank. When `category` is a loan the backend
-// forces the to bank to the loan's own bank, so toBankId isn't needed then.
+// bank and a credit row on the to bank. When `category` is a loan there is no
+// to bank: the backend books only the debit, as a repayment on that loan.
 export function createSelfTransfer(input: {
   category: string;
   amount: number;

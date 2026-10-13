@@ -1,0 +1,43 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Promissory Note — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>PROMISSORY NOTE</h1>
+<h2>Personal Loan Account No. {{.LoanNumber}}</h2>
+
+<p>
+Promissory note executed in favour of the proprietor of the establishment <b>{{.FinancierName}}</b>,
+{{.EstablishmentAddress}} by me, <b>{{.BorrowerName}}</b>,
+son/daughter of <b>{{.FatherName}}</b> (Aadhaar No. <b>{{.Aadhaar}}</b>), aged <b>{{.Age}}</b> years,
+engaged in business, residing at <b>{{.Place}}</b> Desam, <b>{{.Place}}</b> P.O., PIN <b>{{.PinCode}}</b>,
+<b>{{.Village}}</b> Village, <b>{{.Taluk}}</b> Taluk, <b>{{.District}}</b> District.
+</p>
+
+<p>
+I, <b>{{.BorrowerName}}</b>, hereby promise to pay on demand to the establishment
+<b>{{.FinancierName}}</b>, or to its order, the sum of Rupees
+<b>{{.PrincipalAmount}}</b> ( ₹{{.PrincipalAmount}}/- ) received by me as a loan from the said
+establishment on {{printf "%02d" .Day}}/{{.Month}}/{{.Year}}, together with interest at
+<b>{{.InterestRate}}</b> per annum.
+</p>
+
+<div class="meta">
+<div>Date :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</div>
+<div>Place :- {{.Blank}}</div>
+</div>
+
+<div class="sig">
+<div><span>Signature of the Borrower<br>Name: {{.BorrowerName}}</span></div>
+<div><span>&nbsp;</span></div>
+</div>
+
+<div class="footer-row">
+<div>Mobile No :- {{.Mobile}}&nbsp;&nbsp;&nbsp;&nbsp;Name :- {{.BorrowerName}}</div>
+</div>
+
+<div class="witness">
+<div><b>Witness</b></div>
+<div>Name :- {{.Blank}}</div>
+<div>Address :- {{.Blank}}</div>
+<div>Signature :- {{.Blank}}</div>
+<div>Place :- {{.Blank}}</div>
+<div>Date :- {{.Blank}}</div>
+</div>
+</body></html>

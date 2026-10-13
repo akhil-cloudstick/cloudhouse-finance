@@ -291,14 +291,10 @@ func respondLoanLedger(c echo.Context, src *models.CashSource, bal LoanBalance) 
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	bankName := ""
-	if src.Bank != nil {
-		bankName = src.Bank.Name
-	}
 	respondLedger(c, page, limit, export, "Loan Ledger — "+src.Name, "loan-ledger.pdf", fromDate, toDate, rows, total, totals, echo.Map{
 		"category_name": src.Name,
 		"loan": echo.Map{
-			"source_id": src.ID, "name": src.Name, "bank_id": src.BankID, "bank_name": bankName, "loan_number": src.LoanNumber,
+			"source_id": src.ID, "name": src.Name, "loan_number": src.LoanNumber,
 			"principal": bal.Principal, "drawn": bal.Drawn, "repaid": bal.Repaid, "balance": bal.Balance,
 		},
 	})

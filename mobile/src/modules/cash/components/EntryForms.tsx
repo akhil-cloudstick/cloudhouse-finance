@@ -156,7 +156,6 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
   const [ornamentType, setOrnamentType] = useState(edit?.ornamentType ?? "");
   const [cost, setCost] = useState(edit?.costAmount ? String(edit.costAmount) : "");
   const profit = (Number(amount) || 0) - (Number(cost) || 0);
-  const [loanBank, setLoanBank] = useState<Bank | null>(null);
   const [loanNumber, setLoanNumber] = useState("");
   const [principalAmount, setPrincipalAmount] = useState("");
   const [interestRate, setInterestRate] = useState("");
@@ -193,7 +192,6 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
         type: "in",
         source: source!.name,
         amount: Number(amount),
-        bank: needsLoanDetails ? loanBank?.name : undefined,
         branchId,
         occurredOn: date,
         receiptImage: receiptImage || undefined,
@@ -201,7 +199,6 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
         payments,
         loanSource: needsLoanDetails
           ? {
-              bankId: loanBank!.id,
               loanNumber: loanNumber.trim(),
               principalAmount: Number(principalAmount),
               interestRate: interestRate.trim() ? Number(interestRate) : undefined,
@@ -220,7 +217,7 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
     onError: (err) => setError(errMsg(err, "Could not save.")),
   });
 
-  const loanValid = !needsLoanDetails || (!!loanBank && !!loanNumber.trim() && Number(principalAmount) > 0 && Number(amount) <= Number(principalAmount));
+  const loanValid = !needsLoanDetails || (!!loanNumber.trim() && Number(principalAmount) > 0 && Number(amount) <= Number(principalAmount));
   const bankValid = !bankRequired || !!bank;
   const payValid = paymentRowsError(payRows, Number(amount) || 0) === "";
   // A loan can't be drawn past its principal: a new loan checks the amount against
@@ -257,7 +254,6 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
       {needsLoanDetails ? (
         <View style={{ borderWidth: 1, borderColor: C.line, borderStyle: "dashed", borderRadius: 10, padding: 12, marginBottom: 10 }}>
           <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep, marginBottom: 8 }}>LOAN DETAILS</Txt>
-          <BankPicker label="Bank" bank={loanBank} onChange={setLoanBank} />
           <Field label="Loan Number">
             <Input placeholder="e.g. LN-00049" value={loanNumber} onChangeText={setLoanNumber} />
           </Field>
@@ -278,9 +274,6 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
       {edit && isLoan ? (
         <View style={{ borderWidth: 1, borderColor: C.line, borderStyle: "dashed", borderRadius: 10, padding: 12, marginBottom: 10 }}>
           <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep, marginBottom: 8 }}>LOAN DETAILS</Txt>
-          <Field label="Bank">
-            <Input value={edit.bankName || "—"} editable={false} />
-          </Field>
           <Field label="Loan Number">
             <Input value={edit.loanNumber || "—"} editable={false} />
           </Field>
@@ -473,28 +466,27 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
   const branchId = branch?.id;
 
   const loan = category && isLoanSource(category.name) ? category : null;
-  const loanBank = loan?.bank?.name ?? "";
   // A transfer to a loan is a repayment — it can't exceed what has been drawn and
   // not yet repaid. When editing, the entry's own amount is already counted as repaid.
   const loanBal = useLoanBalance(loan);
   const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit ? edit.amount : 0) : 0;
   const loanExceeded = !!loanBal && (Number(amount) || 0) > owed + 0.005;
   const loanWarning = loanExceeded ? `Repayment exceeds what has been paid on ${category?.name} — only ${inr(owed)} is outstanding.` : "";
-  const loanReady = !!loan && loan.principalAmount != null && !!loan.bankId;
+  const loanReady = !!loan && loan.principalAmount != null;
 
   const m = useMutation({
     mutationFn: async () => {
       if (edit) {
         await updateMovementEntry(edit.movementId, {
           category: category!.name, amount: Number(amount), fromBankId: fromBank!.id, fromBank: fromBank!.name,
-          toBankId: loan ? undefined : toBank!.id, toBank: loan ? loanBank : toBank!.name,
+          toBankId: loan ? undefined : toBank!.id, toBank: loan ? undefined : toBank!.name,
           mode, receiptImage: receiptImage || undefined, branchId, occurredOn: date, remarks: remarks.trim(),
         });
         return;
       }
       await createSelfTransfer({
         category: category!.name, amount: Number(amount), fromBankId: fromBank!.id, fromBank: fromBank!.name,
-        toBankId: loan ? undefined : toBank!.id, toBank: loan ? loanBank : toBank!.name,
+        toBankId: loan ? undefined : toBank!.id, toBank: loan ? undefined : toBank!.name,
         mode, receiptImage: receiptImage || undefined, branchId, occurredOn: date, remarks: remarks.trim() || undefined,
       });
     },
@@ -507,7 +499,7 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
 
   function submit() {
     if (loan && !loanReady) {
-      setError("This loan has no bank recorded yet — add cash from it first.");
+      setError("This loan has no details recorded yet — add cash from it first.");
       return;
     }
     if (!loan && toBank && fromBank && toBank.id === fromBank.id) {
@@ -540,13 +532,7 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
         <ChipToggle options={SELF_MODES} value={mode} onChange={setMode} />
       </Field>
       <BankPicker label="From Bank" bank={fromBank} onChange={setFromBank} />
-      {loan ? (
-        <Field label="To Bank (loan's bank)">
-          <Input value={loanBank || "No bank recorded for this loan"} editable={false} />
-        </Field>
-      ) : (
-        <BankPicker label="To Bank" bank={toBank} onChange={setToBank} />
-      )}
+      {loan ? null : <BankPicker label="To Bank" bank={toBank} onChange={setToBank} />}
       <Field label="Amount">
         <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
       </Field>

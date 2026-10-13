@@ -16,9 +16,10 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { getPersonalLoan, resolvePersonalLoanNumber, getPersonalLoanSchedulePage, getPersonalLoanHistoryPage, listPersonalLoanPaymentsPage, downloadPersonalLoanBond, approvePersonalLoan, listPersonalLoanApprovals, PERSONAL_LOAN_PAGE_SIZE } from "@/modules/personal-loans/services/personalLoanService";
-import { type PersonalLoanApprovalRecord, type BackendPersonalLoan, type BackendPersonalLoanInstallment, type BackendPersonalLoanHistory, type BackendPersonalLoanPayment } from "@/modules/personal-loans/types/personal-loan-types";
+import { type PersonalLoanApprovalRecord, type PersonalLoanBondLang, type BackendPersonalLoan, type BackendPersonalLoanInstallment, type BackendPersonalLoanHistory, type BackendPersonalLoanPayment } from "@/modules/personal-loans/types/personal-loan-types";
 import { CollectPaymentModalContent } from "@/modules/personal-loans/components/CollectPaymentModalContent";
 import { RenewLoanModalContent } from "@/modules/personal-loans/components/RenewLoanModalContent";
+import { EsignLanguageModalContent } from "@/modules/loans/components/EsignLanguageModalContent";
 import { navigate, routeHref } from "@/common/services/appRoutes";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -27,6 +28,12 @@ import { singleFlight } from "@/common/utils/singleFlight";
  * 360 detail tables (modules/customers/pages/CustomerDetailPage.tsx):
  * `.card > .hd > h3` header, `.tbl-wrap.tbl-wrap-auto` + `.tbl.tbl-center`
  * body, and this same Pager footer. */
+// The personal loan bond is a promissory note, so its picker names that document rather than the pledge agreement.
+const BOND_LANG_OPTIONS: { value: PersonalLoanBondLang; label: string; native: string }[] = [
+  { value: "en", label: "English", native: "Promissory Note" },
+  { value: "ml", label: "Malayalam", native: "വാഗ്ദത്ത പത്രം" },
+];
+
 function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; hasMore: boolean; total: number; totalDebit?: number; totalCredit?: number }>, resetKey: unknown) {
   const [items, setItems] = useState<T[]>([]);
   const [page, setPage] = useState(1);
@@ -189,12 +196,12 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
     openModal(<RenewLoanModalContent loan={loan} onSaved={() => { closeModal(); navigate("personalloans"); }} />, true);
   }
 
-  async function handleDownloadBond() { return singleFlight("personal-loan:download-bond", async () => {
+  async function handleDownloadBond(lang: PersonalLoanBondLang) { return singleFlight("personal-loan:download-bond", async () => {
     if (!loan || downloadingBond) return;
     setDownloadingBond(true);
     setDownloadError("");
     try {
-      await downloadPersonalLoanBond(loan.id);
+      await downloadPersonalLoanBond(loan.id, lang);
     } catch (e) {
       setDownloadError(e instanceof ApiError ? e.message : "Could not download the bond.");
     } finally {
@@ -294,7 +301,16 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                   e.preventDefault();
                   if (downloadingBond) return;
                   setActionsMenuOpen(false);
-                  void handleDownloadBond();
+                  openModal(
+                    <EsignLanguageModalContent
+                      loanNumber={loan.loanNumber}
+                      customerName={customerName}
+                      title="Print Promissory Note"
+                      confirmLabel="🖨 Print Bond"
+                      options={BOND_LANG_OPTIONS}
+                      onConfirm={(lang) => handleDownloadBond(lang as PersonalLoanBondLang)}
+                    />
+                  );
                 }}
               >
                 <Icon name="download" /><span className="tx">{downloadingBond ? "Preparing…" : "Download Bond"}</span>

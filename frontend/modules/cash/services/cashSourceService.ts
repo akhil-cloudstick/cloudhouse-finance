@@ -24,9 +24,8 @@ export async function searchCashSourcesPage(q: string, page: number): Promise<{ 
 /* Distinct loan numbers already recorded as a "Loan" cash source, newest
  * details per loan — AddCashModal.tsx's Loan Number picker, so one loan can
  * be drawn against across several Add Cash entries. */
-export async function searchLoanSourcesPage(q: string, page: number, bankId?: number): Promise<{ items: BackendLoanCashSource[]; hasMore: boolean }> {
+export async function searchLoanSourcesPage(q: string, page: number): Promise<{ items: BackendLoanCashSource[]; hasMore: boolean }> {
   const params = new URLSearchParams({ limit: String(CASH_SOURCES_PAGE_SIZE), offset: String(page * CASH_SOURCES_PAGE_SIZE) });
-  if (bankId) params.set("bankId", String(bankId));
   if (q) params.set("q", q);
   const res = await apiFetch<{ items: BackendLoanCashSource[] | null; hasMore: boolean }>(`/cash-movements/loan-sources?${params}`);
   return { items: res.items || [], hasMore: !!res.hasMore };
@@ -50,8 +49,8 @@ export async function getLoanBalance(id: number): Promise<LoanBalance | null> {
   return res.isLoan ? res.balance : null;
 }
 
-/* PATCH /cash-sources/:id/loan — changes a loan's lender bank, loan number and principal. The loan's name
+/* PATCH /cash-sources/:id/loan — changes a loan's number and principal. The loan's name
  * and every cash amount are untouched; the backend refuses a principal below what is already drawn. */
-export async function updateLoanDetails(id: number, input: { bankId: number; loanNumber: string; principalAmount: number }): Promise<void> {
+export async function updateLoanDetails(id: number, input: { loanNumber: string; principalAmount: number }): Promise<void> {
   await apiFetch<unknown>(`/cash-sources/${id}/loan`, { method: "PATCH", body: JSON.stringify(input) });
 }

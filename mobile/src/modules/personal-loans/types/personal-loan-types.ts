@@ -109,3 +109,5 @@ export type PersonalLoanApproval = {
   remarks: string;
   createdAt: string;
 };
+
+export type PersonalLoanBondLang = "en" | "ml";

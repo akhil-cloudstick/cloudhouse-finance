@@ -58,6 +58,19 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M12 18h.01" />
     </>
   ),
+  // Outline marks for the Settings sidebar, drawn in the same stroke style as the rest of the set.
+  waOutline: (
+    <>
+      <path d="M20.5 11.7a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.4-4.4a8.5 8.5 0 1 1 15.6-4.4Z" />
+      <path d="M9.3 8.3c.3-.4.7-.4.9 0l.7 1.3c.2.3.1.6-.1.9l-.4.4c.5 1.1 1.4 2 2.5 2.5l.4-.4c.3-.2.6-.3.9-.1l1.3.7c.4.2.4.6 0 .9-.7.6-1.6.8-2.5.5a6.8 6.8 0 0 1-4.2-4.2c-.3-.9-.1-1.8.5-2.5Z" />
+    </>
+  ),
+  mobileLink: (
+    <>
+      <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+      <path d="M10.5 5.5h3M12 18.2h.01" />
+    </>
+  ),
   externalLink: (
     <>
       <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />

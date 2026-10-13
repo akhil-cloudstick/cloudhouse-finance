@@ -1008,3 +1008,11 @@ It is not wired into any app yet. The other option is to migrate each app's serv
 - `POST /api/v1/users/:user_id/integrations/whatsapp/disconnect` logs the session out and deletes it.
 - Messages (reminders, OTPs, loan notices) go out from the business's own number once its session is `ready`; businesses without one keep using the shared server session.
 - Migration `0043_create_whatsapp_sessions.sql`.
+
+## Cash loans have no bank; personal loan bond language
+
+- A Cash loan (category starting "Loan") is now only name + loan number + principal. Removed: `loan_source.bank_id` on `POST /cash-movements`, `bank_id` on `PATCH /cash-sources/:id/loan`, `bank_id`/`bank_name` in the loan ledger's `loan` object, `bank_id`/`bank` on categories and loan sources, `bank_name` on a loan draw's entry info, and the `bank_id` filter on `GET /cash-movements/loan-sources`.
+- `POST /cash-movements/self-transfer` to a loan category takes no to bank: only the debit from `from_bank_id` is booked, as a repayment on that loan.
+- A bank's ledger no longer lists "Loan disbursed" rows. The loan ledger's Bank column shows the bank each draw landed in or each repayment came from.
+- `GET /personal-loans/:id/bond?lang=en|ml` (default `ml`) picks the English or Malayalam promissory note.
+- Migration `0044_alter_cash_loan_drop_bank.sql` makes `loan_cash_sources.bank_id` nullable.

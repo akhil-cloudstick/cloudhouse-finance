@@ -154,7 +154,7 @@ func insertCategory(ctx context.Context, c *models.Category) error {
 func findCategories(ctx context.Context, typ, query string, limit, offset int) ([]models.Category, int64, error) {
 	var cats []models.Category
 	q := config.DB.
-		WithContext(ctx).Preload("Bank").
+		WithContext(ctx).
 		Order("CASE WHEN principal_amount IS NOT NULL THEN 0 ELSE 1 END, name asc")
 	if query != "" {
 		q = q.Where("LOWER(REPLACE(name, ' ', '')) LIKE ?", "%"+strings.ToLower(strings.ReplaceAll(query, " ", ""))+"%")
@@ -175,7 +175,7 @@ func findCategories(ctx context.Context, typ, query string, limit, offset int) (
 func findByName(ctx context.Context, name string) (*models.Category, error) {
 	var c models.Category
 	if err := config.DB.
-		WithContext(ctx).Preload("Bank").Where("name ILIKE ?", name).First(&c).Error; err != nil {
+		WithContext(ctx).Where("name ILIKE ?", name).First(&c).Error; err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -184,7 +184,7 @@ func findByName(ctx context.Context, name string) (*models.Category, error) {
 func findCategoryByID(ctx context.Context, id uint) (*models.Category, error) {
 	var c models.Category
 	if err := config.DB.
-		WithContext(ctx).Preload("Bank").First(&c, id).Error; err != nil {
+		WithContext(ctx).First(&c, id).Error; err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -200,7 +200,7 @@ func saveLoanDetails(ctx context.Context, s *models.Category) error {
 	s.IsCommon = true
 	return config.DB.
 		WithContext(ctx).Model(&models.Category{}).Where("id = ?", s.ID).
-		Updates(map[string]interface{}{"bank_id": s.BankID, "loan_number": s.LoanNumber, "principal_amount": s.PrincipalAmount, "loan_opened_at": s.LoanOpenedAt, "is_common": true}).Error
+		Updates(map[string]interface{}{"loan_number": s.LoanNumber, "principal_amount": s.PrincipalAmount, "loan_opened_at": s.LoanOpenedAt, "is_common": true}).Error
 }
 
 func insertExpenseCategory(ctx context.Context, c *models.ExpenseCategory) error {

@@ -959,13 +959,8 @@ func seedCashAndExpenses(ctx context.Context, st *state, rep *Report) error {
 		}
 		var loanSource *cash.LoanSourceInput
 		if f.Source == "Loan" {
-			var bankIDs []uint
-			if err := config.BaseDB.WithContext(ctx).Table("banks").Where("tenant_id = ? AND name = ?", st.tenantID, f.Bank).Limit(1).Pluck("id", &bankIDs).Error; err != nil || len(bankIDs) == 0 {
-				return fmt.Errorf("find lending bank %q for cash movement %d: %v", f.Bank, i+1, err)
-			}
 			rate, months := 9.5, 24
 			loanSource = &cash.LoanSourceInput{
-				BankID:          bankIDs[0],
 				LoanNumber:      fmt.Sprintf("BL-DEMO-%03d", i+1),
 				PrincipalAmount: f.Amount * 2,
 				InterestRate:    &rate,

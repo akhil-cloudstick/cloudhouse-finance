@@ -13,8 +13,6 @@ export type BackendCashSource = {
   isCommon?: boolean;
   // A loan source's details, captured on its first Add Cash entry (see
   // isLoanSource) — principalAmount present means they're on file.
-  bankId?: number;
-  bank?: { id: number; name: string };
   loanNumber?: string;
   principalAmount?: number;
 };

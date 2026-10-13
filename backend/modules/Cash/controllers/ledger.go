@@ -180,72 +180,7 @@ func combinedLedgerByBank(ctx context.Context, bankID uint, fromDate, toDate tim
 		return nil, err
 	}
 	rows = append(rows, gsRows...)
-	drawRows, err := scanLoanDrawsForLenderBank(db, bankID, fromDate, toDate)
-	if err != nil {
-		return nil, err
-	}
-	rows = append(rows, drawRows...)
 	return rows, nil
-}
-
-func scanLoanDrawsForLenderBank(db *gorm.DB, bankID uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
-	type src struct {
-		Name         string
-		LoanNumber   string
-		LoanOpenedAt *time.Time
-		CreatedAt    time.Time
-		BankName     string
-	}
-	var srcs []src
-	if err := db.Table("categories c").
-		Select("c.name, c.loan_number, c.loan_opened_at, c.created_at, b.name AS bank_name").
-		Joins("LEFT JOIN banks b ON b.id = c.bank_id").
-		Where("c.bank_id = ? AND c.loan_number <> ?", bankID, "").
-		Scan(&srcs).Error; err != nil {
-		return nil, err
-	}
-	var out []ledgerSourceRow
-	for _, s := range srcs {
-		since := s.CreatedAt
-		if s.LoanOpenedAt != nil {
-			since = *s.LoanOpenedAt
-		}
-		type draw struct {
-			ID         uint
-			OccurredOn time.Time
-			Mode       string
-			Amount     float64
-			ToBank     string
-		}
-		q := db.Table("cash_movements m").
-			Select("m.id, m.occurred_on, m.mode, m.amount, COALESCE(b.name, '') AS to_bank").
-			Joins("LEFT JOIN banks b ON b.id = m.bank_id").
-			Where("m.type = ? AND m.source ILIKE ? AND m.created_at >= ?", "in", s.Name, since).
-			Where("m.bank_id IS DISTINCT FROM ?", bankID)
-		if !fromDate.IsZero() {
-			q = q.Where("m.occurred_on >= ?", fromDate)
-		}
-		if !toDate.IsZero() {
-			q = q.Where("m.occurred_on < ?", toDate.AddDate(0, 0, 1))
-		}
-		var draws []draw
-		if err := q.Scan(&draws).Error; err != nil {
-			return nil, err
-		}
-		for _, d := range draws {
-			desc := "Loan disbursed — " + s.Name
-			if d.ToBank != "" && d.ToBank != s.BankName {
-				desc += " → " + d.ToBank
-			}
-			id := bankID
-			out = append(out, ledgerSourceRow{
-				Kind: "loan_draw", ID: d.ID, Date: d.OccurredOn, Description: desc, Type: s.Name,
-				Method: d.Mode, Reference: s.LoanNumber, Amount: d.Amount, IsOut: true,
-				BankID: &id, BankName: s.BankName,
-			})
-		}
-	}
-	return out, nil
 }
 
 func combinedLedgerByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
@@ -670,7 +605,7 @@ func scanGoldSalesForLedger(db *gorm.DB, whereCol string, whereArg uint, fromDat
 
 func toLedgerRow(r ledgerSourceRow) LedgerRow {
 	debitOrCredit := "credit"
-	if (r.Kind == "cash_movement" || r.Kind == "loan_accrual" || r.Kind == "loan_draw") && r.IsOut {
+	if (r.Kind == "cash_movement" || r.Kind == "loan_accrual") && r.IsOut {
 		debitOrCredit = "debit"
 	}
 	return LedgerRow{
@@ -1326,23 +1261,20 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 	if src.LoanOpenedAt != nil {
 		since = *src.LoanOpenedAt
 	}
-	lendingBank := ""
-	if src.Bank != nil {
-		lendingBank = src.Bank.Name
-	}
 	type draw struct {
 		ID         uint
 		OccurredOn time.Time
 		CreatedAt  time.Time
 		Mode       string
 		Amount     float64
+		BankID     *uint
 		ToBank     string
 		Receipt    string
 	}
 	var draws []draw
 	if err := config.DB.
 		WithContext(ctx).Table("cash_movements m").
-		Select("m.id, m.occurred_on, m.created_at, m.mode, m.amount, COALESCE(b.name, '') AS to_bank, m.receipt_image AS receipt").
+		Select("m.id, m.occurred_on, m.created_at, m.mode, m.amount, m.bank_id, COALESCE(b.name, '') AS to_bank, m.receipt_image AS receipt").
 		Joins("LEFT JOIN banks b ON b.id = m.bank_id").
 		Where("m.type = ? AND m.source ILIKE ? AND m.created_at >= ?", "in", src.Name, since).
 		Scan(&draws).Error; err != nil {
@@ -1377,14 +1309,10 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 	}
 	merged := make([]keyed, 0, len(draws)+len(repays))
 	for _, d := range draws {
-		desc := "Cash drawn from loan"
-		if d.ToBank != "" && d.ToBank != lendingBank && d.Mode != models.CashModeCash {
-			desc += " → " + d.ToBank
-		}
 		merged = append(merged, keyed{created: d.CreatedAt, kind: "cash_movement", id: d.ID, row: LedgerRow{
-			ID: d.ID, Date: d.OccurredOn, Description: desc, Type: src.Name, Method: d.Mode,
+			ID: d.ID, Date: d.OccurredOn, Description: "Cash drawn from loan", Type: src.Name, Method: d.Mode,
 			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: d.Amount,
-			BankID: src.BankID, BankName: lendingBank, ReceiptImage: d.Receipt,
+			BankID: d.BankID, BankName: d.ToBank, ReceiptImage: d.Receipt,
 		}})
 	}
 	for _, e := range repays {

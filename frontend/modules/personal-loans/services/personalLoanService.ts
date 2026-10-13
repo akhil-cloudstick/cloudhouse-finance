@@ -1,7 +1,7 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
 import { printPdfJob } from "@/common/utils/print";
-import type { CreatePersonalLoanInput, BackendPersonalLoan, BackendPersonalLoanInstallment, BackendPersonalLoanPayment, PersonalLoanApprovalInput, PersonalLoanApprovalRecord, BackendPersonalLoanHistory, RenewInput, RenewalPreview, RenewResult } from "@/modules/personal-loans/types/personal-loan-types";
+import type { CreatePersonalLoanInput, BackendPersonalLoan, BackendPersonalLoanInstallment, BackendPersonalLoanPayment, PersonalLoanApprovalInput, PersonalLoanApprovalRecord, BackendPersonalLoanHistory, RenewInput, RenewalPreview, RenewResult, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 
 /* With the personal_loan approval flow switched on the loan comes back
  * "Pending Approval" (with approvalStage set) — no schedule or disbursement
@@ -107,15 +107,15 @@ export function listPersonalLoansForCustomer(customerId: number): Promise<Backen
   return apiFetch<BackendPersonalLoan[]>(`/customers/${customerId}/personal-loans`);
 }
 
-/* Sends GET /personal-loans/:id/bond (the borrower-only bond PDF, see
- * backend/internal/personalloan/bond.go) straight to the browser's print
+/* Sends GET /personal-loans/:id/bond?lang= (the borrower-only bond PDF, see
+ * backend/modules/PersonalLoan/controllers/bond.go) straight to the browser's print
  * dialog via printPdfBlob — same server-rendered-PDF-to-print-preview
  * pattern as loanService.ts's downloadIndemnityBondPDF, rather than
  * silently triggering a browser file save with no visible preview. */
-export async function downloadPersonalLoanBond(loanId: number): Promise<void> {
+export async function downloadPersonalLoanBond(loanId: number, lang: PersonalLoanBondLang): Promise<void> {
   return printPdfJob(async () => {
     const token = typeof window !== "undefined" ? getAuthToken() : null;
-    const res = await apiRawFetch(`/personal-loans/${loanId}/bond`, {
+    const res = await apiRawFetch(`/personal-loans/${loanId}/bond?lang=${lang}`, {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
     });
     if (!res.ok) {

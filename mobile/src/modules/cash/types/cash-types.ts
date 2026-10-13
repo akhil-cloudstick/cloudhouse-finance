@@ -82,10 +82,9 @@ export type GoldSale = {
 
 // LoanSource mirrors backend/internal/cash/handler.go's loanSourceRequest —
 // the Loan Details block MovementSheet captures when Source is "Loan"
-// (bank/loanNumber/principalAmount required, interestRate/durationMonths
+// (loanNumber/principalAmount required, interestRate/durationMonths
 // optional). See backend/internal/cash/model.go's LoanCashSource.
 export type LoanSourceInput = {
-  bankId: number;
   loanNumber: string;
   principalAmount: number;
   interestRate?: number;
@@ -96,7 +95,7 @@ export type LoanSourceInput = {
 // pagination (matches web's cashSourceService.ts).
 // type/isCommon: a search also returns categories of another form — picking
 // one makes it common (find-or-create POST). A loan source carries its
-// captured details (bankId/bank/principalAmount) once on file.
+// captured details (loanNumber/principalAmount) once on file.
 export type CategoryType = "cash_in" | "expense" | "self_transfer";
 export type CashSource = {
   id: number;
@@ -104,8 +103,6 @@ export type CashSource = {
   createdAt: string;
   type?: CategoryType;
   isCommon?: boolean;
-  bankId?: number;
-  bank?: { id: number; name: string };
   loanNumber?: string;
   principalAmount?: number;
 };
@@ -172,9 +169,8 @@ export type EntryInfo = {
   // A gold sale's ornament and what it cost.
   ornamentType?: string;
   costAmount?: number;
-  // A draw on a bank loan: the loan's number, its bank and its principal.
+  // A draw on a loan: the loan's number and its principal.
   loanNumber?: string;
-  bankName?: string;
   principalAmount?: number;
 };
 export type EntryUpdateInput = {

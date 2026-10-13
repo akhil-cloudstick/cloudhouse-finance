@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useModal } from "@/common/components/ModalProvider";
-import { ConnectMobileModalContent } from "@/common/components/modals/ConnectMobileModalContent";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
@@ -39,7 +38,7 @@ const subscribeNever = () => () => {};
  * It scopes the whole app, so the chosen branch is echoed under the name. */
 export function AccountMenu() {
   const { employee, logout } = useAuth();
-  const { name: businessName, hasModule } = useBranding();
+  const { name: businessName } = useBranding();
   const { openModal } = useModal();
   const [open, setOpen] = useState(false);
   const [upd, setUpd] = useState<UpdateState>("idle");
@@ -93,11 +92,6 @@ export function AccountMenu() {
     setBranchOpen(false);
     setOpen(false);
     if (id !== branch.selectedBranchId) branch.select(id);
-  }
-
-  function connectMobile() {
-    setOpen(false);
-    openModal(<ConnectMobileModalContent />);
   }
 
   function openSettings() {
@@ -234,16 +228,10 @@ export function AccountMenu() {
               <div className="acct-sep" />
             </>
           )}
-          <button type="button" role="menuitem" className="acct-item" onClick={connectMobile}>
-            <span className="i"><Icon name="smartphone" /></span>
-            <span className="lbl">Connect mobile app</span>
+          <button type="button" role="menuitem" className="acct-item" onClick={openSettings}>
+            <span className="i"><Icon name="gear" /></span>
+            <span className="lbl">Settings</span>
           </button>
-          {hasModule("whatsapp") && (
-            <button type="button" role="menuitem" className="acct-item" onClick={openSettings}>
-              <span className="i"><Icon name="gear" /></span>
-              <span className="lbl">Settings</span>
-            </button>
-          )}
           {desktop && (
             <button
               type="button"

@@ -4,7 +4,6 @@ import (
 	common "cloudhouse/backend/common/controllers"
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/config"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -131,16 +130,14 @@ type GoldSale struct {
 
 type Category struct {
 	config.TenantScoped
-	ID              uint               `json:"id" gorm:"primaryKey"`
-	Type            string             `json:"type" gorm:"not null;size:20;index;default:cash_in"`
-	Name            string             `json:"name" gorm:"index;not null;size:80"`
-	IsCommon        bool               `json:"is_common" gorm:"not null;default:false"`
-	BankID          *uint              `json:"bank_id,omitempty"`
-	Bank            *commonModels.Bank `json:"bank,omitempty" gorm:"foreignKey:BankID"`
-	LoanNumber      string             `json:"loan_number,omitempty" gorm:"size:60"`
-	PrincipalAmount *float64           `json:"principal_amount,omitempty" gorm:"type:numeric(16,2)"`
-	LoanOpenedAt    *time.Time         `json:"loan_opened_at,omitempty"`
-	CreatedAt       time.Time          `json:"created_at"`
+	ID              uint       `json:"id" gorm:"primaryKey"`
+	Type            string     `json:"type" gorm:"not null;size:20;index;default:cash_in"`
+	Name            string     `json:"name" gorm:"index;not null;size:80"`
+	IsCommon        bool       `json:"is_common" gorm:"not null;default:false"`
+	LoanNumber      string     `json:"loan_number,omitempty" gorm:"size:60"`
+	PrincipalAmount *float64   `json:"principal_amount,omitempty" gorm:"type:numeric(16,2)"`
+	LoanOpenedAt    *time.Time `json:"loan_opened_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 type (
@@ -150,38 +147,18 @@ type (
 
 type LoanCashSource struct {
 	config.TenantScoped
-	ID              uint               `json:"id" gorm:"primaryKey"`
-	CashMovementID  uint               `json:"cash_movement_id" gorm:"not null;index"`
-	BankID          uint               `json:"bank_id" gorm:"not null"`
-	Bank            *commonModels.Bank `json:"bank,omitempty" gorm:"foreignKey:BankID"`
-	LoanNumber      string             `json:"loan_number" gorm:"not null;size:60"`
-	PrincipalAmount float64            `json:"principal_amount" gorm:"not null;type:numeric(16,2)"`
-	InterestRate    *float64           `json:"interest_rate" gorm:"type:numeric(6,2)"`
-	DurationMonths  *int               `json:"duration_months"`
-	CreatedAt       time.Time          `json:"created_at"`
+	ID              uint      `json:"id" gorm:"primaryKey"`
+	CashMovementID  uint      `json:"cash_movement_id" gorm:"not null;index"`
+	LoanNumber      string    `json:"loan_number" gorm:"not null;size:60"`
+	PrincipalAmount float64   `json:"principal_amount" gorm:"not null;type:numeric(16,2)"`
+	InterestRate    *float64  `json:"interest_rate" gorm:"type:numeric(6,2)"`
+	DurationMonths  *int      `json:"duration_months"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
-func (m *CashMovement) BeforeCreate(tx *gorm.DB) error {
+func (m *CashMovement) BeforeCreate(_ *gorm.DB) error {
 	if m.BranchID == nil || *m.BranchID == 0 {
 		return common.NewBadRequest("branch is required")
 	}
-	if m.BankID == nil || !isBankMode(m.Mode) {
-		return nil
-	}
-	var bk struct {
-		Name     string
-		BranchID uint
-	}
-	if err := tx.Session(&gorm.Session{NewDB: true}).Table("banks").Select("name, branch_id").
-		Where("id = ?", *m.BankID).Scan(&bk).Error; err != nil {
-		return err
-	}
-	if bk.BranchID != 0 && bk.BranchID != *m.BranchID {
-		return common.NewBadRequest(fmt.Sprintf("%s belongs to another branch — pick a bank account of this entry's branch", bk.Name))
-	}
 	return nil
-}
-
-func isBankMode(mode string) bool {
-	return mode == CashModeUPI || mode == CashModeBankTransfer
 }

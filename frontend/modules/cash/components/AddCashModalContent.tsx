@@ -57,9 +57,9 @@ type AddCashModalContentProps = { onSaved?: () => void; defaultBranchId?: number
  * SearchableSelect backed by cash.CashSource (find-or-create, same pattern
  * as the Bank picker), so staff can add a new source on the fly instead of
  * being limited to the two defaults. A source whose name starts with
- * "Loan" (isLoanSource — e.g. "Loan HDFC 4471") is one bank loan: the
- * first time it's used the Loan Details block (bank, loan number,
- * principal) comes right after the source, and those details are kept on
+ * "Loan" (isLoanSource — e.g. "Loan HDFC 4471") is one loan: the
+ * first time it's used the Loan Details block (loan number, principal)
+ * comes right after the source, and those details are kept on
  * the source itself — picking it again shows just the normal form. See
  * backend/internal/cash/model.go's CashSource.
  *
@@ -129,9 +129,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   const profit = sold > 0 ? sold - (+costAmount || 0) : 0;
 
   // Loan Details block — only shown/required on a loan source's first
-  // entry (needsLoanDetails). Its Bank is the bank the loan came from.
-  const [loanBankId, setLoanBankId] = useState("");
-  const [loanBankName, setLoanBankName] = useState("");
+  // entry (needsLoanDetails).
   const [loanNumber, setLoanNumber] = useState("");
   const [principalAmount, setPrincipalAmount] = useState("");
   // The cash drawn defaults to the loan's principal — still editable after,
@@ -211,14 +209,13 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
 
     // Only a loan source's first entry sends its details — later entries
     // reuse the ones the backend already holds on the source.
-    let loanSource: { bankId: number; loanNumber: string; principalAmount: number } | undefined;
+    let loanSource: { loanNumber: string; principalAmount: number } | undefined;
     if (needsLoanDetails) {
-      if (!loanBankId) { setErr("Please select the bank the loan is from."); return; }
       if (!loanNumber.trim()) { setErr("Please enter the loan number."); return; }
       const principal = +principalAmount;
       if (!(principal > 0)) { setErr("Please enter a valid principal amount."); return; }
       if (amount > principal) { setErr("Cash amount can't be more than the loan's principal."); return; }
-      loanSource = { bankId: +loanBankId, loanNumber: loanNumber.trim(), principalAmount: principal };
+      loanSource = { loanNumber: loanNumber.trim(), principalAmount: principal };
     }
 
     setSaving(true);
@@ -236,7 +233,6 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
       }
       await createCashMovement({
         type: "in", source, receiptImage,
-        bank: needsLoanDetails ? loanBankName : undefined,
         amount, branchId, occurredOn: date, loanSource,
         remarks: remarks.trim() || undefined, payments,
       });
@@ -328,23 +324,8 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
           <div style={{ marginBottom: 14 }}>
             <label className="f" style={{ display: "block", marginBottom: 12 }}>Loan Details</label>
             <div className="frow c2">
-              <div><label className="f">Bank *</label>
-                <SearchableSelect<BackendBank>
-                  portal
-                  value={loanBankName}
-                  onChange={(id, item) => { setLoanBankId(id); setLoanBankName(item.name); }}
-                  fetchFn={searchBanksPage}
-                  searchHint="Searches: bank name"
-                  getLabel={(b) => b.name}
-                  getId={(b) => String(b.id)}
-                  placeholder="Search or add a bank…"
-                  allowCreate
-                  onCreate={createBank}
-                /></div>
               <div><label className="f">Loan Number *</label>
-                <input className="inp" placeholder="As on the bank's loan account" value={loanNumber} onChange={(e) => setLoanNumber(e.target.value)} /></div>
-            </div>
-            <div className="frow c2">
+                <input className="inp" placeholder="As on the loan account" value={loanNumber} onChange={(e) => setLoanNumber(e.target.value)} /></div>
               <div><label className="f">Principal Amount (₹) *</label>
                 <input className="inp" type="number" min={1} value={principalAmount} onChange={(e) => setPrincipal(e.target.value)} onWheel={noWheelStep} /></div>
             </div>

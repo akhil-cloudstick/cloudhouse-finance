@@ -166,3 +166,5 @@ export type RenewalPreview = {
   shortfall: boolean;
 };
 export type RenewResult = { oldLoan: BackendPersonalLoan; newLoan: BackendPersonalLoan };
+
+export type PersonalLoanBondLang = "en" | "ml";

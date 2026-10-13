@@ -912,7 +912,7 @@ func renewLoan(ctx context.Context, loanID uint, branchID *uint, in RenewInput) 
 	return &result, nil
 }
 
-func generateBond(ctx context.Context, loanID uint, branchID *uint) ([]byte, *models.PersonalLoan, error) {
+func generateBond(ctx context.Context, loanID uint, branchID *uint, lang string) ([]byte, *models.PersonalLoan, error) {
 	loan, err := getPersonalLoan(ctx, loanID, branchID)
 	if err != nil {
 		return nil, nil, err
@@ -930,7 +930,7 @@ func generateBond(ctx context.Context, loanID uint, branchID *uint) ([]byte, *mo
 			log.Printf("personal loan bond: decrypt Aadhaar for customer %d failed: %v", cust.ID, err)
 		}
 	}
-	pdf, err := GenerateBondPDF(ctx, loan, cust, aadhaar)
+	pdf, err := GenerateBondPDF(ctx, loan, cust, aadhaar, lang)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1409,11 +1409,18 @@ func DownloadPersonalLoanBond(c echo.Context) error {
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	pdf, loan, err := generateBond(auth.RequestContext(c), id, auth.GetBranchScope(c))
+	lang := common.DefaultQuery(c, "lang", BondLangMalayalam)
+	if lang != BondLangEnglish && lang != BondLangMalayalam {
+		return common.FailErr(c, common.NewBadRequest("lang must be \"en\" or \"ml\""))
+	}
+	pdf, loan, err := generateBond(auth.RequestContext(c), id, auth.GetBranchScope(c), lang)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	filename := fmt.Sprintf("bond-%s.pdf", loan.LoanNumber)
+	if lang == BondLangEnglish {
+		filename = fmt.Sprintf("bond-%s-en.pdf", loan.LoanNumber)
+	}
 	c.Response().Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	return c.Blob(http.StatusOK, "application/pdf", pdf)
 }

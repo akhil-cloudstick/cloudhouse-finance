@@ -46,7 +46,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
 import { approvePersonalLoan, createPersonalLoan, getPersonalLoan, getPersonalLoanSchedulePage, listPersonalLoanApprovals, listPersonalLoanPaymentsPage, listPersonalLoansPage, previewRenewal, recordPersonalLoanPayment, renewPersonalLoan, personalLoanBondUrl } from "@/modules/personal-loans/services/personalLoanService";
-import { type Frequency, type InterestType, type PersonalLoan, type PersonalLoanInstallment, type PersonalLoanPayment } from "@/modules/personal-loans/types/personal-loan-types";
+import { type Frequency, type InterestType, type PersonalLoan, type PersonalLoanInstallment, type PersonalLoanPayment, type PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { loadErrorText, userMessage } from "@/common/services/apiErrors";
@@ -354,7 +354,7 @@ function PersonalLoanDetailSheet({
   const visible = loanId != null;
   const id = loanId ?? 0;
   const [tab, setTab] = useState<DetailTab>("schedule");
-  const [bondBusy, setBondBusy] = useState(false);
+  const [bondBusy, setBondBusy] = useState<PersonalLoanBondLang | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -390,16 +390,16 @@ function PersonalLoanDetailSheet({
   const older = useQuery({ queryKey: ["personalLoan", String(olderId)], queryFn: () => getPersonalLoan(olderId!), enabled: visible && tab === "history" && !!olderId });
   const newer = useQuery({ queryKey: ["personalLoan", String(newerId)], queryFn: () => getPersonalLoan(newerId!), enabled: visible && tab === "history" && !!newerId });
 
-  async function downloadBond() {
+  async function downloadBond(lang: PersonalLoanBondLang) {
     const l = loan.data;
     if (!l || bondBusy) return;
-    setBondBusy(true);
+    setBondBusy(lang);
     setError(null);
     try {
       const token = await getToken();
-      const targetUri = `${FileSystem.cacheDirectory}bond-${l.loanNumber}.pdf`;
+      const targetUri = `${FileSystem.cacheDirectory}bond-${l.loanNumber}-${lang}.pdf`;
       const result = await withPrintProgress(() =>
-        FileSystem.downloadAsync(personalLoanBondUrl(l.id), targetUri, {
+        FileSystem.downloadAsync(personalLoanBondUrl(l.id, lang), targetUri, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
       );
@@ -408,7 +408,7 @@ function PersonalLoanDetailSheet({
     } catch (e) {
       setError(errMsg(e, "Could not download the bond."));
     } finally {
-      setBondBusy(false);
+      setBondBusy(null);
     }
   }
 
@@ -469,7 +469,8 @@ function PersonalLoanDetailSheet({
           Penal interest applied {l.penalCycleCount} time(s) — {inr(l.totalPenalInterestCharged)} added at {l.penalInterestRate}% p.a.
         </WarningBanner>
       ) : null}
-      <PrimaryButton label={bondBusy ? "Downloading…" : "Download Bond"} variant="outline" loading={bondBusy} onPress={downloadBond} style={{ marginBottom: 12 }} />
+      <PrimaryButton label={bondBusy === "en" ? "Downloading…" : "Download Bond — English"} variant="outline" loading={bondBusy === "en"} onPress={() => downloadBond("en")} style={{ marginBottom: 8 }} />
+      <PrimaryButton label={bondBusy === "ml" ? "Downloading…" : "Download Bond — Malayalam"} variant="outline" loading={bondBusy === "ml"} onPress={() => downloadBond("ml")} style={{ marginBottom: 12 }} />
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PillTabs
         inSheet

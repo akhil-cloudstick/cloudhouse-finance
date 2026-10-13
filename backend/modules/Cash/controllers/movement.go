@@ -213,7 +213,7 @@ func findByCashMovementIDs(ctx context.Context, ids []uint) map[uint]*models.Loa
 	}
 	var recs []models.LoanCashSource
 	if err := config.DB.
-		WithContext(ctx).Preload("Bank").Where("cash_movement_id IN ?", ids).Find(&recs).Error; err != nil {
+		WithContext(ctx).Where("cash_movement_id IN ?", ids).Find(&recs).Error; err != nil {
 		return out
 	}
 	for i := range recs {
@@ -225,7 +225,7 @@ func findByCashMovementIDs(ctx context.Context, ids []uint) map[uint]*models.Loa
 func findByCashMovementID(ctx context.Context, cashMovementID uint) (*models.LoanCashSource, error) {
 	var rec models.LoanCashSource
 	if err := config.DB.
-		WithContext(ctx).Preload("Bank").Where("cash_movement_id = ?", cashMovementID).First(&rec).Error; err != nil {
+		WithContext(ctx).Where("cash_movement_id = ?", cashMovementID).First(&rec).Error; err != nil {
 		return nil, err
 	}
 	return &rec, nil
@@ -330,17 +330,14 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 			return nil, err
 		}
 		if !hasLoanDetails(src) {
-			if loanSource == nil || loanSource.BankID == 0 {
-				return nil, common.NewBadRequest("bank is required for a loan-sourced cash entry")
-			}
-			if strings.TrimSpace(loanSource.LoanNumber) == "" {
+			if loanSource == nil || strings.TrimSpace(loanSource.LoanNumber) == "" {
 				return nil, common.NewBadRequest("loan number is required for a loan-sourced cash entry")
 			}
 			if loanSource.PrincipalAmount <= 0 {
 				return nil, common.NewBadRequest("principal amount must be greater than zero for a loan-sourced cash entry")
 			}
-			bankID, principal, opened := loanSource.BankID, loanSource.PrincipalAmount, time.Now()
-			src.BankID, src.LoanNumber, src.PrincipalAmount = &bankID, strings.TrimSpace(loanSource.LoanNumber), &principal
+			principal, opened := loanSource.PrincipalAmount, time.Now()
+			src.LoanNumber, src.PrincipalAmount = strings.TrimSpace(loanSource.LoanNumber), &principal
 			src.LoanOpenedAt = &opened
 			newLoan = true
 		}
@@ -354,13 +351,6 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		rec.Source = src.Name
 		rec.Status = "Open"
 		rec.Purpose = "Loan no. " + src.LoanNumber
-		if rec.Bank == "" && src.Bank != nil {
-			rec.Bank = src.Bank.Name
-		}
-		if rec.BankID == nil && rec.Mode != models.CashModeCash {
-			bankID := *src.BankID
-			rec.BankID = &bankID
-		}
 	}
 	if err := insertMovement(ctx, rec); err != nil {
 		return nil, err
@@ -376,7 +366,6 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		}
 		loanRec := &models.LoanCashSource{
 			CashMovementID:  rec.ID,
-			BankID:          *src.BankID,
 			LoanNumber:      src.LoanNumber,
 			PrincipalAmount: *src.PrincipalAmount,
 		}
@@ -412,19 +401,19 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 			return nil, err
 		}
 		if !hasLoanDetails(src) {
-			return nil, common.NewBadRequest("this loan has no bank recorded yet — add cash from it first")
+			return nil, common.NewBadRequest("this loan has no details recorded yet — add cash from it first")
 		}
-		toBankID = *src.BankID
-		if src.Bank != nil {
-			toBank = src.Bank.Name
-		}
+		toBankID = 0
 		category = src.Name
 		if err := ensureLoanRepayment(ctx, category, in.Amount, false); err != nil {
 			return nil, err
 		}
 	}
-	if in.FromBankID == 0 || toBankID == 0 {
-		return nil, common.NewBadRequest("from bank and to bank are required")
+	if in.FromBankID == 0 {
+		return nil, common.NewBadRequest("from bank is required")
+	}
+	if !toLender && toBankID == 0 {
+		return nil, common.NewBadRequest("to bank is required")
 	}
 	if in.FromBankID == toBankID {
 		return nil, common.NewBadRequest("from bank and to bank must be different")
@@ -445,9 +434,13 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 	remarks := strings.TrimSpace(in.Remarks)
 	purpose := "Self transfer — " + category
 	fromID, toID := in.FromBankID, toBankID
+	var counterID *uint
+	if !toLender {
+		counterID = &toID
+	}
 	debit := &models.CashMovement{
 		Type: "out", Source: SelfTransferSource, Purpose: purpose, Mode: mode, ReceiptImage: in.ReceiptImage,
-		Bank: in.FromBank, BankID: &fromID, CounterBankID: &toID, Amount: in.Amount, BranchID: in.BranchID,
+		Bank: in.FromBank, BankID: &fromID, CounterBankID: counterID, Amount: in.Amount, BranchID: in.BranchID,
 		OccurredOn: occurred, TransactionGroupID: groupID, Remarks: remarks, IsManual: true,
 	}
 	credit := &models.CashMovement{
@@ -459,9 +452,8 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 		return nil, err
 	}
 	if toLender {
-		// A repayment to a lender leaves the business: the lender's account is not one of ours, so only the
-		// debit from our bank is booked (a credit leg used to put the money straight back into the bank total).
-		// loanRepaid counts it against the loan by its purpose, and the lender's ledger lists it.
+		// A repayment to a lender leaves the business, so only the debit from our bank is booked;
+		// loanRepaid counts it against the loan by its purpose, and the loan's ledger lists it.
 		d, err := findMovementByID(ctx, debit.ID)
 		if err != nil {
 			return nil, err
@@ -1178,7 +1170,7 @@ func listByBranch(ctx context.Context, branchID uint, fromDate, toDate time.Time
 func findMovementByID(ctx context.Context, id uint) (*models.CashMovement, error) {
 	var m models.CashMovement
 	if err := config.DB.
-		WithContext(ctx).Preload("Branch").First(&m, id).Error; err != nil {
+		WithContext(ctx).Preload("Branch").Preload("BankRef").First(&m, id).Error; err != nil {
 		return nil, err
 	}
 	return &m, nil

@@ -10,5 +10,5 @@ func init() {
 }
 
 func hasLoanDetails(s *models.Category) bool {
-	return s.PrincipalAmount != nil && s.BankID != nil
+	return s.PrincipalAmount != nil
 }

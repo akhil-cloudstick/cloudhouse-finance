@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
-import { useModal } from "@/common/components/ModalProvider";
+import { Icon } from "@/common/components/Icon";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { issueQrLogin } from "@/common/services/authService";
 import { createConnectCode } from "@/modules/branding/services/brandingService";
@@ -35,8 +35,8 @@ function formatLeft(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function ConnectMobileModalContent() {
-  const { closeModal } = useModal();
+/* The Link Mobile section of the Settings modal. */
+export function ConnectMobilePanel() {
   const { name: businessName } = useBranding();
   const [code, setCode] = useState("");
   const [qr, setQr] = useState("");
@@ -97,45 +97,43 @@ export function ConnectMobileModalContent() {
 
   return (
     <>
-      <div className="hd"><h3>Connect mobile app</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
-        <div className="tabs connect-tabs">
-          <button className={tab === "qr" ? "on" : ""} onClick={() => setTab("qr")}>Scan QR</button>
-          <button className={tab === "code" ? "on" : ""} onClick={() => setTab("code")}>Enter code</button>
-        </div>
-        <div className="connect-qr">
+      <div className="set-head"><h4>Link Mobile</h4></div>
+      <p className="set-sub">Sign in to the <b>CloudHouse Staff</b> app on your phone for {businessName}.</p>
+      <div className="set-link">
+        <div className="set-visual">
           {failed ? (
-            <p className="connect-qr-msg">Could not generate a connect code. Check your connection and try again.</p>
+            <div className="set-ph"><Icon name="smartphone" /><span>Could not generate a connect code. Check your connection and try again.</span></div>
           ) : tab === "qr" ? (
             qr && !loading ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={qr} alt={`QR code for ${businessName}`} width={224} height={224} />
             ) : (
-              <div className="connect-qr-ph" />
+              <div className="set-ph"><span className="set-spin" /><span>Generating your QR code…</span></div>
             )
           ) : (
-            <div className="connect-code-big">{code && !loading ? displayCode(code) : "··· ···"}</div>
+            <div className="set-ph"><span className="set-code">{code && !loading ? displayCode(code) : "··· ···"}</span><span>Type this code in the app</span></div>
           )}
-          <div className="connect-qr-name">{businessName}</div>
-          {code && !failed && (
-            <small className="connect-qr-exp">{loading ? "Generating a new code…" : `Expires in ${formatLeft(left)}`}</small>
-          )}
-          <button className="btn" onClick={refresh} disabled={loading}>
-            {failed ? "Try again" : tab === "qr" ? "Get a new QR" : "Get a new code"}
+        </div>
+        <div>
+          <ol className="set-steps">
+            <li>Open the <b>CloudHouse Staff</b> app on your phone.</li>
+            {tab === "qr" ? (
+              <li>Tap <b>Scan QR code</b> and point the camera at this QR.</li>
+            ) : (
+              <li>Tap <b>Enter code manually</b> and type the 6-character code.</li>
+            )}
+            <li>{tab === "qr" ? "The app signs in as you — no password needed." : "Sign in with your username and password."}</li>
+          </ol>
+          <div className="set-meta">
+            {code && !failed && <span>{loading ? "Generating a new code…" : `Expires in ${formatLeft(left)}`}</span>}
+            <button className="btn sm" onClick={refresh} disabled={loading}>
+              {failed ? "Try again" : tab === "qr" ? "New QR" : "New code"}
+            </button>
+          </div>
+          <button type="button" className="set-alt" onClick={() => setTab(tab === "qr" ? "code" : "qr")}>
+            {tab === "qr" ? "Enter a code instead" : "Scan QR code instead"}
           </button>
         </div>
-        <ol className="connect-qr-steps">
-          <li>Open the <b>CloudHouse Staff</b> app on your phone.</li>
-          {tab === "qr" ? (
-            <li>Tap <b>Scan QR code</b> and point the camera at this QR.</li>
-          ) : (
-            <li>Tap <b>Enter code manually</b> and type the 6-character code above.</li>
-          )}
-          <li>{tab === "qr" ? "The app signs in as you — no password needed." : "Sign in with your username and password."}</li>
-        </ol>
-      </div>
-      <div className="ft">
-        <button className="btn" onClick={closeModal}>Close</button>
       </div>
     </>
   );

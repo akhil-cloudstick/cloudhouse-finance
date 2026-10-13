@@ -49,15 +49,12 @@ export type BackendCashMovement = {
 export type BackendLoanCashSource = {
   id: number;
   cashMovementId: number;
-  bankId: number;
-  bank?: { id: number; name: string };
   loanNumber: string;
   principalAmount: number;
   interestRate?: number | null;
   durationMonths?: number | null;
 };
 export type LoanSourceInput = {
-  bankId: number;
   loanNumber: string;
   principalAmount: number;
   interestRate?: number;
@@ -209,7 +206,7 @@ export type ExpenseFormInput = {
 };
 /* The ledger's info popup and Edit for a cash-in, a debit or a self transfer
  * (GET/PUT /cash-movements/:id/entry — see backend entry.go). */
-export type EntryKind = "cash_in" | "debit" | "self_transfer" | "gold_sale";
+export type EntryKind = "cash_in" | "debit" | "self_transfer" | "gold_sale" | "system";
 export type EntryLine = {
   movementId: number;
   mode: string;
@@ -242,9 +239,8 @@ export type EntryInfo = {
   // A gold sale's ornament and what it cost.
   ornamentType?: string;
   costAmount?: number;
-  // A draw on a bank loan: the loan's number, its bank and its principal.
+  // A draw on a loan: the loan's number and its principal.
   loanNumber?: string;
-  bankName?: string;
   principalAmount?: number;
 };
 export type EntryUpdateInput = {

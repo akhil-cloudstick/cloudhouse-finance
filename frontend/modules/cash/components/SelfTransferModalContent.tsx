@@ -41,15 +41,15 @@ type SelfTransferModalContentProps = { onSaved?: () => void; defaultBranchId?: n
 
 /* Self Transfer tab of the Ledger's Add Entry modal. Moves money between two
  * of the business's own banks: the backend records a debit on From Bank and a
- * credit on To Bank. A loan category locks To Bank to the loan's bank and
- * books the transfer as a repayment on that loan's ledger. */
+ * credit on To Bank. A loan category has no To Bank: the transfer is a
+ * repayment, debited from From Bank and credited on that loan's ledger. */
 export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit }: SelfTransferModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
   // Editing starts from the entry's category name; the full row (a loan's
-  // bank) is looked up below.
+  // details) is looked up below.
   const [catRec, setCatRec] = useState<BackendCategory | null>(edit ? ({ id: 0, name: edit.category } as BackendCategory) : null);
   const category = catRec?.name ?? "";
   useEffect(() => {
@@ -59,10 +59,9 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
       if (found) setCatRec(found);
     }).catch(() => {});
   }, [edit]);
-  // A loan category (name starts with "Loan") makes this a repayment to the loan's bank.
+  // A loan category (name starts with "Loan") makes this a repayment on that loan.
   const loan = catRec && isLoanSource(catRec.name) ? catRec : null;
-  const loanBank = loan?.bank?.name ?? "";
-  const loanReady = !!loan && loan.principalAmount != null && !!loan.bankId;
+  const loanReady = !!loan && loan.principalAmount != null;
 
   const [fromBank, setFromBank] = useState(edit?.fromBank ?? "");
   const [fromBankId, setFromBankId] = useState(edit?.fromBankId ? String(edit.fromBankId) : "");
@@ -109,7 +108,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
     if (!(amount > 0)) { setErr("Please enter a valid amount."); return; }
     if (!date) { setErr("Please select the date."); return; }
     if (!fromBankId) { setErr("Please select the From Bank."); return; }
-    if (loan && !loanReady) { setErr("This loan has no bank recorded yet — add cash from it first."); return; }
+    if (loan && !loanReady) { setErr("This loan has no details recorded yet — add cash from it first."); return; }
     if (!loan && !toBankId) { setErr("Please select the To Bank."); return; }
     if (!loan && toBankId === fromBankId) { setErr("From Bank and To Bank must be different."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
@@ -120,7 +119,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
       if (edit) {
         await updateMovementEntry(edit.movementId, {
           category, amount, fromBankId: +fromBankId, fromBank, mode, receiptImage,
-          toBankId: loan ? undefined : +toBankId, toBank: loan ? loanBank : toBank,
+          toBankId: loan ? undefined : +toBankId, toBank: loan ? undefined : toBank,
           branchId, occurredOn: date, remarks: remarks.trim(),
         });
         onSaved?.();
@@ -130,12 +129,12 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
       }
       await createSelfTransfer({
         category, amount, fromBankId: +fromBankId, fromBank, mode, receiptImage,
-        toBankId: loan ? undefined : +toBankId, toBank: loan ? loanBank : toBank,
+        toBankId: loan ? undefined : +toBankId, toBank: loan ? undefined : toBank,
         branchId, occurredOn: date, remarks: remarks.trim() || undefined,
       });
       onSaved?.();
       closeModal();
-      toast(`${fmt(amount)} transferred ${fromBank} → ${loan ? loanBank : toBank}`);
+      toast(loan ? `${fmt(amount)} repaid on ${category} from ${fromBank}` : `${fmt(amount)} transferred ${fromBank} → ${toBank}`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
     } finally {
@@ -188,13 +187,11 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
           <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
           <div><label className="f">Mode *</label><Select options={MODE_OPTIONS} value={mode} onChange={setMode} /></div>
         </div>
-        <div className="frow c2">
+        <div className={loan ? "frow" : "frow c2"}>
           <div><label className="f">From Bank *</label>{bankPicker(fromBank, (id, name) => { setFromBankId(id); setFromBank(name); })}</div>
-          <div><label className="f">To Bank * {loan && <span style={{ fontWeight: 400, color: "var(--muted)" }}>(loan&apos;s bank)</span>}</label>
-            {loan
-              ? <input className="inp" readOnly value={loanBank || "No bank recorded for this loan"} />
-              : bankPicker(toBank, (id, name) => { setToBankId(id); setToBank(name); })}
-          </div>
+          {!loan && (
+            <div><label className="f">To Bank *</label>{bankPicker(toBank, (id, name) => { setToBankId(id); setToBank(name); })}</div>
+          )}
         </div>
         <div className={showBranch ? "frow c2" : "frow"}>
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /></div>

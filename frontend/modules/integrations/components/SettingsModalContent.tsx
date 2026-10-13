@@ -5,19 +5,21 @@ import { Icon } from "@/common/components/Icon";
 import { useModal } from "@/common/components/ModalProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { WhatsAppPanel } from "@/modules/integrations/components/WhatsAppPanel";
+import { ConnectMobilePanel } from "@/modules/integrations/components/ConnectMobilePanel";
 
-/* One entry per integration; `module` is the business module the superadmin
- * has to switch on for it to show up (tenant.KnownModules). */
-const INTEGRATIONS = [
-  { key: "whatsapp", label: "WhatsApp", icon: "whatsapp" as const, module: "whatsapp", Panel: WhatsAppPanel },
+/* One entry per section; `module` is the business module the superadmin
+ * has to switch on for it to show up (tenant.KnownModules), none means always shown. */
+const SECTIONS: { key: string; label: string; icon: "mobileLink" | "waOutline"; module?: string; Panel: () => React.ReactNode }[] = [
+  { key: "mobile", label: "Link Mobile", icon: "mobileLink", Panel: ConnectMobilePanel },
+  { key: "whatsapp", label: "WhatsApp", icon: "waOutline", module: "whatsapp", Panel: WhatsAppPanel },
 ];
 
-/* Where a business manages its integrations. Opened from the header account menu. */
+/* Where a business links the staff app and manages its integrations. Opened from the header account menu. */
 export function SettingsModalContent() {
   const { closeModal } = useModal();
   const { hasModule } = useBranding();
-  const items = useMemo(() => INTEGRATIONS.filter((i) => hasModule(i.module)), [hasModule]);
-  const [active, setActive] = useState(items[0]?.key ?? "");
+  const items = useMemo(() => SECTIONS.filter((i) => !i.module || hasModule(i.module)), [hasModule]);
+  const [active, setActive] = useState(items[0].key);
   const current = items.find((i) => i.key === active) ?? items[0];
 
   return (
@@ -26,7 +28,7 @@ export function SettingsModalContent() {
       <div className="bd bd-scroll">
         <div className="set-wrap">
           <nav className="set-nav" aria-label="Settings sections">
-            <span className="set-nav-h">Integrations</span>
+            <span className="set-nav-h">Settings</span>
             {items.map((i) => (
               <button
                 key={i.key}
@@ -34,12 +36,12 @@ export function SettingsModalContent() {
                 className={i.key === current?.key ? "on" : ""}
                 onClick={() => setActive(i.key)}
               >
-                <Icon name={i.icon} /> {i.label}
+                <span className="set-nav-ico"><Icon name={i.icon} /></span> {i.label}
               </button>
             ))}
           </nav>
           <section className="set-pane">
-            {current ? <current.Panel /> : <p className="connect-qr-msg">No integrations are enabled for your business.</p>}
+            <current.Panel />
           </section>
         </div>
       </div>

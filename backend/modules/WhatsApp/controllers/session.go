@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
@@ -18,6 +20,9 @@ import (
 var (
 	nonDigits      = regexp.MustCompile(`\D`)
 	pairingPhoneRe = regexp.MustCompile(`^[0-9]{6,15}$`)
+	nonSessionChar = regexp.MustCompile(`[^a-z0-9]+`)
+	// one connect per business at a time: a second /start while the engine boots fails the session
+	connectLocks sync.Map
 )
 
 type pairingRequest struct {
@@ -61,9 +66,8 @@ func ensureSession(ctx context.Context) (*models.Session, error) {
 			return nil, err
 		}
 	}
-	tenantID, _ := config.TenantFromContext(ctx)
 	var created openwaSession
-	if err := openwaCall(http.MethodPost, "/sessions", map[string]string{"name": fmt.Sprintf("cloudhouse-%d", tenantID)}, &created); err != nil {
+	if err := openwaCall(http.MethodPost, "/sessions", map[string]string{"name": sessionName(ctx)}, &created); err != nil {
 		if isOpenWAStatus(err, http.StatusConflict) {
 			return nil, common.NewConflict("a WhatsApp session already exists for this business; ask support to reset it")
 		}
@@ -74,6 +78,23 @@ func ensureSession(ctx context.Context) (*models.Session, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// sessionName names the OpenWA session after the business, e.g. "sunrise-gold-loans-12"; the id keeps
+// two businesses with the same name apart, and OpenWA allows only letters, digits and hyphens, up to 50.
+func sessionName(ctx context.Context) string {
+	tenantID, _ := config.TenantFromContext(ctx)
+	base := "cloudhouse"
+	if t, err := common.FindTenantByID(ctx, tenantID); err == nil {
+		if slug := strings.Trim(nonSessionChar.ReplaceAllString(strings.ToLower(t.Name), "-"), "-"); slug != "" {
+			base = slug
+		}
+	}
+	suffix := fmt.Sprintf("-%d", tenantID)
+	if len(base) > 50-len(suffix) {
+		base = strings.TrimRight(base[:50-len(suffix)], "-")
+	}
+	return base + suffix
 }
 
 // refreshSession syncs the stored status/phone with OpenWA and returns the view.
@@ -115,6 +136,10 @@ func GetWhatsAppSession(c echo.Context) error {
 
 func ConnectWhatsAppSession(c echo.Context) error {
 	ctx := auth.RequestContext(c)
+	tenantID, _ := config.TenantFromContext(ctx)
+	lock, _ := connectLocks.LoadOrStore(tenantID, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
 	s, err := ensureSession(ctx)
 	if err != nil {
 		return common.FailErr(c, err)

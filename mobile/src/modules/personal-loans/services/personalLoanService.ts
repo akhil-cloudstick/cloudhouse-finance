@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest, API_BASE_URL, apiUrl } from "@/common/services/httpClient";
-import type { Frequency, PersonalLoan, PersonalLoanInstallment, PersonalLoanPayment, CreatePersonalLoanInput, RenewInput, RenewalPreview, RenewResult, PersonalLoanApproval } from "@/modules/personal-loans/types/personal-loan-types";
+import type { Frequency, PersonalLoan, PersonalLoanInstallment, PersonalLoanPayment, CreatePersonalLoanInput, RenewInput, RenewalPreview, RenewResult, PersonalLoanApproval, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 
 // Page-scoped list — mirrors mobile Loans' listLoansPage convention
 // (0-based `offset`, {items, hasMore} envelope) rather than the web's
@@ -74,6 +74,6 @@ export function listPersonalLoanApprovals(id: number) {
 }
 
 // The bond PDF, downloaded straight to a file (expo-file-system) rather than through apiRequest.
-export function personalLoanBondUrl(loanId: number | string): string {
-  return apiUrl(`/personal-loans/${loanId}/bond`);
+export function personalLoanBondUrl(loanId: number | string, lang: PersonalLoanBondLang): string {
+  return apiUrl(`/personal-loans/${loanId}/bond?lang=${lang}`);
 }
