@@ -1,6 +1,5 @@
 <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Promissory Note — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
 <h1>PROMISSORY NOTE</h1>
-<h2>Personal Loan Account No. {{.LoanNumber}}</h2>
 
 <p>
 Promissory note executed in favour of the proprietor of the establishment <b>{{.FinancierName}}</b>,
@@ -18,18 +17,12 @@ establishment on {{printf "%02d" .Day}}/{{.Month}}/{{.Year}}, together with inte
 <b>{{.InterestRate}}</b> per annum.
 </p>
 
-<div class="meta">
-<div>Date :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</div>
-<div>Place :- {{.Blank}}</div>
-</div>
-
-<div class="sig">
-<div><span>Signature of the Borrower<br>Name: {{.BorrowerName}}</span></div>
-<div><span>&nbsp;</span></div>
-</div>
+<p class="ennu">Yours faithfully,</p>
 
 <div class="footer-row">
-<div>Mobile No :- {{.Mobile}}&nbsp;&nbsp;&nbsp;&nbsp;Name :- {{.BorrowerName}}</div>
+<div>Mobile No :- {{.Mobile}}</div>
+<div class="r">Name :- {{.BorrowerName}}</div>
+<div class="r">Signature :- {{.Blank}}</div>
 </div>
 
 <div class="witness">

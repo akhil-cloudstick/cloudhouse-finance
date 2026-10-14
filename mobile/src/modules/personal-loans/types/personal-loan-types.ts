@@ -81,6 +81,12 @@ export type CreatePersonalLoanInput = {
   // true: hand over the full principal now (no interest withheld upfront);
   // the customer then owes Principal + Interest. Default false.
   fullDisbursement?: boolean;
+  // How the amount handed to the customer left the till, and the branch bank account a UPI / Bank Transfer share leaves from.
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
 };
 export type RenewInput = {
   principalAmount: number;
@@ -88,6 +94,12 @@ export type RenewInput = {
   interestValue: number;
   frequency: Frequency;
   tenureCount: number;
+  // The payout split (when the renewal pays the customer anything) and the bank a non-cash share leaves from.
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
 };
 export type RenewalPreview = {
   rollover: number;

@@ -9,12 +9,12 @@ import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
 // download-to-cache-file pattern as schemeStatement.ts's downloadToCache,
 // shared by the share (downloadInvestmentBondPdf) and preview
 // (previewInvestmentBondPdf) actions below.
-async function downloadToCache(investmentId: number, investmentNumber: string): Promise<string> {
+async function downloadToCache(investmentId: number, investmentNumber: string, path = "bond/pdf", stem = "debenture-subscription-agreement"): Promise<string> {
   const token = await getToken();
-  const filename = `debenture-subscription-agreement-${investmentNumber}.pdf`;
+  const filename = `${stem}-${investmentNumber}.pdf`;
   const targetUri = `${FileSystem.cacheDirectory}${filename}`;
   const result = await FileSystem.downloadAsync(
-    apiUrl(`/investments/${investmentId}/bond/pdf`),
+    apiUrl(`/investments/${investmentId}/${path}`),
     targetUri,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} }
   );
@@ -39,5 +39,12 @@ export async function downloadInvestmentBondPdf(investmentId: number, investment
 // pattern as schemeStatement.ts's previewSchemeStatementPdf.
 export async function previewInvestmentBondPdf(investmentId: number, investmentNumber: string): Promise<void> {
   const uri = await withPrintProgress(() => downloadToCache(investmentId, investmentNumber));
+  await Print.printAsync({ uri });
+}
+
+// Opens the investment's account statement (GET /investments/:id/statement/pdf) in the native print dialog —
+// web's printInvestmentStatementPdf.
+export async function previewInvestmentStatementPdf(investmentId: number, investmentNumber: string): Promise<void> {
+  const uri = await withPrintProgress(() => downloadToCache(investmentId, investmentNumber, "statement/pdf", "investment-statement"));
   await Print.printAsync({ uri });
 }

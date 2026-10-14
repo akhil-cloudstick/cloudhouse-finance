@@ -1,3 +1,5 @@
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
+import { MOVEMENT_TYPE_OPTIONS } from "@/common/components/movementLedger";
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
@@ -79,15 +81,15 @@ export function billDetail(receiptImage?: string): { k: string; v: React.ReactNo
   return [{ k: "Bill", v: <BillLink path={receiptImage} /> }];
 }
 
-type BillLinkProps = { path: string };
+type BillLinkProps = { path: string; label?: string };
 
 // Opens the bill in an in-app sheet that sends the session token (the server
 // only serves /uploads/* to a signed-in caller) and falls back cleanly.
-function BillLink({ path }: BillLinkProps) {
+export function BillLink({ path, label = "View bill" }: BillLinkProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <LedgerLink label="View bill" to="/cash" onPress={() => setOpen(true)} />
+      <LedgerLink label={label} to="/cash" onPress={() => setOpen(true)} />
       <BillSheet path={open ? path : null} onClose={() => setOpen(false)} />
     </>
   );
@@ -159,24 +161,26 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName, focus }: Ledg
   // One grouped filter: Mode (bank ledger only), Branch + Bank (mode ledgers;
   // Cash has no bank of record), and Date — like web's PartyLedger / ModeLedgerPage.
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  // No Branch filter for a one-branch business or a branch-confined role (same rule as web).
+  const showBranchFilter = useShowBranchFilter();
   const fromDate = gfDate(fv, "date").from;
   const toDate = gfDate(fv, "date").to;
-  // Several (or no) modes on a bank ledger fall back to its combined view.
-  const modeValues = gfValues(fv, "mode");
-  const singleMode = kind === "bank" && modeValues.length === 1 ? modeValues[0] : undefined;
-  const branchCsv = kind === "mode" ? gfValues(fv, "branch").join(",") || undefined : undefined;
+  // Bank ledgers take any number of modes (like web); mode ledgers take Branch, Bank and Type.
+  const modeCsv = kind === "bank" ? gfValues(fv, "mode").join(",") || undefined : undefined;
+  const typeCsv = kind === "mode" ? gfValues(fv, "type").join(",") || undefined : undefined;
+  const branchCsv = kind === "mode" && showBranchFilter ? gfValues(fv, "branch").join(",") || undefined : undefined;
   const modeBankId = kind === "mode" && gfFirst(fv, "bank") ? Number(gfFirst(fv, "bank")) : undefined;
   const sections: GFSection[] = [
     ...(kind === "bank" ? [{ kind: "static" as const, key: "mode", label: "Mode", options: LEDGER_MODES.map((m) => ({ value: m, label: m })) }] : []),
     ...(kind === "mode"
       ? [
-          {
+          ...(!showBranchFilter ? [] : [{
             kind: "async" as const,
             key: "branch",
             label: "Branch",
             fetchPage: (p: { q?: string; limit: number; offset: number }) =>
               listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
-          },
+          }]),
           ...(ledgerRef !== "Cash"
             ? [
                 {
@@ -191,6 +195,8 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName, focus }: Ledg
             : []),
         ]
       : []),
+    // Mode ledgers can also narrow by transaction type — same options as the Ledger page.
+    ...(kind === "mode" ? [{ kind: "static" as const, key: "type", label: "Type", options: MOVEMENT_TYPE_OPTIONS }] : []),
     { kind: "date" as const, key: "date", label: "Date" },
   ];
   const categoryIds = useExpenseCategoryIds();
@@ -206,8 +212,7 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName, focus }: Ledg
     setExporting(true);
     toast.info("Preparing PDF", "The ledger will open in the share sheet.");
     try {
-      if (singleMode) await shareLedgerPdf("mode", singleMode, { fromDate, toDate }, "Ledger", { bankId: Number(ledgerRef) });
-      else await shareLedgerPdf(kind, ledgerRef, { fromDate, toDate }, "Ledger", { bankId: modeBankId, branchIds: branchCsv });
+      await shareLedgerPdf(kind, ledgerRef, { fromDate, toDate }, "Ledger", { bankId: modeBankId, branchIds: branchCsv, modes: modeCsv, types: typeCsv });
     } catch (e) {
       if (isUserCancel(e)) return;
       toast.error("Download failed", userMessage(e, "Could not download the ledger — try again."));
@@ -216,13 +221,11 @@ export function LedgerList({ kind, ledgerRef, top, onCategoryName, focus }: Ledg
     }
   }
   const list = useServerList<LedgerRow>({
-    key: ["ledger", kind, ledgerRef, fromDate, toDate, singleMode, branchCsv, modeBankId],
+    key: ["ledger", kind, ledgerRef, fromDate, toDate, modeCsv, typeCsv, branchCsv, modeBankId],
     fetchPage: (p) =>
-      (singleMode
-        ? getModeLedger(singleMode, { limit: p.limit, offset: p.offset, fromDate, toDate, bankId: Number(ledgerRef) })
-        : kind === "mode"
-          ? getModeLedger(ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate, bankId: modeBankId, branchIds: branchCsv })
-          : getLedger(kind, ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate })
+      (kind === "mode"
+        ? getModeLedger(ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate, bankId: modeBankId, branchIds: branchCsv, types: typeCsv })
+        : getLedger(kind, ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate, modes: modeCsv })
       ).then((r) => {
         if (r.categoryName) onCategoryName?.(r.categoryName);
         setTotals({ debit: r.totalDebit ?? 0, credit: r.totalCredit ?? 0 });

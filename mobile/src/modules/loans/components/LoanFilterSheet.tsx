@@ -1,110 +1,67 @@
-import React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AccBtn, AsyncSelect, ChipToggle, DateField, Field, FieldRow, Sheet, ThemeDropdown } from "@/common/components/ui";
-import { listBranches } from "@/modules/branches/services/branchService";
+import { emptyGroupedFilter, gfDate, gfValues, groupedFilterCount, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
-import type { Branch } from "@/modules/branches/types/branch-types";
-import type { Customer } from "@/modules/customers/types/customer-types";
 
-// One grouped filter for the Loans list (mirrors web Loans.tsx's FilterPanel):
-// Status (single), Branch (single, hidden for single-branch businesses),
-// Customer (single, backend-searched), Date range. Selected values are shown
-// by name inside the sheet; one "Reset all" clears everything.
+// One grouped filter for the Loans list (mirrors web LoansPage's FilterPanel): Status,
+// Branch and Customer are all multi-select (a loan matches any selected value within a
+// section), plus a Date range on the opened date. The Branch section is left out for a
+// one-branch business or a branch-confined role (see use-branch-switch.ts).
 
-export const LOAN_STATUS_OPTIONS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"] as const;
+export const LOAN_STATUS_OPTIONS = ["Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"] as const;
 export type LoanStatusOption = (typeof LOAN_STATUS_OPTIONS)[number];
 
 // Due Soon / Overdue / Defaulted are read-time classifications → `servicing`.
 const SERVICING: Partial<Record<LoanStatusOption, string>> = { "Due Soon": "due_soon", Overdue: "overdue", Defaulted: "defaulted" };
 
-export type LoanFilters = {
-  status: LoanStatusOption;
-  branch: { id: number; name: string } | null;
-  customer: { id: number; label: string } | null;
-  from: string;
-  to: string;
-};
-export const EMPTY_LOAN_FILTERS: LoanFilters = { status: "All", branch: null, customer: null, from: "", to: "" };
+export type LoanFilters = GroupedFilterValue;
+export const EMPTY_LOAN_FILTERS: LoanFilters = emptyGroupedFilter();
 
-export function loanFilterCount(f: LoanFilters) {
-  return (f.status !== "All" ? 1 : 0) + (f.branch ? 1 : 0) + (f.customer ? 1 : 0) + (f.from || f.to ? 1 : 0);
+export const loanFilterCount = (f: LoanFilters) => groupedFilterCount(f);
+
+/** The Loans filter sections. `branchIds` narrows the Customer list to those branches (a customer has one home branch). */
+export function loanFilterSections(showBranch: boolean, branchIds: string[]): GFSection[] {
+  return [
+    { kind: "static", key: "status", label: "Status", options: LOAN_STATUS_OPTIONS.map((s) => ({ value: s, label: s })) },
+    ...(showBranch
+      ? [
+          {
+            kind: "async" as const,
+            key: "branch",
+            label: "Branch",
+            fetchPage: (p: { q?: string; limit: number; offset: number }) =>
+              listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+          },
+        ]
+      : []),
+    {
+      kind: "async",
+      key: "customer",
+      label: "Customer",
+      deps: [branchIds.join(",")],
+      fetchPage: (p) =>
+        listCustomersPage({ q: p.q, limit: p.limit, offset: p.offset, ...(branchIds.length ? { branchIds: branchIds.map(Number) } : {}) }).then((r) => ({
+          items: r.items.map((c) => ({ value: String(c.id), label: c.code ? `${c.name} (${c.code})` : c.name })),
+          hasMore: r.hasMore,
+        })),
+    },
+    { kind: "date", key: "date", label: "Date" },
+  ];
 }
 
-/** Query params for GET /loans. */
-export function loanFilterParams(f: LoanFilters) {
-  const servicing = SERVICING[f.status];
+/** Query params for GET /loans — arrays go comma-joined, as on web. */
+export function loanFilterParams(f: LoanFilters, showBranch = true) {
+  const statuses = gfValues(f, "status");
+  const servicing = statuses.map((s) => SERVICING[s as LoanStatusOption]).filter((s): s is string => !!s);
+  const stored = statuses.filter((s) => !SERVICING[s as LoanStatusOption]);
+  const branches = showBranch ? gfValues(f, "branch") : [];
+  const customers = gfValues(f, "customer");
+  const { from, to } = gfDate(f, "date");
   return {
-    status: f.status === "All" || servicing ? undefined : f.status,
-    servicing,
-    branchId: f.branch?.id,
-    customerId: f.customer?.id,
-    from: f.from || undefined,
-    to: f.to || undefined,
+    status: stored.length ? stored.join(",") : undefined,
+    servicing: servicing.length ? servicing.join(",") : undefined,
+    branchId: branches.length ? branches.join(",") : undefined,
+    customerId: customers.length ? customers.join(",") : undefined,
+    from: from || undefined,
+    to: to || undefined,
   };
-}
-
-export function loanFilterSummary(f: LoanFilters) {
-  const parts = [
-    f.status !== "All" ? f.status : null,
-    f.branch?.name,
-    f.customer?.label,
-    f.from || f.to ? "Date range" : null,
-  ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "All loans";
-}
-
-const customerLabel = (c: Customer) => (c.code ? `${c.name} (${c.code})` : c.name);
-
-type LoanFilterSheetProps = {
-  visible: boolean;
-  onClose: () => void;
-  value: LoanFilters;
-  onChange: (next: LoanFilters) => void;
-};
-
-export function LoanFilterSheet({
-  visible,
-  onClose,
-  value,
-  onChange,
-}: LoanFilterSheetProps) {
-  const branches = useQuery({ queryKey: ["branches", "all"], queryFn: listBranches, enabled: visible });
-  const showBranch = (branches.data?.length ?? 0) > 1;
-  const set = (patch: Partial<LoanFilters>) => onChange({ ...value, ...patch });
-
-  return (
-    <Sheet visible={visible} onClose={onClose} title="Filter Loans" maxHeightPct={85}>
-      <Field label="Status">
-        <ChipToggle<LoanStatusOption> options={LOAN_STATUS_OPTIONS} value={value.status} onChange={(v) => set({ status: v })} wrap />
-      </Field>
-      {showBranch ? (
-        <Field label="Branch">
-          <ThemeDropdown<Branch | null>
-            value={value.branch ? ((branches.data ?? []).find((b) => b.id === value.branch!.id) ?? null) : null}
-            options={[null, ...(branches.data ?? [])]}
-            onChange={(b) => set({ branch: b ? { id: b.id, name: b.name } : null })}
-            labelOf={(b) => (b ? b.name : "All branches")}
-            keyOf={(b) => (b ? b.id : 0)}
-            placeholder="All branches"
-          />
-        </Field>
-      ) : null}
-      <AsyncSelect<Customer>
-        label="Customer"
-        placeholder="Search customer by name or ID"
-        queryKey={["customers", "loan-filter-picker"]}
-        fetcher={async (q) => (await listCustomersPage({ q: q || undefined, limit: 30, offset: 0 })).items ?? []}
-        selectedLabel={value.customer?.label}
-        onSelect={(c) => set({ customer: { id: c.id, label: customerLabel(c) } })}
-        onClear={() => set({ customer: null })}
-        keyOf={(c) => c.id}
-        renderItem={(c) => ({ title: c.name, sub: c.code })}
-      />
-      <FieldRow>
-        <DateField label="From date" value={value.from} onChange={(v) => set({ from: v })} clearable max={value.to || undefined} />
-        <DateField label="To date" value={value.to} onChange={(v) => set({ to: v })} clearable min={value.from || undefined} />
-      </FieldRow>
-      {loanFilterCount(value) > 0 ? <AccBtn label="Reset all" onPress={() => onChange(EMPTY_LOAN_FILTERS)} /> : null}
-    </Sheet>
-  );
 }

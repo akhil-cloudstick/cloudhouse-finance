@@ -1,13 +1,18 @@
 import React, { useState } from "react";
 import { LayoutAnimation, Pressable, StyleSheet, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
   Avatar,
   Buffering,
   C,
   Card,
+  ChipToggle,
+  ConfirmSheet,
+  Field,
+  Sheet,
+  SheetListItem,
   DetailRow,
   EmptyText,
   FlatHeader,
@@ -21,6 +26,8 @@ import {
   ServerFlatList,
   Txt,
   openPage,
+  useShell,
+  toast,
 } from "@/common/components/ui";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
 import { useServerList, type ServerPage } from "@/common/hooks/use-server-list";
@@ -28,13 +35,16 @@ import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on
 import {
   getCustomer,
   getCustomerAadhaarFull,
+  getCustomerLoanTotals,
+  hardDeleteCustomer,
+  verifyCustomerPan,
   listCustomerAuctionHistoryPage,
   listCustomerBankPledgesPage,
   listCustomerOrnamentsPage,
   listCustomerPaymentsPage,
 } from "@/modules/customers/services/customerService";
 import { listLoansPage } from "@/modules/loans/services/loanService";
-import { LedgerList } from "@/common/components/LedgerList";
+import { BillLink, LedgerList } from "@/common/components/LedgerList";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useCanOpen } from "@/common/config/routePermissions";
@@ -75,15 +85,46 @@ function StatusBadge({ status }: StatusBadgeProps) {
   return <KycBadge verified={isVerified(status)} label={status} />;
 }
 
-type HeaderCardProps = { c: Customer; onEdit: () => void };
+type HeaderCardProps = { c: Customer; onEdit: () => void; onRequest?: () => void };
 
 /** .cust-header-card — collapsible identity card. */
-function HeaderCard({ c, onEdit }: HeaderCardProps) {
+function HeaderCard({ c, onEdit, onRequest }: HeaderCardProps) {
   const [open, setOpen] = useState(true);
   const [aadhaarFull, setAadhaarFull] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
   const [revealError, setRevealError] = useState<string | null>(null);
   const canUpdate = useAuth().can("Customer_Management", "can_update_customer");
+  const canHardDelete = useAuth().can("Customer_Management", "can_hard_delete_customer");
+  const canCreateLoan = useAuth().can("Loan_Management", "can_create_loan");
+  const shell = useShell();
+  const qc = useQueryClient();
+  const router = useRouter();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // PAN verification through the KYC provider — the customer's PAN status updates in place.
+  const verifyPan = useMutation({
+    mutationFn: () => verifyCustomerPan(c.id),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["customer", String(c.id)] });
+      const status = r.customer.panStatus;
+      if (status === "Verified") toast.success("PAN verified", r.message);
+      else if (status === "Name Mismatch") toast.error("PAN verification failed", "The name does not match.");
+      else toast.error("PAN verification failed", r.message);
+    },
+    onError: (e) => toast.error("PAN verification failed", e instanceof ApiError ? e.message : "Try again."),
+  });
+
+  // Permanent delete — the server refuses while any loan is still open and names the loans.
+  const hardDelete = useMutation({
+    mutationFn: () => hardDeleteCustomer(c.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      toast.success("Customer deleted permanently");
+      router.back();
+    },
+    onError: (e) => setDeleteError(e instanceof ApiError ? e.message : "Could not delete the customer — try again."),
+  });
 
   async function reveal() {
     if (aadhaarFull) return setAadhaarFull(null);
@@ -162,8 +203,27 @@ function HeaderCard({ c, onEdit }: HeaderCardProps) {
           />
           <DetailRow k="KYC status" v={c.kycStatus ? <StatusBadge status={c.kycStatus} /> : "—"} />
           {canUpdate ? <PrimaryButton label="Edit Customer" onPress={onEdit} style={{ marginTop: 12 }} /> : null}
+          {onRequest ? <PrimaryButton label="Extension / Release" variant="outline" onPress={onRequest} style={{ marginTop: 10 }} /> : null}
+          {canCreateLoan ? <PrimaryButton label="New Loan" variant="outline" onPress={() => shell.openNewLoanFor(c)} style={{ marginTop: 10 }} /> : null}
+          {canUpdate && c.pan && c.panStatus !== "Verified" ? (
+            <PrimaryButton label={verifyPan.isPending ? "Verifying…" : "Verify PAN"} variant="outline" onPress={() => verifyPan.mutate()} loading={verifyPan.isPending} style={{ marginTop: 10 }} />
+          ) : null}
+          {canHardDelete ? (
+            <PrimaryButton label="Delete Customer Permanently" variant="danger" onPress={() => { setDeleteError(null); setDeleteOpen(true); }} style={{ marginTop: 10 }} />
+          ) : null}
         </View>
       ) : null}
+      <ConfirmSheet
+        visible={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="Delete Customer Permanently"
+        danger
+        message={`Permanently delete ${c.name} and every record tied to them — loans, payments, ornaments and reminders? This cannot be undone. It is refused while any of their loans is still open.`}
+        confirmLabel="Delete Permanently"
+        loading={hardDelete.isPending}
+        error={deleteError}
+        onConfirm={() => hardDelete.mutate()}
+      />
     </View>
   );
 }
@@ -219,11 +279,52 @@ function LedgerTabList({ customerId, top }: LedgerTabListProps) {
   return <LedgerList kind="customer" ledgerRef={String(customerId)} top={top} />;
 }
 
+type LoanRequestPickerProps = { customerId: number; visible: boolean; onClose: () => void };
+
+/** Extension / Release for one of this customer's open loans — pick which, then it opens on that loan (web's picker). */
+function LoanRequestPicker({ customerId, visible, onClose }: LoanRequestPickerProps) {
+  const [kind, setKind] = useState<"extend" | "release">("extend");
+  const loans = useQuery({
+    queryKey: ["customer-open-loans", customerId],
+    queryFn: () => listLoansPage({ customerId, limit: 50, offset: 0 }),
+    enabled: visible,
+  });
+  const open = (loans.data?.items ?? []).filter((l) => !/closed|rejected|released/i.test(l.status ?? ""));
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Extension / Release" maxHeightPct={75}>
+      <Field label="Request">
+        <ChipToggle options={["extend", "release"] as const} labels={{ extend: "Extension", release: "Release" }} value={kind} onChange={setKind} />
+      </Field>
+      {loans.isLoading ? (
+        <Buffering block />
+      ) : open.length === 0 ? (
+        <EmptyText>No open loans for this customer.</EmptyText>
+      ) : (
+        open.map((l, i) => (
+          <SheetListItem
+            key={l.id}
+            first={i === 0}
+            icon={kind === "extend" ? "calendar" : "coin"}
+            title={l.loanNumber}
+            sub={`${l.status} · ${inr(l.principalAmount)}`}
+            onPress={() => {
+              onClose();
+              openPage(`/loans/${l.id}?action=${kind}`);
+            }}
+          />
+        ))
+      )}
+    </Sheet>
+  );
+}
+
 export default function CustomerDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const customerId = Number(id);
   const [tab, setTab] = useState<Tab>("Loans");
   const [editOpen, setEditOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const canUpdateLoan = useAuth().can("Loan_Management", "can_update_loan");
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["customer", id],
@@ -231,6 +332,8 @@ export default function CustomerDetailScreen() {
     enabled: !!id,
   });
   useRefetchOnFocus(refetch);
+  // The customer's overall loan totals (web's "Overall Loan Details").
+  const totals = useQuery({ queryKey: ["customer-totals", id], queryFn: () => getCustomerLoanTotals(customerId), enabled: !!id, retry: false });
   useResetOnBlur(() => setEditOpen(false));
 
   const viewLoan = (loanId: number) => openPage(`/loans/${loanId}`);
@@ -255,13 +358,36 @@ export default function CustomerDetailScreen() {
 
   const top = (
     <>
-      <HeaderCard c={data} onEdit={() => setEditOpen(true)} />
+      <HeaderCard c={data} onEdit={() => setEditOpen(true)} onRequest={canUpdateLoan ? () => setRequestOpen(true) : undefined} />
       {data.nomineeName || data.nomineeRelation || data.nomineePhone ? (
         <Card style={{ marginBottom: 14 }}>
           <SectionTitle flush>Nominee</SectionTitle>
           <DetailRow first k="Name" v={data.nomineeName || "—"} />
           <DetailRow k="Relation" v={data.nomineeRelation || "—"} />
           <DetailRow k="Mobile" v={data.nomineePhone || "—"} />
+        </Card>
+      ) : null}
+      <Card style={{ marginBottom: 14 }}>
+        <SectionTitle flush>Identity &amp; KYC documents</SectionTitle>
+        {(
+          [
+            ["Photograph", data.photoUrl],
+            ["Identity proof", data.identityProofUrl],
+            ["Address proof", data.addressProofUrl],
+            ["Additional document", data.kycDocumentUrl],
+          ] as const
+        ).map(([label, url], i) => (
+          <DetailRow key={label} first={i === 0} k={label} v={url ? <BillLink path={url} label="View" /> : "—"} />
+        ))}
+      </Card>
+      {totals.data ? (
+        <Card style={{ marginBottom: 14 }}>
+          <SectionTitle flush>Overall loan details</SectionTitle>
+          <DetailRow first k="Total disbursed" v={inr(totals.data.totalDisbursed)} />
+          <DetailRow k="Outstanding" v={inr(totals.data.totalOutstanding)} />
+          <DetailRow k="Total paid" v={inr(totals.data.totalPaid)} />
+          <DetailRow k="Active loans" v={String(totals.data.activeLoanCount)} />
+          <DetailRow k="Closed loans" v={String(totals.data.closedLoanCount)} />
         </Card>
       ) : null}
       <PillTabs tabs={visibleTabs} value={tab} onChange={setTab} />
@@ -410,6 +536,7 @@ export default function CustomerDetailScreen() {
       )}
 
       <CustomerFormSheet visible={editOpen} onClose={() => setEditOpen(false)} customer={data} />
+      <LoanRequestPicker customerId={customerId} visible={requestOpen} onClose={() => setRequestOpen(false)} />
     </Screen>
   );
 }

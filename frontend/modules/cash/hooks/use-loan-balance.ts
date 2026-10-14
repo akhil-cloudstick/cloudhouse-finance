@@ -10,7 +10,7 @@ import { type LoanBalance } from "@/modules/cash/types/cash-source-types";
  * the Add Entry forms to block an amount the loan can't take. */
 export function useLoanBalance(cat: { id: number; name: string; principalAmount?: number } | null): LoanBalance | null {
   const [balance, setBalance] = useState<LoanBalance | null>(null);
-  const id = cat && cat.id > 0 && isLoanSource(cat.name) && cat.principalAmount != null ? cat.id : 0;
+  const id = cat && cat.id > 0 && isLoanSource(cat.name) ? cat.id : 0;
   useEffect(() => {
     let cancelled = false;
     setBalance(null);

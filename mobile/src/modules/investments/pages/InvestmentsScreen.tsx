@@ -36,9 +36,10 @@ import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listCustomers } from "@/modules/customers/services/customerService";
 import { ApiError } from "@/common/services/httpClient";
-import { addCashToInvestment, createInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentTransactionsPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment } from "@/modules/investments/services/investmentService";
+import { addCashToInvestment, createInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentTransactionsPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
 import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InvestmentStatus, type InvestmentTransaction, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
-import { previewInvestmentBondPdf } from "@/modules/investments/utils/investmentBond";
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
+import { previewInvestmentBondPdf, previewInvestmentStatementPdf } from "@/modules/investments/utils/investmentBond";
 import { dmy, inr } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { isUserCancel, loadErrorText, userMessage } from "@/common/services/apiErrors";
@@ -369,6 +370,7 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [plan, setPlan] = useState<InvestmentPlan | null>(null);
   const [principal, setPrincipal] = useState("");
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -384,7 +386,7 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
   const principalNum = +principal || 0;
 
   const submit = useMutation({
-    mutationFn: () => createInvestment({ branchId: customer!.branchId, customerId: customer!.id, planId: plan!.id, principalAmount: principalNum }),
+    mutationFn: () => createInvestment({ branchId: customer!.branchId, customerId: customer!.id, planId: plan!.id, principalAmount: principalNum, ...(pay?.split ?? {}), bankId: pay?.bankId }),
     onSuccess: (inv) => {
       qc.invalidateQueries({ queryKey: ["investments"] });
       onCreated(inv);
@@ -396,6 +398,7 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
     if (!customer) return "Please select an investor.";
     if (!plan) return "Please select an investment plan.";
     if (!principalNum || principalNum <= 0) return "Please enter the principal amount.";
+    if (!pay?.ready) return "The payment breakdown must add up to the principal, with a bank for every UPI / Bank Transfer line.";
     if (principalNum < plan.minPrincipal) return `Principal must be at least ${inr(plan.minPrincipal)} for this plan.`;
     return null;
   }
@@ -425,6 +428,7 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
       <Field label="Principal amount">
         <Input keyboardType="decimal-pad" placeholder={plan ? `Min ${inr(plan.minPrincipal)}` : "e.g. 100000"} value={principal} onChangeText={setPrincipal} />
       </Field>
+      {principalNum > 0 ? <SplitPaymentInput total={principalNum} onChange={setPay} bankLabel="Bank (account it landed in)" /> : null}
       <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
         <FieldGrid
           items={[
@@ -456,10 +460,11 @@ type InvestmentDetailSheetProps = { investmentId: number | null; onClose: () => 
 // Detail (prototype #inv-detail-modal) + schedule / transactions (paged)
 // ---------------------------------------------------------------------------
 function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentDetailSheetProps) {
+  const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
   const qc = useQueryClient();
   const visible = investmentId != null;
   const id = investmentId ?? 0;
-  const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | null>(null);
+  const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | "payInterest" | null>(null);
   const [payout, setPayout] = useState<InvestmentPayout | null>(null);
   const [printing, setPrinting] = useState(false);
 
@@ -489,6 +494,19 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
     qc.invalidateQueries({ queryKey: ["investmentSchedule", id] });
     qc.invalidateQueries({ queryKey: ["investments"] });
   };
+
+  async function printStatement() {
+    if (!inv) return;
+    setPrinting(true);
+    try {
+      await previewInvestmentStatementPdf(inv.id, inv.investmentNumber);
+    } catch (e) {
+      if (isUserCancel(e)) return;
+      toast.error("Preview failed", errMsg(e, "Could not open the statement."));
+    } finally {
+      setPrinting(false);
+    }
+  }
 
   async function printBond() {
     if (!inv) return;
@@ -538,14 +556,20 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
             .join(" · ")}
         </NoticeBanner>
       ) : null}
+      {canExport ? (
+        <PrimaryButton label="Print Statement" variant="outline" loading={printing} onPress={printStatement} style={{ marginBottom: 10 }} />
+      ) : null}
       {inv.plan?.productType === "Bond" ? (
         <PrimaryButton label="Print Agreement" variant="outline" loading={printing} onPress={printBond} style={{ marginBottom: 10 }} />
       ) : null}
-      {canUpdate && inv.status === "Active" && isLive ? (
+      {canUpdate && isLive && (inv.status === "Active" || inv.status === "Matured") ? (
         <BtnRow2 style={{ marginBottom: 10 }}>
-          <PrimaryButton label="Add Cash" variant="outline" onPress={() => setAction("addCash")} />
+          {inv.status === "Active" ? <PrimaryButton label="Add Cash" variant="outline" onPress={() => setAction("addCash")} /> : null}
           <PrimaryButton label="Withdraw" variant="outline" onPress={() => setAction("withdraw")} />
         </BtnRow2>
+      ) : null}
+      {canUpdate && !isLive && (inv.status === "Active" || inv.status === "Matured") ? (
+        <PrimaryButton label="Pay Interest" variant="outline" onPress={() => setAction("payInterest")} style={{ marginBottom: 10 }} />
       ) : null}
       {canUpdate && inv.status === "Matured" ? <PrimaryButton label="Close / Renew" onPress={() => setAction("mature")} style={{ marginBottom: 10 }} /> : null}
       <SectionTitle flush style={{ marginTop: 8 }}>
@@ -623,6 +647,7 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
           <AddCashSheet inv={inv} visible={action === "addCash"} onClose={() => setAction(null)} onDone={invalidate} />
           <WithdrawSheet inv={inv} visible={action === "withdraw"} onClose={() => setAction(null)} onDone={invalidate} />
           <CloseRenewSheet inv={inv} visible={action === "mature"} onClose={() => setAction(null)} onDone={invalidate} />
+          <PayInterestSheet inv={inv} visible={action === "payInterest"} onClose={() => setAction(null)} onDone={invalidate} />
           <MarkPaidSheet inv={inv} payout={payout} onClose={() => setPayout(null)} onDone={invalidate} />
         </>
       ) : null}
@@ -645,19 +670,18 @@ function ModeField({ value, onChange }: ModeFieldProps) {
 // prototype #inv-addcash-modal
 function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState<PaymentMode>("Cash");
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (visible) {
       setAmount("");
-      setMode("Cash");
       setReference("");
       setError(null);
     }
   }, [visible]);
   const m = useMutation({
-    mutationFn: () => addCashToInvestment(inv.id, { amount: Number(amount), reference: reference.trim() || undefined, ...splitForMode(mode, Number(amount)) }),
+    mutationFn: () => addCashToInvestment(inv.id, { amount: Number(amount), reference: reference.trim() || undefined, ...(pay?.split ?? {}), bankId: pay?.bankId } as Parameters<typeof addCashToInvestment>[1]),
     onSuccess: () => {
       onDone();
       onClose();
@@ -665,17 +689,17 @@ function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
     onError: (err) => setError(errMsg(err, "Could not add cash — try again.")),
   });
   return (
-    <Sheet visible={visible} onClose={onClose} title={`Add Cash — ${inv.investmentNumber}`} maxHeightPct={60}>
+    <Sheet visible={visible} onClose={onClose} title={`Add Cash — ${inv.investmentNumber}`} maxHeightPct={88}>
       <Txt style={{ fontSize: 12, color: C.muted, marginTop: 6, marginBottom: 10 }}>Current outstanding principal: {inr(inv.outstandingPrincipal)}</Txt>
       <Field label="Amount">
         <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
       </Field>
-      <ModeField value={mode} onChange={setMode} />
+      <SplitPaymentInput total={Number(amount) || 0} onChange={setPay} />
       <Field label="Reference">
         <Input placeholder="Optional" value={reference} onChangeText={setReference} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Add Cash" onPress={() => m.mutate()} loading={m.isPending} disabled={!amount || Number(amount) <= 0} />
+      <PrimaryButton label="Add Cash" onPress={() => m.mutate()} loading={m.isPending} disabled={!amount || Number(amount) <= 0 || !pay?.ready} />
     </Sheet>
   );
 }
@@ -685,7 +709,7 @@ function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [from, setFrom] = useState<(typeof WITHDRAW_FROM)[number]>("Interest");
   const [interest, setInterest] = useState("");
   const [principal, setPrincipal] = useState("");
-  const [mode, setMode] = useState<PaymentMode>("Cash");
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -693,7 +717,6 @@ function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
       setFrom("Interest");
       setInterest("");
       setPrincipal("");
-      setMode("Cash");
       setReference("");
       setError(null);
     }
@@ -702,7 +725,7 @@ function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const principalAmount = from === "Interest" ? 0 : Number(principal || 0);
   const m = useMutation({
     mutationFn: () =>
-      withdrawFromInvestment(inv.id, { interestAmount, principalAmount, reference: reference.trim() || undefined, ...splitForMode(mode, interestAmount + principalAmount) }),
+      withdrawFromInvestment(inv.id, { interestAmount, principalAmount, reference: reference.trim() || undefined, ...(pay?.split ?? {}), bankId: pay?.bankId } as Parameters<typeof withdrawFromInvestment>[1]),
     onSuccess: () => {
       onDone();
       onClose();
@@ -710,7 +733,7 @@ function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
     onError: (err) => setError(errMsg(err, "Could not withdraw — try again.")),
   });
   return (
-    <Sheet visible={visible} onClose={onClose} title={`Withdraw — ${inv.investmentNumber}`} maxHeightPct={65}>
+    <Sheet visible={visible} onClose={onClose} title={`Withdraw — ${inv.investmentNumber}`} maxHeightPct={90}>
       <Txt style={{ fontSize: 12, color: C.muted, marginTop: 6, marginBottom: 10 }}>
         Outstanding principal: {inr(inv.outstandingPrincipal)} · Outstanding interest: {inr(inv.outstandingInterest)}
       </Txt>
@@ -727,12 +750,12 @@ function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
           <Input keyboardType="decimal-pad" placeholder="₹" value={principal} onChangeText={setPrincipal} />
         </Field>
       ) : null}
-      <ModeField value={mode} onChange={setMode} />
+      <SplitPaymentInput total={interestAmount + principalAmount} onChange={setPay} />
       <Field label="Reference">
         <Input placeholder="Optional" value={reference} onChangeText={setReference} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Confirm Withdrawal" onPress={() => m.mutate()} loading={m.isPending} disabled={interestAmount + principalAmount <= 0} />
+      <PrimaryButton label="Confirm Withdrawal" onPress={() => m.mutate()} loading={m.isPending} disabled={interestAmount + principalAmount <= 0 || !pay?.ready} />
     </Sheet>
   );
 }
@@ -742,12 +765,16 @@ function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [act, setAct] = useState<"Close" | "Renew">("Close");
   const [plan, setPlan] = useState<InvestmentPlan | null>(null);
   const [principal, setPrincipal] = useState("");
+  const [pay, setPay] = useState<SplitPayment | null>(null);
+  // A Live investment pays principal plus interest out on Close.
+  const payable = (inv.outstandingPrincipal || 0) + (inv.outstandingInterest || 0);
+  const needsPayout = inv.engine === "Live" && act === "Close" && payable > 0;
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (visible) {
       setAct("Close");
       setPlan(null);
-      setPrincipal("");
+      setPrincipal(inv.outstandingPrincipal ? String(inv.outstandingPrincipal) : "");
       setError(null);
     }
   }, [visible]);
@@ -758,6 +785,7 @@ function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
         action: act,
         planId: act === "Renew" ? plan?.id : undefined,
         principalAmount: act === "Renew" ? Number(principal || 0) : undefined,
+        ...(needsPayout ? { ...(pay?.split ?? {}), bankId: pay?.bankId } : {}),
       }),
     onSuccess: () => {
       onDone();
@@ -766,7 +794,7 @@ function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
     onError: (err) => setError(errMsg(err, "Could not apply the maturity decision — try again.")),
   });
   return (
-    <Sheet visible={visible} onClose={onClose} title={`Close / Renew — ${inv.investmentNumber}`} maxHeightPct={60}>
+    <Sheet visible={visible} onClose={onClose} title={`Close / Renew — ${inv.investmentNumber}`} maxHeightPct={90}>
       <Field label="Action" style={{ marginTop: 6 }}>
         <ChipToggle options={["Close", "Renew"] as const} value={act} onChange={setAct} />
       </Field>
@@ -782,8 +810,82 @@ function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
       <Field label="New principal amount (renew only)">
         <Input keyboardType="decimal-pad" placeholder="₹" value={principal} onChangeText={setPrincipal} editable={act === "Renew"} />
       </Field>
+      {needsPayout ? <SplitPaymentInput total={payable} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Confirm" onPress={() => m.mutate()} loading={m.isPending} disabled={act === "Renew" && (!plan || !principal)} />
+      <PrimaryButton label="Confirm" onPress={() => m.mutate()} loading={m.isPending} disabled={(act === "Renew" && (!plan || !principal)) || (needsPayout && !pay?.ready)} />
+    </Sheet>
+  );
+}
+
+type PayInterestSheetProps = { inv: Investment; visible: boolean; onClose: () => void; onDone: () => void };
+
+// Pay several months of a scheduled investment's interest in one go — the amount is applied to the oldest
+// unpaid months in order, each in full, so it has to be a whole number of months (same as web).
+function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetProps) {
+  const [amount, setAmount] = useState("");
+  const [pay, setPay] = useState<SplitPayment | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pending = useQuery({ queryKey: ["investmentPendingInterest", inv.id], queryFn: () => getPendingInterest(inv.id), enabled: visible, staleTime: 0 });
+  const months = pending.data ?? [];
+  useEffect(() => {
+    if (visible) {
+      setError(null);
+      setAmount("");
+    }
+  }, [visible]);
+  // Start from the oldest unpaid month once the list arrives.
+  useEffect(() => {
+    if (visible && months.length && !amount) setAmount(String(months[0].amount));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, months.length]);
+
+  const amt = Number(amount) || 0;
+  // How many whole months the typed amount covers (a part-month is not allowed).
+  let covered = 0;
+  let sum = 0;
+  for (const mth of months) {
+    if (sum + mth.amount > amt + 0.01) break;
+    sum = Math.round((sum + mth.amount) * 100) / 100;
+    covered++;
+  }
+  const exact = amt > 0 && covered > 0 && Math.abs(sum - amt) < 0.01;
+  const total = Math.round(months.reduce((s, mth) => s + mth.amount, 0) * 100) / 100;
+  const m = useMutation({
+    mutationFn: () => payInterestMonths(inv.id, { amount: amt, ...(pay?.split ?? { cashAmount: 0, upiAmount: 0, bankTransferAmount: 0, chequeAmount: 0 }), bankId: pay?.bankId }),
+    onSuccess: (paid) => {
+      toast.success(`${paid.length} month${paid.length === 1 ? "" : "s"} of interest paid`, inr(amt));
+      onDone();
+      onClose();
+    },
+    onError: (err) => setError(errMsg(err, "Could not record the interest payment — try again.")),
+  });
+  return (
+    <Sheet visible={visible} onClose={onClose} title={`Pay Interest — ${inv.investmentNumber}`} maxHeightPct={90}>
+      {pending.isLoading ? (
+        <Buffering block />
+      ) : months.length === 0 ? (
+        <Txt style={{ fontSize: 13, color: C.muted, marginVertical: 12 }}>There is no unpaid interest on this investment.</Txt>
+      ) : (
+        <>
+          <Txt style={{ fontSize: 12.5, color: C.muted, marginTop: 6, marginBottom: 10 }}>
+            {months.length} unpaid month{months.length === 1 ? "" : "s"} · {inr(total)} in all
+          </Txt>
+          <Field label="Amount (₹) *">
+            <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+          </Field>
+          <Txt style={{ fontSize: 12.5, color: exact ? C.green : C.muted, marginBottom: 10 }}>
+            {amt > 0 && covered > 0
+              ? `Covers ${covered} month${covered === 1 ? "" : "s"}: #${months[0].sequenceNo}${covered > 1 ? `–#${months[covered - 1].sequenceNo}` : ""} (due ${dmy(months[0].dueDate)}${covered > 1 ? ` – ${dmy(months[covered - 1].dueDate)}` : ""})`
+              : amt > 0
+                ? `Less than the next month's interest of ${inr(months[0].amount)}`
+                : "Enter the amount to see the months it covers"}
+          </Txt>
+          {amt > 0 && covered > 0 && !exact ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>Not whole months — {inr(sum)} covers {covered}.</Txt> : null}
+          <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it is paid from)" />
+          {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+          <PrimaryButton label="Pay Interest" onPress={() => m.mutate()} loading={m.isPending} disabled={!exact || !pay?.ready} />
+        </>
+      )}
     </Sheet>
   );
 }
@@ -792,16 +894,15 @@ type MarkPaidSheetProps = { inv: Investment; payout: InvestmentPayout | null; on
 
 // Mark a scheduled payout paid — picks the payment mode for the full amount.
 function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
-  const [mode, setMode] = useState<PaymentMode>("Cash");
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (payout) {
-      setMode("Cash");
       setError(null);
     }
   }, [payout]);
   const m = useMutation({
-    mutationFn: () => markPayoutPaid(inv.id, payout!.id, splitForMode(mode, payout!.amount)),
+    mutationFn: () => markPayoutPaid(inv.id, payout!.id, pay!.split, pay!.bankId),
     onSuccess: () => {
       onDone();
       onClose();
@@ -809,7 +910,7 @@ function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
     onError: (err) => setError(errMsg(err, "Could not mark the payout paid — try again.")),
   });
   return (
-    <Sheet visible={!!payout} onClose={onClose} title={`Mark Payout Paid — #${payout?.sequenceNo ?? ""}`} maxHeightPct={55}>
+    <Sheet visible={!!payout} onClose={onClose} title={`Mark Payout Paid — #${payout?.sequenceNo ?? ""}`} maxHeightPct={88}>
       {payout ? (
         <Card style={{ marginHorizontal: 0, marginTop: 6, marginBottom: 14 }}>
           <FieldGrid
@@ -820,9 +921,9 @@ function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
           />
         </Card>
       ) : null}
-      <ModeField value={mode} onChange={setMode} />
+      {payout ? <SplitPaymentInput total={payout.amount} onChange={setPay} /> : null}
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Mark Paid" onPress={() => m.mutate()} loading={m.isPending} />
+      <PrimaryButton label="Mark Paid" onPress={() => m.mutate()} loading={m.isPending} disabled={!pay?.ready} />
     </Sheet>
   );
 }

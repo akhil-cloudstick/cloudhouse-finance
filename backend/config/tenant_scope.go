@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"gorm.io/gorm"
@@ -252,6 +253,28 @@ func stampCallback(db *gorm.DB) {
 	tenantID, ok := TenantFromContext(ctx)
 	if !ok {
 		_ = db.AddError(ErrNoTenantInContext)
+		return
+	}
+	stampTenant(db, tenantID)
+}
+
+// stampTenant sets tenant_id on every row being created. SetColumn alone only reaches the first element of a
+// batch insert, which left the later rows of a batch with no business and invisible to every scoped query.
+func stampTenant(db *gorm.DB, tenantID uint) {
+	rv := db.Statement.ReflectValue
+	if (rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array) && db.Statement.Schema != nil {
+		field := db.Statement.Schema.LookUpField("tenant_id")
+		if field == nil {
+			db.Statement.SetColumn("tenant_id", tenantID)
+			return
+		}
+		for i := 0; i < rv.Len(); i++ {
+			elem := rv.Index(i)
+			for elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
+			_ = field.Set(db.Statement.Context, elem, tenantID)
+		}
 		return
 	}
 	db.Statement.SetColumn("tenant_id", tenantID)

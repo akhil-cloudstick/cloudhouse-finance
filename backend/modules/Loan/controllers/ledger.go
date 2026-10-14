@@ -50,6 +50,9 @@ type LoanLedgerEntry struct {
 	TopUp   *models.LoanTopUp     `json:"top_up,omitempty"`
 	Auction *models.AuctionRecord `json:"auction,omitempty"`
 	Note    string                `json:"note,omitempty"`
+	// Accruing marks interest worked out for this view and not saved to the loan's accruals: the days since the last
+	// charge, up to the day the ledger is opened.
+	Accruing bool `json:"accruing,omitempty"`
 	// Component names what a split repayment row was applied to (Interest, Penal Interest, Service Charge,
 	// Principal); empty for a payment shown as one row.
 	Component string `json:"component,omitempty"`
@@ -87,6 +90,7 @@ type ledgerSource struct {
 	auction       *models.AuctionRecord
 	accrualAmount float64
 	note          string
+	accruing      bool
 }
 
 func ledgerColumnTotals(rows []LoanLedgerEntry) (debit, credit float64) {
@@ -222,10 +226,26 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 		sources = append(sources, ledgerSource{kind: "topup", date: ledgerDate(t.OccurredOn), sortKey: ledgerSortKey(t.OccurredOn), rank: 0, topUp: t})
 	}
 	var recordedInterest, recordedPenal float64
-	for _, a := range accruals {
+	// rows charged on the same day, such as a payment's charge for the part period after the first one, keep the order
+	// of the periods they cover
+	accruals = append([]models.LoanAccrual(nil), accruals...)
+	sort.SliceStable(accruals, func(i, j int) bool {
+		if !accruals[i].AccruedOn.Equal(accruals[j].AccruedOn) {
+			return accruals[i].AccruedOn.Before(accruals[j].AccruedOn)
+		}
+		return accruals[i].ID < accruals[j].ID
+	})
+	for i, a := range accruals {
 		recordedInterest += a.Interest
 		recordedPenal += a.PenalInterest
 		at := a.AccruedOn
+		// a row with no id is interest worked out for this view and not saved: it is shown on its own date and
+		// marked, and has no saved row to key on
+		accruing := a.ID == 0
+		interestKey, penalKey := fmt.Sprintf("interest-%d", a.ID), fmt.Sprintf("penal-%d", a.ID)
+		if accruing {
+			interestKey, penalKey = fmt.Sprintf("interest-accruing-%d", i), fmt.Sprintf("penal-accruing-%d", i)
+		}
 		if p := accrualTriggerPayment(a.CreatedAt, payments); p != nil {
 			at = a.CreatedAt
 			if !at.Before(p.PaidOn) {
@@ -239,10 +259,10 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 			}
 		}
 		if a.Interest > 0.004 {
-			sources = append(sources, ledgerSource{kind: "interest", date: ledgerDate(at), sortKey: ledgerSortKey(at), rank: 2, accrualAmount: a.Interest, note: fmt.Sprintf("interest-%d", a.ID)})
+			sources = append(sources, ledgerSource{kind: "interest", date: ledgerDate(at), sortKey: ledgerSortKey(at), rank: 2, accrualAmount: a.Interest, note: interestKey, accruing: accruing})
 		}
 		if a.PenalInterest > 0.004 {
-			sources = append(sources, ledgerSource{kind: "penal", date: ledgerDate(at), sortKey: ledgerSortKey(at), rank: 3, accrualAmount: a.PenalInterest, note: fmt.Sprintf("penal-%d", a.ID)})
+			sources = append(sources, ledgerSource{kind: "penal", date: ledgerDate(at), sortKey: ledgerSortKey(at), rank: 3, accrualAmount: a.PenalInterest, note: penalKey, accruing: accruing})
 		}
 	}
 	catchUpAt := l.LastAccrualDate
@@ -423,7 +443,7 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 			})...)
 		case "interest", "penal":
 			balance += src.accrualAmount
-			out = append(out, LoanLedgerEntry{Kind: src.kind, Key: src.note, Date: src.date, Amount: src.accrualAmount, Balance: ledgerBalance(balance), Note: src.note})
+			out = append(out, LoanLedgerEntry{Kind: src.kind, Key: src.note, Date: src.date, Amount: src.accrualAmount, Balance: ledgerBalance(balance), Note: src.note, Accruing: src.accruing})
 		case "auction-sale":
 			out = append(out, LoanLedgerEntry{Kind: src.kind, Key: fmt.Sprintf("auction-sale-%d", src.auction.ID), Date: src.date, Amount: src.auction.SaleAmount, Auction: src.auction})
 		case "auction-surplus":
@@ -496,6 +516,7 @@ func getLoanLedger(ctx context.Context, loanID uint, branchID *uint, q LoanLedge
 		WithContext(ctx).Where("loan_id = ?", loanID).Order("accrued_on asc, id asc").Find(&accruals).Error; err != nil {
 		return nil, err
 	}
+	l, accruals = withInterestToDate(ctx, l, accruals)
 	all := buildLoanLedger(l, payments, topUps, auctions, accruals)
 	rows := make([]LoanLedgerEntry, 0, len(all))
 	for _, r := range all {
@@ -520,6 +541,32 @@ func getLoanLedger(ctx context.Context, loanID uint, branchID *uint, q LoanLedge
 	}
 	totalDebit, totalCredit := ledgerColumnTotals(rows)
 	return &LoanLedgerPage{Items: rows[offset:end], Total: len(rows), Limit: limit, Offset: offset, TotalDebit: common.RoundMoney(totalDebit), TotalCredit: common.RoundMoney(totalCredit)}, nil
+}
+
+// withInterestToDate adds to a loan's saved interest rows the interest owed between its last charge and today, so
+// the ledger always runs up to the day it is opened. It is worked out on a copy, in the same two steps a payment
+// takes, and is never saved: opening the ledger on another day gives a different figure from that day's date.
+// A rate step passed on the way also raises the saved rows it restates, in the returned list only. The returned
+// loan is a copy that carries the interest to date; the one passed in is not changed.
+func withInterestToDate(ctx context.Context, l *models.Loan, saved []models.LoanAccrual) (*models.Loan, []models.LoanAccrual) {
+	owing := *l
+	shown := append([]models.LoanAccrual(nil), saved...)
+	asOf := sameClockAsOpened(&owing, time.Now())
+	for pass := 0; pass < 2; pass++ {
+		rows, restated, _ := accrueStep(ctx, &owing, asOf, true)
+		for _, r := range restated {
+			for i := range shown {
+				if shown[i].ID == r.SavedID {
+					shown[i].Interest += r.Interest
+				}
+			}
+		}
+		for _, r := range rows {
+			r.ID = 0
+			shown = append(shown, r)
+		}
+	}
+	return &owing, shown
 }
 
 func accrualTriggerPayment(accruedAt time.Time, payments []models.LoanPayment) *models.LoanPayment {

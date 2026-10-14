@@ -10,6 +10,12 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { getSelectedBranchId } from "@/common/services/branchSelection";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  name: /name/i, phone: /phone|mobile/i, branch: /branch/i, pan: /\bpan\b/i, aadhaar: /aadhaar/i, bankAccountName: /holder/i, bankAccountNumber: /account/i, bankIfsc: /ifsc/i,
+};
 
 type CreateInvestorModalContentProps = { onCreated: (customer: CustomerView) => void };
 
@@ -45,6 +51,9 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
   const [bankIfsc, setBankIfsc] = useState("");
 
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -70,17 +79,18 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
   async function save() {
     const n = name.trim();
     const p = phone.trim();
-    if (n.length < 3) { setErr("Please enter the investor's full name."); return; }
-    if (!/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
-    if (!branchId) { setErr("Please select a branch."); return; }
-    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) { setErr("Please enter a valid PAN (e.g. ABCDE1234F)."); return; }
-    if (!/^\d{12}$/.test(aadhaar.trim())) { setErr("Please enter a valid 12-digit Aadhaar number."); return; }
-    if (!bankAccountName.trim()) { setErr("Please enter the bank account holder's name."); return; }
-    if (!bankAccountNumber.trim()) { setErr("Please enter the bank account number."); return; }
-    if (!bankIfsc.trim()) { setErr("Please enter the bank IFSC code."); return; }
+    if (n.length < 3) { fail("name", "Please enter the investor's full name."); return; }
+    if (!/^\d{10}$/.test(p)) { fail("phone", "Please enter a valid 10-digit mobile number."); return; }
+    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) { fail("pan", "Please enter a valid PAN (e.g. ABCDE1234F)."); return; }
+    if (!/^\d{12}$/.test(aadhaar.trim())) { fail("aadhaar", "Please enter a valid 12-digit Aadhaar number."); return; }
+    if (!bankAccountName.trim()) { fail("bankAccountName", "Please enter the bank account holder's name."); return; }
+    if (!bankAccountNumber.trim()) { fail("bankAccountNumber", "Please enter the bank account number."); return; }
+    if (!bankIfsc.trim()) { fail("bankIfsc", "Please enter the bank IFSC code."); return; }
 
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       const c = await createCustomer({
         name: n,
@@ -104,7 +114,9 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
       });
       onCreated(c);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to create investor.");
+      const msg = e instanceof Error ? e.message : "Failed to create investor.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -115,31 +127,31 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
       <div className="hd"><h3>Add New Investor</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="frow c2">
-          <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Radha Menon" value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Radha Menon" value={name} onChange={(e) => setName(e.target.value)} /><FieldError msg={fe.name} /></div>
+          <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.phone} /></div>
         </div>
         <div className={showBranch ? "frow c2" : "frow"}>
           {showBranch && (
-            <div><label className="f">Branch *</label>
+            <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
               <Select
                 value={branchId === "" ? "" : String(branchId)}
                 onChange={(v) => setBranchId(v ? Number(v) : "")}
                 disabled={branchLocked}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 placeholder="Select branch…"
-              />
+              /><FieldError msg={fe.branch} />
             </div>
           )}
           <div><label className="f">Address</label><input className="inp" placeholder="House / street" value={address} onChange={(e) => setAddress(e.target.value)} /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">PAN *</label><input className="inp" placeholder="e.g. ABCDE1234F" maxLength={10} value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} /></div>
-          <div><label className="f">Aadhaar Number *</label><input className="inp" inputMode="numeric" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /></div>
+          <div className={fe.pan ? "has-err" : undefined}><label className="f">PAN *</label><input className="inp" placeholder="e.g. ABCDE1234F" maxLength={10} value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} /><FieldError msg={fe.pan} /></div>
+          <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number *</label><input className="inp" inputMode="numeric" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
         </div>
-        <div className="frow"><div><label className="f">Bank Account Holder Name *</label><input className="inp" placeholder="As per bank records" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} /></div></div>
+        <div className="frow"><div className={fe.bankAccountName ? "has-err" : undefined}><label className="f">Bank Account Holder Name *</label><input className="inp" placeholder="As per bank records" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} /><FieldError msg={fe.bankAccountName} /></div></div>
         <div className="frow c2">
-          <div><label className="f">Bank Account Number *</label><input className="inp" placeholder="Account number" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} /></div>
-          <div><label className="f">Bank IFSC *</label><input className="inp" placeholder="e.g. SBIN0001234" maxLength={11} value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} /></div>
+          <div className={fe.bankAccountNumber ? "has-err" : undefined}><label className="f">Bank Account Number *</label><input className="inp" placeholder="Account number" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} /><FieldError msg={fe.bankAccountNumber} /></div>
+          <div className={fe.bankIfsc ? "has-err" : undefined}><label className="f">Bank IFSC *</label><input className="inp" placeholder="e.g. SBIN0001234" maxLength={11} value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} /><FieldError msg={fe.bankIfsc} /></div>
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>

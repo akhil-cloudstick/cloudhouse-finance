@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   AsyncSelect,
@@ -151,15 +150,10 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
 
   const isLoan = !!source && isLoanSource(source.name);
   const isGoldSale = source?.name === GOLD_SALE;
-  // A loan source asks for its details only once — on its first entry.
-  const needsLoanDetails = isLoan && source?.principalAmount == null && !edit;
+  // A loan is entered like any other cash-in — no loan number or principal is asked for.
   const [ornamentType, setOrnamentType] = useState(edit?.ornamentType ?? "");
   const [cost, setCost] = useState(edit?.costAmount ? String(edit.costAmount) : "");
   const profit = (Number(amount) || 0) - (Number(cost) || 0);
-  const [loanNumber, setLoanNumber] = useState("");
-  const [principalAmount, setPrincipalAmount] = useState("");
-  const [interestRate, setInterestRate] = useState("");
-  const [durationMonths, setDurationMonths] = useState("");
   const branchId = branch?.id;
 
   const m = useMutation({
@@ -197,41 +191,32 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
         receiptImage: receiptImage || undefined,
         remarks: remarks.trim() || undefined,
         payments,
-        loanSource: needsLoanDetails
-          ? {
-              loanNumber: loanNumber.trim(),
-              principalAmount: Number(principalAmount),
-              interestRate: interestRate.trim() ? Number(interestRate) : undefined,
-              durationMonths: durationMonths.trim() ? Number(durationMonths) : undefined,
-            }
-          : undefined,
       });
     },
     onSuccess: () => {
       refreshCashQueries(qc);
       if (isGoldSale) qc.invalidateQueries({ queryKey: ["gold-sales"] });
-      // A loan's first entry also created its repayment category server side.
-      if (needsLoanDetails) qc.invalidateQueries({ queryKey: EXPENSE_CATEGORY_IDS_KEY });
+      // A loan's first entry also made it a repayment category server side.
+      if (isLoan) qc.invalidateQueries({ queryKey: EXPENSE_CATEGORY_IDS_KEY });
       onClose();
     },
     onError: (err) => setError(errMsg(err, "Could not save.")),
   });
 
-  const loanValid = !needsLoanDetails || (!!loanNumber.trim() && Number(principalAmount) > 0 && Number(amount) <= Number(principalAmount));
   const bankValid = !bankRequired || !!bank;
   const payValid = paymentRowsError(payRows, Number(amount) || 0) === "";
-  // A loan can't be drawn past its principal: a new loan checks the amount against
-  // the principal typed in, an existing one against what is left to draw.
+  // A loan that already has a principal on record can't be drawn past what is left to draw.
   const loanBal = useLoanBalance(source);
   const drawAmount = Number(amount) || 0;
-  const loanLimit = needsLoanDetails ? Number(principalAmount) || 0 : loanBal ? loanBal.balance : 0;
-  const loanExceeded = isLoan && !isGoldSale && drawAmount > 0 && (needsLoanDetails ? loanLimit > 0 : !!loanBal) && drawAmount > loanLimit + 0.005;
+  // Editing a draw: its own amount is already counted as drawn, so it is available again to the edit.
+  const loanLimit = loanBal ? loanBal.balance + (edit ? edit.amount : 0) : 0;
+  const loanExceeded = isLoan && !isGoldSale && drawAmount > 0 && !!loanBal && loanBal.principal > 0 && drawAmount > loanLimit + 0.005;
   const loanWarning = loanExceeded ? `Loan principal amount exceeded — only ${inr(Math.max(loanLimit, 0))} is left to draw on ${source?.name}.` : "";
   // An edited gold sale stays a gold sale, and any other cash-in can't become one.
   const editBlocked = !!edit && (edit.kind === "gold_sale" ? !isGoldSale : isGoldSale);
   const canSubmit = !loanExceeded && !editBlocked && (isGoldSale
     ? !!ornamentType.trim() && Number(amount) > 0 && !!date && !!branchId && bankValid
-    : !!source && Number(amount) > 0 && !!date && !!branchId && loanValid && payValid);
+    : !!source && Number(amount) > 0 && !!date && !!branchId && payValid);
 
   return (
     <>
@@ -251,37 +236,6 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
         onCreateNew={createCashSource}
       />
 
-      {needsLoanDetails ? (
-        <View style={{ borderWidth: 1, borderColor: C.line, borderStyle: "dashed", borderRadius: 10, padding: 12, marginBottom: 10 }}>
-          <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep, marginBottom: 8 }}>LOAN DETAILS</Txt>
-          <Field label="Loan Number">
-            <Input placeholder="e.g. LN-00049" value={loanNumber} onChangeText={setLoanNumber} />
-          </Field>
-          <FieldRow>
-            <Field label="Principal Amount (₹)">
-              <Input keyboardType="decimal-pad" value={principalAmount} onChangeText={setPrincipalAmount} />
-            </Field>
-            <Field label="Interest Rate (%)">
-              <Input keyboardType="decimal-pad" placeholder="Optional" value={interestRate} onChangeText={setInterestRate} />
-            </Field>
-          </FieldRow>
-          <Field label="Duration (months)">
-            <Input keyboardType="number-pad" placeholder="Optional" value={durationMonths} onChangeText={setDurationMonths} />
-          </Field>
-        </View>
-      ) : null}
-
-      {edit && isLoan ? (
-        <View style={{ borderWidth: 1, borderColor: C.line, borderStyle: "dashed", borderRadius: 10, padding: 12, marginBottom: 10 }}>
-          <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep, marginBottom: 8 }}>LOAN DETAILS</Txt>
-          <Field label="Loan Number">
-            <Input value={edit.loanNumber || "—"} editable={false} />
-          </Field>
-          <Field label="Principal Amount (₹)">
-            <Input value={edit.principalAmount ? String(edit.principalAmount) : "—"} editable={false} />
-          </Field>
-        </View>
-      ) : null}
 
       {isGoldSale ? (
         <FieldRow>
@@ -316,7 +270,7 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
           <Field label="Amount">
             <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
           </Field>
-          <DateField label={needsLoanDetails ? "Date of Loan" : "Date"} value={date} onChange={setDate} max={todayISO()} />
+          <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
           <PaymentBreakdownFields total={Number(amount) || 0} rows={payRows} onChange={setPayRows} bankLabel="Bank (your account)" />
           <BranchField branch={branch} onChange={setBranch} />
         </>
@@ -472,7 +426,7 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
   const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit ? edit.amount : 0) : 0;
   const loanExceeded = !!loanBal && (Number(amount) || 0) > owed + 0.005;
   const loanWarning = loanExceeded ? `Repayment exceeds what has been paid on ${category?.name} — only ${inr(owed)} is outstanding.` : "";
-  const loanReady = !!loan && loan.principalAmount != null;
+  const loanReady = !!loan;
 
   const m = useMutation({
     mutationFn: async () => {

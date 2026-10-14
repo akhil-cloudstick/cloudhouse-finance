@@ -6,7 +6,11 @@ import { type Business, type Tier } from "@/modules/superadmin/types/superadmin-
 import { Select } from "@/modules/superadmin/components/Select";
 import { ReasonField } from "@/modules/superadmin/components/ReasonField";
 import { plansFor, downgradeNote, planLabel } from "@/modules/superadmin/utils/dashboardHelpers";
+import { fieldForMessage } from "@/common/components/ui/FieldError";
 import { useActiveBranches } from "@/modules/superadmin/hooks/use-active-branches";
+
+// Server messages are put on the field they are about, by wording.
+const SERVER_FIELDS: Record<string, RegExp> = { reason: /reason/i };
 
 type BusinessActionModalProps = {
   business: Business;
@@ -32,6 +36,7 @@ export function BusinessActionModal({
   const [confirmCode, setConfirmCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fe, setFe] = useState<Record<string, string>>({});
 
   const title =
     kind === "suspend"
@@ -47,15 +52,19 @@ export function BusinessActionModal({
   const planOptions = plansFor(tiers);
   const planNote = downgradeNote(tiers.find((t) => t.id === tierId), branches);
 
+  const fail = (field: string, msg: string) => { setError(null); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setFe({});
     if (!reason.trim()) {
-      setError("A reason is required.");
+      fail("reason", "A reason is required.");
       return;
     }
     if (kind === "delete" && confirmCode.trim() !== business.code) {
-      setError(`Type ${business.code} exactly to confirm.`);
+      fail("confirm", `Type ${business.code} exactly to confirm.`);
       return;
     }
     setSubmitting(true);
@@ -67,7 +76,9 @@ export function BusinessActionModal({
       onDone();
       onClose();
     } catch (err) {
-      setError(err instanceof SuperAdminApiError ? err.message : "The action failed.");
+      const msg = err instanceof SuperAdminApiError ? err.message : "The action failed.";
+      const field = err instanceof SuperAdminApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+      if (field) fail(field, msg); else setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -94,11 +105,12 @@ export function BusinessActionModal({
                 This permanently deletes {business.name} — every branch, customer, loan, staff login and its logo
                 file. This cannot be undone.
               </p>
-              <div className="sa-field">
+              <div className={fe.confirm ? "sa-field has-err" : "sa-field"}>
                 <label>
                   Type <b>{business.code}</b> to confirm
                 </label>
-                <input value={confirmCode} onChange={(e) => setConfirmCode(e.target.value)} autoComplete="off" />
+                <input value={confirmCode} onChange={(e) => { setConfirmCode(e.target.value); clearFe("confirm"); }} autoComplete="off" />
+                {fe.confirm && <span className="sa-error" role="alert">{fe.confirm}</span>}
               </div>
             </>
           )}
@@ -117,7 +129,7 @@ export function BusinessActionModal({
               {planNote && <p className="sa-modal-note">{planNote}</p>}
             </>
           )}
-          <ReasonField value={reason} onChange={setReason} required />
+          <ReasonField value={reason} onChange={(v) => { setReason(v); clearFe("reason"); }} required error={fe.reason} />
           {error && <p className="sa-error">{error}</p>}
         </div>
         <div className="sa-modal-foot">

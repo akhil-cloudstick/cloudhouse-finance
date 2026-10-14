@@ -161,6 +161,12 @@ type SignatureStatus struct {
 	ID        string `json:"id"`
 	Status    string `json:"status"`
 	RawStatus string `json:"rawStatus,omitempty"`
+	// Signers is one entry per signer in request order (customer, then witnesses).
+	Signers []SignerStatus `json:"signers,omitempty"`
+}
+
+type SignerStatus struct {
+	Signed bool `json:"signed"`
 }
 
 type SignedDocumentDownload struct {
@@ -536,7 +542,8 @@ func (c *EsignClient) CreateSignatureRequestMulti(documentID string, signers []S
 
 func (c *EsignClient) GetSignatureStatus(requestID string) (*SignatureStatus, error) {
 	var data struct {
-		Status string `json:"status"`
+		Status  string           `json:"status"`
+		Signers []map[string]any `json:"signers"`
 	}
 	if err := c.do(http.MethodGet, "/api/v1/esign/details?client_id="+url.QueryEscape(requestID), "", nil, &data); err != nil {
 		return nil, err
@@ -548,7 +555,30 @@ func (c *EsignClient) GetSignatureStatus(requestID string) (*SignatureStatus, er
 	case "failed", "expired":
 		status = "failed"
 	}
-	return &SignatureStatus{ID: requestID, Status: status, RawStatus: data.Status}, nil
+	signers := make([]SignerStatus, 0, len(data.Signers))
+	for _, s := range data.Signers {
+		signers = append(signers, SignerStatus{Signed: status == "sign_complete" || signerEntrySigned(s)})
+	}
+	return &SignatureStatus{ID: requestID, Status: status, RawStatus: data.Status, Signers: signers}, nil
+}
+
+// signerEntrySigned reads one signer's entry from the provider's details response, which
+// reports completion either as a status string or as a boolean flag.
+func signerEntrySigned(s map[string]any) bool {
+	for _, k := range []string{"signed", "is_signed", "completed"} {
+		if b, ok := s[k].(bool); ok && b {
+			return true
+		}
+	}
+	for _, k := range []string{"status", "sign_status"} {
+		if str, ok := s[k].(string); ok {
+			switch strings.ToLower(str) {
+			case "completed", "signed", "sign_complete", "success":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (c *EsignClient) GetSignedDocument(requestID string) (*SignedDocumentDownload, error) {

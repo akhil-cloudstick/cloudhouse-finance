@@ -24,6 +24,7 @@ import { invalidateBankPledgeViews } from "@/modules/bank-pledges/components/ban
 import { BanksSheet } from "@/modules/bank-pledges/components/BanksSheet";
 import { AddBankPledgeSheet } from "@/modules/bank-pledges/components/AddBankPledgeSheet";
 import { useServerList } from "@/common/hooks/use-server-list";
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { listBankPledgedLoansPage, listBankPledgeHistoryPage, releaseBankPledge, voidBankPledge } from "@/modules/bank-pledges/services/bankPledgeService";
 import { type BankPledgeHistoryRow, type BankPledgeRecordWithWeights } from "@/modules/bank-pledges/types/bank-pledge-types";
 import { ApiError } from "@/common/services/httpClient";
@@ -64,6 +65,8 @@ export default function BankPledgeScreen() {
   const [banksOpen, setBanksOpen] = useState(false);
   const [releaseTarget, setReleaseTarget] = useState<PledgeTarget | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+  // How the pledged amount is paid back to the bank (a "CashIn" pledge only).
+  const [releasePay, setReleasePay] = useState<SplitPayment | null>(null);
   const [voidTarget, setVoidTarget] = useState<PledgeTarget | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [voidError, setVoidError] = useState<string | null>(null);
@@ -72,7 +75,8 @@ export default function BankPledgeScreen() {
   const history = useServerList<BankPledgeHistoryRow>({ key: ["bankPledges", "history"], fetchPage: (p) => listBankPledgeHistoryPage(p), enabled: tab === "history" });
 
   const release = useMutation({
-    mutationFn: (t: PledgeTarget) => releaseBankPledge(t.loanId, t.pledge.id),
+    mutationFn: (t: PledgeTarget) =>
+      releaseBankPledge(t.loanId, t.pledge.id, t.pledge.cashTreatment === "CashIn" && releasePay ? { ...releasePay.split, bankId: releasePay.bankId } : undefined),
     onSuccess: () => {
       setReleaseTarget(null);
       invalidateBankPledgeViews(qc);
@@ -212,7 +216,7 @@ export default function BankPledgeScreen() {
       <AddBankPledgeSheet visible={addPledge} onClose={() => setAddPledge(false)} />
       <BanksSheet visible={banksOpen} onClose={() => setBanksOpen(false)} />
 
-      <Sheet visible={!!releaseTarget} onClose={() => setReleaseTarget(null)} title="Release Bank Pledge" maxHeightPct={60}>
+      <Sheet visible={!!releaseTarget} onClose={() => setReleaseTarget(null)} title="Release Bank Pledge" maxHeightPct={releaseTarget?.pledge.cashTreatment === "CashIn" ? 88 : 60}>
         {releaseTarget ? (
           <>
             <Txt style={{ fontSize: 13, marginTop: 10, marginBottom: 12 }}>
@@ -220,13 +224,16 @@ export default function BankPledgeScreen() {
             </Txt>
             <NoticeBanner>
               {releaseTarget.pledge.cashTreatment === "CashIn"
-                ? `${inr(releaseTarget.pledge.pledgedAmount)} will be booked out of Cash-in-Hand.`
+                ? `${inr(releaseTarget.pledge.pledgedAmount)} will be paid back to the bank — choose how below.`
                 : "No cash movement will be created — this pledge was recorded only."}
             </NoticeBanner>
+            {releaseTarget.pledge.cashTreatment === "CashIn" ? (
+              <SplitPaymentInput total={releaseTarget.pledge.pledgedAmount} onChange={setReleasePay} bankLabel="Bank (account it leaves from)" />
+            ) : null}
             {errText(releaseError)}
             <BtnRow2>
               <PrimaryButton label="Cancel" variant="outline" onPress={() => setReleaseTarget(null)} disabled={release.isPending} />
-              <PrimaryButton label="Release" onPress={() => release.mutate(releaseTarget)} loading={release.isPending} />
+              <PrimaryButton label="Release" onPress={() => release.mutate(releaseTarget)} loading={release.isPending} disabled={releaseTarget.pledge.cashTreatment === "CashIn" && !releasePay?.ready} />
             </BtnRow2>
           </>
         ) : null}

@@ -32,6 +32,13 @@ func cashInHand(ctx context.Context, branchID uint) (float64, error) {
 	return cash, err
 }
 
+// LiveBalance is cash in hand plus bank balance as of now — the figure the Cash
+// page's Balance in Hand shows, so the dashboard can report the same number.
+func LiveBalance(ctx context.Context, branchID *uint) (float64, error) {
+	cash, bank, err := liveBalances(ctx, branchID)
+	return cash + bank, err
+}
+
 // bankBalance is what the Banks page shows for one bank right now.
 func bankBalance(ctx context.Context, bankID uint) (float64, error) {
 	per, _, err := BankBalances(ctx, nil)

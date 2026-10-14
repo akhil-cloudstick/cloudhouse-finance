@@ -49,8 +49,3 @@ export async function getLoanBalance(id: number): Promise<LoanBalance | null> {
   return res.isLoan ? res.balance : null;
 }
 
-/* PATCH /cash-sources/:id/loan — changes a loan's number and principal. The loan's name
- * and every cash amount are untouched; the backend refuses a principal below what is already drawn. */
-export async function updateLoanDetails(id: number, input: { loanNumber: string; principalAmount: number }): Promise<void> {
-  await apiFetch<unknown>(`/cash-sources/${id}/loan`, { method: "PATCH", body: JSON.stringify(input) });
-}

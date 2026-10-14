@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError } from "@/common/components/ui/FieldError";
 
 type RejectRemarksModalContentProps = {
   title: string;
@@ -24,9 +25,12 @@ export function RejectRemarksModalContent({
   const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // The missing-reason message goes under the reason; `err` keeps what the confirm handler throws.
+  const [remarksErr, setRemarksErr] = useState("");
 
   async function confirm() { return singleFlight("modal:rejectremarks:confirm", async () => {
-    if (required && !remarks.trim()) { setErr("Please enter a reason for rejecting."); return; }
+    setRemarksErr("");
+    if (required && !remarks.trim()) { setErr(""); setRemarksErr("Please enter a reason for rejecting."); return; }
     setBusy(true);
     setErr("");
     try {
@@ -44,9 +48,9 @@ export function RejectRemarksModalContent({
       <div className="hd"><h3>{title}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow">
-          <div>
+          <div className={remarksErr ? "has-err" : undefined}>
             <label className="f">Reason for rejecting{required ? " *" : " (optional)"}</label>
-            <input className="inp" autoFocus value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder={required ? "" : "optional"} />
+            <input className="inp" autoFocus value={remarks} onChange={(e) => { setRemarks(e.target.value); setRemarksErr(""); }} placeholder={required ? "" : "optional"} /><FieldError msg={remarksErr} />
           </div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

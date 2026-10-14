@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AsyncSelect, C, Field, Input, Txt } from "@/common/components/ui";
+import { AsyncSelect, C, Txt } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { userMessage } from "@/common/services/apiErrors";
 import { createBank, listBanksPage } from "@/modules/banks/services/bankService";
 import type { Bank } from "@/modules/banks/types/bank-types";
@@ -34,7 +35,7 @@ export function flipToCommon(item: { name: string; type?: string; isCommon?: boo
 // The balance of the loan a category stands for — undefined while loading, or
 // when it isn't a loan with its details on file. Fresh on every open.
 export function useLoanBalance(cat: { id: number; name: string; principalAmount?: number } | null) {
-  const id = cat && cat.id > 0 && isLoanSource(cat.name) && cat.principalAmount != null ? cat.id : 0;
+  const id = cat && cat.id > 0 && isLoanSource(cat.name) ? cat.id : 0;
   const q = useQuery({ queryKey: ["loan-balance", id], queryFn: () => getLoanBalance(id), enabled: id > 0, staleTime: 0, gcTime: 0 });
   return id > 0 ? q.data ?? null : null;
 }
@@ -49,28 +50,23 @@ export type BranchPick = { id: number; name: string };
 
 type BranchFieldProps = { branch: BranchPick | null; onChange: (b: BranchPick) => void };
 
-// Branch — a cross-branch user picks one, everyone else books into their own
-// branch (read-only; also the lock for a single-branch business).
+// Branch — a cross-branch user picks one; for everyone else the field is hidden
+// and the entry is booked into their own branch (also the case for a single-branch business).
 export function BranchField({ branch, onChange }: BranchFieldProps) {
-  const { can } = useAuth();
-  if (can("Branch_Management", "can_view_all_branches")) {
-    return (
-      <AsyncSelect<{ id: number; name: string; code?: string }>
-        label="Branch"
-        placeholder="Search branch"
-        queryKey={["branches", "entry-picker"]}
-        fetcher={async (q) => (await listBranchesPage({ q: q || undefined, active: true, limit: 20, offset: 0 })).items ?? []}
-        selectedLabel={branch?.name}
-        onSelect={(b) => onChange({ id: b.id, name: b.name })}
-        keyOf={(b) => b.id}
-        renderItem={(b) => ({ title: b.name, sub: b.code })}
-      />
-    );
-  }
+  // Hidden outright for a one-branch business or a role confined to its own branch (web does the
+  // same) — the entry is then booked into the user's own branch.
+  if (!useShowBranch()) return null;
   return (
-    <Field label="Branch">
-      <Input value={branch?.name ?? ""} editable={false} />
-    </Field>
+    <AsyncSelect<{ id: number; name: string; code?: string }>
+      label="Branch"
+      placeholder="Search branch"
+      queryKey={["branches", "entry-picker"]}
+      fetcher={async (q) => (await listBranchesPage({ q: q || undefined, active: true, limit: 20, offset: 0 })).items ?? []}
+      selectedLabel={branch?.name}
+      onSelect={(b) => onChange({ id: b.id, name: b.name })}
+      keyOf={(b) => b.id}
+      renderItem={(b) => ({ title: b.name, sub: b.code })}
+    />
   );
 }
 

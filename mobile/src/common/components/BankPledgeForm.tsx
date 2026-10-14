@@ -1,6 +1,7 @@
 import React from "react";
-import { AsyncSelect, ChipToggle, DateField, Field, FieldRow, Input, PrimaryButton, TextField, Txt, C } from "@/common/components/ui";
+import { AsyncSelect, ChipToggle, DateField, Field, FieldRow, Input, PrimaryButton, TextField } from "@/common/components/ui";
 import { ErrorText } from "./ErrorText";
+import { SplitPaymentInput, type SplitPayment } from "./SplitPaymentInput";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { listBanksPage } from "@/modules/banks/services/bankService";
 import { inr, todayISO } from "@/common/utils/format";
@@ -22,6 +23,8 @@ export type BankPledgeFormValue = {
   dueDate: string;
   reference: string;
   cash: CashTreatment;
+  /** How a "CashIn" advance was received — set by the breakdown shown for that treatment. */
+  payment?: SplitPayment;
 };
 
 export function bankPledgeFormInit(loan?: Loan | null): BankPledgeFormValue {
@@ -54,7 +57,8 @@ export function BankPledgeForm({
 }: BankPledgeFormProps) {
   const set = <K extends keyof BankPledgeFormValue>(k: K, v: BankPledgeFormValue[K]) => onChange({ ...value, [k]: v });
 
-  const canSave = !!(fixedLoan ?? value.loan) && !!value.bankName && Number(value.amount) > 0 && !!value.pledgeDate;
+  const cashIn = value.cash === "CashIn";
+  const canSave = !!(fixedLoan ?? value.loan) && !!value.bankName && Number(value.amount) > 0 && !!value.pledgeDate && (!cashIn || !!value.payment?.ready);
 
   return (
     <>
@@ -103,11 +107,18 @@ export function BankPledgeForm({
       <Field label="Cash treatment">
         <ChipToggle options={CASH} value={value.cash} onChange={(v) => set("cash", v)} labels={CASH_LABELS} />
       </Field>
-      {value.cash === "CashIn" && Number(value.amount) > 0 ? (
-        <Txt style={{ fontSize: 11.5, color: C.muted, marginTop: -4, marginBottom: 12 }}>{inr(Number(value.amount))} will be added to Cash-in-Hand.</Txt>
+      {cashIn && Number(value.amount) > 0 ? (
+        <SplitPaymentInput total={Number(value.amount)} onChange={(p) => set("payment", p)} bankLabel="Bank (account it landed in)" />
       ) : null}
       <ErrorText>{error}</ErrorText>
       <PrimaryButton label="Repledge to Bank" onPress={onSubmit} loading={submitting} disabled={!canSave} style={{ marginBottom: 12 }} />
     </>
   );
+}
+
+/** The split columns and received bank sent with a "CashIn" pledge (nothing for "RecordOnly"). */
+export function cashInPayload(value: BankPledgeFormValue) {
+  if (value.cash !== "CashIn" || !value.payment) return {};
+  const { split, bankId } = value.payment;
+  return { ...split, receivedBankId: bankId };
 }

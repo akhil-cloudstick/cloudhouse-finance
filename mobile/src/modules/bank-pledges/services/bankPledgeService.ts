@@ -17,16 +17,26 @@ export function recordBankPledge(
     referenceNumber?: string;
     bankPledgeDueDate?: string;
     cashTreatment?: "CashIn" | "RecordOnly";
+    // How a "CashIn" advance was received, and the branch bank account a UPI / Bank Transfer share landed in.
+    cashAmount?: number;
+    upiAmount?: number;
+    bankTransferAmount?: number;
+    chequeAmount?: number;
+    receivedBankId?: number;
   }
 ) {
   return apiRequest<BankPledgeRecord>(`/loans/${loanId}/bank-pledge`, { method: "POST", body: input });
 }
 
 // Releases the gold from the bank (PUT /loans/:id/bank-pledge/:pledgeId/release).
-// If the pledge's cashTreatment was "CashIn", the pledged amount is booked
-// back out of Cash-in-Hand server-side.
-export function releaseBankPledge(loanId: number, pledgeId: number) {
-  return apiRequest<BankPledgeRecord>(`/loans/${loanId}/bank-pledge/${pledgeId}/release`, { method: "PUT" });
+// For a "CashIn" pledge `payment` is how the pledged amount is paid back to the bank and the
+// branch bank account a UPI / Bank Transfer share leaves from (omitted = all Cash).
+export function releaseBankPledge(
+  loanId: number,
+  pledgeId: number,
+  payment?: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }
+) {
+  return apiRequest<BankPledgeRecord>(`/loans/${loanId}/bank-pledge/${pledgeId}/release`, { method: "PUT", ...(payment ? { body: payment } : {}) });
 }
 
 // Voids a mis-recorded pledge — restricted server-side to Administrator/

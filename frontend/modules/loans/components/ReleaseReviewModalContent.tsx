@@ -17,6 +17,7 @@ import { StageTracker } from "@/common/components/StageTracker";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError } from "@/common/components/ui/FieldError";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
 // no-buffer check ApproveReleaseRequest re-runs at Manager/Management
@@ -63,6 +64,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const [notes, setNotes] = useState(request.verificationNotes || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [notesErr, setNotesErr] = useState("");
   // Reveals the Top-Up Payment prompt only after ApproveReleaseRequest
   // actually refuses with the drift error — hidden otherwise, per the plan.
   const [showTopUp, setShowTopUp] = useState(false);
@@ -152,13 +154,14 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
   async function saveNotes() { return singleFlight("modal:releasereview:saveNotes", async () => {
     setSaving(true);
-    setErr("");
+    setErr(""); setNotesErr("");
     try {
       const updated = await verifyReleaseChecklist(req.id, { verificationNotes: notes });
       setReq(updated);
       toast("Saved");
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+      // The only thing this call saves is the notes box, so its failure belongs under it.
+      setNotesErr(e instanceof ApiError ? e.message : "Could not save — try again.");
     } finally {
       setSaving(false);
     }
@@ -281,7 +284,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           <Icon name="coin" /> Record Payment
         </button>
 
-        <div className="frow" style={{ marginTop: 14 }}><div><label className="f">Verification Notes</label><input className="inp" value={notes} disabled={!canDecide || req.locked} onChange={(e) => setNotes(e.target.value)} onBlur={saveNotes} placeholder="optional" /></div></div>
+        <div className="frow" style={{ marginTop: 14 }}><div className={notesErr ? "has-err" : undefined}><label className="f">Verification Notes</label><input className="inp" value={notes} disabled={!canDecide || req.locked} onChange={(e) => { setNotes(e.target.value); setNotesErr(""); }} onBlur={saveNotes} placeholder="optional" /><FieldError msg={notesErr} /></div></div>
 
         {driftLikely && !showTopUp && (
           <p className="notice" style={{ marginTop: 12, color: "var(--red)" }}>

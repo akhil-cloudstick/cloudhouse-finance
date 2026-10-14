@@ -46,8 +46,18 @@ func TestNormalizeTiers(t *testing.T) {
 
 	other := SchemeCreateInput{InterestMethod: "Flat monthly", RateTiers: []commonModels.RateTier{{Days: 1, Rate: 1}}, MinimumDays: 30}
 	normalizeTiers(&other)
-	if other.RateTiers != nil || other.MinimumDays != 0 {
-		t.Error("tiers and minimum days should be cleared for single-rate methods")
+	if other.RateTiers != nil {
+		t.Error("tiers should be cleared for single-rate methods")
+	}
+	if other.MinimumDays != 30 {
+		t.Errorf("every method keeps its minimum days, got %d", other.MinimumDays)
+	}
+}
+
+func TestValidateTiers_RejectsNegativeMinimumOnSingleRate(t *testing.T) {
+	in := SchemeCreateInput{InterestMethod: "Flat monthly", MinimumDays: -5}
+	if validateTiers(in) == nil {
+		t.Error("a negative minimum should be rejected on a single-rate scheme too")
 	}
 }
 

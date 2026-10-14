@@ -17,6 +17,7 @@ import { updateLoan, addOrnament, updateOrnament, deleteOrnament } from "@/modul
 import { type LoanView, type OrnamentView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean };
 
@@ -46,9 +47,16 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   const [principal, setPrincipal] = useState(String(loan.principal));
   const [rows, setRows] = useState<OrnRow[]>(loan.ornaments.map(toRow));
   const [err, setErr] = useState("");
+  const [fe, setFe] = useState<Record<string, string>>({});
+  // Row-level message: which ornament row (index into `rows`) it is about.
+  const [rowErr, setRowErr] = useState<{ idx: number; msg: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const fail = (field: string, msg: string) => { setErr(""); setRowErr(null); setFe({ [field]: msg }); };
+  const failRow = (r: OrnRow, msg: string) => { setErr(""); setFe({}); setRowErr({ idx: rows.indexOf(r), msg }); };
+
   function updRow(i: number, patch: Partial<OrnRow>) {
+    setRowErr((cur) => (cur?.idx === i ? null : cur));
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
   function addRow() {
@@ -91,24 +99,23 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   const triggersReapproval = schemeId !== loan.schemeId || (+principal > 0 && +principal !== loan.principal);
 
   async function save() { return singleFlight("modal:editloan:save", async () => {
-    if (!(+principal > 0)) { setErr("Please enter a valid principal amount."); return; }
-    if (!activeRows.length) { setErr("A loan must have at least one ornament."); return; }
-    if (activeRows.some((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0))) {
-      setErr("Every ornament needs a name, gross weight and net weight.");
-      return;
-    }
-    if (activeRows.some((r) => +r.net > +r.gross)) { setErr("Net Wt cannot be greater than Gross Wt for any ornament."); return; }
+    setErr(""); setFe({}); setRowErr(null);
+    if (!(+principal > 0)) { fail("principal", "Please enter a valid principal amount."); return; }
+    if (!activeRows.length) { fail("ornaments", "A loan must have at least one ornament."); return; }
+    const incomplete = activeRows.find((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0));
+    if (incomplete) { failRow(incomplete, "Every ornament needs a name, gross weight and net weight."); return; }
+    const heavier = activeRows.find((r) => +r.net > +r.gross);
+    if (heavier) { failRow(heavier, "Net Wt cannot be greater than Gross Wt for any ornament."); return; }
     // Checked against the SAME live estimate shown in the Eligible Loan
     // Amount field above, not a stale pre-edit figure — the backend
     // recomputes and enforces this independently on save too, but this
     // gives immediate feedback consistent with what's already on screen.
     if (+principal > eligibleLoanAmount) {
-      setErr(`Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`);
+      fail("principal", `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`);
       return;
     }
 
     setSaving(true);
-    setErr("");
     try {
       // Ornaments MUST be saved before updateLoan() below — each ornament
       // call revalues that row against the live gold rate and recalculates
@@ -141,7 +148,9 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
       closeModal();
       toast("Loan updated");
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save changes — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not save changes — try again.";
+      const field = fieldForMessage(msg, { principal: /principal|eligible/i, scheme: /scheme/i });
+      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
     } finally {
       setSaving(false);
     }
@@ -152,18 +161,18 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
       <div className="hd"><h3>Edit Loan — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow c2">
-          <div><label className="f">Scheme</label>
+          <div className={fe.scheme ? "has-err" : undefined}><label className="f">Scheme</label>
             <SearchableSelect<SchemeView>
               value={schemeLabel}
-              onChange={(id, item) => { setSchemeId(id); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); setSchemeLtv(item.ltv); }}
+              onChange={(id, item) => { setFe((cur) => ({ ...cur, scheme: "" })); setSchemeId(id); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); setSchemeLtv(item.ltv); }}
               fetchFn={searchActiveSchemesPage}
               searchHint="Searches: scheme name, scheme code"
               getLabel={(s) => `${s.name} — ${s.ltv}% LTV @ ${s.rate}%`}
               getId={(s) => s.id}
               placeholder="Search active schemes…"
-            /></div>
-          <div><label className="f">Principal Amount (₹)</label>
-            <input className="inp" type="number" min={1} max={eligibleLoanAmount} value={principal} onChange={(e) => setPrincipal(capToEligible(e.target.value))} />
+            /><FieldError msg={fe.scheme} /></div>
+          <div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹)</label>
+            <input className="inp" type="number" min={1} max={eligibleLoanAmount} value={principal} onChange={(e) => { setPrincipal(capToEligible(e.target.value)); setFe((cur) => ({ ...cur, principal: "" })); }} /><FieldError msg={fe.principal} />
             <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
               Max {fmt(eligibleLoanAmount)} (based on scheme LTV)
             </p>
@@ -194,7 +203,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
         <label className="f" style={{ marginTop: 10, display: "block" }}>Ornaments</label>
         <div className="edit-loan-orn-scroll">
           {rows.map((r, i) => r.removed ? null : (
-            <div key={i} className="eln-card" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
+            <div key={i} className={rowErr?.idx === i ? "eln-card has-err" : "eln-card"} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
               {/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —
                   these rows need the modifier or every field stacks onto its
                   own line instead of sitting side by side. */}
@@ -231,12 +240,14 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                 <div><label className="f">Qty</label>
                   <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
               </div>
+              {rowErr?.idx === i && <FieldError msg={rowErr.msg} />}
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button className="btn danger sm" onClick={() => removeRow(i)} title="Remove ornament">✕ Remove</button>
               </div>
             </div>
           ))}
         </div>
+        <FieldError msg={fe.ornaments} />
         <div style={{ padding: "6px 0" }}>
           <button className="btn plain sm" onClick={addRow}><Icon name="plus" /> Add Ornament</button>
         </div>

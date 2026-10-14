@@ -1,23 +1,27 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>{{.LenderName}} — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="sheet" content="tml-bond"><title>{{.LenderName}} — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
 
 <div class="hdr">{{with .Logo}}<img class="logo" src="{{.}}" alt="">{{end}}
   <h1>{{.LenderName}}</h1>
-  <b>{{.LenderAddressShort}}</b>
+  {{range $i, $l := .AddressLines}}<b{{if eq $i 0}} class="ad"{{end}}>{{$l}}</b>{{end}}
   {{with .Phones}}<b>Phone : {{.}}</b>{{end}}
-  {{if .KMLRegNo}}<b>TML Reg. No : {{.KMLRegNo}}</b>{{end}}
   <span class="tag">PLEDGE BOOK</span>
-  <div style="text-align:right;font-size:11px">Printed : {{.PrintTime}}</div>
+  <div class="by"><span>Name / Time</span><div>{{with .CreatedByName}}{{.}}{{else}}—{{end}} / {{.PrintClock}}</div></div>
 </div>
 
-<div class="row">
-  <table class="cust box" style="flex:1">
-    <tr><td>Name :</td><td><b>{{.CustomerName}}</b></td></tr>
-    <tr><td>Address :</td><td><b>{{.Address}}</b></td></tr>
-    <tr><td>Phone No :</td><td><b>{{.Mobile}}</b></td></tr>
+<div class="top">
+  <table class="cust">
+    <tr><td>Name :</td><td>{{.CustomerName}}</td></tr>
+    <tr><td>Address :</td><td>{{.Address}}</td></tr>
+    <tr><td>Phone No :</td><td>{{.Mobile}}</td></tr>
   </table>
-  <div class="photos"><u>Customer Photo</u><div class="photo">{{with .CustomerPhoto}}<img src="{{.}}" alt="">{{else}}Customer<br>photo{{end}}</div></div>
-  <div class="photos"><u>Jewel Photo</u><div class="photo">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}Jewel<br>photo{{end}}</div></div>
-  <table class="loan" style="width:200px;align-self:flex-start">
+  <div class="pbox">
+    <span class="lbl p1">Customer Photo</span><span class="lbl p2">Jewel Photo</span>
+    <div class="frame">
+      <div class="photo p1">{{with .CustomerPhoto}}<img src="{{.}}" alt="">{{else}}Customer<br>photo{{end}}</div>
+      <div class="photo p2">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}Jewel<br>photo{{end}}</div>
+    </div>
+  </div>
+  <table class="loan">
     <tr><td>Gold Loan No.</td><td>{{.LoanNumber}}</td></tr>
     <tr><td>Date of Loan</td><td>{{.LoanDateDisplay}}</td></tr>
     <tr><td>Loan Amount</td><td>{{.PrincipalAmount}}</td></tr>
@@ -25,21 +29,21 @@
   </table>
 </div>
 
-<div class="row" style="margin-top:14px">
-  <div class="decl" style="flex:1">
+<div class="mid">
+  <div class="decl">
     I, <b>{{.CustomerName}}</b>, declare that the gold ornaments pledged with {{.LenderName}} are my own property. I have received a loan of Rs. <b>{{.PrincipalAmount}}/-</b> against the ornaments listed here, and I confirm that they belong to me. I undertake to pay the principal and interest under the terms and conditions printed on the other side and to take back my ornaments. If the ornaments are not redeemed, I agree that they may be sold by auction.
-    <p style="margin:8px 0 0">Rupees in Words : <b>{{.AmountWords}} Only</b></p>
+    <p class="words">Rupees in Words : <b>{{.AmountWords}} Only</b></p>
     <div class="sig"><span class="esign-slot">Signature</span></div>
   </div>
-  <div style="width:290px">
-    <table class="items">
-      <tr><th style="width:34px">Sl. No.</th><th>Description of Item</th><th style="width:60px">No. Of Items</th></tr>
+  <div class="right">
+    <table class="items main">
+      <tr><th style="width:42px">Sl. No.</th><th>Description of Item</th><th style="width:74px">No. Of Items</th></tr>
       {{range $i, $it := .Items}}<tr><td>{{inc $i}}.</td><td>{{$it.Name}}</td><td>{{$it.Qty}}</td></tr>
-      {{end}}
+      {{end}}{{range .PadRows}}<tr class="pad"><td></td><td></td><td></td></tr>{{end}}
     </table>
-    <table class="items" style="margin-top:6px">
+    <table class="items tot">
       <tr><th>Gross Wt</th><th>Net Wt</th><th>Amount</th></tr>
-      <tr class="tot"><td>{{.GrossTotal}}</td><td>{{.NetTotal}}</td><td>{{.PrincipalAmount}}</td></tr>
+      <tr><td>{{.GrossTotal}}</td><td>{{.NetTotal}}</td><td>{{.PrincipalAmount}}</td></tr>
     </table>
   </div>
 </div>
@@ -52,26 +56,25 @@
 
 <div class="rcpt">
   <div class="l">
-    {{with .Logo}}<img class="logo" src="{{.}}" alt="" style="float:left;width:70px;height:70px">{{end}}<h2>{{.LenderName}}</h2>
-    <div class="c">{{.LenderAddressShort}}{{with .Phones}}<br>Phone : {{.}}{{end}}<br>GOLD LOAN RECEIPT</div>
-    <div class="rg">
-      <table>
-        {{if .KMLRegNo}}<tr><td>Licence No</td><td><b>: {{.KMLRegNo}}</b></td></tr>{{end}}
-        <tr><td>GL. No</td><td><b>: {{.LoanNumber}}</b></td></tr>
-        <tr><td>Name</td><td><b>: {{.CustomerName}}</b></td></tr>
-        <tr><td>Date</td><td><b>: {{.LoanDateDisplay}}</b></td></tr>
-        <tr><td>Amount</td><td><b>: {{.PrincipalAmount}}</b></td></tr>
-        <tr><td>Weight</td><td><b>: {{.NetTotal}}</b></td></tr>
-      </table>
-      <div><u><b>Ornaments &amp; Qty</b></u>{{range .Items}}<br>{{.Name}}-{{.Qty}}{{end}}</div>
-      <div style="text-align:center"><u><b>Jewel Photo</b></u><div class="sm">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div><span style="font-size:10px">Authorized Signature<br>({{.LenderName}})</span></div>
-    </div>
-    <div class="terms">1. Principal and interest must be paid before the gold ornaments are taken back.<br>2. Once the term ends, the ornaments will be auctioned after notice is given.<br>3. Interest must be paid once every six months.</div>
+    {{with .Logo}}<img class="lg" src="{{.}}" alt="">{{end}}
+    <div class="hd"><h2>{{.LenderName}}</h2>{{range $i, $l := .AddressLines}}<div class="{{if eq $i 0}}ad{{else}}ct{{end}}">{{$l}}</div>{{end}}{{with .Phones}}<div class="ct">Phone : {{.}}</div>{{end}}<div class="gl">GOLD LOAN RECEIPT</div></div>
+    <table class="rg">
+      {{if .KMLRegNo}}<tr><td>Licence No</td><td>: {{.KMLRegNo}}</td></tr>{{end}}
+      <tr><td>GL. No</td><td>: {{.LoanNumber}}</td></tr>
+      <tr><td>Name</td><td>: {{.CustomerName}}</td></tr>
+      <tr><td>Date</td><td>: {{.LoanDateDisplay}}</td></tr>
+      <tr><td>Amount</td><td>: {{.PrincipalAmount}}</td></tr>
+      <tr><td>Weight</td><td>: {{.NetTotal}}</td></tr>
+    </table>
+    <div class="orn"><u>Ornaments &amp; Qty</u>{{range .Items}}<br>{{.Name}}-{{.Qty}}{{end}}</div>
+    <div class="jw"><u>Jewel Photo</u><div class="sm">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div><div class="ls"><style>.tml-lsig .sig-img{max-height:20px;max-width:90px;display:block}</style><span class="tml-lsig">{{.LenderSignature}}</span></div><small>Authorized Signature<br>({{.LenderName}})</small></div>
+    <div class="terms">1. Principal and interest must be paid before the gold ornaments are taken back.<br>2. Once the term ends, the ornaments will be auctioned after notice is given.<br>3. Interest must be paid once every six months.<br>Working hours : 9 AM to 5 PM (Sunday holiday)</div>
   </div>
   <div class="r">
-    <b style="font-size:15px">Package Details</b><br>
+    <h3>Package Details</h3>
     <b>GL.NO</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {{.LoanNumber}}<br><b>Name</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {{.CustomerName}}<br>
-    <b>Lo Amt</b> &nbsp;&nbsp;&nbsp;: {{.PrincipalAmount}}<br><b>Weight</b> &nbsp;&nbsp;&nbsp;: {{.NetTotal}}<br><b>Item:</b><br><b>Total Qty : {{.TotalQty}}</b>
+    <b>Lo Amt</b> &nbsp;&nbsp;&nbsp;: {{.PrincipalAmount}}<br><b>Weight</b> &nbsp;&nbsp;&nbsp;: {{.NetTotal}} gm<br><b>Total Qty : {{.TotalQty}}</b>
+    {{with .PacketQR}}<div class="pqr"><img src="{{.}}" alt=""><span>Packet QR</span></div>{{end}}
   </div>
 </div>
 

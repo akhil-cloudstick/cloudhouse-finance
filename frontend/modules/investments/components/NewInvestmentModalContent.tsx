@@ -14,6 +14,12 @@ import { CreateInvestorModalContent } from "@/modules/investments/components/Cre
 import { useAuth } from "@/common/providers/AuthProvider";
 import { createInvestment, listInvestmentPlans } from "@/modules/investments/services/investmentService";
 import { type BackendInvestmentPlan } from "@/modules/investments/types/investment-types";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  split: /payment|breakdown|bank|cheque|upi/i, investor: /investor|customer/i, plan: /plan/i, principal: /principal|amount/i,
+};
 
 type NewInvestmentModalContentProps = { onSaved: () => void };
 
@@ -41,6 +47,9 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
   // Same "swap this same mounted component to an inline create form instead
   // of stacking a new modal" trick as NewPersonalLoanModal.tsx's
@@ -58,14 +67,15 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
   const principalNum = +principal || 0;
 
   async function save() {
-    if (!customerId || !customerBranchId) { setErr("Please select an investor."); return; }
-    if (!planId) { setErr("Please select an investment plan."); return; }
-    if (!principalNum || principalNum <= 0) { setErr("Please enter the principal amount."); return; }
-    if (plan && principalNum < plan.minPrincipal) { setErr(`Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`); return; }
-    if (Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the principal amount."); return; }
+    if (!customerId || !customerBranchId) { fail("investor", "Please select an investor."); return; }
+    if (!planId) { fail("plan", "Please select an investment plan."); return; }
+    if (!principalNum || principalNum <= 0) { fail("principal", "Please enter the principal amount."); return; }
+    if (plan && principalNum < plan.minPrincipal) { fail("principal", `Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`); return; }
+    if (Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the principal amount."); return; }
 
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       await createInvestment({
         branchId: customerBranchId,
@@ -78,7 +88,9 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
       toast(`Investment created — ${fmt(principalNum)} deposited`);
       onSaved();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not create the investment — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not create the investment — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -101,7 +113,7 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
     <>
       <div className="hd"><h3>New Investment</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
-        <div className="frow"><div><label className="f">Investor *</label>
+        <div className="frow"><div className={fe.investor ? "has-err" : undefined}><label className="f">Investor *</label>
           <SearchableSelect<CustomerView>
             value={customerLabel}
             onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); }}
@@ -112,21 +124,24 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
             placeholder="Search for an investor…"
             onCreateNew={canCreateCustomer ? () => setCreatingInvestor(true) : undefined}
             createNewLabel="+ Add new investor"
-          /></div></div>
+          /><FieldError msg={fe.investor} /></div></div>
         <div className="frow c2">
-          <div><label className="f">Investment Plan *</label>
+          <div className={fe.plan ? "has-err" : undefined}><label className="f">Investment Plan *</label>
             <Select
               value={planId === "" ? "" : String(planId)}
               onChange={(v) => setPlanId(v ? Number(v) : "")}
               options={plans.map((p) => ({ value: String(p.id), label: `${p.name} — ${p.interestRatePercent}% ${p.payoutFrequency}, ${p.tenureMonths}mo` }))}
               placeholder={plans.length ? "Select plan…" : "No active plans"}
-            />
+            /><FieldError msg={fe.plan} />
           </div>
-          <div><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 100000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
+          <div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 100000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /><FieldError msg={fe.principal} /></div>
         </div>
 
         <div className="frow">
-          <SplitPaymentInput totalAmount={principalNum} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+          <div className={fe.split ? "has-err" : undefined}>
+            <SplitPaymentInput totalAmount={principalNum} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+            <FieldError msg={fe.split} />
+          </div>
         </div>
 
         {plan && principalNum > 0 && (

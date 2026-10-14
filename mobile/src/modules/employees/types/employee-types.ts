@@ -43,4 +43,9 @@ export type EmployeeInput = {
   phone?: string;
   username?: string;
   password?: string;
+  // The backend overwrites these on every update, so an edit sends the employee's own back (web does the same).
+  loansProcessed?: number;
+  collections?: number;
+  followups?: number;
+  pending?: number;
 };

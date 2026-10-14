@@ -44,6 +44,8 @@ export default function LoginScreen() {
   const { signIn } = useAuth();
   const { colors } = useTheme();
   const [stack, setStack] = useState<Phase[]>(["login"]);
+  // Set after a successful password reset, so the sign-in page can say so.
+  const [resetDone, setResetDone] = useState(false);
   const phase = stack[stack.length - 1];
 
   const push = (p: Phase) => {
@@ -171,6 +173,26 @@ export default function LoginScreen() {
     }
   }
 
+  // Asks for a fresh code for the same account (the old one stops working) — web's "Resend code".
+  const [resending, setResending] = useState(false);
+  const [resentNote, setResentNote] = useState<string | null>(null);
+  async function handleResend() {
+    Keyboard.dismiss();
+    setOtpError(null);
+    setResentNote(null);
+    setResending(true);
+    try {
+      const code = await getBusinessCode();
+      await forgotPassword(resetUsername.trim(), phone.trim(), code);
+      setOtp("");
+      setResentNote("A new code has been sent.");
+    } catch (err) {
+      setOtpError(err instanceof ApiError ? err.message || "Could not send a new code." : "Could not reach the server. Check your connection and try again.");
+    } finally {
+      setResending(false);
+    }
+  }
+
   async function handleResetPassword() {
     Keyboard.dismiss();
     setResetError(null);
@@ -194,6 +216,7 @@ export default function LoginScreen() {
       setSent(false);
       setPhone("");
       setResetUsername("");
+      setResetDone(true);
       goLogin();
     } catch (err) {
       setResetError(err instanceof ApiError ? err.message || "This code is invalid or has expired." : "This code is invalid or has expired.");
@@ -206,10 +229,12 @@ export default function LoginScreen() {
       <AuthShell eyebrow="Verify" title={"Enter the\ncode."} subtitle={`Enter the 6-digit code sent to ${phone.trim()}.`}>
         <OtpInput value={otp} onChange={setOtp} />
         <AuthError message={otpError} />
+        {resentNote ? <ThemedText variant="small" color={colors.green} style={{ marginTop: 8 }}>{resentNote}</ThemedText> : null}
         <View style={styles.spacer} />
         <KeyboardAnchor>
           <AuthButton title="Verify code" onPress={handleVerifyCode} disabled={otp.length < 6} loading={verifying} />
         </KeyboardAnchor>
+        <AuthLink label={resending ? "Sending…" : "Resend code"} onPress={resending ? () => {} : handleResend} />
         <AuthLink label="Back to sign in" onPress={goLogin} />
       </AuthShell>
     );
@@ -324,6 +349,11 @@ export default function LoginScreen() {
 
   return (
     <AuthShell eyebrow="Staff portal" title={"Good to see\nyou again."} subtitle={`Sign in to ${businessName} with your username and password.`}>
+      {resetDone ? (
+        <ThemedText variant="body" color={colors.green} style={{ marginBottom: 12 }}>
+          Password reset! You can now sign in with your new password.
+        </ThemedText>
+      ) : null}
       <AuthField
         label="Username"
         icon="user"

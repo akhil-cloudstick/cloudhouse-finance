@@ -10,6 +10,7 @@ import { approveLoan } from "@/modules/loans/services/loanService";
 import { type LoanView } from "@/modules/loans/types/loan-types";
 import { useBalanceInHand } from "@/common/hooks/use-balance-in-hand";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError } from "@/common/components/ui/FieldError";
 
 type DisburseLoanModalContentProps = {
   loan: LoanView;
@@ -42,6 +43,7 @@ export function DisburseLoanModalContent({
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const balanced = Math.abs(remaining) < 0.01;
   // The customer is paid the principal less the charge in both modes: a withheld charge stays with the
@@ -53,10 +55,10 @@ export function DisburseLoanModalContent({
   const insufficient = balanceInHand !== null && payout > balanceInHand + 0.005;
 
   async function save() { return singleFlight("modal:disburseloan:save", async () => {
-    if (!balanced) { setErr("The payment breakdown must add up to the payout amount."); return; }
-    if (insufficient) { setErr("Insufficient balance in hand to disburse this loan."); return; }
+    setErr(""); setFe({});
+    if (!balanced) { setFe({ payments: "The payment breakdown must add up to the payout amount." }); return; }
+    if (insufficient) { setFe({ payments: "Insufficient balance in hand to disburse this loan." }); return; }
     setSaving(true);
-    setErr("");
     try {
       const updated = await approveLoan(loan.numericId, {
         stage,
@@ -81,8 +83,11 @@ export function DisburseLoanModalContent({
     <>
       <div className="hd" style={{ minHeight: 66 }}><h3>{actionLabel} — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll disburse-modal-bd">
-        <div className="frow">
-          <SplitPaymentInput totalAmount={payout} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+        <div className={fe.payments ? "has-err" : undefined}>
+          <div className="frow">
+            <SplitPaymentInput totalAmount={payout} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); setFe((cur) => (cur.payments ? { ...cur, payments: "" } : cur)); }} />
+          </div>
+          <FieldError msg={fe.payments} />
         </div>
         {balanceInHand !== null && (
           <p style={{ fontSize: 12.5, marginTop: 8, color: insufficient ? "var(--red)" : "var(--muted)" }}>

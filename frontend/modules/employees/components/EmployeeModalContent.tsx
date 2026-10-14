@@ -15,6 +15,7 @@ import { type EmployeeView } from "@/modules/employees/types/employee-types";
 import { Select } from "@/common/components/ui/Select";
 import { fetchRoles } from "@/common/services/permissionService";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 /* The seeded roles — the fallback list when the live one (GET /roles,
  * which also carries custom roles) cannot be loaded because this user lacks
@@ -47,6 +48,11 @@ const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
 const PHONE_RE = /^\d{10}$/;
 // Mirrors backend/internal/employee/service.go's usernameRe.
 const USERNAME_RE = /^[A-Za-z0-9._-]{3,60}$/;
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  name: /name/i, phone: /phone|mobile/i, role: /role/i, branch: /branch/i, username: /username/i, password: /password/i,
+};
 
 // Look-alike characters (0/O, 1/l/I) are left out so a password read off the
 // screen to a new employee can't be mistyped.
@@ -112,6 +118,9 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
   const [password, setPassword] = useState(() => (employee ? "" : generatePassword()));
   const [passwordVisible, setPasswordVisible] = useState(!employee);
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -139,21 +148,22 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
     const p = phone.trim();
 
     if (trimmed.length < 3 || !NAME_RE.test(trimmed)) {
-      setErr("Please enter the employee's full name (letters only, at least 3 characters).");
+      fail("name", "Please enter the employee's full name (letters only, at least 3 characters).");
       return;
     }
-    if (!role || !(roleNames.includes(role) || role === employee?.role)) { setErr("Please select a role."); return; }
-    if (!branchId) { setErr("Please select a branch."); return; }
-    if (p && !PHONE_RE.test(p)) { setErr("Phone number must be exactly 10 digits."); return; }
+    if (!role || !(roleNames.includes(role) || role === employee?.role)) { fail("role", "Please select a role."); return; }
+    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    if (p && !PHONE_RE.test(p)) { fail("phone", "Phone number must be exactly 10 digits."); return; }
     const uname = username.trim();
     if (uname && !USERNAME_RE.test(uname)) {
-      setErr("Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).");
+      fail("username", "Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).");
       return;
     }
-    if (password && password.length < 8) { setErr("Password must be at least 8 characters."); return; }
+    if (password && password.length < 8) { fail("password", "Password must be at least 8 characters."); return; }
 
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       if (employee) {
         await updateEmployee(employee.id, {
@@ -178,7 +188,9 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
       if (e instanceof ApiError && e.status >= 500) {
         setErr("Something went wrong saving this employee. Please try again.");
       } else {
-        setErr(e instanceof Error ? e.message : "Failed to save employee.");
+        const msg = e instanceof Error ? e.message : "Failed to save employee.";
+        const field = fieldForMessage(msg, SERVER_FIELDS);
+        if (field) fail(field, msg); else setErr(msg);
       }
     } finally {
       setSaving(false);
@@ -190,8 +202,8 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
       <div className="hd"><h3>{employee ? "Edit Employee — " + employee.name : "Add Employee"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow c2">
-          <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Arun Kumar" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" /></div>
-          <div><label className="f">Mobile Number</label>
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Arun Kumar" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" /><FieldError msg={fe.name} /></div>
+          <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number</label>
             <input
               className="inp"
               type="tel"
@@ -201,12 +213,12 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
               onChange={(e) => onPhoneChange(e.target.value)}
               maxLength={10}
               autoComplete="off"
-            /></div>
+            /><FieldError msg={fe.phone} /></div>
         </div>
         <div className={showBranch ? "frow c2" : "frow"}>
-          <div><label className="f">Role *</label>
-            <Select options={roleOptionsFor(roleNames, hiddenRoles, role)} value={role} onChange={setRole} placeholder="Select role…" /></div>
-          {showBranch && <div><label className="f">Branch *</label>
+          <div className={fe.role ? "has-err" : undefined}><label className="f">Role *</label>
+            <Select options={roleOptionsFor(roleNames, hiddenRoles, role)} value={role} onChange={setRole} placeholder="Select role…" /><FieldError msg={fe.role} /></div>
+          {showBranch && <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
             {canViewAllBranches ? (
               <Select
                 disabled={branchLocked}
@@ -225,16 +237,16 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
                 onChange={() => {}}
                 disabled
               />
-            )}</div>}
+            )}<FieldError msg={fe.branch} /></div>}
         </div>
         {/* Login credentials. Create: password is pre-generated (shown) so it
           * can be handed to the employee. Edit: username can be set/changed
           * and the password field starts blank — fill it (or Generate) only
           * to change the password; blank keeps the current one. */}
         <div className="frow c2">
-            <div><label className="f">Username (for login)</label>
-              <input className="inp" placeholder="e.g. arun.kumar" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={60} autoComplete="off" /></div>
-            <div><label className="f">{employee ? "New Password" : "Password"}</label>
+            <div className={fe.username ? "has-err" : undefined}><label className="f">Username (for login)</label>
+              <input className="inp" placeholder="e.g. arun.kumar" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={60} autoComplete="off" /><FieldError msg={fe.username} /></div>
+            <div className={fe.password ? "has-err" : undefined}><label className="f">{employee ? "New Password" : "Password"}</label>
               <div style={{ position: "relative" }}>
                 <input
                   className="inp"
@@ -259,6 +271,7 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
                   <Icon name={passwordVisible ? "eyeOff" : "eye"} />
                 </button>
               </div>
+              <FieldError msg={fe.password} />
               <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                 <button type="button" className="btn plain sm" onClick={() => { setPassword(generatePassword()); setPasswordVisible(true); }}>Generate</button>
                 {password && (

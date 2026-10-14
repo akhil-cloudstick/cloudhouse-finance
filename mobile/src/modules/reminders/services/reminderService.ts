@@ -36,3 +36,12 @@ export async function listCalendarEventsPage(params: { limit: number; offset: nu
   });
   return { items: rec.events ?? [], hasMore: page * params.limit < rec.totalCount, total: rec.totalCount };
 }
+
+// Marks a manual reminder Done (PUT /reminders/:id/complete).
+export function completeReminder(id: number) {
+  return apiRequest<Reminder>(`/reminders/${id}/complete`, { method: "PUT" });
+}
+
+export function deleteReminder(id: number) {
+  return apiRequest<void>(`/reminders/${id}`, { method: "DELETE" });
+}

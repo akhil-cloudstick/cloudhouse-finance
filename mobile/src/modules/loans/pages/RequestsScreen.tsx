@@ -1,3 +1,4 @@
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import React, { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -52,8 +53,8 @@ export default function RequestsScreen() {
   const canDecide = can("Loan_Management", "can_update_loan");
   const params = useLocalSearchParams<{ requestId?: string; loanId?: string }>();
 
-  const [status, setStatus] = useState<Status>("All");
-  const [type, setType] = useState<ReqType>("All");
+  const [status, setStatus] = usePersistedState<Status>("requests:status", "All");
+  const [type, setType] = usePersistedState<ReqType>("requests:type", "All");
   const [draft, setDraft] = useState({ status, type });
   const [filterOpen, setFilterOpen] = useState(false);
   // Holds just the id — the sheet derives the request live from the list (or

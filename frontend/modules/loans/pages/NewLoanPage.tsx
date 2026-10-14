@@ -854,7 +854,9 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 placeholder="Search active schemes…"
               /></div>
           </div>
-          <div className={showBranch ? "frow c2" : "frow"}>
+          {/* Single branch: Locker, Loan No and Loan Date share one 3-column row
+              so Locker isn't stretched full width. */}
+          <div className={showBranch ? "frow c2" : "frow c3"}>
             {showBranch && <div><label className="f">Branch</label>
               {/* Locked unless there's a real choice: only cross-branch roles
                   (Administrator, Management) may pick — the backend pins
@@ -888,11 +890,17 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 getId={(k) => String(k.id)}
                 placeholder="— Assign later — or search locker…"
               /></div>
+            {!showBranch && <>
+              <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
+              <div><label className="f">Loan Date</label><DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} /></div>
+            </>}
           </div>
-          <div className="frow c2">
-            <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
-            <div><label className="f">Loan Date</label><DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} /></div>
-          </div>
+          {showBranch && (
+            <div className="frow c2">
+              <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
+              <div><label className="f">Loan Date</label><DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} /></div>
+            </div>
+          )}
           <label className="f" style={{ marginTop: 6 }}>Pledged Ornaments</label>
           {/* Deliberately NOT wrapped in .tbl-wrap (unlike other tables) — that
               class sets overflow-x:auto, and per the CSS overflow spec,

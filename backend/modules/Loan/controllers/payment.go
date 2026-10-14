@@ -270,65 +270,75 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 	if in.InterestOverride != nil && *in.InterestOverride < 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
 	}
-	accrueAndSave(ctx, l)
-	if now := time.Now(); !in.PaidOn.After(now) && in.PaidOn.Format("2006-01-02") == now.Format("2006-01-02") {
-		in.PaidOn = now
-	}
-	if in.ProcessingFee > 0 {
-		l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee + in.ProcessingFee)
-	}
-	fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount, in.InterestOverride)
-	if err != nil {
-		return nil, err
-	}
-	l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee - fee)
-	if l.OutstandingProcessingFee < 0 {
-		l.OutstandingProcessingFee = 0
-	}
-	l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
-	l.InterestPaid = common.RoundMoney(l.InterestPaid + interest)
-	l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount - principal)
-	if l.OutstandingAmount < 0 {
-		l.OutstandingAmount = 0
-	}
-	if isCashPaymentType(in.Type) {
-		// any repayment sends a Multiple-interest loan back to its first rate
-		resetRateCycle(l, in.PaidOn)
-	}
-	outstandingInterest := l.AccruedInterest - l.InterestPaid
-	outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
-	if l.OutstandingAmount <= 0 && outstandingInterest <= 0.01 && outstandingPenal <= 0.01 &&
-		l.OutstandingProcessingFee <= 0.01 &&
-		(l.Status == models.StatusActive || l.Status == models.StatusDueSoon || l.Status == models.StatusOverdue) {
-		l.Status = models.StatusClosureRequested
-	} else {
-		refreshServicingStatus(l, time.Now())
-	}
-	runningBalance := l.OutstandingAmount + math.Max(0, outstandingInterest) + math.Max(0, outstandingPenal) + l.OutstandingProcessingFee
-	p := &models.LoanPayment{
-		LoanID:               loanID,
-		Amount:               in.Amount,
-		Type:                 in.Type,
-		ProcessingFee:        in.ProcessingFee,
-		ProcessingFeeApplied: fee,
-		PaidOn:               in.PaidOn,
-		ReceivedByEmployeeID: in.ReceivedByEmployeeID,
-		Description:          in.Description,
-		Method:               methodOrDerived(in.Method, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount),
-		CashAmount:           in.CashAmount,
-		UpiAmount:            in.UpiAmount,
-		BankTransferAmount:   in.BankTransferAmount,
-		ChequeAmount:         in.ChequeAmount,
-		BankID:               in.BankID,
-		Reference:            in.Reference,
-		PenalInterestApplied: penal,
-		InterestApplied:      interest,
-		PrincipalApplied:     principal,
-		RunningBalance:       runningBalance,
-	}
-	// The loan, its payment row and the cash lines are saved together: a failed cash line now undoes the
-	// payment instead of leaving a payment on the ledger that the cards never saw.
+	var p *models.LoanPayment
+	// The interest up to the payment date, the payment's allocation, the loan, its payment row and the cash lines
+	// are saved together on the locked loan: a rejected payment leaves no interest behind, a failed cash line undoes
+	// the payment instead of leaving one on the ledger that the cards never saw, and two payments at once cannot
+	// both charge the same days.
 	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		saved, err := lockByID(ctx, tx, loanID)
+		if err != nil {
+			return common.NewNotFound("loan not found")
+		}
+		syncAccrualState(l, saved)
+		if err := accrueThroughInTx(ctx, tx, l, in.PaidOn); err != nil {
+			return err
+		}
+		if now := time.Now(); !in.PaidOn.After(now) && in.PaidOn.Format("2006-01-02") == now.Format("2006-01-02") {
+			in.PaidOn = now
+		}
+		if in.ProcessingFee > 0 {
+			l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee + in.ProcessingFee)
+		}
+		fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount, in.InterestOverride)
+		if err != nil {
+			return err
+		}
+		l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee - fee)
+		if l.OutstandingProcessingFee < 0 {
+			l.OutstandingProcessingFee = 0
+		}
+		l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
+		l.InterestPaid = common.RoundMoney(l.InterestPaid + interest)
+		l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount - principal)
+		if l.OutstandingAmount < 0 {
+			l.OutstandingAmount = 0
+		}
+		if isCashPaymentType(in.Type) {
+			// any repayment sends a Multiple-interest loan back to its first rate
+			resetRateCycle(l, in.PaidOn)
+		}
+		outstandingInterest := l.AccruedInterest - l.InterestPaid
+		outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
+		if l.OutstandingAmount <= 0 && outstandingInterest <= 0.01 && outstandingPenal <= 0.01 &&
+			l.OutstandingProcessingFee <= 0.01 &&
+			(l.Status == models.StatusActive || l.Status == models.StatusDueSoon || l.Status == models.StatusOverdue) {
+			l.Status = models.StatusClosureRequested
+		} else {
+			refreshServicingStatus(l, time.Now())
+		}
+		runningBalance := l.OutstandingAmount + math.Max(0, outstandingInterest) + math.Max(0, outstandingPenal) + l.OutstandingProcessingFee
+		p = &models.LoanPayment{
+			LoanID:               loanID,
+			Amount:               in.Amount,
+			Type:                 in.Type,
+			ProcessingFee:        in.ProcessingFee,
+			ProcessingFeeApplied: fee,
+			PaidOn:               in.PaidOn,
+			ReceivedByEmployeeID: in.ReceivedByEmployeeID,
+			Description:          in.Description,
+			Method:               methodOrDerived(in.Method, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount),
+			CashAmount:           in.CashAmount,
+			UpiAmount:            in.UpiAmount,
+			BankTransferAmount:   in.BankTransferAmount,
+			ChequeAmount:         in.ChequeAmount,
+			BankID:               in.BankID,
+			Reference:            in.Reference,
+			PenalInterestApplied: penal,
+			InterestApplied:      interest,
+			PrincipalApplied:     principal,
+			RunningBalance:       runningBalance,
+		}
 		if err := updateLoanTx(ctx, tx, l); err != nil {
 			return err
 		}

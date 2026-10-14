@@ -175,6 +175,8 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
     <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print</button></div>
   </body></html>`);
   w.document.close();
+  // Close the preview once the print dialog is dismissed (Print or Cancel).
+  w.addEventListener("afterprint", () => w.close());
   setTimeout(() => {
     try { w.focus(); w.print(); } catch { /* ignore */ }
   }, 400);

@@ -14,6 +14,7 @@ import { type LoanView } from "@/modules/loans/types/loan-types";
 import { EditLoanModalContent } from "@/modules/loans/components/EditLoanModalContent";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModalContent";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 type TopUpLoanModalContentProps = { loan: LoanView; onSaved: (updated: LoanView) => void; initialAmount?: string; initialReference?: string };
 
@@ -54,6 +55,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
   const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [reference, setReference] = useState(initialReference);
   const [err, setErr] = useState("");
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [shortfall, setShortfall] = useState(false);
   const [saving, setSaving] = useState(false);
   // Staff's choice for the outstanding interest/penal interest currently
@@ -103,16 +105,18 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
     );
   }
 
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+
   async function save() { return singleFlight("modal:topuploan:save", async () => {
-    if (!amt || amt <= 0) { setErr("Please enter the top-up amount."); return; }
-    if (!balanced) { setErr("The payment breakdown must add up to the amount."); return; }
+    setErr(""); setFe({});
+    if (!amt || amt <= 0) { fail("amount", "Please enter the top-up amount."); return; }
+    if (!balanced) { fail("payments", "The payment breakdown must add up to the amount."); return; }
     if (hasArrears && settleMode === "require") {
       if (canUpdateLoans) openPayInterest();
-      else setErr("Interest must be paid before this top-up. Ask someone who can record loan payments.");
+      else { setFe({}); setErr("Interest must be paid before this top-up. Ask someone who can record loan payments."); }
       return;
     }
     setSaving(true);
-    setErr("");
     setShortfall(false);
     setNeedsPayment(false);
     try {
@@ -138,14 +142,17 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
     } catch (e) {
       if (e instanceof ApiError && /headroom/i.test(e.message)) {
         setShortfall(true);
-        setErr(e.message);
+        fail("amount", e.message);
       } else if (e instanceof ApiError && e.status === 400 && /outstanding interest/i.test(e.message)) {
         // ErrTopUpNeedsPayment — settleMode is "require" and arrears still
         // stand. Reveal the Record Payment prompt instead of the raw error.
         setNeedsPayment(true);
+        setFe({});
         setErr("Outstanding interest/penal interest must be paid before this top-up can proceed — record a payment below, or switch to \"Deduct from payout\" above.");
       } else {
-        setErr(e instanceof ApiError ? e.message : "Could not record the top-up — try again.");
+        const msg = e instanceof ApiError ? e.message : "Could not record the top-up — try again.";
+        const field = fieldForMessage(msg, { reference: /reference/i, payments: /bank|breakdown/i });
+        if (field) fail(field, msg); else { setFe({}); setErr(msg); }
       }
     } finally {
       setSaving(false);
@@ -176,22 +183,22 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
           </div>
         )}
         <div className="frow">
-          <div><label className="f">Top-up Amount (₹) *</label><input className="inp" type="number" min={1} max={headroom || undefined} placeholder="e.g. 5000" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-        </div>
-        <div className="frow" style={{ marginTop: 4 }}>
-          <SplitPaymentInput totalAmount={amt} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
-        </div>
-        <div className="frow"><div><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={80} /></div></div>
-        {err && (
-          <div className="notice" style={{ marginTop: 10 }}>
-            {err}
-            {shortfall && canUpdateLoans && (
-              <div style={{ marginTop: 8 }}>
+          <div className={fe.amount ? "has-err" : undefined}><label className="f">Top-up Amount (₹) *</label><input className="inp" type="number" min={1} max={headroom || undefined} placeholder="e.g. 5000" value={amount} onChange={(e) => { setAmount(e.target.value); setFe((cur) => ({ ...cur, amount: "" })); }} /><FieldError msg={fe.amount} />
+            {fe.amount && shortfall && canUpdateLoans && (
+              <div style={{ marginTop: 4, fontSize: 12 }}>
                 <a href="#" onClick={(e) => { e.preventDefault(); openAddOrnaments(); }}>Add ornaments to raise the eligible amount →</a>
               </div>
             )}
           </div>
-        )}
+        </div>
+        <div className={fe.payments ? "has-err" : undefined}>
+          <div className="frow" style={{ marginTop: 4 }}>
+            <SplitPaymentInput totalAmount={amt} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); setFe((cur) => (cur.payments ? { ...cur, payments: "" } : cur)); }} />
+          </div>
+          <FieldError msg={fe.payments} />
+        </div>
+        <div className="frow"><div className={fe.reference ? "has-err" : undefined}><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => { setReference(e.target.value); setFe((cur) => ({ ...cur, reference: "" })); }} maxLength={80} /><FieldError msg={fe.reference} /></div></div>
+        {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
         {needsPayment && canUpdateLoans && (
           <div style={{ marginTop: 10 }}>
             <button className="btn ghost sm" onClick={openPayInterest}>

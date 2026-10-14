@@ -13,6 +13,7 @@ import { recordPayment, recordReleasePayment, getLoan } from "@/modules/loans/se
 import { type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 /* What the Amount is allowed to pay off. Every mode clears any outstanding
  * processing fee first — a fee is a real charge, not something staff can
@@ -120,6 +121,11 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
 // show them to the paisa.
 const prefill = (v: number) => (v > 0 ? String(Math.round(v * 100) / 100) : "");
 
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  discount: /discount/i, fee: /processing fee|additional charge/i, interest: /interest cannot|interest override/i, date: /date/i, split: /bank|breakdown|split|cheque|upi|cash/i, amount: /amount|exceed|outstanding/i,
+};
+
 type PaymentModalContentProps = { loan: LoanView; onSaved: () => void; releaseRequestId?: number; initialMode?: string };
 
 // Record Payment never posts straight away: it first pops a confirmation
@@ -225,9 +231,14 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // An error is about the figures as they were when it was raised — it's
   // stamped with them and stops showing the moment any of them change.
   const figuresKey = [amt, mode, remaining, fee, interest, discount].join("|");
-  const [errState, setErrState] = useState({ msg: "", key: "" });
-  const err = errState.key === figuresKey ? errState.msg : "";
-  const setErr = (msg: string) => setErrState({ msg, key: figuresKey });
+  // `field` is the input the message is about; "" means it fits no field and shows in the footer.
+  const [errState, setErrState] = useState({ msg: "", field: "", key: "" });
+  const errLive = errState.key === figuresKey;
+  const err = errLive && !errState.field ? errState.msg : "";
+  const fe: Record<string, string> = errLive && errState.field ? { [errState.field]: errState.msg } : {};
+  const setErr = (msg: string, field = "") => setErrState({ msg, field, key: figuresKey });
+  // Editing the date or the payment breakdown doesn't change the figures key, so clear those by hand.
+  const clearField = (f: string) => setErrState((cur) => (cur.field === f ? { msg: "", field: "", key: "" } : cur));
   const [saving, setSaving] = useState(false);
   // Synchronous guard against a double post: `saving` only disables the
   // button after a re-render, so a fast double-click or a held Enter on the
@@ -271,20 +282,20 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 
   async function save() { return singleFlight("modal:payment:save", async () => {
     const typed = +amt;
-    if (!typed || typed <= 0) { setErr("Please enter a valid payment amount."); return; }
+    if (!typed || typed <= 0) { setErr("Please enter a valid payment amount.", "amount"); return; }
     const processingFee = fee.trim() ? +fee : 0;
-    if (processingFee < 0) { setErr("Processing fee cannot be negative."); return; }
+    if (processingFee < 0) { setErr("Processing fee cannot be negative.", "fee"); return; }
     const amount = typed;
-    if (processingFee > amount + 0.001) { setErr("Additional charges cannot exceed the amount."); return; }
+    if (processingFee > amount + 0.001) { setErr("Additional charges cannot exceed the amount.", "fee"); return; }
     const interestOverride = interest.trim() ? +interest : undefined;
-    if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative."); return; }
-    if (!date) { setErr("Please select the payment date."); return; }
-    if (!splitBalanced) { setErr("The payment breakdown must add up to the amount."); return; }
-    if (bankMissing) { setErr("Select a bank"); return; }
-    if (allocWarning) { setErr(allocWarning); return; }
+    if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative.", "interest"); return; }
+    if (!date) { setErr("Please select the payment date.", "date"); return; }
+    if (!splitBalanced) { setErr("The payment breakdown must add up to the amount.", "split"); return; }
+    if (bankMissing) { setErr("Select a bank", "split"); return; }
+    if (allocWarning) { setErr(allocWarning, "amount"); return; }
     const discountAmount = discount.trim() ? +discount : 0;
-    if (discountAmount < 0) { setErr("Discount cannot be negative."); return; }
-    if (discountAmount > amount) { setErr("Discount cannot exceed the amount."); return; }
+    if (discountAmount < 0) { setErr("Discount cannot be negative.", "discount"); return; }
+    if (discountAmount > amount) { setErr("Discount cannot exceed the amount.", "discount"); return; }
     if (!confirming) { setErr(""); setConfirming(true); return; }
     if (postRef.current !== "idle") return;
     postRef.current = "posting";
@@ -369,7 +380,8 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       // re-open the door; only a rejected post allows a corrected retry.
       if (postRef.current === "done") return;
       postRef.current = "idle";
-      setErr(e instanceof ApiError ? e.message : "Could not record the payment — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not record the payment — try again.";
+      setErr(msg, fieldForMessage(msg, SERVER_FIELDS));
       // Back to the form so the rejected figures can be corrected.
       setConfirming(false);
     } finally {
@@ -415,33 +427,36 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           <div className="pay-form">
             <div className="pay-sec">
               <div className="pay-sec-t">Payment</div>
-              <div className="frow"><div><label className="f">Apply Payment To *</label>
-                <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} />
+              <div className="frow"><div className={fe.mode ? "has-err" : undefined}><label className="f">Apply Payment To *</label>
+                <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} /><FieldError msg={fe.mode} />
               </div></div>
               <div className="frow c2">
-                <div><label className="f">Payment Date *</label><DatePicker value={date} onChange={setDate} /></div>
-                <div><label className="f">Interest (₹)</label>
-                  <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} />
+                <div className={fe.date ? "has-err" : undefined}><label className="f">Payment Date *</label><DatePicker value={date} onChange={(v) => { clearField("date"); setDate(v); }} /><FieldError msg={fe.date} /></div>
+                <div className={fe.interest ? "has-err" : undefined}><label className="f">Interest (₹)</label>
+                  <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} /><FieldError msg={fe.interest} />
                 </div>
               </div>
               <div className="frow c2">
                 {releaseRequestId != null ? (
-                  <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
+                  <div className={fe.discount ? "has-err" : undefined}><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /><FieldError msg={fe.discount} /></div>
                 ) : (
-                  <div><label className="f">Additional Charges (₹)</label>
-                    <input className="inp" type="number" min={0} placeholder="e.g. late fee" value={fee} onChange={(e) => setFee(e.target.value)} />
+                  <div className={fe.fee ? "has-err" : undefined}><label className="f">Additional Charges (₹)</label>
+                    <input className="inp" type="number" min={0} placeholder="e.g. late fee" value={fee} onChange={(e) => setFee(e.target.value)} /><FieldError msg={fe.fee} />
                   </div>
                 )}
-                <div>
+                <div className={fe.amount ? "has-err" : undefined}>
                   <label className="f">Amount (₹) *</label>
-                  <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} />
+                  <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} /><FieldError msg={fe.amount} />
                 </div>
               </div>
             </div>
 
             <div className="pay-sec">
               <div className="pay-sec-t">Payment breakdown <small>How the customer paid</small></div>
-              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} label={null} />
+              <div className={fe.split ? "has-err" : undefined}>
+                <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { clearField("split"); setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} label={null} />
+                <FieldError msg={fe.split} />
+              </div>
             </div>
 
           </div>
@@ -478,7 +493,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       <div className="ft">
         {/* Never a silently disabled button: whatever is blocking Review
           * (or the server's last rejection) is spelled out here. */}
-        <span className="pay-ft-msg">{allocWarning || (bankMissing ? "Select a bank" : "") || err}</span>
+        <span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? "Select a bank" : "")) || err}</span>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
       </div>

@@ -231,3 +231,12 @@ func ResolveReadPath(root string, tenantID uint, key string) string {
 func ResolvePath(root string, tenantID uint, key string) string {
 	return ResolveReadPath(root, tenantID, key)
 }
+
+// NormalizeLineBreaks turns a literal "\n" typed into a text field (and CRLF) into a real
+// newline; print templates render newlines with white-space:pre-line.
+func NormalizeLineBreaks(s string) string {
+	s = strings.ReplaceAll(s, `\r\n`, "\n")
+	s = strings.ReplaceAll(s, `\n`, "\n")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return s
+}

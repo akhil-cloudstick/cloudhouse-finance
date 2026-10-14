@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
+import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AccRow, C, FabCorner, FiltersBar, FlatHeader, Screen, SearchInput, ServerFlatList, useShell } from "@/common/components/ui";
+import { AccRow, C, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, Txt, gfValues, useShell } from "@/common/components/ui";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import {
   EMPTY_LOAN_FILTERS,
   LOAN_STATUS_OPTIONS,
-  LoanFilterSheet,
-  loanFilterCount,
+  loanFilterSections,
   loanFilterParams,
-  loanFilterSummary,
   type LoanFilters,
 } from "@/modules/loans/components/LoanFilterSheet";
 import { useServerList } from "@/common/hooks/use-server-list";
@@ -22,7 +22,7 @@ import type { Loan } from "@/modules/loans/types/loan-types";
 // Search (loan no. / customer name / customer ID) and every filter are
 // server-side params on GET /loans; rows page in 10 at a time.
 
-export const LOAN_STATUS_FILTERS = LOAN_STATUS_OPTIONS;
+export const LOAN_STATUS_FILTERS = ["All", ...LOAN_STATUS_OPTIONS] as const;
 
 function daysBetween(fromISO: string, toISO: string) {
   const a = new Date(+fromISO.slice(0, 4), +fromISO.slice(5, 7) - 1, +fromISO.slice(8, 10));
@@ -33,10 +33,16 @@ function daysBetween(fromISO: string, toISO: string) {
 export function loanRowDetails(l: Loan) {
   const status = (l.status ?? "").toLowerCase();
   const weight = l.totalNetWeight != null ? `${+Number(l.totalNetWeight).toFixed(2)} g` : "—";
+  // Shown on every loan, like web's list: what is still owed, and whether the gold is pledged to a bank.
+  const common = [
+    { k: "Outstanding", v: inr(l.totalOutstandingBalance ?? l.outstandingAmount ?? 0) },
+    ...(l.bankPledgeStatus === "Bank Pledged" ? [{ k: "Pledge", v: "Bank Pledged" }] : []),
+  ];
   if (status.includes("closed") || status.includes("released")) {
     return [
       { k: "Gold weight", v: weight },
       { k: "Opened on", v: dmy(l.openedDate) },
+      ...common,
     ];
   }
   const today = todayISO();
@@ -45,12 +51,16 @@ export function loanRowDetails(l: Loan) {
     const d = l.daysOverdue ?? (due ? daysBetween(due, today) : 0);
     return [
       { k: "Gold weight", v: weight },
+      { k: "Opened on", v: dmy(l.openedDate) },
       { k: "Overdue by", v: `${d} day${d === 1 ? "" : "s"}`, color: C.red },
+      ...common,
     ];
   }
   return [
     { k: "Gold weight", v: weight },
+    { k: "Opened on", v: dmy(l.openedDate) },
     { k: "Next due", v: due === today ? "Today" : dmy(l.dueDate) },
+    ...common,
   ];
 }
 
@@ -61,21 +71,20 @@ export default function LoansScreen() {
   const params = useLocalSearchParams<{ schemeId?: string; status?: string }>();
 
   const [filters, setFilters] = usePersistedState<LoanFilters>("loans:filters", EMPTY_LOAN_FILTERS);
-  const [sheetOpen, setSheetOpen] = useState(false);
 
   // Deep links: /loans?schemeId=… (global search "Scheme") / ?status=…
   const schemeId = params.schemeId ? Number(params.schemeId) : undefined;
   useEffect(() => {
     const match = LOAN_STATUS_OPTIONS.find((f) => f.toLowerCase() === params.status?.toLowerCase());
-    if (match) setFilters((f) => ({ ...f, status: match }));
+    if (match) setFilters((f) => ({ ...f, options: { ...f.options, status: [{ value: match, label: match }] } }));
   }, [params.status, setFilters]);
 
-  const apiFilters = { ...loanFilterParams(filters), schemeId };
+  const showBranchFilter = useShowBranchFilter();
+  const apiFilters = { ...loanFilterParams(filters, showBranchFilter), schemeId };
   const list = useServerList<Loan, typeof apiFilters>({ key: ["loans", "list"], persistKey: "loans", filters: apiFilters, fetchPage: (p) => listLoansPage(p) });
   const overdue = useQuery({ queryKey: ["loans", "overdue-count"], queryFn: () => listLoansPage({ status: "Overdue", limit: 1, offset: 0 }) });
 
   const overdueTotal = (overdue.data as { total?: number } | undefined)?.total;
-  const summary = `${loanFilterSummary(filters)} · ${list.total ?? list.items.length}`;
 
   return (
     <Screen
@@ -94,7 +103,10 @@ export default function LoansScreen() {
         emptyText={list.search ? "No loans match your search." : "No loans found."}
         header={
           <>
-            <FiltersBar count={loanFilterCount(filters)} summary={summary} onPress={() => setSheetOpen(true)} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 18, paddingVertical: 12 }}>
+              <GroupedFilter title="Filter loans" sections={loanFilterSections(showBranchFilter, showBranchFilter ? gfValues(filters, "branch") : [])} value={filters} onChange={setFilters} />
+              <Txt style={{ fontSize: 12.5, color: C.muted }}>{`${list.total ?? list.items.length} loans`}</Txt>
+            </View>
             <SearchInput
               value={list.search}
               onChangeText={list.setSearch}
@@ -124,7 +136,6 @@ export default function LoansScreen() {
         }}
       />
 
-      <LoanFilterSheet visible={sheetOpen} onClose={() => setSheetOpen(false)} value={filters} onChange={setFilters} />
     </Screen>
   );
 }

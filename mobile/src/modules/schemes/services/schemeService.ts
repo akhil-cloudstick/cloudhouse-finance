@@ -43,3 +43,9 @@ export function calculateSchemeEligibility(id: number, goldWeight: number, goldR
     body: { goldWeight, goldRate },
   });
 }
+
+// Permanently deletes a scheme (DELETE /schemes/:id) — the backend refuses (409) while any loan or loan
+// draft still uses it, and its message is shown to the user.
+export function deleteScheme(id: number) {
+  return apiRequest<void>(`/schemes/${id}`, { method: "DELETE" });
+}

@@ -122,7 +122,7 @@ func TestProjectAccrual_NoDailyProrationPastFirstMonth(t *testing.T) {
 	}
 }
 
-func TestProjectAccrual_FirstMonthFloorChargedImmediately(t *testing.T) {
+func TestProjectAccrual_FirstMonthIsChargedOnceItsPeriodIsOver(t *testing.T) {
 	sch := commonModels.Scheme{InterestRate: 12, InterestMethod: "Monthly simple interest"}
 	opened := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	l := &models.Loan{
@@ -135,17 +135,21 @@ func TestProjectAccrual_FirstMonthFloorChargedImmediately(t *testing.T) {
 		SchemeInterestMethod: sch.InterestMethod,
 		SchemePenalRate:      sch.PenalRate,
 	}
-	i, p, anchor := projectAccrual(l, opened.AddDate(0, 0, 5), nil)
-	nearly(t, i, 1000, "same-month settlement still owes a full month's interest")
+	// nothing is charged ahead of time, so viewing the loan mid-month saves nothing
+	if early, _, earlyAnchor := projectAccrual(l, opened.AddDate(0, 0, 5), nil); early != 0 || !earlyAnchor.Equal(opened) {
+		t.Fatalf("first month must not be charged before it is over, got %.4f anchor %s", early, earlyAnchor)
+	}
+	wantAnchor := addMonths(opened, 1)
+	i, p, anchor := projectAccrual(l, wantAnchor, nil)
+	nearly(t, i, 1000, "a finished first month is a full month's interest")
 	if p != 0 {
 		t.Fatalf("no penal interest expected, got %.4f", p)
 	}
-	wantAnchor := addMonths(opened, 1)
 	if !anchor.Equal(wantAnchor) {
-		t.Fatalf("anchor should jump a full logical month past OpenedDate, got %s want %s", anchor, wantAnchor)
+		t.Fatalf("anchor should be one logical month past OpenedDate, got %s want %s", anchor, wantAnchor)
 	}
 	l.LastAccrualDate = anchor
-	i2, _, anchor2 := projectAccrual(l, opened.AddDate(0, 0, 20), nil)
+	i2, _, anchor2 := projectAccrual(l, wantAnchor.AddDate(0, 0, 20), nil)
 	if i2 != 0 {
 		t.Fatalf("no interest should accrue again inside the already-billed first month, got %.4f", i2)
 	}
@@ -168,8 +172,8 @@ func TestProjectAccrual_TopUpDuringFirstMonthSplitsDaily(t *testing.T) {
 		SchemeInterestMethod: sch.InterestMethod,
 	}
 	topUps := []models.LoanTopUp{{Amount: 50_000, OccurredOn: topUpDate}}
-	i, p, anchor := projectAccrual(l, opened.AddDate(0, 0, 25), topUps)
 	monthEnd := addMonths(opened, 1)
+	i, p, anchor := projectAccrual(l, monthEnd, topUps)
 	preDays := topUpDate.Sub(opened).Hours() / 24
 	postDays := monthEnd.Sub(topUpDate).Hours() / 24
 	want := 100_000*(0.01/30)*preDays + 150_000*(0.01/30)*postDays

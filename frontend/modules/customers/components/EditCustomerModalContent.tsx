@@ -14,6 +14,12 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  name: /name/i, phone: /phone|mobile/i, branch: /branch/i, aadhaar: /aadhaar/i, pan: /\bpan\b/i,
+};
 
 type EditCustomerModalContentProps = { customer: CustomerView; onSaved?: () => void };
 
@@ -70,6 +76,9 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
   const [pinCode, setPinCode] = useState(customer.pinCode || "");
 
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -86,13 +95,14 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
   async function save() { return singleFlight("modal:editcustomer:save", async () => {
     const n = name.trim();
     const p = phone.trim();
-    if (n.length < 3) { setErr("Please enter the customer’s full name."); return; }
-    if (!p) { setErr("Please enter the customer’s mobile number."); return; }
-    if (!/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
-    if (!branchId) { setErr("Please select a branch."); return; }
+    if (n.length < 3) { fail("name", "Please enter the customer’s full name."); return; }
+    if (!p) { fail("phone", "Please enter the customer’s mobile number."); return; }
+    if (!/^\d{10}$/.test(p)) { fail("phone", "Please enter a valid 10-digit mobile number."); return; }
+    if (!branchId) { fail("branch", "Please select a branch."); return; }
 
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       const [photoUrl, identityProofUrl, addressProofUrl, kycDocumentUrl] = await Promise.all([
         photoFile ? uploadFile(photoFile) : Promise.resolve(customer.photoUrl),
@@ -129,7 +139,9 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
       closeModal();
       toast(`${n} updated.`);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to update customer.");
+      const msg = e instanceof Error ? e.message : "Failed to update customer.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -140,25 +152,24 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
       <div className="hd"><h3>Edit Customer</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <label className="f">Personal Details</label>
-        <div className={showBranch ? "frow c3" : "frow c2"}>
-          <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
+        <div className="frow c3">
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /><FieldError msg={fe.name} /></div>
+          <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.phone} /></div>
           {showBranch && (
-            <div><label className="f">Branch *</label>
+            <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
               <Select
                 value={branchId === "" ? "" : String(branchId)}
                 onChange={(v) => setBranchId(v ? Number(v) : "")}
                 disabled={branchLocked}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 placeholder="Select branch…"
-              />
+              /><FieldError msg={fe.branch} />
             </div>
           )}
-        </div>
-        <div className="frow c3">
+          <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
           <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
-          <div><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value)} /></div>
-          <div><label className="f">Aadhaar Number</label><input className="inp" placeholder="Leave blank to keep on-file Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /></div>
+          <div className={fe.pan ? "has-err" : undefined}><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value)} /><FieldError msg={fe.pan} /></div>
+          <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number</label><input className="inp" placeholder="Leave blank to keep on-file Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
         </div>
 
         <label className="f" style={{ marginTop: 6 }}>Documents</label>
@@ -193,15 +204,14 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
             <div className="frow c3" style={{ marginTop: 14 }}>
               <div><label className="f">Father&apos;s Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(e.target.value)} /></div>
               <div><label className="f">Age</label><input className="inp" type="number" min={1} placeholder="e.g. 35" value={age} onChange={(e) => setAge(e.target.value)} /></div>
-              <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
+              <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
             </div>
             <div className="frow c3">
-              <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
               <div><label className="f">Taluk</label><input className="inp" placeholder="e.g. Kozhikode" value={taluk} onChange={(e) => setTaluk(e.target.value)} /></div>
               <div><label className="f">Village</label><input className="inp" placeholder="e.g. Feroke" value={village} onChange={(e) => setVillage(e.target.value)} /></div>
+              <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
             </div>
             <div className="frow c3">
-              <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
               <div><label className="f">Pin Code</label><input className="inp" inputMode="numeric" placeholder="6-digit pin code" maxLength={6} value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ""))} /></div>
             </div>
           </>

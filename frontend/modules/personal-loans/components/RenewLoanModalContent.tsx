@@ -5,9 +5,18 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { previewRenewal, renewPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { type BackendPersonalLoan, type Frequency, type InterestType, type RenewalPreview } from "@/modules/personal-loans/types/personal-loan-types";
+
+// Server messages are put on the field they are about, by wording.
+const SERVER_FIELDS: Record<string, RegExp> = {
+  interest: /interest/i,
+  principal: /principal/i,
+  tenure: /installment|tenure/i,
+  split: /breakdown|bank|cash|upi|cheque/i,
+};
 
 type RenewLoanModalContentProps = { loan: BackendPersonalLoan; onSaved: () => void };
 
@@ -30,6 +39,7 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
   const [preview, setPreview] = useState<RenewalPreview | null>(null);
   const [previewError, setPreviewError] = useState("");
   const [err, setErr] = useState("");
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
@@ -49,15 +59,19 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
     return () => { cancelled = true; clearTimeout(handle); };
   }, [loan.id, principalNum, interestType, interestValueNum, frequency, tenureCount]);
 
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+
   async function save() {
     const tenureNum = +tenureCount || 0;
-    if (!principalNum || principalNum <= 0) { setErr("Please enter the new principal amount."); return; }
-    if (!tenureNum || tenureNum <= 0) { setErr("Please enter the number of installments."); return; }
+    if (!principalNum || principalNum <= 0) { fail("principal", "Please enter the new principal amount."); return; }
+    if (!tenureNum || tenureNum <= 0) { fail("tenure", "Please enter the number of installments."); return; }
     const payout = preview?.disbursedAmount ?? 0;
-    if (payout > 0 && Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the cash paid to the customer."); return; }
-    if (payout > 0 && split.upiAmount + split.bankTransferAmount > 0 && !bankId) { setErr("Pick the bank the payout was made from."); return; }
+    if (payout > 0 && Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the cash paid to the customer."); return; }
+    if (payout > 0 && split.upiAmount + split.bankTransferAmount > 0 && !bankId) { fail("split", "Pick the bank the payout was made from."); return; }
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       await renewPersonalLoan(loan.id, {
         principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: tenureNum,
@@ -66,7 +80,9 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
       toast(`${loan.loanNumber} renewed — new loan created`);
       onSaved();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not renew the loan — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not renew the loan — try again.";
+      const field = e instanceof ApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -82,8 +98,8 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
         <div className="notice" style={{ marginBottom: 16 }}>Current outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></div>
         <div className="pl-sec-h">Loan terms</div>
         <div className="frow c2">
-          <div><label className="f">New Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
-          <div><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} placeholder="e.g. 50" value={tenureCount} onChange={(e) => setTenureCount(e.target.value)} /></div>
+          <div className={fe.principal ? "has-err" : undefined}><label className="f">New Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => { setPrincipal(e.target.value); clearFe("principal"); }} /><FieldError msg={fe.principal} /></div>
+          <div className={fe.tenure ? "has-err" : undefined}><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} placeholder="e.g. 50" value={tenureCount} onChange={(e) => { setTenureCount(e.target.value); clearFe("tenure"); }} /><FieldError msg={fe.tenure} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Interest Type *</label>
@@ -94,7 +110,7 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
               ))}
             </div>
           </div>
-          <div><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => setInterestValue(e.target.value)} /></div>
+          <div className={fe.interest ? "has-err" : undefined}><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => { setInterestValue(e.target.value); clearFe("interest"); }} /><FieldError msg={fe.interest} /></div>
         </div>
         <div className="frow"><div><label className="f">Collection Frequency *</label>
           <div className="pl-seg" role="radiogroup">
@@ -109,7 +125,10 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
           <>
             <div className="pl-sec-h">Disbursement method</div>
             <div className="frow">
-              <SplitPaymentInput totalAmount={preview.disbursedAmount} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+              <div className={fe.split ? "has-err" : undefined} style={{ width: "100%", minWidth: 0 }}>
+                <SplitPaymentInput totalAmount={preview.disbursedAmount} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+                <FieldError msg={fe.split} />
+              </div>
             </div>
           </>
         )}

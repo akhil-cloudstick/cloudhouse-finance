@@ -6,6 +6,7 @@ import { Icon } from "@/common/components/Icon";
 import { bondLangOptionsFor, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError } from "@/common/components/ui/FieldError";
 import type { EsignWitnessInput } from "@/modules/loans/types/loan-types";
 
 /* Lets staff pick which pledge-agreement language goes to Setu before
@@ -20,7 +21,7 @@ import type { EsignWitnessInput } from "@/modules/loans/types/loan-types";
  * loan's own language names, not just "en"/"ml") is quicker to get right
  * than opening a list. Stacks to one column at modal width, so it reads
  * fine on a phone-width viewport too. */
-export type EsignDeliverBy = "whatsapp" | "dashboard" | "open";
+export type EsignDeliverBy = "whatsapp" | "open";
 
 type EsignLanguageModalContentProps = {
   loanNumber: string;
@@ -34,6 +35,10 @@ type EsignLanguageModalContentProps = {
   showWitnesses?: boolean;
   // Overrides the business's granted bond languages, for a document with its own set (the personal loan bond).
   options?: { value: BondLang; label: string; native: string }[];
+  // Shows a "send for eSign" checkbox. Unchecked, confirming calls onPrint(lang); checked, the
+  // delivery/witness sections appear and confirming calls onConfirm like the plain eSign modal.
+  allowEsign?: boolean;
+  onPrint?: (lang: BondLang) => void | Promise<void>;
 };
 
 export function EsignLanguageModalContent({
@@ -43,9 +48,11 @@ export function EsignLanguageModalContent({
   onConfirm,
   title = "Choose eSign Document & Delivery",
   confirmLabel,
-  showDelivery = false,
-  showWitnesses = false,
+  showDelivery: showDeliveryProp = false,
+  showWitnesses: showWitnessesProp = false,
   options,
+  allowEsign = false,
+  onPrint,
 }: EsignLanguageModalContentProps) {
   const { closeModal } = useModal();
   const [lang, setLang] = useState<BondLang>(options?.[0]?.value ?? "en");
@@ -53,32 +60,44 @@ export function EsignLanguageModalContent({
   // the filter, so the picker can never render empty.
   const { languages } = useBranding();
   const langOptions = options ?? bondLangOptionsFor(languages);
+  const [useEsign, setUseEsign] = useState(false);
+  const esignOn = !allowEsign || useEsign;
+  const showDelivery = showDeliveryProp && esignOn;
+  const showWitnesses = showWitnessesProp && esignOn;
   const [deliverBy, setDeliverBy] = useState<EsignDeliverBy>("whatsapp");
   const [witnesses, setWitnesses] = useState<EsignWitnessInput[]>([{ name: "", phone: "" }, { name: "", phone: "" }]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // Index of the witness row the validation message is about.
+  const [witnessErr, setWitnessErr] = useState<{ idx: number; msg: string } | null>(null);
 
   function setWitness(i: number, patch: Partial<EsignWitnessInput>) {
     setWitnesses((ws) => ws.map((w, j) => (j === i ? { ...w, ...patch } : w)));
+    setWitnessErr(null);
   }
 
   async function confirm() { return singleFlight("modal:esignlanguage:confirm", async () => {
-    setErr("");
-    // Both witnesses or neither — the bond has exactly two witness boxes.
+    setErr(""); setWitnessErr(null);
+    // One witness is enough; a row that is started must be complete, an empty row is skipped.
     const filled = witnesses.filter((w) => w.name.trim() || w.phone.trim());
-    if (showWitnesses && filled.length > 0) {
-      const bad = witnesses.findIndex((w) => w.name.trim().length < 3 || w.phone.replace(/\D/g, "").length < 10);
+    if (showWitnesses) {
+      const bad = witnesses.findIndex((w) => (w.name.trim() || w.phone.trim()) && (w.name.trim().length < 3 || w.phone.replace(/\D/g, "").length < 10));
       if (bad >= 0) {
-        setErr(`Witness ${bad + 1} needs a name and a 10-digit mobile number (or clear both witnesses).`);
+        setWitnessErr({ idx: bad, msg: `Witness ${bad + 1} needs a name and a 10-digit mobile number (or clear that row).` });
         return;
       }
     }
     setBusy(true);
     try {
+      if (!esignOn) {
+        await onPrint?.(lang);
+        closeModal();
+        return;
+      }
       await onConfirm(
         lang,
         showDelivery ? deliverBy : undefined,
-        showWitnesses && filled.length > 0 ? witnesses.map((w) => ({ name: w.name.trim(), phone: w.phone.trim() })) : undefined
+        showWitnesses && filled.length > 0 ? filled.map((w) => ({ name: w.name.trim(), phone: w.phone.trim() })) : undefined
       );
       closeModal();
     } catch (e) {
@@ -88,7 +107,9 @@ export function EsignLanguageModalContent({
     }
   }); }
 
-  const effectiveConfirmContent = confirmLabel ? (
+  const effectiveConfirmContent = !esignOn ? (
+    confirmLabel ?? "Print"
+  ) : confirmLabel && !allowEsign ? (
     confirmLabel
   ) : !showDelivery ? (
     "Confirm"
@@ -96,13 +117,9 @@ export function EsignLanguageModalContent({
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       <Icon name="whatsapp" style={{ width: 15, height: 15 }} /> Send via WhatsApp →
     </span>
-  ) : deliverBy === "dashboard" ? (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <Icon name="smartphone" style={{ width: 15, height: 15 }} /> Send to Customer App →
-    </span>
   ) : (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <Icon name="externalLink" style={{ width: 15, height: 15 }} /> Open eSign Link →
+      <Icon name="externalLink" style={{ width: 15, height: 15 }} /> Create eSign Links →
     </span>
   );
 
@@ -136,6 +153,14 @@ export function EsignLanguageModalContent({
           ))}
         </div>
 
+        {allowEsign && (
+          <label className="tgl">
+            <input type="checkbox" checked={useEsign} onChange={(e) => setUseEsign(e.target.checked)} />
+            <span className="track" />
+            Send for Aadhaar eSign instead of printing
+          </label>
+        )}
+
         {showDelivery && (
           <>
             <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 8 }}>
@@ -152,28 +177,8 @@ export function EsignLanguageModalContent({
                 </div>
                 <div className="meta">
                   <span className="title">WhatsApp Message</span>
-                  <span className="sub">
-                    Send signing link to customer's WhatsApp{customerPhone ? ` (${customerPhone})` : ""}
-                  </span>
                 </div>
                 <div className="radio-dot">{deliverBy === "whatsapp" ? "✓" : ""}</div>
-              </button>
-
-              <button
-                type="button"
-                className={`esign-deliver-card${deliverBy === "dashboard" ? " sel" : ""}`}
-                onClick={() => setDeliverBy("dashboard")}
-              >
-                <div className="icon-box mobile">
-                  <Icon name="smartphone" />
-                </div>
-                <div className="meta">
-                  <span className="title">Customer Mobile App</span>
-                  <span className="sub">
-                    Deliver directly to customer's mobile app notification & dashboard
-                  </span>
-                </div>
-                <div className="radio-dot">{deliverBy === "dashboard" ? "✓" : ""}</div>
               </button>
 
               <button
@@ -185,10 +190,7 @@ export function EsignLanguageModalContent({
                   <Icon name="externalLink" />
                 </div>
                 <div className="meta">
-                  <span className="title">Open in New Tab</span>
-                  <span className="sub">
-                    Open immediately in this browser (for in-person branch signing)
-                  </span>
+                  <span className="title">Signing Links</span>
                 </div>
                 <div className="radio-dot">{deliverBy === "open" ? "✓" : ""}</div>
               </button>
@@ -202,7 +204,8 @@ export function EsignLanguageModalContent({
               {showDelivery ? "3. Witnesses (optional)" : "Witnesses (optional)"}
             </span>
             {witnesses.map((w, i) => (
-              <div className="frow c2" key={i}>
+              <div key={i}>
+              <div className={witnessErr?.idx === i ? "frow c2 has-err" : "frow c2"}>
                 <div>
                   <label className="f">Witness {i + 1} name</label>
                   <input className="inp" value={w.name} onChange={(e) => setWitness(i, { name: e.target.value })} placeholder="As on Aadhaar" />
@@ -212,9 +215,11 @@ export function EsignLanguageModalContent({
                   <input className="inp" inputMode="numeric" value={w.phone} onChange={(e) => setWitness(i, { phone: e.target.value })} placeholder="10-digit mobile" />
                 </div>
               </div>
+              {witnessErr?.idx === i && <FieldError msg={witnessErr.msg} />}
+              </div>
             ))}
             <p style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
-              Each witness signs their own box with their own Aadhaar OTP. Leave both blank for the borrower to sign alone.
+              One witness is enough — fill either row (a second is optional). Each witness signs with their own Aadhaar OTP. Leave both blank for the borrower to sign alone.
             </p>
           </>
         )}

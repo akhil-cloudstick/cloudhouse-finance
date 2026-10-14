@@ -33,9 +33,11 @@ type CachedProfile = {
   policy: string;
   addressLine: string;
   modules: string[];
+  // A one-branch business (or plan): no branch is ever shown or picked.
+  singleBranch: boolean;
 };
 
-const EMPTY_PROFILE: CachedProfile = { name: "", legalName: "", kmlRegNo: "", contactPhone: "", policy: "", addressLine: "", modules: [] };
+const EMPTY_PROFILE: CachedProfile = { name: "", legalName: "", kmlRegNo: "", contactPhone: "", policy: "", addressLine: "", modules: [], singleBranch: false };
 
 function parseProfile(raw: string | null): CachedProfile {
   if (!raw) return EMPTY_PROFILE;
@@ -87,6 +89,8 @@ type ThemeState = {
   // not-yet-loaded is false. Mirrors the web BrandingProvider's hasModule;
   // it only decides what is drawn, the backend enforces it per request.
   hasModule: (key: string) => boolean;
+  // True for a one-branch business — mirrors the web BrandingProvider's singleBranch.
+  singleBranch: boolean;
   // True once the cached (or default) brand has been applied — the root
   // layout keeps the splash up until then so the default colour never
   // flashes before the business's own.
@@ -103,6 +107,7 @@ const ThemeContext = createContext<ThemeState>({
   logoUrl: null,
   businessName: BRAND.name,
   hasModule: () => false,
+  singleBranch: false,
   ready: false,
   refreshBranding: () => {},
 });
@@ -118,6 +123,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [businessName, setBusinessName] = useState<string>(BRAND.name);
   // Comma-joined so an unchanged refresh doesn't hand consumers a new array.
   const [modulesKey, setModulesKey] = useState("");
+  const [singleBranch, setSingleBranch] = useState(false);
   const [ready, setReady] = useState(false);
   // Guards against an in-flight fetch for an old business code overwriting
   // the theme after a newer refreshBranding() call already started.
@@ -135,6 +141,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const applyProfile = useCallback((p: CachedProfile, brandColor: string) => {
     setBusinessName(p.name || BRAND.name);
     setModulesKey(p.modules.join(","));
+    setSingleBranch(!!p.singleBranch);
     setPrintProfile({
       name: p.name,
       legalName: p.legalName,
@@ -191,6 +198,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
             policy: branding.policy || "",
             addressLine: branding.addressLine,
             modules: branding.modules,
+            singleBranch: !!branding.singleBranch,
           }
         : { ...cached, name: branding.name, legalName: branding.legalName };
       applyProfile(profile, branding.brandColor || "");
@@ -240,8 +248,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const hasModule = useCallback((key: string) => modulesKey.split(",").includes(key), [modulesKey]);
 
   const value = useMemo(
-    () => ({ colors, typeScale, logoUrl, businessName, hasModule, ready, refreshBranding: load }),
-    [colors, logoUrl, businessName, hasModule, ready, load]
+    () => ({ colors, typeScale, logoUrl, businessName, hasModule, singleBranch, ready, refreshBranding: load }),
+    [colors, logoUrl, businessName, hasModule, singleBranch, ready, load]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

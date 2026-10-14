@@ -1,6 +1,5 @@
 <!DOCTYPE html><html><head><meta charset="UTF-8"><title>വാഗ്ദത്ത പത്രം — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
 <h1>വാഗ്ദത്ത പത്രം</h1>
-<h2>Personal Loan Account No. {{.LoanNumber}}</h2>
 
 <p>
 <b>{{.District}}</b> ജില്ല <b>{{.Taluk}}</b> താലൂക്ക് <b>{{.Village}}</b> വില്ലേജ്
@@ -19,18 +18,12 @@
 വാഗ്ദത്തം ചെയ്യു കൊള്ളുന്നു.
 </p>
 
-<div class="meta">
-<div>തിയ്യതി :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</div>
-<div>സ്ഥലം :- {{.Blank}}</div>
-</div>
-
-<div class="sig">
-<div><span>കടം വാങ്ങിയ ആളുടെ ഒപ്പ്<br>Name: {{.BorrowerName}}</span></div>
-<div><span>&nbsp;</span></div>
-</div>
+<p class="ennu">എന്ന്</p>
 
 <div class="footer-row">
-<div>Mobi No :- {{.Mobile}}&nbsp;&nbsp;&nbsp;&nbsp;പേര് :- {{.BorrowerName}}</div>
+<div>Mobi No :- {{.Mobile}}</div>
+<div class="r">പേര് :- {{.BorrowerName}}</div>
+<div class="r">ഒപ്പ് :- {{.Blank}}</div>
 </div>
 
 <div class="witness">

@@ -6,7 +6,7 @@ import type { Frequency, PersonalLoan, PersonalLoanInstallment, PersonalLoanPaym
 // 1-based `page` number.
 export function listPersonalLoansPage(params: {
   q?: string;
-  frequency?: Frequency;
+  frequency?: string;
   status?: string;
   customerId?: number;
   limit: number;

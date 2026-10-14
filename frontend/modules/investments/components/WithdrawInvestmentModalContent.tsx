@@ -10,6 +10,12 @@ import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/compo
 import { withdrawFromInvestment } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment } from "@/modules/investments/types/investment-types";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  split: /payment|breakdown|bank|cheque|upi/i, date: /date/i, interest: /interest/i, principal: /principal/i,
+};
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -48,6 +54,9 @@ export function WithdrawInvestmentModalContent({
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   const interestNum = from === "Principal" ? 0 : (+interestAmount || 0);
@@ -59,12 +68,13 @@ export function WithdrawInvestmentModalContent({
   const outstandingPrincipal = investment.outstandingPrincipal;
 
   async function save() { return singleFlight("modal:withdrawinvestment:save", async () => {
-    if (total <= 0) { setErr("Enter an amount greater than zero."); return; }
-    if (interestNum > outstandingInterest + 0.01) { setErr(`Interest amount exceeds the outstanding interest (${fmt(outstandingInterest)}).`); return; }
-    if (principalNum > outstandingPrincipal + 0.01) { setErr(`Principal amount exceeds the outstanding principal (${fmt(outstandingPrincipal)}).`); return; }
-    if (!balanced) { setErr("The payment breakdown must add up to the amount."); return; }
+    if (total <= 0) { fail(from === "Principal" ? "principal" : "interest", "Enter an amount greater than zero."); return; }
+    if (interestNum > outstandingInterest + 0.01) { fail("interest", `Interest amount exceeds the outstanding interest (${fmt(outstandingInterest)}).`); return; }
+    if (principalNum > outstandingPrincipal + 0.01) { fail("principal", `Principal amount exceeds the outstanding principal (${fmt(outstandingPrincipal)}).`); return; }
+    if (!balanced) { fail("split", "The payment breakdown must add up to the amount."); return; }
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       const updated = await withdrawFromInvestment(investment.id, {
         interestAmount: interestNum,
@@ -77,7 +87,9 @@ export function WithdrawInvestmentModalContent({
       onSaved(updated);
       closeModal();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not withdraw from this investment.");
+      const msg = e instanceof ApiError ? e.message : "Could not withdraw from this investment.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -92,21 +104,24 @@ export function WithdrawInvestmentModalContent({
         </div>
         <div className="frow c2">
           <div><label className="f">Withdraw From *</label><Select options={WITHDRAW_FROM_OPTIONS} value={from} onChange={(v) => setFrom(v as WithdrawFrom)} /></div>
-          <div><label className="f">Date *</label><DatePicker value={occurredOn} onChange={setOccurredOn} max={todayISO()} /></div>
+          <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={occurredOn} onChange={setOccurredOn} max={todayISO()} /><FieldError msg={fe.date} /></div>
         </div>
         <div className="frow c2">
           {from !== "Principal" && (
-            <div><label className="f">Interest Amount *</label><input className="inp" type="number" min={0} step={0.01} max={outstandingInterest} placeholder="e.g. 1200" value={interestAmount} onChange={(e) => setInterestAmount(e.target.value)} /></div>
+            <div className={fe.interest ? "has-err" : undefined}><label className="f">Interest Amount *</label><input className="inp" type="number" min={0} step={0.01} max={outstandingInterest} placeholder="e.g. 1200" value={interestAmount} onChange={(e) => setInterestAmount(e.target.value)} /><FieldError msg={fe.interest} /></div>
           )}
           {from !== "Interest" && (
-            <div><label className="f">Principal Amount *</label><input className="inp" type="number" min={0} step={0.01} max={outstandingPrincipal} placeholder="e.g. 20000" value={principalAmount} onChange={(e) => setPrincipalAmount(e.target.value)} /></div>
+            <div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount *</label><input className="inp" type="number" min={0} step={0.01} max={outstandingPrincipal} placeholder="e.g. 20000" value={principalAmount} onChange={(e) => setPrincipalAmount(e.target.value)} /><FieldError msg={fe.principal} /></div>
           )}
         </div>
         <div className="frow">
           <div><label className="f">Reference</label><input className="inp" placeholder="Optional note" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
         </div>
         <div className="frow">
-          <SplitPaymentInput totalAmount={total} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+          <div className={fe.split ? "has-err" : undefined}>
+            <SplitPaymentInput totalAmount={total} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+            <FieldError msg={fe.split} />
+          </div>
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>

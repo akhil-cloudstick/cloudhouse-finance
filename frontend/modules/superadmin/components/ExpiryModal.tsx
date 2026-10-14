@@ -4,6 +4,10 @@ import { useState } from "react";
 import { adjustExpiry, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business } from "@/modules/superadmin/types/superadmin-types";
 import { ReasonField } from "@/modules/superadmin/components/ReasonField";
+import { fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Server messages are put on the field they are about, by wording.
+const SERVER_FIELDS: Record<string, RegExp> = { reason: /reason/i, date: /date|expir|renew/i };
 
 type ExpiryModalProps = { business: Business; onClose: () => void; onDone: () => void };
 
@@ -14,11 +18,17 @@ export function ExpiryModal({ business, onClose, onDone }: ExpiryModalProps) {
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fe, setFe] = useState<Record<string, string>>({});
+
+  const fail = (field: string, msg: string) => { setError(null); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
+    setFe({});
     if (!reason.trim()) {
-      setError("A reason is required.");
+      fail("reason", "A reason is required.");
       return;
     }
     setSubmitting(true);
@@ -27,7 +37,9 @@ export function ExpiryModal({ business, onClose, onDone }: ExpiryModalProps) {
       await adjustExpiry(business.id, date ? new Date(`${date}T23:59:59`).toISOString() : null, reason);
       onDone();
     } catch (err) {
-      setError(err instanceof SuperAdminApiError ? err.message : "Could not change the renewal date.");
+      const msg = err instanceof SuperAdminApiError ? err.message : "Could not change the renewal date.";
+      const field = err instanceof SuperAdminApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+      if (field) fail(field, msg); else setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -40,12 +52,13 @@ export function ExpiryModal({ business, onClose, onDone }: ExpiryModalProps) {
           <h2>Renewal date — {business.name}</h2>
         </div>
         <div className="sa-modal-body">
-          <div className="sa-field">
+          <div className={fe.date ? "sa-field has-err" : "sa-field"}>
             <label>Renews / expires on</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input type="date" value={date} onChange={(e) => { setDate(e.target.value); clearFe("date"); }} />
+            {fe.date && <span className="sa-error" role="alert">{fe.date}</span>}
             <span className="sa-hint">Leave empty to clear it (no expiry).</span>
           </div>
-          <ReasonField value={reason} onChange={setReason} required />
+          <ReasonField value={reason} onChange={(v) => { setReason(v); clearFe("reason"); }} required error={fe.reason} />
           {error && <p className="sa-error">{error}</p>}
         </div>
         <div className="sa-modal-foot">

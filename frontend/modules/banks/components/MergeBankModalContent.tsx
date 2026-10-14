@@ -9,6 +9,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { mergeBanks } from "@/modules/banks/services/bankService";
 import { type BackendBank } from "@/modules/banks/types/bank-types";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError } from "@/common/components/ui/FieldError";
 
 type MergeBankModalContentProps = { source: BackendBank; banks: BackendBank[]; onSaved: () => void };
 
@@ -23,14 +24,17 @@ export function MergeBankModalContent({ source, banks, onSaved }: MergeBankModal
   const candidates = banks.filter((b) => b.id !== source.id);
   const [targetId, setTargetId] = useState(candidates[0] ? String(candidates[0].id) : "");
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const target = candidates.find((b) => String(b.id) === targetId);
 
   async function save() { return singleFlight("modal:mergebank:save", async () => {
-    if (!target) { setErr("Please pick a bank to merge into."); return; }
+    if (!target) { setErr(""); setFe({ target: "Please pick a bank to merge into." }); return; }
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       await mergeBanks(source.id, target.id);
       toast(`"${source.name}" merged into "${target.name}"`);
@@ -47,13 +51,13 @@ export function MergeBankModalContent({ source, banks, onSaved }: MergeBankModal
     <>
       <div className="hd"><h3>Merge Duplicate Bank</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
-        <div className="frow"><div><label className="f">Merge "{source.name}" into</label>
+        <div className="frow"><div className={fe.target ? "has-err" : undefined}><label className="f">Merge "{source.name}" into</label>
           <Select
             options={candidates.map((b) => ({ value: String(b.id), label: b.name }))}
             value={targetId}
             onChange={setTargetId}
             placeholder="Select the bank to keep…"
-          />
+          /><FieldError msg={fe.target} />
         </div></div>
         <div className="notice" style={{ marginTop: 12 }}>
           <Icon name="shield" /> This will move every transaction and pledge linked to &quot;{source.name}&quot; onto

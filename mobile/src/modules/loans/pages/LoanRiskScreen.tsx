@@ -1,3 +1,4 @@
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import React, { useState } from "react";
 import {
   AccRow,
@@ -43,10 +44,10 @@ type Filters = { status?: string; riskLevel?: LoanRiskLevel; from?: string; to?:
 type RiskPage = { items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts };
 
 export default function LoanRiskScreen() {
-  const [status, setStatus] = useState<StatusFilter>("All");
-  const [level, setLevel] = useState<LevelFilter>("All");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [status, setStatus] = usePersistedState<StatusFilter>("loanrisk:status", "All");
+  const [level, setLevel] = usePersistedState<LevelFilter>("loanrisk:level", "All");
+  const [from, setFrom] = usePersistedState("loanrisk:from", "");
+  const [to, setTo] = usePersistedState("loanrisk:to", "");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draft, setDraft] = useState({ status, level, from, to });
   // Counts come back on every page — keep the latest server figures.

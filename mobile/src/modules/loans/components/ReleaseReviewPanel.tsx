@@ -1,3 +1,4 @@
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { usePathname } from "expo-router";
@@ -13,7 +14,7 @@ import {
   FieldGrid,
   FieldRow,
   Input,
-  PaymentSplit,
+
   PrimaryButton,
   ReviewWarning,
   SectionTitle,
@@ -89,7 +90,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const [notes, setNotes] = useState(request.verificationNotes || "");
   const [discount, setDiscount] = useState("0");
   const [amount, setAmount] = useState("");
-  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
   const [dueDate, setDueDate] = useState(request.paymentDueDate || "");
   // Language being fetched ("partial" for the partial-release receipt).
@@ -146,14 +147,12 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     if (prefilledFor !== request.id && canRecordPayment && isPending) {
       const amt = Math.max(0, +required.toFixed(2));
       setAmount(String(amt));
-      setSplit({ ...ZERO_SPLIT, cashAmount: amt });
       setPrefilledFor(request.id);
     }
   }, [prefilledFor, request.id, canRecordPayment, isPending, required]);
 
   function setAmountAndSplit(v: string) {
     setAmount(v);
-    setSplit({ ...ZERO_SPLIT, cashAmount: +v || 0 });
   }
 
   function reportError(err: unknown) {
@@ -182,7 +181,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   });
 
   const amt = +amount || 0;
-  const splitOk = amt <= 0 || isBalanced(split, amt);
+  const split = pay?.split ?? { ...ZERO_SPLIT, cashAmount: amt };
+  const splitOk = amt <= 0 || !!pay?.ready;
 
   const savePayment = useMutation({
     mutationFn: () =>
@@ -190,6 +190,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
         amount: amt,
         discount: +discount || 0,
         ...(amt > 0 ? split : ZERO_SPLIT),
+        bankId: amt > 0 ? pay?.bankId : undefined,
         reference: reference.trim() || undefined,
         dueDate: needsDueDate ? dueDate : undefined,
       }),
@@ -365,7 +366,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
               <Input keyboardType="numeric" value={amount} onChangeText={setAmountAndSplit} />
             </Field>
           </FieldRow>
-          {amt > 0 ? <PaymentSplit amount={amt} value={split} onChange={setSplit} /> : null}
+          {amt > 0 ? <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it was received in)" /> : null}
           {split.cashAmount !== amt ? <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} /> : null}
           {needsDueDate ? <DateField label="Due date for remaining balance" value={dueDate} onChange={setDueDate} min={todayISO()} /> : null}
           <AccBtn

@@ -22,6 +22,19 @@ const (
 
 const printableHeightPx = (11.69 - 0.75 - 0.55) * 96
 
+// pageMargins are the PDF margins in inches; the TML pledge-book sheet (marked by tmlSheetMarker)
+// is laid out edge-to-edge like the printed original, so it gets tighter margins.
+type pageMargins struct{ top, bottom, side float64 }
+
+const tmlSheetMarker = `content="tml-bond"`
+
+func marginsFor(htmlDoc string) pageMargins {
+	if strings.Contains(htmlDoc, tmlSheetMarker) {
+		return pageMargins{top: 0.25, bottom: 0.4, side: 0.3}
+	}
+	return pageMargins{top: 0.75, bottom: 0.55, side: pageSideMargin}
+}
+
 func renderA4PDF(htmlDoc, label string) ([]byte, error) {
 	pdfBytes, _, err := renderA4PDFWithSlots(htmlDoc, label)
 	return pdfBytes, err
@@ -39,6 +52,7 @@ func renderA4PDFWithSlots(htmlDoc, label string) ([]byte, []config.SignatureSlot
 		Role    string
 	}
 	wantSlots := strings.Contains(htmlDoc, "esign-slot")
+	m := marginsFor(htmlDoc)
 	err := chromedp.Run(ctx,
 		// Set the document directly: a data: URL fails to load once the page embeds
 		// photos (Chrome caps navigable data URLs at about 2 MB).
@@ -56,7 +70,7 @@ func renderA4PDFWithSlots(htmlDoc, label string) ([]byte, []config.SignatureSlot
 			if !wantSlots {
 				return nil
 			}
-			printableWidthPx := int64(math.Round((8.27 - 2*pageSideMargin) * 96))
+			printableWidthPx := int64(math.Round((8.27 - 2*m.side) * 96))
 			if err := chromedp.EmulateViewport(printableWidthPx, 1200).Do(ctx); err != nil {
 				return err
 			}
@@ -73,10 +87,10 @@ func renderA4PDFWithSlots(htmlDoc, label string) ([]byte, []config.SignatureSlot
 				WithPreferCSSPageSize(false).
 				WithPaperWidth(8.27).
 				WithPaperHeight(11.69).
-				WithMarginTop(0.75).
-				WithMarginBottom(0.55).
-				WithMarginLeft(pageSideMargin).
-				WithMarginRight(pageSideMargin).
+				WithMarginTop(m.top).
+				WithMarginBottom(m.bottom).
+				WithMarginLeft(m.side).
+				WithMarginRight(m.side).
 				WithDisplayHeaderFooter(true).
 				WithHeaderTemplate(`<div style="font-size:1px"></div>`).
 				WithFooterTemplate(`
@@ -110,8 +124,8 @@ Page <span class="pageNumber"></span> of <span class="totalPages"></span>
 		}
 		slots = append(slots, config.SignatureSlot{
 			Page: strconv.Itoa(page),
-			X:    int(math.Round(pageSideMargin*72 + r.X*0.75)),
-			Y:    int(math.Round(0.75*72 + r.Y*0.75)),
+			X:    int(math.Round(m.side*72 + r.X*0.75)),
+			Y:    int(math.Round(m.top*72 + r.Y*0.75)),
 			Role: r.Role,
 		})
 	}

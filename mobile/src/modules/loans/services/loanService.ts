@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest } from "@/common/services/httpClient";
-import { Loan, LoanApproval, LoanRequest, LoanRiskLevel, LoanRiskRow, LoanTopUp, type LoanRiskCounts, type CreateLoanInput, type OrnamentRequestInput, type SanctionStage, type UpdateLoanInput, type BondLang, type BondDeliverBy, type IndemnityBondEsignStart, type IndemnityBondEsignCheck, type LoanLedgerEntry } from "@/modules/loans/types/loan-types";
+import { type LoanDraft, type SaveDraftInput, Loan, LoanApproval, LoanRequest, LoanRiskLevel, LoanRiskRow, LoanTopUp, type LoanRiskCounts, type CreateLoanInput, type OrnamentRequestInput, type SanctionStage, type UpdateLoanInput, type BondLang, type BondDeliverBy, type IndemnityBondEsignStart, type IndemnityBondEsignCheck, type LoanLedgerEntry } from "@/modules/loans/types/loan-types";
 import type { SplitAmounts } from "@/modules/investments/types/investment-types";
 
 // q/status/branchId/customerId mirror backend/internal/loan/handler.go's
@@ -15,8 +15,8 @@ export function listLoansPage(params: {
   q?: string;
   status?: string;
   servicing?: string; // due_soon | overdue | defaulted (read-time classifications)
-  branchId?: number;
-  customerId?: number;
+  branchId?: number | string; // comma-joined for several
+  customerId?: number | string;
   schemeId?: number;
   from?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
   to?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
@@ -72,7 +72,9 @@ export function getLoan(id: number) {
 }
 
 export function createLoan(input: CreateLoanInput) {
-  return apiRequest<Loan>("/loans", { method: "POST", body: input });
+  // The contract map has no entry for overallPhotoUrl, so it is sent under the backend's own name.
+  const { overallPhotoUrl, ...rest } = input;
+  return apiRequest<Loan>("/loans", { method: "POST", body: { ...rest, ...(overallPhotoUrl ? { overall_photo_url: overallPhotoUrl } : {}) } });
 }
 
 // Attaches an already-uploaded ("/uploads/..." — see src/common/services/uploadService.ts)
@@ -118,7 +120,7 @@ export function approveLoan(
   // The split is required on the FINAL enabled stage's approval, which
   // disburses the loan: it must add up to the disbursed amount
   // (platform.ValidateSplit).
-  input: { stage: SanctionStage | string; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts>
+  input: { stage: SanctionStage | string; action: "Approved" | "Rejected" | "Verified"; remarks?: string; bankId?: number } & Partial<SplitAmounts>
 ) {
   return apiRequest<Loan>(`/loans/${loanId}/approve`, { method: "POST", body: input });
 }
@@ -204,6 +206,8 @@ export function recordReleasePayment(
     chequeAmount: number;
     reference?: string;
     dueDate?: string;
+    // The branch bank account a UPI / Bank Transfer share was received in.
+    bankId?: number;
   }
 ) {
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/release-payment`, { method: "POST", body: input });
@@ -271,6 +275,8 @@ export function topUpLoan(
     // interest/penal interest stands; "deduct" clears it out of this
     // top-up's own cash payout instead.
     settleInterest?: "require" | "deduct";
+    // The branch bank account a UPI / Bank Transfer share of the payout leaves from.
+    bankId?: number;
   } & Partial<SplitAmounts>
 ) {
   return apiRequest<Loan>(`/loans/${loanId}/topup`, { method: "POST", body: input });
@@ -289,6 +295,44 @@ export function listTopUps(loanId: number) {
   return apiRequest<LoanTopUp[]>(`/loans/${loanId}/topups`);
 }
 
-export function getLoanLedger(loanId: number, params: { limit: number; offset: number }) {
+export function getLoanLedger(loanId: number, params: { limit: number; offset: number; from?: string; to?: string; kinds?: string }) {
   return apiRequest<{ items: LoanLedgerEntry[] | null; total: number; totalDebit?: number; totalCredit?: number }>(`/loans/${loanId}/ledger`, { params });
+}
+
+// --- Saved drafts (web's saveDraft / updateDraft / listDrafts / deleteDraft) -------------------
+
+// Drafts carry two fields the contract map doesn't know (overall photo, per-ornament photo list), so
+// they are sent under the backend's own names.
+function draftBody(input: SaveDraftInput) {
+  const { overallPhotoUrl, ornaments, ...rest } = input;
+  return {
+    ...rest,
+    ...(overallPhotoUrl ? { overall_photo_url: overallPhotoUrl } : {}),
+    ornaments: ornaments.map(({ imageUrls, ...o }) => ({ ...o, ...(imageUrls?.length ? { image_urls: imageUrls } : {}) })),
+  };
+}
+export function saveDraft(input: SaveDraftInput) {
+  return apiRequest<LoanDraft>("/loans/drafts", { method: "POST", body: draftBody(input) });
+}
+
+// Overwrites an existing draft — saving again in the same sitting updates it in place.
+export function updateDraft(draftId: number, input: SaveDraftInput) {
+  return apiRequest<LoanDraft>(`/loans/drafts/${draftId}`, { method: "PUT", body: draftBody(input) });
+}
+
+// The caller's own drafts, most recently saved first. The two fields the contract map doesn't know
+// (overall photo, per-ornament photo list) come back under the backend's own names — read both.
+export function listDrafts() {
+  type Raw = Omit<LoanDraft, "ornaments"> & { overall_photo_url?: string; ornaments: (LoanDraft["ornaments"][number] & { image_urls?: string[] | null })[] };
+  return apiRequest<Raw[] | null>("/loans/drafts").then((r) =>
+    (r ?? []).map((d) => ({
+      ...d,
+      overallPhotoUrl: d.overallPhotoUrl ?? d.overall_photo_url,
+      ornaments: d.ornaments.map((o) => ({ ...o, imageUrls: o.imageUrls ?? o.image_urls ?? null })),
+    }))
+  );
+}
+
+export function deleteDraft(draftId: number) {
+  return apiRequest<void>(`/loans/drafts/${draftId}`, { method: "DELETE" });
 }

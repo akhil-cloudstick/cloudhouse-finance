@@ -82,3 +82,19 @@ export function rateForPurityString(k24: number, purity: string): number | null 
   if (!parsed) return null;
   return parsed.unit === "karat" ? rateForKarat(k24, parsed.value) : rateForFineness(k24, parsed.value);
 }
+
+/** Per-gram rate for a purity string using the independently published K22 / K18 rates when set (>0),
+ * falling back to the K24-derived figure — 24K and every other purity derive off K24. The backend values
+ * an exact 22K / 18K ornament this way, so a live estimate (New Loan, Edit Loan) must use it too or it
+ * offers an amount the server then refuses. Same as web's rateForPurityFull. */
+export function rateForPurityFull(rates: { k24: number; k22: number; k18: number }, purity: string): number | null {
+  const parsed = parsePurity(purity);
+  if (!parsed) return null;
+  if (parsed.unit === "karat") {
+    if (parsed.value === 24) return Math.round(rates.k24);
+    if (parsed.value === 22 && rates.k22 > 0) return Math.round(rates.k22);
+    if (parsed.value === 18 && rates.k18 > 0) return Math.round(rates.k18);
+    return rateForKarat(rates.k24, parsed.value);
+  }
+  return rateForFineness(rates.k24, parsed.value);
+}

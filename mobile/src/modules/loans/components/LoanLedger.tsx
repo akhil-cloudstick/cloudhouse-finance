@@ -2,7 +2,10 @@ import React, { useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { getLoanLedger } from "@/modules/loans/services/loanService";
-import { AccBtn, AccGroup, AccRow, C, EmptyText, type AccDetail, type ChipTone } from "@/common/components/ui";
+import { AccBtn, AccGroup, AccRow, C, EmptyText, GroupedFilter, PillButton, Txt, emptyGroupedFilter, gfDate, gfValues, toast, type AccDetail, type ChipTone, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { useAuth } from "@/common/providers/AuthProvider";
+import { isUserCancel, userMessage } from "@/common/services/apiErrors";
+import { shareLoanStatementPdf } from "@/common/utils/ledgerExport";
 import { dmy, inr } from "@/common/utils/format";
 import type { Loan, LoanTopUp } from "@/modules/loans/types/loan-types";
 
@@ -22,6 +25,10 @@ type Entry = {
   method?: string;
   reference?: string;
   split: AccDetail[];
+  /** Ledger kind the Type filter keys on, for rows the key doesn't give away (charges and auction rows). */
+  kind?: string;
+  /** A memo row (auction sale / surplus) — shown for the record, not a debit or credit of its own. */
+  memo?: string;
 };
 
 const PAGE = 10;
@@ -79,18 +86,35 @@ function paymentMethod(p: Payment) {
 export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[] = []): Entry[] {
   const rows: Entry[] = [];
 
-  // Server-computed interest / penal-interest charges: debit rows with no
-  // running balance. Any other (unknown) kind is ignored.
+  // Server-computed charge rows: interest / penal interest / service charge are debits with no
+  // running balance; the auction sale and surplus rows are memo lines for the record (web shows
+  // them with no debit or credit). Any other (unknown) kind is ignored.
   for (const c of charges) {
-    if (c.kind !== "interest" && c.kind !== "penal") continue;
-    if (!c.date || !(Number(c.amount) > 0)) continue;
+    if (!c.date) continue;
+    const memoTitle = c.kind === "auction-sale" ? "Auction Sale" : c.kind === "auction-surplus" ? "Auction Surplus" : null;
+    if (memoTitle) {
+      rows.push({
+        key: c.key || `${c.kind}-${c.date}`,
+        sortKey: c.date,
+        date: c.date,
+        title: memoTitle,
+        sub: Number(c.amount) > 0 ? inr(Number(c.amount)) : undefined,
+        memo: "Auction",
+        kind: "auction",
+        split: [],
+      });
+      continue;
+    }
+    const known = c.kind === "interest" || c.kind === "penal" || c.kind === "service-charge";
+    if (!known || !(Number(c.amount) > 0)) continue;
     rows.push({
       key: c.key || `${c.kind}-${c.date}`,
       sortKey: c.date,
       date: c.date,
-      title: c.kind === "penal" ? "Penal Interest Charged" : "Interest Charged",
+      title: c.kind === "penal" ? "Penal Interest Charged" : c.kind === "service-charge" ? "Service Charge" : "Interest Charged",
       sub: c.note || undefined,
       debit: Number(c.amount),
+      kind: c.kind,
       split: [],
     });
   }
@@ -215,34 +239,118 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
 }
 
 function chipFor(e: Entry): { label: string; tone: ChipTone } {
+  if (e.memo) return { label: e.memo, tone: "info" };
   if (e.debit != null) return { label: "Debit", tone: "overdue" };
   if (e.nonCash) return { label: "Non-cash", tone: "info" };
   return { label: "Credit", tone: "active" };
 }
 
+// The kind web's Type filter keys on, for any row.
+function kindOf(e: Entry): string {
+  if (e.kind) return e.kind;
+  if (e.key.startsWith("sanction")) return "sanction";
+  if (e.key.startsWith("topup-")) return "topup";
+  return "payment";
+}
+
+// Same options as web's Payment Ledger Type filter.
+const LEDGER_SECTIONS: GFSection[] = [
+  {
+    kind: "static",
+    key: "kind",
+    label: "Type",
+    options: [
+      { value: "sanction", label: "Sanction" },
+      { value: "payment", label: "Payment" },
+      { value: "topup", label: "Top-Up" },
+      { value: "interest", label: "Interest" },
+      { value: "penal", label: "Penal Interest" },
+      { value: "service-charge", label: "Service Charge" },
+      { value: "auction", label: "Auction" },
+    ],
+  },
+  { kind: "date", key: "date", label: "Date" },
+];
+
 type LoanLedgerProps = { loan: Loan; topUps: LoanTopUp[] };
 
 /** Payment Ledger tab of the loan page — one Loans-list-style accordion row
  * (AccRow) per entry: the date where a loan ID would sit, the amount with a
- * Debit/Credit chip, opening to the web table's columns plus the split. */
+ * Debit/Credit chip, opening to the web table's columns plus the split. The
+ * Type / Date filter, the Debit / Credit totals and Download match web's. */
 export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
-  // Interest / penal charge rows come from the server ledger; a failed or
-  // slow fetch just leaves them out.
-  const charges = useQuery({ queryKey: ["loanLedgerCharges", loan.id], queryFn: () => getLoanLedger(loan.id, { limit: 500, offset: 0 }), retry: false });
-  const entries = buildLedger(loan, topUps, charges.data?.items ?? []);
+  const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
+  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  const kinds = gfValues(fv, "kind");
+  const { from, to } = gfDate(fv, "date");
+  const [exporting, setExporting] = useState(false);
+
+  // Charge, service-charge and auction rows come from the server ledger, which also gives the
+  // totals over every row matching the filter; a failed or slow fetch just leaves them out.
+  const charges = useQuery({
+    queryKey: ["loanLedgerCharges", loan.id, kinds.join(","), from, to],
+    queryFn: () => getLoanLedger(loan.id, { limit: 500, offset: 0, from, to, kinds: kinds.length ? kinds.join(",") : undefined }),
+    retry: false,
+  });
+  const all = buildLedger(loan, topUps, charges.data?.items ?? []);
+  // The payment / top-up / sanction rows are built on the phone, so the same filter is applied to them here.
+  const entries = all.filter((e) => {
+    if (kinds.length && !kinds.includes(kindOf(e))) return false;
+    const d = e.date.slice(0, 10);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+  const filtered = kinds.length > 0 || !!from || !!to;
   // Oldest first; long ledgers start collapsed to the latest PAGE entries.
   const [shown, setShown] = useState(PAGE);
   const hidden = Math.max(0, entries.length - shown);
   const visible = entries.slice(hidden);
+
+  async function onDownload() {
+    if (exporting) return;
+    setExporting(true);
+    toast.info("Preparing PDF", "The statement will open in the share sheet.");
+    try {
+      await shareLoanStatementPdf(loan.id, loan.loanNumber);
+    } catch (e) {
+      if (isUserCancel(e)) return;
+      toast.error("Download failed", userMessage(e, "Could not download the statement — try again."));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const toolbar = (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+      <GroupedFilter title="Filter ledger" sections={LEDGER_SECTIONS} value={fv} onChange={setFv} />
+      <View style={{ flex: 1 }} />
+      {canExport ? <PillButton label={exporting ? "Preparing…" : "Download"} onPress={onDownload} /> : null}
+    </View>
+  );
+
   if (entries.length === 0) {
     return (
       <View style={{ paddingHorizontal: 18 }}>
-        <EmptyText>No ledger entries yet.</EmptyText>
+        {toolbar}
+        <EmptyText>{filtered ? "No ledger entries match these filters." : "No ledger entries yet."}</EmptyText>
       </View>
     );
   }
+  const totals = charges.data;
   return (
     <View style={{ paddingHorizontal: 18 }}>
+      {toolbar}
+      {totals && (totals.totalDebit != null || totals.totalCredit != null) ? (
+        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+          <Txt style={{ fontSize: 12.5, color: C.muted }}>
+            Total Debit <Txt style={{ fontWeight: "700", color: C.red }}>{inr(totals.totalDebit ?? 0)}</Txt>
+          </Txt>
+          <Txt style={{ fontSize: 12.5, color: C.muted }}>
+            Total Credit <Txt style={{ fontWeight: "700", color: C.green }}>{inr(totals.totalCredit ?? 0)}</Txt>
+          </Txt>
+        </View>
+      ) : null}
       {hidden > 0 ? <AccBtn label={`Show ${Math.min(PAGE, hidden)} earlier (${hidden} more)`} onPress={() => setShown((s) => s + PAGE)} style={{ marginBottom: 10 }} /> : null}
       <AccGroup>
         {visible.map((e, i) => {
@@ -252,7 +360,7 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
             { k: "Date", v: dmy(e.date) },
             { k: "Description", v: e.title },
             { k: "Debit", v: isDebit ? inr(e.debit) : "—", color: isDebit ? C.red : C.muted },
-            { k: "Credit", v: isDebit ? "—" : inr(e.credit), color: isDebit ? C.muted : C.green },
+            { k: "Credit", v: !isDebit && e.credit != null ? inr(e.credit) : "—", color: !isDebit && e.credit != null ? C.green : C.muted },
             { k: "Method", v: e.method ?? "—" },
             { k: "Reference", v: e.reference ?? "—" },
             ...e.split,
@@ -265,7 +373,7 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
               id={dmy(e.date)}
               name={e.title}
               sub={e.sub}
-              amount={isDebit ? `−${inr(e.debit)}` : `+${inr(e.credit)}`}
+              amount={e.memo ? undefined : isDebit ? `−${inr(e.debit)}` : `+${inr(e.credit)}`}
               amountColor={isDebit ? C.red : C.green}
               status={chip.label}
               statusTone={chip.tone}

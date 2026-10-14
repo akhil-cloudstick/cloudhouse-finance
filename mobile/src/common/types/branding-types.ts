@@ -19,4 +19,5 @@ export type SelfBranding = PublicBranding & {
   policy?: string;
   modules: string[];
   languages: string[];
+  singleBranch?: boolean;
 };
