@@ -23,6 +23,12 @@ import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FileInput } from "@/common/components/ui/FileInput";
 import { useLoanBalance } from "@/modules/cash/hooks/use-loan-balance";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  fromBank: /from bank/i, toBank: /to bank/i, remarks: /remarks/i, branch: /branch/i, date: /date/i, category: /categor|loan/i, amount: /amount/i,
+};
 
 // How the money moved — both ledger rows show it. Banks are always From/To here,
 // so unlike Credit/Debit there is no separate Bank field for the mode.
@@ -61,7 +67,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
   }, [edit]);
   // A loan category (name starts with "Loan") makes this a repayment on that loan.
   const loan = catRec && isLoanSource(catRec.name) ? catRec : null;
-  const loanReady = !!loan && loan.principalAmount != null;
+  const loanReady = !!loan;
 
   const [fromBank, setFromBank] = useState(edit?.fromBank ?? "");
   const [fromBankId, setFromBankId] = useState(edit?.fromBankId ? String(edit.fromBankId) : "");
@@ -84,6 +90,10 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
 
   const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   const [branches, setBranches] = useState<BranchView[]>([]);
@@ -104,14 +114,15 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
 
   async function save() { return singleFlight("modal:selftransfer:save", async () => {
     const amount = +amt;
-    if (!category) { setErr("Please select a category."); return; }
-    if (!(amount > 0)) { setErr("Please enter a valid amount."); return; }
-    if (!date) { setErr("Please select the date."); return; }
-    if (!fromBankId) { setErr("Please select the From Bank."); return; }
-    if (loan && !loanReady) { setErr("This loan has no details recorded yet — add cash from it first."); return; }
-    if (!loan && !toBankId) { setErr("Please select the To Bank."); return; }
-    if (!loan && toBankId === fromBankId) { setErr("From Bank and To Bank must be different."); return; }
-    if (!branchId) { setErr("Please select a branch."); return; }
+    setErr(""); setFe({});
+    if (!category) { fail("category", "Please select a category."); return; }
+    if (!(amount > 0)) { fail("amount", "Please enter a valid amount."); return; }
+    if (!date) { fail("date", "Please select the date."); return; }
+    if (!fromBankId) { fail("fromBank", "Please select the From Bank."); return; }
+    if (loan && !loanReady) { fail("category", "This loan has no details recorded yet — add cash from it first."); return; }
+    if (!loan && !toBankId) { fail("toBank", "Please select the To Bank."); return; }
+    if (!loan && toBankId === fromBankId) { fail("toBank", "From Bank and To Bank must be different."); return; }
+    if (!branchId) { fail("branch", "Please select a branch."); return; }
 
     setSaving(true);
     try {
@@ -136,7 +147,9 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
       closeModal();
       toast(loan ? `${fmt(amount)} repaid on ${category} from ${fromBank}` : `${fmt(amount)} transferred ${fromBank} → ${toBank}`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not save — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
     } finally {
       setSaving(false);
     }
@@ -165,12 +178,13 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
         {/* Same order as every entry form: Category → Date → Mode → Amount → Branch → Bill
             (the From/To banks sit with Mode, since they replace the usual Bank field). */}
         <div className="frow">
-          <div><label className="f">Category *</label>
+          <div className={fe.category ? "has-err" : undefined}><label className="f">Category *</label>
             <SearchableSelect<BackendCategory>
               portal
               value={category}
               onChange={(_id, item) => {
                 setCatRec(item);
+                clearFe("category");
                 // A category from another form: choosing it flips it to common.
                 if (item.type !== "self_transfer" && !item.isCommon) createCategory("self_transfer")(item.name).catch(() => {});
               }}
@@ -181,35 +195,35 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
               placeholder="Search or add a category…"
               allowCreate
               onCreate={createCategory("self_transfer")}
-            /></div>
+            /><FieldError msg={fe.category} /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
+          <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
           <div><label className="f">Mode *</label><Select options={MODE_OPTIONS} value={mode} onChange={setMode} /></div>
         </div>
         <div className={loan ? "frow" : "frow c2"}>
-          <div><label className="f">From Bank *</label>{bankPicker(fromBank, (id, name) => { setFromBankId(id); setFromBank(name); })}</div>
+          <div className={fe.fromBank ? "has-err" : undefined}><label className="f">From Bank *</label>{bankPicker(fromBank, (id, name) => { setFromBankId(id); setFromBank(name); clearFe("fromBank"); })}<FieldError msg={fe.fromBank} /></div>
           {!loan && (
-            <div><label className="f">To Bank *</label>{bankPicker(toBank, (id, name) => { setToBankId(id); setToBank(name); })}</div>
+            <div className={fe.toBank ? "has-err" : undefined}><label className="f">To Bank *</label>{bankPicker(toBank, (id, name) => { setToBankId(id); setToBank(name); clearFe("toBank"); })}<FieldError msg={fe.toBank} /></div>
           )}
         </div>
         <div className={showBranch ? "frow c2" : "frow"}>
-          <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /></div>
+          <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} onWheel={noWheelStep} /><FieldError msg={fe.amount} /></div>
           {showBranch && (
-            <div><label className="f">Branch *</label>
+            <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
               <Select
                 disabled={branchLocked}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 value={branchId ? String(branchId) : ""}
-                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                onChange={(v) => { setBranchId(v ? Number(v) : ""); clearFe("branch"); }}
                 placeholder="Select branch…"
-              /></div>
+              /><FieldError msg={fe.branch} /></div>
           )}
         </div>
         <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
-        <div className="frow"><div><label className="f">Remarks</label>
-          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
+        <div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
+          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => { setRemarks(e.target.value); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
         {loanWarning && (
           <div className="notice" style={{ marginBottom: 4, borderLeft: "3px solid var(--red)", color: "var(--red)" }}>
             {loanWarning}

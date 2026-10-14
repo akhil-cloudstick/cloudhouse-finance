@@ -16,7 +16,17 @@ export function loanNumberOfCategory(name: string): string {
  * category ledger route (/ledger-category/:id) needs. Loaded on mount and
  * again whenever a category is created. */
 export function useExpenseCategoryIds(): Record<string, number> {
-  const [map, setMap] = useState<Record<string, number>>({});
+  return useExpenseCategoryIdsState().ids;
+}
+
+// The last loaded map, kept for the session so a ledger that mounts again starts with its links already resolved.
+let cachedIds: Record<string, number> | null = null;
+
+/* Same map plus whether it has loaded — a ledger holds its rows until `ready`, so a reference
+ * is never painted as plain text and then swapped for a link. */
+export function useExpenseCategoryIdsState(): { ids: Record<string, number>; ready: boolean } {
+  const [map, setMap] = useState<Record<string, number>>(cachedIds ?? {});
+  const [ready, setReady] = useState(cachedIds !== null);
   const [version, setVersion] = useState(0);
   useEffect(() => {
     const bump = () => setVersion((v) => v + 1);
@@ -40,11 +50,11 @@ export function useExpenseCategoryIds(): Record<string, number> {
           if (!res.hasMore || cancelled) break;
         }
       }
-      if (!cancelled) setMap(next);
-    })().catch(() => {});
+      if (!cancelled) { cachedIds = next; setMap(next); setReady(true); }
+    })().catch(() => { if (!cancelled) setReady(true); });
     return () => { cancelled = true; };
   }, [version]);
-  return map;
+  return { ids: map, ready };
 }
 
 const EXPENSE_PREFIX = "Expense — ";

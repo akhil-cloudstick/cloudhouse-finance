@@ -10,6 +10,7 @@ import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/common/utils/
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError } from "@/common/components/ui/FieldError";
 
 type Mode = "auto" | "manual";
 
@@ -85,6 +86,10 @@ export function RateModalContent() {
 
   const [remarks, setRemarks] = useState("");
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the rate it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
   const [saving, setSaving] = useState(false);
 
   // Which karat's rate field staff last actually typed into — the
@@ -119,33 +124,37 @@ export function RateModalContent() {
       setRate18(String(rateForFineness(base24, f18)));
     }
     setLastEdited(null);
-    setErr("");
+    setErr(""); setFe({});
   }
   function setManual() {
     setMode("manual");
     setLastEdited(null);
-    setErr("");
+    setErr(""); setFe({});
   }
 
   function editRate24(v: string) {
     setRate24(v); // never switches mode — see file doc comment
+    clearFe("rate24");
     setLastEdited(24);
     // 22K/18K keep tracking 24K live while they're still in Auto.
     const k24 = +v;
     if (mode === "auto" && k24 > 0) {
       if (+fineness22 > 0) setRate22(String(rateForFineness(k24, +fineness22)));
       if (+fineness18 > 0) setRate18(String(rateForFineness(k24, +fineness18)));
+      clearFe("rate22"); clearFe("rate18");
     }
   }
   function editRate22(v: string) {
     setMode("manual"); // any direct 22K/18K rate edit is all-or-nothing
     setLastEdited(22);
     setRate22(v);
+    clearFe("rate22");
   }
   function editRate18(v: string) {
     setMode("manual");
     setLastEdited(18);
     setRate18(v);
+    clearFe("rate18");
   }
   // Fineness is a purity percentage — never meaningfully above 100%
   // (pure gold itself). Clamped, not rejected: typing "150" just settles
@@ -158,12 +167,12 @@ export function RateModalContent() {
     setFineness22(c);
     // Off the LIVE 24K rate, not the frozen ref24 — tracks whatever's
     // currently typed in the 24K field, not just today's opening reference.
-    if (+rate24 > 0 && +c > 0) setRate22(String(rateForFineness(+rate24, +c)));
+    if (+rate24 > 0 && +c > 0) { setRate22(String(rateForFineness(+rate24, +c))); clearFe("rate22"); }
   }
   function editFineness18(v: string) {
     const c = clampFineness(v);
     setFineness18(c);
-    if (+rate24 > 0 && +c > 0) setRate18(String(rateForFineness(+rate24, +c)));
+    if (+rate24 > 0 && +c > 0) { setRate18(String(rateForFineness(+rate24, +c))); clearFe("rate18"); }
   }
 
   // Non-blocking sanity check on Manual entries — 22K/18K priced above a
@@ -194,9 +203,10 @@ export function RateModalContent() {
     // The logged-in employee is who set this rate — never the previous
     // row's setBy (that was e.g. "Auto (GoldAPI)" from the background sync).
     const setBy = employee?.name || employee?.username || "Admin";
-    if (!(+rate24 > 0)) { setErr("The 24K rate must be greater than zero."); return; }
-    if (!(+rate22 > 0)) { setErr("The 22K rate must be greater than zero."); return; }
-    if (!(+rate18 > 0)) { setErr("The 18K rate must be greater than zero."); return; }
+    setErr(""); setFe({});
+    if (!(+rate24 > 0)) { fail("rate24", "The 24K rate must be greater than zero."); return; }
+    if (!(+rate22 > 0)) { fail("rate22", "The 22K rate must be greater than zero."); return; }
+    if (!(+rate18 > 0)) { fail("rate18", "The 18K rate must be greater than zero."); return; }
 
     // Only karats that actually changed from the latest published row get
     // published — publishing an untouched karat would still be harmless
@@ -243,11 +253,14 @@ export function RateModalContent() {
                 <input className="inp" type="number" style={{ width: 140, background: "var(--brand-faint)", cursor: "not-allowed" }} value={FINENESS_24K} disabled readOnly title="24K is fixed at 99.9% (999)" />
               </div>
             )}
+            <div className={fe.rate24 ? "has-err" : undefined}>
             <label className="f">24K · 999 (₹/g)</label>
             <input
               className={`inp${shaking24 ? " shake-attention" : ""}`} type="number" value={rate24}
               onChange={(e) => editRate24(e.target.value)} style={{ width: 140, ...(invalid24 ? invalidInputStyle : {}) }}
             />
+            <FieldError msg={fe.rate24} />
+            </div>
             {invalid24 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
             <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
               {mode === "manual" ? "set directly" : "22K/18K follow this rate"}
@@ -261,11 +274,14 @@ export function RateModalContent() {
                 <input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness22} onChange={(e) => editFineness22(e.target.value)} />
               </div>
             )}
+            <div className={fe.rate22 ? "has-err" : undefined}>
             <label className="f">22K (₹/g)</label>
             <input
               className={`inp${shaking22 ? " shake-attention" : ""}`} type="number" value={rate22}
               onChange={(e) => editRate22(e.target.value)} style={{ width: 140, ...(invalid22 ? invalidInputStyle : {}) }}
             />
+            <FieldError msg={fe.rate22} />
+            </div>
             {invalid22 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
             <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
               {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
@@ -279,11 +295,14 @@ export function RateModalContent() {
                 <input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness18} onChange={(e) => editFineness18(e.target.value)} />
               </div>
             )}
+            <div className={fe.rate18 ? "has-err" : undefined}>
             <label className="f">18K (₹/g)</label>
             <input
               className={`inp${shaking18 ? " shake-attention" : ""}`} type="number" value={rate18}
               onChange={(e) => editRate18(e.target.value)} style={{ width: 140, ...(invalid18 ? invalidInputStyle : {}) }}
             />
+            <FieldError msg={fe.rate18} />
+            </div>
             {invalid18 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
             <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
               {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}

@@ -14,6 +14,9 @@ export function listPacketsPage(params: {
   loanId?: number;
   lockerId?: number;
   status?: string;
+  /** Comma-joined ids — the Branch and Customer filters are multi-select. */
+  branchId?: string;
+  customerId?: string;
   /** Packet code / loan number / customer name. */
   q?: string;
   limit: number;

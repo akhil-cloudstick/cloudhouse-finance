@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   C,
   FabCorner,
@@ -15,11 +15,13 @@ import {
   ServerFlatList,
   Txt,
   openPage,
+  toast,
 } from "@/common/components/ui";
 import { ReminderCreateSheet } from "@/common/components/layout/ReminderCreateSheet";
 import { ReminderItem } from "@/common/components/layout/ReminderItem";
 import { useServerList } from "@/common/hooks/use-server-list";
-import { getCalendarEvents, listCalendarEventsPage } from "@/modules/reminders/services/reminderService";
+import { completeReminder, deleteReminder, getCalendarEvents, listCalendarEventsPage } from "@/modules/reminders/services/reminderService";
+import { userMessage } from "@/common/services/apiErrors";
 import { dmy, todayISO } from "@/common/utils/format";
 import type { CalendarEvent } from "@/modules/reminders/types/reminder-types";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -37,8 +39,8 @@ const EVENTS_MAX_HEIGHT = 460;
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
-  if (t === "Overdue") return "red";
-  if (t === "LoanDue" || t === "InterestDue") return "amber";
+  if (t === "Overdue" || t === "PersonalLoanOverdue") return "red";
+  if (t === "LoanDue" || t === "InterestDue" || t === "PersonalLoanDue") return "amber";
   return "blue";
 }
 
@@ -55,6 +57,14 @@ export default function RemindersScreen() {
   const { can } = useAuth();
   const canCreate = can("Reminder_Management", "can_create_reminder");
   const canViewLoans = can("Loan_Management", "can_view_loan_module");
+  const canViewPersonalLoans = can("Personal_Loan_Management", "can_view_personal_loan_module");
+  const canUpdateReminder = can("Reminder_Management", "can_update_reminder");
+  const canDeleteReminder = can("Reminder_Management", "can_delete_reminder");
+  const qc = useQueryClient();
+  // Mark a manual reminder Done / delete it — the calendar and the day list reload.
+  const reload = () => qc.invalidateQueries({ queryKey: ["reminders"] });
+  const done = useMutation({ mutationFn: (id: number) => completeReminder(id), onSuccess: reload, onError: (e) => toast.error("Couldn't mark it done", userMessage(e, "Try again.")) });
+  const remove = useMutation({ mutationFn: (id: number) => deleteReminder(id), onSuccess: reload, onError: (e) => toast.error("Couldn't delete it", userMessage(e, "Try again.")) });
 
   const y = month.getFullYear();
   const m = month.getMonth();
@@ -161,6 +171,14 @@ export default function RemindersScreen() {
                     first={i === 0}
                     showDate={searching}
                     onPress={e.loanId && canViewLoans ? () => openPage(`/loans/${e.loanId}`) : undefined}
+                    onOpenLoan={
+                      e.personalLoanId != null && canViewPersonalLoans
+                        ? () => openPage(`/personal-loans?id=${e.personalLoanId}`)
+                        : undefined
+                    }
+                    onDone={e.reminderId != null && canUpdateReminder && e.status !== "Done" ? () => done.mutate(e.reminderId!) : undefined}
+                    onDelete={e.reminderId != null && canDeleteReminder ? () => remove.mutate(e.reminderId!) : undefined}
+                    busy={done.isPending || remove.isPending}
                   />
                 ))}
                 {list.isFetchingNextPage ? <Buffering /> : null}

@@ -13,9 +13,15 @@ import { ApiError } from "@/common/services/httpClient";
 import { createBankFull, updateBank } from "@/modules/banks/services/bankService";
 import { type BackendBank } from "@/modules/banks/types/bank-types";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 const IFSC_RE = /^[A-Za-z0-9]*$/;
 const PHONE_RE = /^\d{10}$/;
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  branchId: /branch/i, name: /name/i, ifsc: /ifsc/i, accountNo: /account/i, phone: /phone/i,
+};
 
 type BankModalContentProps = { bank?: BackendBank; onSaved: () => void };
 
@@ -37,6 +43,9 @@ export function BankModalContent({ bank: b, onSaved }: BankModalContentProps) {
   const [accountNo, setAccountNo] = useState(b?.accountNo || "");
   const [phone, setPhone] = useState(b?.phone || "");
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
   const { singleBranch } = useBranding();
   const lockedBranchId = useLockedBranchId();
@@ -73,13 +82,14 @@ export function BankModalContent({ bank: b, onSaved }: BankModalContentProps) {
   async function save() { return singleFlight("modal:bank:save", async () => {
     const n = name.trim();
     const p = phone.trim();
-    if (n.length < 2) { setErr("Please enter a bank name (at least 2 characters)."); return; }
-    if (p && !PHONE_RE.test(p)) { setErr("Phone number must be exactly 10 digits."); return; }
-    if (!branchId) { setErr("Please select the business branch this account belongs to."); return; }
+    if (n.length < 2) { fail("name", "Please enter a bank name (at least 2 characters)."); return; }
+    if (p && !PHONE_RE.test(p)) { fail("phone", "Phone number must be exactly 10 digits."); return; }
+    if (!branchId) { fail("branchId", "Please select the business branch this account belongs to."); return; }
 
     const input = { name: n, branchId: Number(branchId), branch: branch.trim(), ifsc: ifsc.trim(), accountNo: accountNo.trim(), phone: p };
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       if (b) await updateBank(b.id, input);
       else await createBankFull(input);
@@ -87,7 +97,9 @@ export function BankModalContent({ bank: b, onSaved }: BankModalContentProps) {
       onSaved();
       toast(b ? `Bank "${n}" updated` : `Bank "${n}" added`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Failed to save bank.");
+      const msg = e instanceof ApiError ? e.message : "Failed to save bank.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -99,29 +111,29 @@ export function BankModalContent({ bank: b, onSaved }: BankModalContentProps) {
       <div className="bd bd-scroll">
         {/* Business branch first: it decides whose bank account this is. */}
         {!singleBranch && (
-          <div className="frow"><div><label className="f">Business branch *</label>
+          <div className="frow"><div className={fe.branchId ? "has-err" : undefined}><label className="f">Business branch *</label>
             <Select
               disabled={branchLocked}
               options={branchOptions}
               value={branchId === "" ? "" : String(branchId)}
               onChange={(v) => setBranchId(v ? Number(v) : "")}
-            />
+            /><FieldError msg={fe.branchId} />
           </div></div>
         )}
         <div className="frow c2">
-          <div><label className="f">Bank Name *</label>
-            <input className="inp" placeholder="e.g. HDFC Bank" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" /></div>
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Bank Name *</label>
+            <input className="inp" placeholder="e.g. HDFC Bank" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" /><FieldError msg={fe.name} /></div>
           <div><label className="f">Bank branch</label>
             <input className="inp" placeholder="e.g. Koratty" value={branch} onChange={(e) => setBranch(e.target.value)} maxLength={120} autoComplete="off" /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">IFSC</label>
-            <input className="inp" placeholder="e.g. HDFC0001234" value={ifsc} onChange={(e) => onIfscChange(e.target.value)} maxLength={20} autoComplete="off" /></div>
-          <div><label className="f">Account No.</label>
-            <input className="inp" placeholder="Account number" value={accountNo} onChange={(e) => setAccountNo(e.target.value)} maxLength={40} autoComplete="off" /></div>
+          <div className={fe.ifsc ? "has-err" : undefined}><label className="f">IFSC</label>
+            <input className="inp" placeholder="e.g. HDFC0001234" value={ifsc} onChange={(e) => onIfscChange(e.target.value)} maxLength={20} autoComplete="off" /><FieldError msg={fe.ifsc} /></div>
+          <div className={fe.accountNo ? "has-err" : undefined}><label className="f">Account No.</label>
+            <input className="inp" placeholder="Account number" value={accountNo} onChange={(e) => setAccountNo(e.target.value)} maxLength={40} autoComplete="off" /><FieldError msg={fe.accountNo} /></div>
         </div>
-        <div className="frow"><div><label className="f">Phone</label>
-          <input className="inp" type="tel" inputMode="numeric" placeholder="10-digit phone" value={phone} onChange={(e) => onPhoneChange(e.target.value)} maxLength={10} autoComplete="off" /></div></div>
+        <div className="frow"><div className={fe.phone ? "has-err" : undefined}><label className="f">Phone</label>
+          <input className="inp" type="tel" inputMode="numeric" placeholder="10-digit phone" value={phone} onChange={(e) => onPhoneChange(e.target.value)} maxLength={10} autoComplete="off" /><FieldError msg={fe.phone} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

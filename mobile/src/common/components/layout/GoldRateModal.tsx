@@ -3,7 +3,7 @@ import { ScrollView, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Buffering, C, CenterModal, ChipToggle, Field, GrmTabs, Input, PrimaryButton, RepayItem, ReviewWarning, ServerFlatList, Txt, WarningBanner, toast } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
-import { latestGoldRate, listGoldRatesPage, publishGoldRate } from "@/modules/gold-rates/services/goldRateService";
+import { latestGoldRate, listGoldRatesPage, publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { dmy, inr } from "@/common/utils/format";
 import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/common/utils/purity";
@@ -21,11 +21,10 @@ import { s } from "./shellModalsShared";
 //   read-only — it labels the reference rate rather than scaling it.
 // - Manual: every karat is typed independently. Typing straight into the
 //   22K or 18K rate switches to Manual; typing 24K does not.
-// Only karats whose rate actually changed are published, 24 -> 22 -> 18.
+// Only karats whose rate actually changed are published, together as one history row.
 //
 // Set Rate lets staff set all three karats (Auto derives 22K/18K off 24K;
-// Manual types each independently) — only the History tab's list drops the
-// 22K/18K columns, showing 24K alone.
+// Manual types each independently); the History tab lists all three karats with who published them.
 // ---------------------------------------------------------------------------
 type RateMode = "Auto" | "Manual";
 type Karat = 24 | 22 | 18;
@@ -140,7 +139,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
       const setBy = employee?.name ?? "Mobile App";
       const jobs = KARAT_ROWS.filter(({ k }) => n[k] > 0 && Math.round(n[k]) !== Math.round(now[k])).map(({ k }) => ({ karat: k, rate: n[k] }));
       if (!jobs.length) throw new Error("Nothing has changed from the current rates.");
-      for (const j of jobs) await publishGoldRate({ karat: j.karat, rate: j.rate, setBy });
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy);
       return jobs;
     },
     onSuccess: (jobs) => {
@@ -223,7 +222,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
               <RepayItem
                 first={i === 0}
                 label={`${dmy(r.date || r.createdAt)}${r.setBy ? ` · ${r.setBy}` : ""}`}
-                value={`24K ${inr(r.k24)}`}
+                value={`24K ${inr(r.k24)} · 22K ${inr(r.k22)} · 18K ${inr(r.k18)}`}
                 valueColor={C.ink}
                 style={s.histRow}
               />

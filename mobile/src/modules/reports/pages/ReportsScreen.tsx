@@ -1,3 +1,4 @@
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import React, { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
@@ -456,6 +457,8 @@ type ReportSheetProps = { report: ReportDef | null; onClose: () => void };
 
 function ReportSheet({ report, onClose }: ReportSheetProps) {
   const visible = !!report;
+  // No Branch filter for a one-branch business or a branch-confined role (same rule as web).
+  const showBranchFilter = useShowBranchFilter();
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const from = gfDate(fv, "date").from ?? "";
   const to = gfDate(fv, "date").to ?? "";
@@ -466,7 +469,8 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
 
   useEffect(() => {
     if (report) {
-      const r = report.defaultRange?.() ?? {};
+      // Table reports open on the current month, like web; the statements set their own range.
+      const r = report.defaultRange?.() ?? (report.kind === "table" ? { from: firstOfMonth(), to: todayISO() } : {});
       // Default range seeds the Date section; Reset all clears it (like web).
       setFv({ options: {}, dates: { date: { from: r.from || undefined, to: r.to || undefined } } });
     }
@@ -551,13 +555,13 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
   // Export Excel / Export PDF buttons beside it, in the table header.
   const sections: GFSection[] = report
     ? [
-        {
-          kind: "async",
+        ...(!showBranchFilter ? [] : [{
+          kind: "async" as const,
           key: "branch",
           label: "Branch",
           single: true,
-          fetchPage: (p) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
-        },
+          fetchPage: (p: { q?: string; limit: number; offset: number }) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+        }]),
         ...(report.extra ? [{ kind: "static" as const, key: "extra", label: report.extra.label, single: true, options: report.extra.options.map((o) => ({ value: o, label: o })) }] : []),
         { kind: "date", key: "date", label: "Date", hideFrom: report.key === "balance-sheet" },
       ]

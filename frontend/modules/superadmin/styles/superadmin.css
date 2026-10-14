@@ -1833,3 +1833,10 @@ body {
     margin-top: 6px;
   }
 }
+
+/* A field with a validation message: its box turns red (the message itself is a .sa-error under it). */
+.sa-field.has-err input,
+.sa-field.has-err textarea,
+.sa-field.has-err .sa-select-btn {
+  border-color: var(--sa-red);
+}

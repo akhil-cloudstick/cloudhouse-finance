@@ -7,7 +7,8 @@ import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { ErrorText } from "@/common/components/ErrorText";
-import { BankPledgeForm, bankPledgeFormInit } from "@/common/components/BankPledgeForm";
+import { BankPledgeForm, bankPledgeFormInit, cashInPayload } from "@/common/components/BankPledgeForm";
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { useAuth } from "@/common/providers/AuthProvider";
 
 type BankPledgeSheetProps = {
@@ -34,6 +35,8 @@ export function BankPledgeSheet({
   const [form, setForm] = useState(() => bankPledgeFormInit(l));
   const [error, setError] = useState<string | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
+  // How the pledged amount is paid back to the bank (a "CashIn" pledge only).
+  const [releasePay, setReleasePay] = useState<SplitPayment | null>(null);
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -61,6 +64,7 @@ export function BankPledgeSheet({
         referenceNumber: form.reference.trim() || undefined,
         bankPledgeDueDate: form.dueDate || undefined,
         cashTreatment: form.cash,
+        ...cashInPayload(form),
       }),
     onSuccess: () => {
       setForm(bankPledgeFormInit(l));
@@ -70,7 +74,8 @@ export function BankPledgeSheet({
   });
 
   const release = useMutation({
-    mutationFn: (pledgeId: number) => releaseBankPledge(l.id, pledgeId),
+    mutationFn: (pledgeId: number) =>
+      releaseBankPledge(l.id, pledgeId, activePledge?.cashTreatment === "CashIn" && releasePay ? { ...releasePay.split, bankId: releasePay.bankId } : undefined),
     onSuccess: () => {
       setConfirmRelease(false);
       done();
@@ -150,13 +155,16 @@ export function BankPledgeSheet({
       <Sheet visible={confirmRelease} onClose={() => setConfirmRelease(false)} title="Release from Bank?">
         <Txt style={{ fontSize: 12.5, color: C.muted, lineHeight: 18, marginVertical: 10 }}>
           {activePledge?.cashTreatment === "CashIn"
-            ? `This books ${inr(activePledge?.pledgedAmount)} back OUT of Cash-in-Hand — the amount this pledge originally brought in.`
+            ? `${inr(activePledge?.pledgedAmount)} is paid back to the bank — choose how below.`
             : "This pledge never moved cash, so releasing it has no cash effect."}
         </Txt>
+        {activePledge?.cashTreatment === "CashIn" ? (
+          <SplitPaymentInput total={activePledge.pledgedAmount} onChange={setReleasePay} bankLabel="Bank (account it leaves from)" />
+        ) : null}
         <ErrorText>{error}</ErrorText>
         <BtnRow2>
           <PrimaryButton label="Cancel" variant="outline" onPress={() => setConfirmRelease(false)} />
-          <PrimaryButton label="Release" onPress={() => activePledge && release.mutate(activePledge.id)} loading={release.isPending} />
+          <PrimaryButton label="Release" onPress={() => activePledge && release.mutate(activePledge.id)} loading={release.isPending} disabled={activePledge?.cashTreatment === "CashIn" && !releasePay?.ready} />
         </BtnRow2>
       </Sheet>
 

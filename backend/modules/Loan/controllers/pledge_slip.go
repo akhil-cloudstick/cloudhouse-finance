@@ -29,7 +29,7 @@ type pledgeSlipOrnament struct {
 }
 
 type pledgeSlipTemplateData struct {
-	Style                                                                     template.CSS
+	Brand                                                                     template.CSS
 	LegalName, Descriptor, RegLabel, Phones, AddressLine                      string
 	LoanNumber, Today, CustomerName, CustomerCode, Phone, Address, BranchName string
 	SchemeName, SchemeRate, SchemeLTV, Opened                                 string
@@ -37,6 +37,10 @@ type pledgeSlipTemplateData struct {
 	TotalNetWeight, TotalGoldValue                                            string
 	Principal, Eligible                                                       string
 	Distribution                                                              []bondDistRow
+	// Esign marks the customer's signature box so the eSign provider can stamp it there.
+	Esign bool
+	// LenderSignature is the business's uploaded signature, shown in the Manager box.
+	LenderSignature template.HTML
 }
 
 func slipRupees(n float64) string {
@@ -62,30 +66,12 @@ func dash(s string) string {
 	return s
 }
 
-func slipStyle(brand string) string {
-	deep, accent, tint := "#423591", "#c9a227", "#efedfb"
+// brandColor is the tenant's brand colour when it is a valid #rrggbb value, else the default.
+func brandColor(brand string) template.CSS {
 	if slipHexColor.MatchString(brand) {
-		deep = brand
+		return template.CSS(brand)
 	}
-	return `
-body{font-family:'Inter','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:0;line-height:1.55;font-size:14px;padding:0}
-h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:#62626f}
-.brandhead{text-align:center;margin:0 0 20px}
-.brandhead .bh-name{font-family:'Montserrat','Segoe UI',sans-serif;font-size:17px;font-weight:800;letter-spacing:.06em;color:` + deep + `}
-.brandhead .bh-desc{font-size:10.5px;font-weight:600;letter-spacing:.28em;text-transform:uppercase;color:` + deep + `;margin-top:3px}
-.brandhead .bh-meta{font-size:10.5px;color:#62626f;margin-top:5px}
-.brandhead .bh-rule{height:2px;background:` + accent + `;width:96px;margin:12px auto 14px}
-.brandhead h2{margin:0}
-table{width:100%;border-collapse:collapse;margin:14px 0}
-th,td{border:1px solid #d9d8df;padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle}
-th{background:` + tint + `;color:` + deep + `;font-weight:600}
-.num{text-align:right;font-variant-numeric:tabular-nums}
-.orn-photo{width:56px;height:56px;object-fit:cover}
-.sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px;break-inside:avoid}
-.sig div{flex:1;text-align:center;position:relative}
-.sig span{display:block;border-top:1px solid #1a1a1a;padding-top:6px;margin-top:44px;font-size:12.5px}
-.muted{color:#62626f;font-size:12.5px}
-`
+	return "#423591"
 }
 
 func slipPhoto(tenantID uint, images []models.OrnamentImage) template.URL {
@@ -109,7 +95,7 @@ func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData 
 		if t.KMLRegNo != "" {
 			regLabel = strings.ToUpper(commonModels.PolicyOrDefault(t.Policy)) + " Reg. No: " + t.KMLRegNo
 		}
-		phones, address, brand, tenantID = t.ContactPhone, t.AddressLine, t.BrandColor, t.ID
+		phones, address, brand, tenantID = t.ContactPhone, common.NormalizeLineBreaks(t.AddressLine), t.BrandColor, t.ID
 	}
 	custCode := l.Customer.Code
 	if custCode == "" {
@@ -127,7 +113,7 @@ func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData 
 		dist = append(dist, bondDistRow{Date: slipDate(d.Date), Amount: slipRupees(d.Amount), Initial: d.Initial})
 	}
 	return pledgeSlipTemplateData{
-		Style:      template.CSS(slipStyle(brand)),
+		Brand:      brandColor(brand),
 		LegalName:  strings.ToUpper(firstNonEmpty(legalName, "CloudHouse Finance")),
 		Descriptor: "Gold Loans & Finance",
 		RegLabel:   regLabel, Phones: phones, AddressLine: address,
@@ -139,7 +125,8 @@ func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData 
 		Ornaments:      rows,
 		TotalNetWeight: fmt.Sprintf("%.1f", l.TotalNetWeight), TotalGoldValue: slipRupees(l.TotalGoldValue),
 		Principal: slipRupees(l.PrincipalAmount), Eligible: slipRupees(l.EligibleLoanAmount),
-		Distribution: dist,
+		Distribution:    dist,
+		LenderSignature: lenderSignature(ctx),
 	}
 }
 
@@ -151,6 +138,16 @@ func renderPledgeSlipHTML(data pledgeSlipTemplateData) (string, error) {
 	return sb.String(), nil
 }
 
+// pledgeSlipHTML renders the tenant's slip; esign adds the customer's signature box.
+func pledgeSlipHTML(ctx context.Context, l *models.Loan, esign bool) (string, error) {
+	if t := tenantForContext(ctx); t != nil && commonModels.PolicyOrDefault(t.Policy) == commonModels.PolicyTML {
+		return renderTMLSlipHTML(tmlSlipData(ctx, l))
+	}
+	data := pledgeSlipData(ctx, l)
+	data.Esign = esign
+	return renderPledgeSlipHTML(data)
+}
+
 func renderPledgeSlip(ctx context.Context, loanID uint, branchID *uint, format string) ([]byte, string, string, error) {
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
@@ -159,12 +156,7 @@ func renderPledgeSlip(ctx context.Context, loanID uint, branchID *uint, format s
 	if branchID != nil && l.BranchID != *branchID {
 		return nil, "", "", common.NewNotFound("loan not found")
 	}
-	var htmlStr string
-	if t := tenantForContext(ctx); t != nil && commonModels.PolicyOrDefault(t.Policy) == commonModels.PolicyTML {
-		htmlStr, err = renderTMLSlipHTML(tmlSlipData(ctx, l))
-	} else {
-		htmlStr, err = renderPledgeSlipHTML(pledgeSlipData(ctx, l))
-	}
+	htmlStr, err := pledgeSlipHTML(ctx, l, false)
 	if err != nil {
 		return nil, "", "", err
 	}

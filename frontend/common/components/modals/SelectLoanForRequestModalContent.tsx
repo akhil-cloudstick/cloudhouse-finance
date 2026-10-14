@@ -6,6 +6,7 @@ import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
 import { fmtDate } from "@/common/utils/format";
 import { type LoanView } from "@/modules/loans/types/loan-types";
+import { FieldError } from "@/common/components/ui/FieldError";
 
 type SelectLoanForRequestModalContentProps = { loans: LoanView[]; onPicked: (loan: LoanView, type: "Extension" | "Release") => void };
 
@@ -17,6 +18,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
   const { closeModal } = useModal();
   const [loanId, setLoanId] = useState("");
   const [type, setType] = useState<"Extension" | "Release">("Extension");
+  // Shown under the loan picker.
   const [err, setErr] = useState("");
 
   const eligible = loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Pending Approval");
@@ -33,7 +35,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
     <>
       <div className="hd"><h3>Request Extension / Release</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
-        <div className="frow"><div><label className="f">Loan *</label>
+        <div className="frow"><div className={err ? "has-err" : undefined}><label className="f">Loan *</label>
           <Select
             options={[
               { value: "", label: "Select loan…" },
@@ -41,7 +43,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
             ]}
             value={loanId}
             onChange={(v) => { setLoanId(v); setErr(""); }}
-          /></div></div>
+          /><FieldError msg={err} /></div></div>
         <div className="frow"><div><label className="f">Request Type *</label>
           <Select
             options={[{ value: "Extension", label: "Extension" }, { value: "Release", label: "Release" }]}
@@ -51,7 +53,6 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
         {eligible.length === 0 && (
           <p className="notice"><Icon name="shield" /> This customer has no open loans to request an extension or release for.</p>
         )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>

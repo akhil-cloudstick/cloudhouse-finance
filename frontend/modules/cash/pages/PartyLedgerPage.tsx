@@ -11,9 +11,7 @@ import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { CategoryChip } from "@/common/components/CategoryChip";
 import { loanCatRef } from "@/modules/cash/utils/ledgerCells";
 import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
-import { EditLoanDetailsModalContent } from "@/modules/cash/components/EditLoanDetailsModalContent";
-import { useModal } from "@/common/components/ModalProvider";
-import { useExpenseCategoryIds } from "@/common/hooks/use-expense-category-ids";
+import { useExpenseCategoryIdsState } from "@/common/hooks/use-expense-category-ids";
 import { ledgerFocusTarget, rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { goBack, routeHref } from "@/common/services/appRoutes";
 import { listCashMovementsByCustomer, getBankLedger, getModeLedger, downloadLedger, PARTY_PAGE_SIZE, MODE_LEDGER_ROUTE, LEDGER_MODES } from "@/modules/cash/services/cashService";
@@ -54,10 +52,8 @@ type PartyLedgerPageProps = { kind: "bank" | "customer" | "category"; id?: strin
 export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
-  const canUpdateCash = can("Cash_Management", "can_update_cash");
-  const { openModal } = useModal();
   const numericId = Number(id);
-  const categoryIds = useExpenseCategoryIds();
+  const { ids: categoryIds, ready: idsReady } = useExpenseCategoryIdsState();
   const [label, setLabel] = useState("");
   const [labelError, setLabelError] = useState("");
   const [items, setItems] = useState<LedgerRowView[]>([]);
@@ -169,7 +165,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   const totalCredit = totals.credit;
 
   useEffect(() => { refresh(); }, [refresh]);
-  useLedgerFocus("party", !loading, [items]);
+  useLedgerFocus("party", !loading && idsReady, [items]);
 
   async function onExport() { return singleFlight("cash:party-ledger-export", async () => {
     setExporting(true);
@@ -202,16 +198,10 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
           <h1>{label || "Loading…"}</h1>
           {!loan && <p>{`Every ${kind === "category" ? "expense recorded under this category" : `transaction ever recorded against this ${kind}`}`}</p>}
         </div>
-        {loan && canUpdateCash && (
-          <button className="btn ghost" style={{ marginLeft: "auto" }} onClick={() => openModal(<EditLoanDetailsModalContent loan={loan} onSaved={refresh} />)}>
-            <Icon name="edit" /> Edit Loan
-          </button>
-        )}
       </div>
       <hr className="gold-rule" />
 
       <div className="kpis" style={{ marginBottom: 16 }}>
-        {loan && <div className="kpi"><div className="l">Loan Principal</div><div className="v">{fmt(loan.principal)}</div></div>}
         <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totalCredit - totalDebit)}</div></div>
         <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totalCredit)}</div></div>
         <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totalDebit)}</div></div>
@@ -238,7 +228,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th>{loan ? "Mode" : "Method"}</th>{loan && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading || !idsReady ? (
                 <tr><td colSpan={loan ? 8 : 7} className="empty compact">Loading…</td></tr>
               ) : items.length === 0 ? (
                 <tr><td colSpan={loan ? 8 : 7} className="empty compact">No transactions found.</td></tr>

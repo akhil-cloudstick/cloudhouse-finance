@@ -52,6 +52,8 @@ export type Expense = {
   receiptImage?: string;
   // A pending or approved expense a person keyed in — the list offers Edit on it.
   editable?: boolean;
+  // The approval-chain stage a Pending expense waits at (empty on rows from before the chain was configurable).
+  approvalStage?: string;
   createdAt: string;
 };
 
@@ -193,7 +195,7 @@ export type EntryUpdateInput = {
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];
 export type LedgerKind = "bank" | "customer" | "category" | "mode";
-export type LedgerParams = { limit: number; offset: number; fromDate?: string; toDate?: string };
+export type LedgerParams = { limit: number; offset: number; fromDate?: string; toDate?: string; modes?: string; types?: string };
 // totalDebit/totalCredit cover every row matching the filters, not the page.
 export type LedgerPage = { items: LedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; categoryName?: string };
 // A loan's position — principal, drawn (Add Cash) and repaid (expenses / self

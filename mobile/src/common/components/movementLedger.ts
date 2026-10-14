@@ -23,11 +23,18 @@ export const MOVEMENT_TYPE_OPTIONS = [
 // FilterPanel on Cash.tsx). Kept as plain state in the screen (not inside
 // useServerList) since it's also read by the Customer picker to narrow its
 // own options by the selected branches.
-export type MovementFilters = { branchIds: number[]; customerIds: number[]; types: string[]; fromDate?: string; toDate?: string };
-export const EMPTY_MOVEMENT_FILTERS: MovementFilters = { branchIds: [], customerIds: [], types: [] };
+export type MovementFilters = { branchIds: number[]; customerIds: number[]; types: string[]; modes: string[]; fromDate?: string; toDate?: string };
+export const EMPTY_MOVEMENT_FILTERS: MovementFilters = { branchIds: [], customerIds: [], types: [], modes: [] };
+
+// The Mode section of web's Ledger filter.
+export const MOVEMENT_MODE_OPTIONS = [
+  { value: "Cash", label: "Cash" },
+  { value: "UPI", label: "UPI" },
+  { value: "Bank Transfer", label: "Bank Transfer" },
+];
 
 export function movementFilterCount(f: MovementFilters): number {
-  return f.branchIds.length + f.customerIds.length + f.types.length + (f.fromDate || f.toDate ? 1 : 0);
+  return f.branchIds.length + f.customerIds.length + f.types.length + f.modes.length + (f.fromDate || f.toDate ? 1 : 0);
 }
 
 export const movementFilterStyles = StyleSheet.create({
@@ -57,11 +64,33 @@ export const movementFilterStyles = StyleSheet.create({
   filterList: { paddingHorizontal: 16, paddingTop: 8, gap: 2 },
 });
 
-// Running balance over the currently loaded (paginated) page only — same
-// best-effort approach web's Cash.tsx/LedgerExportView.tsx use, not a true
-// running balance across the whole filtered set. Items are newest-first
-// (occurred_on desc from the backend), so this walks oldest→newest to
-// accumulate, then re-reverses to line back up with `items`' own order.
+type MovementPageFigures = { items: CashMovement[] | null; pageBalance?: number; totalDebit?: number; totalCredit?: number };
+
+// Each row's balance AFTER it, newest-first. The server gives the balance after a
+// page's newest row (pageBalance — the whole filtered ledger's net minus the rows on
+// earlier pages), so every page continues the ledger's true running balance instead
+// of restarting from zero. Same as web's withRunningBalance.
+export function balancesFromPages(pages?: MovementPageFigures[]): number[] {
+  const out: number[] = [];
+  for (const page of pages ?? []) {
+    let running = page?.pageBalance ?? 0;
+    for (const m of page?.items ?? []) {
+      out.push(running);
+      // Cash in raised the balance, cash out lowered it, so stepping back to the older row undoes this one.
+      running -= m.type === "out" ? -m.amount : m.amount;
+    }
+  }
+  return out;
+}
+
+// Debit / Credit totals over every row matching the filters (not just the loaded pages).
+export function totalsFromPages(pages?: MovementPageFigures[]): { debit: number; credit: number } | null {
+  const first = pages?.[0];
+  return first ? { debit: first.totalDebit ?? 0, credit: first.totalCredit ?? 0 } : null;
+}
+
+// Page-local running balance over a plain list with no server figures (starts from
+// zero) — only the branch ledger still uses this.
 export function runningBalances(items: CashMovement[]): number[] {
   const chronological = [...items].reverse();
   let running = 0;

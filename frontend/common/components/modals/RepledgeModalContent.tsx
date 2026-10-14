@@ -15,6 +15,12 @@ import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/compo
 import { ApiError } from "@/common/services/httpClient";
 import { useIsSmallScreen } from "@/common/utils/responsive";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  split: /breakdown|split|cheque|upi|cash/i, bank: /bank/i, date: /date/i, rate: /interest rate/i, amount: /amount/i,
+};
 
 type RepledgeModalContentProps = { loan: LoanView; onSaved: () => void };
 
@@ -46,6 +52,10 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
   const [interestRate, setInterestRate] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
   const [saving, setSaving] = useState(false);
 
   /* Defaults to RecordOnly — the harmless choice. Staff must actively opt in to
@@ -60,11 +70,12 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
   const [receivedBankId, setReceivedBankId] = useState<number | undefined>(undefined);
 
   async function save() { return singleFlight("modal:repledge:save", async () => {
-    if (!bank.trim()) { setErr("Please enter the bank to repledge with."); return; }
-    if (!date) { setErr("Please select the pledge date."); return; }
+    setErr(""); setFe({});
+    if (!bank.trim()) { fail("bank", "Please enter the bank to repledge with."); return; }
+    if (!date) { fail("date", "Please select the pledge date."); return; }
     const amount = +amt;
-    if (!amount || amount <= 0) { setErr("Please enter the pledged amount."); return; }
-    if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the pledged amount."); return; }
+    if (!amount || amount <= 0) { fail("amount", "Please enter the pledged amount."); return; }
+    if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the pledged amount."); return; }
     setSaving(true);
     try {
       await recordBankPledge(loan.numericId, {
@@ -86,7 +97,9 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
           : `Gold repledged to ${bank.trim()} — recorded only, no cash effect`
       );
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not record the pledge — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not record the pledge — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
     } finally {
       setSaving(false);
     }
@@ -138,40 +151,40 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
         {smallScreen ? (
           <>
             <div className="frow rp-grid rp-compact" style={{ gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
-              <div><label className="f">Bank *</label>
+              <div className={fe.bank ? "has-err" : undefined}><label className="f">Bank *</label>
                 <SearchableSelect<BackendBank>
                   value={bankLabel}
-                  onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
+                  onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); clearFe("bank"); }}
                   fetchFn={searchBanksPage}
                   searchHint="Searches: bank name"
                   getLabel={(b) => b.name}
                   getId={(b) => String(b.id)}
                   placeholder="Search for a registered bank…"
-                /></div>
-              <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-              <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
+                /><FieldError msg={fe.bank} /></div>
+              <div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
+              <div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
             </div>
             <div className="frow rp-grid rp-compact" style={{ gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
-              <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
+              <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => { setInterestRate(e.target.value); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
               <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
               <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
             </div>
           </>
         ) : (
           <div className="frow c3 rp-grid">
-            <div><label className="f">Bank *</label>
+            <div className={fe.bank ? "has-err" : undefined}><label className="f">Bank *</label>
               <SearchableSelect<BackendBank>
                 value={bankLabel}
-                onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
+                onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); clearFe("bank"); }}
                 fetchFn={searchBanksPage}
                 searchHint="Searches: bank name"
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder="Search for a registered bank…"
-              /></div>
-            <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-            <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
-            <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
+              /><FieldError msg={fe.bank} /></div>
+            <div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
+            <div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
+            <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => { setInterestRate(e.target.value); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
             <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
             <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
           </div>
@@ -214,7 +227,10 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
 
         {cashTreatment === "CashIn" && (
           <div className="frow" style={{ marginTop: 10 }}>
-            <SplitPaymentInput totalAmount={+amt || 0} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setReceivedBankId(bid); }} />
+            <div className={fe.split ? "has-err" : undefined}>
+              <SplitPaymentInput totalAmount={+amt || 0} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setReceivedBankId(bid); clearFe("split"); }} />
+              <FieldError msg={fe.split} />
+            </div>
           </div>
         )}
 

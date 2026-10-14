@@ -15,6 +15,9 @@ export type ApiKeyView = {
   category: ApiKeyCategory;
   name?: string;
   configured?: boolean;
+  // The server sends `is_set` (mapped to isSet) and the stored key value, which the edit form pre-fills.
+  isSet?: boolean;
+  value?: string;
   createdAt?: string;
   updatedAt?: string;
 };

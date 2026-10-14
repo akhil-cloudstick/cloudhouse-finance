@@ -3,15 +3,16 @@ import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { AccBtn, Buffering, CheckItem, DateField, PillTabs, SearchInput, ServerFlatList, Sheet } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { listBranches } from "@/modules/branches/services/branchService";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import type { Branch } from "@/modules/branches/types/branch-types";
 import type { Customer } from "@/modules/customers/types/customer-types";
-import { MovementFilters, movementFilterCount, MOVEMENT_TYPE_OPTIONS, EMPTY_MOVEMENT_FILTERS, movementFilterStyles } from "./movementLedger";
+import { MovementFilters, movementFilterCount, MOVEMENT_TYPE_OPTIONS, MOVEMENT_MODE_OPTIONS, EMPTY_MOVEMENT_FILTERS, movementFilterStyles } from "./movementLedger";
 
 const fs = movementFilterStyles;
-const FILTER_TABS = ["branch", "customer", "type", "date"] as const;
-type FilterTab = (typeof FILTER_TABS)[number];
+const ALL_FILTER_TABS = ["branch", "customer", "type", "mode", "date"] as const;
+type FilterTab = (typeof ALL_FILTER_TABS)[number];
 type MovementFilterSheetProps = {
   visible: boolean;
   onClose: () => void;
@@ -35,9 +36,13 @@ export function MovementFilterSheet({
   onChange,
   title = "Filter Movements",
 }: MovementFilterSheetProps) {
-  const [filterTab, setFilterTab] = useState<FilterTab>("branch");
+  // No Branch tab for a one-branch business or a branch-confined role (same rule as web).
+  const showBranch = useShowBranchFilter();
+  const filterTabs = ALL_FILTER_TABS.filter((t) => t !== "branch" || showBranch);
+  const firstTab: FilterTab = filterTabs[0];
+  const [filterTab, setFilterTab] = useState<FilterTab>(firstTab);
   useEffect(() => {
-    if (visible) setFilterTab("branch");
+    if (visible) setFilterTab(firstTab);
   }, [visible]);
 
   const branches = useQuery({ queryKey: ["branches", "all"], queryFn: listBranches, enabled: visible });
@@ -64,6 +69,10 @@ export function MovementFilterSheet({
     onChange({ ...value, types: value.types.includes(v) ? value.types.filter((t) => t !== v) : [...value.types, v] });
   }
 
+  function toggleMode(v: string) {
+    onChange({ ...value, modes: value.modes.includes(v) ? value.modes.filter((m) => m !== v) : [...value.modes, v] });
+  }
+
   const hasDate = !!(value.fromDate || value.toDate);
   const count = movementFilterCount(value);
 
@@ -71,10 +80,10 @@ export function MovementFilterSheet({
     <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={80} scroll={false}>
       <View style={fs.filterTabWrap}>
         <PillTabs
-          tabs={FILTER_TABS}
+          tabs={filterTabs}
           value={filterTab}
           onChange={setFilterTab}
-          labels={{ branch: `Branch${value.branchIds.length ? ` (${value.branchIds.length})` : ""}`, customer: `Customer${value.customerIds.length ? ` (${value.customerIds.length})` : ""}`, type: `Type${value.types.length ? ` (${value.types.length})` : ""}`, date: `Date${hasDate ? " (1)" : ""}` }}
+          labels={{ branch: `Branch${value.branchIds.length ? ` (${value.branchIds.length})` : ""}`, customer: `Customer${value.customerIds.length ? ` (${value.customerIds.length})` : ""}`, type: `Type${value.types.length ? ` (${value.types.length})` : ""}`, mode: `Mode${value.modes.length ? ` (${value.modes.length})` : ""}`, date: `Date${hasDate ? " (1)" : ""}` }}
           inSheet
         />
       </View>
@@ -92,6 +101,12 @@ export function MovementFilterSheet({
         <View style={fs.filterList}>
           {MOVEMENT_TYPE_OPTIONS.map((o) => (
             <CheckItem key={o.value} checked={value.types.includes(o.value)} onPress={() => toggleType(o.value)} title={o.label} />
+          ))}
+        </View>
+      ) : filterTab === "mode" ? (
+        <View style={fs.filterList}>
+          {MOVEMENT_MODE_OPTIONS.map((o) => (
+            <CheckItem key={o.value} checked={value.modes.includes(o.value)} onPress={() => toggleMode(o.value)} title={o.label} />
           ))}
         </View>
       ) : filterTab === "date" ? (

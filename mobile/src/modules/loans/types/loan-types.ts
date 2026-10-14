@@ -194,6 +194,9 @@ export type Loan = {
   // principal − serviceChargeAmount at disbursement.
   serviceChargeMode?: string;
   serviceChargeAmount?: number;
+  // The scheme terms frozen onto the loan.
+  schemePenalRate?: number;
+  schemeInterestMethod?: string;
   status: string;
   openedDate: string;
   dueDate: string;
@@ -297,6 +300,11 @@ export type CreateLoanInput = {
   // Optional free text captured at creation — anything the standard fields
   // don't cover, carried through onto the printed Statement of Account.
   additionalInfo?: string;
+  // How a scheme service charge is applied — "Deduct from loan" (WithheldFromPayout) or "Add to loan"
+  // (AddedToPrincipal). Only sent when the scheme has a charge.
+  serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal";
+  // The saved draft this loan came from, so the server discards it now that a real loan exists.
+  draftId?: number;
 };
 // --- Ornament add/update/delete (backend/internal/loan/handler.go's
 // AddOrnament/UpdateOrnament/DeleteOrnament) — callable regardless of the
@@ -365,4 +373,39 @@ export type LoanLedgerEntry = {
   amount: number;
   balance: number | null;
   note?: string;
+};
+
+// --- Saved loan drafts (backend /loans/drafts) — a half-entered New Loan kept per employee. ---
+export type DraftOrnamentInput = {
+  name: string;
+  purity: string;
+  grossWeight: number;
+  quantity: number;
+  imageUrl?: string;
+  imageName?: string;
+  imageUrls?: string[];
+};
+export type SaveDraftInput = {
+  branchId: number;
+  overallPhotoUrl?: string;
+  customerId?: number;
+  schemeId?: number;
+  lockerId?: number;
+  principalOverride?: number;
+  ornaments: DraftOrnamentInput[];
+};
+export type LoanDraft = {
+  id: number;
+  branchId: number;
+  branch?: { id: number; name: string };
+  customerId?: number;
+  customer?: { id: number; name: string; code: string };
+  schemeId?: number;
+  scheme?: { id: number; name: string };
+  lockerId?: number;
+  principalOverride?: number;
+  overallPhotoUrl?: string;
+  ornaments: { id: number; name: string; purity: string; grossWeight: number; quantity: number; imageUrl: string; imageName: string; imageUrls?: string[] | null; position: number }[];
+  createdAt: string;
+  updatedAt: string;
 };

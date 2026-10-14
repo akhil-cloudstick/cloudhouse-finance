@@ -3,6 +3,7 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
 import { fmt } from "@/common/utils/format";
 import { Icon } from "@/common/components/Icon";
+import { FieldError } from "@/common/components/ui/FieldError";
 import { Select } from "@/common/components/ui/Select";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { searchBanksPage, createBank } from "@/modules/banks/services/bankService";
@@ -41,17 +42,24 @@ export function paymentRowsToInput(rows: PaymentRow[]): PaymentPartInput[] {
     .map((r) => ({ mode: r.mode, amount: round2(+r.amount), bankId: isBankMode(r.mode) ? +r.bankId : undefined }));
 }
 
-/* "" when the breakdown is valid for `total`, otherwise the message to show. */
-export function paymentRowsError(rows: PaymentRow[], total: number): string {
-  if (!rows.length) return "Please add the payment mode.";
+/* The first problem with the breakdown: the row it is on (null for the breakdown as a whole) and what to say. */
+export type PaymentIssue = { key: number | null; message: string };
+
+export function paymentRowIssue(rows: PaymentRow[], total: number): PaymentIssue | null {
+  if (!rows.length) return { key: null, message: "Please add the payment mode." };
   for (const r of rows) {
-    if (!r.mode) return "Please select the mode of payment.";
-    if (!(+r.amount > 0)) return "Please enter the amount for every payment mode.";
-    if (isBankMode(r.mode) && !r.bankId) return "Please select the bank.";
+    if (!r.mode) return { key: r.key, message: "Please select the mode of payment." };
+    if (!(+r.amount > 0)) return { key: r.key, message: "Please enter the amount for every payment mode." };
+    if (isBankMode(r.mode) && !r.bankId) return { key: r.key, message: "Please select the bank." };
   }
   const allocated = round2(rows.reduce((s, r) => s + (+r.amount || 0), 0));
-  if (allocated !== round2(total)) return `Payment breakdown must add up to ${fmt(total)} (now ${fmt(allocated)}).`;
-  return "";
+  if (allocated !== round2(total)) return { key: null, message: `Payment breakdown must add up to ${fmt(total)} (now ${fmt(allocated)}).` };
+  return null;
+}
+
+/* "" when the breakdown is valid for `total`, otherwise the message to show. */
+export function paymentRowsError(rows: PaymentRow[], total: number): string {
+  return paymentRowIssue(rows, total)?.message ?? "";
 }
 
 
@@ -83,13 +91,15 @@ type PaymentBreakdownFieldsProps = {
   scrollInternally?: boolean;
   /** Heading beside the add button; null drops the text, leaving only the button. */
   label?: string | null;
+  /** The problem to show: under its row, or under the whole breakdown when `key` is null. */
+  error?: PaymentIssue | null;
 };
 
 /* Mode with its payment breakdown — the Credit and Debit forms' Mode section.
  * Each line is a mode, its amount and (for UPI / Bank Transfer) the bank it
  * moved through; the lines must add up to the entry's Amount, and each one is
  * saved as its own ledger entry. */
-export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally = true, label }: PaymentBreakdownFieldsProps) {
+export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally = true, label, error }: PaymentBreakdownFieldsProps) {
   useEffect(() => {
     if (rows.length !== 1 || !rows[0].auto) return;
     const v = total > 0 ? String(total) : "";
@@ -137,7 +147,8 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
         {/* The lines scroll inside a fixed height, so adding modes never grows the modal. */}
         <div style={{ ...(scrollInternally ? { maxHeight: 132, overflowY: "auto", overflowX: "hidden" } : {}), marginBottom: 8, paddingBottom: 2 }}>
         {rows.map((r) => (
-          <div key={r.key} style={{ ...grid, marginBottom: 8 }}>
+          <div key={r.key} className={error?.key === r.key ? "has-err" : undefined} style={{ marginBottom: 8 }}>
+          <div style={grid}>
             <Select
               options={MODE_OPTIONS}
               value={r.mode}
@@ -171,10 +182,13 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
               >×</button>
             ) : <span />}
           </div>
+          {error?.key === r.key && <FieldError msg={error.message} />}
+          </div>
         ))}
         </div>
         <div style={{ minHeight: 18 }}>
-          {total > 0 && (
+          {error && error.key === null && <FieldError msg={error.message} />}
+          {total > 0 && !(error && error.key === null) && (
             <span style={{ fontSize: 12.5, color: Math.abs(remaining) < 0.005 ? "var(--green)" : "var(--red)" }}>
               {Math.abs(remaining) < 0.005
                 ? `Fully allocated ${fmt(total)}`

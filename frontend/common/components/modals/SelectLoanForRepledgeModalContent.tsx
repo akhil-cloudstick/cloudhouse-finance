@@ -7,6 +7,7 @@ import { fmt, fmtW } from "@/common/utils/format";
 import { searchLoansPage } from "@/modules/loans/services/loanService";
 import { type LoanView } from "@/modules/loans/types/loan-types";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import { FieldError } from "@/common/components/ui/FieldError";
 
 /* Loan picker shown by BankPledge.tsx's "New Re-Pledge" button — that page
  * previously only allowed starting a repledge from a loan's own detail page
@@ -28,6 +29,7 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: SelectLoanForRep
   const { closeModal } = useModal();
   const [selected, setSelected] = useState<LoanView | null>(null);
   const [label, setLabel] = useState("");
+  // Shown under the loan picker.
   const [err, setErr] = useState("");
 
   // Not blanket-disabled on `!selected` — that would block this
@@ -42,7 +44,7 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: SelectLoanForRep
     <>
       <div className="hd"><h3>New Bank Re-Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="frow"><div><label className="f">Loan *</label>
+        <div className="frow"><div className={err ? "has-err" : undefined}><label className="f">Loan *</label>
           <SearchableSelect<LoanView>
             value={label}
             onChange={(_id, l) => { setSelected(l); setLabel(loanLabel(l)); setErr(""); }}
@@ -51,9 +53,8 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: SelectLoanForRep
             getLabel={loanLabel}
             getId={(l) => String(l.numericId)}
             placeholder="Search by loan number…"
-          /></div></div>
+          /><FieldError msg={err} /></div></div>
         <p className="notice"><Icon name="shield" /><span>Only loans whose gold isn&apos;t already with a bank are listed. Type a loan number to search, or scroll for more.</span></p>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>

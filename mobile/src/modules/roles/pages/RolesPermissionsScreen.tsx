@@ -6,6 +6,7 @@ import {
   C,
   Card,
   CheckItem,
+  ConfirmSheet,
   EmptyText,
   FlatHeader,
   NoticeBanner,
@@ -21,6 +22,7 @@ import {
   SheetListItem,
   TextField,
   Txt,
+  toast,
 } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { NoAccess } from "@/common/components/NoAccess";
@@ -29,7 +31,7 @@ import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { ApiError } from "@/common/services/httpClient";
 import { fetchRoles, fetchRoleMatrix, updateRolePermissions, setAllRolePermissions, createRole, updateRole, deleteRole } from "@/modules/roles/services/roleService";
-import { type PermissionRow, type RoleRecord } from "@/modules/roles/types/role-types";
+import { type PermissionRef, type PermissionRow, type RoleRecord } from "@/modules/roles/types/role-types";
 import { userMessage } from "@/common/services/apiErrors";
 
 type ErrorTextProps = { children: React.ReactNode };
@@ -178,7 +180,7 @@ const PAGE_TABS = ["permissions", "workflow"] as const;
 type PageTab = (typeof PAGE_TABS)[number];
 
 export default function RolesPermissionsScreen() {
-  const { employee, can } = useAuth();
+  const { employee, can, refetchPermissions } = useAuth();
   const canView = can("Role_Management", "can_view_role_and_permission_module");
   const canCreateRole = can("Role_Management", "can_create_role");
   const canUpdateRole = can("Role_Management", "can_update_role");
@@ -206,7 +208,7 @@ export default function RolesPermissionsScreen() {
         if (selectId && list.some((r) => r.id === selectId)) {
           setRoleId(selectId);
         } else if (!roleId && list.length > 0) {
-          setRoleId(list[0].id);
+          setRoleId((list.find((r) => !r.isSystem) ?? list[0]).id);
         }
       })
       .catch((e) => setError(userMessage(e, "Could not load roles — pull down to try again.")));
@@ -251,9 +253,41 @@ export default function RolesPermissionsScreen() {
     return out;
   }, [matrix, pending]);
 
+  // A related permission's on/off state including unsaved edits — it may be hidden by the search, so the
+  // server's granted flag is the fallback.
+  const isOn = (ref: PermissionRef) => pending[ref.permission_id] ?? ref.granted;
+  // Dependents about to be switched off along with a permission (asked to confirm first).
+  const [cascade, setCascade] = useState<{ row: PermissionRow; dependents: PermissionRef[] } | null>(null);
+
   function toggle(row: PermissionRow) {
     if (!canUpdateRole || role?.isSystem) return;
-    setPending((p) => ({ ...p, [row.permission_id]: !(p[row.permission_id] ?? row.permission) }));
+    const current = pending[row.permission_id] ?? row.permission;
+    if (!current) {
+      // A permission can't be switched on while any parent is still off.
+      const missing = (row.parents ?? []).filter((p) => !isOn(p));
+      if (missing.length > 0) {
+        toast.error("Turn on its parent first", `Please turn on ${missing.map((p) => p.label).join(", ")} first.`);
+        return;
+      }
+      setPending((p) => ({ ...p, [row.permission_id]: true }));
+      return;
+    }
+    const goingOff = (row.dependents ?? []).filter(isOn);
+    if (goingOff.length === 0) {
+      setPending((p) => ({ ...p, [row.permission_id]: false }));
+      return;
+    }
+    setCascade({ row, dependents: goingOff });
+  }
+  function confirmCascade() {
+    if (!cascade) return;
+    const { row, dependents } = cascade;
+    setPending((p) => {
+      const next = { ...p, [row.permission_id]: false };
+      for (const d of dependents) next[d.permission_id] = false;
+      return next;
+    });
+    setCascade(null);
   }
 
   async function save() {
@@ -266,6 +300,9 @@ export default function RolesPermissionsScreen() {
         permission,
       }));
       await updateRolePermissions(employee.id, roleId, updates);
+      toast.success("Changes saved");
+      // Role names are unique per business; the employee carries the name, not the id.
+      if (role?.name === employee.role) void refetchPermissions();
       setPending({});
       loadMatrix();
     } catch (e) {
@@ -374,7 +411,7 @@ export default function RolesPermissionsScreen() {
                   checked={row.permission}
                   onPress={() => toggle(row)}
                   title={row.permissions.name}
-                  sub={row.permissions.description || undefined}
+                  sub={[row.permissions.description, (row.soft_parents ?? []).filter((p) => !isOn(p)).length ? `Works best with ${(row.soft_parents ?? []).filter((p) => !isOn(p)).map((p) => p.label).join(", ")}` : ""].filter(Boolean).join(" — ") || undefined}
                 />
               ))}
             </Card>
@@ -382,8 +419,17 @@ export default function RolesPermissionsScreen() {
         ))}
       </PScroll>
 
+      <ConfirmSheet
+        visible={!!cascade}
+        onClose={() => setCascade(null)}
+        title={cascade ? `Turn off ${cascade.row.permissions.name}?` : ""}
+        message={cascade ? `Turning this off also turns off ${cascade.dependents.length} permission${cascade.dependents.length === 1 ? "" : "s"} that need it: ${cascade.dependents.map((d) => d.name).join(", ")}.` : ""}
+        confirmLabel={cascade ? `Turn off ${cascade.dependents.length + 1}` : "Turn off"}
+        danger
+        onConfirm={confirmCascade}
+      />
       <Sheet visible={pickerOpen} onClose={() => setPickerOpen(false)} title="Select Role" maxHeightPct={75}>
-        {(roles ?? []).map((r, i) => (
+        {(roles ?? []).filter((r) => !r.isSystem || r.id === roleId).map((r, i) => (
           <SheetListItem
             key={r.id}
             first={i === 0}

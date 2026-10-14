@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  AccBtn,
   AccRow,
   C,
   FabCorner,
@@ -32,19 +33,25 @@ const label = (c: string) => c.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUp
 
 type ApiKeySheetProps = { visible: boolean; onClose: () => void; item: ApiKeyView | null };
 
+/** Whether a category has a key stored — the server's `is_set`. */
+const isConfigured = (k?: ApiKeyView | null) => !!(k?.isSet ?? k?.configured);
+
 /** Add / replace a category's key. `category` null = pick one (FAB). */
 function ApiKeySheet({ visible, onClose, item }: ApiKeySheetProps) {
   const queryClient = useQueryClient();
   const [category, setCategory] = useState<ApiKeyCategory>(API_KEY_CATEGORIES[0]);
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
+  const [reveal, setReveal] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
     setCategory(item?.category ?? API_KEY_CATEGORIES[0]);
     setName(item?.name ?? "");
-    setValue("");
+    // The stored key is pre-filled (masked until revealed), so it can be reviewed or changed.
+    setValue(item?.value ?? "");
+    setReveal(false);
     setError(null);
   }, [visible, item]);
 
@@ -63,8 +70,9 @@ function ApiKeySheet({ visible, onClose, item }: ApiKeySheetProps) {
         <SelectField label="Category" value={category} options={API_KEY_CATEGORIES} onChange={setCategory} labels={Object.fromEntries(API_KEY_CATEGORIES.map((c) => [c, label(c)]))} />
       )}
       <TextField label="Name (optional)" value={name} onChangeText={setName} placeholder="e.g. Provider account" />
-      <TextField label="New value" value={value} onChangeText={setValue} secureTextEntry placeholder="Paste the key" autoCapitalize="none" autoCorrect={false} />
-      {item?.configured ? <NoticeBanner>Saving replaces the stored key. The current value is never shown.</NoticeBanner> : null}
+      <TextField label="API key *" value={value} onChangeText={setValue} secureTextEntry={!reveal} placeholder="Paste the key" autoCapitalize="none" autoCorrect={false} />
+      <AccBtn label={reveal ? "Hide" : "Show"} onPress={() => setReveal((r) => !r)} style={{ marginBottom: 10 }} />
+      {isConfigured(item) ? <NoticeBanner>Saving replaces the stored key.</NoticeBanner> : null}
       {error ? <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Save Key" onPress={() => save.mutate()} loading={save.isPending} disabled={!value} />
     </Sheet>
@@ -133,18 +141,18 @@ export default function SettingsScreen() {
           <AccRow
             name={label(k.category)}
             sub={k.name || undefined}
-            status={k.configured ? "Configured" : "Not configured"}
-            statusTone={k.configured ? "active" : "closed"}
+            status={isConfigured(k) ? "Configured" : "Not configured"}
+            statusTone={isConfigured(k) ? "active" : "closed"}
             details={[
               { k: "Name", v: k.name || "—" },
               { k: "Last updated", v: k.updatedAt ? dmy(k.updatedAt) : "—" },
             ]}
             actions={[
-              ...(k.configured && canDelete ? [{ label: "Remove", danger: true, onPress: () => setDeleting(k) }] : []),
+              ...(isConfigured(k) && canDelete ? [{ label: "Remove", danger: true, onPress: () => setDeleting(k) }] : []),
               ...(canUpdate
                 ? [
                     {
-                      label: k.configured ? "Edit Key" : "Add Key",
+                      label: isConfigured(k) ? "Edit Key" : "Add Key",
                       primary: true,
                       onPress: () => {
                         setEditing(k);

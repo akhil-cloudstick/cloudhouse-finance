@@ -10,6 +10,14 @@ import { type AuctionRecordView, type LoanView } from "@/modules/loans/types/loa
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its wording; anything else stays on the general line.
+const SERVER_FIELDS: Record<string, RegExp> = {
+  expenses: /expense/i,
+  amount: /sale amount/i,
+  payments: /breakdown|bank|cash|upi|cheque/i,
+};
 
 type RecordSaleModalContentProps = { loan: LoanView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void };
 
@@ -19,6 +27,7 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
   const [amount, setAmount] = useState("");
   const [expenses, setExpenses] = useState("");
   const [err, setErr] = useState("");
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
@@ -28,11 +37,14 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
   const exp = +expenses || 0;
   const preview = sale - exp - loan.totalOutstandingBalance;
 
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+
   async function save() { return singleFlight("auction-modal:save:3", async () => {
-    if (!sale || sale <= 0) { setErr("Please enter the sale amount."); return; }
-    if (exp > sale) { setErr("Auction expenses cannot be more than the sale amount."); return; }
-    if (Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the sale amount."); return; }
-    if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { setErr("Pick the bank the proceeds were received in."); return; }
+    setErr(""); setFe({});
+    if (!sale || sale <= 0) { fail("amount", "Please enter the sale amount."); return; }
+    if (exp > sale) { fail("expenses", "Auction expenses cannot be more than the sale amount."); return; }
+    if (Math.abs(remaining) >= 0.01) { fail("payments", "The payment breakdown must add up to the sale amount."); return; }
+    if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { fail("payments", "Pick the bank the proceeds were received in."); return; }
     setSaving(true);
     try {
       const rec = await recordAuctionSale(loan.numericId, sale, exp, { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId });
@@ -40,7 +52,9 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
       closeModal();
       toast(`Auction sale recorded for ${loan.id}`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not record the sale — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not record the sale — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
       onError?.(); // see IssueNoticeModalContent's onError comment above
     } finally {
       setSaving(false);
@@ -55,11 +69,14 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
           <Icon name="gavel" /> {loan.customerName} · outstanding <b>{fmt(loan.totalOutstandingBalance)}</b>
         </div>
         <div className="frow c2">
-          <div><label className="f">Sale Amount (₹) *</label><input className="inp" type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-          <div><label className="f">Auction Expenses (₹)</label><input className="inp" type="number" min={0} value={expenses} onChange={(e) => setExpenses(e.target.value)} /></div>
+          <div className={fe.amount ? "has-err" : undefined}><label className="f">Sale Amount (₹) *</label><input className="inp" type="number" min={1} value={amount} onChange={(e) => { setAmount(e.target.value); setFe((cur) => ({ ...cur, amount: "" })); }} /><FieldError msg={fe.amount} /></div>
+          <div className={fe.expenses ? "has-err" : undefined}><label className="f">Auction Expenses (₹)</label><input className="inp" type="number" min={0} value={expenses} onChange={(e) => { setExpenses(e.target.value); setFe((cur) => ({ ...cur, expenses: "" })); }} /><FieldError msg={fe.expenses} /></div>
         </div>
-        <div className="frow">
-          <SplitPaymentInput totalAmount={Math.max(0, sale)} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+        <div className={fe.payments ? "has-err" : undefined}>
+          <div className="frow">
+            <SplitPaymentInput totalAmount={Math.max(0, sale)} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); setFe((cur) => (cur.payments ? { ...cur, payments: "" } : cur)); }} />
+          </div>
+          <FieldError msg={fe.payments} />
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontWeight: 600, color: preview >= 0 ? "var(--green)" : "var(--red)" }}>
           <span>{preview >= 0 ? "Surplus" : "Shortfall"}</span><span>{fmt(Math.abs(preview))}</span>

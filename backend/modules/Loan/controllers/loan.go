@@ -69,17 +69,19 @@ type CashBalanceGuard interface {
 }
 
 type CreateInput struct {
-	BranchID          uint
-	CustomerID        uint
-	SchemeID          uint
-	OpenedDate        time.Time
-	DueDate           time.Time
-	PrincipalAmount   float64
-	Ornaments         []OrnamentInput
-	LockerID          *uint
-	AdditionalInfo    string
-	ServiceChargeMode string
-	OverallPhotoURL   string
+	BranchID            uint
+	CustomerID          uint
+	SchemeID            uint
+	OpenedDate          time.Time
+	DueDate             time.Time
+	PrincipalAmount     float64
+	Ornaments           []OrnamentInput
+	LockerID            *uint
+	AdditionalInfo      string
+	ServiceChargeMode   string
+	OverallPhotoURL     string
+	CreatedByEmployeeID uint
+	CreatedByName       string
 }
 
 type UpdateLoanInput struct {
@@ -363,10 +365,14 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 		DueDate:          in.DueDate,
 		AdditionalInfo:   in.AdditionalInfo,
 		OverallPhotoURL:  in.OverallPhotoURL,
+		CreatedByName:    in.CreatedByName,
 		Status:           models.StatusPendingApproval,
 		ApprovalStage:    firstStage,
 		BankPledgeStatus: "Not Pledged",
 		LastAccrualDate:  in.OpenedDate,
+	}
+	if in.CreatedByEmployeeID != 0 {
+		rec.CreatedByEmployeeID = &in.CreatedByEmployeeID
 	}
 	applySchemeSnapshot(rec, sch)
 	switch in.ServiceChargeMode {
@@ -437,13 +443,8 @@ func listLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) 
 	if err != nil {
 		return nil, 0, err
 	}
-	now := time.Now()
 	for i := range loans {
-		l := &loans[i]
-		interestDelta, penalDelta, _ := projectAccrual(l, now, nil)
-		l.AccruedInterest = common.RoundMoney(l.AccruedInterest + interestDelta)
-		l.AccruedPenalInterest = common.RoundMoney(l.AccruedPenalInterest + penalDelta)
-		enrichLoan(ctx, l)
+		enrichLoan(ctx, &loans[i])
 	}
 	if f.OnlyDefaulted {
 		loans, total = pageKept(loans, limit, offset, func(l *models.Loan) bool { return l.IsDefaulted })
@@ -931,6 +932,8 @@ func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 	phones, customerPhoto, overallPhoto, logo := tmlBondExtras(ctx, l, policy)
 	return BondData{
 		OpenedDate:      l.OpenedDate,
+		CreatedByName:   l.CreatedByName,
+		Brand:           tenantBrand(ctx),
 		Phones:          phones,
 		CustomerPhoto:   customerPhoto,
 		OverallPhoto:    overallPhoto,
@@ -1183,6 +1186,10 @@ func CreateLoan(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	input.BranchID = auth.EnforceBranchOnWrite(c, input.BranchID)
+	if actorID, _, _ := auth.ActorFromContext(c); actorID != 0 {
+		input.CreatedByEmployeeID = actorID
+		input.CreatedByName = employeeName(ctx, actorID)
+	}
 	rec, err := SaveLoan(ctx, input)
 	if err != nil {
 		return common.FailErr(c, err)

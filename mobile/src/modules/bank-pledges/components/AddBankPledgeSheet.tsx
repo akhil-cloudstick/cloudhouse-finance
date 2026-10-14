@@ -4,7 +4,7 @@ import { Sheet } from "@/common/components/ui";
 import { ApiError } from "@/common/services/httpClient";
 import { recordBankPledge } from "@/modules/bank-pledges/services/bankPledgeService";
 import { todayISO } from "@/common/utils/format";
-import { BankPledgeForm, bankPledgeFormInit } from "@/common/components/BankPledgeForm";
+import { BankPledgeForm, bankPledgeFormInit, cashInPayload } from "@/common/components/BankPledgeForm";
 import { invalidateBankPledgeViews } from "./bankPledgeViews";
 
 type AddBankPledgeSheetProps = { visible: boolean; onClose: () => void };
@@ -31,6 +31,7 @@ export function AddBankPledgeSheet({ visible, onClose }: AddBankPledgeSheetProps
         referenceNumber: form.reference.trim() || undefined,
         bankPledgeDueDate: form.dueDate || undefined,
         cashTreatment: form.cash,
+        ...cashInPayload(form),
       }),
     onSuccess: () => {
       invalidateBankPledgeViews(qc);

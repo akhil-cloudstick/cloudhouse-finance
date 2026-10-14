@@ -4,7 +4,19 @@ import { useDebouncedValue } from "./use-debounced-value";
 import { useRefetchOnFocus } from "./use-refetch-on-focus";
 import { usePersistedState } from "./use-persisted-state";
 
-export type ServerPage<T> = { items: T[] | null; hasMore: boolean; total?: number };
+export type ServerPage<T> = {
+  items: T[] | null;
+  hasMore: boolean;
+  total?: number;
+  totalDebit?: number;
+  totalCredit?: number;
+  pageBalance?: number;
+  /** Expense register total, and the gold-sales totals — over every row, not just the page. */
+  totalAmount?: number;
+  totalSold?: number;
+  totalCost?: number;
+  totalProfit?: number;
+};
 
 export const PAGE_SIZE = 10;
 
@@ -64,6 +76,8 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
 
   return {
     items,
+    /** The raw pages, for server figures that ride along (a ledger's pageBalance and totals). */
+    pages: query.data?.pages,
     total,
     search,
     setSearch,

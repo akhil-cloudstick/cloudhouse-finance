@@ -105,7 +105,8 @@ export function toView(l: BackendLoan): LoanView {
     eligibleLoanAmount: l.eligibleLoanAmount,
     principal: l.principalAmount,
     outstanding: l.outstandingAmount,
-    accruedInterest: l.accruedInterest,
+    // saved interest plus the days since the last charge, which the backend adds to the outstanding figure
+    accruedInterest: Math.max(l.accruedInterest, l.outstandingInterest + l.interestPaid),
     interestPaid: l.interestPaid,
     accruedPenalInterest: l.accruedPenalInterest,
     penalInterestPaid: l.penalInterestPaid,
@@ -136,6 +137,8 @@ export function toView(l: BackendLoan): LoanView {
     indemnityBondSignStatus: l.indemnityBondSignStatus || "",
     indemnityBondSignedUrl: l.indemnityBondSignedUrl || "",
     indemnityBondSignedAt: l.indemnityBondSignedAt ? l.indemnityBondSignedAt.slice(0, 10) : null,
+    pledgeSlipSignStatus: l.pledgeSlipSignStatus || "",
+    pledgeSlipSignedUrl: l.pledgeSlipSignedUrl || "",
     ornaments: (l.ornaments || []).map(toOrnamentView),
     payments: (l.payments || []).map(toPaymentView),
     bankPledges: (l.bankPledges || []).map(toBankPledgeView),
@@ -214,6 +217,23 @@ export async function startIndemnityBondEsign(
  * (carrying indemnityBondSignedUrl) once "sign_complete". */
 export async function checkIndemnityBondEsign(loanId: number): Promise<IndemnityBondEsignCheck> {
   return apiFetch<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
+}
+
+/* Sends the GML pledge slip to the customer for Aadhaar eSign — the customer is
+ * the only signer. Shares the bond's endpoints, selected by `document: "slip"`. */
+export async function startPledgeSlipEsign(
+  loanId: number,
+  redirectUrl: string,
+  deliverBy: IndemnityBondDeliverBy = "open"
+): Promise<IndemnityBondEsignStart> {
+  return apiFetch<IndemnityBondEsignStart>(`/loans/${loanId}/indemnity-bond/esign/start`, {
+    method: "POST",
+    body: JSON.stringify({ document: "slip", redirectUrl, deliverBy }),
+  });
+}
+
+export async function checkPledgeSlipEsign(loanId: number): Promise<IndemnityBondEsignCheck> {
+  return apiFetch<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status?document=slip`);
 }
 
 const csv = (v: string | number | (string | number)[]) => (Array.isArray(v) ? v.join(",") : String(v));
@@ -695,7 +715,7 @@ export async function getAuctionHistory(loanId: number): Promise<AuctionRecordVi
 }
 
 function toLedgerEntry(e: BackendLoanLedgerEntry): LoanLedgerEntry {
-  const base = { key: e.key, date: e.date, amount: e.amount, part: e.part, component: e.component, mode: e.mode };
+  const base = { key: e.key, date: e.date, amount: e.amount, part: e.part, component: e.component, mode: e.mode, accruing: e.accruing };
   const auction = e.auction ? toAuctionRecordView(e.auction) : null;
   switch (e.kind) {
     case "sanction":

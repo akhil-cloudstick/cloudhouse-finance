@@ -19,7 +19,7 @@ export function listCustomers(q?: string) {
 // customers whose home branch is one of these (a customer belongs to
 // exactly one branch — see customer.model.go) — used by the Cash Movements
 // filter's Branch→Customer narrowing (mirrors web's listCustomersPage).
-export function listCustomersPage(params: { q?: string; limit: number; offset: number; branchIds?: number[] }) {
+export function listCustomersPage(params: { q?: string; limit: number; offset: number; branchIds?: number[]; panStatus?: string; aadhaarStatus?: string }) {
   const { branchIds, ...rest } = params;
   return apiRequest<{ items: Customer[]; hasMore: boolean; total?: number }>("/customers", {
     params: { ...rest, branchIds: branchIds?.length ? branchIds.join(",") : undefined },
@@ -78,4 +78,29 @@ export function createCustomer(input: CustomerInput) {
 // wiping it, since the backend has no notion of "unchanged" vs "cleared".
 export function updateCustomer(id: number, input: CustomerInput) {
   return apiRequest<Customer>(`/customers/${id}`, { method: "PUT", body: input });
+}
+
+// PAN verification through the KYC provider (POST /customers/:id/verify-pan) — the customer comes back
+// with its new PAN status, plus the name the provider matched and a message to show.
+export function verifyCustomerPan(id: number) {
+  return apiRequest<{ customer: Customer; message: string; matchedName: string; traceId: string }>(`/customers/${id}/verify-pan`, { method: "POST" });
+}
+
+// Permanently deletes the customer and every record tied to them. Refused while any of their loans is
+// not yet Closed / Auctioned — the error message names the offending loan numbers.
+export function hardDeleteCustomer(id: number) {
+  return apiRequest<void>(`/customers/${id}/hard-delete`, { method: "DELETE" });
+}
+
+// A customer's overall loan totals — the figures web's "Overall Loan Details" shows (GET /customers/:id/profile360).
+export function getCustomerLoanTotals(id: number) {
+  return apiRequest<{ totalDisbursed: number; totalOutstanding: number; totalPaid: number; activeLoanCount: number; closedLoanCount: number }>(
+    `/customers/${id}/profile360`
+  ).then((r) => ({
+    totalDisbursed: r.totalDisbursed ?? 0,
+    totalOutstanding: r.totalOutstanding ?? 0,
+    totalPaid: r.totalPaid ?? 0,
+    activeLoanCount: r.activeLoanCount ?? 0,
+    closedLoanCount: r.closedLoanCount ?? 0,
+  }));
 }

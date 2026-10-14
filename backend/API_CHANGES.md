@@ -436,6 +436,10 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `planId` | `plan_id` |
 | `planName` | `plan_name` |
 | `pledgeDate` | `pledge_date` |
+| `pledgeSlipSignRequestId` | `pledge_slip_sign_request_id` |
+| `pledgeSlipSignStatus` | `pledge_slip_sign_status` |
+| `pledgeSlipSignedAt` | `pledge_slip_signed_at` |
+| `pledgeSlipSignedUrl` | `pledge_slip_signed_url` |
 | `pledgedAmount` | `pledged_amount` |
 | `pledgedGrossWeight` | `pledged_gross_weight` |
 | `pledgedNetWeight` | `pledged_net_weight` |

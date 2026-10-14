@@ -49,29 +49,29 @@ export function splitForMode(mode: PaymentMode, amount: number): SplitAmounts {
 
 export function addCashToInvestment(
   investmentId: number,
-  input: { amount: number; occurredOn?: string; reference?: string } & SplitAmounts
+  input: { amount: number; occurredOn?: string; reference?: string; bankId?: number } & SplitAmounts
 ) {
   return apiRequest<Investment>(`/investments/${investmentId}/add-cash`, { method: "POST", body: input });
 }
 
 export function withdrawFromInvestment(
   investmentId: number,
-  input: { interestAmount: number; principalAmount: number; occurredOn?: string; reference?: string } & SplitAmounts
+  input: { interestAmount: number; principalAmount: number; occurredOn?: string; reference?: string; bankId?: number } & SplitAmounts
 ) {
   return apiRequest<Investment>(`/investments/${investmentId}/withdraw`, { method: "POST", body: input });
 }
 
 export function matureInvestment(
   investmentId: number,
-  input: { action: MaturityAction; planId?: number; principalAmount?: number }
+  input: { action: MaturityAction; planId?: number; principalAmount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number }
 ) {
   return apiRequest<Investment>(`/investments/${investmentId}/mature`, { method: "POST", body: input });
 }
 
-export function markPayoutPaid(investmentId: number, payoutId: number, split: SplitAmounts) {
+export function markPayoutPaid(investmentId: number, payoutId: number, split: SplitAmounts, bankId?: number) {
   return apiRequest<InvestmentPayout>(`/investments/${investmentId}/payouts/${payoutId}/pay`, {
     method: "POST",
-    body: split,
+    body: { ...split, bankId },
   });
 }
 
@@ -88,4 +88,18 @@ export function updateInvestmentPlan(id: number, input: CreatePlanInput) {
 // Investment Plans sheet (10 per page, `q` matches the plan name).
 export function listInvestmentPlansPage(params: { q?: string; activeOnly?: boolean; limit: number; offset: number }) {
   return apiRequest<{ items: InvestmentPlan[] | null; hasMore: boolean; total?: number }>("/investment-plans", { params });
+}
+
+// The unpaid interest months of a scheduled investment, oldest first (web's getPendingInterest).
+export function getPendingInterest(investmentId: number) {
+  return apiRequest<{ items: InvestmentPayout[] | null }>(`/investments/${investmentId}/pending-interest`).then((r) => r.items ?? []);
+}
+
+// Pays several months of interest together: the amount is applied to the oldest unpaid months in order and the
+// payment breakdown (mode split + bank) is spread over them. The amount must be a whole number of months.
+export function payInterestMonths(
+  investmentId: number,
+  input: { amount: number; cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }
+) {
+  return apiRequest<{ items: InvestmentPayout[] | null }>(`/investments/${investmentId}/pay-interest`, { method: "POST", body: input }).then((r) => r.items ?? []);
 }

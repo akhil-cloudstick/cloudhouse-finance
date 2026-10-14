@@ -7,8 +7,14 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { Select } from "@/common/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { matureInvestment, listInvestmentPlans } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPlan, type MaturityAction } from "@/modules/investments/types/investment-types";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  split: /payment|breakdown|bank|cheque|upi/i, plan: /plan/i, principal: /principal|amount/i,
+};
 
 type MaturityModalContentProps = { investment: BackendInvestment; onSaved: () => void };
 
@@ -29,6 +35,9 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   const [planId, setPlanId] = useState<number | "">("");
   const [principal, setPrincipal] = useState(String(investment.principalAmount));
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
   // A live-engine investment is paid out in full when it is closed, so the close asks how.
   const isLive = investment.engine === "Live";
@@ -47,15 +56,16 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
 
   async function save() {
     if (action === "Renew") {
-      if (!planId) { setErr("Please select an investment plan for the renewed investment."); return; }
-      if (!principalNum || principalNum <= 0) { setErr("Please enter the principal amount for the renewed investment."); return; }
+      if (!planId) { fail("plan", "Please select an investment plan for the renewed investment."); return; }
+      if (!principalNum || principalNum <= 0) { fail("principal", "Please enter the principal amount for the renewed investment."); return; }
     }
     if (isLive && action === "Close") {
-      if (Math.abs(remaining) >= 0.01) { setErr("The payment breakdown must add up to the amount payable."); return; }
-      if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { setErr("Pick the bank the payout was made from."); return; }
+      if (Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the amount payable."); return; }
+      if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { fail("split", "Pick the bank the payout was made from."); return; }
     }
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       await matureInvestment(investment.id, {
         action,
@@ -66,7 +76,9 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
       toast(action === "Close" ? (isLive ? "Investment closed — principal and interest paid out" : "Investment closed — principal return payout added to the schedule") : "Investment renewed");
       onSaved();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not apply the maturity decision — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not apply the maturity decision — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -98,22 +110,25 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
               Payable now: principal <strong>{fmt(investment.outstandingPrincipal || 0)}</strong> + interest to maturity <strong>{fmt(investment.outstandingInterest || 0)}</strong> = <strong>{fmt(payable)}</strong>
             </p>
             <div className="frow">
-              <SplitPaymentInput totalAmount={payable} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+              <div className={fe.split ? "has-err" : undefined}>
+                <SplitPaymentInput totalAmount={payable} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+                <FieldError msg={fe.split} />
+              </div>
             </div>
           </>
         )}
 
         {action === "Renew" && (
           <div className="frow c2">
-            <div><label className="f">New Investment Plan *</label>
+            <div className={fe.plan ? "has-err" : undefined}><label className="f">New Investment Plan *</label>
               <Select
                 value={planId === "" ? "" : String(planId)}
                 onChange={(v) => setPlanId(v ? Number(v) : "")}
                 options={plans.map((p) => ({ value: String(p.id), label: `${p.name} — ${p.interestRatePercent}% ${p.payoutFrequency}, ${p.tenureMonths}mo` }))}
                 placeholder={plans.length ? "Select plan…" : "No active plans"}
-              />
+              /><FieldError msg={fe.plan} />
             </div>
-            <div><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
+            <div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} value={principal} onChange={(e) => setPrincipal(e.target.value)} /><FieldError msg={fe.principal} /></div>
           </div>
         )}
 

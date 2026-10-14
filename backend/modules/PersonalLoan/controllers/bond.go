@@ -18,7 +18,8 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-const bondBlank = "                "
+// bondBlank stands in for a missing input: faint dots to fill in by hand after printing.
+const bondBlank template.HTML = `<span class="blank">..................</span>`
 
 const templatesDir = "./templates"
 
@@ -65,56 +66,52 @@ type BondData struct {
 type bondTemplateData struct {
 	BondData
 	Style                template.CSS
-	Blank                string
-	FinancierName        string
+	Blank                template.HTML
+	FinancierName        template.HTML
 	EstablishmentAddress template.HTML
-	Age                  string
-	Aadhaar              string
-	Address              string
-	District             string
-	Village              string
-	Taluk                string
-	Place                string
-	PinCode              string
-	FatherName           string
-	Mobile               string
-	PrincipalAmount      string
-	InterestRate         string
+	Age                  template.HTML
+	Aadhaar              template.HTML
+	Address              template.HTML
+	District             template.HTML
+	Village              template.HTML
+	Taluk                template.HTML
+	Place                template.HTML
+	PinCode              template.HTML
+	FatherName           template.HTML
+	Mobile               template.HTML
+	PrincipalAmount      template.HTML
+	InterestRate         template.HTML
+	BorrowerName         template.HTML
 }
 
-func bondOrBlank(s string) string {
+func bondOrBlank(s string) template.HTML {
 	if strings.TrimSpace(s) == "" {
 		return bondBlank
 	}
-	return s
+	return template.HTML(template.HTMLEscapeString(s)) //nolint:gosec // escaped above
 }
 
-func bondAgeOrBlank(age int) string {
+func bondAgeOrBlank(age int) template.HTML {
 	if age <= 0 {
 		return bondBlank
 	}
-	return fmt.Sprintf("%d", age)
+	return template.HTML(fmt.Sprintf("%d", age))
 }
 
-func bondAadhaarOrBlank(aadhaar string) string {
-	if strings.TrimSpace(aadhaar) == "" {
-		return bondBlank
-	}
-	return aadhaar
-}
+func bondAadhaarOrBlank(aadhaar string) template.HTML { return bondOrBlank(aadhaar) }
 
-func bondInrOrBlank(amount float64) string {
+func bondInrOrBlank(amount float64) template.HTML {
 	if amount <= 0 {
 		return bondBlank
 	}
-	return fmt.Sprintf("%.0f", amount)
+	return template.HTML(fmt.Sprintf("%.0f", amount))
 }
 
-func bondRateOrBlank(rate float64) string {
+func bondRateOrBlank(rate float64) template.HTML {
 	if rate <= 0 {
 		return bondBlank
 	}
-	return fmt.Sprintf("%g%%", rate)
+	return template.HTML(fmt.Sprintf("%g%%", rate))
 }
 
 func findTemplatesDir() string {
@@ -167,12 +164,12 @@ func bondFinancierFor(ctx context.Context) bondFinancier {
 		if t, err := common.FindTenantByID(ctx, id); err == nil {
 			return bondFinancier{
 				name:    firstNonEmpty(t.LegalName, t.Name),
-				address: t.AddressLine,
+				address: common.NormalizeLineBreaks(t.AddressLine),
 				regNo:   t.KMLRegNo,
 			}
 		}
 	}
-	return bondFinancier{name: bondBlank}
+	return bondFinancier{}
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -197,18 +194,16 @@ body{font-family:'Noto Sans Malayalam','Nirmala UI','Mona Sans','Segoe UI',ui-sa
 h1{font-size:22px;text-align:center;margin:0 0 4px;letter-spacing:1px}
 h2{font-size:14px;text-align:center;margin:0 0 22px;font-weight:normal;color:#555}
 p{margin:0 0 14px;text-align:justify}
-.meta{margin:30px 0 10px}
-.meta div{margin-bottom:8px}
-.sig{display:flex;justify-content:space-between;gap:20px;margin-top:56px}
-.sig div{flex:1}
-.sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
-.footer-row{margin-top:40px;font-size:13.5px}
+.ennu{margin:36px 0 0;text-align:center}
+.blank{color:#b5b5b5;letter-spacing:1px}
+.footer-row{margin-top:30px;font-size:13.5px}
 .footer-row div{margin-bottom:10px}
+.footer-row .r{text-align:right}
 .witness{margin-top:36px}
 .witness div{margin-bottom:10px}
 `),
 		Blank:                bondBlank,
-		FinancierName:        financier.name,
+		FinancierName:        bondOrBlank(financier.name),
 		EstablishmentAddress: financier.establishment(lang),
 		Age:                  bondAgeOrBlank(data.Age),
 		Aadhaar:              bondAadhaarOrBlank(data.AadhaarNumber),

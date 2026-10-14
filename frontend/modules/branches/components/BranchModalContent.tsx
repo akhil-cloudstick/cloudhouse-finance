@@ -8,11 +8,17 @@ import { Select } from "@/common/components/ui/Select";
 import { createBranch, updateBranch } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
 const CODE_RE = /^[A-Z0-9-]*$/;
 const ADDRESS_RE = /^[A-Za-z0-9\s,./#'-]*$/;
 const PHONE_RE = /^\d{10}$/;
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  name: /name/i, code: /code/i, address: /address/i, phone: /phone/i,
+};
 
 type BranchModalContentProps = { branch?: BranchView; onSaved: () => void };
 
@@ -30,6 +36,9 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
   const [phone, setPhone] = useState(b?.phone || "");
   const [isActive, setIsActive] = useState(b ? b.isActive : true);
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   function onNameChange(v: string) {
@@ -59,16 +68,17 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
     const p = phone.trim();
 
     if (n.length < 2 || !NAME_RE.test(n)) {
-      setErr("Please enter a valid branch name (letters only, at least 2 characters).");
+      fail("name", "Please enter a valid branch name (letters only, at least 2 characters).");
       return;
     }
-    if (!code.trim()) { setErr("Please enter a branch code."); return; }
-    if (a.length < 3) { setErr("Please enter a branch address (at least 3 characters)."); return; }
-    if (p && !PHONE_RE.test(p)) { setErr("Phone number must be exactly 10 digits."); return; }
+    if (!code.trim()) { fail("code", "Please enter a branch code."); return; }
+    if (a.length < 3) { fail("address", "Please enter a branch address (at least 3 characters)."); return; }
+    if (p && !PHONE_RE.test(p)) { fail("phone", "Phone number must be exactly 10 digits."); return; }
 
     const input = { name: n, code: code.trim(), address: a, phone: p, isActive };
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       if (b) await updateBranch(b.id, input);
       else await createBranch(input);
@@ -76,7 +86,9 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
       closeModal();
       toast(b ? `Branch "${n}" updated` : `Branch "${n}" created`);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to save branch.");
+      const msg = e instanceof Error ? e.message : "Failed to save branch.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -87,7 +99,7 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
       <div className="hd"><h3>{b ? "Edit Branch — " + b.name : "Add Branch"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow c2">
-          <div><label className="f">Branch Name *</label>
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Branch Name *</label>
             <input
               className="inp"
               placeholder="e.g. Koratty"
@@ -95,8 +107,8 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
               onChange={(e) => onNameChange(e.target.value)}
               maxLength={80}
               autoComplete="off"
-            /></div>
-          <div><label className="f">Branch Code *</label>
+            /><FieldError msg={fe.name} /></div>
+          <div className={fe.code ? "has-err" : undefined}><label className="f">Branch Code *</label>
             <input
               className="inp"
               placeholder="e.g. KOR01"
@@ -104,9 +116,9 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
               onChange={(e) => onCodeChange(e.target.value)}
               maxLength={20}
               autoComplete="off"
-            /></div>
+            /><FieldError msg={fe.code} /></div>
         </div>
-        <div className="frow"><div><label className="f">Address *</label>
+        <div className="frow"><div className={fe.address ? "has-err" : undefined}><label className="f">Address *</label>
           <input
             className="inp"
             placeholder="Full branch address"
@@ -114,9 +126,9 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
             onChange={(e) => onAddressChange(e.target.value)}
             maxLength={255}
             autoComplete="off"
-          /></div></div>
+          /><FieldError msg={fe.address} /></div></div>
         <div className="frow c2">
-          <div><label className="f">Phone</label>
+          <div className={fe.phone ? "has-err" : undefined}><label className="f">Phone</label>
             <input
               className="inp"
               type="tel"
@@ -126,7 +138,7 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
               onChange={(e) => onPhoneChange(e.target.value)}
               maxLength={10}
               autoComplete="off"
-            /></div>
+            /><FieldError msg={fe.phone} /></div>
           <div><label className="f">Status</label>
             <Select
               options={[{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }]}

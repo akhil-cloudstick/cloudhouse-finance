@@ -128,11 +128,11 @@ export default function LoanDetailScreen() {
   const [reviewId, setReviewId] = useState<number | null>(null);
   useResetOnBlur(() => setOpen(null));
 
-  // ?action=collect|bank → open that sheet once the loan has loaded, then
+  // ?action=collect|bank|extend|release → open that sheet once the loan has loaded, then
   // clear the param so a refetch / refocus doesn't reopen it.
   const handledAction = useRef(false);
   useEffect(() => {
-    if (action !== "collect" && action !== "bank") {
+    if (action !== "collect" && action !== "bank" && action !== "extend" && action !== "release") {
       handledAction.current = false;
       return;
     }
@@ -140,12 +140,12 @@ export default function LoanDetailScreen() {
     handledAction.current = true;
     const finished = loan.data.status === "Closed" || loan.data.status === "Rejected";
     if (action === "bank") setOpen("bank");
-    else if (!finished) setOpen("collect");
+    else if (!finished) setOpen(action === "extend" ? "extend" : action === "release" ? "release" : "collect");
     router.setParams({ action: undefined } as never);
   }, [action, loan.data, router]);
 
   const doApprove = useMutation({
-    mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts>) => approveLoan(loanId, vars),
+    mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts> & { bankId?: number }) => approveLoan(loanId, vars),
     onSuccess: () => {
       setError(null);
       setOpen(null);
@@ -213,8 +213,8 @@ export default function LoanDetailScreen() {
   const canActOnStage = !!stageDef && canEditLoan && canActAtStage(employee, stageDef);
   const sanctionSteps = stepperSteps(wf, "loan_sanction", pendingStage);
   const balanceInHand = cashSummary.data?.expectedCash;
-  // A WithheldFromPayout service charge is paid out that much less (same as DisburseSheet).
-  const payoutAmount = l.principalAmount - (l.serviceChargeMode === "WithheldFromPayout" ? l.serviceChargeAmount ?? 0 : 0);
+  // The service charge is always paid out that much less (same as DisburseSheet).
+  const payoutAmount = l.principalAmount - (l.serviceChargeAmount ?? 0);
   const disburseBlocked = isFinalSanction && balanceInHand != null && payoutAmount > balanceInHand + 0.005;
   const approveLabel = isFinalSanction ? (isVerifyStage ? " Disburse" : "Disburse") : isVerifyStage ? "Verify" : "Approve";
 
@@ -303,6 +303,14 @@ export default function LoanDetailScreen() {
 
   const financialItems: { k: string; v: string; color?: string }[] = [
     { k: "Principal", v: inr(l.principalAmount) },
+    // The service charge and how it was applied (web shows the same three lines).
+    ...((l.serviceChargeAmount ?? 0) > 0
+      ? [
+          { k: "Service charge", v: inr(l.serviceChargeAmount ?? 0) },
+          { k: "Charge mode", v: l.serviceChargeMode === "WithheldFromPayout" ? "Deducted from payout" : "Added to principal" },
+          ...(l.serviceChargeMode === "WithheldFromPayout" ? [{ k: "Net payout", v: inr(l.principalAmount - (l.serviceChargeAmount ?? 0)) }] : []),
+        ]
+      : []),
     { k: "Remaining", v: inr(l.outstandingAmount) },
     // Nothing accrues until disbursement, so a pending loan would read ₹0 —
     // show the monthly interest it will carry instead.
@@ -316,7 +324,10 @@ export default function LoanDetailScreen() {
     { k: "LTV", v: l.scheme ? `${l.schemeLtvPercent ?? l.scheme.ltvPercent}%` : "—" },
     { k: "Gold weight", v: `${weight.toFixed(2)} g${purities.length === 1 ? ` · ${purities[0]}` : purities.length > 1 ? ` · ${ornaments.length} items` : ""}` },
   ];
-  if ((l.accruedPenalInterest ?? 0) > 0) financialItems.push({ k: "Accrued penal interest", v: inr(l.accruedPenalInterest ?? 0), color: C.red });
+  if ((l.accruedPenalInterest ?? 0) > 0) {
+    financialItems.push({ k: "Accrued penal interest", v: inr(l.accruedPenalInterest ?? 0), color: C.red }, { k: "Outstanding penal interest", v: inr(l.outstandingPenalInterest ?? 0), color: C.red });
+  }
+  financialItems.push({ k: "Penal rate", v: l.schemePenalRate != null ? `${l.schemePenalRate}% p.a.` : "—" }, { k: "Interest method", v: l.schemeInterestMethod || "—" });
   if (l.disbursementDate) {
     financialItems.push({ k: "Sanctioned", v: inr(l.sanctionedAmount ?? 0) }, { k: "Disbursed", v: inr(l.disbursedAmount ?? 0) });
   }
@@ -473,8 +484,8 @@ export default function LoanDetailScreen() {
                 </View>
                 <FieldGrid
                   items={[
-                    { k: "Gross", v: `${o.grossWeight.toFixed(1)} g` },
-                    { k: "Net", v: `${o.netWeight.toFixed(1)} g` },
+                    { k: "Gross", v: `${o.grossWeight.toFixed(3)} g` },
+                    { k: "Net", v: `${o.netWeight.toFixed(3)} g` },
                     { k: "Qty", v: String(o.quantity) },
                     { k: "Gold value", v: inr(o.goldValue) },
                     { k: "Status", v: o.releasedAt ? `Released ${dmy(o.releasedAt)}` : "Held", color: o.releasedAt ? C.green : undefined },
@@ -584,7 +595,7 @@ export default function LoanDetailScreen() {
           loading={doApprove.isPending}
           error={open === "disburse" ? error : null}
           verb={isVerifyStage ? "Verify" : "Approve"}
-          onConfirm={(split) => doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved", ...split })}
+          onConfirm={(payment) => doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved", ...payment })}
         />
       ) : null}
       <Sheet visible={open === "topupReview" && !!reviewTopUp} onClose={() => setOpen(null)} title={`Review Top-up — ${l.loanNumber}`} maxHeightPct={85}>

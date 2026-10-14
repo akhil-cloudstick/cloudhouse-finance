@@ -108,7 +108,7 @@ export function CustomerFormSheet({
     setVillage(x.village ?? "");
     setPlace(x.place ?? "");
     setPinCode(x.pinCode ?? "");
-    setShowMore(!!(x.fatherName || x.age || x.district || x.taluk || x.village || x.place || x.pinCode || isoDate(c?.dob)));
+    setShowMore(!!(x.fatherName || x.age || x.district || x.taluk || x.village || x.place || x.pinCode));
     setError(null);
   }, [visible, customer]);
 
@@ -170,6 +170,7 @@ export function CustomerFormSheet({
       <Field label="Mobile Number *">
         <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => setPhone(digits(t))} />
       </Field>
+      <DateField label="Date of Birth" value={dob} onChange={setDob} max={todayISO()} clearable />
       <Field label="Address">
         <Input placeholder="Full address" value={address} onChangeText={setAddress} />
       </Field>
@@ -227,27 +228,26 @@ export function CustomerFormSheet({
             <Field label="Age">
               <Input placeholder="e.g. 35" keyboardType="number-pad" maxLength={3} value={age} onChangeText={(t) => setAge(digits(t))} />
             </Field>
-            <DateField label="Date of Birth" value={dob} onChange={setDob} max={todayISO()} clearable />
-          </FieldRow>
-          <FieldRow>
             <Field label="District">
               <Input placeholder="e.g. Thrissur" value={district} onChangeText={setDistrict} />
             </Field>
+          </FieldRow>
+          <FieldRow>
             <Field label="Taluk">
               <Input placeholder="e.g. Kozhikode" value={taluk} onChangeText={setTaluk} />
             </Field>
-          </FieldRow>
-          <FieldRow>
             <Field label="Village">
               <Input placeholder="e.g. Feroke" value={village} onChangeText={setVillage} />
             </Field>
+          </FieldRow>
+          <FieldRow>
             <Field label="Place">
               <Input placeholder="e.g. Feroke" value={place} onChangeText={setPlace} />
             </Field>
+            <Field label="Pin Code">
+              <Input placeholder="6-digit pin code" keyboardType="number-pad" maxLength={6} value={pinCode} onChangeText={(t) => setPinCode(digits(t))} />
+            </Field>
           </FieldRow>
-          <Field label="Pin Code">
-            <Input placeholder="6-digit pin code" keyboardType="number-pad" maxLength={6} value={pinCode} onChangeText={(t) => setPinCode(digits(t))} />
-          </Field>
         </>
       ) : null}
 

@@ -202,6 +202,8 @@ export type BackendLoan = {
   indemnityBondSignStatus?: string;
   indemnityBondSignedUrl?: string;
   indemnityBondSignedAt?: string | null;
+  pledgeSlipSignStatus?: string;
+  pledgeSlipSignedUrl?: string;
   ornaments?: BackendOrnament[];
   approvals?: BackendLoanApproval[];
   payments?: BackendLoanPayment[];
@@ -341,6 +343,9 @@ export type LoanView = {
   indemnityBondSignStatus: string;
   indemnityBondSignedUrl: string;
   indemnityBondSignedAt: string | null;
+  // GML pledge slip eSign (customer signs) — same status values as the bond's.
+  pledgeSlipSignStatus: string;
+  pledgeSlipSignedUrl: string;
   ornaments: OrnamentView[];
   payments: PaymentView[];
   bankPledges: BankPledgeView[];
@@ -429,6 +434,8 @@ export type IndemnityBondDeliverBy = "open" | "whatsapp" | "dashboard";
 export type IndemnityBondEsignCheck = {
   loan: BackendLoan;
   status: string;
+  // Per-signer completion in request order: customer, then witness 1 and 2.
+  signers?: { signed: boolean }[];
 };
 export type ServicingClass = "due_soon" | "overdue" | "defaulted";
 export type LoanFilters = {
@@ -757,7 +764,8 @@ export type ConcludedAuctionRowView = AuctionRecordView & { loanNumber: string; 
  * that row's share. */
 export type LoanLedgerPart = { mode: string; amount: number; index: number; count: number };
 // component names what a split repayment row was applied to (e.g. an auction's proceeds).
-type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string };
+// accruing marks interest worked out up to the day the ledger is opened and not saved yet.
+type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string; accruing?: boolean };
 export type LoanLedgerEntry =
   | (LedgerEntryBase & { kind: "sanction"; balance: number; payment: PaymentView | null })
   | (LedgerEntryBase & { kind: "payment"; balance: number; row: PaymentView; auction: AuctionRecordView | null })
@@ -791,6 +799,7 @@ export type BackendLoanLedgerEntry = {
   part?: LoanLedgerPart;
   component?: string;
   mode?: string;
+  accruing?: boolean;
   payment?: BackendLoanPayment;
   topUp?: LoanTopUpView;
   auction?: BackendAuctionRecord;

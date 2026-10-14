@@ -4,6 +4,10 @@ import { useState } from "react";
 import { recordPayment, PAYMENT_MODE_LABELS, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business, type PaymentMode } from "@/modules/superadmin/types/superadmin-types";
 import { Select } from "@/modules/superadmin/components/Select";
+import { fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Server messages are put on the field they are about, by wording.
+const SERVER_FIELDS: Record<string, RegExp> = { amount: /amount/i, paidOn: /paid on|date/i, reference: /reference/i };
 
 function todayISO(): string {
   const d = new Date();
@@ -29,17 +33,22 @@ export function RecordPaymentModal({
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fe, setFe] = useState<Record<string, string>>({});
+
+  const fail = (field: string, msg: string) => { setError(null); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setFe({});
     const rupees = Number(amount);
     if (!Number.isFinite(rupees) || rupees <= 0) {
-      setError("Enter an amount greater than zero.");
+      fail("amount", "Enter an amount greater than zero.");
       return;
     }
     if (!paidOn) {
-      setError("Enter the date the payment was made.");
+      fail("paidOn", "Enter the date the payment was made.");
       return;
     }
     setSubmitting(true);
@@ -55,7 +64,9 @@ export function RecordPaymentModal({
       });
       onDone();
     } catch (err) {
-      setError(err instanceof SuperAdminApiError ? err.message : "Could not record the payment.");
+      const msg = err instanceof SuperAdminApiError ? err.message : "Could not record the payment.";
+      const field = err instanceof SuperAdminApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+      if (field) fail(field, msg); else setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -72,7 +83,7 @@ export function RecordPaymentModal({
             For your records only. Nothing is charged, and the plan, status and renewal date stay as they are.
           </p>
           <div className="sa-grid-2">
-            <div className="sa-field">
+            <div className={fe.amount ? "sa-field has-err" : "sa-field"}>
               <label>Amount (₹)</label>
               <input
                 type="number"
@@ -80,13 +91,15 @@ export function RecordPaymentModal({
                 step="0.01"
                 inputMode="decimal"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => { setAmount(e.target.value); clearFe("amount"); }}
                 autoFocus
               />
+              {fe.amount && <span className="sa-error" role="alert">{fe.amount}</span>}
             </div>
-            <div className="sa-field">
+            <div className={fe.paidOn ? "sa-field has-err" : "sa-field"}>
               <label>Paid on</label>
-              <input type="date" value={paidOn} max={todayISO()} onChange={(e) => setPaidOn(e.target.value)} />
+              <input type="date" value={paidOn} max={todayISO()} onChange={(e) => { setPaidOn(e.target.value); clearFe("paidOn"); }} />
+              {fe.paidOn && <span className="sa-error" role="alert">{fe.paidOn}</span>}
             </div>
             <div className="sa-field">
               <label>Mode</label>
@@ -100,9 +113,10 @@ export function RecordPaymentModal({
                 }))}
               />
             </div>
-            <div className="sa-field">
+            <div className={fe.reference ? "sa-field has-err" : "sa-field"}>
               <label>Reference (optional)</label>
-              <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UTR / cheque no." />
+              <input value={reference} onChange={(e) => { setReference(e.target.value); clearFe("reference"); }} placeholder="UTR / cheque no." />
+              {fe.reference && <span className="sa-error" role="alert">{fe.reference}</span>}
             </div>
             <div className="sa-field">
               <label>Period from (optional)</label>

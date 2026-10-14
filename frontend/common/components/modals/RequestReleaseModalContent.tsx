@@ -9,6 +9,10 @@ import { createReleaseRequest, getLoan, listLoanRequests } from "@/modules/loans
 import { type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = { ornaments: /ornament|collateral|remaining/i };
 
 // Mirrors backend/internal/loan/service.go's partialReleaseRemaining — the
 // same buffered formula the server re-checks on submit, computed here too
@@ -62,6 +66,8 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
   const [selected, setSelected] = useState<Set<number>>(new Set(pledged.map((o) => o.id)));
   const [detail, setDetail] = useState("");
   const [err, setErr] = useState("");
+  // A server message about the picked ornaments shows under the table; `err` keeps the rest.
+  const [ornamentsErr, setOrnamentsErr] = useState("");
   const [saving, setSaving] = useState(false);
   // A fast double-click was creating two duplicate Release requests for the
   // same loan — `disabled={saving}` alone isn't enough since both clicks can
@@ -102,6 +108,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+    setOrnamentsErr("");
   }
 
   const allSelected = selected.size === pledged.length;
@@ -114,6 +121,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
     if (submittingRef.current) return;
     if (selected.size === 0) return;
     submittingRef.current = true;
+    setErr(""); setOrnamentsErr("");
     setSaving(true);
     try {
       const ornamentIds = Array.from(selected);
@@ -125,7 +133,8 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
       closeModal();
       toast(`Release request logged for ${loan.id}`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not log the request — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not log the request — try again.";
+      if (fieldForMessage(msg, SERVER_FIELDS)) setOrnamentsErr(msg); else setErr(msg);
     } finally {
       submittingRef.current = false;
       setSaving(false);
@@ -145,6 +154,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
           <div className="i"><div className="k">Outstanding Balance</div><div className="v">{fmt(loan.totalOutstandingBalance)}</div></div>
           <div className="i"><div className="k">Scheme LTV</div><div className="v">{loan.schemeLtv}%</div></div>
         </div>
+        <div className={ornamentsErr ? "has-err" : undefined}>
         <div className="tbl-wrap"><table className="tbl">
           <thead><tr><th style={{ width: 36 }}></th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th><th></th></tr></thead>
           <tbody>
@@ -163,6 +173,8 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
             })}
           </tbody>
         </table></div>
+        <FieldError msg={ornamentsErr} />
+        </div>
         {/* Plain inline text, not a notice/toast banner — see the plan's
          * wireframe note on why these live figures stay out of `.notice`. */}
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>

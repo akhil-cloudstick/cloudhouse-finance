@@ -10,6 +10,10 @@ import { type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModalContent";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = { months: /month/i };
 
 type RequestExtensionModalContentProps = { loan: LoanView; onSaved: () => void };
 
@@ -23,6 +27,8 @@ export function RequestExtensionModalContent({ loan, onSaved }: RequestExtension
   const [months, setMonths] = useState("3");
   const [detail, setDetail] = useState("");
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   // The backend refuses the request outright while arrears stand (see
   // Service.CreateExtensionRequest's ErrExtensionNeedsPayment) — checked
@@ -40,7 +46,8 @@ export function RequestExtensionModalContent({ loan, onSaved }: RequestExtension
 
   async function save() { return singleFlight("modal:requestextension:save:1", async () => {
     const m = +months;
-    if (!m || m <= 0) { setErr("Please enter how many months to extend by."); return; }
+    setErr(""); setFe({});
+    if (!m || m <= 0) { setFe({ months: "Please enter how many months to extend by." }); return; }
     if (submittingRef.current) return;
     submittingRef.current = true;
     setSaving(true);
@@ -52,7 +59,9 @@ export function RequestExtensionModalContent({ loan, onSaved }: RequestExtension
       // applies the extension on creation — the request comes back Approved.
       toast(created.status === "Approved" ? `Extension applied — ${loan.id}'s due date updated` : `Extension request logged for ${loan.id}`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not log the request — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not log the request — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) setFe({ [field]: msg }); else setErr(msg);
     } finally {
       submittingRef.current = false;
       setSaving(false);
@@ -81,7 +90,7 @@ export function RequestExtensionModalContent({ loan, onSaved }: RequestExtension
           </div>
         )}
         <div className="frow c2">
-          <div><label className="f">Extend By (months) *</label><input className="inp" type="number" min={1} value={months} onChange={(e) => setMonths(e.target.value)} disabled={hasArrears} /></div>
+          <div className={fe.months ? "has-err" : undefined}><label className="f">Extend By (months) *</label><input className="inp" type="number" min={1} value={months} onChange={(e) => { setMonths(e.target.value); setFe({}); }} disabled={hasArrears} /><FieldError msg={fe.months} /></div>
           <div><label className="f">Note</label><input className="inp" placeholder="optional detail" value={detail} onChange={(e) => setDetail(e.target.value)} disabled={hasArrears} /></div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

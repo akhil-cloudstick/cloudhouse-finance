@@ -101,7 +101,7 @@ func getSummary(ctx context.Context, branchScope *uint) (*Summary, error) {
 	today := dayStart(now)
 	tomorrow := today.AddDate(0, 0, 1)
 	out := &Summary{}
-	cashInHand, err := cash.SumNet(ctx, branchScope)
+	cashInHand, err := cash.LiveBalance(ctx, branchScope)
 	if err != nil {
 		return nil, err
 	}

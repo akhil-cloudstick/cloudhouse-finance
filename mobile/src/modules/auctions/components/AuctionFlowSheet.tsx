@@ -23,6 +23,7 @@ import {
   WarningBanner,
 } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { isFlowOff, stageByKey, canActAtStage, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { ApiError } from "@/common/services/httpClient";
 import {
@@ -115,6 +116,9 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
   const [reference, setReference] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
   const [expenses, setExpenses] = useState("");
+  // How the sale proceeds were received, and (for a surplus refund) how the refund is paid.
+  const [salePay, setSalePay] = useState<SplitPayment | null>(null);
+  const [refundPay, setRefundPay] = useState<SplitPayment | null>(null);
   const [disposition, setDisposition] = useState<AuctionSurplusDisposition>("RefundedToCustomer");
   const [dispRemarks, setDispRemarks] = useState("");
   const [decision, setDecision] = useState<Exclude<AuctionDecisionStatus, "Pending"> | "">("");
@@ -159,12 +163,24 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
   });
   const schedule = useMutation({ mutationFn: () => scheduleAuction(loanId, auctionDate, reference.trim() || undefined), onSuccess: onOk, onError });
   const sale = useMutation({
-    mutationFn: () => recordAuctionSale(loanId, Number(saleAmount), expenses ? Number(expenses) : undefined),
+    mutationFn: () =>
+      recordAuctionSale(loanId, Number(saleAmount), expenses ? Number(expenses) : undefined, salePay ? { cashAmount: salePay.split.cashAmount, upiAmount: salePay.split.upiAmount, bankTransferAmount: salePay.split.bankTransferAmount, bankId: salePay.bankId } : undefined),
     onSuccess: onOk,
     onError,
   });
+  // A surplus refund is paid in ONE mode (the backend records a single mode and bank for it).
+  const refundSurplus = rec?.surplusPayableAmount ?? Math.max(rec?.surplusShortfall ?? 0, 0);
+  const refundModes = refundPay
+    ? ([refundPay.split.cashAmount > 0 && "Cash", refundPay.split.upiAmount > 0 && "UPI", refundPay.split.bankTransferAmount > 0 && "Bank Transfer"].filter(Boolean) as string[])
+    : [];
+  const refundMode = disposition === "RefundedToCustomer" && refundModes.length === 1 ? refundModes[0] : undefined;
+  const refundOk = disposition !== "RefundedToCustomer" || (!!refundPay?.ready && !!refundMode && (refundMode === "Cash" || !!refundPay.bankId));
+  // Sale preview — the amount entered decides whether the loan closes, leaves a surplus or leaves a balance owing.
+  const saleNum = Number(saleAmount) || 0;
+  const expNum = Number(expenses) || 0;
+  const salePreview = saleNum - expNum - (loan?.totalOutstandingBalance ?? 0);
   const settle = useMutation({
-    mutationFn: () => settleAuction(loanId, disposition, dispRemarks.trim() || undefined),
+    mutationFn: () => settleAuction(loanId, disposition, dispRemarks.trim() || undefined, refundMode, refundMode ? refundPay?.bankId : undefined),
     onSuccess: onOk,
     onError,
   });
@@ -349,10 +365,21 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
               <Field label="Auction expenses">
                 <Input value={expenses} onChangeText={(v) => setExpenses(v.replace(/[^0-9.]/g, ""))} placeholder="₹" keyboardType="decimal-pad" />
               </Field>
+              <SplitPaymentInput total={Math.max(0, saleNum)} onChange={setSalePay} bankLabel="Bank (account proceeds landed in)" />
+              {saleNum > 0 ? (
+                <NoticeBanner>
+                  {salePreview >= 0
+                    ? salePreview > 0.01
+                      ? `Surplus ${inr(salePreview)} — payable to the customer after the sale.`
+                      : "The sale exactly clears the debt — the loan will be closed."
+                    : `Shortfall — balance owing ${inr(Math.abs(salePreview))}.`}
+                </NoticeBanner>
+              ) : null}
+              {expNum > saleNum && saleNum > 0 ? errText("Auction expenses cannot be more than the sale amount.") : null}
               {errText(frozen ? null : error)}
               <BtnRow2>
                 {backBtn}
-                {can_("can_record_auction_sale") ? <PrimaryButton label="Record Sale & Continue" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(Number(saleAmount) > 0)} /> : null}
+                {can_("can_record_auction_sale") ? <PrimaryButton label="Record Sale & Continue" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(saleNum > 0) || expNum > saleNum || !salePay?.ready} /> : null}
               </BtnRow2>
             </>
           )}
@@ -392,6 +419,12 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
             <Field label="Surplus disposition">
               <ChipToggle options={DISPOSITIONS} value={disposition} onChange={setDisposition} labels={DISPOSITION_LABELS} />
             </Field>
+            {disposition === "RefundedToCustomer" ? (
+              <>
+                <SplitPaymentInput total={refundSurplus} onChange={setRefundPay} bankLabel="Bank (account it is paid from)" />
+                {refundPay && refundModes.length > 1 ? errText("Refund the surplus in one payment mode — Cash, UPI or Bank Transfer.") : null}
+              </>
+            ) : null}
             <Field label={`Remarks${disposition === "RecordedAsIncome" ? " *" : " (optional)"}`}>
               <Input value={dispRemarks} onChangeText={setDispRemarks} placeholder="Reason / reference" />
             </Field>
@@ -403,7 +436,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
                   label="Settle & Close Case"
                   onPress={() => settle.mutate()}
                   loading={settle.isPending}
-                  disabled={disposition === "RecordedAsIncome" && !dispRemarks.trim()}
+                  disabled={(disposition === "RecordedAsIncome" && !dispRemarks.trim()) || !refundOk}
                 />
               ) : null}
             </BtnRow2>

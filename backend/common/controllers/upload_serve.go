@@ -51,9 +51,9 @@ func customerOwnsUpload(ctx context.Context, customerID uint, url string) bool {
 	var owns bool
 	err := config.DB.
 		WithContext(ctx).Raw(`SELECT EXISTS (SELECT 1 FROM customers WHERE id = ? AND deleted_at IS NULL AND ? IN (photo_url, identity_proof_url, address_proof_url, kyc_document_url))
-			OR EXISTS (SELECT 1 FROM loans WHERE customer_id = ? AND deleted_at IS NULL AND indemnity_bond_signed_url = ?)
+			OR EXISTS (SELECT 1 FROM loans WHERE customer_id = ? AND deleted_at IS NULL AND (indemnity_bond_signed_url = ? OR pledge_slip_signed_url = ?))
 			OR EXISTS (SELECT 1 FROM ornament_images oi JOIN ornaments o ON o.id = oi.ornament_id JOIN loans l ON l.id = o.loan_id WHERE l.customer_id = ? AND l.deleted_at IS NULL AND oi.image_url = ?)`,
-		customerID, url, customerID, url, customerID, url).Scan(&owns).Error
+		customerID, url, customerID, url, url, customerID, url).Scan(&owns).Error
 	return err == nil && owns
 }
 

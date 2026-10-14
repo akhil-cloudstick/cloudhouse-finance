@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { ApiError } from "@/common/services/httpClient";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
@@ -15,6 +16,13 @@ import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { singleFlight } from "@/common/utils/singleFlight";
 
 const CODE_RE = /^[A-Za-z0-9-]*$/;
+
+// Server messages are put on the field they are about, by wording.
+const SERVER_FIELDS: Record<string, RegExp> = {
+  code: /code/i,
+  capacity: /capacity/i,
+  branch: /branch/i,
+};
 
 type LockerModalContentProps = { locker?: LockerView; onSaved?: () => void };
 
@@ -41,6 +49,7 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
   const showBranch = useShowBranch();
   const branchLocked = singleBranch || lockedBranchId != null;
   const [err, setErr] = useState("");
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -51,16 +60,20 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+
   async function save() { return singleFlight("modal:locker:save", async () => {
     const trimmedCode = code.trim().toUpperCase();
-    if (!trimmedCode) { setErr("Locker code is required."); return; }
-    if (!CODE_RE.test(trimmedCode)) { setErr("Locker code may only contain letters, numbers and hyphens."); return; }
-    if (branchId === "") { setErr("Please select a branch."); return; }
+    if (!trimmedCode) { fail("code", "Locker code is required."); return; }
+    if (!CODE_RE.test(trimmedCode)) { fail("code", "Locker code may only contain letters, numbers and hyphens."); return; }
+    if (branchId === "") { fail("branch", "Please select a branch."); return; }
     const capacity = parseInt(cap, 10);
-    if (!capacity || capacity <= 0) { setErr("Capacity must be greater than zero."); return; }
+    if (!capacity || capacity <= 0) { fail("capacity", "Capacity must be greater than zero."); return; }
 
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       const input = { code: trimmedCode, branchId: Number(branchId), capacity, isActive };
       if (locker) {
@@ -73,7 +86,9 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
       onSaved?.();
       closeModal();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save the locker — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not save the locker — try again.";
+      const field = e instanceof ApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -84,17 +99,18 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
       <div className="hd"><h3>{locker ? `Edit Locker — ${locker.code}` : "Add Locker"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow c2">
-          <div><label className="f">Locker Code *</label><input className="inp" placeholder="e.g. LKR-B2" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} /></div>
-          <div><label className="f">Capacity (packets) *</label><input className="inp" type="number" min={1} value={cap} onChange={(e) => setCap(e.target.value)} /></div>
+          <div className={fe.code ? "has-err" : undefined}><label className="f">Locker Code *</label><input className="inp" placeholder="e.g. LKR-B2" value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); clearFe("code"); }} /><FieldError msg={fe.code} /></div>
+          <div className={fe.capacity ? "has-err" : undefined}><label className="f">Capacity (packets) *</label><input className="inp" type="number" min={1} value={cap} onChange={(e) => { setCap(e.target.value); clearFe("capacity"); }} /><FieldError msg={fe.capacity} /></div>
         </div>
         {showBranch && (
-          <div className="frow"><div><label className="f">Branch *</label>
+          <div className="frow"><div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
             <Select
               disabled={branchLocked}
               options={[{ value: "", label: "Select branch…" }, ...branches.map((b) => ({ value: String(b.id), label: b.name }))]}
               value={branchId === "" ? "" : String(branchId)}
-              onChange={(v) => setBranchId(v ? Number(v) : "")}
+              onChange={(v) => { setBranchId(v ? Number(v) : ""); clearFe("branch"); }}
             />
+            <FieldError msg={fe.branch} />
           </div></div>
         )}
         {locker && (

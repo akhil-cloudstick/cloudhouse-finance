@@ -1,3 +1,4 @@
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import React, { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,8 +17,12 @@ import {
   FabCorner,
   Field,
   FieldGrid,
-  FilterChipRow,
-  FiltersBar,
+  GroupedFilter,
+  emptyGroupedFilter,
+  gfValues,
+  type GFSection,
+  type GroupedFilterValue,
+  FieldRow,
   FlatHeader,
   Input,
   PillTabs,
@@ -56,18 +61,24 @@ import { loadErrorText, userMessage } from "@/common/services/apiErrors";
 // Search (PL no., customer name/code) and the frequency filter are backend
 // params on GET /personal-loans; rows page in 10 at a time.
 
-const FREQ_FILTERS = ["All", "Daily", "Weekly", "Monthly"] as const;
-type FreqFilter = (typeof FREQ_FILTERS)[number];
 const FREQS = ["Daily", "Weekly", "Monthly"] as const;
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer"] as const;
 const PER: Record<Frequency, string> = { Daily: "day", Weekly: "wk", Monthly: "mo" };
 
 // "Pending approval" lists loans waiting in the tenant's "personal_loan"
 // approval chain (status filter is server-side).
-const STATUS_FILTERS = ["All", "Pending approval"] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-type Filters = { frequency?: Frequency; status?: string };
+type Filters = { frequency?: string; status?: string };
+
+const FILTER_SECTIONS: GFSection[] = [
+  { kind: "static", key: "freq", label: "Frequency", options: FREQS.map((f) => ({ value: f, label: f })) },
+  {
+    kind: "static",
+    key: "status",
+    label: "Status",
+    options: ["Active", "Pending Approval", "Rejected", "Closed", "Renewed", "Defaulted"].map((s) => ({ value: s, label: s })),
+  },
+];
 
 const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 
@@ -83,11 +94,8 @@ export default function PersonalLoansScreen() {
   const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
 
-  const [freq, setFreq] = usePersistedState<FreqFilter>("personalLoans:freq", "All");
-  const [statusFilter, setStatusFilter] = usePersistedState<StatusFilter>("personalLoans:status", "All");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [draftFreq, setDraftFreq] = useState<FreqFilter>("All");
-  const [draftStatus, setDraftStatus] = useState<StatusFilter>("All");
+  // One grouped filter, multi-select: Frequency and Status (same options as web), sent comma-joined.
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("personalLoans:filters", emptyGroupedFilter());
 
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -100,9 +108,10 @@ export default function PersonalLoansScreen() {
     if (params.id && Number(params.id)) setDetailId(Number(params.id));
   }, [params.id, params.t]);
 
-  const filters: Filters = { frequency: freq === "All" ? undefined : freq, status: statusFilter === "Pending approval" ? "Pending Approval" : undefined };
-  const filterCount = (freq !== "All" ? 1 : 0) + (statusFilter !== "All" ? 1 : 0);
-  const filterSummary = [statusFilter !== "All" ? statusFilter : null, freq === "All" ? "All frequencies" : `${freq} collection`].filter(Boolean).join(" · ");
+  const freqs = gfValues(fv, "freq");
+  const statuses = gfValues(fv, "status");
+  const filters: Filters = { frequency: freqs.length ? freqs.join(",") : undefined, status: statuses.length ? statuses.join(",") : undefined };
+  const filterCount = freqs.length + statuses.length;
   const list = useServerList<PersonalLoan, Filters>({ key: ["personalLoans", "list"], persistKey: "personalLoans", filters, fetchPage: (p) => listPersonalLoansPage(p) });
 
   return (
@@ -118,16 +127,7 @@ export default function PersonalLoansScreen() {
         header={
           <View style={{ paddingTop: 12 }}>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingBottom: 8 }} />
-            <FiltersBar
-              count={filterCount}
-              summary={filterSummary}
-              onPress={() => {
-                setDraftFreq(freq);
-                setDraftStatus(statusFilter);
-                setFilterOpen(true);
-              }}
-              style={{ marginTop: 0, marginBottom: 10 }}
-            />
+            <GroupedFilter title="Filter personal loans" sections={FILTER_SECTIONS} value={fv} onChange={setFv} style={{ alignSelf: "flex-start", marginBottom: 10 }} />
           </View>
         }
         renderItem={(l, i) => (
@@ -149,23 +149,6 @@ export default function PersonalLoansScreen() {
           />
         )}
       />
-
-      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Personal Loans" maxHeightPct={55}>
-        <Field label="Status">
-          <FilterChipRow options={STATUS_FILTERS} value={draftStatus} onChange={setDraftStatus} />
-        </Field>
-        <Field label="Collection frequency">
-          <FilterChipRow options={FREQ_FILTERS} value={draftFreq} onChange={setDraftFreq} />
-        </Field>
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setFreq(draftFreq);
-            setStatusFilter(draftStatus);
-            setFilterOpen(false);
-          }}
-        />
-      </Sheet>
 
       <CreatePersonalLoanSheet
         visible={createOpen}
@@ -215,6 +198,10 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
   // Same as the web's "Full Amount" checkbox: withhold the interest upfront
   // (default) or disburse the full principal now.
   const [disburse, setDisburse] = useState<"Withhold interest" | "Full amount">("Withhold interest");
+  // Late payment (optional) and how the disbursement leaves the till — same as web.
+  const [penalRate, setPenalRate] = useState("");
+  const [graceDays, setGraceDays] = useState("");
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -226,6 +213,8 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
       setFrequency("Daily");
       setTenureCount("");
       setDisburse("Withhold interest");
+      setPenalRate("");
+      setGraceDays("");
       setError(null);
     }
   }, [visible]);
@@ -253,6 +242,10 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
         frequency,
         tenureCount: tenureNum,
         fullDisbursement,
+        penalInterestRate: penalRate ? +penalRate : undefined,
+        gracePeriodDays: graceDays ? +graceDays : undefined,
+        ...(pay?.split ?? {}),
+        bankId: pay?.bankId,
       }),
     onSuccess: (loan) => {
       qc.invalidateQueries({ queryKey: ["personalLoans"] });
@@ -268,6 +261,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
     if (!tenureNum || tenureNum <= 0) return "Please enter the number of installments.";
     if (interestValueNum < 0) return "Interest value must not be negative.";
     if (interestAmount >= principalNum) return "Interest amount must be less than the principal amount.";
+    if (disbursedAmount > 0 && !pay?.ready) return "The disbursement breakdown must add up to the amount the customer gets, with a bank for every UPI / Bank Transfer line.";
     return null;
   }
 
@@ -302,6 +296,15 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
       <Field label="Disbursement">
         <ChipToggle options={["Withhold interest", "Full amount"] as const} value={disburse} onChange={setDisburse} />
       </Field>
+      <FieldRow>
+        <Field label="Penal interest (% p.a.)" style={{ flex: 1 }}>
+          <Input keyboardType="decimal-pad" placeholder="Same as loan rate" value={penalRate} onChangeText={setPenalRate} />
+        </Field>
+        <Field label="Grace period (days)" style={{ flex: 1 }}>
+          <Input keyboardType="number-pad" placeholder="e.g. 5" value={graceDays} onChangeText={setGraceDays} />
+        </Field>
+      </FieldRow>
+      {disbursedAmount > 0 ? <SplitPaymentInput total={disbursedAmount} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
       <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
         <FieldGrid
           items={[
@@ -678,6 +681,7 @@ function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
   const [interestValue, setInterestValue] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("Daily");
   const [tenure, setTenure] = useState("");
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -703,7 +707,11 @@ function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
   });
 
   const renew = useMutation({
-    mutationFn: () => renewPersonalLoan(id, { principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: tenureNum }),
+    mutationFn: () =>
+      renewPersonalLoan(id, {
+        principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: tenureNum,
+        ...((preview.data?.disbursedAmount ?? 0) > 0 ? { ...(pay?.split ?? {}), bankId: pay?.bankId } : {}),
+      }),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["personalLoans"] });
       qc.invalidateQueries({ queryKey: ["personalLoan"] });
@@ -743,9 +751,10 @@ function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
           />
         </Card>
       ) : null}
+      {preview.data && preview.data.disbursedAmount > 0 ? <SplitPaymentInput total={preview.data.disbursedAmount} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
       {preview.data?.shortfall ? <WarningBanner>New principal is not enough to cover the outstanding balance and interest.</WarningBanner> : null}
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Confirm Renewal" onPress={() => renew.mutate()} loading={renew.isPending} disabled={!principal || !tenure || !!preview.data?.shortfall} />
+      <PrimaryButton label="Confirm Renewal" onPress={() => renew.mutate()} loading={renew.isPending} disabled={!principal || !tenure || !!preview.data?.shortfall || ((preview.data?.disbursedAmount ?? 0) > 0 && !pay?.ready)} />
     </Sheet>
   );
 }

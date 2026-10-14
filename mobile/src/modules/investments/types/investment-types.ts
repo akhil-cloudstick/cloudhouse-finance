@@ -88,6 +88,12 @@ export type CreateInvestmentInput = {
   customerId: number;
   planId: number;
   principalAmount: number;
+  // How the investor's money reached the branch, and the bank account a UPI / Bank Transfer share landed in.
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
 };
 // The 4-field split (cash/upi/bankTransfer/cheque) only needs to sum to the
 // total — a single mode with the full amount is a valid, first-class case

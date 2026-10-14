@@ -1,3 +1,4 @@
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import React, { useMemo, useState } from "react";
 import { View } from "react-native";
 import { FlatHeader, GroupedFilter, PillButton, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfDate, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
@@ -8,7 +9,7 @@ import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { shareMovementsPdf } from "@/common/utils/ledgerExport";
 import { useExpenseCategoryIds } from "@/common/components/LedgerList";
-import { MOVEMENT_TYPE_OPTIONS, movementFilterCount, runningBalances, type MovementFilters } from "@/common/components/movementLedger";
+import { MOVEMENT_TYPE_OPTIONS, MOVEMENT_MODE_OPTIONS, movementFilterCount, balancesFromPages, totalsFromPages, type MovementFilters } from "@/common/components/movementLedger";
 import { MovementRow } from "@/common/components/MovementRow";
 import type { CashMovement } from "@/modules/cash/types/cash-types";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -28,16 +29,19 @@ const SECTIONS: GFSection[] = [
     fetchPage: (p) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
   },
   { kind: "static", key: "type", label: "Type", options: MOVEMENT_TYPE_OPTIONS },
+  { kind: "static", key: "mode", label: "Mode", options: MOVEMENT_MODE_OPTIONS },
   { kind: "date", key: "date", label: "Date" },
 ];
 
 export default function LedgerStatementScreen() {
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  // No Branch section for a one-branch business or a branch-confined role (same rule as web).
+  const showBranch = useShowBranchFilter();
   // Customer narrows to the selected branches (a customer has one home branch).
   const branchIds = gfValues(fv, "branch").map(Number);
   const sections = useMemo<GFSection[]>(
     () => [
-      SECTIONS[0],
+      ...(showBranch ? [SECTIONS[0]] : []),
       {
         kind: "async",
         key: "customer",
@@ -48,15 +52,17 @@ export default function LedgerStatementScreen() {
       },
       SECTIONS[1],
       SECTIONS[2],
+      SECTIONS[3],
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [branchIds.join(",")]
+    [branchIds.join(","), showBranch]
   );
   const filters = useMemo<MovementFilters>(
     () => ({
       branchIds,
       customerIds: gfValues(fv, "customer").map(Number),
       types: gfValues(fv, "type"),
+      modes: gfValues(fv, "mode"),
       fromDate: gfDate(fv, "date").from,
       toDate: gfDate(fv, "date").to,
     }),
@@ -70,7 +76,7 @@ export default function LedgerStatementScreen() {
     fetchPage: (p) => listCashMovementsPage(p),
     filters,
   });
-  const balances = useMemo(() => runningBalances(list.items), [list.items]);
+  const balances = useMemo(() => balancesFromPages(list.pages), [list.pages]);
   const categoryIds = useExpenseCategoryIds();
 
   const [exporting, setExporting] = useState(false);

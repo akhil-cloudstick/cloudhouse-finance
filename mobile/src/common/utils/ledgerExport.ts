@@ -23,10 +23,12 @@ function ledgerPath(kind: LedgerKind, ref: string, params: URLSearchParams): str
   }
 }
 
-export async function shareLedgerPdf(kind: LedgerKind, ref: string, range: { fromDate?: string; toDate?: string }, title: string, extra?: { bankId?: number; branchIds?: string }) {
+export async function shareLedgerPdf(kind: LedgerKind, ref: string, range: { fromDate?: string; toDate?: string }, title: string, extra?: { bankId?: number; branchIds?: string; modes?: string; types?: string }) {
   const params = new URLSearchParams({ export: "pdf" });
   if (extra?.bankId) params.set("bankId", String(extra.bankId));
   if (extra?.branchIds) params.set("branchIds", extra.branchIds);
+  if (extra?.modes) params.set("modes", extra.modes);
+  if (extra?.types) params.set("types", extra.types);
   if (range.fromDate) params.set("fromDate", range.fromDate);
   if (range.toDate) params.set("toDate", range.toDate);
   const path = ledgerPath(kind, ref, params);
@@ -44,6 +46,7 @@ export async function shareMovementsPdf(
     branchIds?: number[];
     customerIds?: number[];
     types?: string[];
+    modes?: string[];
   },
   format: "pdf" | "xlsx" = "pdf"
 ) {
@@ -55,6 +58,7 @@ export async function shareMovementsPdf(
   if (filters.branchIds?.length) params.set("branchIds", filters.branchIds.join(","));
   if (filters.customerIds?.length) params.set("customerIds", filters.customerIds.join(","));
   if (filters.types?.length) params.set("types", filters.types.join(","));
+  if (filters.modes?.length) params.set("modes", filters.modes.join(","));
   await shareFile("/cash-movements/export", params, "cash-movements", "Ledger", format === "xlsx" ? XLSX : PDF);
 }
 
@@ -85,4 +89,14 @@ export async function shareBranchLedgerPdf(branchId: number, range: { fromDate?:
   if (range.fromDate) params.set("fromDate", range.fromDate);
   if (range.toDate) params.set("toDate", range.toDate);
   await shareFile(`/cash-movements/transactions/branch/${branchId}/export`, params, "branch-ledger", "Branch ledger");
+}
+
+/** Loan Payment Ledger Download — web's downloadLoanStatement: GET /loans/:id/statement (the PDF). */
+export async function shareLoanStatementPdf(loanId: number, loanNumber: string) {
+  await shareFile(`/loans/${loanId}/statement`, new URLSearchParams(), `statement-${loanNumber}`, "Loan statement");
+}
+
+/** Expense Register Download — web's exportExpenses: GET /expenses/export (every expense row, as a PDF). */
+export async function shareExpensesPdf() {
+  await shareFile("/expenses/export", new URLSearchParams(), "expense-register", "Expense register");
 }

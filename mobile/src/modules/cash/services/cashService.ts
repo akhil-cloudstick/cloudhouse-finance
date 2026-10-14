@@ -24,14 +24,18 @@ export function listCashMovementsPage(params: {
   branchIds?: number[];
   customerIds?: number[];
   types?: string[];
+  modes?: string[];
 }) {
-  const { branchIds, customerIds, types, ...rest } = params;
-  return apiRequest<{ items: CashMovement[]; hasMore: boolean; total?: number }>("/cash-movements", {
+  const { branchIds, customerIds, types, modes, ...rest } = params;
+  // totalDebit/totalCredit cover every row matching the filters; pageBalance is the
+  // ledger's running balance after this page's newest row (same as web's Ledger).
+  return apiRequest<{ items: CashMovement[]; hasMore: boolean; total?: number; totalDebit?: number; totalCredit?: number; pageBalance?: number }>("/cash-movements", {
     params: {
       ...rest,
       branchIds: branchIds?.length ? branchIds.join(",") : undefined,
       customerIds: customerIds?.length ? customerIds.join(",") : undefined,
       types: types?.length ? types.join(",") : undefined,
+      modes: modes?.length ? modes.join(",") : undefined,
     },
   });
 }
@@ -189,7 +193,7 @@ export function listExpenses() {
 // ExpenseHandler.List) into the {items, hasMore} envelope — used by the
 // paginated mobile Expenses table (10/page, one API call per page).
 export function listExpensesPage(params: { limit: number; offset: number; q?: string; status?: string }) {
-  return apiRequest<{ items: Expense[]; hasMore: boolean }>("/expenses", { params });
+  return apiRequest<{ items: Expense[]; hasMore: boolean; total?: number; totalAmount?: number }>("/expenses", { params });
 }
 
 export function createExpense(input: {
@@ -235,7 +239,7 @@ export function getCashSummary(branchId: number, date?: string) {
 // backend/internal/cash/handler.go's Record. Same {items,hasMore} pagination
 // pattern as cash movements/expenses when `limit` is passed.
 export function listGoldSalesPage(params: { limit: number; offset: number; q?: string; fromDate?: string; toDate?: string }) {
-  return apiRequest<{ items: GoldSale[]; hasMore: boolean }>("/gold-sales", { params });
+  return apiRequest<{ items: GoldSale[]; hasMore: boolean; total?: number; totalSold?: number; totalCost?: number; totalProfit?: number }>("/gold-sales", { params });
 }
 
 export function createGoldSale(input: {

@@ -18,7 +18,7 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-const formGLenderAddress = "Demo Registered Office, Door No. 0/000, Demo Village, Demo Taluk, Ernakulam District, Kerala"
+const formGLenderAddress = ""
 
 type FormGBranch struct {
 	Name    string `json:"name"`
@@ -118,7 +118,7 @@ func formGLenderParticulars(ctx context.Context) (name, address string) {
 		}
 	}
 	if t.AddressLine != "" {
-		address = t.AddressLine
+		address = common.NormalizeLineBreaks(t.AddressLine)
 	}
 	return name, address
 }

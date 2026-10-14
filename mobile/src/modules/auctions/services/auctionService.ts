@@ -28,10 +28,17 @@ export function scheduleAuction(loanId: number, auctionDate: string, referenceNu
   });
 }
 
-export function recordAuctionSale(loanId: number, saleAmount: number, auctionExpenses?: number) {
+// `payment` is how the proceeds were received — the split columns plus the branch bank account a
+// UPI / Bank Transfer share landed in (web's recordAuctionSale sends the same).
+export function recordAuctionSale(
+  loanId: number,
+  saleAmount: number,
+  auctionExpenses?: number,
+  payment?: { cashAmount: number; upiAmount: number; bankTransferAmount: number; bankId?: number }
+) {
   return apiRequest<AuctionRecord>(`/loans/${loanId}/auction/sale`, {
     method: "POST",
-    body: { saleAmount, auctionExpenses },
+    body: { saleAmount, auctionExpenses, ...(payment ?? {}) },
   });
 }
 
@@ -42,10 +49,12 @@ export function recordAuctionSale(loanId: number, saleAmount: number, auctionExp
 // frontend/modules/loans/services/loanService.ts's settleAuction exactly;
 // the backend still accepts the old "settlementStatus" field as a legacy
 // alias, but this client always sends the current "disposition" shape.
-export function settleAuction(loanId: number, disposition: AuctionSurplusDisposition, remarks?: string) {
+// A "RefundedToCustomer" disposition also carries the one payment `mode` the refund was paid in and
+// the bank it was paid from (none for Cash) — same as web.
+export function settleAuction(loanId: number, disposition: AuctionSurplusDisposition, remarks?: string, mode?: string, bankId?: number) {
   return apiRequest<AuctionRecord>(`/loans/${loanId}/auction/settle`, {
     method: "POST",
-    body: { disposition, remarks },
+    body: { disposition, remarks, mode, bankId },
   });
 }
 

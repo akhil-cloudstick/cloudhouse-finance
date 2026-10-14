@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AccBtn, CheckItem, DateField, Field, Input, NoticeBanner, PaymentSplit, PrimaryButton, ResultBox, Sheet, TextField, Txt, C, ZERO_SPLIT, isBalanced, toast, type SplitAmounts } from "@/common/components/ui";
+import { AccBtn, CheckItem, DateField, Field, Input, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, C, toast } from "@/common/components/ui";
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { topUpLoan } from "@/modules/loans/services/loanService";
 import { isFlowOff, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { inr, todayISO } from "@/common/utils/format";
@@ -40,7 +41,7 @@ export function TopUpSheet({
   // its final stage pays it out.
   const needsApproval = !isFlowOff(useApprovalWorkflow(), "loan_topup");
   const [amount, setAmount] = useState("");
-  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [date, setDate] = useState(todayISO());
   const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +55,6 @@ export function TopUpSheet({
   useEffect(() => {
     if (!visible) return;
     setAmount("");
-    setSplit(ZERO_SPLIT);
     setDate(todayISO());
     setReference("");
     setError(null);
@@ -75,7 +75,8 @@ export function TopUpSheet({
     mutationFn: () =>
       topUpLoan(l.id, {
         amount: amt,
-        ...split,
+        ...(pay?.split ?? {}),
+        bankId: pay?.bankId,
         occurredOn: date || undefined,
         reference: reference.trim() || undefined,
         settleInterest: hasArrears ? settleMode : undefined,
@@ -105,7 +106,6 @@ export function TopUpSheet({
 
   function changeAmount(v: string) {
     setAmount(v);
-    setSplit({ ...ZERO_SPLIT, cashAmount: Number(v) || 0 });
   }
 
   return (
@@ -139,7 +139,7 @@ export function TopUpSheet({
       </Field>
       <DateField label="Top-up date" value={date} onChange={setDate} max={todayISO()} />
       <Field label="Payment breakdown">
-        <PaymentSplit amount={amt} value={split} onChange={setSplit} />
+        <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it is paid from)" />
       </Field>
       <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={(v) => setReference(v.slice(0, 80))} />
       {shortfall && onAddOrnaments ? <AccBtn label="Add ornaments to raise the eligible amount" onPress={onAddOrnaments} style={{ marginBottom: 12 }} /> : null}
@@ -155,7 +155,7 @@ export function TopUpSheet({
           save.mutate();
         }}
         loading={save.isPending}
-        disabled={!(amt > 0) || over || !isBalanced(split, amt)}
+        disabled={!(amt > 0) || over || !pay?.ready}
       />
     </Sheet>
   );

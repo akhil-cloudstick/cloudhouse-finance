@@ -6,7 +6,7 @@
   "build": {
     "base": {
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://api.cloudhousefinance.com/api/v1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://superadmin.cloudhousefinance.com/api/v1"
       }
     },
     "development": {

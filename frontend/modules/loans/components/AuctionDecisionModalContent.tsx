@@ -9,6 +9,7 @@ import { resolveAuctionDecision } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type AuctionDecisionRequestView, type AuctionDecisionStatus, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 type AuctionDecisionModalContentProps = {
   loan: LoanView;
@@ -40,11 +41,15 @@ export function AuctionDecisionModalContent({
   const [decision, setDecision] = useState<Exclude<AuctionDecisionStatus, "Pending"> | "">("");
   const [remarks, setRemarks] = useState("");
   const [err, setErr] = useState("");
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+
   async function save() { return singleFlight("auction-modal:save:5", async () => {
-    if (!decision) { setErr("Please choose a decision."); return; }
-    if (isShortfall && !remarks.trim()) { setErr("Please state the reason for this decision."); return; }
+    setErr(""); setFe({});
+    if (!decision) { fail("decision", "Please choose a decision."); return; }
+    if (isShortfall && !remarks.trim()) { fail("remarks", "Please state the reason for this decision."); return; }
     setSaving(true);
     try {
       const updated = await resolveAuctionDecision(loan.numericId, request.id, decision, remarks.trim() || undefined);
@@ -52,7 +57,9 @@ export function AuctionDecisionModalContent({
       closeModal();
       toast(DECISION_TOASTS[decision](loan.id));
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not record the decision — try again.";
+      const field = fieldForMessage(msg, { remarks: /reason|remark/i });
+      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
       onError?.(); // see IssueNoticeModalContent's onError comment above
     } finally {
       setSaving(false);
@@ -81,7 +88,7 @@ export function AuctionDecisionModalContent({
           </span>
         </div>
 
-        <div className="frow"><div>
+        <div className="frow"><div className={fe.decision ? "has-err" : undefined}>
           <label className="f">Decision *</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
             {(isShortfall
@@ -99,7 +106,7 @@ export function AuctionDecisionModalContent({
                   type="radio"
                   name="decision"
                   checked={decision === value}
-                  onChange={() => setDecision(value as Exclude<AuctionDecisionStatus, "Pending">)}
+                  onChange={() => { setDecision(value as Exclude<AuctionDecisionStatus, "Pending">); setFe((cur) => ({ ...cur, decision: "" })); }}
                 />
                 <span className="mark" />
                 <span>
@@ -109,11 +116,12 @@ export function AuctionDecisionModalContent({
               </label>
             ))}
           </div>
+          <FieldError msg={fe.decision} />
         </div></div>
 
-        <div className="frow"><div>
+        <div className="frow"><div className={fe.remarks ? "has-err" : undefined}>
           <label className="f">Remarks {isShortfall ? "*" : ""}</label>
-          <input className="inp" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="reason for this decision" maxLength={255} />
+          <input className="inp" value={remarks} onChange={(e) => { setRemarks(e.target.value); setFe((cur) => ({ ...cur, remarks: "" })); }} placeholder="reason for this decision" maxLength={255} /><FieldError msg={fe.remarks} />
         </div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

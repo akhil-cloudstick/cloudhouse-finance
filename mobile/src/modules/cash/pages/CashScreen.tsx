@@ -1,37 +1,34 @@
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
-  Buffering,
   C,
-  Card,
-  CashRow,
   ConfirmSheet,
-  ClosingCard,
   FabMenu,
   type FabMenuAction,
   FlatHeader,
   PillTabs,
   Screen,
   SearchInput,
-  SectionTitle,
   ServerFlatList,
   Txt,
   toast,
 } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
+import { canActAtStage, stageByPending, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { approveExpense, getCashSummary, listCashMovementsPage, listExpensesPage, listGoldSalesPage, rejectExpense } from "@/modules/cash/services/cashService";
+import { approveExpense, listCashMovementsPage, listExpensesPage, listGoldSalesPage, rejectExpense } from "@/modules/cash/services/cashService";
 import { type CashMovement, type Expense, type GoldSale } from "@/modules/cash/types/cash-types";
 import { AddEntrySheet, EditEntrySheet } from "@/modules/cash/components/EntryForms";
-import { dmy, inr, todayISO } from "@/common/utils/format";
+import { dmy, inr } from "@/common/utils/format";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
-import { shareMovementsPdf } from "@/common/utils/ledgerExport";
-import { modeLink, openLedger, useExpenseCategoryIds } from "@/common/components/LedgerList";
+import { shareExpensesPdf, shareMovementsPdf } from "@/common/utils/ledgerExport";
+import { billDetail, modeLink, openLedger, useExpenseCategoryIds } from "@/common/components/LedgerList";
 import { LedgerLink } from "@/common/components/LedgerLink";
-import { EMPTY_MOVEMENT_FILTERS, movementFilterCount, movementFilterStyles as fs, runningBalances, type MovementFilters } from "@/common/components/movementLedger";
+import { EMPTY_MOVEMENT_FILTERS, movementFilterCount, movementFilterStyles as fs, balancesFromPages, totalsFromPages, type MovementFilters } from "@/common/components/movementLedger";
 import { MovementFilterSheet } from "@/common/components/MovementFilterSheet";
 import { MovementRow } from "@/common/components/MovementRow";
 
@@ -49,11 +46,14 @@ const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 
 export default function CashScreen() {
   const qc = useQueryClient();
-  const { employee, can } = useAuth();
-  // Approve / reject hit PATCH /expenses/:id/approve|reject, gated "can update
-  // cash"; the workflow stage itself is role-checked server-side.
-  const canApproveExpense = can("Cash_Management", "can_update_cash");
-  const today = todayISO();
+  const { can, employee } = useAuth();
+  const wf = useApprovalWorkflow();
+  // Approve / reject hit PATCH /expenses/:id/approve|reject, gated "can update cash". Each pending
+  // expense waits at one approver role (the expense approval chain) — only that role (or the system
+  // account) is offered the buttons, everyone else sees "Awaiting <role>"; the server enforces it too.
+  const canUpdateCash = can("Cash_Management", "can_update_cash");
+  const expenseStage = (e: Expense) => stageByPending(wf, "expense", e.approvalStage || "Pending");
+  const canApproveExpense = (e: Expense) => canUpdateCash && (canActAtStage(employee, expenseStage(e)) || (employee?.isSystem === true && !expenseStage(e)));
 
   const [tab, setTab] = useState<Tab>("movements");
   // Dashboard tiles deep-link here with ?tab=…; `t` re-applies it per tap.
@@ -65,7 +65,8 @@ export default function CashScreen() {
   const [action, setAction] = useState<CashAction>(null);
   // The expense whose Edit sheet is open (a pending or approved one a person keyed in).
   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
-  const [movementFilters, setMovementFilters] = useState<MovementFilters>(EMPTY_MOVEMENT_FILTERS);
+  // Kept while moving around the Ledger (a party ledger and back), like web.
+  const [movementFilters, setMovementFilters] = usePersistedState<MovementFilters>("cash:filters", EMPTY_MOVEMENT_FILTERS);
   const [movementFilterSheetOpen, setMovementFilterSheetOpen] = useState(false);
   const filterCount = movementFilterCount(movementFilters);
   // Ledger page Download — PDF of every movement matching the filters.
@@ -84,11 +85,20 @@ export default function CashScreen() {
     }
   }
 
-  const summary = useQuery({
-    queryKey: ["cash-summary", employee?.branchId, today],
-    queryFn: () => getCashSummary(employee!.branchId, today),
-    enabled: !!employee,
-  });
+  // Expense Register Download — a PDF of every expense row.
+  async function onDownloadExpenses() {
+    if (exporting) return;
+    setExporting(true);
+    toast.info("Preparing PDF", "The register will open in the share sheet.");
+    try {
+      await shareExpensesPdf();
+    } catch (e) {
+      if (isUserCancel(e)) return;
+      toast.error("Download failed", errMsg(e, "Could not download the expense register — try again."));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const movements = useServerList<CashMovement, MovementFilters>({
     key: ["cash-movements", "list"],
@@ -96,7 +106,7 @@ export default function CashScreen() {
     filters: movementFilters,
     enabled: tab === "movements",
   });
-  const movementBalances = useMemo(() => runningBalances(movements.items), [movements.items]);
+  const movementBalances = useMemo(() => balancesFromPages(movements.pages), [movements.pages]);
   const categoryIds = useExpenseCategoryIds();
   const expenses = useServerList<Expense>({ key: ["expenses", "list"], fetchPage: (p) => listExpensesPage(p), enabled: tab === "expenses" });
   const goldSales = useServerList<GoldSale>({ key: ["gold-sales", "list"], fetchPage: (p) => listGoldSalesPage(p), enabled: tab === "goldSales" });
@@ -124,27 +134,9 @@ export default function CashScreen() {
     onError: (err) => setRejectError(errMsg(err, "Could not reject the expense — try again.")),
   });
 
-  const s = summary.data;
+  const movementTotals = totalsFromPages(movements.pages);
   const header = (
     <View style={{ paddingTop: 14 }}>
-      <Card style={{ marginBottom: 12 }}>
-        <SectionTitle flush style={{ marginBottom: 6 }}>
-          Today&apos;s cash summary
-        </SectionTitle>
-        {summary.isLoading ? (
-          <Buffering block />
-        ) : summary.isError || !s ? (
-          <Txt style={{ color: C.red, fontSize: 12.5, paddingVertical: 8 }}>Could not load today&apos;s summary.</Txt>
-        ) : (
-          <>
-            <CashRow first k="Opening cash (carried forward)" v={inr(s.openingCash)} />
-            <CashRow k="Cash in" v={`+${inr(s.collections)}`} color={C.green} />
-            <CashRow k="Cash out" v={inr(s.disbursements)} />
-            <CashRow k="Expenses (cash)" v={inr(s.cashExpenses)} />
-          </>
-        )}
-      </Card>
-      <ClosingCard k="Closing Balance (Expected Cash in Hand)" v={s ? inr(s.expectedCash) : "—"} formula="Opening + Cash in − Cash out − Expenses" />
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />
       <View style={{ paddingTop: 12 }}>
         {tab === "movements" ? (
@@ -167,11 +159,39 @@ export default function CashScreen() {
           <SearchInput value={goldSales.search} onChangeText={goldSales.setSearch} placeholder="Search by ornament type or remarks" style={{ paddingBottom: 8 }} />
         )}
       </View>
+      {tab === "expenses" && expenses.pages?.[0]?.totalAmount != null ? (
+        <View style={{ flexDirection: "row", justifyContent: "space-between", marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+          <Txt style={{ fontSize: 12.5, color: C.muted }}>Total expenses</Txt>
+          <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.red }}>{inr(expenses.pages[0].totalAmount ?? 0)}</Txt>
+        </View>
+      ) : null}
+      {tab === "goldSales" && goldSales.pages?.[0]?.totalSold != null ? (
+        <View style={{ flexDirection: "row", justifyContent: "space-between", marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+          <Txt style={{ fontSize: 12, color: C.muted }}>
+            Sold <Txt style={{ fontWeight: "700", color: C.ink }}>{inr(goldSales.pages[0].totalSold ?? 0)}</Txt>
+          </Txt>
+          <Txt style={{ fontSize: 12, color: C.muted }}>
+            Cost <Txt style={{ fontWeight: "700", color: C.ink }}>{inr(goldSales.pages[0].totalCost ?? 0)}</Txt>
+          </Txt>
+          <Txt style={{ fontSize: 12, color: C.muted }}>
+            Profit <Txt style={{ fontWeight: "700", color: (goldSales.pages[0].totalProfit ?? 0) >= 0 ? C.green : C.red }}>{inr(goldSales.pages[0].totalProfit ?? 0)}</Txt>
+          </Txt>
+        </View>
+      ) : null}
+      {tab === "movements" && movementTotals ? (
+        <View style={{ flexDirection: "row", justifyContent: "space-between", marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+          <Txt style={{ fontSize: 12.5, color: C.muted }}>
+            Total Debit <Txt style={{ fontWeight: "700", color: C.red }}>{inr(movementTotals.debit)}</Txt>
+          </Txt>
+          <Txt style={{ fontSize: 12.5, color: C.muted }}>
+            Total Credit <Txt style={{ fontWeight: "700", color: C.green }}>{inr(movementTotals.credit)}</Txt>
+          </Txt>
+        </View>
+      ) : null}
     </View>
   );
 
   const refreshAll = (refetch: () => void) => () => {
-    summary.refetch();
     refetch();
   };
 
@@ -184,6 +204,9 @@ export default function CashScreen() {
       : []),
     ...(tab === "movements" && movements.items.length > 0 && can("Ledger_Export", "can_export_ledger")
       ? [{ label: "Download PDF", icon: "download", onPress: onDownload }]
+      : []),
+    ...(tab === "expenses" && expenses.items.length > 0 && can("Ledger_Export", "can_export_ledger")
+      ? [{ label: "Download Expense PDF", icon: "download", onPress: onDownloadExpenses }]
       : []),
   ];
 
@@ -232,9 +255,11 @@ export default function CashScreen() {
                 { k: "Branch", v: e.branch?.name || "—" },
                 ...(e.remarks ? [{ k: "Remarks", v: e.remarks }] : []),
                 ...(e.approvedBy ? [{ k: e.status === "Rejected" ? "Rejected by" : "Approved by", v: e.approvedBy }] : []),
+                ...(e.status === "Pending" && expenseStage(e) && !canApproveExpense(e) ? [{ k: "Awaiting", v: expenseStage(e)!.label }] : []),
+                ...billDetail(e.receiptImage),
               ]}
               actions={[
-                ...(canApproveExpense && e.status === "Pending"
+                ...(canApproveExpense(e) && e.status === "Pending"
                   ? [
                       { label: "Approve", onPress: () => approve.mutate(e.id), disabled: approve.isPending },
                       {

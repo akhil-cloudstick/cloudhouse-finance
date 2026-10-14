@@ -262,7 +262,7 @@ func investmentBondDataFor(ctx context.Context, inv *models.Investment) Investme
 	var signature template.HTML
 	if id, ok := config.TenantFromContext(ctx); ok {
 		if t, err := common.FindTenantByID(ctx, id); err == nil {
-			legalName, addressLine = t.LegalName, t.AddressLine
+			legalName, addressLine = t.LegalName, common.NormalizeLineBreaks(t.AddressLine)
 			signature = common.TenantSignatureImgHTML(t, config.Env.UploadsDir)
 		}
 	}

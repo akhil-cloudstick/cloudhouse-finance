@@ -10,12 +10,12 @@ export function listLockers() {
 // handler.go's List) into the {items, hasMore} envelope — used by the
 // paginated mobile Lockers list (10/page, one API call per page).
 export function listLockersPage(params: {
-  branchId?: number;
+  branchId?: number | string;
   q?: string;
   /** true -> only active lockers (sent as `active=true`). */
   active?: boolean;
   /** Server-side status bucket: active | full | inactive. */
-  status?: "active" | "full" | "inactive";
+  status?: string;
   limit: number;
   offset: number;
 }) {

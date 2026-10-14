@@ -26,7 +26,7 @@ import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { ledgerFocusTarget, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
-import { getLoanByNumber, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF } from "@/modules/loans/services/loanService";
+import { getLoanByNumber, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF, startPledgeSlipEsign, checkPledgeSlipEsign } from "@/modules/loans/services/loanService";
 import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView, type EsignWitnessInput } from "@/modules/loans/types/loan-types";
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
@@ -43,6 +43,9 @@ import { RepledgeModalContent } from "@/common/components/modals/RepledgeModalCo
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { EsignLanguageModalContent, type EsignDeliverBy } from "@/modules/loans/components/EsignLanguageModalContent";
+import { fetchUploadFile } from "@/common/services/uploadService";
+import { EsignStatusModalContent,type EsignStatusSigner } from "@/modules/loans/components/EsignStatusModalContent";
+import { PledgeSlipModalContent } from "@/modules/loans/components/PledgeSlipModalContent";
 import { RequestExtensionModalContent } from "@/common/components/modals/RequestExtensionModalContent";
 import { RequestReleaseModalContent } from "@/common/components/modals/RequestReleaseModalContent";
 import { EditLoanModalContent } from "@/modules/loans/components/EditLoanModalContent";
@@ -171,7 +174,12 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // button replaces "Send for Aadhaar eSign" until they confirm.
   const [esigning, setEsigning] = useState(false);
   const [esignStarted, setEsignStarted] = useState(false);
-  const [checkingEsign, setCheckingEsign] = useState(false);
+  // GML pledge slip eSign — same started/poll shape as the bond's, kept separate because the two
+  // documents are signed independently.
+  const [slipEsignStarted, setSlipEsignStarted] = useState(false);
+  // Signers (and, in link mode, their links) of the eSign just started — the status window rows.
+  const bondSignersRef = useRef<EsignStatusSigner[]>([]);
+  const slipSignersRef = useRef<EsignStatusSigner[]>([]);
   // Print Label/Slip/Statement/Bond + the eSign action used to be 5 separate
   // header buttons — collapsed into one "Documents" dropdown (see the doc
   // menu below) so the header doesn't outgrow the space next to the loan
@@ -183,6 +191,10 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     triggerRef: docsMenuTriggerRef,
     onKeyDown: onDocsMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
+  // Side picker under "Print Slip" (GML): Normal print vs Aadhaar eSign.
+  const [slipSubOpen, setSlipSubOpen] = useState(false);
+  // Same picker under "Print Bond".
+  const [bondSubOpen, setBondSubOpen] = useState(false);
   // Repledge to Bank / Request Extension / Request Release used to be 3
   // more separate header buttons alongside Record Payment — collapsed into
   // one "Loan Actions" dropdown the same way Documents was, for the same
@@ -206,6 +218,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   useEffect(() => {
     if (loan?.indemnityBondSignStatus === "sign_initiated") setEsignStarted(true);
   }, [loan?.indemnityBondSignStatus]);
+  useEffect(() => {
+    if (loan?.pledgeSlipSignStatus === "sign_initiated") setSlipEsignStarted(true);
+  }, [loan?.pledgeSlipSignStatus]);
   function load(isBackgroundRefresh = false) {
     if (!id) return;
     // Direct, atomic lookup by loan number (GET /loans/by-number/:loanNumber)
@@ -826,6 +841,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         </div>
       </body></html>`);
       w.document.close();
+      w.addEventListener("afterprint", () => w.close());
       setTimeout(() => { try { w.focus(); w.print(); } catch { /* ignore */ } }, 400);
     } catch {
       toast("Could not load customer details — try again");
@@ -877,42 +893,20 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     try {
       const redirectUrl = `${window.location.origin}/esign-callback`;
       const started = await startIndemnityBondEsign(l.numericId, lang, redirectUrl, deliverBy, witnesses);
-      if (deliverBy === "open" && started.url) {
-        window.open(started.url, "_blank", "noopener,noreferrer");
-      }
-      // Witnesses are not app users: only WhatsApp reaches them directly, so for the
-      // other modes show their links for staff to hand over.
-      const witnessLinks = (started.signers ?? []).slice(1);
-      if (witnessLinks.length > 0 && deliverBy !== "whatsapp") {
-        // Deferred: the picker modal calls closeModal() right after onConfirm resolves, which would close this one.
-        setTimeout(() => openModal(
-          <>
-            <div className="hd"><h3>Witness signing links</h3><button className="x" onClick={closeModal}>×</button></div>
-            <div className="bd bd-scroll">
-              <p style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Each witness must open their own link and sign with their own Aadhaar OTP.</p>
-              {witnessLinks.map((w, i) => (
-                <div key={w.url} style={{ marginBottom: 12 }}>
-                  <label className="f">Witness {i + 1} — {w.displayName} ({w.identifier})</label>
-                  {/* The URL itself is never shown: it carries a token. */}
-                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                    <button className="btn ghost" onClick={() => window.open(w.url, "_blank", "noopener,noreferrer")}>Open link</button>
-                    <button className="btn ghost" onClick={() => navigator.clipboard.writeText(w.url).then(() => toast("Link copied"), () => toast("Could not copy the link"))}>Copy link</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="ft"><button className="btn" onClick={closeModal}>Done</button></div>
-          </>
-        ), 0);
-      }
+      // Nothing opens by itself: in link mode staff open or copy each signer's own link from the
+      // status modal. With WhatsApp the system has already messaged the customer and both witnesses.
+      const signers: EsignStatusSigner[] = (started.signers ?? []).map((s, i) => ({
+        label: i === 0 ? "Customer" : `Witness ${i}`,
+        name: s.displayName,
+        url: deliverBy === "open" ? s.url : undefined,
+      }));
+      bondSignersRef.current = signers;
       setEsignStarted(true);
-      if (deliverBy === "whatsapp") {
-        toast("Pledge agreement eSign link sent to customer via WhatsApp. Click \"Check Status\" once signed.");
-      } else if (deliverBy === "dashboard") {
-        toast("Pledge agreement eSign link sent to customer mobile app. Click \"Check Status\" once signed.");
-      } else {
-        toast("Aadhaar eSign opened in a new tab — ask the customer to complete Aadhaar + OTP signing there, then click \"Check Status\" here.");
-      }
+      toast(deliverBy === "whatsapp"
+        ? "Pledge agreement eSign links sent via WhatsApp."
+        : "eSign links are ready — open each signer's link from the next window.");
+      // Deferred: the picker modal calls closeModal() right after onConfirm resolves, which would close this one.
+      setTimeout(openBondStatus, 0);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Could not start indemnity bond eSign.");
     } finally {
@@ -920,9 +914,19 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     }
   }
 
-  // Opens EsignLanguageModalContent so the officer picks English/Malayalam before
-  // printing the bond.
-  function openPrintBondLanguagePicker() {
+  // Customer's phone for the WhatsApp delivery option; the modals still work without it.
+  async function customerPhoneForEsign(): Promise<string | undefined> {
+    try {
+      return (await getCustomer(l.customerId)).phone;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // One modal for the bond: pick the language, then either print it or — with the checkbox ticked
+  // — choose the delivery channel and witnesses and send it for eSign. The checkbox is offered only
+  // while the bond can still be sent (not already signed or out for signing).
+  function openBondPrintPicker() {
     openModal(
       <EsignLanguageModalContent
         loanNumber={l.id}
@@ -934,47 +938,104 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     );
   }
 
-  // Opens EsignLanguageModal so the officer picks English/Malayalam and delivery
-  // channel (WhatsApp, customer mobile app, or browser tab) before starting the request.
-  async function openEsignLanguagePicker() {
-    let phone: string | undefined;
+  // The page can show a stale loan (another tab or the provider callback may have finished the
+  // signing), and the server refuses a second eSign on a signed document — so re-read it first.
+  // Opens a signed PDF fetched with the session token — a plain link to /uploads/… relies on a
+  // path-scoped cookie that is missing after a restored session, and then answers "file not found".
+  async function openSignedDocument(url: string) {
+    const w = window.open("", "_blank");
+    if (!w) { toast("Popup blocked — please allow popups for this site to view the document"); return; }
     try {
-      const c = await getCustomer(l.customerId);
-      phone = c.phone;
+      const res = await fetchUploadFile(url);
+      if (!res.ok) throw new Error(String(res.status));
+      w.location.href = URL.createObjectURL(await res.blob());
     } catch {
-      // ignore
+      w.close();
+      toast("Could not open the signed document — try again");
     }
+  }
+
+  const signedSlipReady = l.pledgeSlipSignStatus === "sign_complete" && !!l.pledgeSlipSignedUrl;
+  const signedBondReady = l.indemnityBondSignStatus === "sign_complete" && !!l.indemnityBondSignedUrl;
+
+  async function alreadySigned(doc: "bond" | "slip"): Promise<boolean> {
+    try {
+      const fresh = await getLoanByNumber(l.id);
+      setLoan(fresh);
+      const status = doc === "bond" ? fresh.indemnityBondSignStatus : fresh.pledgeSlipSignStatus;
+      if (status === "sign_complete") {
+        toast(`This loan's ${doc === "bond" ? "pledge agreement" : "pledge slip"} is already signed — see "Signed ${doc === "bond" ? "Bond" : "Slip"}" in Documents.`);
+        return true;
+      }
+    } catch { /* fall through: the server still guards the request */ }
+    return false;
+  }
+
+  async function openBondEsignPicker() {
+    if (await alreadySigned("bond")) return;
+    const phone = await customerPhoneForEsign();
     openModal(
       <EsignLanguageModalContent
         loanNumber={l.id}
         customerName={l.customerName}
         customerPhone={phone}
-        showDelivery={true}
-        showWitnesses={true}
+        title="Pledge Agreement eSign"
+        showDelivery
+        showWitnesses
         onConfirm={(lang, deliverBy, witnesses) => startIndemnityEsign(lang, deliverBy, witnesses)}
       />
     );
   }
 
-  async function checkIndemnityEsign() {
-    setCheckingEsign(true);
-    try {
-      const result = await checkIndemnityBondEsign(l.numericId);
-      if (result.status === "sign_complete") {
-        setEsignStarted(false);
-        load();
-        toast("Indemnity bond signed successfully.");
-      } else if (result.status === "failed") {
-        setEsignStarted(false);
-        toast("Aadhaar eSign failed — please try again.");
-      } else {
-        toast("Still waiting on the customer to complete Aadhaar eSign.");
-      }
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not check eSign status.");
-    } finally {
-      setCheckingEsign(false);
-    }
+  // GML only: the slip can be printed normally or sent to the customer to eSign.
+  async function startSlipEsign(deliverBy: EsignDeliverBy) {
+    const started = await startPledgeSlipEsign(l.numericId, `${window.location.origin}/esign-callback`, deliverBy);
+    slipSignersRef.current = [{ label: "Customer", name: l.customerName, url: deliverBy === "open" ? started.url : undefined }];
+    setSlipEsignStarted(true);
+    toast(deliverBy === "open"
+      ? "eSign link is ready — open it from the next window."
+      : "Pledge slip eSign link sent to the customer via WhatsApp.");
+    setTimeout(openSlipStatus, 0);
+  }
+
+  // Status windows: one row per signer, flipping to Verified as each completes their Aadhaar eSign.
+  function openBondStatus() {
+    openModal(
+      <EsignStatusModalContent
+        title="Pledge Agreement eSign"
+        loanNumber={l.id}
+        signers={bondSignersRef.current.length ? bondSignersRef.current : [{ label: "Customer" }]}
+        check={() => checkIndemnityBondEsign(l.numericId)}
+        onComplete={() => { setEsignStarted(false); load(); toast("Pledge agreement signed successfully."); }}
+        onFailed={() => setEsignStarted(false)}
+      />
+    );
+  }
+
+  function openSlipStatus() {
+    openModal(
+      <EsignStatusModalContent
+        title="Pledge Slip eSign"
+        loanNumber={l.id}
+        signers={slipSignersRef.current.length ? slipSignersRef.current : [{ label: "Customer" }]}
+        check={() => checkPledgeSlipEsign(l.numericId)}
+        onComplete={() => { setSlipEsignStarted(false); load(); toast("Pledge slip signed successfully."); }}
+        onFailed={() => setSlipEsignStarted(false)}
+      />
+    );
+  }
+
+  async function openPledgeSlipPicker() {
+    if (await alreadySigned("slip")) return;
+    const phone = await customerPhoneForEsign();
+    openModal(
+      <PledgeSlipModalContent
+        loanNumber={l.id}
+        customerName={l.customerName}
+        customerPhone={phone}
+        onEsign={startSlipEsign}
+      />
+    );
   }
 
   return (
@@ -1131,7 +1192,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
             <button
             ref={docsMenuTriggerRef}
             className="btn ghost"
-            onClick={() => setDocsMenuOpen((v) => !v)}
+            onClick={() => { setSlipSubOpen(false); setBondSubOpen(false); setDocsMenuOpen((v) => !v); }}
             aria-haspopup="menu"
             aria-expanded={docsMenuOpen}
           >
@@ -1142,9 +1203,38 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                 <a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
                   <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
                 </a>
-                <a href="#" title="Print Slip" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); printPledgeSlip(); }}>
-                  <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
-                </a>
+                {policy === "gml" && (signedSlipReady || canUpdateLoans) ? (
+                  <div className="docs-dd-sub">
+                    <a href="#" title="Print Slip" aria-haspopup="menu" aria-expanded={slipSubOpen} className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (printingSlip) return; setBondSubOpen(false); setSlipSubOpen((v) => !v); }}>
+                      <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
+                      <Icon name="chevronDown" className="docs-dd-sub-chev" />
+                    </a>
+                    {slipSubOpen && (
+                      <div className="docs-dd-submenu" role="menu">
+                        <a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void printPledgeSlip(); }}>
+                          <span className="tx">Normal print</span>
+                        </a>
+                        {signedSlipReady ? (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void openSignedDocument(l.pledgeSlipSignedUrl); }}>
+                            <span className="tx">Signed slip</span>
+                          </a>
+                        ) : slipEsignStarted ? (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); openSlipStatus(); }}>
+                            <span className="tx">eSign status</span>
+                          </a>
+                        ) : (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void openPledgeSlipPicker(); }}>
+                            <span className="tx">eSign (Aadhaar)</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <a href="#" title="Print Slip" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); void printPledgeSlip(); }}>
+                    <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
+                  </a>
+                )}
                 <a href="#" title="Print Slip + Label" className={printingSlipAndLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlipAndLabel) return; setDocsMenuOpen(false); printSlipAndLabel(); }}>
                   <Icon name="doc" /><span className="tx">{printingSlipAndLabel ? "Preparing…" : "Print Slip + Label"}</span>
                 </a>
@@ -1153,9 +1243,38 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
                   </a>
                 )}
-                <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openPrintBondLanguagePicker(); }}>
-                  <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
-                </a>
+                {signedBondReady || canUpdateLoans ? (
+                  <div className="docs-dd-sub">
+                    <a href="#" title="Print Bond" aria-haspopup="menu" aria-expanded={bondSubOpen} className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (printingBond) return; setSlipSubOpen(false); setBondSubOpen((v) => !v); }}>
+                      <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
+                      <Icon name="chevronDown" className="docs-dd-sub-chev" />
+                    </a>
+                    {bondSubOpen && (
+                      <div className="docs-dd-submenu" role="menu">
+                        <a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); openBondPrintPicker(); }}>
+                          <span className="tx">Normal print</span>
+                        </a>
+                        {signedBondReady ? (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); void openSignedDocument(l.indemnityBondSignedUrl); }}>
+                            <span className="tx">Signed bond</span>
+                          </a>
+                        ) : esignStarted ? (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); openBondStatus(); }}>
+                            <span className="tx">eSign status</span>
+                          </a>
+                        ) : (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); void openBondEsignPicker(); }}>
+                            <span className="tx">eSign (Aadhaar)</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openBondPrintPicker(); }}>
+                    <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
+                  </a>
+                )}
               {l.status === "Closed" && (
                 <>
                   <a href="#" title="Release Agreement (English)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("en"); }}>
@@ -1166,19 +1285,6 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                   </a>
                 </>
               )}
-                {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
-                  <a href={l.indemnityBondSignedUrl} title="Signed Bond" target="_blank" rel="noopener noreferrer" onClick={() => setDocsMenuOpen(false)}>
-                    <Icon name="check" /><span className="tx">Signed Bond</span>
-                  </a>
-                ) : !canUpdateLoans ? null : esignStarted ? (
-                  <a href="#" title="Check eSign Status" className={checkingEsign ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (checkingEsign) return; setDocsMenuOpen(false); checkIndemnityEsign(); }}>
-                    <Icon name="doc" /><span className="tx">{checkingEsign ? "Checking…" : "Check eSign Status"}</span>
-                  </a>
-                ) : (
-                  <a href="#" title="Send Bond for eSign" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); openEsignLanguagePicker(); }}>
-                    <Icon name="doc" /><span className="tx">{esigning ? "Preparing…" : "Send Bond for eSign"}</span>
-                  </a>
-                )}
               </div>
             )}
           </div>
@@ -1370,7 +1476,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td>{fmtDate(entry.date)}</td>
                             <td>{l.loanNumber}</td>
-                            <td>{entry.kind === "service-charge" ? "Service Charge" : penal ? "Penal Interest Charged" : "Interest Charged"}</td>
+                            <td>{entry.kind === "service-charge" ? "Service Charge" : penal ? (entry.accruing ? "Penal Interest" : "Penal Interest Charged") : (entry.accruing ? "Interest" : "Interest Charged")}</td>
                             <td>—</td>
                             <td className="num" style={{ color: "var(--red)" }}>{fmt(entry.amount)}</td>
                             <td className="num">—</td>

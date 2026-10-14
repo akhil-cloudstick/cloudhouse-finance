@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AccRow, CountLine, FabCorner, FlatHeader, Screen, SearchInput, ServerFlatList } from "@/common/components/ui";
+import { AccRow, CountLine, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfFirst, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { dmy } from "@/common/utils/format";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
 import { useServerList } from "@/common/hooks/use-server-list";
@@ -8,6 +9,18 @@ import { useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { useAuth } from "@/common/providers/AuthProvider";
+
+// Same PAN / Aadhaar verification filters as web's Customers page (single-select each).
+const VERIFICATION_OPTIONS = [
+  { value: "Verified", label: "Verified" },
+  { value: "Pending", label: "Pending" },
+  { value: "Failed", label: "Failed" },
+  { value: "Name Mismatch", label: "Name Mismatch" },
+];
+const FILTER_SECTIONS: GFSection[] = [
+  { kind: "static", key: "pan", label: "PAN Verified", single: true, options: VERIFICATION_OPTIONS },
+  { kind: "static", key: "aadhaar", label: "Aadhaar Verified", single: true, options: VERIFICATION_OPTIONS },
+];
 
 // Customers list — prototype #header-customers + #page-customers.
 // Search (name / customer ID / phone) is the server `q` on GET /customers;
@@ -19,7 +32,9 @@ export default function CustomersScreen() {
   const [registerOpen, setRegisterOpen] = useState(false);
   const canCreate = useAuth().can("Customer_Management", "can_create_customer");
 
-  const list = useServerList<Customer>({ key: ["customers", "list"], persistKey: "customers", fetchPage: (p) => listCustomersPage(p) });
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("customers:filters", emptyGroupedFilter());
+  const filters = { panStatus: gfFirst(fv, "pan"), aadhaarStatus: gfFirst(fv, "aadhaar") };
+  const list = useServerList<Customer, { panStatus?: string; aadhaarStatus?: string }>({ key: ["customers", "list"], persistKey: "customers", fetchPage: (p) => listCustomersPage(p), filters });
 
   useEffect(() => {
     if (params.register === "1") {
@@ -49,6 +64,7 @@ export default function CustomersScreen() {
         header={
           <>
             {total != null ? <CountLine>{`${total} customer${total === 1 ? "" : "s"}`}</CountLine> : null}
+            <GroupedFilter title="Filter customers" sections={FILTER_SECTIONS} value={fv} onChange={setFv} style={{ marginHorizontal: 18, marginTop: 12, alignSelf: "flex-start" }} />
             <SearchInput
               value={list.search}
               onChangeText={list.setSearch}
@@ -68,6 +84,8 @@ export default function CustomersScreen() {
               { k: "Phone", v: c.phone || "—" },
               { k: "Branch", v: c.branch?.name || "—" },
               { k: "KYC status", v: c.kycStatus || "—" },
+              { k: "PAN", v: c.panStatus || "—" },
+              { k: "Aadhaar", v: c.aadhaarStatus || "—" },
               { k: "Added on", v: c.createdAt ? dmy(c.createdAt) : "—" },
             ]}
             actions={[{ label: "View Customer", primary: true, onPress: () => router.push(`/customers/${c.id}` as never) }]}

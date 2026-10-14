@@ -83,7 +83,7 @@ func renderPartialReleaseReceiptHTML(data PartialReleaseReceiptData, lang string
 		PartialReleaseReceiptData: data,
 		Style:                     template.CSS(releaseAgreementStyle(lang)),
 		LenderName:                firstNonEmpty(data.LegalName, "CHITTILAPILLY THOMMANA FINANCIERS AND INVESTMENTS"),
-		LenderAddress:             firstNonEmpty(data.AddressLine, "XXI/118 - BLOCK JUNCTION, VELLANGALLUR, 680662"),
+		LenderAddress:             orBlank(data.AddressLine),
 		ReleaseDate:               releaseFmtDate(data.ReleaseDate, lang),
 		SettlementAmount:          releaseFmtAmount(data.SettlementAmount),
 		RevisedPrincipalBalance:   releaseFmtAmount(data.RevisedPrincipalBalance),

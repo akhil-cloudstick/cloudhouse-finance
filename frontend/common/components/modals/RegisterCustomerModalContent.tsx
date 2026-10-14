@@ -16,6 +16,12 @@ import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-swit
 import { navigate } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  pan: /\bpan\b/i, aadhaar: /aadhaar/i, phone: /^(?!.*nominee).*(phone|mobile)/i, branch: /branch/i, name: /^(?!.*(nominee|father)).*\bname\b/i,
+};
 
 type RegisterCustomerModalContentProps = {
   // Full standalone "Register Customer" flow (Customers.modules/dashboard/pages/DashboardPage.tsx):
@@ -87,6 +93,10 @@ export function RegisterCustomerModalContent({
   const [pinCode, setPinCode] = useState("");
 
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -98,16 +108,16 @@ export function RegisterCustomerModalContent({
   async function save() { return singleFlight("modal:registercustomer:save", async () => {
     const n = name.trim();
     const p = phone.trim();
-    if (n.length < 3) { setErr("Please enter the customer’s full name."); return; }
+    setErr(""); setFe({});
+    if (n.length < 3) { fail("name", "Please enter the customer’s full name."); return; }
     // Exactly 10 digits — the input is digit-filtered and capped at 10, and
     // this matches what the mobile register screen enforces. The old
     // /^\d[\d ]{8,}$/ let 9-digit and space-separated numbers through.
-    if (!p) { setErr("Please enter the customer’s mobile number."); return; }
-    if (!/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
-    if (!branchId) { setErr("Please select a branch."); return; }
+    if (!p) { fail("phone", "Please enter the customer’s mobile number."); return; }
+    if (!/^\d{10}$/.test(p)) { fail("phone", "Please enter a valid 10-digit mobile number."); return; }
+    if (!branchId) { fail("branch", "Please select a branch."); return; }
 
     setSaving(true);
-    setErr("");
     try {
       const [photoUrl, identityProofUrl, addressProofUrl, kycDocumentUrl] = await Promise.all([
         photoFile ? uploadFile(photoFile) : Promise.resolve(""),
@@ -151,7 +161,9 @@ export function RegisterCustomerModalContent({
       // create-only role stays put rather than hitting the refusal toast).
       if (canOpen("customer")) navigate("customer/" + c.id);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to register customer.");
+      const msg = e instanceof Error ? e.message : "Failed to register customer.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
     } finally {
       setSaving(false);
     }
@@ -160,30 +172,32 @@ export function RegisterCustomerModalContent({
   return (
     <>
       <div className="hd"><h3>Register Customer</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="bd bd-scroll register-customer-bd">
         <label className="f">Personal Details</label>
-        <div className={showBranch ? "frow c3" : "frow c2"}>
-          <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
+        {/* Always a 3-column grid so every input keeps the same width; when the
+            branch picker is hidden (single branch) Date of Birth takes its
+            slot, otherwise DOB drops to the next row. */}
+        <div className="frow c3">
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => { setName(e.target.value); clearFe("name"); }} /><FieldError msg={fe.name} /></div>
           {/* Digit-filtered on input like Aadhaar below (and like the mobile
               app's register screen), so letters/spaces/punctuation can't be
               typed at all rather than being caught only on save. */}
-          <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
+          <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "")); clearFe("phone"); }} /><FieldError msg={fe.phone} /></div>
           {showBranch && (
-            <div><label className="f">Branch *</label>
+            <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
               <Select
                 value={branchId === "" ? "" : String(branchId)}
-                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                onChange={(v) => { setBranchId(v ? Number(v) : ""); clearFe("branch"); }}
                 disabled={branchLocked}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 placeholder="Select branch…"
-              />
+              /><FieldError msg={fe.branch} />
             </div>
           )}
-        </div>
-        <div className="frow c3">
+          <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
           <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
-          <div><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value)} /></div>
-          <div><label className="f">Aadhaar Number</label><input className="inp" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /></div>
+          <div className={fe.pan ? "has-err" : undefined}><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => { setPan(e.target.value); clearFe("pan"); }} /><FieldError msg={fe.pan} /></div>
+          <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number</label><input className="inp" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => { setAadhaar(e.target.value.replace(/\D/g, "")); clearFe("aadhaar"); }} /><FieldError msg={fe.aadhaar} /></div>
         </div>
 
         <label className="f" style={{ marginTop: 6 }}>Documents</label>
@@ -221,7 +235,6 @@ export function RegisterCustomerModalContent({
             <div className="frow c3" style={{ marginTop: 14 }}>
               <div><label className="f">Father&apos;s Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(e.target.value)} /></div>
               <div><label className="f">Age</label><input className="inp" type="number" min={1} placeholder="e.g. 35" value={age} onChange={(e) => setAge(e.target.value)} /></div>
-              <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
             </div>
             <div className="frow c3">
               <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>

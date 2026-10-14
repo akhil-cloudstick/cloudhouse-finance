@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AsyncSelect, C, DashedButton, Field, FieldRow, Input, NoticeBanner, OrnamentCard, PrimaryButton, SectionTitle, Sheet, TextField, ThemeDropdown, Txt } from "@/common/components/ui";
+import { AsyncSelect, C, DashedButton, Field, FieldRow, Input, NoticeBanner, OrnamentCard, PrimaryButton, ResultBox, SectionTitle, Sheet, TextField, ThemeDropdown, Txt } from "@/common/components/ui";
+import { useQuery } from "@tanstack/react-query";
+import { latestGoldRate } from "@/modules/gold-rates/services/goldRateService";
+import { rateForPurityFull } from "@/common/utils/purity";
+import { inr } from "@/common/utils/format";
 import { addOrnament, deleteOrnament, updateLoan, updateOrnament } from "@/modules/loans/services/loanService";
 import { type OrnamentRequestInput, type Loan, type Ornament } from "@/modules/loans/types/loan-types";
-import { listSchemes } from "@/modules/schemes/services/schemeService";
+import { listActiveSchemes } from "@/modules/schemes/services/schemeService";
 import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import { OrnamentTypeField } from "@/common/components/OrnamentTypeField";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
@@ -29,6 +33,7 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
   const qc = useQueryClient();
   const [schemeId, setSchemeId] = useState<number>(l.schemeId);
   const [schemeLabel, setSchemeLabel] = useState("");
+  const [schemeLtv, setSchemeLtv] = useState(0);
   const [principal, setPrincipal] = useState("");
   const [rows, setRows] = useState<OrnRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +41,8 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
   useEffect(() => {
     if (!visible) return;
     setSchemeId(l.schemeId);
-    setSchemeLabel(l.scheme ? `${l.scheme.name} — ${l.scheme.interestRate}%/mo` : `Scheme #${l.schemeId}`);
+    setSchemeLabel(l.scheme ? `${l.scheme.name} — ${l.schemeLtvPercent ?? l.scheme.ltvPercent}% LTV @ ${l.scheme.interestRate}%` : `Scheme #${l.schemeId}`);
+    setSchemeLtv(l.schemeLtvPercent ?? l.scheme?.ltvPercent ?? 0);
     setPrincipal(String(l.principalAmount));
     setRows((l.ornaments ?? []).map(toRow));
     setError(null);
@@ -46,22 +52,33 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
   const active = rows.filter((r) => !r.removed);
   const upd = (i: number, patch: Partial<OrnRow>) => setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
 
+  // Live estimate of what the loan can carry, from the same rates the backend uses (22K / 18K at their own
+  // published rates). Net weight × rate per ornament — quantity is not multiplied in (the backend values
+  // GoldValue = NetWeight × rate), so this matches what Save will accept.
+  const goldRate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible });
+  const rates = { k24: goldRate.data?.k24 ?? 0, k22: goldRate.data?.k22 ?? 0, k18: goldRate.data?.k18 ?? 0 };
+  const totalGoldValue = active.reduce((s, r) => s + (+r.net || 0) * (rateForPurityFull(rates, r.purity) ?? 0), 0);
+  const eligible = (totalGoldValue * schemeLtv) / 100;
+  // The principal can never be typed above the eligible amount — pulled back to it (floored to a whole rupee).
+  const capToEligible = (value: string) => (eligible > 0 && +value > eligible ? String(Math.floor(eligible)) : value);
+  // Only a changed scheme or principal sends the loan back through the sanction chain (same as the backend).
+  const triggersReapproval = schemeId !== l.schemeId || (+principal > 0 && +principal !== l.principalAmount);
   const save = useMutation({
     mutationFn: async () => {
       if (!(+principal > 0)) throw new Error("__v__Please enter a valid principal amount.");
       if (!active.length) throw new Error("__v__A loan must have at least one ornament.");
       if (active.some((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0))) throw new Error("__v__Every ornament needs a name, gross weight and net weight.");
       if (active.some((r) => +r.net > +r.gross)) throw new Error("__v__Net Wt cannot be greater than Gross Wt for any ornament.");
-      await updateLoan(l.id, {
-        schemeId: schemeId !== l.schemeId ? schemeId : undefined,
-        principalAmount: +principal !== l.principalAmount ? +principal : undefined,
-      });
+      if (goldRate.data && eligible > 0 && +principal > eligible) throw new Error(`__v__Principal amount cannot exceed the eligible loan amount (${inr(Math.floor(eligible))}).`);
+      // Ornaments are saved BEFORE the loan: each call revalues its row and recalculates the loan's eligible amount, while
+      // the loan update only checks the values already stored — so a principal raised together with new ornaments
+      // would otherwise be refused against the old values (same order as web).
       for (const r of rows) {
         const input: OrnamentRequestInput = {
           name: r.name.trim(),
           purity: r.purity,
           grossWeight: +r.gross,
-          deductionWeight: Math.max(0, +r.gross - +r.net),
+          deductionWeight: Math.round(Math.max(0, +r.gross - +r.net) * 1000) / 1000,
           quantity: +r.qty || 1,
         };
         if (r.removed) {
@@ -69,6 +86,10 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
         } else if (r.id) await updateOrnament(r.id, input);
         else await addOrnament(l.id, input);
       }
+      await updateLoan(l.id, {
+        schemeId: schemeId !== l.schemeId ? schemeId : undefined,
+        principalAmount: +principal !== l.principalAmount ? +principal : undefined,
+      });
     },
     onSuccess: () => {
       invalidateLoan(qc, l.id);
@@ -82,28 +103,30 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
     },
   });
 
-  const totalNet = active.reduce((s, r) => s + (+r.net || 0) * (+r.qty || 1), 0);
+  const totalNet = active.reduce((s, r) => s + (+r.net || 0), 0);
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Edit Loan Details" maxHeightPct={90}>
-      <NoticeBanner>
+      {triggersReapproval ? <NoticeBanner>
         Changing the scheme or principal amount requires re-approval before the loan is active again — saving will resubmit it through the sanction chain from its first enabled stage.
-      </NoticeBanner>
+      </NoticeBanner> : null}
 
       <AsyncSelect<Scheme>
         label="Scheme"
         placeholder="Search schemes"
         queryKey={["editLoanSchemes"]}
-        fetcher={(q) => listSchemes(q || undefined)}
+        fetcher={(q) => listActiveSchemes(q || undefined)}
         selectedLabel={schemeLabel}
         keyOf={(s) => s.id}
-        renderItem={(s) => ({ title: `${s.name} — ${s.interestRate}%/mo`, sub: `${s.ltvPercent}% LTV` })}
+        renderItem={(s) => ({ title: `${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`, sub: s.code })}
         onSelect={(s) => {
           setSchemeId(s.id);
-          setSchemeLabel(`${s.name} — ${s.interestRate}%/mo`);
+          setSchemeLabel(`${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`);
+          setSchemeLtv(s.ltvPercent);
         }}
       />
-      <TextField label="Principal amount" keyboardType="decimal-pad" value={principal} onChangeText={setPrincipal} />
+      <ResultBox k="Eligible loan amount" v={eligible > 0 ? inr(Math.floor(eligible)) : "—"} />
+      <TextField label={`Principal amount${eligible > 0 ? ` (max ${inr(Math.floor(eligible))})` : ""}`} keyboardType="decimal-pad" value={principal} onChangeText={(v) => setPrincipal(capToEligible(v))} />
 
       <SectionTitle flush style={{ marginTop: 14 }}>
         Ornaments

@@ -938,6 +938,93 @@ h3,
   mask-image: linear-gradient(to right, #000 85%, transparent 100%);
 }
 
+/* Side picker under a Documents item (Print Slip → Normal print / eSign): a small
+ * flyout to the left of the menu; on phone width it drops inline below the item. */
+.docs-dd-sub {
+  position: relative
+}
+
+.docs-dd-sub-chev {
+  transform: rotate(90deg)
+}
+
+.docs-dd-submenu {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 10px);
+  width: 150px;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
+  padding: 6px;
+}
+
+@media (max-width: 640px) {
+  .docs-dd-submenu {
+    position: static;
+    width: auto;
+    margin: 2px 0 4px 24px;
+    padding: 2px;
+    border: 0;
+    box-shadow: none;
+    background: transparent
+  }
+}
+
+/* Themed on/off switch replacing the browser's default checkbox (EsignLanguageModalContent). */
+.tgl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 16px;
+  font-size: 13px;
+  cursor: pointer
+}
+
+.tgl input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none
+}
+
+.tgl .track {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background .15s
+}
+
+.tgl .track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  transition: transform .15s
+}
+
+.tgl input:checked+.track {
+  background: var(--brand)
+}
+
+.tgl input:checked+.track::after {
+  transform: translateX(14px)
+}
+
+.tgl input:focus-visible+.track {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px
+}
+
 /* ── themed file input (common/components/ui/FileInput.tsx) ───────────────────── */
 /* Fixed 230px rather than width:100% / shrink-to-fit: the trigger is a
  * <label>, so it used to size to its own text and every file field ended up
@@ -1103,7 +1190,8 @@ button.fi-trigger {
  * than its row-mates depending on the grid's column width. Scoped to this
  * modal only, so every other DatePicker app-wide keeps its normal fixed
  * width. */
-.repledge-modal-bd .dp.dp-date {
+.repledge-modal-bd .dp.dp-date,
+.register-customer-bd .dp.dp-date {
   width: 100%;
   flex: 1 1 auto
 }
@@ -3699,6 +3787,14 @@ select.inp {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 15%, transparent)
 }
 
+/* A field with a validation message: its input box turns red (the message itself is <FieldError>). */
+.has-err .inp, .has-err .inp:focus {
+  border-color: var(--red);
+}
+.has-err .inp:focus {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--red) 15%, transparent)
+}
+
 /* Removes the native up/down spinner arrows from every number input
  * app-wide (Gross/Net/Qty, principal amounts, rates, etc.) — three rules
  * needed for full cross-browser coverage: the two ::-webkit- pseudo-
@@ -4771,9 +4867,11 @@ table.tbl {
   border-color: var(--gold);
 }
 
+/* Delivery choices sit side by side in equal columns (a lone option takes the full row). */
 .esign-deliver-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 8px;
 }
 

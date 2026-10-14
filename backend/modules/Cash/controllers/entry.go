@@ -441,12 +441,10 @@ func editCashIn(ctx context.Context, old []models.CashMovement, req updateEntryR
 	if category == "" {
 		category = old[0].Source
 	}
-	// A draw on a loan stays on that loan; any other cash-in can't be moved onto one (it needs the loan's details).
+	// A draw on a loan stays on that loan.
 	isLoan := IsLoanSource(old[0].Source)
 	if isLoan {
 		category = old[0].Source
-	} else if IsLoanSource(category) {
-		return 0, common.NewConflict("a cash-in can't be moved onto a loan — record it from the loan instead")
 	}
 	parts, err := editParts(req, old[0])
 	if err != nil {

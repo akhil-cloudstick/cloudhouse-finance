@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
+  ChipToggle,
+  Field,
   C,
   FabCorner,
   FieldRow,
@@ -21,6 +23,8 @@ import type { Branch } from "@/modules/branches/types/branch-types";
 import { ApiError } from "@/common/services/httpClient";
 import { dmy } from "@/common/utils/format";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { useQuery } from "@tanstack/react-query";
+import { getBranchQuota } from "@/modules/billing/services/billingService";
 
 type BranchFormSheetProps = { visible: boolean; onClose: () => void; editing: Branch | null };
 
@@ -35,6 +39,7 @@ function BranchFormSheet({ visible, onClose, editing }: BranchFormSheetProps) {
   const [code, setCode] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
+  const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,13 +48,25 @@ function BranchFormSheet({ visible, onClose, editing }: BranchFormSheetProps) {
     setCode(editing?.code ?? "");
     setAddress(editing?.address ?? "");
     setPhone(editing?.phone ?? "");
+    setIsActive(editing ? editing.isActive : true);
     setError(null);
   }, [visible, editing]);
 
+  // Same rules as web's Branch form — bad characters are filtered as you type and each field is checked on save.
+  const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
+  const ADDRESS_RE = /^[A-Za-z0-9\s,./#'-]*$/;
+  function validate(): string | null {
+    const n = name.trim();
+    if (n.length < 2 || !NAME_RE.test(n)) return "Please enter a valid branch name (letters only, at least 2 characters).";
+    if (!code.trim()) return "Please enter a branch code.";
+    if (address.trim().length < 3) return "Please enter a branch address (at least 3 characters).";
+    if (phone && !/^\d{10}$/.test(phone)) return "Phone number must be exactly 10 digits.";
+    return null;
+  }
   const save = useMutation({
     mutationFn: () => {
       const input = { name: name.trim(), code: code.trim().toUpperCase(), address: address.trim(), phone: phone || undefined };
-      return editing ? updateBranch(editing.id, { ...input, isActive: editing.isActive }) : createBranch(input);
+      return editing ? updateBranch(editing.id, { ...input, isActive }) : createBranch(input);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["branches"] });
@@ -60,16 +77,26 @@ function BranchFormSheet({ visible, onClose, editing }: BranchFormSheetProps) {
 
   return (
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Branch" : "Add Branch"} maxHeightPct={85}>
-      <TextField label="Branch name" value={name} onChangeText={setName} placeholder="e.g. MG Road" />
+      <TextField label="Branch name" value={name} onChangeText={(v) => (v === "" || /^[A-Za-z\s.'-]*$/.test(v)) && setName(v)} placeholder="e.g. MG Road" maxLength={80} />
       <FieldRow>
-        <TextField label="Code *" value={code} onChangeText={setCode} placeholder="e.g. KOR01" autoCapitalize="characters" />
-        <TextField label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Optional" />
+        <TextField label="Code *" value={code} onChangeText={(v) => /^[A-Za-z0-9-]*$/.test(v) && setCode(v.toUpperCase())} placeholder="e.g. KOR01" autoCapitalize="characters" maxLength={20} />
+        <TextField label="Phone" value={phone} onChangeText={(v) => setPhone(v.replace(/\D/g, "").slice(0, 10))} keyboardType="phone-pad" placeholder="10 digits (optional)" />
       </FieldRow>
-      <TextField label="Address" value={address} onChangeText={setAddress} placeholder="Full address" multiline />
+      <TextField label="Address" value={address} onChangeText={(v) => (v === "" || ADDRESS_RE.test(v)) && setAddress(v)} placeholder="Full address" multiline maxLength={255} />
+      {editing ? (
+        <Field label="Status">
+          <ChipToggle options={["Active", "Inactive"] as const} value={isActive ? "Active" : "Inactive"} onChange={(v) => setIsActive(v === "Active")} />
+        </Field>
+      ) : null}
       {error ? <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
         label={editing ? "Save Changes" : "Add Branch"}
-        onPress={() => save.mutate()}
+        onPress={() => {
+          const v = validate();
+          if (v) return setError(v);
+          setError(null);
+          save.mutate();
+        }}
         loading={save.isPending}
         disabled={!name.trim() || !code.trim() || !address.trim()}
       />
@@ -116,12 +143,16 @@ export default function BranchesScreen() {
   const canViewLedger = can("Branch_Management", "can_view_branch_ledger");
 
   const list = useServerList<Branch>({ key: ["branches", "list"], fetchPage: (p) => listBranchesPage(p) });
+  // The plan's branch limit — a role without access to it simply sees no quota line.
+  const quota = useQuery({ queryKey: ["branches", "quota"], queryFn: getBranchQuota, retry: false });
+  const q = quota.data;
+  const atLimit = !!q && !q.unlimited && q.used >= q.quota;
 
   return (
     <Screen
       header={<FlatHeader title="Branches" subtitle={list.total != null ? `${list.total} branches` : "Branch details"} />}
       floating={
-        canCreate ? (
+        canCreate && !atLimit ? (
           <FabCorner
             label="Add branch"
             onPress={() => {
@@ -137,7 +168,16 @@ export default function BranchesScreen() {
         items={list.items}
         keyOf={(b) => String(b.id)}
         emptyText={list.search ? "No branches match your search." : "No branches found."}
-        header={<SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by branch name, code, or address" style={{ paddingTop: 14 }} />}
+        header={
+          <>
+            {q ? (
+              <Txt style={{ fontSize: 12, color: atLimit ? C.red : C.muted, paddingHorizontal: 18, paddingTop: 12 }}>
+                {q.unlimited ? `${q.used} branches · ${q.plan} plan, no limit` : `${q.used} of ${q.quota} branches used · ${q.plan} plan${atLimit ? " — upgrade to add more" : ""}`}
+              </Txt>
+            ) : null}
+            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by branch name, code, or address" style={{ paddingTop: 14 }} />
+          </>
+        }
         renderItem={(b, i) => (
           <AccRow
             defaultOpen={i === 0}

@@ -209,6 +209,8 @@ type BondData struct {
 	Witness2Name    string
 	// TML pledge-book sheet only (tml_bond_*.html): loan date, lender phones and the two photos.
 	OpenedDate    time.Time
+	CreatedByName string
+	Brand         string
 	Phones        string
 	CustomerPhoto template.URL
 	OverallPhoto  template.URL
@@ -270,6 +272,10 @@ type bondTemplateData struct {
 	GrossTotal         string
 	NetTotal           string
 	TotalQty           int
+	PacketQR           template.URL
+	PrintClock         string
+	PadRows            []int
+	AddressLines       []string
 }
 
 // Signer roles stamped on the GML pledge agreement's eSign slots (data-esign-role in the templates).
@@ -280,7 +286,8 @@ const (
 )
 
 type startIndemnityBondEsignRequest struct {
-	Lang        string             `json:"lang" binding:"required"`
+	Lang        string             `json:"lang"`
+	Document    string             `json:"document"` // "" / "bond" = pledge agreement, "slip" = pledge slip
 	RedirectURL string             `json:"redirect_url" binding:"required"`
 	DeliverBy   string             `json:"deliver_by"`
 	Witnesses   []bondWitnessInput `json:"witnesses"`
@@ -491,7 +498,7 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	}
 	td := bondTemplateData{
 		BondData:           data,
-		Style:              template.CSS(style),
+		Style:              template.CSS(":root{--brand:" + string(brandColor(data.Brand)) + "}" + style + tmlZoomCSS(len(data.Ornaments), data.Policy)),
 		Blank:              blank,
 		LenderName:         firstNonEmpty(data.LegalName, data.BusinessName, "CloudHouse Finance"),
 		LenderRegNo:        firstNonEmpty(data.KMLRegNo, "DEMO-0000000000"),
@@ -499,8 +506,8 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		LenderBusiness:     firstNonEmpty(data.LegalName, data.BusinessName, "CloudHouse Finance"),
 		LenderAadhaar:      lenderAadhaarDisplay(data.LenderAadhaar),
 		LenderPAN:          firstNonEmpty(data.LenderPAN, "AAAAA0000A"),
-		LenderAddress:      firstNonEmpty(data.AddressLine, "Demo Registered Office, Door No. 0/000, Demo Village, Demo Taluk, Ernakulam District, Kerala, PIN 000000"),
-		LenderAddressShort: firstNonEmpty(data.AddressLine, "DOOR NO. 0/000, DEMO VILLAGE, 000000"),
+		LenderAddress:      orBlank(data.AddressLine),
+		LenderAddressShort: strings.TrimSpace(data.AddressLine),
 		Age:                ageOrBlank(data.Age),
 		Aadhaar:            aadhaarOrBlank(data.Aadhaar),
 		PAN:                orBlank(data.PAN),
@@ -522,6 +529,13 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		td.LoanDateDisplay = data.OpenedDate.Format("02-01-2006")
 	}
 	td.PrintTime = time.Now().Format("02-01-2006 03:04 PM")
+	td.PacketQR = qrDataURL(data.LoanNumber)
+	for _, ln := range strings.Split(strings.TrimSpace(data.AddressLine), "\n") {
+		if ln = strings.TrimSpace(ln); ln != "" {
+			td.AddressLines = append(td.AddressLines, ln)
+		}
+	}
+	td.PrintClock = time.Now().Format("03:04 PM")
 	var gross, net float64
 	for _, o := range data.Ornaments {
 		qty := max(o.Quantity, 1)
@@ -529,6 +543,9 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		td.TotalQty += qty
 		gross += o.GrossWeight
 		net += o.NetWeight
+	}
+	for i := len(td.Items); i < 4; i++ {
+		td.PadRows = append(td.PadRows, i)
 	}
 	td.GrossTotal = fmt.Sprintf("%.2f", gross)
 	td.NetTotal = fmt.Sprintf("%.2f", net)
@@ -617,8 +634,9 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 	if deliverBy != "open" && deliverBy != "whatsapp" && deliverBy != "dashboard" {
 		return nil, common.NewBadRequest("deliver_by must be \"open\", \"whatsapp\" or \"dashboard\"")
 	}
-	if len(witnesses) != 0 && len(witnesses) != 2 {
-		return nil, common.NewBadRequest("exactly two witnesses are required")
+	// One witness is enough; a second is optional.
+	if len(witnesses) > 2 {
+		return nil, common.NewBadRequest("at most two witnesses are allowed")
 	}
 	witnessSigners := make([]config.Signer, 0, len(witnesses))
 	for i, w := range witnesses {
@@ -649,8 +667,10 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 		}
 	}
 	bond := bondDataForLoan(ctx, l)
-	if len(witnessSigners) == 2 {
+	if len(witnessSigners) > 0 {
 		bond.Witness1Name = witnessSigners[0].DisplayName
+	}
+	if len(witnessSigners) > 1 {
 		bond.Witness2Name = witnessSigners[1].DisplayName
 	}
 	pdfBytes, slots, err := RenderIndemnityBondPDFWithSlots(bond, lang)
@@ -672,12 +692,12 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 	}
 	// When a box could not be measured (layout without witness boxes, or an
 	// over-tall last page) fall back to the SUREPASS_ESIGN_WITNESS*_X/Y positions.
-	if len(witnessSigners) == 2 {
+	if len(witnessSigners) > 0 {
 		lastPageNo := strconv.Itoa(max(CountPDFPages(pdfBytes), 1))
 		if len(witness1Slots) == 0 {
 			witness1Slots = []config.SignatureSlot{{Page: lastPageNo, X: config.Env.SurepassEsignWitness1X, Y: config.Env.SurepassEsignWitness1Y, Role: RoleGMLEsignWitness1}}
 		}
-		if len(witness2Slots) == 0 {
+		if len(witnessSigners) > 1 && len(witness2Slots) == 0 {
 			witness2Slots = []config.SignatureSlot{{Page: lastPageNo, X: config.Env.SurepassEsignWitness2X, Y: config.Env.SurepassEsignWitness2Y, Role: RoleGMLEsignWitness2}}
 		}
 	}
@@ -721,9 +741,10 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 		signer.BirthYear = strconv.Itoa(l.Customer.DOB.Year())
 	}
 	signers := []config.Signer{signer}
-	if len(witnessSigners) == 2 {
-		for i, wSlots := range [][]config.SignatureSlot{witness1Slots, witness2Slots} {
-			witnessSigners[i].Signature = &config.SignatureConfig{OnPages: []string{lastPage}, Slots: wSlots}
+	if len(witnessSigners) > 0 {
+		witnessSlots := [][]config.SignatureSlot{witness1Slots, witness2Slots}
+		for i := range witnessSigners {
+			witnessSigners[i].Signature = &config.SignatureConfig{OnPages: []string{lastPage}, Slots: witnessSlots[i]}
 		}
 		signers = append(signers, witnessSigners...)
 	}
@@ -768,11 +789,14 @@ func deliverEsignLink(ctx context.Context, l *models.Loan, url, lang, deliverBy,
 	case BondLangTamil:
 		langLabel = "Tamil"
 	}
-	title := "Sign Your Pledge Agreement"
-	body := fmt.Sprintf(
+	deliverEsignNotice(ctx, l, "Sign Your Pledge Agreement", fmt.Sprintf(
 		"CloudHouse Finance: your %s pledge agreement for loan %s is ready to sign with Aadhaar. Open this link on your own phone to complete it: %s",
 		langLabel, l.LoanNumber, url,
-	)
+	), deliverBy, phone)
+}
+
+// deliverEsignNotice sends an eSign link message by WhatsApp or to the customer app.
+func deliverEsignNotice(ctx context.Context, l *models.Loan, title, body, deliverBy, phone string) {
 	switch deliverBy {
 	case "whatsapp":
 		if config.WhatsApp == nil || config.IsDemoRun(ctx) {
@@ -821,6 +845,27 @@ func deliverEsignLink(ctx context.Context, l *models.Loan, url, lang, deliverBy,
 	}
 }
 
+// downloadSignedPDF fetches the finished, signed document of a completed eSign request.
+func downloadSignedPDF(requestID string) ([]byte, error) {
+	signed, err := config.Esign.GetSignedDocument(requestID)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.Get(signed.DownloadURL)
+	if err != nil {
+		return nil, fmt.Errorf("esign: download signed document: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("esign: download signed document: unexpected status %d", resp.StatusCode)
+	}
+	pdfBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("esign: read signed document: %w", err)
+	}
+	return pdfBytes, nil
+}
+
 func checkIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint) (*models.Loan, *config.SignatureStatus, error) {
 	if config.Esign == nil || config.IsDemoRun(ctx) {
 		return nil, nil, common.NewUnavailable("indemnity bond eSign is not configured")
@@ -847,22 +892,9 @@ func checkIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint) (*
 		}
 		return l, status, nil
 	}
-	signed, err := config.Esign.
-		GetSignedDocument(l.IndemnityBondSignRequestID)
+	pdfBytes, err := downloadSignedPDF(l.IndemnityBondSignRequestID)
 	if err != nil {
 		return nil, nil, err
-	}
-	resp, err := http.Get(signed.DownloadURL)
-	if err != nil {
-		return nil, nil, fmt.Errorf("indemnity bond: download signed document: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, nil, fmt.Errorf("indemnity bond: download signed document: unexpected status %d", resp.StatusCode)
-	}
-	pdfBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("indemnity bond: read signed document: %w", err)
 	}
 	url, err := common.SaveBytesRecorded(ctx, config.Env.UploadsDir, "indemnity-bond-"+l.LoanNumber+".pdf", pdfBytes)
 	if err != nil {
@@ -892,7 +924,15 @@ func StartIndemnityBondEsign(c echo.Context) error {
 	if err := common.BindJSON(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
-	signReq, err := startIndemnityBondSign(ctx, loanID, auth.GetBranchScope(c), req.Lang, req.RedirectURL, req.DeliverBy, req.Witnesses)
+	var signReq *config.SignatureRequest
+	if req.Document == "slip" {
+		signReq, err = startPledgeSlipSign(ctx, loanID, auth.GetBranchScope(c), req.RedirectURL, req.DeliverBy)
+	} else {
+		if req.Lang == "" {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
+		}
+		signReq, err = startIndemnityBondSign(ctx, loanID, auth.GetBranchScope(c), req.Lang, req.RedirectURL, req.DeliverBy, req.Witnesses)
+	}
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -911,13 +951,18 @@ func CheckIndemnityBondEsign(c echo.Context) error {
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	rec, status, err := checkIndemnityBondSign(ctx, loanID, auth.GetBranchScope(c))
+	check := checkIndemnityBondSign
+	if c.QueryParam("document") == "slip" {
+		check = checkPledgeSlipSign
+	}
+	rec, status, err := check(ctx, loanID, auth.GetBranchScope(c))
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, echo.Map{
-		"loan":   rec,
-		"status": status.Status,
+		"loan":    rec,
+		"status":  status.Status,
+		"signers": status.Signers,
 	})
 }
 

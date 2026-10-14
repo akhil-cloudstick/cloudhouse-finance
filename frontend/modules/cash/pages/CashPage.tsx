@@ -13,7 +13,7 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
-import { useExpenseCategoryIds } from "@/common/hooks/use-expense-category-ids";
+import { useExpenseCategoryIdsState } from "@/common/hooks/use-expense-category-ids";
 import { rememberedLedgerPage, reloadedLedgerPosition, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary, approveExpense, rejectExpense, exportCashMovements, exportExpenses } from "@/modules/cash/services/cashService";
 import { type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory } from "@/modules/cash/types/cash-types";
@@ -77,7 +77,8 @@ export function CashPage() {
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
   // Category name -> id, for the category-ledger links on expense rows.
-  const categoryIdByName = useExpenseCategoryIds();
+  // Rows wait for `idsReady` so a category is never painted as plain text and then swapped for a link chip.
+  const { ids: categoryIdByName, ready: idsReady } = useExpenseCategoryIdsState();
   const [goldSales, setGoldSales] = useState<GoldSaleView[]>([]);
   // Table-footer totals from the server — every row matching the current
   // filters, not just the loaded page.
@@ -85,6 +86,8 @@ export function CashPage() {
   // Running balance after the page's newest row, from the server — the whole
   // filtered ledger's net minus the rows on earlier pages.
   const [movementsPageBalance, setMovementsPageBalance] = useState(0);
+  // Set only while a type/mode/customer/branch filter hides rows: each row's balance in the whole ledger.
+  const [movementsRowBalances, setMovementsRowBalances] = useState<number[] | undefined>();
   const [expenseSum, setExpenseSum] = useState(0);
   const [goldSaleSums, setGoldSaleSums] = useState({ sold: 0, cost: 0, profit: 0 });
   // Back from a drill-down, each table reopens on the page the user left.
@@ -210,9 +213,10 @@ export function CashPage() {
       customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
       types: movementsTypes.length ? movementsTypes : undefined,
       modes: movementsModes.length ? movementsModes : undefined,
-    }).then(({ items, hasMore, total, totalDebit, totalCredit, pageBalance }) => {
+    }).then(({ items, hasMore, total, totalDebit, totalCredit, pageBalance, rowBalances }) => {
       setMovements(items);
       setMovementsPageBalance(pageBalance);
+      setMovementsRowBalances(rowBalances);
       setMovementsHasMore(hasMore);
       setMovementsTotal(total);
       setMovementSums({ debit: totalDebit, credit: totalCredit });
@@ -239,8 +243,8 @@ export function CashPage() {
     });
   }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes]);
 
-  useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0, [movements]);
-  useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0, [expenses]);
+  useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0 && idsReady, [movements]);
+  useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0 && idsReady, [expenses]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -273,7 +277,9 @@ export function CashPage() {
 
   // True running balance: each page's figures continue from the server's
   // balance for its newest row, so the top row of page 1 equals the ledger's net.
-  const movementsWithBalance = withRunningBalance(movements, movementsPageBalance);
+  const movementsWithBalance = movementsRowBalances && movementsRowBalances.length === movements.length
+    ? movements.map((m, i) => ({ m, balance: movementsRowBalances[i] }))
+    : withRunningBalance(movements, movementsPageBalance);
 
   // Both downloads use whatever's currently in the filter state (date
   // range + category for movements) — never the loaded page's row count —
@@ -434,7 +440,9 @@ export function CashPage() {
             <table className="tbl tbl-center tbl-roomy tbl-stack ledger-nowrap ledger-amt" data-ledger-scope="cash-movements" data-ledger-page={movementsPage}>
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
-                {movements.length
+                {!idsReady
+                  ? <tr><td colSpan={7} className="empty">Loading…</td></tr>
+                  : movements.length
                   ? movementsWithBalance.map(({ m, balance }) => <MovementRow key={m.id} m={m} balance={balance} categoryIds={categoryIdByName} onChanged={refresh} />)
                   : <tr><td colSpan={7} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
               </tbody>
@@ -471,7 +479,9 @@ export function CashPage() {
             <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-expenses" data-ledger-page={expensesPage}>
               <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th>{showBranch && <th>Branch</th>}<th>Status</th><th style={{ textAlign: "center" }}>Edit</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
               <tbody>
-                {expenses.length
+                {!idsReady
+                  ? <tr><td colSpan={showBranch ? 8 : 7} className="empty">Loading…</td></tr>
+                  : expenses.length
                   ? expenses.map((e) => (
                     <ExpenseRow
                       key={e.id}

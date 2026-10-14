@@ -1,23 +1,25 @@
 import React, { useEffect, useState } from "react";
+import { View } from "react-native";
 import { useQueries } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import {
   AccRow,
   C,
   FabCorner,
-  Field,
-  FilterChipRow,
-  FiltersBar,
+  GroupedFilter,
+  PillButton,
   FlatHeader,
   PillTabs,
   PktCard,
-  PrimaryButton,
   Screen,
   SearchInput,
   ServerFlatList,
-  Sheet,
   Txt,
   openPage,
+  emptyGroupedFilter,
+  gfValues,
+  type GFSection,
+  type GroupedFilterValue,
 } from "@/common/components/ui";
 import { PacketDetailSheet } from "@/modules/packets/components/PacketDetailSheet";
 import { lockerStatus } from "@/modules/packets/components/lockerHelpers";
@@ -25,6 +27,10 @@ import { LockerFormSheet } from "@/modules/packets/components/LockerFormSheet";
 import { LockerDetailSheet } from "@/modules/packets/components/LockerDetailSheet";
 import { QrScanner, parseLabel } from "@/common/components/QrScanner";
 import { useServerList } from "@/common/hooks/use-server-list";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
+import { listBranchesPage } from "@/modules/branches/services/branchService";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { getPacketByCode, listPackets, listPacketsPage } from "@/modules/packets/services/packetService";
 import { listLoans } from "@/modules/loans/services/loanService";
@@ -42,12 +48,8 @@ type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { packets: "Packets", lockers: "Lockers" };
 
 // "Ready For Release" is a legacy stage nothing moves into, so not offered.
-const PKT_STATUSES = ["All", "Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released"] as const;
-type PktStatus = (typeof PKT_STATUSES)[number];
+const PKT_STATUSES = ["Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released"] as const;
 
-const LKR_STATUSES = ["All", "Active", "Full", "Inactive"] as const;
-type LkrStatus = (typeof LKR_STATUSES)[number];
-const LKR_PARAM: Record<LkrStatus, "active" | "full" | "inactive" | undefined> = { All: undefined, Active: "active", Full: "full", Inactive: "inactive" };
 
 const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
 
@@ -172,16 +174,51 @@ export default function PacketsScreen() {
 type PacketsTabProps = { header: React.ReactNode; lockerIdParam?: number; onOpen: (id: number) => void };
 
 function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
-  const [status, setStatus] = useState<PktStatus>("All");
-  const [draft, setDraft] = useState<PktStatus>("All");
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // One grouped, multi-select filter — Status, Branch, Customer — same as web's Packets page.
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("packets:filters", emptyGroupedFilter());
+  const showBranchFilter = useShowBranchFilter();
+  const statuses = gfValues(fv, "status");
+  const branchIds = showBranchFilter ? gfValues(fv, "branch") : [];
+  const customerIds = gfValues(fv, "customer");
   // Arriving with ?lockerId=… scopes the list to that locker until cleared.
   const [lockerId, setLockerId] = useState<number | undefined>(lockerIdParam);
   useEffect(() => setLockerId(lockerIdParam), [lockerIdParam]);
 
-  const list = useServerList<Packet, { status?: string; lockerId?: number }>({
+  // A customer belongs to one branch, so picking branches narrows the Customer list (same as web).
+  const sections: GFSection[] = [
+    { kind: "static", key: "status", label: "Status", options: PKT_STATUSES.map((s) => ({ value: s, label: s })) },
+    ...(showBranchFilter
+      ? [
+          {
+            kind: "async" as const,
+            key: "branch",
+            label: "Branch",
+            fetchPage: (p: { q?: string; limit: number; offset: number }) =>
+              listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+          },
+        ]
+      : []),
+    {
+      kind: "async",
+      key: "customer",
+      label: "Customer",
+      deps: [branchIds.join(",")],
+      fetchPage: (p) =>
+        listCustomersPage({ q: p.q, limit: p.limit, offset: p.offset, ...(branchIds.length ? { branchIds: branchIds.map(Number) } : {}) }).then((r) => ({
+          items: r.items.map((c) => ({ value: String(c.id), label: c.code ? `${c.name} (${c.code})` : c.name })),
+          hasMore: r.hasMore,
+        })),
+    },
+  ];
+
+  const list = useServerList<Packet, { status?: string; branchId?: string; customerId?: string; lockerId?: number }>({
     key: ["packets", "list"],
-    filters: { status: status === "All" ? undefined : status, lockerId },
+    filters: {
+      status: statuses.length ? statuses.join(",") : undefined,
+      branchId: branchIds.length ? branchIds.join(",") : undefined,
+      customerId: customerIds.length ? customerIds.join(",") : undefined,
+      lockerId,
+    },
     fetchPage: (p) => listPacketsPage(p),
   });
 
@@ -190,11 +227,6 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
   const lockerIds = Array.from(new Set(list.items.map((p) => p.currentLockerId).filter((v): v is number => typeof v === "number" && v > 0)));
   const lookups = useQueries({ queries: lockerIds.map((lid) => ({ queryKey: ["locker", String(lid)], queryFn: () => getLocker(lid), staleTime: 60_000 })) });
   const lockerCode = (lid?: number) => (lid ? lookups[lockerIds.indexOf(lid)]?.data?.code ?? "…" : undefined);
-
-  const count = (status !== "All" ? 1 : 0) + (lockerId ? 1 : 0);
-  const summary = [status !== "All" ? status : null, lockerId ? `Locker ${lockerCode(lockerId) ?? `#${lockerId}`}` : null, list.total != null ? String(list.total) : null]
-    .filter(Boolean)
-    .join(" · ");
 
   return (
     <>
@@ -212,15 +244,10 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
               placeholder="Search by loan ID, packet ID, locker ID, or customer name"
               style={{ paddingTop: 12, paddingBottom: 8 }}
             />
-            <FiltersBar
-              count={count}
-              summary={summary || undefined}
-              style={{ marginTop: 0, marginBottom: 14 }}
-              onPress={() => {
-                setDraft(status);
-                setSheetOpen(true);
-              }}
-            />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingHorizontal: 18, marginBottom: 14 }}>
+              <GroupedFilter title="Filter packets" sections={sections} value={fv} onChange={setFv} />
+              {lockerId ? <PillButton label={`Locker ${lockerCode(lockerId) ?? `#${lockerId}`} ✕`} onPress={() => setLockerId(undefined)} /> : null}
+            </View>
           </>
         }
         renderItem={(p) => {
@@ -244,22 +271,6 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
           );
         }}
       />
-
-      <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)} title="Filter Packets" maxHeightPct={65}>
-        <Field label="Status">
-          <FilterChipRow options={PKT_STATUSES} value={draft} onChange={setDraft} />
-        </Field>
-        {lockerId ? (
-          <PrimaryButton label="Show All Lockers" variant="outline" style={{ marginBottom: 14 }} onPress={() => setLockerId(undefined)} />
-        ) : null}
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setStatus(draft);
-            setSheetOpen(false);
-          }}
-        />
-      </Sheet>
     </>
   );
 }
@@ -267,13 +278,39 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
 type LockersTabProps = { header: React.ReactNode; onOpen: (l: Locker) => void };
 
 function LockersTab({ header, onOpen }: LockersTabProps) {
-  const [status, setStatus] = useState<LkrStatus>("All");
-  const [draft, setDraft] = useState<LkrStatus>("All");
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // Branch and Status, both multi-select — same as web's Locker filter ("Has room" = active).
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("lockers:filters", emptyGroupedFilter());
+  const showBranchFilter = useShowBranchFilter();
+  const statuses = gfValues(fv, "status");
+  const branchIds = showBranchFilter ? gfValues(fv, "branch") : [];
 
-  const list = useServerList<Locker, { status?: "active" | "full" | "inactive" }>({
+  const sections: GFSection[] = [
+    ...(showBranchFilter
+      ? [
+          {
+            kind: "async" as const,
+            key: "branch",
+            label: "Branch",
+            fetchPage: (p: { q?: string; limit: number; offset: number }) =>
+              listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+          },
+        ]
+      : []),
+    {
+      kind: "static",
+      key: "status",
+      label: "Status",
+      options: [
+        { value: "active", label: "Has room" },
+        { value: "full", label: "Full" },
+        { value: "inactive", label: "Inactive" },
+      ],
+    },
+  ];
+
+  const list = useServerList<Locker, { status?: string; branchId?: string }>({
     key: ["lockers", "list"],
-    filters: { status: LKR_PARAM[status] },
+    filters: { status: statuses.length ? statuses.join(",") : undefined, branchId: branchIds.length ? branchIds.join(",") : undefined },
     fetchPage: (p) => listLockersPage(p),
   });
 
@@ -288,16 +325,9 @@ function LockersTab({ header, onOpen }: LockersTabProps) {
           <>
             {header}
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by locker ID" style={{ paddingTop: 12, paddingBottom: 8 }} />
-            <FiltersBar
-              count={status !== "All" ? 1 : 0}
-              showCount={status !== "All"}
-              summary={status !== "All" ? `${status} · ${list.total ?? list.items.length}` : undefined}
-              style={{ marginTop: 0, marginBottom: 14 }}
-              onPress={() => {
-                setDraft(status);
-                setSheetOpen(true);
-              }}
-            />
+            <View style={{ paddingHorizontal: 18, marginBottom: 14, alignItems: "flex-start" }}>
+              <GroupedFilter title="Filter lockers" sections={sections} value={fv} onChange={setFv} />
+            </View>
           </>
         }
         renderItem={(l) => {
@@ -314,19 +344,6 @@ function LockersTab({ header, onOpen }: LockersTabProps) {
           );
         }}
       />
-
-      <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)} title="Filter Lockers" maxHeightPct={55}>
-        <Field label="Status">
-          <FilterChipRow options={LKR_STATUSES} value={draft} onChange={setDraft} />
-        </Field>
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setStatus(draft);
-            setSheetOpen(false);
-          }}
-        />
-      </Sheet>
     </>
   );
 }

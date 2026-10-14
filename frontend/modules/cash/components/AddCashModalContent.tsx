@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { createCashMovement, createGoldSale, updateMovementEntry, uploadReceipt } from "@/modules/cash/services/cashService";
-import { PaymentBreakdownFields, newPaymentRow, paymentRowsError, paymentRowsToInput, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
+import { PaymentBreakdownFields, newPaymentRow, paymentRowIssue, paymentRowsToInput, isBankMode, type PaymentIssue, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
 import { type EntryInfo } from "@/modules/cash/types/cash-types";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
@@ -23,6 +23,7 @@ import { Select } from "@/common/components/ui/Select";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FileInput } from "@/common/components/ui/FileInput";
 import { useLoanBalance } from "@/modules/cash/hooks/use-loan-balance";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { singleFlight } from "@/common/utils/singleFlight";
 
 // A focused number input steps its value on mouse-wheel; blurring first
@@ -39,6 +40,11 @@ const MODE_OPTIONS = [
 // turns this modal into the gold-sale form and posts to /gold-sales instead
 // (the backend refuses to create a real source with this name).
 const GOLD_SALE = "Gold Sale";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  payments: /bank|payment/i, remarks: /remarks/i, branch: /branch/i, date: /date/i, category: /categor|source|loan/i, amount: /amount/i,
+};
 
 // "Gold Sale" is now a real (built-in) row of the category list, so the plain
 // source search already returns it.
@@ -57,11 +63,9 @@ type AddCashModalContentProps = { onSaved?: () => void; defaultBranchId?: number
  * SearchableSelect backed by cash.CashSource (find-or-create, same pattern
  * as the Bank picker), so staff can add a new source on the fly instead of
  * being limited to the two defaults. A source whose name starts with
- * "Loan" (isLoanSource — e.g. "Loan HDFC 4471") is one loan: the
- * first time it's used the Loan Details block (loan number, principal)
- * comes right after the source, and those details are kept on
- * the source itself — picking it again shows just the normal form. See
- * backend/internal/cash/model.go's CashSource.
+ * "Loan" (isLoanSource — e.g. "Loan HDFC 4471") is one loan, but it is entered
+ * like any other cash-in: no loan number or principal is asked for. Repayments
+ * are expenses in that category and show as credits in the loan's ledger.
  *
  * Mode of Cash (Cash/UPI/Bank Transfer) records how the money physically
  * arrived — a non-cash Mode asks for the one bank account it landed in (see
@@ -88,18 +92,28 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   const [payRows, setPayRows] = useState<PaymentRow[]>(() =>
     edit
       ? edit.lines.map((l) => newPaymentRow({ mode: l.mode, amount: String(l.amount), bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName || "", auto: false }))
-      : [newPaymentRow()]
+      : [newPaymentRow({ mode: "Cash" })]
   );
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
   const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const [payIssue, setPayIssue] = useState<PaymentIssue | null>(null);
+  const changePayRows: Dispatch<SetStateAction<PaymentRow[]>> = useCallback((a) => { setPayIssue(null); setPayRows(a); }, []);
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+  // A server message goes under the field its words name.
+  const failFromServer = (e: unknown) => {
+    const msg = e instanceof ApiError ? e.message : "Could not save — try again.";
+    const field = fieldForMessage(msg, SERVER_FIELDS);
+    if (field === "payments") { setErr(""); setFe({}); setPayIssue({ key: payRows.find((r) => isBankMode(r.mode) && !r.bankId)?.key ?? null, message: msg }); return; }
+    if (field) fail(field, msg); else { setFe({}); setErr(msg); }
+  };
   const [saving, setSaving] = useState(false);
 
   const isLoan = isLoanSource(source);
   const isGoldSale = source === GOLD_SALE;
-  // A loan source asks for its details only once — on its first entry.
-  const needsLoanDetails = isLoan && sourceRec?.principalAmount == null && !edit;
 
   // Gold Sale fields — only shown/required when source is GOLD_SALE.
   const [ornamentType, setOrnamentType] = useState(edit?.ornamentType ?? "");
@@ -128,22 +142,14 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   const sold = +amt || 0;
   const profit = sold > 0 ? sold - (+costAmount || 0) : 0;
 
-  // Loan Details block — only shown/required on a loan source's first
-  // entry (needsLoanDetails).
-  const [loanNumber, setLoanNumber] = useState("");
-  const [principalAmount, setPrincipalAmount] = useState("");
-  // The cash drawn defaults to the loan's principal — still editable after,
-  // for a loan drawn in parts.
-  const setPrincipal = (v: string) => { setPrincipalAmount(v); setAmt(v); };
-
-  // A loan can't be drawn past its principal: a new loan checks the amount
-  // against the principal typed in, an existing one against what is left to
-  // draw. Blocks the Add Cash button (the backend refuses it too).
+  // A loan is just a category: no loan number or principal is asked for. A
+  // loan that already has a principal on record (opened earlier) is still
+  // limited to what is left to draw — the backend refuses it past that.
   const loanBal = useLoanBalance(sourceRec);
   const drawAmount = +amt || 0;
   // Editing a draw: its own amount is already counted as drawn, so it is available again to the edit.
-  const loanLimit = needsLoanDetails ? (+principalAmount || 0) : loanBal ? loanBal.balance + (edit ? edit.amount : 0) : 0;
-  const loanExceeded = isLoan && !isGoldSale && drawAmount > 0 && (needsLoanDetails ? loanLimit > 0 : !!loanBal) && drawAmount > loanLimit + 0.005;
+  const loanLimit = loanBal ? loanBal.balance + (edit ? edit.amount : 0) : 0;
+  const loanExceeded = isLoan && !isGoldSale && drawAmount > 0 && !!loanBal && loanBal.principal > 0 && drawAmount > loanLimit + 0.005;
   const loanWarning = loanExceeded
     ? `Loan principal amount exceeded — only ${fmt(Math.max(loanLimit, 0))} is left to draw on ${source}.`
     : "";
@@ -156,11 +162,11 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   async function saveGoldSale() { return singleFlight("modal:addcash:saveGoldSale", async () => {
     const type = ornamentType.trim();
     const cost = +costAmount || 0;
-    if (!type) { setErr("Please enter the ornament type."); return; }
-    if (!(sold > 0)) { setErr("Please enter a valid sold amount."); return; }
-    if (cost < 0) { setErr("Cost amount cannot be negative."); return; }
-    if (!date) { setErr("Please select the date."); return; }
-    if (!branchId) { setErr("Please select a branch."); return; }
+    if (!type) { fail("ornament", "Please enter the ornament type."); return; }
+    if (!(sold > 0)) { fail("amount", "Please enter a valid sold amount."); return; }
+    if (cost < 0) { fail("cost", "Cost amount cannot be negative."); return; }
+    if (!date) { fail("date", "Please select the date."); return; }
+    if (!branchId) { fail("branch", "Please select a branch."); return; }
 
     setSaving(true);
     try {
@@ -184,39 +190,29 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
       closeModal();
       toast(`Gold sale of ${fmt(sold)} recorded${profit >= 0 ? ` — profit ${fmt(profit)}` : ` — loss ${fmt(Math.abs(profit))}`}`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+      failFromServer(e);
     } finally {
       setSaving(false);
     }
   }); }
 
   async function save() { return singleFlight("modal:addcash:save", async () => {
-    if (!source) { setErr("Please select where the cash is coming from."); return; }
+    setErr(""); setFe({}); setPayIssue(null);
+    if (!source) { fail("category", "Please select where the cash is coming from."); return; }
     if (isGoldSale) {
-      if (edit && edit.kind !== "gold_sale") { setErr("A gold sale can't be recorded from here — pick another category."); return; }
-      if (!mode) { setErr("Please select the mode of cash."); return; }
-      if (bankRequired && !bankId) { setErr("Please select the bank."); return; }
-      if (!branchId) { setErr("Please select a branch."); return; }
+      if (edit && edit.kind !== "gold_sale") { fail("category", "A gold sale can't be recorded from here — pick another category."); return; }
+      if (!mode) { fail("mode", "Please select the mode of cash."); return; }
+      if (bankRequired && !bankId) { fail("bank", "Please select the bank."); return; }
+      if (!branchId) { fail("branch", "Please select a branch."); return; }
       await saveGoldSale();
       return;
     }
     const amount = +amt;
-    if (!(amount > 0)) { setErr("Please enter a valid cash amount."); return; }
-    if (!date) { setErr(needsLoanDetails ? "Please select the date of the loan." : "Please select the date."); return; }
-    const payErr = paymentRowsError(payRows, amount);
-    if (payErr) { setErr(payErr); return; }
-    if (!branchId) { setErr("Please select a branch."); return; }
-
-    // Only a loan source's first entry sends its details — later entries
-    // reuse the ones the backend already holds on the source.
-    let loanSource: { loanNumber: string; principalAmount: number } | undefined;
-    if (needsLoanDetails) {
-      if (!loanNumber.trim()) { setErr("Please enter the loan number."); return; }
-      const principal = +principalAmount;
-      if (!(principal > 0)) { setErr("Please enter a valid principal amount."); return; }
-      if (amount > principal) { setErr("Cash amount can't be more than the loan's principal."); return; }
-      loanSource = { loanNumber: loanNumber.trim(), principalAmount: principal };
-    }
+    if (!(amount > 0)) { fail("amount", "Please enter a valid cash amount."); return; }
+    if (!date) { fail("date", "Please select the date."); return; }
+    const issue = paymentRowIssue(payRows, amount);
+    if (issue) { setErr(""); setFe({}); setPayIssue(issue); return; }
+    if (!branchId) { fail("branch", "Please select a branch."); return; }
 
     setSaving(true);
     try {
@@ -233,24 +229,24 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
       }
       await createCashMovement({
         type: "in", source, receiptImage,
-        amount, branchId, occurredOn: date, loanSource,
+        amount, branchId, occurredOn: date,
         remarks: remarks.trim() || undefined, payments,
       });
-      // A loan's first entry also created its repayment category server
+      // A loan's first entry also makes it a repayment category server
       // side — reload the category links so its ledger link appears.
-      if (loanSource) window.dispatchEvent(new Event(EXPENSE_CATEGORIES_CHANGED));
+      if (isLoan) window.dispatchEvent(new Event(EXPENSE_CATEGORIES_CHANGED));
       onSaved?.();
       closeModal();
       toast(`${fmt(amount)} added to cash (${source} · ${payments.map((p) => p.mode).join(" + ")})`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+      failFromServer(e);
     } finally {
       setSaving(false);
     }
   }); }
 
   const categoryField = (
-    <div><label className="f">Category *</label>
+    <div className={fe.category ? "has-err" : undefined}><label className="f">Category *</label>
       <SearchableSelect<BackendCashSource>
         portal
         // A gold sale's category stays Gold Sale.
@@ -258,6 +254,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         value={source}
         onChange={(_id, item) => {
           setSourceRec(item);
+          setFe((cur) => ({ ...cur, category: "" }));
           // A category from another form: choosing it flips it to common.
           if (item.type && item.type !== "cash_in" && !item.isCommon && item.name !== GOLD_SALE) createCashSource(item.name).catch(() => {});
         }}
@@ -268,19 +265,19 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         placeholder="Search or add a category…"
         allowCreate
         onCreate={createCashSource}
-      /></div>
+      /><FieldError msg={fe.category} /></div>
   );
   const modeField = (
-    <div><label className="f">Mode *</label>
+    <div className={fe.mode ? "has-err" : undefined}><label className="f">Mode *</label>
       <Select
         options={MODE_OPTIONS}
         value={mode}
         onChange={(v) => { setMode(v); if (v !== "UPI" && v !== "Bank Transfer") { setBankId(""); setBank(""); } }}
         placeholder="Select mode…"
-      /></div>
+      /><FieldError msg={fe.mode} /></div>
   );
   const bankField = (
-    <div><label className="f">Bank * <span style={{ fontWeight: 400, color: "var(--muted)" }}>(your account)</span></label>
+    <div className={fe.bank ? "has-err" : undefined}><label className="f">Bank * <span style={{ fontWeight: 400, color: "var(--muted)" }}>(your account)</span></label>
       <SearchableSelect<BackendBank>
         portal
         value={bank}
@@ -292,21 +289,21 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         placeholder="Search or add a bank…"
         allowCreate
         onCreate={createBank}
-      /></div>
+      /><FieldError msg={fe.bank} /></div>
   );
   const amountField = (
-    <div><label className="f">{isGoldSale ? "Sold For (₹) *" : "Amount (₹) *"}</label>
-      <input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /></div>
+    <div className={fe.amount ? "has-err" : undefined}><label className="f">{isGoldSale ? "Sold For (₹) *" : "Amount (₹) *"}</label>
+      <input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /><FieldError msg={fe.amount} /></div>
   );
   const branchField = (
-    <div><label className="f">Branch *</label>
+    <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
       <Select
         disabled={branchLocked}
         options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
         value={branchId ? String(branchId) : ""}
         onChange={(v) => setBranchId(v ? Number(v) : "")}
         placeholder="Select branch…"
-      /></div>
+      /><FieldError msg={fe.branch} /></div>
   );
 
   // Credit and Debit follow one order: Category → Amount → Date → Mode (with
@@ -320,29 +317,18 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         {tabs}
         <div className="frow">{categoryField}</div>
 
-        {needsLoanDetails && (
-          <div style={{ marginBottom: 14 }}>
-            <label className="f" style={{ display: "block", marginBottom: 12 }}>Loan Details</label>
-            <div className="frow c2">
-              <div><label className="f">Loan Number *</label>
-                <input className="inp" placeholder="As on the loan account" value={loanNumber} onChange={(e) => setLoanNumber(e.target.value)} /></div>
-              <div><label className="f">Principal Amount (₹) *</label>
-                <input className="inp" type="number" min={1} value={principalAmount} onChange={(e) => setPrincipal(e.target.value)} onWheel={noWheelStep} /></div>
-            </div>
-          </div>
-        )}
         {isGoldSale && (
           <div className="frow c2">
-            <div><label className="f">Ornament Type *</label>
-              <input className="inp" placeholder="e.g. Chain, Bangle, Studs" value={ornamentType} onChange={(e) => setOrnamentType(e.target.value)} /></div>
-            <div><label className="f">Cost to Acquire (₹) *</label><input className="inp" type="number" min={0} value={costAmount} onChange={(e) => setCostAmount(e.target.value)} onWheel={noWheelStep} /></div>
+            <div className={fe.ornament ? "has-err" : undefined}><label className="f">Ornament Type *</label>
+              <input className="inp" placeholder="e.g. Chain, Bangle, Studs" value={ornamentType} onChange={(e) => setOrnamentType(e.target.value)} /><FieldError msg={fe.ornament} /></div>
+            <div className={fe.cost ? "has-err" : undefined}><label className="f">Cost to Acquire (₹) *</label><input className="inp" type="number" min={0} value={costAmount} onChange={(e) => setCostAmount(e.target.value)} onWheel={noWheelStep} /><FieldError msg={fe.cost} /></div>
           </div>
         )}
 
         {isGoldSale ? (
           <>
             <div className="frow c2">
-              <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
+              <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /><FieldError msg={fe.date} /></div>
               {modeField}
             </div>
             {bankRequired && <div className="frow">{bankField}</div>}
@@ -352,9 +338,9 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
           <>
             <div className="frow c2">
               {amountField}
-              <div><label className="f">{needsLoanDetails ? "Date of Loan *" : "Date *"}</label><DatePicker value={date} onChange={setDate} /></div>
+              <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /><FieldError msg={fe.date} /></div>
             </div>
-            <PaymentBreakdownFields total={+amt || 0} rows={payRows} onChange={setPayRows} />
+            <PaymentBreakdownFields total={+amt || 0} rows={payRows} onChange={changePayRows} error={payIssue} />
             {showBranch && <div className="frow">{branchField}</div>}
           </>
         )}
@@ -370,8 +356,8 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         )}
         <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
-        <div className="frow"><div><label className="f">Remarks</label>
-          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
+        <div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
+          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /><FieldError msg={fe.remarks} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

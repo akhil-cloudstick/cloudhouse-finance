@@ -1,3 +1,4 @@
+import type { Customer } from "@/modules/customers/types/customer-types";
 import React, { createContext, useContext } from "react";
 import { Animated, StyleSheet } from "react-native";
 import { router as globalRouter } from "expo-router";
@@ -15,6 +16,8 @@ import { FlatHeader } from "./FlatHeader";
 // ---------------------------------------------------------------------------
 export type ShellActions = {
   openNewLoan: () => void;
+  /** New Loan with this customer already picked (from the customer page). */
+  openNewLoanFor: (customer: Customer) => void;
   openMore: () => void;
   openSearch: () => void;
   openGoldRate: () => void;
@@ -26,6 +29,7 @@ export type ShellActions = {
 const noop = () => {};
 export const ShellContext = createContext<ShellActions>({
   openNewLoan: noop,
+  openNewLoanFor: noop,
   openMore: noop,
   openSearch: noop,
   openGoldRate: noop,

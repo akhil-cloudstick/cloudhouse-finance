@@ -329,48 +329,54 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		if src, err = resolveLoanSource(ctx, in.Source); err != nil {
 			return nil, err
 		}
-		if !hasLoanDetails(src) {
-			if loanSource == nil || strings.TrimSpace(loanSource.LoanNumber) == "" {
-				return nil, common.NewBadRequest("loan number is required for a loan-sourced cash entry")
-			}
-			if loanSource.PrincipalAmount <= 0 {
-				return nil, common.NewBadRequest("principal amount must be greater than zero for a loan-sourced cash entry")
-			}
+		// A loan is just a named category: its number and principal are optional. They are only
+		// recorded (and the draw limited to them) when the caller sends them or the loan already has them.
+		if src.PrincipalAmount == nil && loanSource != nil && loanSource.PrincipalAmount > 0 {
 			principal, opened := loanSource.PrincipalAmount, time.Now()
 			src.LoanNumber, src.PrincipalAmount = strings.TrimSpace(loanSource.LoanNumber), &principal
 			src.LoanOpenedAt = &opened
 			newLoan = true
 		}
-		b, err := loanBalance(ctx, src, false)
-		if err != nil {
-			return nil, err
-		}
-		if in.Amount > b.Balance+0.005 {
-			return nil, common.NewBadRequest(fmt.Sprintf("amount exceeds the loan balance — only ₹%.2f is left to draw on %s", max(b.Balance, 0), src.Name))
+		if src.PrincipalAmount != nil {
+			b, err := loanBalance(ctx, src, false)
+			if err != nil {
+				return nil, err
+			}
+			if in.Amount > b.Balance+0.005 {
+				return nil, common.NewBadRequest(fmt.Sprintf("amount exceeds the loan balance — only ₹%.2f is left to draw on %s", max(b.Balance, 0), src.Name))
+			}
 		}
 		rec.Source = src.Name
 		rec.Status = "Open"
-		rec.Purpose = "Loan no. " + src.LoanNumber
+		if src.LoanNumber != "" {
+			rec.Purpose = "Loan no. " + src.LoanNumber
+		} else {
+			rec.Purpose = "Loan — " + src.Name
+		}
 	}
 	if err := insertMovement(ctx, rec); err != nil {
 		return nil, err
 	}
 	if isLoan {
+		// The first draw makes the loan pickable as an expense category, so repayments can be booked against it.
 		if newLoan {
 			if err := saveLoanDetails(ctx, src); err != nil {
 				return nil, err
 			}
-			if err := ensureLoanCategory(ctx, src.Name); err != nil {
+		} else if !src.IsCommon {
+			if err := markCommon(ctx, src); err != nil {
 				return nil, err
 			}
 		}
-		loanRec := &models.LoanCashSource{
-			CashMovementID:  rec.ID,
-			LoanNumber:      src.LoanNumber,
-			PrincipalAmount: *src.PrincipalAmount,
-		}
-		if err := insertLoanCashSource(ctx, loanRec); err != nil {
-			return nil, err
+		if src.PrincipalAmount != nil {
+			loanRec := &models.LoanCashSource{
+				CashMovementID:  rec.ID,
+				LoanNumber:      src.LoanNumber,
+				PrincipalAmount: *src.PrincipalAmount,
+			}
+			if err := insertLoanCashSource(ctx, loanRec); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return findMovementByID(ctx, rec.ID)
@@ -1081,6 +1087,30 @@ func netOfNewestRows(ctx context.Context, branchID *uint, fromDate, toDate time.
 	return net, err
 }
 
+// narrowsLedger reports whether a filter other than the date range hides rows from the ledger.
+func narrowsLedger(filter MovementFilter, search string) bool {
+	return len(filter.BranchIDs) > 0 || len(filter.CustomerIDs) > 0 || len(filter.Categories) > 0 || len(filter.Modes) > 0 || search != ""
+}
+
+// fullLedgerBalances is each row's balance in the whole (branch-scoped) ledger — every row booked up
+// to and including it, in the ledger's own order — so filtering hides rows without changing balances.
+func fullLedgerBalances(ctx context.Context, branchID *uint, rows []models.CashMovement) ([]float64, error) {
+	out := make([]float64, len(rows))
+	for i, r := range rows {
+		var net float64
+		err := filteredMovements(ctx, branchID, time.Time{}, time.Time{}, MovementFilter{}, "").
+			Where("DATE(occurred_on) < DATE(?) OR (DATE(occurred_on) = DATE(?) AND (created_at < ? OR (created_at = ? AND id <= ?)))",
+				r.OccurredOn, r.OccurredOn, r.CreatedAt, r.CreatedAt, r.ID).
+			Select("COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END), 0)").
+			Scan(&net).Error
+		if err != nil {
+			return nil, err
+		}
+		out[i] = net
+	}
+	return out, nil
+}
+
 func listByBank(ctx context.Context, bankID uint, fromDate, toDate time.Time, limit, offset int) ([]models.CashMovement, int64, error) {
 	q := config.DB.
 		WithContext(ctx).Preload("Branch").Model(&models.CashMovement{}).
@@ -1512,7 +1542,27 @@ func ListMovements(c echo.Context) error {
 		if err != nil {
 			return common.FailErr(c, err)
 		}
-		return common.SuccessPage(c, page, limit, total, withLoanSources(ctx, rec), echo.Map{"total_debit": debit, "total_credit": credit, "page_balance": (credit - debit) - ahead})
+		// A from-date ledger carries on from what the same filters had booked before it, so the
+		// balance reads as it does unfiltered instead of restarting at zero.
+		opening := 0.0
+		if !fromDate.IsZero() {
+			priorDebit, priorCredit, err := sumMovementFiltered(ctx, branchID, time.Time{}, fromDate.AddDate(0, 0, -1), filter, search)
+			if err != nil {
+				return common.FailErr(c, err)
+			}
+			opening = priorCredit - priorDebit
+		}
+		extra := echo.Map{"total_debit": debit, "total_credit": credit, "page_balance": opening + (credit - debit) - ahead}
+		// Under a type/mode/customer/branch/search filter the running balance stays the real ledger's,
+		// one figure per row, instead of restarting from the filtered rows alone.
+		if narrowsLedger(filter, search) {
+			balances, err := fullLedgerBalances(ctx, branchID, rec)
+			if err != nil {
+				return common.FailErr(c, err)
+			}
+			extra["row_balances"] = balances
+		}
+		return common.SuccessPage(c, page, limit, total, withLoanSources(ctx, rec), extra)
 	}
 	rec, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, search, 0, 0)
 	if err != nil {

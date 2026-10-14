@@ -189,7 +189,6 @@ func schemeMaxCodeSuffix(ctx context.Context) (int, error) {
 func normalizeTiers(in *SchemeCreateInput) {
 	if in.InterestMethod != commonModels.InterestMethodMultiple {
 		in.RateTiers = nil
-		in.MinimumDays = 0
 		return
 	}
 	if n := len(in.RateTiers); n > 0 {
@@ -199,6 +198,9 @@ func normalizeTiers(in *SchemeCreateInput) {
 }
 
 func validateTiers(in SchemeCreateInput) error {
+	if in.MinimumDays < 0 {
+		return NewBadRequest("minimum period cannot be negative")
+	}
 	if in.InterestMethod != commonModels.InterestMethodMultiple {
 		return nil
 	}
@@ -212,9 +214,6 @@ func validateTiers(in SchemeCreateInput) error {
 		if i < len(in.RateTiers)-1 && t.Days <= 0 {
 			return NewBadRequest(fmt.Sprintf("rate row %d needs a number of days above zero", i+1))
 		}
-	}
-	if in.MinimumDays < 0 {
-		return NewBadRequest("minimum period cannot be negative")
 	}
 	return nil
 }

@@ -9,6 +9,12 @@ import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/compo
 import { getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
 import { type BackendInvestmentPayout } from "@/modules/investments/types/investment-types";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  split: /payment|breakdown|bank|cheque|upi/i, amount: /amount|month|interest/i,
+};
 
 type PayInterestModalContentProps = { investmentId: number; investmentNumber: string; onSaved: () => void };
 
@@ -25,6 +31,9 @@ export function PayInterestModalContent({ investmentId, investmentNumber, onSave
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -65,6 +74,7 @@ export function PayInterestModalContent({ investmentId, investmentNumber, onSave
   async function save() { return singleFlight("modal:payinterest:save", async () => {
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       const paid = await payInterestMonths(investmentId, {
         amount: amt,
@@ -78,7 +88,9 @@ export function PayInterestModalContent({ investmentId, investmentNumber, onSave
       onSaved();
       closeModal();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not record the interest payment — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not record the interest payment — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -97,9 +109,10 @@ export function PayInterestModalContent({ investmentId, investmentNumber, onSave
             <div className="notice" style={{ marginBottom: 14 }}>
               {months.length} unpaid month{months.length === 1 ? "" : "s"} · <strong>{fmt(total)}</strong> in all
             </div>
-            <div className="frow"><div>
+            <div className="frow"><div className={fe.amount ? "has-err" : undefined}>
               <label className="f">Amount (₹) *</label>
               <input className="inp" type="number" min={0} step={0.01} value={amount} onChange={(e) => setAmount(e.target.value)} />
+              <FieldError msg={fe.amount} />
             </div></div>
             <div style={{ fontSize: 12.5, margin: "6px 0 10px", color: exact ? "var(--green)" : "var(--muted)" }}>
               {amt > 0 && cover.n > 0
@@ -107,7 +120,10 @@ export function PayInterestModalContent({ investmentId, investmentNumber, onSave
                 : "Enter the amount to see the months it covers"}
             </div>
             <div className="frow">
-              <SplitPaymentInput totalAmount={amt} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+              <div className={fe.split ? "has-err" : undefined}>
+                <SplitPaymentInput totalAmount={amt} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+                <FieldError msg={fe.split} />
+              </div>
             </div>
             <div style={{ marginTop: 10, maxHeight: 150, overflowY: "auto", overflowX: "hidden" }}>
               <table className="tbl tbl-center" style={{ width: "100%", minWidth: 0 }}>

@@ -55,14 +55,14 @@ export async function listCashMovementsPage(
   page: number,
   limit?: number,
   filters?: CashMovementFilters
-): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number; totalDebit: number; totalCredit: number; pageBalance: number }> {
+): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number; totalDebit: number; totalCredit: number; pageBalance: number; rowBalances?: number[] }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = movementFilterParams(filters);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number; totalDebit?: number; totalCredit?: number; pageBalance?: number }>(`/cash-movements?${params}`);
+  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number; totalDebit?: number; totalCredit?: number; pageBalance?: number; rowBalances?: number[]; row_balances?: number[] }>(`/cash-movements?${params}`);
   // totalDebit/totalCredit: every movement matching the filters, not the page.
-  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, pageBalance: rec?.pageBalance ?? 0 };
+  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, pageBalance: rec?.pageBalance ?? 0, rowBalances: rec?.rowBalances ?? rec?.row_balances };
 }
 
 /* Downloads a file from an endpoint that returns a raw file body (CSV),

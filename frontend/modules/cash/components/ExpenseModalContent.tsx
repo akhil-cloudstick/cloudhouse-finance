@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
@@ -14,13 +14,19 @@ import { createExpense, saveEntryEdit, uploadReceipt } from "@/modules/cash/serv
 import { searchExpenseCategoriesPage, createExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
 import { type BackendExpenseCategory } from "@/modules/cash/types/expense-category-types";
 import { type EntryInfo } from "@/modules/cash/types/cash-types";
-import { PaymentBreakdownFields, newPaymentRow, paymentRowsError, paymentRowsToInput, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
+import { PaymentBreakdownFields, newPaymentRow, paymentRowIssue, paymentRowsToInput, isBankMode, type PaymentIssue, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
 import { Select } from "@/common/components/ui/Select";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FileInput } from "@/common/components/ui/FileInput";
 import { useLoanBalance } from "@/modules/cash/hooks/use-loan-balance";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  payments: /bank|payment/i, remarks: /remarks/i, branch: /branch/i, date: /date/i, category: /categor|loan/i, amount: /amount/i,
+};
 
 // `edit` opens the form on an existing approved debit (from the ledger's Edit button).
 type ExpenseModalContentProps = { onSaved?: () => void; tabs?: ReactNode; edit?: EntryInfo };
@@ -73,6 +79,19 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
   const branchLocked = singleBranch || lockedBranchId != null;
   const [branchId, setBranchId] = useState<number | "">(edit?.branchId || lockedBranchId || "");
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const [payIssue, setPayIssue] = useState<PaymentIssue | null>(null);
+  const changePayRows: Dispatch<SetStateAction<PaymentRow[]>> = useCallback((a) => { setPayIssue(null); setPayRows(a); }, []);
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+  // A server message goes under the field its words name.
+  const failFromServer = (e: unknown) => {
+    const msg = e instanceof ApiError ? e.message : "Could not save — try again.";
+    const field = fieldForMessage(msg, SERVER_FIELDS);
+    if (field === "payments") { setErr(""); setFe({}); setPayIssue({ key: payRows.find((r) => isBankMode(r.mode) && !r.bankId)?.key ?? null, message: msg }); return; }
+    if (field) fail(field, msg); else { setFe({}); setErr(msg); }
+  };
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -83,13 +102,14 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
   }, []);
 
   async function save() { return singleFlight("modal:expense:save", async () => {
-    if (!cat.trim()) { setErr("Please select a category."); return; }
+    setErr(""); setFe({}); setPayIssue(null);
+    if (!cat.trim()) { fail("category", "Please select a category."); return; }
     const amount = +amt;
-    if (!(amount > 0)) { setErr("Please enter a valid amount."); return; }
-    if (!date) { setErr("Please select the date."); return; }
-    const payErr = paymentRowsError(payRows, amount);
-    if (payErr) { setErr(payErr); return; }
-    if (!branchId) { setErr("Please select a branch."); return; }
+    if (!(amount > 0)) { fail("amount", "Please enter a valid amount."); return; }
+    if (!date) { fail("date", "Please select the date."); return; }
+    const issue = paymentRowIssue(payRows, amount);
+    if (issue) { setErr(""); setFe({}); setPayIssue(issue); return; }
+    if (!branchId) { fail("branch", "Please select a branch."); return; }
 
     setSaving(true);
     try {
@@ -116,7 +136,7 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
       // no cash moves until it is approved from the Expense Register.
       toast(created.status === "Pending" ? `Expense of ${fmt(amount)} submitted for approval` : `Expense of ${fmt(amount)} recorded`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+      failFromServer(e);
     } finally {
       setSaving(false);
     }
@@ -128,13 +148,14 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
       <div className="bd bd-scroll entry-form">
         {tabs}
         {/* Same order as the Credit form: Category → Amount → Date → Mode (payment breakdown) → Branch → Bill → Remarks. */}
-        <div className="frow"><div><label className="f">Category *</label>
+        <div className="frow"><div className={fe.category ? "has-err" : undefined}><label className="f">Category *</label>
           <SearchableSelect<BackendExpenseCategory>
             portal
             value={cat}
             onChange={(_id, item) => {
               setCat(item.name);
               setCatRec(item);
+              clearFe("category");
               // A category from another form: choosing it flips it to common.
               if (item.type && item.type !== "expense" && !item.isCommon) createExpenseCategory(item.name).catch(() => {});
             }}
@@ -145,35 +166,33 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
             placeholder="Search or add a category…"
             allowCreate
             onCreate={createExpenseCategory}
-          /></div></div>
+          /><FieldError msg={fe.category} /></div></div>
         <div className="frow c2">
-          <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={(e) => e.currentTarget.blur()} /></div>
-          <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
+          <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} onWheel={(e) => e.currentTarget.blur()} /><FieldError msg={fe.amount} /></div>
+          <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
         </div>
-        <PaymentBreakdownFields total={+amt || 0} rows={payRows} onChange={setPayRows} />
+        <PaymentBreakdownFields total={+amt || 0} rows={payRows} onChange={changePayRows} error={payIssue} />
         {showBranch && (
           <div className="frow">
-            <div><label className="f">Branch *</label>
+            <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
               <Select
                 disabled={branchLocked}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 value={branchId ? String(branchId) : ""}
-                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                onChange={(v) => { setBranchId(v ? Number(v) : ""); clearFe("branch"); }}
                 placeholder="Select branch…"
-              /></div>
+              /><FieldError msg={fe.branch} /></div>
           </div>
         )}
         <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
-        <div className="frow"><div><label className="f">Remarks</label>
-          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
-        {loanWarning && (
-          <div className="notice" style={{ marginBottom: 4, borderLeft: "3px solid var(--red)", color: "var(--red)" }}>
-            {loanWarning}
-          </div>
-        )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
+        <div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
+          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => { setRemarks(e.target.value); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
       </div>
+      {/* Outside the scrolling body so a blocked save is never hidden below the fold. */}
+      {(loanWarning || err) && (
+        <div style={{ padding: "8px 22px 0", color: "var(--red)", fontSize: 12.5 }}>{loanWarning || err}</div>
+      )}
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Expense"}</button>

@@ -7,6 +7,7 @@ import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Select } from "@/common/components/ui/Select";
 import { createInvestmentPlan, updateInvestmentPlan, listInvestmentPlans } from "@/modules/investments/services/investmentService";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { type BackendInvestmentPlan, type CreatePlanInput, type InterestRateType, type PayoutFrequency, type Engine } from "@/modules/investments/types/investment-types";
 
 // Every plan is a Bond product now — ProductType has no live "Deposit"
@@ -31,6 +32,11 @@ const emptyForm: CreatePlanInput = {
  * (backend Engine "Live") has no frequency picker at all: interest accrues
  * continuously and is paid out once at maturity. */
 const FIXED_PAYOUT_FREQUENCIES: PayoutFrequency[] = ["Monthly", "Quarterly", "Yearly"];
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  name: /name/i, rate: /interest rate|rate/i, frequency: /frequency|payout/i, tenure: /tenure/i, minPrincipal: /minimum|principal/i,
+};
 
 type InvestmentPlansModalContentProps = { onChanged: () => void };
 
@@ -57,6 +63,9 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
   const [form, setForm] = useState<CreatePlanInput>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState("");
+  // Validation messages, each shown under the field it is about; `formErr` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setFormErr(""); setFe({ [field]: msg }); };
 
   async function refresh() {
     setLoading(true);
@@ -91,6 +100,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
     setEditingId(0);
     setForm(emptyForm);
     setFormErr("");
+    setFe({});
   }
 
   function startEdit(p: BackendInvestmentPlan) {
@@ -107,23 +117,25 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
       productType: "Bond",
     });
     setFormErr("");
+    setFe({});
   }
 
   async function save() {
-    if (!form.name.trim()) { setFormErr("Please enter a plan name."); return; }
-    if (form.interestRatePercent < 0) { setFormErr("Interest rate must not be negative."); return; }
-    if (form.tenureMonths <= 0) { setFormErr("Tenure must be greater than zero."); return; }
+    if (!form.name.trim()) { fail("name", "Please enter a plan name."); return; }
+    if (form.interestRatePercent < 0) { fail("rate", "Interest rate must not be negative."); return; }
+    if (form.tenureMonths <= 0) { fail("tenure", "Tenure must be greater than zero."); return; }
     // The tenure/frequency divisibility rule only applies to Fixed Payout
     // plans (whose payout schedule steps in whole calendar-month periods) —
     // Single Payout plans accrue continuously and pay out once at maturity,
     // with nothing to divide evenly.
     if (form.engine === "Schedule") {
       const stepMonths = form.payoutFrequency === "Yearly" ? 12 : form.payoutFrequency === "Quarterly" ? 3 : 1;
-      if (form.tenureMonths % stepMonths !== 0) { setFormErr(`Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`); return; }
+      if (form.tenureMonths % stepMonths !== 0) { fail("tenure", `Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`); return; }
     }
 
     setSaving(true);
     setFormErr("");
+    setFe({});
     try {
       if (editingId) {
         await updateInvestmentPlan(editingId, form);
@@ -134,7 +146,9 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
       await refresh();
       onChanged();
     } catch (e) {
-      setFormErr(e instanceof ApiError ? e.message : "Could not save the plan — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not save the plan — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setFormErr(msg);
     } finally {
       setSaving(false);
     }
@@ -181,7 +195,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
         ) : (
           <>
             <div className="frow c2">
-              <div><label className="f">Plan Name *</label><input className="inp" placeholder="e.g. Gold Saver 12mo" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+              <div className={fe.name ? "has-err" : undefined}><label className="f">Plan Name *</label><input className="inp" placeholder="e.g. Gold Saver 12mo" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><FieldError msg={fe.name} /></div>
               <div><label className="f">Interest Rate Type *</label>
                 <Select
                   value={form.interestRateType}
@@ -191,7 +205,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
               </div>
             </div>
             <div className="frow c2">
-              <div><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 8" value={form.interestRatePercent || ""} onChange={(e) => setForm({ ...form, interestRatePercent: +e.target.value || 0 })} /></div>
+              <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 8" value={form.interestRatePercent || ""} onChange={(e) => setForm({ ...form, interestRatePercent: +e.target.value || 0 })} /><FieldError msg={fe.rate} /></div>
               <div><label className="f">Payout *</label>
                 <Select
                   value={form.engine}
@@ -213,19 +227,19 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
             </div>
             {form.engine === "Schedule" && (
               <div className="frow c2">
-                <div><label className="f">Payout Frequency *</label>
+                <div className={fe.frequency ? "has-err" : undefined}><label className="f">Payout Frequency *</label>
                   <Select
                     value={form.payoutFrequency}
                     onChange={(v) => setForm({ ...form, payoutFrequency: v as PayoutFrequency })}
                     options={FIXED_PAYOUT_FREQUENCIES.map((f) => ({ value: f, label: f }))}
-                  />
+                  /><FieldError msg={fe.frequency} />
                 </div>
                 <div />
               </div>
             )}
             <div className="frow c2">
-              <div><label className="f">Tenure (months) *</label><input className="inp" type="number" min={1} placeholder="e.g. 12" value={form.tenureMonths || ""} onChange={(e) => setForm({ ...form, tenureMonths: +e.target.value || 0 })} /></div>
-              <div><label className="f">Minimum Principal (₹)</label><input className="inp" type="number" min={0} placeholder="e.g. 10000" value={form.minPrincipal || ""} onChange={(e) => setForm({ ...form, minPrincipal: +e.target.value || 0 })} /></div>
+              <div className={fe.tenure ? "has-err" : undefined}><label className="f">Tenure (months) *</label><input className="inp" type="number" min={1} placeholder="e.g. 12" value={form.tenureMonths || ""} onChange={(e) => setForm({ ...form, tenureMonths: +e.target.value || 0 })} /><FieldError msg={fe.tenure} /></div>
+              <div className={fe.minPrincipal ? "has-err" : undefined}><label className="f">Minimum Principal (₹)</label><input className="inp" type="number" min={0} placeholder="e.g. 10000" value={form.minPrincipal || ""} onChange={(e) => setForm({ ...form, minPrincipal: +e.target.value || 0 })} /><FieldError msg={fe.minPrincipal} /></div>
             </div>
             <div className="frow"><div>
               <label className="cradio" style={{ fontSize: 13 }}>

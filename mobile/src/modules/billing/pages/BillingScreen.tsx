@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import {
   Buffering,
+  Card,
+  DetailRow,
   C,
   EmptyText,
   FlatHeader,
@@ -17,6 +19,7 @@ import {
   Txt,
 } from "@/common/components/ui";
 import { getBillingStatus, getBranchQuota } from "@/modules/billing/services/billingService";
+import { dmy } from "@/common/utils/format";
 import {
   BILLING_PLANS,
   FEATURES,
@@ -142,8 +145,18 @@ function UpgradeSheet({
   );
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  trial: "Trial",
+  past_due: "Payment overdue",
+  grace: "Payment pending — grace period",
+  over_quota: "Over plan quota",
+  suspended: "Suspended",
+  cancelled: "Cancelled",
+};
+
 export default function BillingScreen() {
-  const status = useQuery({ queryKey: ["billing", "status"], queryFn: getBillingStatus, enabled: FEATURES.planUpgrade });
+  const status = useQuery({ queryKey: ["billing", "status"], queryFn: getBillingStatus });
   // Usage is optional: a role without branch access just doesn't see it.
   const quota = useQuery({ queryKey: ["branches", "quota"], queryFn: getBranchQuota, enabled: FEATURES.planUpgrade, retry: false });
   const [upgradedTo, setUpgradedTo] = useState<number | null>(null);
@@ -151,8 +164,37 @@ export default function BillingScreen() {
 
   const header = <FlatHeader title="Billing & Plan" subtitle="Your plan and branch limit" />;
 
+  // Without plan upgrades the screen still shows where the business stands (web's plain billing card).
   if (!FEATURES.planUpgrade) {
-    return <Screen header={header}><EmptyText>Plan upgrades aren&apos;t available yet.</EmptyText></Screen>;
+    if (status.isPending) return <Screen header={header}><Buffering style={{ paddingVertical: 30 }} /></Screen>;
+    if (status.isError) return <Screen header={header}><EmptyText>Couldn&apos;t load your plan. Try again from More.</EmptyText></Screen>;
+    const st = status.data;
+    const expired = !!st.subscriptionExpiresAt && new Date(st.subscriptionExpiresAt) < new Date();
+    const canSubscribe = st.priceInPaise > 0 && (!st.hasSubscription || st.businessStatus === "suspended" || st.businessStatus === "cancelled");
+    return (
+      <Screen header={header}>
+        <PScroll>
+          <Card style={{ marginTop: 14 }}>
+            <DetailRow first k="Plan" v={st.tierName} />
+            <DetailRow k="Price" v={st.priceInPaise > 0 ? `₹${(st.priceInPaise / 100).toLocaleString("en-IN")} / month` : "Not billed"} />
+            <DetailRow k="Status" v={STATUS_LABELS[st.businessStatus] ?? st.businessStatus} />
+            {st.subscriptionExpiresAt ? <DetailRow k={expired ? "Expired on" : "Renews on"} v={dmy(st.subscriptionExpiresAt)} /> : null}
+          </Card>
+          {st.gracePeriodEndsAt ? (
+            <Txt style={{ color: C.red, fontSize: 13, marginTop: 10, paddingHorizontal: 18 }}>
+              A recent payment attempt failed. Please renew before {dmy(st.gracePeriodEndsAt)} to avoid suspension.
+            </Txt>
+          ) : null}
+          <Txt style={{ color: C.muted, fontSize: 13, marginTop: 10, paddingHorizontal: 18 }}>
+            {st.priceInPaise <= 0
+              ? "This plan has no billing price configured yet — contact support."
+              : canSubscribe
+                ? `${st.hasSubscription ? "Renew" : "Subscribe"} from the web dashboard's Billing page.`
+                : "Your subscription renews automatically."}
+          </Txt>
+        </PScroll>
+      </Screen>
+    );
   }
   if (status.isPending) {
     return <Screen header={header}><Buffering style={{ paddingVertical: 30 }} /></Screen>;

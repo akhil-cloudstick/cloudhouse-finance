@@ -9,6 +9,12 @@ import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/compo
 import { addCashToInvestment } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment } from "@/modules/investments/types/investment-types";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+
+// Which field a server message is about, by its words (first match wins).
+const SERVER_FIELDS: Record<string, RegExp> = {
+  split: /payment|breakdown|bank|cheque|upi/i, date: /date/i, amount: /amount/i,
+};
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -37,16 +43,20 @@ export function AddInvestmentCashModalContent({
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
+  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   const amountNum = +amount || 0;
   const balanced = Math.abs(remaining) < 0.01;
 
   async function save() { return singleFlight("modal:addinvestmentcash:save", async () => {
-    if (amountNum <= 0) { setErr("Enter an amount greater than zero."); return; }
-    if (!balanced) { setErr("The payment breakdown must add up to the amount."); return; }
+    if (amountNum <= 0) { fail("amount", "Enter an amount greater than zero."); return; }
+    if (!balanced) { fail("split", "The payment breakdown must add up to the amount."); return; }
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       const updated = await addCashToInvestment(investment.id, {
         amount: amountNum,
@@ -58,7 +68,9 @@ export function AddInvestmentCashModalContent({
       onSaved(updated);
       closeModal();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not add cash to this investment.");
+      const msg = e instanceof ApiError ? e.message : "Could not add cash to this investment.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -72,14 +84,17 @@ export function AddInvestmentCashModalContent({
           Current Outstanding Principal: <strong>{fmt(investment.outstandingPrincipal)}</strong>
         </div>
         <div className="frow c2">
-          <div><label className="f">Amount *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 50000" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-          <div><label className="f">Date *</label><DatePicker value={occurredOn} onChange={setOccurredOn} max={todayISO()} /></div>
+          <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 50000" value={amount} onChange={(e) => setAmount(e.target.value)} /><FieldError msg={fe.amount} /></div>
+          <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={occurredOn} onChange={setOccurredOn} max={todayISO()} /><FieldError msg={fe.date} /></div>
         </div>
         <div className="frow">
           <div><label className="f">Reference</label><input className="inp" placeholder="Optional note" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
         </div>
         <div className="frow">
-          <SplitPaymentInput totalAmount={amountNum} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+          <div className={fe.split ? "has-err" : undefined}>
+            <SplitPaymentInput totalAmount={amountNum} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+            <FieldError msg={fe.split} />
+          </div>
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>

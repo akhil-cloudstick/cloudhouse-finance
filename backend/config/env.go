@@ -35,6 +35,8 @@ type Config struct {
 	SurepassEsignSignX       int
 	SurepassEsignSignY       int
 	SurepassEsignYFromBottom bool
+	SurepassEsignSlipX       int
+	SurepassEsignSlipY       int
 	SurepassEsignWitness1X   int
 	SurepassEsignWitness1Y   int
 	SurepassEsignWitness2X   int
@@ -70,6 +72,8 @@ func LoadConfig() Config {
 		SurepassEsignSignX:       getEnvInt("SUREPASS_ESIGN_SIGN_X", 110),
 		SurepassEsignSignY:       getEnvInt("SUREPASS_ESIGN_SIGN_Y", 730),
 		SurepassEsignYFromBottom: getEnv("SUREPASS_ESIGN_Y_FROM_BOTTOM", "true") != "false",
+		SurepassEsignSlipX:       getEnvInt("SUREPASS_ESIGN_SLIP_X", 103),
+		SurepassEsignSlipY:       getEnvInt("SUREPASS_ESIGN_SLIP_Y", 600),
 		SurepassEsignWitness1X:   getEnvInt("SUREPASS_ESIGN_WITNESS1_X", 103),
 		SurepassEsignWitness1Y:   getEnvInt("SUREPASS_ESIGN_WITNESS1_Y", 338),
 		SurepassEsignWitness2X:   getEnvInt("SUREPASS_ESIGN_WITNESS2_X", 396),

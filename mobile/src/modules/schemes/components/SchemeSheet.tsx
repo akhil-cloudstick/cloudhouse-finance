@@ -3,6 +3,7 @@ import { Pressable, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { C, ChipToggle, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropdown, Txt } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { BranchField, useOwnBranch } from "@/modules/cash/components/EntryFormParts";
 import { createScheme, toggleSchemeActive, updateScheme } from "@/modules/schemes/services/schemeService";
 import { type SchemeInput, type Scheme, type ServiceChargeMode, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
 import { ApiError } from "@/common/services/httpClient";
@@ -51,6 +52,9 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const qc = useQueryClient();
   const { employee } = useAuth();
   const editing = !!scheme;
+  // Branch picker — only for a role that can see every branch (hidden otherwise, like web); the scheme then
+  // belongs to the user's own branch.
+  const [branch, setBranch] = useOwnBranch(null);
 
   const [name, setName] = useState("");
   const [interestRate, setInterestRate] = useState("");
@@ -78,10 +82,11 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
     setLtvPercent(sc ? String(sc.ltvPercent) : "");
     setMethod(sc && (METHODS as readonly string[]).includes(sc.interestMethod ?? "") ? (sc.interestMethod as Method) : METHODS[0]);
     setTiers(sc?.rateTiers?.length ? sc.rateTiers.map((t, i, a) => ({ days: i === a.length - 1 ? "" : String(t.days), rate: String(t.rate) })) : EMPTY_TIERS);
-    setMinDays(sc?.minimumDays ? String(sc.minimumDays) : "0");
+    setMinDays(sc ? String(sc.minimumDays || 0) : "30");
     setPenalRate(sc?.penalRate != null ? String(sc.penalRate) : "");
     setConditions(sc?.conditions ?? "");
     setStatus(!sc || sc.isActive ? "Active" : "Inactive");
+    setBranch(sc ? { id: sc.branchId, name: sc.branch?.name ?? "" } : employee ? { id: employee.branchId, name: employee.branch?.name ?? "Your branch" } : null);
     const ct = sc?.serviceChargeType && sc.serviceChargeType !== "None" ? sc.serviceChargeType : "None";
     setChargeType(ct);
     setChargeValue(ct !== "None" ? String(sc?.serviceChargeValue ?? "") : "");
@@ -93,11 +98,11 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
     mutationFn: async () => {
       const input: SchemeInput = {
         name,
-        branchId: scheme ? scheme.branchId : employee!.branchId,
+        branchId: branch?.id ?? (scheme ? scheme.branchId : employee!.branchId),
         // Multiple interest: the scheme's headline rate is the first step's rate.
         interestRate: isMultiple ? Number(tiers[0].rate) : Number(interestRate),
         rateTiers: isMultiple ? tiers.map((t, i) => ({ days: i === tiers.length - 1 ? 0 : parseInt(t.days, 10), rate: Number(t.rate) })) : [],
-        minimumDays: isMultiple ? parseInt(minDays, 10) || 0 : 0,
+        minimumDays: parseInt(minDays, 10) || 0,
         durationMonths: Number(durationMonths),
         ltvPercent: Number(ltvPercent),
         interestMethod: method,
@@ -134,6 +139,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   return (
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Scheme" : "Scheme"} maxHeightPct={92}>
       <FieldRow>
+        <BranchField branch={branch} onChange={setBranch} />
         <Field label="Name">
           <Input placeholder="e.g. Gold Plus" value={name} onChangeText={setName} />
         </Field>
@@ -147,6 +153,13 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
           </Field>
         )}
       </FieldRow>
+      {!isMultiple ? (
+        <FieldRow>
+          <Field label="Minimum period (days)">
+            <Input keyboardType="number-pad" value={minDays} onChangeText={(t) => setMinDays(t.replace(/\D/g, ""))} />
+          </Field>
+        </FieldRow>
+      ) : null}
       <FieldRow>
         <Field label="Duration (months)">
           <Input placeholder="e.g. 6" keyboardType="number-pad" value={durationMonths} onChangeText={(t) => setDurationMonths(t.replace(/\D/g, ""))} />
@@ -159,7 +172,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         <Field label="Interest calculation">
           <ThemeDropdown<Method> value={method} options={[...METHODS]} onChange={setMethod} labelOf={(m) => METHOD_LABELS[m]} />
         </Field>
-        <Field label="Penal charges (% p.a.)">
+        <Field label="Penal charges (% p.a., 0–60) *">
           <Input placeholder="e.g. 24" keyboardType="decimal-pad" value={penalRate} onChangeText={(t) => setPenalRate(num(t))} />
         </Field>
       </FieldRow>
@@ -228,7 +241,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         label="Save Scheme"
         onPress={submit}
         loading={save.isPending}
-        disabled={!name || (!isMultiple && !interestRate) || !durationMonths || !ltvPercent || (chargeSet && !chargeValue)}
+        disabled={!name || !(penalRate !== "" && Number(penalRate) >= 0 && Number(penalRate) <= 60) || (!isMultiple && !interestRate) || !durationMonths || !ltvPercent || (chargeSet && !chargeValue)}
       />
     </Sheet>
   );

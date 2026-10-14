@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { searchCustomersPage } from "@/modules/customers/services/customerService";
@@ -24,6 +25,17 @@ function computeInterest(principal: number, interestType: InterestType, value: n
   const raw = interestType === "Percentage" ? (principal * value) / 100 : value;
   return Math.round(raw * 100) / 100;
 }
+
+// Server messages are put on the field they are about, by wording.
+const SERVER_FIELDS: Record<string, RegExp> = {
+  penal: /penal/i,
+  grace: /grace/i,
+  interest: /interest/i,
+  principal: /principal/i,
+  tenure: /installment|tenure/i,
+  split: /breakdown|bank|cash|upi|cheque|balance/i,
+  customer: /customer/i,
+};
 
 type NewPersonalLoanModalContentProps = { onSaved: () => void };
 
@@ -61,6 +73,7 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   // Toggles this same mounted component over to the inline "+ Add new
   // customer" form (RegisterCustomerModalContent, via its `onCreated` prop)
@@ -93,17 +106,26 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
   const needsApproval = !isFlowOff(workflow, "personal_loan");
   const insufficient = !needsApproval && balanceInHand !== null && disbursedAmount > balanceInHand + 0.005;
 
+  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+
   async function save() {
-    if (!customerId || !customerBranchId) { setErr("Please select a customer."); return; }
-    if (insufficient) { setErr("Insufficient balance in hand to disburse this loan."); return; }
-    if (!principalNum || principalNum <= 0) { setErr("Please enter the principal amount."); return; }
-    if (!tenureNum || tenureNum <= 0) { setErr("Please enter the number of installments."); return; }
-    if (interestValueNum < 0) { setErr("Interest value must not be negative."); return; }
-    if (interestAmount >= principalNum) { setErr("Interest amount must be less than the principal amount."); return; }
-    if (Math.abs(remaining) >= 0.01) { setErr("The disbursement breakdown must add up to the amount the customer gets."); return; }
+    // Collect every missing/invalid section so all warnings show at once.
+    const errs: Record<string, string> = {};
+    if (!customerId || !customerBranchId) errs.customer = "Please select a customer.";
+    if (!principalNum || principalNum <= 0) errs.principal = "Please enter the principal amount.";
+    if (!tenureNum || tenureNum <= 0) errs.tenure = "Please enter the number of installments.";
+    if (interestValue.trim() === "") errs.interest = "Please enter the interest value.";
+    else if (interestValueNum < 0) errs.interest = "Interest value must not be negative.";
+    else if (principalNum > 0 && interestAmount >= principalNum) errs.interest = "Interest amount must be less than the principal amount.";
+    if (insufficient) errs.split = "Insufficient balance in hand to disburse this loan.";
+    else if (Math.abs(remaining) >= 0.01) errs.split = "The disbursement breakdown must add up to the amount the customer gets.";
+    if (Object.keys(errs).length) { setErr(""); setFe(errs); return; }
+    if (!customerId || !customerBranchId) return;
 
     setSaving(true);
     setErr("");
+    setFe({});
     try {
       const created = await createPersonalLoan({
         branchId: customerBranchId,
@@ -127,7 +149,9 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
       }
       onSaved();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not create the loan — try again.");
+      const msg = e instanceof ApiError ? e.message : "Could not create the loan — try again.";
+      const field = e instanceof ApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+      if (field) fail(field, msg); else setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -150,10 +174,10 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
     <>
       <div className="hd"><h3>New Personal Loan</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll pl-modal">
-        <div className="frow"><div><label className="f">Customer *</label>
+        <div className="frow"><div className={fe.customer ? "has-err" : undefined}><label className="f">Customer *</label>
           <SearchableSelect<CustomerView>
             value={customerLabel}
-            onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); }}
+            onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); clearFe("customer"); }}
             fetchFn={searchCustomersPage}
             searchHint="Searches: customer name, customer code, phone"
             getLabel={(c) => `${c.name} (${c.code})`}
@@ -170,11 +194,11 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
             placeholder="Search for a customer…"
             onCreateNew={canCreateCustomer ? () => setCreatingCustomer(true) : undefined}
             createNewLabel="+ Add new customer"
-          /></div></div>
+          /><FieldError msg={fe.customer} /></div></div>
         <div className="pl-sec-h">Loan terms</div>
         <div className="frow c2">
-          <div><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
-          <div><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} placeholder="e.g. 50" value={tenureCount} onChange={(e) => setTenureCount(e.target.value)} /></div>
+          <div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => { setPrincipal(e.target.value); clearFe("principal"); clearFe("interest"); }} /><FieldError msg={fe.principal} /></div>
+          <div className={fe.tenure ? "has-err" : undefined}><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} placeholder="e.g. 50" value={tenureCount} onChange={(e) => { setTenureCount(e.target.value); clearFe("tenure"); }} /><FieldError msg={fe.tenure} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Interest Type *</label>
@@ -185,7 +209,7 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
               ))}
             </div>
           </div>
-          <div><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => setInterestValue(e.target.value)} /></div>
+          <div className={fe.interest ? "has-err" : undefined}><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => { setInterestValue(e.target.value); clearFe("interest"); }} /><FieldError msg={fe.interest} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Collection Frequency *</label>
@@ -207,13 +231,16 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
 
         <div className="pl-sec-h">Late payment <span>optional</span></div>
         <div className="frow c2">
-          <div><label className="f">Penal Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="Same as loan rate" value={penalInterestRate} onChange={(e) => setPenalInterestRate(e.target.value)} /></div>
-          <div><label className="f">Grace Period (days)</label><input className="inp" type="number" min={0} placeholder="e.g. 5" value={gracePeriodDays} onChange={(e) => setGracePeriodDays(e.target.value)} /></div>
+          <div className={fe.penal ? "has-err" : undefined}><label className="f">Penal Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="Same as loan rate" value={penalInterestRate} onChange={(e) => { setPenalInterestRate(e.target.value); clearFe("penal"); }} /><FieldError msg={fe.penal} /></div>
+          <div className={fe.grace ? "has-err" : undefined}><label className="f">Grace Period (days)</label><input className="inp" type="number" min={0} placeholder="e.g. 5" value={gracePeriodDays} onChange={(e) => { setGracePeriodDays(e.target.value); clearFe("grace"); }} /><FieldError msg={fe.grace} /></div>
         </div>
 
         <div className="pl-sec-h">Disbursement method</div>
         <div className="frow">
-          <SplitPaymentInput totalAmount={Math.max(0, disbursedAmount)} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+          <div className={fe.split ? "has-err" : undefined} style={{ width: "100%", minWidth: 0 }}>
+            <SplitPaymentInput totalAmount={Math.max(0, disbursedAmount)} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+            <FieldError msg={fe.split} />
+          </div>
         </div>
 
         {/* Live preview — dashes until principal and installments are set. */}

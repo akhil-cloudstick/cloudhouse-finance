@@ -84,7 +84,7 @@ export function EntryInfoModalContent({ entryId, onChanged }: EntryInfoModalCont
         ) : (
           <>
             <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Payment breakdown</h4>
-            <table className="tbl" style={{ width: "100%" }}>
+            <table className="tbl" style={{ width: "100%", minWidth: 0 }}>
               <thead><tr><th>Mode</th><th>Bank</th><th className="num">Amount</th></tr></thead>
               <tbody>
                 {info.lines.map((l) => (

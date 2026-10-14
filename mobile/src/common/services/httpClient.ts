@@ -6,12 +6,12 @@ import { friendlyServerMessage } from "./apiErrors";
 // Flip this before building. false = production.
 const isDevelopment = false;
 // development API — EXPO_PUBLIC_API_BASE_URL from .env.local, else the shared host
-const DEV_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "https://api.cloudhousefinance.com/api/v1";
+const DEV_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "https://superadmin.cloudhousefinance.com/api/v1";
 // production API — EXPO_PUBLIC_API_BASE_URL from eas.json's base profile, else the shared host
-const PROD_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "https://api.cloudhousefinance.com/api/v1";
+const PROD_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "https://superadmin.cloudhousefinance.com/api/v1";
 
 // The backend. Per the plan's "online-only, no offline mode" decision, the
-// app always talks to this server live: api.cloudhousefinance.com, the one
+// app always talks to this server live: superadmin.cloudhousefinance.com, the one
 // shared API host for every business. The business is not part of the host —
 // the app sends its business code in the request body at sign-in and the
 // tenant rides in the JWT afterwards (see src/common/services/businessCode.ts).
@@ -152,7 +152,7 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
   } catch {
     parsed = false;
     data = undefined;
-    if (__DEV__) console.warn(`[api] ${method} ${path} returned non-JSON (${res.status})`, text.slice(0, 200));
+    if (__DEV__) console.warn(`[api] ${method} ${url} returned non-JSON (${res.status})`, text.slice(0, 200));
   }
 
   if (!res.ok) {

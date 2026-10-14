@@ -1,5 +1,6 @@
 // `expo-router`'s root export of `Tabs` is deprecated in SDK 57 — the
 // supported path is `expo-router/js-tabs`.
+import type { Customer } from "@/modules/customers/types/customer-types";
 import { syncPersistedSection } from "@/common/hooks/use-persisted-state";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSegments } from "expo-router";
@@ -132,10 +133,19 @@ export default function TabsLayout() {
   const [open, setOpen] = useState<SheetName>(null);
   const close = useCallback(() => setOpen(null), []);
   const [collectLoanId, setCollectLoanId] = useState<number | null>(null);
+  // A customer picked from their own page, for the New Loan sheet to start with.
+  const [newLoanCustomer, setNewLoanCustomer] = useState<Customer | null>(null);
   const closeCollect = useCallback(() => setCollectLoanId(null), []);
   const actions = useMemo<ShellActions>(
     () => ({
-      openNewLoan: () => setOpen("newLoan"),
+      openNewLoan: () => {
+        setNewLoanCustomer(null);
+        setOpen("newLoan");
+      },
+      openNewLoanFor: (customer: Customer) => {
+        setNewLoanCustomer(customer);
+        setOpen("newLoan");
+      },
       openMore: () => setOpen("more"),
       openSearch: () => setOpen("search"),
       openGoldRate: () => setOpen("gold"),
@@ -207,7 +217,7 @@ export default function TabsLayout() {
       </View>
       </HeaderHostContext.Provider>
 
-      <CreateLoanSheet visible={open === "newLoan"} onClose={close} />
+      <CreateLoanSheet visible={open === "newLoan"} onClose={close} initialCustomer={newLoanCustomer} />
       <MoreSheet visible={open === "more"} onClose={close} onGoldRate={() => setOpen("gold")} />
       <SearchModal visible={open === "search"} onClose={close} />
       <GoldRateModal visible={open === "gold"} onClose={close} />
