@@ -34,6 +34,10 @@ type ServerFlatListProps<T> = {
   stickyHeaderIndices?: number[];
   /** A row to scroll to once it is loaded (-1 or omitted: none). */
   focusIndex?: number;
+  /** Scroll to this offset on mount (e.g. keep a tab bar in view when the list is swapped). */
+  initialOffset?: number;
+  /** When this changes (not on mount) the list scrolls back to `initialOffset` — e.g. the active tab of a persistent list. */
+  scrollKey?: unknown;
 };
 
 /**
@@ -54,6 +58,8 @@ export function ServerFlatList<T>({
   contentStyle,
   stickyHeaderIndices,
   focusIndex = -1,
+  initialOffset,
+  scrollKey,
 }: ServerFlatListProps<T>) {
   const listRef = useRef<FlatList>(null);
   const scrolledTo = useRef(-1);
@@ -63,6 +69,12 @@ export function ServerFlatList<T>({
     const t = setTimeout(() => listRef.current?.scrollToIndex({ index: focusIndex, viewPosition: 0.25, animated: true }), 250);
     return () => clearTimeout(t);
   }, [focusIndex]);
+  // Content may still be loading, so retry a few times until it is tall enough to reach the offset.
+  useEffect(() => {
+    if (!initialOffset) return;
+    const timers = [0, 80, 250, 600].map((ms) => setTimeout(() => listRef.current?.scrollToOffset({ offset: initialOffset, animated: false }), ms));
+    return () => timers.forEach(clearTimeout);
+  }, [initialOffset, scrollKey]);
   const insets = useSafeAreaInsets();
   const { pullRefreshing, onPull } = usePullRefresh(list.isRefreshing, list.refetch);
   const reloading = (list.isLoading && items.length > 0) || pullRefreshing;

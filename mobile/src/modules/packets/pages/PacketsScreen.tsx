@@ -245,7 +245,7 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
               style={{ paddingTop: 12, paddingBottom: 8 }}
             />
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingHorizontal: 18, marginBottom: 14 }}>
-              <GroupedFilter title="Filter packets" sections={sections} value={fv} onChange={setFv} />
+              <GroupedFilter title="Filters" sections={sections} value={fv} onChange={setFv} />
               {lockerId ? <PillButton label={`Locker ${lockerCode(lockerId) ?? `#${lockerId}`} ✕`} onPress={() => setLockerId(undefined)} /> : null}
             </View>
           </>

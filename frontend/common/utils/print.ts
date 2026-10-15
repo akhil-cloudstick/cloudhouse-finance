@@ -14,6 +14,31 @@ import { BRAND, printBrand, printColors } from "@/common/config/brand";
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/** True on desktop browsers that can print a PDF/popup in place. Mobile and
+ * tablet browsers (Android Chrome, iOS Safari) have no inline PDF viewer, so
+ * the iframe/popup print flows silently do nothing there. */
+export function canPrintInline(): boolean {
+  if (typeof navigator === "undefined") return true;
+  const ua = navigator.userAgent || "";
+  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+    || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+  const pdfViewer = (navigator as Navigator & { pdfViewerEnabled?: boolean }).pdfViewerEnabled;
+  return !mobile && pdfViewer !== false;
+}
+
+/** Saves a blob as a file. The object URL is revoked late: mobile Chrome
+ * starts the download asynchronously and an immediate revoke cancels it. */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+}
+
 /* Sends a PDF blob straight to the browser's print dialog instead of
  * downloading it — no visible "preview" tab, just Ctrl+P's picker. Loads
  * the blob into a hidden iframe and calls its contentWindow.print() once
@@ -22,7 +47,14 @@ const esc = (s: string) =>
  * Shared by every server-rendered PDF print flow (indemnity bond, release
  * agreement, personal-loan bond) — moved here from loanService.ts so it's
  * not duplicated per module. */
-export function printPdfBlob(blob: Blob, onReady?: () => void): void {
+export function printPdfBlob(blob: Blob, onReady?: () => void, filename = "document.pdf"): void {
+  // Phones/tablets can't render a PDF inside an iframe or print it from
+  // there, so the user gets the file instead.
+  if (!canPrintInline()) {
+    downloadBlob(blob, filename);
+    onReady?.();
+    return;
+  }
   const url = window.URL.createObjectURL(blob);
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
@@ -92,11 +124,11 @@ function showPrintProgress(label: string): () => void {
 /* Fetches a server-rendered PDF and sends it to the print dialog, with the
  * progress overlay above shown throughout. Errors still reject, so callers
  * keep their own toasts. */
-export async function printPdfJob(fetchBlob: () => Promise<Blob>, label = "Preparing document…"): Promise<void> {
+export async function printPdfJob(fetchBlob: () => Promise<Blob>, label = "Preparing document…", filename = "document.pdf"): Promise<void> {
   const hide = showPrintProgress(label);
   try {
     const blob = await fetchBlob();
-    printPdfBlob(blob, hide);
+    printPdfBlob(blob, hide, filename);
     // Safety net: an iframe that never fires onload must not leave the
     // screen covered.
     setTimeout(hide, 15_000);
@@ -134,12 +166,7 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
   // Resolved per call, not at module load: the colour belongs to whichever
   // business is signed in, and this module is imported once for all of them.
   const C = printColors();
-  const w = window.open("", "_blank");
-  if (!w) {
-    onBlocked("Popup blocked — please allow popups for this site to print");
-    return;
-  }
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>
     /* Print documents cannot rely on next/font, which only injects its faces
        into the app document — so these name the families and fall back to
        system stacks rather than fetching webfonts into a popup. */
@@ -173,7 +200,19 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
   </style></head><body>${body}
   <div class="noprint" style="text-align:center;margin-top:30px">
     <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print</button></div>
-  </body></html>`);
+  </body></html>`;
+  // No popup printing on phones/tablets (and the popup would be blocked after
+  // the awaited fetch) — hand over the document as a file to open and print.
+  if (!canPrintInline()) {
+    downloadBlob(new Blob([html], { type: "text/html" }), `${title.replace(/[\\/:*?"<>|]+/g, "-")}.html`);
+    return;
+  }
+  const w = window.open("", "_blank");
+  if (!w) {
+    onBlocked("Popup blocked — please allow popups for this site to print");
+    return;
+  }
+  w.document.write(html);
   w.document.close();
   // Close the preview once the print dialog is dismissed (Print or Cancel).
   w.addEventListener("afterprint", () => w.close());

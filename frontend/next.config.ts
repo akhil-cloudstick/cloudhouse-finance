@@ -30,6 +30,10 @@ const SLUG = "((?!_next|api|uploads|assets|static|favicon\.ico)[a-z0-9][a-z0-9-]
 const nextConfig: NextConfig = {
   output: "export",
 
+  // Dev only: LAN hosts allowed to load /_next/* (JS chunks, HMR) when the app
+  // is opened from another device by IP. Add more via DEV_ORIGINS=ip1,ip2.
+  allowedDevOrigins: ["192.168.0.128", ...(process.env.DEV_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [])],
+
   // Set only by scripts/build-desktop.cjs, so the web build keeps writing to out/.
   distDir: process.env.DESKTOP_BUILD ? "dist-desktop" : undefined,
 

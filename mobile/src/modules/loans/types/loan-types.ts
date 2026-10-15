@@ -14,6 +14,8 @@ export type Ornament = {
   quantity: number;
   goldValue: number;
   remarks?: string;
+  // Photos of this ornament (GET /loans/:id preloads them).
+  images?: { id: number; imageUrl: string }[];
   // Set once handed back by a (partial) release; unset while still pledged.
   releasedAt?: string | null;
 };
@@ -178,6 +180,8 @@ export type Loan = {
   loanNumber: string;
   branchId: number;
   branch?: { id: number; name: string };
+  // One photo of the whole pledged lot ("/uploads/...").
+  overallPhotoUrl?: string;
   customerId: number;
   // The backend actually embeds the full customer.Customer row here (see
   // backend/internal/loan/model_loan.go's Customer field) — this was only

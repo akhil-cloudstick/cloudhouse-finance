@@ -52,7 +52,7 @@ const makeStyles = (c: Colors) => StyleSheet.create({
   title: { fontSize: 15 },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   base: {
-    height: 48,
+    minHeight: 48,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",

@@ -70,6 +70,6 @@ export const s = StyleSheet.create({
   fdPill: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: C.brandFaint, paddingVertical: 8, paddingHorizontal: 13, borderRadius: 999 },
   fdPillTxt: { fontSize: 12.5, fontWeight: "700", color: C.brandDeep },
   fdCount: { backgroundColor: C.brandDeep, width: 16, height: 16, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  fdCountTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  fdCountTxt: { color: "#fff", fontSize: 9, fontWeight: "800" },
   fdSummary: { fontSize: 11.5, color: C.muted, fontWeight: "600" },
 });

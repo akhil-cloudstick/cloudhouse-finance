@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/common/components/Icon";
@@ -11,7 +12,7 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useShowBranch, useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { exportReport } from "@/modules/reports/services/reportsService";
 import { type ReportFilters, type ReportKey, type ReportResult } from "@/modules/reports/types/reports-types";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 import { singleFlight } from "@/common/utils/singleFlight";
 
 export type ReportColumn<Row> = {
@@ -73,7 +74,8 @@ function today(): string {
 type ReportViewProps = { config: ReportConfig; onBack: () => void };
 
 export function ReportView({ config, onBack }: ReportViewProps) {
-  const pageSize = useResponsivePageSize(15, 15);
+  const basePageSize = useResponsivePageSize(15, 15);
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
   // No branch filter in a single-branch business (every row is its one
@@ -221,12 +223,12 @@ export function ReportView({ config, onBack }: ReportViewProps) {
           </div>
         </div>
         <div className="tbl-wrap">
-          <table className="tbl">
+          <table className="tbl tbl-cards">
             <thead>
               <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading && !(cards && rows.length > 0) ? (
                 <tr><td colSpan={columns.length} className="empty">Loading report…</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={columns.length} className="empty">No data for the selected filters.</td></tr>
@@ -239,14 +241,15 @@ export function ReportView({ config, onBack }: ReportViewProps) {
                 // guards every report's key, not just that one.
                 <tr key={`${config.rowKey(row)}-${i}`}>
                   {columns.map((c) => (
-                    <td key={c.key} className={c.numeric ? "num" : undefined}>{c.render(row)}</td>
+                    <td key={c.key} data-label={c.label} className={c.numeric ? "num" : undefined}>{c.render(row)}</td>
                   ))}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <ScrollSentinel enabled={cards && (page < totalPages)} onVisible={more} watch={rows.length} />
+        <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>

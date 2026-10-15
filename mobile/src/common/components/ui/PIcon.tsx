@@ -21,6 +21,7 @@ const DEFS: Record<string, Def> = {
   share: { size: 17, stroke: 2, body: <><Circle cx="18" cy="5" r="3" /><Circle cx="6" cy="12" r="3" /><Circle cx="18" cy="19" r="3" /><Line x1="8.6" y1="10.5" x2="15.4" y2="6.5" /><Line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /></> },
   doc: { size: 18, stroke: 2, body: <><Path d="M7 3h8l4 4v14H7z" /><Path d="M14 3v5h5" /><Path d="M9 13h6M9 17h6" /></> },
   download: { size: 19, stroke: 2.2, body: <><Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><Polyline points="7 10 12 15 17 10" /><Line x1="12" y1="15" x2="12" y2="3" /></> },
+  eye: { size: 19, stroke: 2, body: <><Path d="M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7-10-7-10-7Z" /><Circle cx="12" cy="12" r="3" /></> },
   bolt: { size: 18, stroke: 2, body: <Polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /> },
   calendar: { size: 18, stroke: 2, body: <><Rect x="3" y="5" width="18" height="16" rx="2" /><Line x1="16" y1="3" x2="16" y2="7" /><Line x1="8" y1="3" x2="8" y2="7" /><Line x1="3" y1="10" x2="21" y2="10" /></> },
   coin: { size: 18, stroke: 2, body: <><Circle cx="12" cy="12" r="9" /><Path d="M9 9h3.5a1.8 1.8 0 1 1 0 3.5H9m0 0h3.8a1.9 1.9 0 1 1 0 3.5H9M11 7v10" /></> },

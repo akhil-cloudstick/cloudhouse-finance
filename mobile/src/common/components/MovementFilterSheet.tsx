@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { AccBtn, Buffering, CheckItem, DateField, PillTabs, SearchInput, ServerFlatList, Sheet } from "@/common/components/ui";
+import { Buffering, C, CheckItem, DateField, PillTabs, SearchInput, ServerFlatList, Sheet, Txt } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { listBranches } from "@/modules/branches/services/branchService";
@@ -77,7 +77,19 @@ export function MovementFilterSheet({
   const count = movementFilterCount(value);
 
   return (
-    <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={80} scroll={false}>
+    <Sheet visible={visible} onClose={onClose} title={
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <Txt style={{ fontWeight: "700", fontSize: 15, flexShrink: 1 }} numberOfLines={1}>{title}</Txt>
+          {count > 0 ? (
+            <Pressable onPress={() => onChange(EMPTY_MOVEMENT_FILTERS)} hitSlop={10} accessibilityRole="button">
+              <Txt style={{ fontSize: 13, fontWeight: "700", color: C.brand }}>Clear all</Txt>
+            </Pressable>
+          ) : null}
+        </View>
+      }
+      maxHeightPct={65}
+      scroll={false}
+    >
       <View style={fs.filterTabWrap}>
         <PillTabs
           tabs={filterTabs}
@@ -131,11 +143,6 @@ export function MovementFilterSheet({
           )}
         />
       )}
-      {count > 0 ? (
-        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
-          <AccBtn label="Clear all filters" onPress={() => onChange(EMPTY_MOVEMENT_FILTERS)} />
-        </View>
-      ) : null}
     </Sheet>
   );
 }

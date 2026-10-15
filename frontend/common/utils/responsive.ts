@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 /**
  * Checks whether the current viewport is a "small" screen.
@@ -72,4 +72,31 @@ export function getPacketsPageSize(): number {
 
 export function getReportsPageSize(): number {
   return isSmallScreen() ? 7 : 12;
+}
+
+/* Tables that turn into cards (`.tbl-cards`, app.css) at this width swap
+ * Prev/Next paging for scroll-to-load-more. Keep in sync with the
+ * `max-width: 1100px` card breakpoint in app.css. */
+const CARD_MODE_MAX_WIDTH = 1100;
+
+function isCardMode(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth <= CARD_MODE_MAX_WIDTH;
+}
+
+export function useIsCardMode(): boolean {
+  return useSyncExternalStore(subscribeResize, isCardMode, () => false);
+}
+
+/* Page size that grows by `base` each time `more()` is called while the
+ * table is in card mode (the page is always 1 there). The backend caps a page
+ * at 500 rows. Outside card mode it is just `base`. */
+export function useScrollPageSize(base: number): { cards: boolean; size: number; more: () => void } {
+  const cards = useIsCardMode();
+  const [mult, setMult] = useState(1);
+  useEffect(() => { if (!cards) setMult(1); }, [cards]);
+  const maxMult = Math.max(1, Math.floor(500 / base));
+  const size = cards ? base * Math.min(mult, maxMult) : base;
+  const more = useCallback(() => setMult((m) => Math.min(m + 1, maxMult)), [maxMult]);
+  return { cards, size, more };
 }

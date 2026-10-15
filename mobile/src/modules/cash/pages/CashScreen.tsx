@@ -2,10 +2,12 @@ import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
   C,
+  Card,
+  FieldGrid,
   ConfirmSheet,
   FabMenu,
   type FabMenuAction,
@@ -20,10 +22,10 @@ import {
 import { useServerList } from "@/common/hooks/use-server-list";
 import { canActAtStage, stageByPending, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { approveExpense, listCashMovementsPage, listExpensesPage, listGoldSalesPage, rejectExpense } from "@/modules/cash/services/cashService";
+import { approveExpense, getCashSummary, listCashMovementsPage, listExpensesPage, listGoldSalesPage, rejectExpense } from "@/modules/cash/services/cashService";
 import { type CashMovement, type Expense, type GoldSale } from "@/modules/cash/types/cash-types";
 import { AddEntrySheet, EditEntrySheet } from "@/modules/cash/components/EntryForms";
-import { dmy, inr } from "@/common/utils/format";
+import { dmy, inr, todayISO } from "@/common/utils/format";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { shareExpensesPdf, shareMovementsPdf } from "@/common/utils/ledgerExport";
 import { billDetail, modeLink, openLedger, useExpenseCategoryIds } from "@/common/components/LedgerList";
@@ -135,8 +137,26 @@ export default function CashScreen() {
   });
 
   const movementTotals = totalsFromPages(movements.pages);
+  // Same figures as the web Ledger's KPI row: today's opening / cash in / cash out / expenses and the live
+  // balance in hand (GET /cash/summary, scoped to the selected branch by the server — not the list filters).
+  const summary = useQuery({ queryKey: ["cash-summary", "ledger", todayISO()], queryFn: () => getCashSummary(undefined, todayISO()) }).data;
   const header = (
     <View style={{ paddingTop: 14 }}>
+      {summary ? (
+        <Card style={{ marginBottom: 12 }}>
+          <FieldGrid
+            items={[
+              { k: "OPENING CASH (TODAY)", v: inr(summary.openingCash), color: C.ink },
+              { k: "BALANCE IN HAND", v: inr((summary.cashInHand || 0) + (summary.bankBalance || 0)), color: C.brandDeep },
+              { k: "CASH IN (TODAY)", v: inr(summary.collections), color: C.green },
+              { k: "CASH OUT (TODAY)", v: inr(summary.disbursements), color: C.red },
+              { k: "EXPENSES (TODAY)", v: inr(summary.expensesToday || 0), color: C.red },
+              { k: "CASH IN HAND", v: inr(summary.cashInHand || 0), color: C.ink },
+              { k: "BANK BALANCE", v: inr(summary.bankBalance || 0), color: C.ink },
+            ]}
+          />
+        </Card>
+      ) : null}
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />
       <View style={{ paddingTop: 12 }}>
         {tab === "movements" ? (
@@ -203,10 +223,10 @@ export default function CashScreen() {
         ]
       : []),
     ...(tab === "movements" && movements.items.length > 0 && can("Ledger_Export", "can_export_ledger")
-      ? [{ label: "Download PDF", icon: "download", onPress: onDownload }]
+      ? [{ label: "PDF", icon: "download", onPress: onDownload }]
       : []),
     ...(tab === "expenses" && expenses.items.length > 0 && can("Ledger_Export", "can_export_ledger")
-      ? [{ label: "Download Expense PDF", icon: "download", onPress: onDownloadExpenses }]
+      ? [{ label: "Expense PDF", icon: "download", onPress: onDownloadExpenses }]
       : []),
   ];
 

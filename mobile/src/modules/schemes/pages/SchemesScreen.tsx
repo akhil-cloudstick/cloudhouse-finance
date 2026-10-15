@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { AccBtn, AccRow, CheckItem, ConfirmSheet, FabCorner, FiltersBar, FlatHeader, Screen, SearchInput, ServerFlatList, Sheet, toast } from "@/common/components/ui";
+import { View } from "react-native";
+import { AccRow, ConfirmSheet, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { userMessage } from "@/common/services/apiErrors";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
@@ -18,6 +19,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 // statement sheet (server-built PDF / xlsx).
 
 const INTEREST_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", "Multiple interest"] as const;
+const FILTER_SECTIONS: GFSection[] = [{ kind: "static", key: "method", label: "Interest method", options: INTEREST_METHODS.map((m) => ({ value: m, label: m })) }];
 
 function serviceCharge(sc: Scheme) {
   if (!sc.serviceChargeType || sc.serviceChargeType === "None") return null;
@@ -26,8 +28,8 @@ function serviceCharge(sc: Scheme) {
 }
 
 export default function SchemesScreen() {
-  const [methods, setMethods] = usePersistedState<string[]>("schemes:methods", []);
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("schemes:filters", emptyGroupedFilter());
+  const methods = gfValues(fv, "method");
   const list = useServerList<Scheme, { method?: string[] }>({
     key: ["schemes", "list"],
     persistKey: "schemes",
@@ -85,7 +87,9 @@ export default function SchemesScreen() {
         emptyText={list.search ? "No schemes match your search." : "No schemes yet."}
         header={
             <>
-              <FiltersBar count={methods.length} summary={methods.length ? methods.join(", ") : "All interest methods"} onPress={() => setFilterOpen(true)} style={{ paddingTop: 12 }} />
+              <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
+                <GroupedFilter title="Filter schemes" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+              </View>
               <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by name, code, LTV % or months" style={{ paddingTop: 0 }} />
             </>
           }
@@ -132,12 +136,6 @@ export default function SchemesScreen() {
         }}
       />
 
-      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Schemes" maxHeightPct={70}>
-        {INTEREST_METHODS.map((m) => (
-          <CheckItem key={m} checked={methods.includes(m)} title={m} onPress={() => setMethods((cur) => (cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]))} />
-        ))}
-        {methods.length ? <AccBtn label="Reset all" onPress={() => setMethods([])} /> : null}
-      </Sheet>
       <ConfirmSheet
         visible={!!deleting}
         onClose={() => setDeleting(null)}

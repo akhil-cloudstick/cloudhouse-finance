@@ -460,7 +460,7 @@ export function AuctionsPage() {
              * class carries the matching CSS backstop plus the flex rules that
              * stop the card spilling over the next one (see app.css). */}
             <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
-              <table className="tbl">
+              <table className="tbl tbl-cards">
                 <thead>
                   <tr>
                     <th>Loan</th><th>Auction Date</th><th>Reference</th>
@@ -475,15 +475,15 @@ export function AuctionsPage() {
                     <tr><td colSpan={7} className="empty">No auctions have been conducted yet.</td></tr>
                   ) : conducted.map((r) => (
                     <tr key={r.id}>
-                      <td>{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
-                      <td>{fmtDate(r.auctionDate)}</td>
-                      <td>{r.auctionReferenceNumber || "—"}</td>
-                      <td className="num">{fmt(r.saleAmount)}</td>
-                      <td className="num">{r.auctionExpenses ? fmt(r.auctionExpenses) : "—"}</td>
-                      <td className="num" style={{ color: r.surplusShortfall >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+                      <td data-label="Loan">{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
+                      <td data-label="Auction Date">{fmtDate(r.auctionDate)}</td>
+                      <td data-label="Reference">{r.auctionReferenceNumber || "—"}</td>
+                      <td className="num" data-label="Sale Amount">{fmt(r.saleAmount)}</td>
+                      <td className="num" data-label="Expenses">{r.auctionExpenses ? fmt(r.auctionExpenses) : "—"}</td>
+                      <td className="num" data-label="Surplus / Shortfall" style={{ color: r.surplusShortfall >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
                         {r.surplusShortfall >= 0 ? "+" : "−"}{fmt(Math.abs(r.surplusShortfall))}
                       </td>
-                      <td><span className="pill green">{AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]}</span></td>
+                      <td data-label="Outcome"><span className="pill green">{AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -508,7 +508,7 @@ export function AuctionsPage() {
              * carry a customer-name subline), so both History sub-tables
              * settle at the same height instead of one dwarfing the other. */}
             <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
-              <table className="tbl">
+              <table className="tbl tbl-cards">
                 <thead>
                   <tr><th>Loan</th><th>Marked Eligible</th><th>Outcome</th></tr>
                 </thead>
@@ -519,9 +519,9 @@ export function AuctionsPage() {
                     <tr><td colSpan={3} className="empty">No cases have closed without going to auction.</td></tr>
                   ) : closedWithoutSale.map((r) => (
                     <tr key={r.id}>
-                      <td>{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
-                      <td>{fmtDate(r.auctionEligibleDate)}</td>
-                      <td>
+                      <td data-label="Loan">{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
+                      <td data-label="Marked Eligible">{fmtDate(r.auctionEligibleDate)}</td>
+                      <td data-label="Outcome">
                         {/* A withdrawn case never reached settlement, so the
                           * settlement label would misdescribe it. */}
                         <span className="pill">

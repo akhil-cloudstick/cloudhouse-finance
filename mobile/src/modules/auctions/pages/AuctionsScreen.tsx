@@ -4,16 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AccRow,
   C,
-  Field,
-  FilterChipRow,
-  FiltersBar,
   FlatHeader,
   PillTabs,
-  PrimaryButton,
   Screen,
   SearchInput,
   ServerFlatList,
-  Sheet,
   SubTabs,
   openPage,
 } from "@/common/components/ui";
@@ -33,16 +28,6 @@ import { AUCTION_OUTCOME_LABELS, pendingDecision, type AuctionRecord, type Aucti
 const TABS = ["active", "history"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { active: "Active Cases", history: "Auction History" };
-
-// "All" first (the default), then in the order a case moves through them.
-const CASES = ["All", "Defaulted", "Auction Eligible", "Auctioned - Balance Due"] as const;
-type CaseType = (typeof CASES)[number];
-const CASE_PARAM: Record<CaseType, string> = {
-  All: "all",
-  "Auction Eligible": "eligible",
-  Defaulted: "defaulted",
-  "Auctioned - Balance Due": "auctioned_balance_due",
-};
 
 const HIST = ["conducted", "closed"] as const;
 type Hist = (typeof HIST)[number];
@@ -69,14 +54,11 @@ type ActiveCasesProps = { tabs: React.ReactNode };
 function ActiveCases({ tabs }: ActiveCasesProps) {
   const openLoan = useOpenLoan();
 
-  const [caseType, setCaseType] = useState<CaseType>("All");
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [draft, setDraft] = useState<CaseType>(caseType);
   const [flowLoan, setFlowLoan] = useState<Loan | null>(null);
 
   const list = useServerList<Loan, { auctionCase: string }>({
     key: ["loans", "auctions"],
-    filters: { auctionCase: CASE_PARAM[caseType] },
+    filters: { auctionCase: "all" },
     fetchPage: (p) => listLoansPage(p),
   });
 
@@ -92,35 +74,13 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
         header={
           <>
             {tabs}
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
-            <FiltersBar
-              count={caseType === "All" ? 0 : 1}
-              summary={`${caseType === "All" ? "All cases" : caseType} ·${list.total ?? list.items.length}`}
-              style={{ marginTop: 0, marginBottom: 14 }}
-              onPress={() => {
-                setDraft(caseType);
-                setSheetOpen(true);
-              }}
-            />
+            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 14 }} />
           </>
         }
         renderItem={(l, i) => (
           <AuctionCaseRow loan={l} defaultOpen={i === 0} sub={caseSub(l)} onView={() => openLoan(l.id)} onFlow={() => setFlowLoan(l)} />
         )}
       />
-
-      <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)} title="Filter Auction Cases" maxHeightPct={70}>
-        <Field label="Case type">
-          <FilterChipRow options={CASES} value={draft} onChange={setDraft} />
-        </Field>
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setCaseType(draft);
-            setSheetOpen(false);
-          }}
-        />
-      </Sheet>
 
       <AuctionFlowSheet loan={flowLoan} visible={!!flowLoan} onClose={() => setFlowLoan(null)} />
     </>

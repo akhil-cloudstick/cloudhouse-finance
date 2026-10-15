@@ -20,7 +20,8 @@
         "foregroundImage": "./assets/cloudhouse-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -62,7 +63,8 @@
           "cameraPermission": "CloudHouse Finance needs the camera to scan your business QR code and packet label QR codes."
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "./withNoAutofillHighlight"
     ],
     "androidStatusBar": {
       "backgroundColor": "transparent",

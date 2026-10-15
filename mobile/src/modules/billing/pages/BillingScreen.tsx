@@ -297,7 +297,7 @@ const s = StyleSheet.create({
   numTxt: { fontSize: 18, fontWeight: "800", color: C.brandDeep },
   planN: { fontSize: 14, fontWeight: "700", color: C.ink },
   planS: { fontSize: 12, color: C.muted, marginTop: 1 },
-  upBtn: { height: 34, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.brand, justifyContent: "center" },
+  upBtn: { minHeight: 34, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.brand, justifyContent: "center" },
   upTxt: { color: "#fff", fontWeight: "700", fontSize: 12.5 },
   hint: { fontSize: 12, color: C.muted, marginHorizontal: 2 },
   fromTo: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },

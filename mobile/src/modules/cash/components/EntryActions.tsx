@@ -1,11 +1,10 @@
 import React, { useState } from "react";
 import { Pressable, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
-import { C, PIcon, PrimaryButton, Sheet, SheetFooter, Txt, type AccAction } from "@/common/components/ui";
+import { C, PIcon, PrimaryButton, Sheet, SheetFooter, Txt, toast, type AccAction } from "@/common/components/ui";
 import { billDetail } from "@/common/components/LedgerList";
 import { inr, dmy } from "@/common/utils/format";
 import { getMovementEntry } from "@/modules/cash/services/cashService";
-import type { EntryKind } from "@/modules/cash/types/cash-types";
+import type { EntryInfo, EntryKind, LedgerRow } from "@/modules/cash/types/cash-types";
 import { EditEntrySheet } from "./EntryForms";
 
 const KIND_LABEL: Record<EntryKind, string> = {
@@ -13,6 +12,7 @@ const KIND_LABEL: Record<EntryKind, string> = {
   debit: "Debit (Expense)",
   self_transfer: "Self Transfer",
   gold_sale: "Gold Sale",
+  system: "Entry",
 };
 
 // "2026-10-13T10:31:00Z" -> "13-10-2026 10:31"
@@ -29,22 +29,21 @@ function Cell({ k, v }: CellProps) {
   );
 }
 
-type EntryInfoSheetProps = { entryId: number | null; onClose: () => void; onEdit: () => void };
+type EntryInfoSheetProps = { info: EntryInfo | null; onClose: () => void; onEdit: () => void };
 
 // The ledger's info popup for a cash-in, a debit or a self transfer: its
 // remarks and everything recorded about it — category, amount, date, the
 // payment breakdown (or the From / To banks of a transfer), branch, bill.
-function EntryInfoSheet({ entryId, onClose, onEdit }: EntryInfoSheetProps) {
-  const q = useQuery({ queryKey: ["cash-entry", entryId], queryFn: () => getMovementEntry(entryId!), enabled: entryId != null, staleTime: 0, gcTime: 0 });
-  const info = q.data;
+function EntryInfoSheet({ info, onClose, onEdit }: EntryInfoSheetProps) {
   const bill = billDetail(info?.receiptImage)[0];
   return (
-    <Sheet visible={entryId != null} onClose={onClose} title="Entry Details" maxHeightPct={85}>
+    <Sheet visible={info != null} onClose={onClose} title="Entry Details" maxHeightPct={85}>
       {info ? (
         <>
           <Txt style={{ fontSize: 12, fontWeight: "700", letterSpacing: 0.6, color: C.brandDeep, marginBottom: 12 }}>{KIND_LABEL[info.kind].toUpperCase()}</Txt>
           <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
             <Cell k="Category" v={info.category || "—"} />
+            {info.loanNumber ? <Cell k="Loan" v={info.loanNumber} /> : null}
             {info.ornamentType ? <Cell k="Ornament" v={info.ornamentType} /> : null}
             {info.kind === "gold_sale" ? <Cell k="Cost" v={inr(info.costAmount ?? 0)} /> : null}
             <Cell k="Amount" v={inr(info.amount)} />
@@ -99,32 +98,85 @@ function EntryInfoSheet({ entryId, onClose, onEdit }: EntryInfoSheetProps) {
             </SheetFooter>
           ) : null}
         </>
-      ) : (
-        <Txt style={{ fontSize: 13, color: q.isError ? C.red : C.muted }}>{q.isError ? "Could not load the details of this entry." : "Loading…"}</Txt>
-      )}
+      ) : null}
     </Sheet>
   );
 }
 
-/** What a ledger row needs for a cash-in, debit or self transfer a person
- * keyed in: the info icon (put it beside the row's text), the Edit action
- * (pass it to AccRow's `actions`) and the sheets those open (render `sheets`
- * anywhere in the row). Everything is empty for every other row. */
-export function useEntryActions(entryId?: number, editable?: boolean): { infoButton: React.ReactNode; actions: AccAction[]; sheets: React.ReactNode } {
-  const [sheet, setSheet] = useState<"info" | "edit" | null>(null);
-  if (!editable || !entryId) return { infoButton: null, actions: [], sheets: null };
+type RowInfoSheetProps = { row: LedgerRow | null; onClose: () => void };
+
+// The info popup for a ledger row with no cash movement behind it (a loan or personal-loan payment, an opening row…):
+// it shows what the row itself carries.
+function RowInfoSheet({ row, onClose }: RowInfoSheetProps) {
+  return (
+    <Sheet visible={row != null} onClose={onClose} title="Entry Details" maxHeightPct={85}>
+      {row ? (
+        <>
+          <Txt style={{ fontSize: 12, fontWeight: "700", letterSpacing: 0.6, color: C.brandDeep, marginBottom: 12 }}>
+            {(row.debitOrCredit === "debit" ? "Debit" : "Credit").toUpperCase()}{row.type ? ` · ${row.type.toUpperCase()}` : ""}
+          </Txt>
+          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+            <Cell k="Date" v={dmy(row.date)} />
+            <Cell k="Amount" v={inr(row.amount)} />
+            <Cell k="Mode" v={row.method || "—"} />
+            {row.reference ? <Cell k="Reference" v={row.reference} /> : null}
+            {row.customerName ? <Cell k="Customer" v={row.customerName} /> : null}
+            {row.bankName ? <Cell k="Bank" v={row.bankName} /> : null}
+            <Cell k="Balance" v={inr(row.runningBalance)} />
+          </View>
+          <Txt style={{ fontSize: 13, fontWeight: "700", marginTop: 6, marginBottom: 6 }}>Description</Txt>
+          <View style={{ borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, minHeight: 44 }}>
+            <Txt style={{ fontSize: 13.5 }}>{row.description || row.type || "—"}</Txt>
+          </View>
+          {billDetail(row.receiptImage)[0] ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14 }}>
+              <Txt style={{ fontSize: 13 }}>Bill:</Txt>
+              {billDetail(row.receiptImage)[0].v}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+    </Sheet>
+  );
+}
+
+/** What a ledger row needs for its info icon (put it beside the row's text), the Edit action (pass it to AccRow's
+ * `actions`) and the sheets those open (render `sheets` anywhere in the row). Every row with a cash movement behind
+ * it (`entryId`) gets the info icon; only an `editable` one also gets Edit. A row with no entry (pass `row`) still
+ * gets an info popup built from its own fields. The entry is fetched BEFORE the popup opens, so it opens complete. */
+export function useEntryActions(entryId?: number, editable?: boolean, row?: LedgerRow): { infoButton: React.ReactNode; actions: AccAction[]; sheets: React.ReactNode } {
+  const [sheet, setSheet] = useState<"info" | "edit" | "row" | null>(null);
+  const [info, setInfo] = useState<EntryInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!entryId && !row) return { infoButton: null, actions: [], sheets: null };
+
+  async function openInfo() {
+    if (busy) return;
+    if (!entryId) { setSheet("row"); return; }
+    setBusy(true);
+    try {
+      setInfo(await getMovementEntry(entryId));
+      setSheet("info");
+    } catch {
+      toast.error("Could not load details", "The details of this entry could not be loaded — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const close = () => setSheet(null);
   return {
     infoButton: (
-      <Pressable onPress={() => setSheet("info")} hitSlop={10} accessibilityLabel="Entry details" style={{ marginLeft: 6 }}>
+      <Pressable onPress={openInfo} hitSlop={10} accessibilityLabel="Entry details" style={{ marginLeft: 6, opacity: busy ? 0.5 : 1 }}>
         <PIcon name="info" color={C.brandDeep} size={16} />
       </Pressable>
     ),
-    actions: [{ label: "Edit", onPress: () => setSheet("edit") }],
-    sheets: sheet ? (
-      sheet === "info"
-        ? <EntryInfoSheet entryId={entryId} onClose={() => setSheet(null)} onEdit={() => setSheet("edit")} />
-        : <EditEntrySheet entryId={entryId} onClose={() => setSheet(null)} />
-    ) : null,
+    actions: entryId && editable ? [{ label: "Edit", onPress: () => setSheet("edit") }] : [],
+    sheets:
+      sheet === "info" ? <EntryInfoSheet info={info} onClose={close} onEdit={() => setSheet(info?.editable ? "edit" : null)} />
+      : sheet === "edit" && entryId ? <EditEntrySheet entryId={entryId} onClose={close} />
+      : sheet === "row" ? <RowInfoSheet row={row ?? null} onClose={close} />
+      : null,
   };
 }
 

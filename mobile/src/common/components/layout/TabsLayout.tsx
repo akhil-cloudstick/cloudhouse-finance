@@ -17,7 +17,8 @@ import { SearchModal } from "./SearchModal";
 import { GoldRateModal } from "./GoldRateModal";
 import { CreateLoanSheet } from "@/common/components/CreateLoanSheet";
 import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { setPagePrefetch } from "@/common/components/ui/shellContext";
 import { getLoan } from "@/modules/loans/services/loanService";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { routeEnabled } from "@/common/config/tenantModules";
@@ -124,12 +125,26 @@ function CollectLauncher({ loanId, onClose }: CollectLauncherProps) {
   return <CollectPaymentSheet loan={loan.data} visible onClose={onClose} />;
 }
 
+// openPage() loads a loan before opening its detail, so the page appears with its header filled in.
+function usePagePrefetch() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    setPagePrefetch((path) => {
+      const id = path.match(/^\/?(?:\(tabs\)\/)?loans\/(\d+)/)?.[1];
+      if (!id || qc.getQueryData(["loan", id])) return null;
+      return qc.prefetchQuery({ queryKey: ["loan", id], queryFn: () => getLoan(Number(id)) });
+    });
+    return () => setPagePrefetch(null);
+  }, [qc]);
+}
+
 export default function TabsLayout() {
   // Before any screen below reads its remembered filters: entering a different
   // section clears them (see usePersistedState.ts).
   syncPersistedSection(((useSegments() as string[])[1]) ?? "");
   useTenantModuleGuard();
   useRoutePermissionGuard();
+  usePagePrefetch();
   const [open, setOpen] = useState<SheetName>(null);
   const close = useCallback(() => setOpen(null), []);
   const [collectLoanId, setCollectLoanId] = useState<number | null>(null);

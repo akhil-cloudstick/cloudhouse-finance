@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccBtn, BtnRow2, Buffering, C, EmptyText, FieldGrid, NoticeBanner, PledgeItem, PrimaryButton, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
-import { getBankPledgeHistory, recordBankPledge, releaseBankPledge, voidBankPledge } from "@/modules/bank-pledges/services/bankPledgeService";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { BtnRow2, C, FieldGrid, NoticeBanner, PrimaryButton, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
+import { recordBankPledge, releaseBankPledge, voidBankPledge } from "@/modules/bank-pledges/services/bankPledgeService";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
@@ -20,7 +20,7 @@ type BankPledgeSheetProps = {
 
 /** Bank pledge (repledge) for one loan, in the prototype's sheet style —
  * parity with frontend BankPledge.tsx: bank picker (bankId), interest rate +
- * due date, Release, Delete (void) for a mis-recorded pledge, and History.
+ * due date, Release and Delete (void) for a mis-recorded pledge.
  * Also carries the locker / fully-paid warnings the web LoanDetail shows. */
 export function BankPledgeSheet({
   loan: l,
@@ -39,7 +39,6 @@ export function BankPledgeSheet({
   const [releasePay, setReleasePay] = useState<SplitPayment | null>(null);
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
   const { can } = useAuth();
   const canCreate = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdate = can("Bank_Pledge_Management", "can_update_bank_pledge");
@@ -93,12 +92,6 @@ export function BankPledgeSheet({
     onError: (e) => setError(apiErr(e)),
   });
 
-  const history = useQuery({
-    queryKey: ["bankPledgeHistory", String(l.id)],
-    queryFn: () => getBankPledgeHistory(l.id),
-    enabled: historyOpen,
-  });
-
   const fullyPaid = (l.totalOutstandingBalance ?? 0) <= 0.01;
   const bankPledged = l.bankPledgeStatus === "Bank Pledged";
   const inLocker = packetStatus === "Locker Stored";
@@ -149,7 +142,6 @@ export function BankPledgeSheet({
             {l.bankPledgeStatus ? ` — ${l.bankPledgeStatus}` : ""}
           </Txt>
         )}
-        <AccBtn label="View Pledge History" onPress={() => setHistoryOpen(true)} />
       </Sheet>
 
       <Sheet visible={confirmRelease} onClose={() => setConfirmRelease(false)} title="Release from Bank?">
@@ -176,30 +168,6 @@ export function BankPledgeSheet({
         <TextField label="Reason *" value={voidReason} onChangeText={setVoidReason} placeholder="e.g. wrong cash treatment entered" />
         <ErrorText>{error}</ErrorText>
         <PrimaryButton label="Delete Entry" variant="danger" onPress={() => activePledge && voidIt.mutate(activePledge.id)} loading={voidIt.isPending} disabled={!voidReason.trim()} />
-      </Sheet>
-
-      <Sheet visible={historyOpen} onClose={() => setHistoryOpen(false)} title="Bank Pledge History">
-        {history.isLoading ? (
-          <Buffering block />
-        ) : (history.data ?? []).length === 0 ? (
-          <EmptyText>No bank pledge history for this loan yet.</EmptyText>
-        ) : (
-          (history.data ?? []).map((p, i) => (
-            <PledgeItem
-              key={p.id}
-              first={i === 0}
-              icon={p.status === "Voided" ? "close" : p.status === "Active" ? "shield" : "check"}
-              iconBg={p.status === "Active" ? C.greenBg : p.status === "Voided" ? C.redBg : undefined}
-              iconColor={p.status === "Active" ? C.green : p.status === "Voided" ? C.red : undefined}
-              // Wire value stays "Voided"; only the displayed label is "Deleted".
-              title={`${p.bankName} · ${p.status === "Voided" ? "Deleted" : p.status}`}
-              sub={`${inr(p.pledgedAmount)}${p.referenceNumber ? ` · Ref ${p.referenceNumber}` : ""}${p.releaseDate ? ` · released ${dmy(p.releaseDate)}` : ""}${
-                p.status === "Voided" && p.voidReason ? ` · ${p.voidReason}` : ""
-              }`}
-              date={dmy(p.pledgeDate)}
-            />
-          ))
-        )}
       </Sheet>
     </>
   );

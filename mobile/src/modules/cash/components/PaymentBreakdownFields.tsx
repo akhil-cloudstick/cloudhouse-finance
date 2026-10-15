@@ -1,6 +1,6 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { Pressable, View } from "react-native";
-import { C, ChipToggle, Field, Input, PIcon, Txt } from "@/common/components/ui";
+import { C, ChipToggle, Field, Input, ResultBox, Txt } from "@/common/components/ui";
 import { inr } from "@/common/utils/format";
 import type { Bank } from "@/modules/banks/types/bank-types";
 import type { PaymentPart } from "@/modules/cash/types/cash-types";
@@ -10,6 +10,9 @@ export const PAY_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
 export type PayMode = (typeof PAY_MODES)[number];
 
 const MAX_ROWS = 6;
+
+// Short chip labels; the stored mode values stay as PAY_MODES.
+const MODE_LABELS: Partial<Record<PayMode, string>> = { "Bank Transfer": "Bank" };
 
 /** One line of a payment breakdown as the form holds it. `auto` is true while
  * the row is the only one and untouched — its amount then follows the entry's
@@ -79,10 +82,22 @@ type PaymentBreakdownFieldsProps = {
  * moved through; the lines must add up to the entry's Amount, and each one is
  * saved as its own ledger entry. */
 export function PaymentBreakdownFields({ total, rows, onChange, bankLabel }: PaymentBreakdownFieldsProps) {
+  // The breakdown always follows the entry's Amount: a lone line takes all of it, and with
+  // several lines the last one takes whatever the others leave, so the rest is always shown.
+  const prevTotal = useRef(total);
   useEffect(() => {
-    if (rows.length !== 1 || !rows[0].auto) return;
-    const v = total > 0 ? String(total) : "";
-    if (rows[0].amount !== v) onChange((cur) => (cur.length === 1 && cur[0].auto ? [{ ...cur[0], amount: v }] : cur));
+    const changed = prevTotal.current !== total;
+    prevTotal.current = total;
+    onChange((cur) => {
+      if (cur.length === 1) {
+        const v = total > 0 ? String(total) : "";
+        return cur[0].amount !== v && (cur[0].auto || changed) ? [{ ...cur[0], amount: v }] : cur;
+      }
+      if (!changed || !(total > 0)) return cur;
+      const last = cur[cur.length - 1];
+      const rest = String(round2(Math.max(0, total - cur.slice(0, -1).reduce((s, r) => s + (Number(r.amount) || 0), 0))));
+      return last.amount === rest ? cur : cur.map((r) => (r.key === last.key ? { ...r, amount: rest, auto: false } : r));
+    });
   }, [total, rows, onChange]);
 
   const allocated = round2(rows.reduce((s, r) => s + (Number(r.amount) || 0), 0));
@@ -100,46 +115,54 @@ export function PaymentBreakdownFields({ total, rows, onChange, bankLabel }: Pay
 
   return (
     <View style={{ marginBottom: 6 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <Txt style={{ fontSize: 12, fontWeight: "700", color: C.muted }}>MODE · PAYMENT BREAKDOWN</Txt>
-        <Pressable
-          onPress={add} disabled={rows.length >= MAX_ROWS} hitSlop={8} accessibilityLabel="Add payment mode"
-          style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: C.line, backgroundColor: C.card, alignItems: "center", justifyContent: "center", opacity: rows.length >= MAX_ROWS ? 0.5 : 1 }}
-        >
-          <PIcon name="plus" color={C.brandDeep} size={16} />
-        </Pressable>
-      </View>
+      <Txt style={{ fontSize: 11.5, fontWeight: "700", color: C.muted, textTransform: "uppercase", marginBottom: 8 }}>Payment breakdown</Txt>
       {rows.map((r, i) => (
-        <View key={r.key} style={{ borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 10, marginBottom: 10 }}>
-          <ChipToggle
-            options={PAY_MODES}
-            value={r.mode}
-            onChange={(v) => patch(r.key, { mode: v, ...(isBankMode(v) ? {} : { bank: null }) })}
-            wrap
-          />
-          <Field label="Amount">
-            <Input
-              keyboardType="decimal-pad" placeholder="₹" value={r.amount}
-              onChangeText={(t) => onChange((cur) => withAmount(cur, r.key, t, total))}
-            />
-          </Field>
+        <View key={r.key} style={{ borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 12, marginBottom: 10, backgroundColor: C.card }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <ChipToggle
+                options={PAY_MODES}
+                labels={MODE_LABELS}
+                value={r.mode}
+                onChange={(v) => patch(r.key, { mode: v, ...(isBankMode(v) ? {} : { bank: null }) })}
+              />
+            </View>
+            {rows.length > 1 ? (
+              <Pressable
+                onPress={() => remove(r.key)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Remove payment mode ${i + 1}`}
+                style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: C.brandFaint, alignItems: "center", justifyContent: "center" }}
+              >
+                <Txt style={{ fontSize: 13, fontWeight: "700", color: C.muted }}>✕</Txt>
+              </Pressable>
+            ) : null}
+          </View>
+          <View style={{ marginTop: 12 }}>
+            <Field label="Amount">
+              <Input
+                keyboardType="decimal-pad" placeholder="₹" value={r.amount}
+                onChangeText={(t) => onChange((cur) => withAmount(cur, r.key, t, total))}
+              />
+            </Field>
+          </View>
           {isBankMode(r.mode) ? <BankPicker label={bankLabel} bank={r.bank} onChange={(b) => patch(r.key, { bank: b })} /> : null}
-          {rows.length > 1 ? (
-            <Pressable onPress={() => remove(r.key)} hitSlop={8} accessibilityLabel={`Remove payment mode ${i + 1}`}>
-              <Txt style={{ fontSize: 12.5, color: C.red, fontWeight: "600" }}>Remove</Txt>
-            </Pressable>
-          ) : null}
         </View>
       ))}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        {total > 0 ? (
-          <Txt style={{ fontSize: 12.5, color: Math.abs(remaining) < 0.005 ? C.green : C.red }}>
-            {Math.abs(remaining) < 0.005
-              ? `Fully allocated ${inr(total)}`
-              : remaining > 0 ? `${inr(remaining)} still to allocate` : `Exceeds the amount by ${inr(-remaining)}`}
-          </Txt>
-        ) : null}
-      </View>
+      {rows.length < MAX_ROWS ? (
+        <Pressable
+          onPress={add} accessibilityRole="button" accessibilityLabel="Add payment mode"
+          style={{ borderWidth: 1.5, borderStyle: "dashed", borderColor: C.line, borderRadius: 11, paddingVertical: 11, alignItems: "center", marginBottom: 10 }}
+        >
+          <Txt style={{ fontSize: 13, fontWeight: "700", color: C.brandDeep }}>+ Add payment mode</Txt>
+        </Pressable>
+      ) : null}
+      {total > 0 ? (
+        <ResultBox
+          k={Math.abs(remaining) < 0.005 ? "Fully allocated" : remaining > 0 ? "Still to allocate" : "Exceeds the amount by"}
+          v={inr(Math.abs(remaining) < 0.005 ? total : Math.abs(remaining))}
+          tone={Math.abs(remaining) < 0.005 ? "green" : "red"}
+          style={{ marginBottom: 0 }}
+        />
+      ) : null}
     </View>
   );
 }

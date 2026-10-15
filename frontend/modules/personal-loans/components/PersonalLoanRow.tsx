@@ -10,11 +10,11 @@ type PersonalLoanRowProps = { loan: BackendPersonalLoan };
 export function PersonalLoanRow({ loan }: PersonalLoanRowProps) {
   return (
     <tr className="click" onClick={() => { navigate("personalloan/" + loan.id); }}>
-      <td><span className="id">{loan.loanNumber}</span><span className="sub">{loan.customer?.name}</span></td>
-      <td className="num">{fmt(loan.principalAmount)}</td>
-      <td className="num">{fmt(loan.outstandingAmount)}</td>
-      <td>{loan.frequency}</td>
-      <td><StatusChip status={loan.status} /></td>
+      <td data-label="Loan / Customer"><span className="id">{loan.loanNumber}</span><span className="sub">{loan.customer?.name}</span></td>
+      <td className="num" data-label="Principal">{fmt(loan.principalAmount)}</td>
+      <td className="num" data-label="Outstanding">{fmt(loan.outstandingAmount)}</td>
+      <td data-label="Frequency">{loan.frequency}</td>
+      <td data-label="Status"><StatusChip status={loan.status} /></td>
     </tr>
   );
 }

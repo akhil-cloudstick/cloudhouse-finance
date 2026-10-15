@@ -12,6 +12,8 @@
  * page's API calls regardless.
  */
 import { useAuth } from "@/common/providers/AuthProvider";
+import { useTheme } from "@/common/theme/ThemeProvider";
+import { routeEnabled } from "@/common/config/tenantModules";
 
 export type PermissionRef =readonly [moduleKey: string, permissionKey: string];
 
@@ -65,7 +67,8 @@ export function pathAllowed(path: string, can: Can): boolean {
  * plain text or left out, rather than offered and then refused. */
 export function useCanOpen(): (path: string) => boolean {
   const { can } = useAuth();
-  return (path: string) => pathAllowed(path, can);
+  const { hasModule } = useTheme();
+  return (path: string) => pathAllowed(path, can) && routeEnabled(routeOf(path), hasModule);
 }
 
 // openPage() is a plain function called from anywhere, so it can't use the

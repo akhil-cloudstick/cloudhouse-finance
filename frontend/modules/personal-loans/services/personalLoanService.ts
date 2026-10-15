@@ -130,5 +130,5 @@ export async function downloadPersonalLoanBond(loanId: number, lang: PersonalLoa
     }
 
     return res.blob();
-  });
+  }, undefined, `personal-loan-bond-${loanId}.pdf`);
 }

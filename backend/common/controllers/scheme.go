@@ -240,11 +240,6 @@ func schemeValidate(in SchemeCreateInput) error {
 		if in.ServiceChargeValue < 0 || (in.ServiceChargeType == commonModels.ServiceChargeTypePercent && in.ServiceChargeValue > 100) {
 			return NewBadRequest("service charge value must be non-negative, and no more than 100 for a Percent charge")
 		}
-		switch in.ServiceChargeMode {
-		case "", commonModels.ServiceChargeModeWithheldFromPayout, commonModels.ServiceChargeModeAddedToPrincipal:
-		default:
-			return NewBadRequest("service charge mode must be WithheldFromPayout or AddedToPrincipal when a charge type is set")
-		}
 	default:
 		return NewBadRequest("service charge type must be None, Flat, or Percent")
 	}
@@ -363,7 +358,10 @@ func updateScheme(ctx context.Context, id uint, in SchemeUpdateInput, branchID *
 	rec.IsActive = in.IsActive
 	rec.ServiceChargeType = chargeType
 	rec.ServiceChargeValue = in.ServiceChargeValue
-	rec.ServiceChargeMode = in.ServiceChargeMode
+	// Legacy column: the collection method is chosen per loan now, so an update that omits it keeps the stored value.
+	if in.ServiceChargeMode == commonModels.ServiceChargeModeWithheldFromPayout || in.ServiceChargeMode == commonModels.ServiceChargeModeAddedToPrincipal {
+		rec.ServiceChargeMode = in.ServiceChargeMode
+	}
 	if err := persistScheme(ctx, rec); err != nil {
 		return nil, err
 	}

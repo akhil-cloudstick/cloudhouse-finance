@@ -163,8 +163,6 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
                 /><FieldError msg={fe.bank} /></div>
               <div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
               <div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
-            </div>
-            <div className="frow rp-grid rp-compact" style={{ gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
               <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => { setInterestRate(e.target.value); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
               <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
               <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>

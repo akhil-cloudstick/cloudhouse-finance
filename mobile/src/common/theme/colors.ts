@@ -28,6 +28,8 @@ export const colors = {
 
   ink: "#2b1013",
   muted: "#7a5a5e",
+  // lighter than muted so empty-field hints read as hints, not as typed values
+  placeholder: "#b9a3a6",
 
   bg: "#faf6f6",
   card: "#ffffff",

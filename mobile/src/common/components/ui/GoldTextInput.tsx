@@ -2,7 +2,7 @@ import React from "react";
 import { TextInput, TextInputProps, View, StyleSheet, ViewStyle, StyleProp, Platform } from "react-native";
 import { BlurView } from "expo-blur";
 import { colors } from "@/common/theme/colors";
-import { typeScale } from "@/common/theme/typography";
+import { typeScale, textStyle } from "@/common/theme/typography";
 import { ThemedText } from "./ThemedText";
 import { doneBarFor } from "./KeyboardDoneBar";
 
@@ -55,8 +55,11 @@ export function GoldTextInput({
           {...(blur && Platform.OS === "ios" ? { intensity: 30, tint: "light" as const } : {})}
         >
           <TextInput
-            placeholderTextColor={colors.muted}
-            style={[styles.input, right ? styles.inputWithRight : null, style]}
+            placeholderTextColor={colors.placeholder}
+            autoComplete="off"
+            importantForAutofill="no"
+            textContentType="none"
+            style={textStyle([styles.input, right ? styles.inputWithRight : null, style], false)}
             inputAccessoryViewID={doneBarFor(rest.keyboardType)}
             {...rest}
           />

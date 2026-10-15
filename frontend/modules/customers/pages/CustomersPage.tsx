@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
@@ -12,7 +13,7 @@ import { listCustomersPage } from "@/modules/customers/services/customerService"
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { useResponsivePageSize, useScrollPageSize, useIsSmallScreen } from "@/common/utils/responsive";
 import { navigate } from "@/common/services/appRoutes";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 
@@ -37,7 +38,8 @@ export function CustomersPage() {
   const { loans } = useLoans();
   const { customers, refresh: refreshAll } = useCustomers();
   const { openModal } = useModal();
-  const pageSize = useResponsivePageSize(15, 15);
+  const basePageSize = useResponsivePageSize(15, 15);
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   const smallScreen = useIsSmallScreen();
   // Action buttons are hidden outright when the role doesn't hold the
   // permission behind them — a disabled-looking control the user can never
@@ -117,28 +119,29 @@ export function CustomersPage() {
         />
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
-      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">
+      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left tbl-cards">
         <thead><tr><th>Customer</th><th>Contact</th>{showBranch && <th>Branch</th>}<th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>
-          {loading ? (
+          {loading && !(cards && rows.length > 0) ? (
             <tr><td colSpan={showBranch ? 8 : 7} className="empty">Loading customers…</td></tr>
           ) : rows.length === 0 ? (
             <tr><td colSpan={showBranch ? 8 : 7} className="empty">{error ? "—" : "No customers match your search."}</td></tr>
           ) : rows.map((c) => (
             <tr className="click" key={c.id} onClick={() => { navigate("customer/" + c.id); }}>
-              <td><span className="id">{c.code}</span><span className="sub" style={{ fontSize: 13.5, color: "var(--nav)", fontWeight: 500 }}>{c.name}</span></td>
-              <td>{c.phone || "—"}<span className="sub">{c.address}</span></td>
-              {showBranch && <td>{c.branchName}</td>}
-              <td><StatusChip status={c.panStatus} /></td>
-              <td><StatusChip status={c.aadhaarStatus} /></td>
-              <td><StatusChip status={c.kycStatus} /></td>
-              <td className="num">{loans.filter((l) => String(l.customerId) === String(c.id)).length}</td>
-              <td style={{ textAlign: "right", color: "var(--brand-deep)" }}>›</td>
+              <td data-label="Customer"><span className="id">{c.code}</span><span className="sub" style={{ fontSize: 13.5, color: "var(--nav)", fontWeight: 500 }}>{c.name}</span></td>
+              <td data-label="Contact">{c.phone || "—"}<span className="sub">{c.address}</span></td>
+              {showBranch && <td data-label="Branch">{c.branchName}</td>}
+              <td data-label="PAN"><StatusChip status={c.panStatus} /></td>
+              <td data-label="Aadhaar"><StatusChip status={c.aadhaarStatus} /></td>
+              <td data-label="KYC Status"><StatusChip status={c.kycStatus} /></td>
+              <td className="num" data-label="Loans">{loans.filter((l) => String(l.customerId) === String(c.id)).length}</td>
+              <td className="td-chev" style={{ textAlign: "right", color: "var(--brand-deep)" }}>›</td>
             </tr>
           ))}
         </tbody>
       </table></div>
-      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <ScrollSentinel enabled={cards && (hasMore)} onVisible={more} watch={rows.length} />
+      <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
         <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>

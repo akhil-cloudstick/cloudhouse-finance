@@ -63,6 +63,11 @@ export type CashSummary = {
   disbursements: number;
   cashExpenses: number;
   expectedCash: number;
+  // Today's expenses (all modes) and the live balances: physical cash in hand (Cash mode) and the
+  // combined balance of every bank (UPI / Bank Transfer / Cheque). Mirrors the web's CashSummary.
+  expensesToday?: number;
+  cashInHand?: number;
+  bankBalance?: number;
 };
 
 // Mirrors backend/internal/cash's GoldSale JSON shape (model.go).
@@ -133,6 +138,7 @@ export type LedgerRow = {
   customerId?: number;
   customerName?: string;
   receiptImage?: string; // bill attached to the entry behind this row
+  memo?: boolean; // records how money was applied (an auction applied to a loan), not money moving
   // The cash movement behind a cash-in / debit / self-transfer row — the info
   // sheet and Edit open it. Absent on every other row.
   entryId?: number;
@@ -144,7 +150,7 @@ export type LedgerRow = {
 export type PaymentPart = { mode: string; amount: number; bankId?: number };
 // The info sheet / Edit data for a cash-in, debit or self transfer
 // (GET/PUT /cash-movements/:id/entry — backend entry.go).
-export type EntryKind = "cash_in" | "debit" | "self_transfer" | "gold_sale";
+export type EntryKind = "cash_in" | "debit" | "self_transfer" | "gold_sale" | "system";
 export type EntryLine = { movementId: number; mode: string; amount: number; bankId?: number | null; bankName?: string };
 export type EntryInfo = {
   kind: EntryKind;
@@ -195,9 +201,11 @@ export type EntryUpdateInput = {
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];
 export type LedgerKind = "bank" | "customer" | "category" | "mode";
-export type LedgerParams = { limit: number; offset: number; fromDate?: string; toDate?: string; modes?: string; types?: string };
+export type LedgerParams = { limit: number; offset: number; fromDate?: string; toDate?: string; modes?: string; types?: string; loanNumbers?: string };
 // totalDebit/totalCredit cover every row matching the filters, not the page.
-export type LedgerPage = { items: LedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; categoryName?: string };
+export type LedgerPage = { items: LedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; categoryName?: string; loan?: LoanLedgerSummary };
+// Set on a loan source's category ledger — the loan's own position, principal-based.
+export type LoanLedgerSummary = { sourceId: number; name: string; loanNumber: string; principal: number; drawn: number; repaid: number; balance: number };
 // A loan's position — principal, drawn (Add Cash) and repaid (expenses / self
 // transfers) so far. GET /cash-sources/:id works for any category id.
 export type LoanBalance = { principal: number; drawn: number; repaid: number; balance: number };

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccBtn,
   AsyncSelect,
+  BtnRow2,
   C,
   Card,
   ChipToggle,
@@ -213,9 +214,13 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
     },
     onSuccess: async (loan) => {
       // Link each photographed row to the ornament created for it (returned
-      // in submission order). Best-effort — the loan already exists.
+      // in submission order). The loan already exists, so a failed photo is
+      // reported rather than blocking — it can be re-added from Edit Loan.
       const created = loan.ornaments ?? [];
-      await Promise.all(valid.map((r, i) => (r.img && created[i] ? addOrnamentImage(created[i].id, r.img).catch(() => undefined) : Promise.resolve())));
+      const photoResults = await Promise.all(
+        valid.map((r, i) => (r.img && created[i] ? addOrnamentImage(created[i].id, r.img).then(() => true, () => false) : Promise.resolve(true)))
+      );
+      if (photoResults.some((ok) => !ok)) toast.error("Some ornament photos weren't saved", "The loan was created — add the photos again from Edit Loan.");
       qc.invalidateQueries({ queryKey: ["loans"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["loan-drafts"] });
@@ -381,6 +386,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
           <Input value={branch?.name ?? ""} editable={false} />
         </Field>
       )}
+      <DateField label="Loan date" value={openedDate} onChange={setOpenedDate} max={today} />
       <AsyncSelect<Locker>
         label="Locker (optional)"
         placeholder="Assign later, or search locker code"
@@ -450,7 +456,6 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
         />
       </Card>
 
-      <DateField label="Loan date" value={openedDate} onChange={setOpenedDate} max={today} />
       {hasCharge && scheme ? (
         <Field label="Charge method">
           <ChipToggle
@@ -505,17 +510,18 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
         <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      {canCreate ? (
-        <PrimaryButton
-          label={draftId ? "Update Draft" : "Save Draft"}
-          variant="outline"
-          onPress={() => saveDraftMut.mutate()}
-          loading={saveDraftMut.isPending}
-          disabled={!branch || !hasDraftContent}
-          style={{ marginBottom: 10 }}
-        />
-      ) : null}
-      <PrimaryButton label="Confirm & Create Loan" onPress={() => submit.mutate()} loading={submit.isPending} disabled={!canSubmit} />
+      <BtnRow2>
+        {canCreate ? (
+          <PrimaryButton
+            label={draftId ? "Update Draft" : "Save Draft"}
+            variant="outline"
+            onPress={() => saveDraftMut.mutate()}
+            loading={saveDraftMut.isPending}
+            disabled={!branch || !hasDraftContent}
+          />
+        ) : null}
+        <PrimaryButton label="Create Loan" onPress={() => submit.mutate()} loading={submit.isPending} disabled={!canSubmit} />
+      </BtnRow2>
     </Sheet>
   );
 }

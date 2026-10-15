@@ -45,24 +45,25 @@ export function getCustomerAadhaarFull(id: number) {
 // src/modules/loans/pages/LoansScreen.tsx) rather than the web's 1-based page-number pager. Loan
 // History itself isn't here — it's already covered by
 // src/modules/loans/services/loanService.ts's listLoansPage({customerId}).
-// `q` is the per-tab server search (loan no. / ornament / bank …).
-function customerSubTable<T>(path: string, customerId: number, limit: number, offset: number, q?: string) {
+// `q` is the per-tab server search (loan no. / ornament / bank …); `range` is the Date filter (from/to, YYYY-MM-DD).
+export type DateRange = { from?: string; to?: string };
+function customerSubTable<T>(path: string, customerId: number, limit: number, offset: number, q?: string, range?: DateRange) {
   return apiRequest<{ items: T[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/${path}`, {
-    params: { limit, offset, q: q || undefined },
+    params: { limit, offset, q: q || undefined, from: range?.from || undefined, to: range?.to || undefined },
   });
 }
 
-export function listCustomerOrnamentsPage(customerId: number, limit: number, offset: number, q?: string) {
-  return customerSubTable<CustomerOrnamentRow>("ornaments", customerId, limit, offset, q);
+export function listCustomerOrnamentsPage(customerId: number, limit: number, offset: number, q?: string, range?: DateRange) {
+  return customerSubTable<CustomerOrnamentRow>("ornaments", customerId, limit, offset, q, range);
 }
-export function listCustomerPaymentsPage(customerId: number, limit: number, offset: number, q?: string) {
-  return customerSubTable<CustomerPaymentRow>("payments", customerId, limit, offset, q);
+export function listCustomerPaymentsPage(customerId: number, limit: number, offset: number, q?: string, range?: DateRange) {
+  return customerSubTable<CustomerPaymentRow>("payments", customerId, limit, offset, q, range);
 }
-export function listCustomerBankPledgesPage(customerId: number, limit: number, offset: number, q?: string) {
-  return customerSubTable<CustomerBankPledgeRow>("bank-pledges", customerId, limit, offset, q);
+export function listCustomerBankPledgesPage(customerId: number, limit: number, offset: number, q?: string, range?: DateRange) {
+  return customerSubTable<CustomerBankPledgeRow>("bank-pledges", customerId, limit, offset, q, range);
 }
-export function listCustomerAuctionHistoryPage(customerId: number, limit: number, offset: number, q?: string) {
-  return customerSubTable<CustomerAuctionRow>("auction-history", customerId, limit, offset, q);
+export function listCustomerAuctionHistoryPage(customerId: number, limit: number, offset: number, q?: string, range?: DateRange) {
+  return customerSubTable<CustomerAuctionRow>("auction-history", customerId, limit, offset, q, range);
 }
 
 export function createCustomer(input: CustomerInput) {
@@ -84,6 +85,15 @@ export function updateCustomer(id: number, input: CustomerInput) {
 // with its new PAN status, plus the name the provider matched and a message to show.
 export function verifyCustomerPan(id: number) {
   return apiRequest<{ customer: Customer; message: string; matchedName: string; traceId: string }>(`/customers/${id}/verify-pan`, { method: "POST" });
+}
+
+// Aadhaar verification through DigiLocker is a redirect flow (POST /customers/:id/verify-aadhaar/start then
+// /check): start returns a login URL the customer completes with Aadhaar + OTP, check then reads the result.
+export function startAadhaarVerify(id: number, redirectUrl: string) {
+  return apiRequest<{ id: string; url: string; status: string; validUpto: string }>(`/customers/${id}/verify-aadhaar/start`, { method: "POST", body: { redirectUrl } });
+}
+export function checkAadhaarVerify(id: number) {
+  return apiRequest<{ status: string; customer?: Customer; matchedName?: string; dob?: string; failureReasons?: string[] }>(`/customers/${id}/verify-aadhaar/check`, { method: "POST" });
 }
 
 // Permanently deletes the customer and every record tied to them. Refused while any of their loans is

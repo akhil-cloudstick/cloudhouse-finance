@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { DefaultTheme, Slot, ThemeProvider as NavThemeProvider, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
-import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
-import { Montserrat_700Bold } from "@expo-google-fonts/montserrat";
+import { useFonts } from "@expo-google-fonts/ibm-plex-sans/useFonts";
+import { IBMPlexSans_400Regular } from "@expo-google-fonts/ibm-plex-sans/400Regular";
+import { IBMPlexSans_500Medium } from "@expo-google-fonts/ibm-plex-sans/500Medium";
+import { IBMPlexSans_600SemiBold } from "@expo-google-fonts/ibm-plex-sans/600SemiBold";
 import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
@@ -147,10 +149,9 @@ function RootNavigation() {
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Montserrat_700Bold,
+    IBMPlexSans_400Regular,
+    IBMPlexSans_500Medium,
+    IBMPlexSans_600SemiBold,
     NunitoSans_800ExtraBold,
   });
   // The login screen's logo <Image> was popping in a frame after its

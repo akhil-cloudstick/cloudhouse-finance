@@ -1,13 +1,9 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
-import * as Print from "expo-print";
 import { API_BASE_URL, apiUrl, ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 
-// goldWeight/goldRate: the prototype statement sheet's optional
-// "filter by weight / rate" inputs — sent as params; ignored by a backend
-// that doesn't support them yet.
-export type StatementFilters = { from?: string; to?: string; loanIds?: number[]; goldWeight?: number; goldRate?: number };
+export type StatementFilters = { from?: string; to?: string; loanIds?: number[] };
 
 function mimeTypeFor(format: "pdf" | "xlsx"): string {
   return format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -15,8 +11,7 @@ function mimeTypeFor(format: "pdf" | "xlsx"): string {
 
 // Downloads GET /schemes/:id/statement?...&format=pdf|xlsx (see
 // backend/internal/loan/statement.go) into the cache dir — the shared first
-// step both fetchSchemeStatement's callers (download-to-share and preview)
-// build on, rather than re-fetching per action.
+// step of downloadSchemeStatement.
 async function downloadToCache(
   schemeId: number,
   format: "pdf" | "xlsx",
@@ -26,8 +21,6 @@ async function downloadToCache(
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.loanIds?.length) params.set("loanIds", filters.loanIds.join(","));
-  if (filters.goldWeight) params.set("goldWeight", String(filters.goldWeight));
-  if (filters.goldRate) params.set("goldRate", String(filters.goldRate));
 
   const token = await getToken();
   const filename = `scheme-${schemeId}-statement-${Date.now()}.${format}`;
@@ -48,8 +41,7 @@ async function downloadToCache(
 // exportSection, reused here instead of re-implementing PDF/xlsx generation
 // on-device: the backend already builds the file from the same loan+payment
 // data the web Download Statement modal renders. This is genuinely "share",
-// not "save" — see previewSchemeStatementPdf below for viewing without
-// picking a share target first.
+// not "save".
 export async function downloadSchemeStatement(
   schemeId: number,
   format: "pdf" | "xlsx",
@@ -61,20 +53,4 @@ export async function downloadSchemeStatement(
   } else {
     throw new Error(`Saved to ${uri} — sharing isn't available on this device.`);
   }
-}
-
-// Opens the statement's PDF in the OS's native print-preview dialog — the
-// actual document renders full-page, scrollable, with no share target to
-// pick first, and "Print"/"Save as PDF" are just what that native dialog
-// already offers. Uses expo-print (already a dependency here — reports.tsx
-// prints its own HTML through the exact same Print.printAsync) rather than
-// adding a PDF-viewer dependency: passing it an existing file's `uri`
-// (instead of `html`) opens straight to that document. PDF only — there is
-// no equivalent "preview" concept for the xlsx export.
-export async function previewSchemeStatementPdf(
-  schemeId: number,
-  filters: StatementFilters
-): Promise<void> {
-  const uri = await downloadToCache(schemeId, "pdf", filters);
-  await Print.printAsync({ uri });
 }

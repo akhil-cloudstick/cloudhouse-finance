@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { TextInput, View, type StyleProp, type ViewStyle } from "react-native";
+import { textStyle } from "@/common/theme/typography";
 import { C } from "./base";
 import { s } from "./listKitStyles";
 
@@ -24,14 +25,17 @@ export function SearchInput({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={C.muted}
+        placeholderTextColor={C.placeholder}
+        autoComplete="off"
+        importantForAutofill="no"
+        textContentType="none"
         autoCorrect={false}
         autoCapitalize="none"
         returnKeyType="search"
         allowFontScaling={false}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={[s.search, focused && { borderColor: C.brand }]}
+        style={textStyle([s.search, focused && { borderColor: C.brand }], false)}
       />
     </View>
   );

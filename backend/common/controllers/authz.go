@@ -319,8 +319,14 @@ func updateRolePermissions(ctx context.Context, roleID uint, updates []RolePermi
 				after[d] = false
 			}
 		}
+		touched := map[string]bool{}
+		for _, u := range updates {
+			touched[nameByID[u.PermissionID]] = true
+		}
+		// Only what this request switches on must have its parents on. A grant
+		// left orphaned by older data must not make an unrelated save fail.
 		for _, p := range perms {
-			if !after[p.Name] {
+			if !after[p.Name] || !touched[p.Name] {
 				continue
 			}
 			for _, parent := range Parents(p.Name) {
@@ -328,10 +334,6 @@ func updateRolePermissions(ctx context.Context, roleID uint, updates []RolePermi
 					return &ParentDisabledError{Parent: parent, Child: p.Name}
 				}
 			}
-		}
-		touched := map[string]bool{}
-		for _, u := range updates {
-			touched[nameByID[u.PermissionID]] = true
 		}
 		for _, p := range perms {
 			if after[p.Name] == before[p.Name] && !touched[p.Name] {

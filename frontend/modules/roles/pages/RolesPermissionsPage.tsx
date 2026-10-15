@@ -32,7 +32,7 @@ function CascadeOffModalContent({ row, dependents, onConfirm }: CascadeOffModalC
           These permissions need <b>{row.permissions.name}</b>, so they will be turned off too:
         </p>
         <ul style={{ fontSize: 13, margin: 0, paddingLeft: 18 }}>
-          {dependents.map((d) => <li key={d.permission_id}>{d.name}</li>)}
+          {dependents.map((d) => <li key={d.permissionId}>{d.name}</li>)}
         </ul>
       </div>
       <div className="ft" style={{ display: "flex", gap: 8 }}>
@@ -198,24 +198,34 @@ export function RolesPermissionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Unsaved toggles belong to one role: drop them only when the role changes,
+  // never on a search or a re-fetch, or ticked boxes snap back.
   useEffect(() => {
-    if (!roleId || !employee) return;
     setPending({});
-    fetchRoleMatrix(employee.id, roleId, search || undefined)
+  }, [roleId]);
+
+  const employeeId = employee?.id;
+  useEffect(() => {
+    if (!roleId || !employeeId) return;
+    let stale = false;
+    fetchRoleMatrix(employeeId, roleId, search || undefined)
       .then((res) => {
+        if (stale) return;
         setRole(res.role);
         setMatrix(res.data);
         setError("");
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load permissions. Please refresh the page and try again."));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roleId, employee, search]);
+      .catch((e) => {
+        if (!stale) setError(e instanceof ApiError ? e.message : "Could not load permissions. Please refresh the page and try again.");
+      });
+    return () => { stale = true; };
+  }, [roleId, employeeId, search]);
 
   const effective = useMemo(() => {
     if (!matrix) return null;
     const out: Record<string, PermissionRow[]> = {};
     for (const [mod, rows] of Object.entries(matrix)) {
-      out[mod] = rows.map((r) => ({ ...r, permission: pending[r.permission_id] ?? r.permission }));
+      out[mod] = rows.map((r) => ({ ...r, permission: pending[r.permissionId] ?? r.permission }));
     }
     return out;
   }, [matrix, pending]);
@@ -223,7 +233,7 @@ export function RolesPermissionsPage() {
   // A related permission's on/off state including unsaved edits — it may be
   // hidden by the search, so the server's granted flag is the fallback.
   function isOn(ref: PermissionRef) {
-    return pending[ref.permission_id] ?? ref.granted;
+    return pending[ref.permissionId] ?? ref.granted;
   }
 
   // Parents still off — while any is, this permission can't be switched on.
@@ -239,19 +249,25 @@ export function RolesPermissionsPage() {
 
   function toggle(row: PermissionRow) {
     if (!canUpdateRole || role?.isSystem) return;
-    const current = pending[row.permission_id] ?? row.permission;
+    // An out-of-date backend omits the hierarchy; toggling then would skip the
+    // blocked/cascade rules silently, so refuse and say why.
+    if (row.parents === undefined || row.dependents === undefined) {
+      toast("Permission hierarchy is unavailable — reload the page, or restart the server if it persists.");
+      return;
+    }
+    const current = pending[row.permissionId] ?? row.permission;
     if (!current) {
       if (missingParents(row).length > 0) {
         toast(blockedMessage(row));
         return;
       }
-      setPending((p) => ({ ...p, [row.permission_id]: true }));
+      setPending((p) => ({ ...p, [row.permissionId]: true }));
       return;
     }
     const goingOff = (row.dependents ?? []).filter(isOn);
     const turnOff = () => setPending((p) => {
-      const next = { ...p, [row.permission_id]: false };
-      for (const d of goingOff) next[d.permission_id] = false;
+      const next = { ...p, [row.permissionId]: false };
+      for (const d of goingOff) next[d.permissionId] = false;
       return next;
     });
     if (goingOff.length === 0) {
@@ -477,7 +493,7 @@ export function RolesPermissionsPage() {
                         const nested = (row.parents ?? []).some((p) => rows.some((r) => r.permissions.name === p.name));
                         return (
                           <label
-                            key={`${row.permission_id}-${row.permissions.name}`}
+                            key={`${row.permissionId}-${row.permissions.name}`}
                             className={`ccheck perm-list-row${blocked ? " blocked" : ""}`}
                             title={blocked || undefined}
                             style={{ paddingLeft: nested ? 28 : undefined }}

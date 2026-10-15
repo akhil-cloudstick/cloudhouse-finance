@@ -12,7 +12,7 @@ export const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.line,
     backgroundColor: C.card,
-    fontSize: 13,
+    fontSize: 14.5,
     color: C.ink,
   },
   count: { paddingTop: 12, paddingHorizontal: 18, paddingBottom: 10, fontSize: 11.5, color: C.muted, fontWeight: "600" },

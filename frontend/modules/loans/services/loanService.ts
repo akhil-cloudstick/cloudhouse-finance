@@ -1078,7 +1078,7 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  window.URL.revokeObjectURL(url);
+  setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
 }
 
 /* Sends the pledge agreement straight to the print dialog (via
@@ -1111,7 +1111,7 @@ export async function downloadIndemnityBondPDF(loanNumericId: number, lang: Bond
     }
 
     return res.blob();
-  });
+  }, undefined, `pledge-agreement-${loanNumericId}.pdf`);
 }
 
 /* Gold Loan Pledge Slip — rendered server-side from
@@ -1136,7 +1136,7 @@ async function pledgeSlipResponse(loanNumericId: number, format?: "html"): Promi
 }
 
 export async function downloadPledgeSlipPDF(loanNumericId: number): Promise<void> {
-  return printPdfJob(async () => (await pledgeSlipResponse(loanNumericId)).blob());
+  return printPdfJob(async () => (await pledgeSlipResponse(loanNumericId)).blob(), undefined, `pledge-slip-${loanNumericId}.pdf`);
 }
 
 /* TML payment receipt (the TML "statement") — rendered server-side from
@@ -1159,7 +1159,7 @@ export async function downloadTmlStatementReceipt(loanNumericId: number): Promis
       throw new ApiError(message, res.status);
     }
     return res.blob();
-  });
+  }, undefined, `tml-receipt-${loanNumericId}.pdf`);
 }
 
 /* The same slip as an HTML document, for printing it together with the
@@ -1197,7 +1197,7 @@ export async function downloadPartialReleaseReceiptPDF(requestId: number, lang: 
     }
 
     return res.blob();
-  });
+  }, undefined, `partial-release-receipt-${requestId}.pdf`);
 }
 
 /* Sends the FORM 7 release/discharge agreement straight to the print dialog
@@ -1227,7 +1227,7 @@ export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "
     }
 
     return res.blob();
-  });
+  }, undefined, `release-agreement-${loanNumericId}.pdf`);
 }
 
 /* Pre-submission bond print (New Loan's "Pledge Agreement" button) — POST
@@ -1260,5 +1260,5 @@ export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, l
     }
 
     return res.blob();
-  });
+  }, undefined, "pledge-agreement-preview.pdf");
 }
