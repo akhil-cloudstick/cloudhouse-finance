@@ -591,7 +591,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               * panel's DOM and the tab-slide-up entrance animation intact,
               * without re-running any of the fetches above. */}
             <div hidden={activeTable !== 0} className={activeTable === 0 ? "tab-slide-up" : undefined}>
-                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
                   <thead><tr><th>Loan</th><th>Scheme</th><th className="th-opened-due">Opened / <span className="th-due-part">Due</span></th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
                   <tbody>
                     {loanPager.items.length === 0 ? (
@@ -603,18 +603,18 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               </div>
 
             <div hidden={activeTable !== 1} className={activeTable === 1 ? "tab-slide-up" : undefined}>
-                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
                   <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
                   <tbody>
                     {ornamentPager.items.length === 0 ? (
                       <tr><td colSpan={5} className="empty compact">No pledged ornaments yet.</td></tr>
                     ) : ornamentPager.items.map((o) => (
                       <tr key={o.loanId + "-" + o.id}>
-                        <td>{canViewLoans ? <a href={routeHref(`loan/${o.loanNumber}`)}>{o.loanNumber}</a> : o.loanNumber}</td>
-                        <td>{o.name}</td>
-                        <td><span className="chip brand">{o.purity}</span></td>
-                        <td className="num">{fmtW(o.netWeight)}</td>
-                        <td className="num">{fmt(o.goldValue)}</td>
+                        <td data-label="Loan">{canViewLoans ? <a href={routeHref(`loan/${o.loanNumber}`)}>{o.loanNumber}</a> : o.loanNumber}</td>
+                        <td data-label="Ornament">{o.name}</td>
+                        <td data-label="Purity"><span className="chip brand">{o.purity}</span></td>
+                        <td data-label="Net (g)" className="num">{fmtW(o.netWeight)}</td>
+                        <td data-label="Gold Value" className="num">{fmt(o.goldValue)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -623,18 +623,18 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               </div>
 
             <div hidden={activeTable !== 2} className={activeTable === 2 ? "tab-slide-up" : undefined}>
-                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
                   <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
                   <tbody>
                     {paymentPager.items.length === 0 ? (
                       <tr><td colSpan={5} className="empty compact">No payments recorded yet.</td></tr>
                     ) : paymentPager.items.map((p) => (
                       <tr key={p.loanId + "-" + p.id}>
-                        <td>{canViewLoans ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
-                        <td className="td-date">{fmtDate(p.paidOn)}</td>
-                        <td>{p.type}</td>
-                        <td className="num">{fmt(p.amount)}</td>
-                        <td>{p.method || "—"}</td>
+                        <td data-label="Loan">{canViewLoans ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
+                        <td data-label="Date" className="td-date">{fmtDate(p.paidOn)}</td>
+                        <td data-label="Type">{p.type}</td>
+                        <td data-label="Amount" className="num">{fmt(p.amount)}</td>
+                        <td data-label="Method">{p.method || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -643,18 +643,18 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               </div>
 
             <div hidden={activeTable !== 3} className={activeTable === 3 ? "tab-slide-up" : undefined}>
-                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
                   <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
                   <tbody>
                     {bankPledgePager.items.length === 0 ? (
                       <tr><td colSpan={5} className="empty compact">No bank pledges yet.</td></tr>
                     ) : bankPledgePager.items.map((p) => (
                       <tr key={p.loanId + "-" + p.id}>
-                        <td>{canViewLoans ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
-                        <td>{p.bankName}</td>
-                        <td className="num">{fmt(p.pledgedAmount)}</td>
-                        <td className="td-date">{fmtDate(p.pledgeDate)}</td>
-                        <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
+                        <td data-label="Loan">{canViewLoans ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
+                        <td data-label="Bank">{p.bankName}</td>
+                        <td data-label="Amount" className="num">{fmt(p.pledgedAmount)}</td>
+                        <td data-label="Pledged On" className="td-date">{fmtDate(p.pledgeDate)}</td>
+                        <td data-label="Status"><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -663,7 +663,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               </div>
 
             <div hidden={activeTable !== 4} className={activeTable === 4 ? "tab-slide-up" : undefined}>
-                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
                   <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
                   <tbody>
                     {!canViewAuctions ? (
@@ -672,11 +672,11 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                       <tr><td colSpan={5} className="empty compact">No auction records yet.</td></tr>
                     ) : auctionPager.items.map((a) => (
                       <tr key={a.id}>
-                        <td>{canViewLoans ? <a href={routeHref(`loan/${a.loanNumber}`)}>{a.loanNumber}</a> : a.loanNumber}</td>
-                        <td><StatusChip status={a.stage} /></td>
-                        <td className="td-date">{fmtDate(a.auctionDate)}</td>
-                        <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
-                        <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
+                        <td data-label="Loan">{canViewLoans ? <a href={routeHref(`loan/${a.loanNumber}`)}>{a.loanNumber}</a> : a.loanNumber}</td>
+                        <td data-label="Stage"><StatusChip status={a.stage} /></td>
+                        <td data-label="Auction Date" className="td-date">{fmtDate(a.auctionDate)}</td>
+                        <td data-label="Sale Amount" className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
+                        <td data-label="Surplus / Shortfall" className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -685,7 +685,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               </div>
 
             <div hidden={activeTable !== 5} className={activeTable === 5 ? "tab-slide-up" : undefined}>
-                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
                   <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
                   <tbody>
                     {transactionPager.items.length === 0 ? (
@@ -703,15 +703,15 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                       // A split payment yields one row per method, all sharing
                       // the movement's id — so the id alone isn't unique.
                       <tr key={`${r.type}-${r.id}-${r.method}-${i}`}>
-                        <td className="td-date">{fmtDate(r.d)}</td>
-                        <td className="ledger-ref" title={r.reference || undefined}>
+                        <td data-label="Date" className="td-date">{fmtDate(r.d)}</td>
+                        <td data-label="Ref No" className="ledger-ref" title={r.reference || undefined}>
                           {loanRef ? <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
                             : invRef ? <LedgerRefLink kind="investment" id={invRef} label={invRef} />
                             : plRef ? <LedgerRefLink kind="personalloan" id={plRef} label={plRef} />
                             : r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || r.reference || "Bank"} />
                             : r.reference || "—"}
                         </td>
-                        <td className="td-particulars">
+                        <td data-label="Particulars" className="td-particulars">
                           {r.description || r.type}
                           {r.bankId ? (
                             <div style={{ marginTop: 4 }}>
@@ -719,14 +719,14 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                             </div>
                           ) : null}
                         </td>
-                        <td>
+                        <td data-label="Method">
                           {!r.method ? "—"
                             : MODE_LEDGER_ROUTE[r.method] ? <a href={routeHref(MODE_LEDGER_ROUTE[r.method])}>{r.method}</a>
                             : r.method}
                         </td>
-                        <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
-                        <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                        <td className="num">{fmt(r.runningBalance)}<LedgerEntryActions entryId={r.entryId} editable={r.editable} onChanged={transactionPager.refresh} /></td>
+                        <td data-label="Debit" className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
+                        <td data-label="Credit" className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
+                        <td data-label="Balance" className="num">{fmt(r.runningBalance)}<LedgerEntryActions entryId={r.entryId} row={r} editable={r.editable} onChanged={transactionPager.refresh} /></td>
                       </tr>
                       );
                     })}

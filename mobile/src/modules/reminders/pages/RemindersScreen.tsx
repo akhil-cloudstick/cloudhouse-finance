@@ -157,7 +157,7 @@ export default function RemindersScreen() {
             ) : (
               <ScrollView
                 nestedScrollEnabled
-                showsVerticalScrollIndicator
+                showsVerticalScrollIndicator={false}
                 scrollEventThrottle={100}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 4, opacity: list.isLoading ? 0.45 : 1 }}
                 onScroll={({ nativeEvent: n }) => {

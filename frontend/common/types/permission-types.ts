@@ -8,7 +8,7 @@ export type PermissionMap = Record<string, Record<string, boolean>>;
  * and whether the role holds it — label is the short name used in messages,
  * e.g. "Scheme module". */
 export type PermissionRef = {
-  permission_id: number;
+  permissionId: number;
   name: string;
   label: string;
   granted: boolean;
@@ -18,8 +18,8 @@ export type PermissionRef = {
  * with it; soft_parents only warn (a picker or panel comes up empty). */
 export type PermissionRow = {
   id: number;
-  role_id: number;
-  permission_id: number;
+  roleId: number;
+  permissionId: number;
   permission: boolean;
   permissions: { id: number; name: string; description: string; moduleName: string; isActive: boolean };
   parents: PermissionRef[];

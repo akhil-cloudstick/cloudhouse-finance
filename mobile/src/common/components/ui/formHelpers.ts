@@ -30,7 +30,7 @@ export const s = StyleSheet.create({
     borderRadius: 11,
     borderWidth: 1,
     borderColor: C.line,
-    fontSize: 13.5,
+    fontSize: 14.5,
     backgroundColor: C.card,
     color: C.ink,
   },

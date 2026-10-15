@@ -10,7 +10,7 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { createScheme, updateScheme } from "@/modules/schemes/services/schemeService";
-import { type SchemeView, type ServiceChargeType, type ServiceChargeMode } from "@/modules/schemes/types/scheme-types";
+import { type SchemeView, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
 import { Select } from "@/common/components/ui/Select";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -78,9 +78,6 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
   const [active, setActive] = useState(s ? s.active : true);
   const [chargeType, setChargeType] = useState<ServiceChargeType>(s?.serviceChargeType || "None");
   const [chargeValue, setChargeValue] = useState(s && s.serviceChargeType !== "None" ? String(s.serviceChargeValue) : "");
-  // Not edited here any more — chosen per loan at creation. Passed through
-  // unchanged so an existing scheme keeps its stored value.
-  const chargeMode: ServiceChargeMode = s?.serviceChargeMode || "WithheldFromPayout";
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
@@ -140,7 +137,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
       : [];
     const input = {
       name: n, rate: r, rateTiers, minimumDays: parseInt(minDays, 10) || 0, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active, branchId: branchId as number,
-      serviceChargeType: chargeType, serviceChargeValue: cv, serviceChargeMode: chargeMode,
+      serviceChargeType: chargeType, serviceChargeValue: cv,
     };
     setSaving(true);
     setErr("");

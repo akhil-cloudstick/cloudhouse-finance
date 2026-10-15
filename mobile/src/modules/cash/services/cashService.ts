@@ -230,7 +230,7 @@ export function rejectExpense(id: number, remarks: string) {
 // Cash summary — branchId/date are real server-side params. Opening cash is
 // carried forward from the previous day's closing Balance in Hand (backend
 // cash.SummaryService.openingFor), so there's no opening balance to set.
-export function getCashSummary(branchId: number, date?: string) {
+export function getCashSummary(branchId?: number, date?: string) {
   return apiRequest<CashSummary>("/cash/summary", { params: { branchId, date } });
 }
 

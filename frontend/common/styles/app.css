@@ -889,7 +889,7 @@ h3,
   right: 0;
   width: 169px;
   box-sizing: border-box;
-  background: var(--bg);
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
@@ -954,10 +954,11 @@ h3,
   right: calc(100% + 10px);
   width: 150px;
   box-sizing: border-box;
-  background: var(--bg);
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
+  z-index: 61;
   padding: 6px;
 }
 
@@ -8734,4 +8735,614 @@ html.has-titlebar body {
 .loan-risk-page .kpis-compact + .filter-wrap,
 .loan-risk-page .loan-risk-bar {
   align-items: flex-end;
+}
+
+/* Page header actions stay on the right at every width. The title block
+ * grows to fill its own line; anything that wraps onto a following line is
+ * pushed to the right edge instead of starting flush left. */
+.page-h {
+  justify-content: flex-end;
+}
+
+.page-h > :first-child:not(.sp):not(.btn):not(.search) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .page-h.page-h-stack > .page-h-actions {
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+}
+
+/* Loans table: fits the card instead of scrolling sideways (its scrollbar is
+ * hidden, so the Status column used to be clipped). Cells and headers wrap and
+ * tighten as the window narrows; the wrap's max-height is untouched. */
+table.tbl.loans-tbl {
+  min-width: 0;
+  table-layout: auto;
+}
+
+.loans-tbl th {
+  white-space: normal;
+}
+
+.loans-tbl td {
+  overflow-wrap: anywhere;
+}
+
+.loans-tbl td:last-child,
+.loans-tbl td:last-child .chip {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+@media (max-width: 1400px) {
+  .loans-tbl th,
+  .loans-tbl td {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .loans-tbl th {
+    letter-spacing: .08em;
+  }
+}
+
+@media (max-width: 900px) {
+  .loans-tbl {
+    font-size: 12.5px;
+  }
+
+  .loans-tbl th,
+  .loans-tbl td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .loans-tbl th:first-child,
+  .loans-tbl td:first-child {
+    padding-left: 10px;
+  }
+
+  .loans-tbl th:last-child,
+  .loans-tbl td:last-child {
+    padding-right: 10px;
+  }
+}
+
+/* Lockers table (Packets & Lockers page): fits its narrow column. */
+table.tbl.lockers-tbl {
+  min-width: 0;
+}
+
+/* ── Narrow windows: opt-in `.tbl-cards` tables become a 2-column grid of
+ * cards (one per row), using each cell's data-label. The page scrolls
+ * instead of the table, so the pagination footer is always reachable. ── */
+.tbl-cards-more { display: none; }
+
+@media (max-width: 1100px) {
+  table.tbl.tbl-cards {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  table.tbl.tbl-cards thead { display: none; }
+
+  table.tbl.tbl-cards tbody {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px;
+  }
+
+  table.tbl.tbl-cards tr {
+    display: block;
+    min-width: 0;
+    padding: 6px 14px;
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .5);
+  }
+
+  table.tbl.tbl-cards td,
+  table.tbl.tbl-cards td.num,
+  table.tbl.tbl-cards td.td-date {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    padding: 7px 0;
+    text-align: right;
+    background: none;
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  table.tbl.tbl-cards td:last-child { border-bottom: 0; }
+
+  table.tbl.tbl-cards td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+  }
+
+  /* First cell is the card's title (ID + name), not a label/value pair. */
+  table.tbl.tbl-cards td:first-child {
+    display: block;
+    text-align: left;
+  }
+  table.tbl.tbl-cards td:first-child::before { display: none; }
+
+  table.tbl.tbl-cards td.td-chev { display: none; }
+
+  table.tbl.tbl-cards td.td-date .sub { display: inline; margin-left: 6px; }
+
+  /* Loading / empty rows span the whole grid and are plain text. */
+  table.tbl.tbl-cards tr:has(> td.empty) {
+    grid-column: 1 / -1;
+    border: 0;
+    background: none;
+  }
+  table.tbl.tbl-cards td.empty {
+    display: block;
+    text-align: center;
+  }
+  table.tbl.tbl-cards td.empty::before { display: none; }
+
+  /* The card grows with its rows and the page scrolls. */
+  .tbl-card:has(> .tbl-wrap > table.tbl-cards),
+  .page > .tbl-card-fill:has(> .tbl-wrap > table.tbl-cards) {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .page .tbl-card .tbl-wrap:has(> table.tbl-cards),
+  .page .tbl-card-fill .tbl-wrap:has(> table.tbl-cards) {
+    flex: 0 0 auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .tbl-cards-more { display: inline-flex; }
+
+  /* Loan Risk's page wrapper is a fixed-height fill box; let the page scroll. */
+  .page:has(> .page-fill.loan-risk-page) { overflow-y: auto; }
+  .page-fill.loan-risk-page { flex: 0 0 auto; }
+}
+
+@media (max-width: 560px) {
+  table.tbl.tbl-cards tbody { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Packets & Lockers: once the two cards stack (<=1060px) each takes its own
+ * natural height (table still capped by .tbl-wrap's max-height) instead of
+ * sharing one squeezed 1fr row, which made them overlap. */
+@media (max-width: 1060px) {
+  .grid.packets-grid {
+    grid-template-rows: none;
+    grid-auto-rows: auto;
+    align-items: start;
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .grid.packets-grid > .tbl-card {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .grid.packets-grid .tbl-wrap {
+    flex: 0 0 auto;
+    max-height: max(calc(100vh - 350px), 320px);
+  }
+}
+
+/* Loan Valuation sidebar: the Amount input shrinks with its row instead of
+ * overflowing the card. */
+.newloan-sidebar .bd .inp {
+  min-width: 0;
+  max-width: 100%;
+  width: auto;
+  flex: 1 1 90px;
+}
+.newloan-sidebar .bd > div {
+  min-width: 0;
+}
+
+/* Loan Risk: the filter stays on the right even when it wraps below the tiles. */
+.loan-risk-page .loan-risk-bar {
+  justify-content: flex-end !important;
+}
+.loan-risk-page .loan-risk-bar > .kpis {
+  margin-right: auto;
+}
+
+/* ── Loan Schemes: cards reflow to however many 260px columns fit (the
+ * small-screen inline "4 columns" no longer forces cramped cards). ── */
+@media (max-width: 1560px) {
+  .schemes-grid {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
+  }
+  .schemes-grid > .card {
+    min-width: 0;
+  }
+}
+@media (max-width: 640px) {
+  .schemes-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* ── Loan detail: the three top cards go 2-up, then 1-up, as the window
+ * narrows (they used to stay 3-up at every width). ── */
+@media (max-width: 1200px) {
+  .grid.loan-detail-c3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .grid.loan-detail-c3 > :nth-child(3):last-child {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 700px) {
+  .grid.loan-detail-c3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Customer detail (Customer 360) on narrow windows: stop fixing the page
+ * to the viewport height. The profile card and the table card stack at their
+ * natural height, the page scrolls, and the tab rail runs horizontally above
+ * the table (the table itself still scrolls inside its max height). ── */
+@media (max-width: 1060px) {
+  .page:has(> .page-fill) { overflow-y: auto; }
+  .page-fill { flex: 0 0 auto; }
+
+  .grid.cols12.cust-360 {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .grid.cols12.cust-360 > .grid {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .grid.cols12.cust-360 > .grid > .card {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .grid.cols12.cust-360 > .grid > .card > .bd {
+    flex: 0 0 auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .grid.cols12.cust-360 > .cust-360-tabrow {
+    flex-direction: column;
+    height: auto !important;
+    gap: 10px !important;
+  }
+  .cust-360 .tab-rail {
+    flex-direction: row;
+    width: auto;
+    height: 44px;
+    padding: 0 6px;
+  }
+  .cust-360 .tab-rail-line {
+    left: 18px;
+    right: 18px;
+    top: 50%;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    transform: translateY(-50%);
+  }
+
+  .cust-360 .tbl-card-fill,
+  .cust-360 .tbl-card-fill > .tab-slide-up {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .cust-360 .tbl-card-fill .tbl-wrap {
+    flex: 0 0 auto;
+    max-height: max(60vh, 320px);
+  }
+}
+
+/* ── Card-mode refinements ── */
+@media (max-width: 1100px) {
+  /* Cells without a label (action buttons) just sit at the card's right. */
+  table.tbl.tbl-cards td:not([data-label])::before { display: none; }
+  table.tbl.tbl-cards td.col-act,
+  table.tbl.tbl-cards td:not([data-label]):not(:first-child) {
+    justify-content: flex-end;
+  }
+
+  /* Page-specific column padding (e.g. the Employees table) must not leak in. */
+  table.tbl.tbl-cards tr > td {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  table.tbl.tbl-cards td.col-act {
+    position: static;
+    background: none;
+  }
+
+  /* Auction history tables carry an inline max-height; cards grow instead. */
+  .tbl-wrap.auction-history-tbl-wrap:has(> table.tbl-cards) {
+    max-height: none !important;
+    overflow: visible;
+  }
+  .tbl-card:has(> .tbl-wrap.auction-history-tbl-wrap > table.tbl-cards) {
+    flex: 0 0 auto;
+  }
+}
+
+/* ── Ledger KPI tiles: share the row evenly instead of leaving dead space
+ * beside fixed-width tiles; an odd last tile spans the full row. ── */
+@media (max-width: 1279px) {
+  .kpis.kpis-money {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none !important;
+  }
+  .kpis-money .kpi {
+    width: auto;
+    min-width: 0;
+  }
+  .kpis-money .kpi:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 420px) {
+  .kpis.kpis-money { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── New Gold Loan: the form and the Valuation sidebar stack below 1100px
+ * (an inline column template used to keep them side by side at any width),
+ * and the Amount input shrinks with its row. ── */
+@media (max-width: 1100px) {
+  .grid.cols21.newloan-orn-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: none;
+    flex: 0 0 auto;
+  }
+}
+.newloan-sidebar .bd .inp {
+  flex: 1 1 80px !important;
+  width: auto !important;
+}
+
+/* ── Repledge modal on narrow windows: the 6 compact fields reflow to however
+ * many fit (the inline 3 x 180px minimum overflowed the modal), and the
+ * ornament table tightens so the Value column is never cut off. ── */
+.modal .repledge-modal-bd .frow.rp-compact {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+}
+.repledge-modal-bd .rp-tbl {
+  overflow-x: auto;
+}
+@media (max-width: 700px) {
+  .repledge-modal-bd .rp-tbl table.tbl th,
+  .repledge-modal-bd .rp-tbl table.tbl td {
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 12.5px;
+  }
+  .repledge-modal-bd .rp-tbl table.tbl th {
+    letter-spacing: .06em;
+    white-space: normal;
+  }
+  .repledge-modal-bd .rp-tbl .rp-idx {
+    width: 24px;
+  }
+}
+
+/* ── Stacked / card tables: no frosted table background behind the cards
+ * (the rows are the cards; the card around them already frames the table). ── */
+@media (max-width: 1279px) {
+  .tbl-wrap:has(> .tbl-stack) {
+    background: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 0;
+  }
+  .tbl-stack td {
+    background: none;
+  }
+}
+@media (max-width: 1100px) {
+  .tbl-wrap:has(> table.tbl-cards) {
+    background: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 0;
+  }
+}
+
+/* ── Card mode: scroll-to-load replaces Prev/Next (desktop paging unchanged). ── */
+.scroll-sentinel { height: 1px; }
+@media (max-width: 1100px) {
+  .ft.ft-scroll-hide { display: none; }
+}
+@media (min-width: 1101px) {
+  .scroll-sentinel { display: none; }
+}
+
+/* ── Ledger tables (stacked cards, <=1279px): two cards per row like the
+ * Customers cards instead of one long column; one per row on phones. ── */
+@media (max-width: 1279px) {
+  table.tbl.tbl-stack tbody {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 10px;
+  }
+  .tbl-stack tr {
+    margin-bottom: 0;
+    width: auto;
+    min-width: 0;
+  }
+  .tbl-stack tr:has(> td.empty) { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  table.tbl.tbl-stack tbody { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Ledger KPI tiles: as many 200px+ columns as fit, each stretched to fill. ── */
+@media (max-width: 1279px) {
+  .kpis.kpis-money {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+  .kpis-money .kpi:last-child:nth-child(odd) { grid-column: auto; }
+}
+@media (max-width: 420px) {
+  .kpis.kpis-money { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── Loan Risk tiles: a fluid grid (2 across on a phone, more as it widens). ── */
+@media (max-width: 1100px) {
+  .loan-risk-page .loan-risk-bar > .kpis,
+  .loan-risk-page .kpis.kpis-compact {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .loan-risk-page .kpis-compact .kpi {
+    width: auto;
+    min-width: 0;
+  }
+}
+
+/* ── Roles & Permissions: search + buttons wrap instead of overlapping. ── */
+.role-ctl { flex-wrap: wrap; }
+.role-ctl > div:first-child {
+  flex: 1 1 200px !important;
+  min-width: 160px !important;
+}
+
+/* ── Customer detail tables as cards: the page stacks and scrolls at <=1100px
+ * (it used to switch at 1060px), so the 2-column cards have room. ── */
+@media (max-width: 1100px) {
+  .page:has(> .page-fill) { overflow-y: auto; }
+  .page-fill { flex: 0 0 auto; }
+
+  .grid.cols12.cust-360 {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .grid.cols12.cust-360 > .grid,
+  .grid.cols12.cust-360 > .grid > .card {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .grid.cols12.cust-360 > .grid > .card > .bd {
+    flex: 0 0 auto;
+    max-height: none;
+    overflow: visible;
+  }
+  .grid.cols12.cust-360 > .cust-360-tabrow {
+    flex-direction: column;
+    height: auto !important;
+    gap: 10px !important;
+  }
+  .cust-360 .tab-rail {
+    flex-direction: row;
+    width: auto;
+    height: 44px;
+    padding: 0 6px;
+  }
+  .cust-360 .tab-rail-line {
+    left: 18px;
+    right: 18px;
+    top: 50%;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    transform: translateY(-50%);
+  }
+  .cust-360 .tbl-card-fill,
+  .cust-360 .tbl-card-fill > .tab-slide-up {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+  .cust-360 .tbl-card-fill .tbl-wrap:has(> table.tbl-cards) {
+    flex: 0 0 auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .cust-360 table.tbl.tbl-cards td.ledger-ref,
+  .cust-360 table.tbl.tbl-cards td.td-particulars {
+    max-width: none;
+  }
+  .cust-360 table.tbl.tbl-cards td.td-particulars > div { margin-top: 0; }
+}
+
+/* Personal loan / investment detail tables as cards (<=1100px). */
+@media (max-width: 1100px) {
+  .pl-tbl-wrap-fixed table.tbl.tbl-cards td { height: auto; }
+  .pl-detail-grid,
+  .inv-detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .pl-detail-grid .tbl-wrap:has(> table.tbl-cards),
+  .inv-detail-grid .tbl-wrap:has(> table.tbl-cards),
+  .card .tbl-wrap:has(> table.tbl-cards) {
+    max-height: none;
+    overflow: visible;
+  }
+  .card:has(> .tbl-wrap > table.tbl-cards) { flex: 0 0 auto; min-height: auto; }
+  .pl-history-detail { max-width: none; white-space: normal; }
+}
+
+/* Tab rows in the page's flex column must not be squeezed (the Packets /
+ * Lockers tabs were clipped at the top when the page content overflowed). */
+.page > .tabs {
+  flex-shrink: 0;
+  min-height: max-content;
+  overflow: visible;
+}
+
+/* ── Top bar adapts to the window width: the gold-rate chip can shrink (it was
+ * fixed-width and pushed the account avatar off-screen), switches to the
+ * compact 24K-only form on narrow windows, and the account chip never shrinks. ── */
+.top { min-width: 0; }
+.top .acct { flex-shrink: 0; }
+.top .rate-chip {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.top .rate-chip .rate-full,
+.top .rate-chip .rate-compact {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 760px) {
+  .top .rate-chip .rate-full { display: none; }
+  .top .rate-chip .rate-compact { display: inline; }
+  .top .rate-chip { padding: 5px 10px; gap: 6px; font-size: 11.5px; }
+}
+@media (max-width: 420px) {
+  .top { padding: 10px; gap: 6px; }
+  .top .rate-chip { padding: 4px 8px; font-size: 11px; }
+}
+
+/* The Valuation sidebar's Amount-input rule above must not shrink the
+ * Additional Information box: it fills the card width at every size. */
+.newloan-sidebar .bd textarea.inp {
+  display: block;
+  box-sizing: border-box;
+  flex: none !important;
+  width: 100% !important;
+  max-width: 100%;
+  min-height: 84px;
 }

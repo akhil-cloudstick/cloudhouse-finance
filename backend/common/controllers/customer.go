@@ -92,6 +92,16 @@ type CustomerCreateInput struct {
 
 type CustomerUpdateInput = CustomerCreateInput
 
+func splitStringCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 func parseUintCSV(s string) []uint {
 	if s == "" {
 		return nil
@@ -179,11 +189,12 @@ func findCustomers(ctx context.Context, f CustomerFilter) ([]commonModels.Custom
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("branch_id IN ?", f.BranchIDs)
 	}
-	if f.PANStatus != "" {
-		q = q.Where("pan_status = ?", f.PANStatus)
+	// pan_status / aadhaar_status accept a single value or a comma-separated list.
+	if vals := splitStringCSV(f.PANStatus); len(vals) > 0 {
+		q = q.Where("pan_status IN ?", vals)
 	}
-	if f.AadhaarStatus != "" {
-		q = q.Where("aadhaar_status = ?", f.AadhaarStatus)
+	if vals := splitStringCSV(f.AadhaarStatus); len(vals) > 0 {
+		q = q.Where("aadhaar_status IN ?", vals)
 	}
 	if f.CustomerType != "" {
 		q = q.Where("customer_type = ?", f.CustomerType)

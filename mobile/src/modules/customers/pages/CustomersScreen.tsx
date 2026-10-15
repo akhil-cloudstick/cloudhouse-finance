@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AccRow, CountLine, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfFirst, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { dmy } from "@/common/utils/format";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
@@ -10,7 +11,7 @@ import { listCustomersPage } from "@/modules/customers/services/customerService"
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 
-// Same PAN / Aadhaar verification filters as web's Customers page (single-select each).
+// Same PAN / Aadhaar verification filters as web's Customers page (multi-select each).
 const VERIFICATION_OPTIONS = [
   { value: "Verified", label: "Verified" },
   { value: "Pending", label: "Pending" },
@@ -18,8 +19,8 @@ const VERIFICATION_OPTIONS = [
   { value: "Name Mismatch", label: "Name Mismatch" },
 ];
 const FILTER_SECTIONS: GFSection[] = [
-  { kind: "static", key: "pan", label: "PAN Verified", single: true, options: VERIFICATION_OPTIONS },
-  { kind: "static", key: "aadhaar", label: "Aadhaar Verified", single: true, options: VERIFICATION_OPTIONS },
+  { kind: "static", key: "pan", label: "PAN Verified", options: VERIFICATION_OPTIONS },
+  { kind: "static", key: "aadhaar", label: "Aadhaar Verified", options: VERIFICATION_OPTIONS },
 ];
 
 // Customers list — prototype #header-customers + #page-customers.
@@ -33,7 +34,7 @@ export default function CustomersScreen() {
   const canCreate = useAuth().can("Customer_Management", "can_create_customer");
 
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("customers:filters", emptyGroupedFilter());
-  const filters = { panStatus: gfFirst(fv, "pan"), aadhaarStatus: gfFirst(fv, "aadhaar") };
+  const filters = { panStatus: gfValues(fv, "pan").join(",") || undefined, aadhaarStatus: gfValues(fv, "aadhaar").join(",") || undefined };
   const list = useServerList<Customer, { panStatus?: string; aadhaarStatus?: string }>({ key: ["customers", "list"], persistKey: "customers", fetchPage: (p) => listCustomersPage(p), filters });
 
   useEffect(() => {
@@ -63,13 +64,13 @@ export default function CustomersScreen() {
         emptyText={list.search ? "No customers match your search." : "No customers yet."}
         header={
           <>
-            {total != null ? <CountLine>{`${total} customer${total === 1 ? "" : "s"}`}</CountLine> : null}
-            <GroupedFilter title="Filter customers" sections={FILTER_SECTIONS} value={fv} onChange={setFv} style={{ marginHorizontal: 18, marginTop: 12, alignSelf: "flex-start" }} />
+            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
+              <GroupedFilter title="Filter customers" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+            </View>
             <SearchInput
               value={list.search}
               onChangeText={list.setSearch}
               placeholder="Search this list by customer name, ID, or phone"
-              style={total != null ? undefined : { paddingTop: 12 }}
             />
           </>
         }

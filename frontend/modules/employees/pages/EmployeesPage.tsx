@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -10,7 +11,7 @@ import { EmployeeModalContent } from "@/modules/employees/components/EmployeeMod
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { deleteEmployee, listEmployeesPage } from "@/modules/employees/services/employeeService";
 import { type EmployeeView } from "@/modules/employees/types/employee-types";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 import { routeHref } from "@/common/services/appRoutes";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 
@@ -21,7 +22,8 @@ export function EmployeesPage() {
   const toast = useToast();
   const { can } = useAuth();
   const showBranch = useShowBranch();
-  const pageSize = useResponsivePageSize(15, 15);
+  const basePageSize = useResponsivePageSize(15, 15);
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   const canViewRoles = can("Role_Management", "can_view_role_and_permission_module");
   const canCreateEmployees = can("Employee_Management", "can_create_employee");
   const canUpdateEmployees = can("Employee_Management", "can_update_employee");
@@ -94,14 +96,14 @@ export function EmployeesPage() {
       {employees !== null && employees.length > 0 && (
         <div className="card tbl-card tbl-card-fill tbl-rounded">
           <div className="tbl-wrap">
-            <table className="tbl tbl-center col1-left tbl-tight emp-tbl">
+            <table className="tbl tbl-center col1-left tbl-tight emp-tbl tbl-cards">
               <thead>
                 <tr><th>Employee</th><th>Role</th>{showBranch && <th>Branch</th>}<th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th>Action</th></tr>
               </thead>
               <tbody>
                 {employees.map((e) => (
                   <tr key={e.id}>
-                    <td>
+                    <td data-label="Employee">
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
                         {/* flexShrink:0 — the parent span is display:inline-flex,
                           * and a flex item's default flex-shrink:1 applies even
@@ -113,13 +115,13 @@ export function EmployeesPage() {
                         <span><b>{e.name}</b><span className="sub">{e.code}</span></span>
                       </span>
                     </td>
-                    <td><span className={`chip ${e.role === "Administrator" ? "brand" : e.role === "Branch Manager" ? "info" : "gray"}`}>{e.role}</span></td>
-                    {showBranch && <td>{e.branchName}</td>}
-                    <td className="num">{e.loansProcessed || "—"}</td>
-                    <td className="num">{fmt(e.collections)}</td>
-                    <td className="num">{e.followups}</td>
-                    <td className="num">{e.pending}</td>
-                    <td>
+                    <td data-label="Role"><span className={`chip ${e.role === "Administrator" ? "brand" : e.role === "Branch Manager" ? "info" : "gray"}`}>{e.role}</span></td>
+                    {showBranch && <td data-label="Branch">{e.branchName}</td>}
+                    <td className="num" data-label="Loans Processed">{e.loansProcessed || "—"}</td>
+                    <td className="num" data-label="Collections">{fmt(e.collections)}</td>
+                    <td className="num" data-label="Follow-ups">{e.followups}</td>
+                    <td className="num" data-label="Pending">{e.pending}</td>
+                    <td data-label="Action">
                       {(canUpdateEmployees || canDeleteEmployees) && (
                         <div className="emp-actions" style={{ display: "flex", alignItems: "center", justifyContent: "center", whiteSpace: "nowrap" }}>
                           {canUpdateEmployees && (
@@ -136,7 +138,8 @@ export function EmployeesPage() {
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ScrollSentinel enabled={cards && (page < totalPages)} onVisible={more} watch={employees.length} />
+          <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>

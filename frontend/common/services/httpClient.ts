@@ -145,10 +145,25 @@ function handleUnauthorized(path: string) {
   }
 }
 
+/* A 403 must be visible, not just thrown. The bootstrap permissions call is
+ * excluded: it has its own retry state, and reacting to it would loop. */
+export const FORBIDDEN_EVENT = "app:forbidden";
+
+function handleForbidden(path: string) {
+  if (typeof window === "undefined") return;
+  if (path.includes("/permissions/by-employee")) return;
+  window.dispatchEvent(new CustomEvent(FORBIDDEN_EVENT));
+}
+
+function handleAuthFailure(status: number, path: string) {
+  if (status === 401) handleUnauthorized(path);
+  else if (status === 403) handleForbidden(path);
+}
+
 export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await contractFetch(path, { ...opts, headers: jsonHeaders(opts) });
   if (!res.ok) {
-    if (res.status === 401) handleUnauthorized(path);
+    handleAuthFailure(res.status, path);
     let message = res.statusText;
     try {
       const body = await res.json();
@@ -178,7 +193,7 @@ export async function apiFetchEnveloped<T>(path: string, opts?: RequestInit): Pr
     /* non-JSON body — handled below via res.ok/res.statusText */
   }
   if (!res.ok || body?.success === false) {
-    if (res.status === 401) handleUnauthorized(path);
+    handleAuthFailure(res.status, path);
     throw new ApiError(body?.error || res.statusText, res.status);
   }
   // Most success responses carry the resource under `data`; a
@@ -205,7 +220,7 @@ export async function apiFetchEnvelope<T extends { success: boolean; error?: str
     /* non-JSON body — handled below via res.ok/res.statusText */
   }
   if (!res.ok || body?.success === false) {
-    if (res.status === 401) handleUnauthorized(path);
+    handleAuthFailure(res.status, path);
     throw new ApiError(body?.error || res.statusText, res.status);
   }
   return body as T;
@@ -222,7 +237,7 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
     body: formData,
   });
   if (!res.ok) {
-    if (res.status === 401) handleUnauthorized(path);
+    handleAuthFailure(res.status, path);
     let message = res.statusText;
     try {
       const body = await res.json();
@@ -250,7 +265,7 @@ export async function apiUploadEnveloped<T>(path: string, formData: FormData): P
     /* non-JSON body — handled below via res.ok/res.statusText */
   }
   if (!res.ok || body?.success === false) {
-    if (res.status === 401) handleUnauthorized(path);
+    handleAuthFailure(res.status, path);
     throw new ApiError(body?.error || res.statusText, res.status);
   }
   return body?.data as T;

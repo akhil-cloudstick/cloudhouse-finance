@@ -293,6 +293,7 @@ const REPORTS: ReportDef[] = [
     key: "personal-loans",
     title: "Personal Loans",
     group: "Branch & Compliance",
+    tenantModule: TENANT_MODULES.personalLoans,
     kind: "table",
     fetch: getPersonalLoans,
     headline: (t) => inr(t?.totalOutstanding),
@@ -350,6 +351,7 @@ const REPORTS: ReportDef[] = [
     key: "investments-deposit-register",
     title: "Investment Deposit Register",
     group: "Investments",
+    tenantModule: TENANT_MODULES.investments,
     kind: "table",
     fetch: getDepositRegister,
     headline: (t) => inr(t?.totalPrincipal),
@@ -367,6 +369,7 @@ const REPORTS: ReportDef[] = [
     key: "investments-interest-payout-register",
     title: "Interest Payout Register",
     group: "Investments",
+    tenantModule: TENANT_MODULES.investments,
     kind: "table",
     fetch: getInterestPayoutRegister,
     headline: (t) => `${inr(t?.totalPending)} pending`,
@@ -377,6 +380,7 @@ const REPORTS: ReportDef[] = [
     key: "investments-maturity-register",
     title: "Investment Maturity Register",
     group: "Investments",
+    tenantModule: TENANT_MODULES.investments,
     kind: "table",
     fetch: getMaturityRegister,
     headline: (t) => `${t?.count ?? 0} investments`,
@@ -572,7 +576,7 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
       <View style={{ paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <GroupedFilter title="Filter report" sections={sections} value={fv} onChange={setFv} />
         <View style={{ flex: 1 }} />
-        <PillButton label={exporting ? "Exporting…" : "Export Excel"} onPress={() => { if (!exporting) onExport(); }} />
+        <PillButton label={exporting ? "Downloading…" : "Download"} onPress={() => { if (!exporting) onExport(); }} />
         <PillButton label={printing ? "Printing…" : "Export PDF"} onPress={() => { if (!printing) onPrint(); }} />
       </View>
     </View>

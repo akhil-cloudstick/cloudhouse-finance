@@ -271,6 +271,7 @@ type bondTemplateData struct {
 	Items              []tmlBondItem
 	GrossTotal         string
 	NetTotal           string
+	ReceiptAmount      string // principal to 2 decimals, for the gold loan receipt
 	TotalQty           int
 	PacketQR           template.URL
 	PrintClock         string
@@ -549,6 +550,7 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	}
 	td.GrossTotal = fmt.Sprintf("%.2f", gross)
 	td.NetTotal = fmt.Sprintf("%.2f", net)
+	td.ReceiptAmount = fmt.Sprintf("%.2f", data.PrincipalAmount)
 	for _, d := range data.Disbursements {
 		td.Distribution = append(td.Distribution, bondDistRow{
 			Date:    d.Date.Format("02/01/2006"),

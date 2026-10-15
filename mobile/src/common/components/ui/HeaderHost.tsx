@@ -1,11 +1,14 @@
 import React, { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, View } from "react-native";
 import { HeroHeader } from "./HeroHeader";
-import { headerStore, HeroMorph, s, HeroMorphContext } from "./shellContext";
+import { headerStore, HeroMorph, s, HeroMorphContext, setTallHeaderCheck } from "./shellContext";
+
+setTallHeaderCheck((node) => React.isValidElement(node) && node.type === HeroHeader);
 
 // Material "standard" curve: eases in and out, so the header neither jumps
-// off at the start nor stops dead at the end.
-const HEADER_MS = 380;
+// off at the start nor stops dead at the end. Close to the page slide (220ms)
+// so the header and the page finish together.
+const HEADER_MS = 280;
 const HEADER_EASE = Easing.bezier(0.4, 0, 0.2, 1);
 type HeroClipProps = {
   morph: HeroMorph;
@@ -96,6 +99,9 @@ export function HeaderHost() {
     if (h <= 0) return;
     const kind = tall ? "tall" : "short";
     if (heights[kind] !== h) setHeights((prev) => ({ ...prev, [kind]: h }));
+    // The collapse starts toward a plain placeholder header; the page's real header (subtitle,
+    // back button) can be a different height once it lands — re-aim the edge mid-collapse.
+    if (running?.dir === "collapse" && started.current === running && heights.tall) morph.lift.setValue(Math.max(0, heights.tall - h));
     // Starts once the incoming header has a height to aim for.
     if (!running || started.current === running) return;
     started.current = running;

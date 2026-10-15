@@ -6,6 +6,7 @@
 // backend's per-language templates (see printServerPdf below).
 import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
+import { toQR } from "toqr";
 import { dmy, fmt, todayISO } from "@/common/utils/format";
 import { rupeesInWords } from "@/common/utils/numberToWords";
 import { Loan, LoanTopUp } from "@/modules/loans/types/loan-types";
@@ -135,12 +136,13 @@ function pledgeSlipBody(l: Loan, topUps: LoanTopUp[]): string {
   );
 }
 
-/** Packet label and pledge slip on ONE A4 page: the label at its real size in
- * a dashed cut-out box at the top, the full slip below — a single print job. */
+/** Pledge slip and packet label on ONE A4 page, same arrangement as the web's
+ * printSlipAndLabel: the slip first, then a dashed rule and the label at its
+ * real size centred below it, with a caption — a single print job. */
 export async function printLabelAndSlipOnePage(l: Loan) {
   const C = printColors();
   const [label, topUps] = await Promise.all([
-    packetLabelParts(l),
+    withPrintProgress(() => packetLabelParts(l)),
     listTopUps(l.id).catch(() => [] as LoanTopUp[]),
   ]);
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Label &amp; Slip — ${l.loanNumber}</title><style>
@@ -148,11 +150,12 @@ export async function printLabelAndSlipOnePage(l: Loan) {
     ${docStyle()}
     body{margin:0 auto}
     ${label.css}
-    .cutout{display:flex;align-items:center;gap:4mm;margin-bottom:8mm}
-    .cutout .hint{font-size:11px;color:${C.muted}}
   </style></head><body>
-    <div class="cutout">${label.html}<div class="hint">✂ Cut along the dashed line and attach to the packet</div></div>
     ${pledgeSlipBody(l, topUps)}
+    <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
+      <div style="display:inline-block">${label.html}</div>
+      <p class="muted" style="margin-top:12px;color:${C.muted}">Packet label — scanning the QR opens ${label.url}</p>
+    </div>
   </body></html>`;
   await Print.printAsync({ html });
 }
@@ -277,27 +280,23 @@ export function printPartialReleaseReceiptPdf(requestId: number, lang: DocLang =
   return printServerPdf(`/loans/requests/${requestId}/partial-release-receipt/pdf?lang=${lang}`, `partial-release-receipt-${lang}-${requestId}.pdf`);
 }
 
-// Fetches a QR PNG from the backend's internal/qr package (no QR-generation
-// library on the mobile side — see the "continue" conversation this was
-// built from) and returns it as a data: URI ready to drop straight into an
-// <img src>. Downloads to a temp cache file rather than reading the fetch
-// response as an ArrayBuffer/base64 in JS — same pattern reports.tsx's xlsx
-// export already uses, and it sidesteps React Native's unreliable binary
-// string handling for a raw PNG response.
-async function fetchQrDataUri(data: string, size = 256): Promise<string> {
-  const token = await getToken();
-  const targetUri = `${FileSystem.cacheDirectory}qr_${Date.now()}.png`;
-  const result = await FileSystem.downloadAsync(
-    apiUrl(`/qr?data=${encodeURIComponent(data)}&size=${size}`),
-    targetUri,
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-  );
-  if (result.status < 200 || result.status >= 300) {
-    throw new Error(`Could not generate QR code (${result.status})`);
+// Builds the QR on the device (the API has no QR endpoint) as an SVG data:
+// URI ready to drop straight into an <img src>. toQR returns a flat n×n
+// matrix of 0/1 modules; one rect-free path draws every dark module and a
+// 4-module quiet zone surrounds it so scanners can find the code.
+function qrDataUri(data: string): string {
+  const m = toQR(data);
+  const n = Math.round(Math.sqrt(m.length));
+  const quiet = 4;
+  let path = "";
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      if (m[y * n + x]) path += `M${x + quiet} ${y + quiet}h1v1h-1z`;
+    }
   }
-  const base64 = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
-  FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
-  return `data:image/png;base64,${base64}`;
+  const size = n + quiet * 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
 // Ported from frontend/modules/loans/pages/NewLoanPage.tsx's
@@ -312,26 +311,28 @@ async function fetchQrDataUri(data: string, size = 256): Promise<string> {
 // QR would open (API_ORIGIN — the Go binary serves both the API and the
 // built frontend from one origin, see backend/internal/platform/config.go).
 export async function printPacketLabel(l: Loan) {
-  const label = await packetLabelParts(l);
+  const label = await withPrintProgress(() => packetLabelParts(l));
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.loanNumber}</title><style>
-    @page{size:81mm 12mm;margin:0}
+    @page{size:50mm 30mm;margin:0}
     body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
     ${label.css}
   </style></head><body>
     ${label.html}
   </body></html>`;
-  await Print.printAsync({ html });
+  // 50mm × 30mm in points (iOS reads width/height; Android reads @page).
+  await Print.printAsync({ html, width: 142, height: 85 });
 }
 
 // The label's CSS and markup, shared by the label-stock print and the
 // one-page Label & Slip print.
-async function packetLabelParts(l: Loan): Promise<{ css: string; html: string }> {
+async function packetLabelParts(l: Loan): Promise<{ css: string; html: string; url: string }> {
   const C = printColors();
-  const packets = await listPackets({ loanId: l.id }).catch(() => []);
+  // Not swallowed: a failed lookup would print a label with the wrong code.
+  const packets = await listPackets({ loanId: l.id });
   const packet = packets[0];
   const packetLabel = packet?.code || `PKT-${l.id}`;
   const url = packet ? `${API_ORIGIN}/app#packet/${packet.code}` : `${API_ORIGIN}/app#loan/${l.loanNumber}`;
-  const qr = await fetchQrDataUri(url, 256);
+  const qr = qrDataUri(url);
   const css = `
     .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
       border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;flex:none}
@@ -350,7 +351,6 @@ async function packetLabelParts(l: Loan): Promise<{ css: string; html: string }>
         <div>${l.customer?.code || l.customer?.id || "—"} · ${l.customer?.phone || ""}</div>
         <div>${dmy(todayISO())} · ${(l.totalNetWeight ?? 0).toFixed(1)} g · ${(l.ornaments ?? []).length} item(s)</div>
       </div>
-      <div class="strap"></div>
     </div>`;
-  return { css, html };
+  return { css, html, url };
 }

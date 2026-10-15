@@ -6,18 +6,20 @@ import { Icon } from "@/common/components/Icon";
 import { fmtW } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LockerModalContent } from "@/modules/packets/components/LockerModalContent";
+import { LockerDetailModalContent } from "@/modules/packets/components/LockerDetailModalContent";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { useShowBranch, useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { listLockers } from "@/modules/lockers/services/lockerService";
 import { type LockerView } from "@/modules/lockers/types/locker-types";
-import { listPackets, listPacketsPage, getPacketByCode } from "@/modules/packets/services/packetService";
+import { listPacketsPage, getPacketByCode } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { navigate, routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
@@ -33,53 +35,6 @@ const PACKET_STATUS_OPTIONS = [
   { value: "Returned", label: "Returned" },
 ];
 
-type LockerCardProps = { l: LockerView; canUpdate: boolean; onChanged: () => void };
-
-function LockerCard({ l, canUpdate, onChanged }: LockerCardProps) {
-  const { openModal } = useModal();
-  const showBranch = useShowBranch();
-  // Loaded per locker (GET /packets?lockerId=) rather than filtered out of the
-  // table's current page — the table is paginated, so that only ever showed
-  // the packets that happened to be on the page being viewed. `l.occupied`
-  // changes on check-in/out, which re-runs this.
-  const [inLocker, setInLocker] = useState<PacketView[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    listPackets({ lockerId: l.id })
-      .then((ps) => { if (!cancelled) setInLocker(ps); })
-      .catch(() => { if (!cancelled) setInLocker([]); });
-    return () => { cancelled = true; };
-  }, [l.id, l.occupied]);
-
-  return (
-    <div className="card gtop">
-      <div className="hd"><h3>{l.code}</h3><div className="sp" />
-        <span className={`chip ${l.isActive ? "green" : "gray"}`}>{l.isActive ? "Active" : "Inactive"}</span>
-        {canUpdate && <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => openModal(<LockerModalContent key={l.id} locker={l} onSaved={onChanged} />)}>Edit</button>}
-      </div>
-      <div className="bd">
-        <div className="kv" style={{ gridTemplateColumns: showBranch ? "1fr 1fr" : "1fr" }}>
-          {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName}</div></div>}
-          <div className="i"><div className="k">Packets</div><div className="v">{l.occupied} / {l.capacity}</div></div>
-        </div>
-        <div style={{ height: 7, background: "var(--brand-pale)", borderRadius: 4, marginTop: 12, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${Math.max(4, (l.occupied / Math.max(1, l.capacity)) * 100)}%`, background: "linear-gradient(90deg,var(--brand-mid),var(--brand-deep))" }} />
-        </div>
-        {inLocker.length > 0 && (
-          <ul style={{ margin: "10px 0 0", padding: 0, listStyle: "none", fontSize: 12.5 }}>
-            {inLocker.map((p) => (
-              <li key={p.id} style={{ padding: "3px 0", borderTop: "1px dashed var(--line)" }}>
-                <a href={routeHref(`packet/${p.code}`)}>{p.code}</a> — {p.loanNumber} · {p.customerName}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="ft">Check-in / check-out history maintained per packet</div>
-    </div>
-  );
-}
-
 /* Ported from legacy/app.js's `renderPackets()`. Now reads real data from
  * the Go backend (`GET /api/v1/packets`, `GET /api/v1/lockers`) instead of
  * synthesizing packet rows from the loan list — see backend/internal/packet
@@ -91,6 +46,7 @@ export function PacketsPage() {
   // (see Customers.tsx).
   const { can } = useAuth();
   const canOpen = useCanOpenRoute();
+  const showBranch = useShowBranch();
   // A link inside a clickable row: stopping propagation keeps the row's own
   // onClick from firing, but also keeps the click from AppShell's link
   // interceptor — so navigate here (through the permission guard) instead of
@@ -104,7 +60,10 @@ export function PacketsPage() {
   const canCreateLockers = can("Locker_Management", "can_create_locker");
   const canUpdateLockers = can("Locker_Management", "can_update_locker");
 
-  const pageSize = useResponsivePageSize(15, 15);
+  const basePageSize = useResponsivePageSize(15, 15);
+  // Card mode (<=1100px): scroll-to-load replaces Prev/Next on both tables.
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
+  const { size: lockerSize, more: moreLockers } = useScrollPageSize(basePageSize);
   const [packets, setPackets] = useState<PacketView[] | null>(null);
   const [lockers, setLockers] = useState<LockerView[]>([]);
   const [error, setError] = useState("");
@@ -112,6 +71,9 @@ export function PacketsPage() {
   const [lookupErr, setLookupErr] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [lockerPage, setLockerPage] = useState(1);
+  // Card mode shows one table at a time; these tabs switch between them.
+  const [cardTab, setCardTab] = useState<"packets" | "lockers">("packets");
   // No branch filter in a single-branch business, or while the global
   // branch selector already scopes the page (see useShowBranchFilter).
   const showBranchFilter = useShowBranchFilter();
@@ -157,6 +119,9 @@ export function PacketsPage() {
   const customerKey = customerIds.join(",");
   const lockerFilterKey = lockerBranchIds.join(",") + "|" + lockerStatuses.join(",");
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const lockerTotalPages = Math.max(1, Math.ceil(lockers.length / basePageSize));
+  const lockerPageClamped = Math.min(lockerPage, lockerTotalPages);
+  const pagedLockers = cards ? lockers.slice(0, lockerSize) : lockers.slice((lockerPageClamped - 1) * basePageSize, lockerPageClamped * basePageSize);
 
   /* Guards against an out-of-order response winning: switching status
    * quickly can leave an earlier, slower request in flight, and without
@@ -205,6 +170,7 @@ export function PacketsPage() {
   }
 
   useEffect(() => { loadLockers(); }, [lockerFilterKey]);
+  useEffect(() => { setLockerPage(1); }, [lockerFilterKey]);
   useEffect(() => { loadPackets(); }, [page, statusKey, branchKey, customerKey, q, pageSize]);
   // A new search term always starts back at page 1 — otherwise a filter
   // typed while sitting on page 3 can land on an empty page.
@@ -250,8 +216,14 @@ export function PacketsPage() {
           Something went wrong. Please try again later.
         </p>
       )}
+      {cards && (
+        <div className="tabs" style={{ marginTop: 4, marginBottom: 8 }}>
+          <button className={cardTab === "packets" ? "on" : ""} onClick={() => setCardTab("packets")}>Packets</button>
+          <button className={cardTab === "lockers" ? "on" : ""} onClick={() => setCardTab("lockers")}>Lockers</button>
+        </div>
+      )}
       <div className="grid cols21 packets-grid">
-        <div className="card tbl-card tbl-card-fill">
+        <div className="card tbl-card tbl-card-fill" style={cards && cardTab !== "packets" ? { display: "none" } : undefined}>
           <div className="hd">
             <h3>Packets</h3>
             <div className="sp" />
@@ -269,7 +241,7 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center">
+            <table className="tbl tbl-center tbl-cards">
               <thead>
                 <tr><th>Packet Code</th><th>Loan</th><th>Customer</th><th className="num">Items</th><th className="num">Weight</th><th>Locker</th><th>Status</th></tr>
               </thead>
@@ -288,35 +260,30 @@ export function PacketsPage() {
                   const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.status;
                   return (
                     <tr key={p.id} className="click" onClick={() => { navigate(`packet/${p.code}`); }}>
-                      <td><a href={routeHref(`packet/${p.code}`)} className="id" onClick={cellLink(`packet/${p.code}`)}>{p.code}</a></td>
-                      <td>{canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)} onClick={cellLink(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
-                      <td>{p.customerName}</td>
-                      <td className="num">{p.itemCount}</td>
-                      <td className="num">{fmtW(p.totalWeight)}</td>
-                      <td>{locker ? locker.code : "—"}</td>
-                      <td><StatusChip status={displayStatus} /></td>
+                      <td data-label="Packet Code"><a href={routeHref(`packet/${p.code}`)} className="id" onClick={cellLink(`packet/${p.code}`)}>{p.code}</a></td>
+                      <td data-label="Loan">{canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)} onClick={cellLink(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
+                      <td data-label="Customer">{p.customerName}</td>
+                      <td className="num" data-label="Items">{p.itemCount}</td>
+                      <td className="num" data-label="Weight">{fmtW(p.totalWeight)}</td>
+                      <td data-label="Locker">{locker ? locker.code : "—"}</td>
+                      <td data-label="Status"><StatusChip status={displayStatus} /></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ScrollSentinel enabled={cards && page < totalPages} onVisible={more} watch={(packets || []).length} />
+          <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
-        {/* Packets (left) now fills down to the page's consistent bottom
-            gap like every other table card (.tbl-card-fill), and this
-            locker column stretches to match it height-for-height
-            (.packets-grid's align-items:stretch) instead of capping itself
-            to its own calc(100vh-350px) guess. scroll-hidden keeps its
-            scrollbar invisible while it scrolls internally past that
-            shared height. */}
-        <div className="grid scroll-hidden locker-col" style={{ alignContent: "start" }}>
-          <div className="locker-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <h3 style={{ margin: 0 }}>Lockers</h3>
+        <div className="card tbl-card tbl-card-fill" style={cards && cardTab !== "lockers" ? { display: "none" } : undefined}>
+          <div className="hd">
+            <h3>Lockers</h3>
+            <div className="sp" />
             <FilterPanel
               categories={lockerFilterCategories}
               value={lockerFilterValue}
@@ -328,13 +295,34 @@ export function PacketsPage() {
               hideClearAll
             />
           </div>
-          {lockers.length === 0 ? (
-            <div className="empty" style={{ padding: "14px 4px" }}>
-              {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}
-            </div>
-          ) : (
-            lockers.map((l) => <LockerCard key={l.id} l={l} canUpdate={canUpdateLockers} onChanged={load} />)
-          )}
+          <div className="tbl-wrap">
+            <table className="tbl tbl-center lockers-tbl tbl-cards">
+              <thead>
+                <tr><th>Locker</th>{showBranch && <th>Branch</th>}<th className="num">Packets</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {lockers.length === 0 && (
+                  <tr><td colSpan={showBranch ? 4 : 3} style={{ color: "var(--muted)" }}>
+                    {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}
+                  </td></tr>
+                )}
+                {pagedLockers.map((l) => (
+                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} onChanged={load} />)}>
+                    <td data-label="Locker"><span className="id">{l.code}</span></td>
+                    {showBranch && <td data-label="Branch">{l.branchName}</td>}
+                    <td className="num" data-label="Packets">{l.occupied} / {l.capacity}</td>
+                    <td data-label="Status"><span className={`chip ${l.isActive ? "green" : "gray"}`}>{l.isActive ? "Active" : "Inactive"}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ScrollSentinel enabled={cards && lockers.length > lockerSize} onVisible={moreLockers} watch={lockerSize} />
+          <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={lockerPageClamped <= 1} onClick={() => setLockerPage(Math.max(1, lockerPageClamped - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {lockerPageClamped} of {lockerTotalPages}</span>
+            <button className="btn plain sm" disabled={lockerPageClamped >= lockerTotalPages} onClick={() => setLockerPage(Math.min(lockerTotalPages, lockerPageClamped + 1))}>Next ›</button>
+          </div>
         </div>
       </div>
     </>

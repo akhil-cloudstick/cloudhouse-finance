@@ -108,7 +108,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
   return (
     <div className={`card tbl-card tbl-card-fill${inModal ? " tbl-flat tbl-scroll-paged" : " tbl-rounded"}`}>
       <div className="tbl-wrap" ref={wrapRef} onScroll={inModal ? onWrapScroll : undefined}>
-        <table className="tbl">
+        <table className={`tbl${inModal ? "" : " tbl-cards"}`}>
           <thead>
             <tr><th>Bank</th>{showBranch && <th>Business branch</th>}<th>Bank branch</th><th>IFSC</th><th>Account No.</th><th className="num">Balance</th><th></th></tr>
           </thead>
@@ -116,12 +116,12 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
             {status && <tr><td colSpan={cols} className="empty">{status}</td></tr>}
             {!status && rows.map((b) => (
               <tr key={b.id}>
-                <td><b>{b.name}</b></td>
-                {showBranch && <td>{b.branchName || "—"}</td>}
-                <td>{b.branch || "—"}</td>
-                <td>{b.ifsc || "—"}</td>
-                <td>{b.accountNo || "—"}</td>
-                <td className="num" style={{ color: balanceColor(b.balance ?? 0) }}>{fmtBalance(b.balance ?? 0)}</td>
+                <td data-label="Bank"><b>{b.name}</b></td>
+                {showBranch && <td data-label="Business branch">{b.branchName || "—"}</td>}
+                <td data-label="Bank branch">{b.branch || "—"}</td>
+                <td data-label="IFSC">{b.ifsc || "—"}</td>
+                <td data-label="Account No.">{b.accountNo || "—"}</td>
+                <td className="num" data-label="Balance" style={{ color: balanceColor(b.balance ?? 0) }}>{fmtBalance(b.balance ?? 0)}</td>
                 <td className="tbl-acts">
                   {canOpenRoute("ledger-bank") && <a href={routeHref("ledger-bank", b.id)}>Ledger</a>}
                   {canUpdate && (

@@ -5,14 +5,14 @@ import { C, ChipToggle, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropd
 import { useAuth } from "@/common/providers/AuthProvider";
 import { BranchField, useOwnBranch } from "@/modules/cash/components/EntryFormParts";
 import { createScheme, toggleSchemeActive, updateScheme } from "@/modules/schemes/services/schemeService";
-import { type SchemeInput, type Scheme, type ServiceChargeMode, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
+import { type SchemeInput, type Scheme, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
 import { ApiError } from "@/common/services/httpClient";
 
 // ---------------------------------------------------------------------------
 // Scheme create / edit (prototype #scheme-create-modal). Same fields, wire
 // values and validation as the old schemes/new.tsx + schemes/[id].tsx edit
 // sheet (web SchemeModal.tsx): interest method is stored as the full text,
-// service charge None/Flat/Percent + WithheldFromPayout/AddedToPrincipal.
+// service charge None/Flat/Percent (how it is collected is chosen per loan).
 // ---------------------------------------------------------------------------
 
 const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", "Multiple interest"] as const;
@@ -38,10 +38,21 @@ function tiersError(tiers: TierDraft[]): string {
   }
   return "";
 }
+const ladderHead = { fontSize: 10.5, fontWeight: "800" as const, color: C.muted, textTransform: "uppercase" as const };
+const ladderInput = { paddingVertical: 7, paddingHorizontal: 6, textAlign: "center" as const, fontSize: 13 };
+// Interest on ₹1,00,000 over 365 days: each step's rate p.a. for the days it covers; the last step takes the rest.
+function ladderExample(tiers: TierDraft[]): number {
+  let left = 365;
+  let total = 0;
+  tiers.forEach((t, i) => {
+    const d = i === tiers.length - 1 ? left : Math.min(left, parseInt(t.days, 10) || 0);
+    total += (100000 * (parseFloat(t.rate) || 0) / 100) * d / 365;
+    left -= d;
+  });
+  return Math.round(total);
+}
 const CHARGE_TYPES = ["None", "Flat", "Percent"] as const satisfies readonly ServiceChargeType[];
 const CHARGE_TYPE_LABELS: Record<ServiceChargeType, string> = { None: "None", Flat: "Flat amount", Percent: "Percentage" };
-const CHARGE_MODES = ["WithheldFromPayout", "AddedToPrincipal"] as const satisfies readonly ServiceChargeMode[];
-const CHARGE_MODE_LABELS: Record<ServiceChargeMode, string> = { WithheldFromPayout: "Withhold from payout", AddedToPrincipal: "Add to principal" };
 const STATUSES = ["Active", "Inactive"] as const;
 
 export const num = (t: string) => t.replace(/[^0-9.]/g, "");
@@ -70,7 +81,6 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("Active");
   const [chargeType, setChargeType] = useState<ServiceChargeType>("None");
   const [chargeValue, setChargeValue] = useState("");
-  const [chargeMode, setChargeMode] = useState<ServiceChargeMode>("WithheldFromPayout");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -90,7 +100,6 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
     const ct = sc?.serviceChargeType && sc.serviceChargeType !== "None" ? sc.serviceChargeType : "None";
     setChargeType(ct);
     setChargeValue(ct !== "None" ? String(sc?.serviceChargeValue ?? "") : "");
-    setChargeMode(sc?.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout");
     setError(null);
   }, [visible, scheme]);
 
@@ -113,7 +122,6 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         isActive: scheme ? scheme.isActive : status === "Active",
         serviceChargeType: chargeType,
         serviceChargeValue: chargeType === "None" ? 0 : Number(chargeValue),
-        serviceChargeMode: chargeType === "None" ? undefined : chargeMode,
       };
       if (!scheme) return createScheme(input);
       const saved = await updateScheme(scheme.id, input);
@@ -138,11 +146,11 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   };
   return (
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Scheme" : "Scheme"} maxHeightPct={92}>
+      <Field label="Name">
+        <Input placeholder="e.g. Gold Plus" value={name} onChangeText={setName} />
+      </Field>
       <FieldRow>
         <BranchField branch={branch} onChange={setBranch} />
-        <Field label="Name">
-          <Input placeholder="e.g. Gold Plus" value={name} onChangeText={setName} />
-        </Field>
         {isMultiple ? (
           <Field label="Minimum period (days)">
             <Input keyboardType="number-pad" value={minDays} onChangeText={(t) => setMinDays(t.replace(/\D/g, ""))} />
@@ -172,55 +180,73 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         <Field label="Interest calculation">
           <ThemeDropdown<Method> value={method} options={[...METHODS]} onChange={setMethod} labelOf={(m) => METHOD_LABELS[m]} />
         </Field>
-        <Field label="Penal charges (% p.a., 0–60) *">
+        <Field label="Penal charges (p.a)">
           <Input placeholder="e.g. 24" keyboardType="decimal-pad" value={penalRate} onChangeText={(t) => setPenalRate(num(t))} />
         </Field>
       </FieldRow>
       {isMultiple ? (
-        <Field label="Rate ladder">
-          <View style={{ flexDirection: "row", gap: 6, marginBottom: 4 }}>
-            <Txt style={{ width: 44, fontSize: 11, color: C.muted }}>#</Txt>
-            <Txt style={{ flex: 1, fontSize: 11, color: C.muted }}>Unpaid days</Txt>
-            <Txt style={{ flex: 1, fontSize: 11, color: C.muted }}>Rate % p.a.</Txt>
-            <View style={{ width: 24 }} />
+        <Field>
+          <Txt style={{ fontSize: 11.5, fontWeight: "700", color: C.muted, textTransform: "uppercase", marginBottom: 6 }}>Rate ladder</Txt>
+          <View style={{ borderWidth: 1, borderColor: C.line, borderRadius: 12, overflow: "hidden" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: C.brandFaint }}>
+              <Txt style={{ flex: 1, ...ladderHead }}>Step</Txt>
+              <Txt style={{ width: 74, textAlign: "center", ...ladderHead }}>Days</Txt>
+              <Txt style={{ width: 74, textAlign: "center", ...ladderHead }}>Rate %</Txt>
+              <View style={{ width: 28 }} />
+            </View>
+            {tiers.map((t, i) => {
+              const last = i === tiers.length - 1;
+              return (
+                <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 9, borderTopWidth: 1, borderTopColor: C.line }}>
+                  <View style={{ flex: 1 }}>
+                    <Txt style={{ fontSize: 13, fontWeight: "800" }}>Step {i + 1}</Txt>
+                    <Txt style={{ fontSize: 10.5, color: C.muted }}>{last ? "Thereafter" : "Unpaid up to"}</Txt>
+                  </View>
+                  <View style={{ width: 74 }}>
+                    {last
+                      ? <Input value="—" editable={false} style={ladderInput} />
+                      : <Input placeholder="90" keyboardType="number-pad" value={t.days} onChangeText={(v) => patchTier(i, { days: v.replace(/D/g, "") })} style={ladderInput} />}
+                  </View>
+                  <View style={{ width: 74 }}>
+                    <Input placeholder="12" keyboardType="decimal-pad" value={t.rate} onChangeText={(v) => patchTier(i, { rate: num(v) })} style={ladderInput} />
+                  </View>
+                  {last ? (
+                    <View style={{ width: 28 }} />
+                  ) : (
+                    <Pressable
+                      accessibilityLabel={`Remove row ${i + 1}`}
+                      disabled={tiers.length <= 2}
+                      onPress={() => setTiers((cur) => cur.filter((_, j) => j !== i))}
+                      style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: C.brandFaint, alignItems: "center", justifyContent: "center", opacity: tiers.length <= 2 ? 0.35 : 1 }}
+                    >
+                      <Txt style={{ color: C.muted, fontSize: 13, fontWeight: "700" }}>✕</Txt>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })}
           </View>
-          {tiers.map((t, i) => {
-            const last = i === tiers.length - 1;
-            return (
-              <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <Txt style={{ width: 44, fontSize: 12, color: C.accentDeep }}>Step {i + 1}</Txt>
-                <View style={{ flex: 1 }}>
-                  {last
-                    ? <Input value="Thereafter" editable={false} />
-                    : <Input placeholder="e.g. 90" keyboardType="number-pad" value={t.days} onChangeText={(v) => patchTier(i, { days: v.replace(/\D/g, "") })} />}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Input placeholder="e.g. 12" keyboardType="decimal-pad" value={t.rate} onChangeText={(v) => patchTier(i, { rate: num(v) })} />
-                </View>
-                <Pressable
-                  accessibilityLabel={`Remove row ${i + 1}`}
-                  disabled={tiers.length <= 2}
-                  onPress={() => setTiers((cur) => cur.filter((_, j) => j !== i))}
-                  style={{ width: 24, alignItems: "center", opacity: tiers.length <= 2 ? 0.25 : 1 }}
-                >
-                  <Txt style={{ color: C.red, fontSize: 16 }}>✕</Txt>
-                </Pressable>
-              </View>
-            );
-          })}
-          <Pressable onPress={() => setTiers((cur) => [...cur.slice(0, -1), { days: "", rate: "" }, cur[cur.length - 1]])} style={{ paddingVertical: 6 }}>
-            <Txt style={{ color: C.accentDeep, fontSize: 13 }}>+ Add rate row</Txt>
+          <Pressable
+            onPress={() => setTiers((cur) => [...cur.slice(0, -1), { days: "", rate: "" }, cur[cur.length - 1]])}
+            style={{ marginTop: 8, paddingVertical: 10, borderRadius: 11, borderWidth: 1.5, borderStyle: "dashed", borderColor: C.line, alignItems: "center" }}
+          >
+            <Txt style={{ color: C.brandDeep, fontSize: 13, fontWeight: "700" }}>+ Add a step</Txt>
           </Pressable>
+          <View style={{ marginTop: 8, padding: 10, borderRadius: 11, backgroundColor: C.brandFaint }}>
+            <Txt style={{ fontSize: 12, color: C.muted }}>
+              Example: ₹1,00,000 unpaid for 12 months earns about <Txt style={{ fontSize: 12, fontWeight: "800", color: C.brandDeep }}>₹{ladderExample(tiers).toLocaleString("en-IN")}</Txt>
+            </Txt>
+          </View>
         </Field>
       ) : null}
       <Field label="Applicable conditions">
         <Input placeholder="Free text, e.g. KYC requirements" value={conditions} onChangeText={setConditions} />
       </Field>
       <Field label="Status">
-        <ChipToggle options={STATUSES} value={status} onChange={setStatus} />
+        <ChipToggle variant="chips" options={STATUSES} value={status} onChange={setStatus} />
       </Field>
       <Field label="Service charge">
-        <ChipToggle options={CHARGE_TYPES} value={chargeType} onChange={setChargeType} labels={CHARGE_TYPE_LABELS} wrap />
+        <ChipToggle variant="chips" options={CHARGE_TYPES} value={chargeType} onChange={setChargeType} labels={CHARGE_TYPE_LABELS} />
       </Field>
       <Field label={chargeType === "Flat" ? "Charge amount (₹)" : chargeType === "Percent" ? "Charge (% of principal)" : "Charge amount / percentage"}>
         <Input
@@ -230,11 +256,6 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
           value={chargeValue}
           onChangeText={(t) => setChargeValue(num(t))}
         />
-      </Field>
-      <Field label="How charge is collected">
-        <View style={!chargeSet ? { opacity: 0.5 } : null} pointerEvents={chargeSet ? "auto" : "none"}>
-          <ChipToggle options={CHARGE_MODES} value={chargeMode} onChange={setChargeMode} labels={CHARGE_MODE_LABELS} />
-        </View>
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton

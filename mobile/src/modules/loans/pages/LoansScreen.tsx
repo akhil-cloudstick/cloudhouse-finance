@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AccRow, C, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, Txt, gfValues, useShell } from "@/common/components/ui";
+import { AccRow, C, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, gfValues, useShell } from "@/common/components/ui";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import {
   EMPTY_LOAN_FILTERS,
@@ -103,15 +103,13 @@ export default function LoansScreen() {
         emptyText={list.search ? "No loans match your search." : "No loans found."}
         header={
           <>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 18, paddingVertical: 12 }}>
+            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
               <GroupedFilter title="Filter loans" sections={loanFilterSections(showBranchFilter, showBranchFilter ? gfValues(filters, "branch") : [])} value={filters} onChange={setFilters} />
-              <Txt style={{ fontSize: 12.5, color: C.muted }}>{`${list.total ?? list.items.length} loans`}</Txt>
             </View>
             <SearchInput
               value={list.search}
               onChangeText={list.setSearch}
               placeholder="Search this list by loan ID or customer name"
-              style={{ paddingTop: 0 }}
             />
           </>
         }
@@ -123,7 +121,7 @@ export default function LoansScreen() {
               defaultOpen={i === 0}
               id={l.loanNumber}
               name={l.customer?.name ?? `Customer #${l.customerId}`}
-              sub={l.scheme?.name ? `${l.scheme.name} scheme` : undefined}
+              sub={l.scheme?.name || undefined}
               amount={inr(l.principalAmount)}
               status={l.status}
               details={loanRowDetails(l)}

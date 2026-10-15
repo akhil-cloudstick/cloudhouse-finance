@@ -73,7 +73,7 @@ export function BranchesPage() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Branch Management</h1><p>Add, edit and manage every branch location — customers, employees, loans and expenses all link back here</p></div>
+        <div><h1>Branch Management</h1></div>
         <div className="sp" />
         {canCreateBranches && (
           <button

@@ -112,7 +112,7 @@ export default function LedgerStatementScreen() {
               <View style={{ flex: 1 }} />
               {canExport ? (
                 <>
-                  <PillButton label="Export Excel" onPress={() => onExport("xlsx")} />
+                  <PillButton label="Download" onPress={() => onExport("xlsx")} />
                   <PillButton label="Export PDF" onPress={() => onExport("pdf")} />
                 </>
               ) : null}

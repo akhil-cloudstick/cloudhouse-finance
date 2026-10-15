@@ -1,7 +1,7 @@
 import React from "react";
 import { Text, TextProps } from "react-native";
 import { colors } from "@/common/theme/colors";
-import { typeScale } from "@/common/theme/typography";
+import { typeScale, textStyle } from "@/common/theme/typography";
 
 type Variant = keyof typeof typeScale;
 
@@ -13,7 +13,7 @@ export function ThemedText({
 }: TextProps & { variant?: Variant; color?: string }) {
   return (
     <Text
-      style={[typeScale[variant], { color: color ?? colors.ink }, style]}
+      style={textStyle([typeScale[variant], { color: color ?? colors.ink }, style], false)}
       {...rest}
     />
   );

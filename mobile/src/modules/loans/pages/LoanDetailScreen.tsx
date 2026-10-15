@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View } from "react-native";
+import { Image, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -36,6 +36,7 @@ import { getAuction } from "@/modules/auctions/services/auctionService";
 import { dmy, inr } from "@/common/utils/format";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
+import { useUploadSource } from "@/common/components/BillSheet";
 import { ExtendSheet } from "@/modules/loans/components/ExtendSheet";
 import { ReleaseSheet } from "@/modules/loans/components/ReleaseSheet";
 import { EditLoanSheet } from "@/modules/loans/components/EditLoanSheet";
@@ -73,7 +74,16 @@ type SheetKey =
   | "delete"
   | null;
 
-const RECORD_TABS = ["overview", "ledger", "ornaments", "history"] as const;
+type UploadPhotoProps = { path: string; height?: number };
+
+/** An /uploads photo drawn with the Bearer token (uploads are authenticated). */
+function UploadPhoto({ path, height = 160 }: UploadPhotoProps) {
+  const source = useUploadSource(path);
+  if (!source) return null;
+  return <Image source={source} resizeMode="cover" style={{ width: "100%", height, borderRadius: 10, backgroundColor: C.card, marginTop: 8 }} />;
+}
+
+const RECORD_TABS =["overview", "ledger", "ornaments", "history"] as const;
 type RecordTab = (typeof RECORD_TABS)[number];
 const RECORD_TAB_LABELS: Record<RecordTab, string> = { overview: "Overview", ledger: "Payment Ledger", ornaments: "Ornaments", history: "History" };
 
@@ -450,6 +460,12 @@ export default function LoanDetailScreen() {
             <SectionTitle>Loan details</SectionTitle>
             <Card>
               <FieldGrid items={detailItems} />
+              {l.overallPhotoUrl ? (
+                <>
+                  <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 10 }}>Loan photo</Txt>
+                  <UploadPhoto path={l.overallPhotoUrl} height={200} />
+                </>
+              ) : null}
             </Card>
             <SectionTitle>Settlement preview</SectionTitle>
             <Card>
@@ -491,6 +507,9 @@ export default function LoanDetailScreen() {
                     { k: "Status", v: o.releasedAt ? `Released ${dmy(o.releasedAt)}` : "Held", color: o.releasedAt ? C.green : undefined },
                   ]}
                 />
+                {(o.images ?? []).map((im) => (
+                  <UploadPhoto key={im.id} path={im.imageUrl} />
+                ))}
               </Card>
             ))
           )
@@ -546,7 +565,7 @@ export default function LoanDetailScreen() {
         {doHardDelete.isPending ? <Buffering /> : null}
       </Sheet>
 
-      <DocumentsSheets loan={l} visible={open === "documents"} onClose={() => setOpen(null)} onOpen={() => setOpen("documents")} />
+      <DocumentsSheets loan={l} visible={open === "documents"} onClose={() => setOpen(null)} />
       <CollectPaymentSheet loan={l} visible={open === "collect"} onClose={() => setOpen(null)} />
       <TopUpSheet
         loan={l}

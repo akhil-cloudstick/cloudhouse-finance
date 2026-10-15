@@ -31,7 +31,7 @@ import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type Auc
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
-import { openPrintWindow, brandHeader } from "@/common/utils/print";
+import { openPrintWindow, brandHeader, canPrintInline, downloadBlob } from "@/common/utils/print";
 import { printColors, tenantLenderProfile } from "@/common/config/brand";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/StageTracker";
@@ -819,8 +819,6 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     try {
       const data = await packetLabelData();
       if (!data) return;
-      const w = window.open("", "_blank");
-      if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
       // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
       // at the 28mm midpoint) plus a blank 25mm×3mm strap for wrapping
       // around/through the item and tearing off. See the approved wire
@@ -828,7 +826,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
       // printPacketLabel: first 28mm segment holds the QR, the second (the
       // half that stays with the item once torn) holds the readable
       // identifiers, the strap stays blank.
-      w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.id}</title><style>
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.id}</title><style>
         @page{size:81mm 12mm;margin:0}
         ${labelStyle()}
         .noprint{text-align:center;margin:8mm;font-family:Arial}
@@ -839,7 +837,16 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
           <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${data.url}</p>
           <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
         </div>
-      </body></html>`);
+      </body></html>`;
+      // Phones/tablets can't print from a popup (and it would be blocked after
+      // the awaited fetch above) — give the user the label as a file instead.
+      if (!canPrintInline()) {
+        downloadBlob(new Blob([html], { type: "text/html" }), `packet-label-${l.id}.html`);
+        return;
+      }
+      const w = window.open("", "_blank");
+      if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
+      w.document.write(html);
       w.document.close();
       w.addEventListener("afterprint", () => w.close());
       setTimeout(() => { try { w.focus(); w.print(); } catch { /* ignore */ } }, 400);

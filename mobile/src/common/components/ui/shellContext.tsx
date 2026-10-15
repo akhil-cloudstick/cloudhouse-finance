@@ -68,12 +68,10 @@ export const HeroMorphContext = createContext<HeroMorph | null>(null);
 // header is HELD rather than blanked — see publishHeader — so the header is
 // never seen empty mid-switch; NavCover hides the body during that gap.
 // ---------------------------------------------------------------------------
-// A page opened across tabs (openPage) reveals its tab first: that tab's
-// native stack still shows whatever it was left on (its list) for a frame or
-// two before the destination (e.g. a loan's detail) replaces it, which read
-// as the list loading first and the detail after. NavCover (drawn by the tab
-// bar, over the pages and under the header / bar) hides that gap from the
-// moment the jump starts until the destination has drawn, then fades away.
+// NavCover (drawn by the tab bar, over the pages and under the header / bar)
+// hides the body from the moment an openPage() jump starts until the
+// destination has drawn, then fades away — so the header morph and the new
+// page arrive together instead of the page showing under the old header.
 type CoverPhase = "off" | "on" | "leaving";
 let coverPhase: CoverPhase = "off";
 let coverTimer: ReturnType<typeof setTimeout> | null = null;
@@ -118,6 +116,11 @@ let headerHoldTimer: ReturnType<typeof setTimeout> | null = null;
 // (one not built on <Screen>) before giving up and blanking. Same budget as
 // the NavCover's own safety timeout.
 const HEADER_HOLD_MS = 1500;
+// Set by HeaderHost: whether a header node is the Dashboard hero (the tall one).
+let isTallHeader: (node: React.ReactNode) => boolean = () => false;
+export function setTallHeaderCheck(fn: (node: React.ReactNode) => boolean) {
+  isTallHeader = fn;
+}
 function publishHeader() {
   let best: HeaderEntry | null = null;
   for (const e of headerEntries.values()) if (e.focused && (!best || e.seq > best.seq)) best = e;
@@ -126,6 +129,12 @@ function publishHeader() {
     headerHoldTimer = null;
     headerSnapshot = best.node;
   } else if (headerSnapshot == null) {
+    headerSnapshot = BLANK_HEADER;
+  } else if (isTallHeader(headerSnapshot)) {
+    // Leaving the Dashboard: every other page has a flat header, so start the hero's collapse
+    // now — together with the page slide — instead of holding the hero until the next page has
+    // rendered (a heavy page kept it on screen well after the slide had finished). The page's
+    // own title lands on the collapsing flat header as soon as it reports focus.
     headerSnapshot = BLANK_HEADER;
   } else {
     // Between pages — the old one has blurred (or openPage() has started a
@@ -268,6 +277,30 @@ export function openPage(path: string) {
     toast.error("Access denied", "You don't have permission to open this page.");
     return;
   }
+  // Fetch the destination's data first (briefly), so it mounts with its real header and
+  // body at once instead of a placeholder header + spinner that then fills in.
+  const loading = prefetchPage?.(path);
+  if (!loading) return navigateTo(path);
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    navigateTo(path);
+  };
+  loading.then(go, go);
+  setTimeout(go, PREFETCH_WAIT_MS);
+}
+
+// Registered by the tabs layout (it holds the query client): starts loading what a path's page
+// needs and returns the promise, or null when nothing needs loading (already cached / no data).
+let prefetchPage: ((path: string) => Promise<unknown> | null) | null = null;
+export function setPagePrefetch(fn: typeof prefetchPage) {
+  prefetchPage = fn;
+}
+// Longest a link waits for that data before opening the page anyway (it then loads in place).
+const PREFETCH_WAIT_MS = 600;
+
+function navigateTo(path: string) {
   const { nav, state } = tabsRef;
   const { tab, id, params } = parsePath(path);
   const targetIndex = state?.routes.findIndex((r) => r.name === tab) ?? -1;
@@ -317,12 +350,19 @@ export function focusTab(
   change: { params?: object; stack?: { name: string; params?: object } }
 ) {
   const target = state.routes[targetIndex];
+  // A stack change also gives the tab route a NEW key. The tab's scene is keyed by it, so the
+  // old stack (still showing its list — tabs like Loans are mounted up front) is dropped and a
+  // fresh one mounts straight onto the destination. Handing the new state to the already-mounted
+  // stack instead only took effect a render later, so the list was drawn first and the detail
+  // landed over it.
+  const n = change.stack ? ++directSeq : 0;
+  const nextKey = change.stack ? `${target.name}-direct-${n}` : target.key;
   const routes = state.routes.map((r, i) => {
     if (i !== targetIndex) return r;
     if (change.stack) {
-      const n = ++directSeq;
       return {
         ...r,
+        key: nextKey,
         state: { type: "stack" as const, key: `direct-stack-${n}`, index: 0, routes: [{ key: `direct-${n}`, ...change.stack }] },
       };
     }
@@ -332,15 +372,15 @@ export function focusTab(
   // Tabs' `backBehavior="history"`) is driven entirely by `state.history`,
   // a list of previously-focused route keys that only its own actions
   // (JUMP_TO/NAVIGATE/GO_BACK) know how to maintain — a raw RESET, if it
-  // doesn't include one, replaces it with nothing. `target.key` doesn't
-  // change (only its nested `state` does, above), so it's still valid to
-  // reference: move it to the end, exactly like the router's own
-  // changeIndex does for backBehavior="history" (de-dupe, then append).
-  // Skipping this was the bug — Back from a loan opened this way had no
-  // history left to fall into, and Android closed the app outright.
+  // doesn't include one, replaces it with nothing. Drop the target's old key
+  // (it may just have been replaced above) and append its current one,
+  // exactly like the router's own changeIndex does for backBehavior="history"
+  // (de-dupe, then append). Skipping this was the bug — Back from a loan
+  // opened this way had no history left to fall into, and Android closed the
+  // app outright.
   const history = (state.history ?? [])
-    .filter((it) => (it && typeof it === "object" && "key" in it ? it.key !== target.key : true))
-    .concat({ type: "route" as const, key: target.key });
+    .filter((it) => (it && typeof it === "object" && "key" in it ? it.key !== target.key && it.key !== nextKey : true))
+    .concat({ type: "route" as const, key: nextKey });
   nav.dispatch({ type: "RESET", payload: { ...state, index: targetIndex, routes, history } });
 }
 

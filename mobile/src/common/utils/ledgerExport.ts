@@ -23,12 +23,13 @@ function ledgerPath(kind: LedgerKind, ref: string, params: URLSearchParams): str
   }
 }
 
-export async function shareLedgerPdf(kind: LedgerKind, ref: string, range: { fromDate?: string; toDate?: string }, title: string, extra?: { bankId?: number; branchIds?: string; modes?: string; types?: string }) {
+export async function shareLedgerPdf(kind: LedgerKind, ref: string, range: { fromDate?: string; toDate?: string }, title: string, extra?: { bankId?: number; branchIds?: string; modes?: string; types?: string; loanNumbers?: string }) {
   const params = new URLSearchParams({ export: "pdf" });
   if (extra?.bankId) params.set("bankId", String(extra.bankId));
   if (extra?.branchIds) params.set("branchIds", extra.branchIds);
   if (extra?.modes) params.set("modes", extra.modes);
   if (extra?.types) params.set("types", extra.types);
+  if (extra?.loanNumbers) params.set("loanNumbers", extra.loanNumbers);
   if (range.fromDate) params.set("fromDate", range.fromDate);
   if (range.toDate) params.set("toDate", range.toDate);
   const path = ledgerPath(kind, ref, params);

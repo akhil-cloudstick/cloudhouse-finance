@@ -1257,7 +1257,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 />
               </div>
             </div>
-            <div className="ft">Uses today&apos;s published rates (22K {fmt(rates.k22)}/g) — defaults to the eligible amount, and can be reduced but not increased beyond it</div></div>
+          </div>
           {/* Saved drafts. Only rendered when there are any — an empty card
               on every visit would be noise on a page staff use constantly.
               Drafts are this employee's own (scoped server-side from the

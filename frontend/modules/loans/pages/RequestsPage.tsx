@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { StatusChip } from "@/common/components/ui/StatusChip";
@@ -11,7 +12,7 @@ import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, dow
 import { type RequestView } from "@/modules/loans/types/loan-types";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 const STATUS_OPTIONS = [
   { value: "Pending", label: "Pending" },
   { value: "Approved", label: "Approved" },
@@ -48,7 +49,8 @@ export function RequestsPage() {
   const canDecide = can("Loan_Management", "can_update_loan");
   const toast = useToast();
 
-  const pageSize = useResponsivePageSize(15, 15);
+  const basePageSize = useResponsivePageSize(15, 15);
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   const [reqs, setReqs] = useState<RequestView[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -148,19 +150,19 @@ export function RequestsPage() {
         </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl">
+          <table className="tbl tbl-cards">
             <thead>
               <tr><th>Request</th><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading && !(cards && reqs.length > 0) ? (
                 <tr><td colSpan={8} className="empty">Loading requests…</td></tr>
               ) : reqs.length === 0 ? (
                 <tr><td colSpan={8} className="empty">No extension or release requests yet.</td></tr>
               ) : reqs.map((r) => (
                 <tr key={r.id}>
-                  <td><span className="id">#{r.id}</span></td>
-                  <td>
+                  <td data-label="Request"><span className="id">#{r.id}</span></td>
+                  <td data-label="Type">
                     <span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type}</span>
                     {/* Only meaningful for Release — flags at a glance which
                         rows hand back every ornament vs. only some, since
@@ -171,11 +173,11 @@ export function RequestsPage() {
                       <span className="chip" style={{ marginLeft: 4 }}>Partial</span>
                     )}
                   </td>
-                  <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
-                  <td>{r.customerName}</td>
-                  <td>{r.detail}</td>
-                  <td>{fmtDate(r.requestedAt)}</td>
-                  <td>
+                  <td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
+                  <td data-label="Customer">{r.customerName}</td>
+                  <td data-label="Detail">{r.detail}</td>
+                  <td data-label="Date">{fmtDate(r.requestedAt)}</td>
+                  <td data-label="Status">
                     <StatusChip status={r.status} />
                     {/* Set by RecordReleaseRequestPayment when a recorded discount+payment
                         fell short of the final settlement — see ReleaseReviewModal.tsx. */}
@@ -254,7 +256,8 @@ export function RequestsPage() {
             </tbody>
           </table>
         </div>
-        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <ScrollSentinel enabled={cards && (page < totalPages)} onVisible={more} watch={reqs.length} />
+        <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>

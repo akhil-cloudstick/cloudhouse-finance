@@ -39,13 +39,13 @@ export function LoanRow({ loan: l }: LoanRowProps) {
   const canOpen = useCanOpenRoute()("loan");
   return (
     <tr className={canOpen ? "click" : undefined} onClick={canOpen ? () => navigate("loan/" + l.id) : undefined}>
-      <td><span className="id">{l.id}</span><span className="sub">{l.customerName}</span></td>
-      <td>{l.schemeName}</td>
-      <td className="td-date">{fmtDate(l.opened)}<span className="sub">due {fmtDate(l.due)}</span></td>
-      <td className="num">{fmt(l.principal)}</td>
-      <td className="num">{l.outstanding ? fmt(l.outstanding) : "—"}</td>
-      <td><StatusChip status={l.bankPledgeStatus} /></td>
-      <td><StatusChip status={displayStatus(l)} /></td>
+      <td data-label="Loan / Customer"><span className="id">{l.id}</span><span className="sub">{l.customerName}</span></td>
+      <td data-label="Scheme">{l.schemeName}</td>
+      <td className="td-date" data-label="Opened / Due">{fmtDate(l.opened)}<span className="sub">due {fmtDate(l.due)}</span></td>
+      <td className="num" data-label="Principal">{fmt(l.principal)}</td>
+      <td className="num" data-label="Outstanding">{l.outstanding ? fmt(l.outstanding) : "—"}</td>
+      <td data-label="Pledge"><StatusChip status={l.bankPledgeStatus} /></td>
+      <td data-label="Status"><StatusChip status={displayStatus(l)} /></td>
     </tr>
   );
 }

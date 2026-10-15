@@ -42,8 +42,11 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
   // (It was a "#route" link, which this path router never followed.) No
   // link when the role can't open the parent — e.g. New Loan for a
   // create-only role, whose parent is the Loans list.
-  const crumbRoute = PARENT_ROUTE[route] || route || "dashboard";
-  const crumbHref = canOpen(crumbRoute) ? routeHref(crumbRoute) : undefined;
+  // The trail reads like a normal path: Shop / Parent page / Current page.
+  // Top-level routes have no parent, so they show just Shop / Page.
+  const parentRoute = PARENT_ROUTE[route];
+  const parentHref = parentRoute && canOpen(parentRoute) ? routeHref(parentRoute) : undefined;
+  const linkStyle = { color: "inherit", textDecoration: "none" } as const;
 
   return (
     <header className={`top${searchOpen ? " search-open" : ""}`}>
@@ -53,9 +56,17 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
         </svg>
       </button>
       <span className="crumb" id="crumb">
-        <a href={routeHref("dashboard")} style={{ color: "inherit", textDecoration: "none" }}>{businessName}</a>
-        &nbsp;/&nbsp;
-        <a href={crumbHref} style={{ color: "inherit", textDecoration: "none" }}><b>{crumb}</b></a>
+        <span className="crumb-org">
+          <a href={routeHref("dashboard")} style={linkStyle}>{businessName}</a>
+          &nbsp;/&nbsp;
+        </span>
+        {parentRoute && (
+          <>
+            <a href={parentHref} style={linkStyle}>{TITLES[parentRoute] || parentRoute}</a>
+            &nbsp;/&nbsp;
+          </>
+        )}
+        <b>{crumb}</b>
       </span>
       <GlobalSearch isOpen={searchOpen} onToggle={setSearchOpen} />
       <a

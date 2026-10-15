@@ -66,7 +66,8 @@ export type SchemeFormInput = {
   branchId: number;
   serviceChargeType: ServiceChargeType;
   serviceChargeValue: number;
-  serviceChargeMode: ServiceChargeMode;
+  /** Legacy — chosen per loan now; the scheme form no longer sends it. */
+  serviceChargeMode?: ServiceChargeMode;
 };
 export type SchemeStatementFilters = {
   from?: string; // YYYY-MM-DD

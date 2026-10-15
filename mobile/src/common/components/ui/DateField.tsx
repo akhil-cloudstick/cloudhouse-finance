@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, Pressable, ScrollView, View } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
@@ -38,6 +38,13 @@ export function DateField({
   const maxYear = max ? +max.slice(0, 4) : thisYear + 20;
   const years = useMemo(() => Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i), [minYear, maxYear]);
   const yearScroll = useRef<ScrollView>(null);
+  // A picked day stays highlighted for a moment before the sheet closes, so the choice is seen.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  };
+  useEffect(() => cancelClose, []);
   return (
     <Field label={label}>
       <Pressable
@@ -46,6 +53,7 @@ export function DateField({
           setCursor(new Date(base.getFullYear(), base.getMonth(), 1));
           setPickYear(false);
           Keyboard.dismiss();
+          cancelClose();
           setOpen(true);
         }}
         style={[s.input, s.dateBtn]}
@@ -53,7 +61,15 @@ export function DateField({
         <Txt style={{ fontSize: 13.5, color: value ? C.ink : C.muted }}>{value ? isoToPretty(value) : placeholder}</Txt>
         <PIcon name="calendar" color={C.muted} size={15} />
       </Pressable>
-      <Sheet visible={open} onClose={() => setOpen(false)} title={label ?? "Select date"} maxHeightPct={70}>
+      <Sheet
+        visible={open}
+        onClose={() => {
+          cancelClose();
+          setOpen(false);
+        }}
+        title={label ?? "Select date"}
+        maxHeightPct={70}
+      >
         <View style={s.calHead}>
           <Pressable style={s.calNav} onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>
             <PIcon name="back" color={C.brandDeep} />
@@ -107,7 +123,11 @@ export function DateField({
           gutter={0}
           onSelect={(iso) => {
             onChange(iso);
-            setOpen(false);
+            cancelClose();
+            closeTimer.current = setTimeout(() => {
+              closeTimer.current = null;
+              setOpen(false);
+            }, 350);
           }}
         />
         )}

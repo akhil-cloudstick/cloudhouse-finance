@@ -52,6 +52,9 @@ export function AsyncSelect<T>({
   const input = useRef<TextInput>(null);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [q, setQ] = useState("");
+  // Until the user types, an open field keeps showing the current selection (selected, so typing
+  // replaces it) instead of going blank; the search itself still starts from an empty query.
+  const [typed, setTyped] = useState(false);
   const dq = useDebouncedValue(q);
   const open = !!anchor;
   const enabled = open && dq.trim().length >= minChars;
@@ -61,6 +64,7 @@ export function AsyncSelect<T>({
   const close = () => {
     setAnchor(null);
     setQ("");
+    setTyped(false);
     input.current?.blur();
     Keyboard.dismiss();
   };
@@ -84,15 +88,20 @@ export function AsyncSelect<T>({
       <View ref={ref} collapsable={false}>
         <Input
           ref={input}
-          value={open ? q : selectedLabel ?? ""}
-          onChangeText={setQ}
-          placeholder={open && selectedLabel ? selectedLabel : placeholder || "Search"}
+          value={open && typed ? q : selectedLabel ?? ""}
+          onChangeText={(v) => {
+            setTyped(true);
+            setQ(v);
+          }}
+          placeholder={placeholder || "Search"}
           autoCorrect={false}
+          selectTextOnFocus
           onFocus={() => measure(setAnchor)}
           onBlur={() => {
             if (anchor) {
               setAnchor(null);
               setQ("");
+              setTyped(false);
             }
           }}
           style={{ paddingRight: showClear ? 66 : 38 }}

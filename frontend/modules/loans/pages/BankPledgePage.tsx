@@ -195,7 +195,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           <div className="hd"><h3>Re-Pledged Loans</h3></div>
           {pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl tbl-cards">
               <thead>
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th className="col-act"></th></tr>
               </thead>
@@ -209,13 +209,13 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                   const treatment = active?.cashTreatment ?? "CashIn";
                   return (
                     <tr key={l.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
-                      <td>{canOpen("loan") ? <a href={routeHref(`loan/${l.id}`)}>{l.id}</a> : l.id}</td>
-                      <td>{l.customerName}</td>
-                      <td>{active?.bankName || "—"}</td>
-                      <td className="num">{fmtW(l.totalNetWeight)}</td>
-                      <td className="num">{active ? fmt(active.pledgedAmount) : "—"}</td>
-                      <td><CashTreatmentBadge treatment={treatment} /></td>
-                      <td>{fmtDate(active?.pledgeDate)}</td>
+                      <td data-label="Loan">{canOpen("loan") ? <a href={routeHref(`loan/${l.id}`)}>{l.id}</a> : l.id}</td>
+                      <td data-label="Customer">{l.customerName}</td>
+                      <td data-label="Bank">{active?.bankName || "—"}</td>
+                      <td className="num" data-label="Weight">{fmtW(l.totalNetWeight)}</td>
+                      <td className="num" data-label="Pledged Amount">{active ? fmt(active.pledgedAmount) : "—"}</td>
+                      <td data-label="Cash"><CashTreatmentBadge treatment={treatment} /></td>
+                      <td data-label="Pledged On">{fmtDate(active?.pledgeDate)}</td>
                       <td className="col-act" style={{ whiteSpace: "nowrap" }}>
                         {active && (
                           <>
@@ -272,7 +272,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           <div className="hd"><h3>Re-Pledge History</h3></div>
           {historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl tbl-cards">
               <thead>
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th></tr>
               </thead>
@@ -283,14 +283,14 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                   <tr><td colSpan={8} className="empty">No re-pledge records yet.</td></tr>
                 ) : history.map((r) => (
                   <tr key={r.id}>
-                    <td>{r.loanNumber ? (canOpen("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber) : `#${r.loanId}`}</td>
-                    <td>{r.customerName || "—"}</td>
-                    <td>{r.bankName}</td>
-                    <td className="num">{fmt(r.pledgedAmount)}</td>
-                    <td><CashTreatmentBadge treatment={r.cashTreatment} /></td>
-                    <td>{fmtDate(r.pledgeDate)}</td>
-                    <td>{fmtDate(r.releaseDate)}</td>
-                    <td>
+                    <td data-label="Loan">{r.loanNumber ? (canOpen("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber) : `#${r.loanId}`}</td>
+                    <td data-label="Customer">{r.customerName || "—"}</td>
+                    <td data-label="Bank">{r.bankName}</td>
+                    <td className="num" data-label="Amount">{fmt(r.pledgedAmount)}</td>
+                    <td data-label="Cash"><CashTreatmentBadge treatment={r.cashTreatment} /></td>
+                    <td data-label="Pledged">{fmtDate(r.pledgeDate)}</td>
+                    <td data-label="Released">{fmtDate(r.releaseDate)}</td>
+                    <td data-label="Status">
                       {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see item #13's
                         * Void→Delete relabel: this is a UI wording change, not a status-value rename. */}
                       <span className={`pill ${r.status === "Voided" ? "red" : r.status === "Released" ? "" : "green"}`}>{r.status === "Voided" ? "Deleted" : r.status}</span>

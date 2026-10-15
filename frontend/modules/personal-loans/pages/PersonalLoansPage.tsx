@@ -1,12 +1,13 @@
 "use client";
 
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { useIsSmallScreen, useResponsivePageSize } from "@/common/utils/responsive";
+import { useIsSmallScreen, useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 import { listPersonalLoansPage } from "@/modules/personal-loans/services/personalLoanService";
 import { type BackendPersonalLoan, type Frequency } from "@/modules/personal-loans/types/personal-loan-types";
 import { PersonalLoanRow } from "@/modules/personal-loans/components/PersonalLoanRow";
@@ -38,7 +39,8 @@ export function PersonalLoansPage() {
   const { openModal, closeModal } = useModal();
   const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
   const smallScreen = useIsSmallScreen();
-  const pageSize = useResponsivePageSize(15, 15);
+  const basePageSize = useResponsivePageSize(15, 15);
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
 
   // Both filters are multi-select, stored (and sent to the API) as
   // comma-separated lists; "" means no filter.
@@ -123,17 +125,18 @@ export function PersonalLoansPage() {
         />
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
-      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center tbl-cards">
         <thead><tr><th>Loan / Customer</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Frequency</th><th>Status</th></tr></thead>
         <tbody>
-          {loading ? (
+          {loading && !(cards && loans.length > 0) ? (
             <tr><td colSpan={5} className="empty">Loading personal loans…</td></tr>
           ) : loans.length === 0 ? (
             <tr><td colSpan={5} className="empty">No personal loans</td></tr>
           ) : loans.map((l) => <PersonalLoanRow loan={l} key={l.id} />)}
         </tbody>
       </table></div>
-      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <ScrollSentinel enabled={cards && (!nextDisabled)} onVisible={more} watch={loans.length} />
+      <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
         <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>

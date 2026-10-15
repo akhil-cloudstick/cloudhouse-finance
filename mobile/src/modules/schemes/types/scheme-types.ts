@@ -25,6 +25,7 @@ export type Scheme = {
   // mirrors web schemeService.ts's BackendScheme fields.
   serviceChargeType?: ServiceChargeType;
   serviceChargeValue?: number;
+  /** Legacy — the collection method is chosen per loan now; not edited on a scheme. */
   serviceChargeMode?: ServiceChargeMode;
   createdAt: string;
   updatedAt: string;
@@ -44,5 +45,4 @@ export type SchemeInput = {
   isActive?: boolean;
   serviceChargeType?: ServiceChargeType;
   serviceChargeValue?: number;
-  serviceChargeMode?: ServiceChargeMode;
 };

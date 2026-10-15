@@ -40,6 +40,7 @@ export function AuthField({ label, icon, right, onFocus, onBlur, ...rest }: Fiel
         <TextInput
           placeholderTextColor={colors.muted}
           importantForAutofill="no"
+          autoComplete="off"
           selectionColor={colors.brand}
           cursorColor={colors.brand}
           onFocus={(e) => {

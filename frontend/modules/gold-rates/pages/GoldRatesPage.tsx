@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useEffect, useState } from "react";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { useModal } from "@/common/components/ModalProvider";
@@ -9,7 +10,7 @@ import { fmt, fmtDate } from "@/common/utils/format";
 import { listGoldRatesPage } from "@/modules/gold-rates/services/goldRateService";
 import { type GoldRateView } from "@/modules/gold-rates/types/gold-rate-types";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { useResponsivePageSize, useScrollPageSize, useIsSmallScreen } from "@/common/utils/responsive";
 
 type RateTileProps = { k: string; r: number; small?: boolean };
 
@@ -29,7 +30,8 @@ function RateTile({ k, r, small }: RateTileProps) {
 export function GoldRatesPage() {
   const { latest, version } = useGoldRates();
   const { openModal } = useModal();
-  const pageSize = useResponsivePageSize(15, 15);
+  const basePageSize = useResponsivePageSize(15, 15);
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   const smallScreen = useIsSmallScreen();
   // Hidden rather than disabled when the role cannot record a rate — see
   // Customers.tsx.
@@ -80,28 +82,29 @@ export function GoldRatesPage() {
         <div className="hd"><h3>Rate History</h3></div>
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl tbl-center">
+          <table className="tbl tbl-center tbl-cards">
             <thead>
               <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g</th><th className="num">18K ₹/g</th><th>Published By</th></tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading && !(cards && rows.length > 0) ? (
                 <tr><td colSpan={5} className="empty">Loading rate history…</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={5} className="empty">No rates published yet.</td></tr>
               ) : rows.map((r) => (
                 <tr key={r.id}>
-                  <td>{fmtDate(r.date)}</td>
-                  <td className="num">{fmt(r.k24)}</td>
-                  <td className="num">{fmt(r.k22)}</td>
-                  <td className="num">{fmt(r.k18)}</td>
-                  <td>{r.setBy}</td>
+                  <td data-label="Date">{fmtDate(r.date)}</td>
+                  <td className="num" data-label="24K ₹/g">{fmt(r.k24)}</td>
+                  <td className="num" data-label="22K ₹/g">{fmt(r.k22)}</td>
+                  <td className="num" data-label="18K ₹/g">{fmt(r.k18)}</td>
+                  <td data-label="Published By">{r.setBy}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <ScrollSentinel enabled={cards && (page < totalPages)} onVisible={more} watch={rows.length} />
+        <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>

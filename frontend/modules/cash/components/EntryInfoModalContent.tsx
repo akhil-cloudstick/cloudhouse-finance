@@ -17,29 +17,49 @@ const KIND_LABEL: Record<EntryKind, string> = {
   system: "Entry",
 };
 
-type EntryInfoModalContentProps = { entryId: number; onChanged?: () => void };
+// initial: the entry already fetched by the caller, so the popup opens complete instead of loading in front of the user.
+type EntryInfoModalContentProps = { entryId: number; onChanged?: () => void; initial?: EntryInfo };
 
 /* The ledger's info popup for a cash-in, a debit or a self transfer: its
  * remarks and everything recorded about it — category, amount, date, the
  * payment breakdown (or the From / To banks of a transfer), branch, bill. */
-export function EntryInfoModalContent({ entryId, onChanged }: EntryInfoModalContentProps) {
+export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfoModalContentProps) {
   const { closeModal, openModal } = useModal();
-  const [info, setInfo] = useState<EntryInfo | null>(null);
+  const [info, setInfo] = useState<EntryInfo | null>(initial ?? null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
+    if (initial) return;
     let cancelled = false;
     getMovementEntry(entryId)
       .then((i) => { if (!cancelled) setInfo(i); })
       .catch(() => { if (!cancelled) setErr("Could not load the details of this entry."); });
     return () => { cancelled = true; };
-  }, [entryId]);
+  }, [entryId, initial]);
 
   if (!info) {
     return (
       <>
         <div className="hd"><h3>Entry Details</h3><button className="x" onClick={closeModal}>×</button></div>
-        <div className="bd"><p style={{ color: err ? "var(--red)" : "var(--muted)", fontSize: 13 }}>{err || "Loading…"}</p></div>
+        {/* Same sections as the loaded view, so the popup keeps its size and
+         * nothing pops in piece by piece once the entry arrives. */}
+        <div className="bd bd-scroll" style={{ minHeight: 360 }}>
+          {err ? (
+            <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>
+          ) : (
+            <>
+              <div className="kv">
+                {["Category", "Amount", "Date"].map((k) => (
+                  <div className="i" key={k}><div className="k">{k}</div><div className="v" style={{ color: "var(--muted)" }}>…</div></div>
+                ))}
+              </div>
+              <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Remarks</h4>
+              <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, minHeight: 40, color: "var(--muted)" }}>Loading…</div>
+              <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Payment breakdown</h4>
+              <div style={{ border: "1px solid var(--line)", borderRadius: 8, minHeight: 60 }} />
+            </>
+          )}
+        </div>
       </>
     );
   }

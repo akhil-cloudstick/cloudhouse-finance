@@ -1,25 +1,26 @@
 import React, { useState } from "react";
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
 import { Sheet } from "./Sheet";
-import { AccBtn } from "./AccBtn";
-import { CheckItem } from "./CheckItem";
+import { SheetFooter } from "./SheetFooter";
+import { PrimaryButton } from "./PrimaryButton";
+import { SheetScrollView } from "./SheetScrollView";
 import { DateField } from "./DateField";
 import { FieldRow } from "./FieldRow";
 import { ServerFlatList } from "./ServerFlatList";
 import { SearchInput } from "./SearchInput";
 import { useServerList } from "@/common/hooks/use-server-list";
-import { dmy } from "@/common/utils/format";
 
 /**
  * GroupedFilter — ONE filter control per table/list (mobile twin of web's
- * FilterPanel). A trigger pill ("Filters" + count badge) opens a sheet listing
- * every section with its currently selected NAMES; tapping a section opens its
- * picker, a "Reset all" button lives inside the sheet (no chips row, no
- * standalone clear outside). Put the pill in the table header and the
- * Export / Download buttons next to it.
+ * FilterPanel). A trigger pill ("Filters" + count badge) opens a sheet with a
+ * scrolling row of group tabs (each with its selected count) and the active
+ * group's list below it. "Reset all" is a text link in the header (only when
+ * something is selected) and one "Show results" button closes the sheet; no
+ * chips row, no standalone clear outside. Put the pill in the table header and
+ * the Download buttons next to it. Filters apply live (onChange per tap).
  *
  * Usage:
  *   const [fv, setFv] = useState(emptyGroupedFilter());
@@ -32,7 +33,7 @@ import { dmy } from "@/common/utils/format";
  *   ]} />
  *
  * Section kinds:
- *   static  { options, single? }  fixed list, single or multi select
+ *   static  { options, single? }  fixed list (checklist, or radio rows when single); searchable when long
  *   async   { fetchPage, deps?, single? } paginated + searchable list (server paged, 10/page)
  *   date    { hideFrom?, toLabel? } From / To date range (hideFrom: "as of" single date)
  *
@@ -73,23 +74,26 @@ export function groupedFilterCount(v: GroupedFilterValue): number {
   return o + d;
 }
 
-function dateText(d: { from?: string; to?: string }, hideFrom?: boolean): string {
-  if (hideFrom) return d.to ? dmy(d.to) : "";
-  if (d.from && d.to) return `${dmy(d.from)} – ${dmy(d.to)}`;
-  if (d.from) return `From ${dmy(d.from)}`;
-  if (d.to) return `Until ${dmy(d.to)}`;
-  return "";
-}
-
-function summaryOf(s: GFSection, v: GroupedFilterValue): string {
-  if (s.kind === "date") return dateText(gfDate(v, s.key), s.hideFrom);
-  return (v.options[s.key] ?? []).map((o) => o.label).join(", ");
-}
-
 function toggle(cur: GFOption[], o: GFOption, single?: boolean): GFOption[] {
   const has = cur.some((c) => c.value === o.value);
   if (single) return has ? [] : [o];
   return has ? cur.filter((c) => c.value !== o.value) : [...cur, o];
+}
+
+type OptionRowProps = { checked: boolean; onPress: () => void; title: string; radio?: boolean };
+
+/** One option inside a filter list — a flat row (no card / outline), a check (or radio) at the end. */
+function OptionRow({ checked, onPress, title, radio }: OptionRowProps) {
+  return (
+    <Pressable onPress={onPress} style={st.opt} accessibilityRole={radio ? "radio" : "checkbox"} accessibilityState={{ checked }}>
+      <Txt style={[st.optTxt, checked && st.optTxtOn]} numberOfLines={2}>{title}</Txt>
+      {radio ? (
+        <View style={[st.optRadio, checked && st.optRadioOn]}>{checked ? <View style={st.optDot} /> : null}</View>
+      ) : (
+        <View style={[st.optBox, checked && st.optBoxOn]}>{checked ? <PIcon name="check" color="#fff" size={13} strokeWidth={3} /> : null}</View>
+      )}
+    </Pressable>
+  );
 }
 
 type AsyncPickerProps = { section: Extract<GFSection, { kind: "async" }>; selected: GFOption[]; onPick: (o: GFOption) => void };
@@ -104,13 +108,37 @@ function AsyncPicker({ section, selected, onPick }: AsyncPickerProps) {
       list={list}
       items={list.items}
       inSheet
+      gutter={16}
       keyOf={(o) => o.value}
       emptyText="Nothing found."
-      header={<SearchInput value={list.search} onChangeText={list.setSearch} placeholder={`Search ${section.label.toLowerCase()}`} style={{ paddingHorizontal: 16 }} />}
-      renderItem={(o) => <CheckItem checked={selected.some((c) => c.value === o.value)} onPress={() => onPick(o)} title={o.label} />}
+      header={<SearchInput value={list.search} onChangeText={list.setSearch} placeholder={`Search ${section.label.toLowerCase()}`} style={{ paddingHorizontal: 16, paddingBottom: 8 }} />}
+      renderItem={(o) => <OptionRow radio={section.single} checked={selected.some((c) => c.value === o.value)} onPress={() => onPick(o)} title={o.label} />}
     />
   );
 }
+
+type StaticPickerProps = { section: Extract<GFSection, { kind: "static" }>; selected: GFOption[]; onPick: (o: GFOption) => void };
+
+function StaticPicker({ section, selected, onPick }: StaticPickerProps) {
+  const [q, setQ] = useState("");
+  const long = section.options.length > 8;
+  const needle = q.trim().toLowerCase();
+  const rows = long && needle ? section.options.filter((o) => o.label.toLowerCase().includes(needle)) : section.options;
+  return (
+    <SheetScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
+      {long ? <SearchInput value={q} onChangeText={setQ} placeholder={`Search ${section.label.toLowerCase()}`} style={{ paddingHorizontal: 16, paddingBottom: 8 }} /> : null}
+      <View style={st.list}>
+        {rows.map((o) => (
+          <OptionRow key={o.value} radio={section.single} checked={selected.some((c) => c.value === o.value)} onPress={() => onPick(o)} title={o.label} />
+        ))}
+        {rows.length === 0 ? <Txt style={st.empty}>Nothing found.</Txt> : null}
+      </View>
+    </SheetScrollView>
+  );
+}
+
+// Cap on how far the filter sheet rises, as a % of screen height.
+const SHEET_MAX_PCT = 65;
 
 type GroupedFilterProps = {
   title?: string;
@@ -131,20 +159,17 @@ export function GroupedFilter({
 }: GroupedFilterProps) {
   const [open, setOpen] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const { height: winH } = useWindowDimensions();
   const count = groupedFilterCount(value);
-  const active = sections.find((s): s is PickSection => s.key === activeKey && s.kind !== "date");
+  const active = sections.find((s) => s.key === activeKey) ?? sections[0];
 
-  const close = () => {
-    setOpen(false);
-    setActiveKey(null);
-  };
+  // Hardware back, drag down, outside tap and the footer button all just close the sheet.
+  const close = () => setOpen(false);
   const setOptions = (key: string, next: GFOption[]) => onChange({ ...value, options: { ...value.options, [key]: next } });
   const setDate = (key: string, patch: { from?: string; to?: string }) =>
     onChange({ ...value, dates: { ...value.dates, [key]: { ...gfDate(value, key), ...patch } } });
-  const pick = (s: PickSection, o: GFOption) => {
-    setOptions(s.key, toggle(value.options[s.key] ?? [], o, s.single));
-    if (s.single) setActiveKey(null);
-  };
+  const pick = (s: PickSection, o: GFOption) => setOptions(s.key, toggle(value.options[s.key] ?? [], o, s.single));
+  const tabCount = (s: GFSection) => (s.kind === "date" ? (gfDate(value, s.key).from || gfDate(value, s.key).to ? 1 : 0) : (value.options[s.key] ?? []).length);
 
   return (
     <>
@@ -155,50 +180,62 @@ export function GroupedFilter({
         </View>
         <PIcon name="chevdown" color={C.brandDeep} />
       </Pressable>
-      <Sheet visible={open} onClose={close} title={active ? active.label : title} maxHeightPct={80} scroll={!active}>
-        {active ? (
-          <>
-            {active.kind === "static" ? (
-              <View style={st.list}>
-                {active.options.map((o) => (
-                  <CheckItem key={o.value} checked={(value.options[active.key] ?? []).some((c) => c.value === o.value)} onPress={() => pick(active, o)} title={o.label} />
-                ))}
-              </View>
-            ) : (
-              <AsyncPicker section={active} selected={value.options[active.key] ?? []} onPick={(o) => pick(active, o)} />
-            )}
-            <View style={st.foot}>
-              <AccBtn label={active.single ? "Back" : "Done"} onPress={() => setActiveKey(null)} />
-            </View>
-          </>
-        ) : (
-          <View style={st.list}>
-            {sections.map((s) =>
-              s.kind === "date" ? (
-                <View key={s.key} style={st.dateWrap}>
-                  <Txt style={st.secLabel}>{s.label}</Txt>
-                  <FieldRow>
-                    {s.hideFrom ? null : <DateField label="From" value={gfDate(value, s.key).from} onChange={(v) => setDate(s.key, { from: v || undefined })} max={gfDate(value, s.key).to} clearable />}
-                    <DateField label={s.toLabel ?? (s.hideFrom ? "As of" : "To")} value={gfDate(value, s.key).to} onChange={(v) => setDate(s.key, { to: v || undefined })} min={gfDate(value, s.key).from} clearable />
-                  </FieldRow>
+      <Sheet
+        visible={open}
+        onClose={close}
+        title={
+          <View style={st.headRow}>
+            <View style={st.headLeft}>
+              <Txt style={st.headTitle} numberOfLines={1}>{title}</Txt>
+              {count > 0 ? (
+                <View style={st.count}>
+                  <Txt style={st.countTxt}>{count}</Txt>
                 </View>
-              ) : (
-                <Pressable key={s.key} style={st.row} onPress={() => setActiveKey(s.key)}>
-                  <View style={{ flex: 1 }}>
-                    <Txt style={st.secLabel}>{s.label}</Txt>
-                    <Txt style={[st.secVal, !summaryOf(s, value) && { color: C.muted, fontWeight: "500" }]} numberOfLines={2}>
-                      {summaryOf(s, value) || (s.single ? "All" : "All")}
-                    </Txt>
-                  </View>
-                  <PIcon name="chevright" color={C.muted} />
-                </Pressable>
-              )
-            )}
-            <View style={st.foot}>
-              <AccBtn label="Reset all" disabled={count === 0} onPress={() => onChange(emptyGroupedFilter())} />
+              ) : null}
             </View>
+            {count > 0 ? (
+              <Pressable onPress={() => onChange(emptyGroupedFilter())} hitSlop={10}>
+                <Txt style={st.reset}>Reset all</Txt>
+              </Pressable>
+            ) : null}
           </View>
-        )}
+        }
+        maxHeightPct={SHEET_MAX_PCT}
+        scroll={false}
+      >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={st.tabsScroll} contentContainerStyle={st.tabs}>
+          {sections.map((s) => {
+            const on = s.key === active?.key;
+            const n = tabCount(s);
+            return (
+              <Pressable key={s.key} onPress={() => setActiveKey(s.key)} style={[st.tab, on && st.tabOn]}>
+                <Txt style={[st.tabTxt, on && st.tabTxtOn]} numberOfLines={1}>{s.label}</Txt>
+                {n > 0 ? (
+                  <View style={[st.tabCount, on && st.tabCountOn]}>
+                    <Txt style={[st.tabCountTxt, on && st.tabCountTxtOn]}>{n}</Txt>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        <View style={[st.body, { minHeight: Math.round((winH * SHEET_MAX_PCT * 0.46) / 100) }]}>
+          {!active ? null : active.kind === "date" ? (
+            <View style={st.dateWrap}>
+              <FieldRow>
+                {active.hideFrom ? null : <DateField label="From" value={gfDate(value, active.key).from} onChange={(v) => setDate(active.key, { from: v || undefined })} max={gfDate(value, active.key).to} clearable />}
+                <DateField label={active.toLabel ?? (active.hideFrom ? "As of" : "To")} value={gfDate(value, active.key).to} onChange={(v) => setDate(active.key, { to: v || undefined })} min={gfDate(value, active.key).from} clearable />
+              </FieldRow>
+            </View>
+          ) : active.kind === "static" ? (
+            <StaticPicker key={active.key} section={active} selected={value.options[active.key] ?? []} onPick={(o) => pick(active, o)} />
+          ) : (
+            <AsyncPicker key={active.key} section={active} selected={value.options[active.key] ?? []} onPick={(o) => pick(active, o)} />
+          )}
+        </View>
+        <SheetFooter>
+          <PrimaryButton label={count > 0 ? `Show results · ${count} filter${count === 1 ? "" : "s"}` : "Show results"} onPress={close} />
+        </SheetFooter>
       </Sheet>
     </>
   );
@@ -209,10 +246,30 @@ const st = StyleSheet.create({
   pillTxt: { fontSize: 12.5, fontWeight: "700", color: C.brandDeep },
   count: { backgroundColor: C.brandDeep, minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 3, alignItems: "center", justifyContent: "center" },
   countTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
-  list: { paddingHorizontal: 16, paddingTop: 4, gap: 2 },
-  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.line },
-  secLabel: { fontSize: 11.5, fontWeight: "700", color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 },
-  secVal: { fontSize: 14, fontWeight: "700", color: C.ink, marginTop: 2 },
-  dateWrap: { paddingVertical: 12, gap: 6 },
-  foot: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  headRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  headLeft: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  headTitle: { fontWeight: "700", fontSize: 15, flexShrink: 1 },
+  reset: { fontSize: 13, fontWeight: "700", color: C.brand },
+  tabsScroll: { flexGrow: 0, flexShrink: 0 },
+  tabs: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12, gap: 8 },
+  tab: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#fff", borderWidth: 1, borderColor: C.line },
+  tabOn: { backgroundColor: C.brandDeep, borderColor: C.brandDeep },
+  tabTxt: { fontSize: 12.5, fontWeight: "700", color: C.muted },
+  tabTxtOn: { color: "#fff" },
+  tabCount: { backgroundColor: C.brandDeep, minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" },
+  tabCountOn: { backgroundColor: "#fff" },
+  tabCountTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  tabCountTxtOn: { color: C.brandDeep },
+  body: { flexShrink: 1 },
+  list: { paddingHorizontal: 16, paddingBottom: 12 },
+  empty: { color: C.muted, textAlign: "center", paddingVertical: 20 },
+  dateWrap: { paddingHorizontal: 16, paddingTop: 4 },
+  opt: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line },
+  optTxt: { flex: 1, fontSize: 14, fontWeight: "500", color: C.ink },
+  optTxtOn: { fontWeight: "700", color: C.ink },
+  optBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: C.line, alignItems: "center", justifyContent: "center" },
+  optBoxOn: { backgroundColor: C.brandDeep, borderColor: C.brandDeep },
+  optRadio: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: C.line, alignItems: "center", justifyContent: "center" },
+  optRadioOn: { borderColor: C.brandDeep },
+  optDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.brandDeep },
 });

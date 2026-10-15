@@ -1,5 +1,6 @@
 "use client";
 
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -9,7 +10,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { useAppRoute } from "@/common/hooks/use-app-route";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { type LoanView, type ServicingClass } from "@/modules/loans/types/loan-types";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 import { routeHref } from "@/common/services/appRoutes";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
@@ -42,7 +43,8 @@ const SERVICING_CATS: Partial<Record<string, "due_soon" | "overdue" | "defaulted
 export function LoansPage() {
   const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
   const { can } = useAuth();
-  const pageSize = useResponsivePageSize(15, 15);
+  const basePageSize = useResponsivePageSize(15, 15);
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   // No branch filter in a single-branch business, or while the global
   // branch selector already scopes the page (see useShowBranchFilter).
   const showBranchFilter = useShowBranchFilter();
@@ -189,17 +191,18 @@ export function LoansPage() {
         />
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
-      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center loans-tbl tbl-cards">
         <thead><tr><th>Loan / Customer</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
         <tbody>
-          {loading ? (
+          {loading && !(cards && rows.length > 0) ? (
             <tr><td colSpan={7} className="empty">Loading loans…</td></tr>
           ) : rows.length === 0 ? (
             <tr><td colSpan={7} className="empty">No loans in this category.</td></tr>
           ) : rows.map((l) => <LoanRow loan={l} key={l.id} />)}
         </tbody>
       </table></div>
-      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <ScrollSentinel enabled={cards && (!nextDisabled)} onVisible={more} watch={rows.length} />
+      <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page}{knownTotal ? ` of ${totalPages}` : ""}</span>
         <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>

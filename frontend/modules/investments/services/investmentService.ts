@@ -170,13 +170,13 @@ async function fetchInvestmentStatementPdf(investmentId: number): Promise<Blob> 
  * print dialog — same printPdfBlob flow as loanService.ts's
  * downloadIndemnityBondPDF/downloadReleaseAgreementPDF. */
 export async function printInvestmentBondPdf(investmentId: number): Promise<void> {
-  return printPdfJob(() => fetchInvestmentBondPdf(investmentId));
+  return printPdfJob(() => fetchInvestmentBondPdf(investmentId), undefined, `investment-bond-${investmentId}.pdf`);
 }
 
 /* Sends the investment's account statement straight to the browser's print
  * dialog — same printPdfBlob flow as printInvestmentBondPdf above. */
 export async function printInvestmentStatementPdf(investmentId: number): Promise<void> {
-  return printPdfJob(() => fetchInvestmentStatementPdf(investmentId));
+  return printPdfJob(() => fetchInvestmentStatementPdf(investmentId), undefined, `investment-statement-${investmentId}.pdf`);
 }
 
 

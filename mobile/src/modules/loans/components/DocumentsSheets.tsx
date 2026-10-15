@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Linking, View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Buffering, C, ChipToggle, Field, FieldGrid, NoticeBanner, PrimaryButton, SectionTitle, Sheet, SheetListItem, Txt } from "@/common/components/ui";
+import { Buffering, C, Field, FieldGrid, NoticeBanner, PIcon, PrimaryButton, SectionTitle, Sheet, SheetListItem, Txt } from "@/common/components/ui";
 import { checkIndemnityBondEsign, startIndemnityBondEsign } from "@/modules/loans/services/loanService";
 import { type BondDeliverBy, type BondLang, type Loan } from "@/modules/loans/types/loan-types";
 import {
@@ -20,7 +20,9 @@ import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { ErrorText } from "@/common/components/ErrorText";
 import { useAuth } from "@/common/providers/AuthProvider";
 
-const BOND_LANG_NAMES: Record<BondLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati", ta: "Tamil" };
+// Short mark shown in the language tile.
+const LANG_MARKS: Record<DocLang, string> = { en: "EN", ta: "த", ml: "മ", gu: "ગ" };
+type BondAction = "print" | "esign";
 
 function esignStatusText(l: Loan) {
   const st = l.indemnityBondSignStatus;
@@ -30,12 +32,12 @@ function esignStatusText(l: Loan) {
   return { text: "Not signed", color: C.amber };
 }
 
-type DocumentsSheetsProps = { loan: Loan; visible: boolean; onClose: () => void; onOpen: () => void };
+type DocumentsSheetsProps = { loan: Loan; visible: boolean; onClose: () => void };
 
 /** Prototype #documents-modal plus #doc-agreement and #esign-modal. Every
  * print flow (packet label, pledge slip, statement, pledge /
- * release agreements) and the Aadhaar eSign of the indemnity bond. */
-export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: DocumentsSheetsProps) {
+ * release agreements) and the Aadhaar eSign of the bond. */
+export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsProps) {
   const qc = useQueryClient();
   const isFinished = l.status === "Closed" || l.status === "Rejected";
   const [busy, setBusy] = useState<string | null>(null);
@@ -44,6 +46,8 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [esignOpen, setEsignOpen] = useState(false);
   const [esignLang, setEsignLang] = useState<BondLang>("en");
+  // Step 2 of the Bond flow: which action the language is being picked for.
+  const [langFor, setLangFor] = useState<BondAction | null>(null);
   const bondLangs = pledgeAgreementLangs();
   const [notice, setNotice] = useState<string | null>(null);
   const { can } = useAuth();
@@ -86,8 +90,8 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
         setNotice(null);
       } else if (deliverBy === "whatsapp") setNotice("Sent via WhatsApp to the customer's phone on file.");
       else setNotice("Sent to the customer's dashboard — they'll see it next time they open the app.");
-      // Status / notice live in the Documents sheet — reopen it so the result is visible.
-      onOpen();
+      // Status / notice live in the Bond sheet — reopen it so the result is visible.
+      setBondOpen(true);
       invalidateLoan(qc, l.id);
     },
     onError: (e) => setError(apiErr(e)),
@@ -103,11 +107,24 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
   });
 
   const sub = (key: string, text: string) => (busy === key ? "Preparing…" : text);
-  const openEsign = () => {
+  const openEsign = (lang: BondLang) => {
     setError(null);
-    onClose();
+    setEsignLang(lang);
+    setLangFor(null);
+    setBondOpen(false);
     setEsignOpen(true);
   };
+  const printBond = (lang: DocLang) => run(`pledge-${lang}`, () => printPledgeAgreementPdf(l.id, l.loanNumber, lang), "Could not print the Pledge Agreement — try again.");
+  // One language: nothing to choose, run straight away.
+  const chooseAction = (action: BondAction) => {
+    setError(null);
+    if (bondLangs.length === 1) {
+      if (action === "print") printBond(bondLangs[0]);
+      else openEsign(bondLangs[0]);
+    } else setLangFor(action);
+  };
+  const pickLang = (lang: DocLang) => (langFor === "esign" ? openEsign(lang) : printBond(lang));
+  const showSend = !isFinished && !signed && canSendEsign;
 
   return (
     <>
@@ -122,8 +139,8 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
         ) : null}
         <SheetListItem
           icon="doc"
-          title="Indemnity Bond"
-          sub="View / download the pledge agreement"
+          title="Bond"
+          sub={signed ? "Pledge agreement · eSigned" : "Pledge agreement PDF and Aadhaar eSign"}
           onPress={() => {
             setError(null);
             onClose();
@@ -142,35 +159,47 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
             }}
           />
         ) : null}
-        {!isFinished ? (
-          signed ? (
-            <SheetListItem
-              icon="shield"
-              title="Signed Indemnity Bond"
-              sub="Aadhaar eSign · signed — tap to open"
-              onPress={() => Linking.openURL(l.indemnityBondSignedUrl!).catch(() => setError("Could not open the signed bond."))}
-            />
-          ) : st === "sign_initiated" ? (
-            <>
-              <SheetListItem
-                icon="shield"
-                title="Check eSign Status"
-                sub={check.isPending ? "Checking…" : "Initiated — awaiting the customer's Aadhaar + OTP signature"}
-                onPress={() => !check.isPending && check.mutate()}
-              />
-              {canSendEsign ? <SheetListItem icon="edit" title="Send Bond for eSign Again" sub="Aadhaar eSign · resend the signing link" onPress={openEsign} /> : null}
-            </>
-          ) : !canSendEsign ? null : (
-            <SheetListItem
-              icon="edit"
-              title="Send Bond for eSign"
-              sub={st === "failed" ? "Aadhaar eSign · last attempt failed — send again" : "Aadhaar eSign · not yet signed"}
-              warn={st === "failed"}
-              onPress={openEsign}
-            />
-          )
+        {busy ? <Buffering /> : null}
+        <ErrorText>{error}</ErrorText>
+      </Sheet>
+
+      <Sheet visible={bondOpen && !langFor} onClose={() => setBondOpen(false)} title="Bond">
+        <FieldGrid
+          style={{ marginTop: 8, marginBottom: 14 }}
+          items={[
+            { k: "Document", v: `pledge-agreement-${l.loanNumber}.pdf` },
+            { k: "eSign status", v: status.text, color: status.color },
+          ]}
+        />
+        <PrimaryButton label="Print Bond" style={{ marginBottom: 10 }} disabled={!!busy} onPress={() => chooseAction("print")} />
+        {showSend ? (
+          <PrimaryButton
+            label={st === "sign_initiated" ? "Send for eSign Again" : st === "failed" ? "Send for eSign — retry" : "Send Bond for eSign"}
+            variant="outline"
+            style={{ marginBottom: 10 }}
+            onPress={() => chooseAction("esign")}
+          />
         ) : null}
-        {busy || check.isPending ? <Buffering /> : null}
+        <Txt style={{ fontSize: 11.5, color: C.muted, marginBottom: 10 }}>
+          Print opens the PDF to print or share. eSign sends the customer an Aadhaar OTP signing link.
+        </Txt>
+        {signed ? (
+          <PrimaryButton
+            label="Open Signed Bond"
+            variant="outline"
+            style={{ marginBottom: 10 }}
+            onPress={() => Linking.openURL(l.indemnityBondSignedUrl!).catch(() => setError("Could not open the signed bond."))}
+          />
+        ) : null}
+        {!isFinished && !signed && st === "sign_initiated" ? (
+          <PrimaryButton
+            label={check.isPending ? "Checking…" : "Check eSign Status"}
+            variant="outline"
+            style={{ marginBottom: 10 }}
+            loading={check.isPending}
+            onPress={() => check.mutate()}
+          />
+        ) : null}
         {notice ? (
           <View style={{ marginTop: 8 }}>
             <NoticeBanner>{notice}</NoticeBanner>
@@ -179,32 +208,36 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
         <ErrorText>{error}</ErrorText>
       </Sheet>
 
-      <Sheet visible={bondOpen} onClose={() => setBondOpen(false)} title="Indemnity Bond">
-        <FieldGrid
-          style={{ marginTop: 8, marginBottom: 14 }}
-          items={[
-            { k: "Document", v: `pledge-agreement-${l.loanNumber}.pdf` },
-            { k: "eSign status", v: status.text, color: status.color },
-          ]}
-        />
-        {bondLangs.map((lang: DocLang) => (
-          <PrimaryButton
-            key={lang}
-            label={bondLangs.length > 1 ? `Download PDF — ${DOC_LANG_LABELS[lang]}` : "Download PDF"}
-            variant={lang === "en" ? "primary" : "outline"}
-            style={{ marginBottom: 10 }}
-            loading={busy === `pledge-${lang}`}
-            disabled={!!busy && busy !== `pledge-${lang}`}
-            onPress={() => run(`pledge-${lang}`, () => printPledgeAgreementPdf(l.id, l.loanNumber, lang), "Could not print the Pledge Agreement — try again.")}
-          />
-        ))}
-        {signed ? (
-          <PrimaryButton
-            label="Open Signed Bond"
-            variant="outline"
-            onPress={() => Linking.openURL(l.indemnityBondSignedUrl!).catch(() => setError("Could not open the signed bond."))}
-          />
-        ) : null}
+      <Sheet visible={bondOpen && !!langFor} onClose={() => setLangFor(null)} title={langFor === "esign" ? "Send Bond for eSign" : "Print Bond"}>
+        <Pressable onPress={() => setLangFor(null)} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 4, marginTop: 8 }}>
+          <View style={{ transform: [{ rotate: "180deg" }] }}>
+            <PIcon name="chevright" color={C.brandDeep} />
+          </View>
+          <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.brandDeep }}>Back</Txt>
+        </Pressable>
+        <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 12, marginBottom: 4 }}>Choose the language</Txt>
+        {bondLangs.map((lang: DocLang, i: number) => {
+          const rowBusy = busy === `pledge-${lang}`;
+          return (
+            <Pressable
+              key={lang}
+              disabled={!!busy}
+              onPress={() => pickLang(lang)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 14, paddingHorizontal: 2, borderTopWidth: i ? 1 : 0, borderTopColor: C.line, opacity: busy && !rowBusy ? 0.5 : 1 }}
+            >
+              <View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: C.brandFaint, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Txt style={{ fontWeight: "800", fontSize: 13, color: C.brandDeep }}>{LANG_MARKS[lang]}</Txt>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Txt style={{ fontWeight: "700", fontSize: 13.5 }}>{DOC_LANG_LABELS[lang]}</Txt>
+                <Txt style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>
+                  {rowBusy ? "Preparing…" : langFor === "esign" ? `Customer signs the ${DOC_LANG_LABELS[lang]} bond` : `Pledge agreement PDF in ${DOC_LANG_LABELS[lang]}`}
+                </Txt>
+              </View>
+              {rowBusy ? <Buffering style={{ paddingVertical: 0 }} /> : <PIcon name="chevright" color={C.muted} />}
+            </Pressable>
+          );
+        })}
         <ErrorText>{error}</ErrorText>
       </Sheet>
 
@@ -231,9 +264,7 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: Documents
           {l.loanNumber} · {l.customer?.name ?? `Customer #${l.customerId}`}
           {l.customer?.phone ? ` · ${l.customer.phone}` : ""}
         </Txt>
-        <Field label="Bond language">
-          <ChipToggle options={bondLangs} value={esignLang} onChange={setEsignLang} labels={BOND_LANG_NAMES} wrap />
-        </Field>
+        <Field label={`Bond language: ${DOC_LANG_LABELS[esignLang]}`} />
         <Field label="How should the customer sign?" />
         {start.isPending ? (
           <Buffering block />

@@ -146,7 +146,7 @@ export function BanksSheet({ visible, onClose }: BanksSheetProps) {
             <AccRow
               key={b.id}
               name={b.name}
-              sub={b.branch || b.ifsc || undefined}
+              sub={b.branch || b.ifsc || "—"}
               details={[
                 { k: "IFSC", v: b.ifsc || "—" },
                 { k: "Account no", v: b.accountNo || "—" },

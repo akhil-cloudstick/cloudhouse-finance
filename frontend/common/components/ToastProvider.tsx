@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { FORBIDDEN_EVENT } from "@/common/services/httpClient";
 
 const ToastContext = createContext<((msg: string) => void) | null>(null);
 
@@ -21,6 +22,13 @@ export function ToastProvider({ children }: ToastProviderProps) {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setShow(false), 2600);
   }, []);
+
+  // Every 403 from the API surfaces here (httpClient dispatches the event).
+  useEffect(() => {
+    const onForbidden = () => toast("You don't have access to do that — ask your administrator.");
+    window.addEventListener(FORBIDDEN_EVENT, onForbidden);
+    return () => window.removeEventListener(FORBIDDEN_EVENT, onForbidden);
+  }, [toast]);
 
   return (
     <ToastContext.Provider value={toast}>

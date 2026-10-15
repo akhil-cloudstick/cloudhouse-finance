@@ -51,6 +51,9 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
   const windowHeight = useWindowDimensions().height;
   const [formH, setFormH] = useState(0);
   const [heroH, setHeroH] = useState(0);
+  // The form's height before anything was added to it (an error box): a form that fit
+  // then must not start scrolling just because an error appeared.
+  const [baseFormH, setBaseFormH] = useState(0);
   const bodyPad = (keyboardOpen ? 0 : insets.bottom) + 28 + 8;
   const preferred = Math.round(Math.min(compact ? 280 : 350, windowHeight * (compact ? 0.34 : 0.42))) + insets.top;
   // Never shorter than the heading itself: the panel's bottom edge is a
@@ -62,7 +65,10 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
   // shorter than Forgot password's. Every screen now gets the same hero
   // height, and a form that doesn't fit beneath it scrolls (needsScroll).
   const fitted = Math.max(floor, preferred);
-  const panelHeight = keyboardOpen ? insets.top + 96 : fitted;
+  const growth = !keyboardOpen && baseFormH ? Math.max(0, formH - baseFormH) : 0;
+  const baseFits = baseFormH > 0 && fitted + baseFormH + bodyPad <= windowHeight + 1;
+  const shrink = baseFits ? Math.min(growth, fitted - floor) : 0;
+  const panelHeight = keyboardOpen ? insets.top + 96 : fitted - shrink;
   const needsScroll = keyboardOpen || !formH || panelHeight + formH + bodyPad > windowHeight + 1;
 
   useEffect(() => {
@@ -147,7 +153,13 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
         </View>
 
         <View style={[styles.body, { paddingBottom: (keyboardOpen ? 0 : insets.bottom) + 28 }]}>
-          <View onLayout={(e) => setFormH(e.nativeEvent.layout.height)}>
+          <View
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              setFormH(h);
+              if (!keyboardOpen) setBaseFormH((b) => b || h);
+            }}
+          >
             {subtitle && !keyboardOpen ? (
               <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
                 {subtitle}

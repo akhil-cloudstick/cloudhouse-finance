@@ -388,7 +388,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
           {scheduleTab === "schedule" ? (
             <>
               {schedule.error && schedule.items.length > 0 && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-              <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center">
+              <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center tbl-cards">
                 <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Status</th></tr></thead>
                 <tbody>
                   {schedule.loading ? (
@@ -397,10 +397,10 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                     <tr><td colSpan={4} className="empty compact">No installments.</td></tr>
                   ) : schedule.items.map((s) => (
                     <tr key={s.id}>
-                      <td>{s.sequenceNo}</td>
-                      <td>{fmtDate(s.dueDate)}</td>
-                      <td className="num">{fmt(s.amount)}</td>
-                      <td><StatusChip status={s.status === "PartiallyPaid" ? "Partially Paid" : s.status} /></td>
+                      <td data-label="#">{s.sequenceNo}</td>
+                      <td data-label="Due Date">{fmtDate(s.dueDate)}</td>
+                      <td data-label="Amount" className="num">{fmt(s.amount)}</td>
+                      <td data-label="Status"><StatusChip status={s.status === "PartiallyPaid" ? "Partially Paid" : s.status} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -410,7 +410,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
           ) : (
             <>
               {history.error && history.items.length > 0 && <div className="notice" style={{ margin: 14 }}>{history.error}</div>}
-              <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center">
+              <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center tbl-cards">
                 <thead><tr><th>Date</th><th>Event</th><th className="num">Amount</th></tr></thead>
                 <tbody>
                   {history.loading ? (
@@ -419,14 +419,14 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                     <tr><td colSpan={3} className="empty compact">No history yet.</td></tr>
                   ) : history.items.map((hEntry) => (
                     <tr key={hEntry.id}>
-                      <td>{fmtDate(hEntry.occurredAt)}</td>
-                      <td className="pl-history-detail" title={hEntry.detail}>
+                      <td data-label="Date">{fmtDate(hEntry.occurredAt)}</td>
+                      <td data-label="Event" className="pl-history-detail" title={hEntry.detail}>
                         {hEntry.detail}
                         {hEntry.relatedLoanId && (
                           <> · <a href={routeHref(`personalloan/${hEntry.relatedLoanId}`)}>View loan</a></>
                         )}
                       </td>
-                      <td className="num">{hEntry.amount ? fmt(hEntry.amount) : ""}</td>
+                      <td data-label="Amount" className="num">{hEntry.amount ? fmt(hEntry.amount) : ""}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -441,7 +441,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
             <h3>Payment Ledger</h3>
           </div>
           {payments.error && <div className="notice" style={{ margin: 14 }}>{payments.error}</div>}
-          <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center ledger-amt">
+          <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center ledger-amt tbl-cards">
             <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
             <tbody>
               {payments.loading ? (
@@ -450,10 +450,10 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                 <tr><td colSpan={7} className="empty compact">No ledger entries yet.</td></tr>
               ) : payments.items.map((p, i) => (
                 <tr key={p.key || `${p.kind ?? "row"}-${p.id}-${i}`}>
-                  <td>{fmtDate(p.date)}</td>
-                  <td><LedgerRefLink kind="personalloan" id={p.refNo} label={p.refNo} /></td>
-                  <td>{p.particulars}</td>
-                  <td>
+                  <td data-label="Date">{fmtDate(p.date)}</td>
+                  <td data-label="Ref No"><LedgerRefLink kind="personalloan" id={p.refNo} label={p.refNo} /></td>
+                  <td data-label="Particulars">{p.particulars}</td>
+                  <td data-label="Method">
                     {modeCellFor(p.mode || undefined)}
                     {p.bankId && (
                       <div style={{ marginTop: 4 }}>
@@ -461,9 +461,9 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                       </div>
                     )}
                   </td>
-                  <td className="num" style={{ color: p.debit ? "var(--red)" : undefined }}>{p.debit ? fmt(p.debit) : "—"}</td>
-                  <td className="num" style={{ color: p.credit ? "var(--green)" : undefined }}>{p.credit ? fmt(p.credit) : "—"}</td>
-                  <td className="num">{fmt(p.balance)}</td>
+                  <td data-label="Debit" className="num" style={{ color: p.debit ? "var(--red)" : undefined }}>{p.debit ? fmt(p.debit) : "—"}</td>
+                  <td data-label="Credit" className="num" style={{ color: p.credit ? "var(--green)" : undefined }}>{p.credit ? fmt(p.credit) : "—"}</td>
+                  <td data-label="Balance" className="num">{fmt(p.balance)}</td>
                 </tr>
               ))}
             </tbody>

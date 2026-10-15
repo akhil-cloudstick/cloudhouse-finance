@@ -1,10 +1,12 @@
 "use client";
 
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useCallback, useEffect, useState } from "react";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useScrollPageSize } from "@/common/utils/responsive";
 import { listLoanRiskAssessmentPage, RISK_STATUSES, LOAN_RISK_PAGE_SIZE } from "@/modules/loans/services/loanService";
 import { type LoanRiskRow, type LoanRiskLevel, type LoanRiskCounts } from "@/modules/loans/types/loan-types";
 import { routeHref } from "@/common/services/appRoutes";
@@ -35,6 +37,7 @@ const RISK_LEVELS: LoanRiskLevel[] = ["Loss", "AtRisk", "Safe"];
  * loan matching status/from/to regardless of the riskLevel filter, not
  * just the current page. */
 export function LoanRiskPage() {
+  const { cards, size: pageSize, more } = useScrollPageSize(LOAN_RISK_PAGE_SIZE);
   const [rows, setRows] = useState<LoanRiskRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -60,7 +63,7 @@ export function LoanRiskPage() {
     __dateFrom: fromDate || undefined,
     __dateTo: toDate || undefined,
   };
-  const totalPages = Math.max(1, Math.ceil(total / LOAN_RISK_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
@@ -68,7 +71,7 @@ export function LoanRiskPage() {
 
   const refresh = useCallback(() => {
     setLoading(true);
-    listLoanRiskAssessmentPage(page, LOAN_RISK_PAGE_SIZE, {
+    listLoanRiskAssessmentPage(page, pageSize, {
       status: status || undefined,
       riskLevel: riskLevel || undefined,
       fromDate: fromDate || undefined,
@@ -86,7 +89,7 @@ export function LoanRiskPage() {
         setError(e instanceof ApiError ? e.message : "Could not load the risk assessment — a gold rate may not be published yet.");
       })
       .finally(() => setLoading(false));
-  }, [page, status, riskLevel, fromDate, toDate]);
+  }, [page, status, riskLevel, fromDate, toDate, pageSize]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -145,7 +148,7 @@ export function LoanRiskPage() {
 
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl tbl-center">
+          <table className="tbl tbl-center tbl-cards">
             <thead>
               <tr>
                 <th>Loan / Customer</th>
@@ -158,7 +161,7 @@ export function LoanRiskPage() {
               </tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading && !(cards && rows.length > 0) ? (
                 <tr><td colSpan={7} className="empty">Loading risk assessment…</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={7} className="empty">No loans in this category.</td></tr>
@@ -166,25 +169,26 @@ export function LoanRiskPage() {
                 const margin = r.currentGoldValue - r.outstandingAmount;
                 return (
                   <tr key={r.loanId}>
-                    <td>
+                    <td data-label="Loan / Customer">
                       <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a>
                       <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.customerName}</div>
                     </td>
-                    <td>{r.status}</td>
-                    <td className="num">{fmt(r.outstandingAmount)}</td>
-                    <td className="num">{r.totalNetWeight.toFixed(2)} g</td>
-                    <td className="num">{fmt(r.currentGoldValue)}</td>
-                    <td className="num" style={{ color: margin >= 0 ? "var(--green)" : "var(--red)" }}>
+                    <td data-label="Status">{r.status}</td>
+                    <td className="num" data-label="Outstanding Principal">{fmt(r.outstandingAmount)}</td>
+                    <td className="num" data-label="Gold Weight">{r.totalNetWeight.toFixed(2)} g</td>
+                    <td className="num" data-label="Current Gold Value">{fmt(r.currentGoldValue)}</td>
+                    <td className="num" data-label="Margin" style={{ color: margin >= 0 ? "var(--green)" : "var(--red)" }}>
                       {margin >= 0 ? "+" : "−"}{fmt(Math.abs(margin))}
                     </td>
-                    <td><span className={`chip ${RISK_CHIP[r.riskLevel]}`}>{RISK_LABEL[r.riskLevel]}</span></td>
+                    <td data-label="Risk"><span className={`chip ${RISK_CHIP[r.riskLevel]}`}>{RISK_LABEL[r.riskLevel]}</span></td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <ScrollSentinel enabled={cards && (hasMore)} onVisible={more} watch={rows.length} />
+        <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>

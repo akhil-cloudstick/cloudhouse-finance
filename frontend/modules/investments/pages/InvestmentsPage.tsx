@@ -132,7 +132,7 @@ export function InvestmentsPage() {
         />
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
-      <div className="tbl-wrap tbl-scroll" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center">
+      <div className="tbl-wrap tbl-scroll" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center tbl-cards">
         <thead><tr><th>Investment / Investor</th><th className="num">Principal</th><th>Rate</th><th>Maturity</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (
@@ -144,7 +144,7 @@ export function InvestmentsPage() {
         </tbody>
       </table></div>
       <div className="ft" style={{ fontSize: 12.5, color: "var(--muted)" }}>
-        Showing {investments.length} of {total || investments.length}{hasMore ? " — scroll for more" : ""}
+        Showing {investments.length} of {total || investments.length}{hasMore ? " — scroll for more" : ""}{hasMore && <button className="btn plain sm tbl-cards-more" style={{ marginLeft: 10 }} disabled={loadingMore} onClick={loadNextPage}>Load more</button>}
       </div>
       </div>
     </>

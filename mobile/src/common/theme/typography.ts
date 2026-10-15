@@ -1,32 +1,17 @@
-import { Platform } from "react-native";
+import { StyleSheet, type StyleProp, type TextStyle } from "react-native";
 
-// Body text is 'Inter', headings 'Montserrat' — matching the web app
-// (frontend/app/(product)/layout.tsx). Loaded via @expo-google-fonts in
-// app/_layout.tsx; reference the family names below rather than hardcoding
-// font strings in screens.
-//
-// Web and mobile finally agree on typography. They used not to: the web app
-// set headings in Bodoni Moda SC, which these apps refused to adopt because
-// its small caps and extreme thick/thin contrast are hard to read at phone
-// sizes — so `serif` was aliased to a sans here and the two drifted. The CloudHouse
-// re-theme dropped Bodoni everywhere in favour of Montserrat, which carries
-// the wordmark's voice and holds up at h3, the size most headings on these
-// screens actually are.
-//
-// `display` is the real name for the heading family. `serif` is kept as an
-// alias purely so existing typeScale references and any screen that reached
-// for fonts.serif keep working; it has not been an actual serif since before
-// this re-theme.
-// iOS uses the system face, San Francisco (weights come from fontWeight in
-// typeScale). SF's licence limits it to Apple platforms, so Android keeps
-// Inter/Montserrat — Inter is the closest freely-licensed match to SF.
-const ios = Platform.OS === "ios";
+// The app's typeface is IBM Plex Sans on both platforms (Regular / Medium / SemiBold),
+// loaded via @expo-google-fonts in RootLayout.tsx. Reference the family names below
+// rather than hardcoding font strings in screens. Nothing heavier than SemiBold is used.
 export const fonts = {
-  body: ios ? "System" : "Inter_400Regular",
-  bodyMedium: ios ? "System" : "Inter_500Medium",
-  bodySemiBold: ios ? "System" : "Inter_600SemiBold",
-  display: ios ? "System" : "Montserrat_700Bold",
-  serif: ios ? "System" : "Montserrat_700Bold",
+  body: "IBMPlexSans_400Regular",
+  bodyMedium: "IBMPlexSans_500Medium",
+  bodySemiBold: "IBMPlexSans_600SemiBold",
+  // Kept as aliases so older references keep working; the heaviest weight is SemiBold.
+  bodyBold: "IBMPlexSans_600SemiBold",
+  bodyExtraBold: "IBMPlexSans_600SemiBold",
+  display: "IBMPlexSans_600SemiBold",
+  serif: "IBMPlexSans_600SemiBold",
 };
 
 export const typeScale = {
@@ -41,3 +26,35 @@ export const typeScale = {
   label: { fontFamily: fonts.bodyMedium, fontSize: 13, fontWeight: "500" as const },
   small: { fontFamily: fonts.body, fontSize: 12 },
 } as const;
+
+// App-wide text size multiplier, applied centrally in Txt (hardcoded
+// StyleSheet sizes stay as authored). Rounded to the nearest 0.5.
+export const FONT_SCALE = 1.04;
+export const scaled = (size: number) => Math.round(size * FONT_SCALE * 2) / 2;
+
+// Custom fonts ignore fontWeight, so pick the Plex file by weight.
+export function fontFor(weight?: TextStyle["fontWeight"]): string {
+  const w = weight === "bold" ? 700 : weight === "normal" || weight == null ? 400 : Number(weight);
+  // Nothing heavier than SemiBold: 700/800 text read too heavy, so they share the 600 weight.
+  if (w >= 600) return fonts.bodySemiBold;
+  if (w >= 500) return fonts.bodyMedium;
+  return fonts.body;
+}
+
+// Resolves a text style: optional size scaling plus the Plex family for the
+// weight. An explicit fontFamily is respected untouched.
+export function textStyle(style: StyleProp<TextStyle>, scale = true): TextStyle {
+  const flat: TextStyle = { ...(StyleSheet.flatten(style) || {}) };
+  if (scale) {
+    if (typeof flat.fontSize === "number") flat.fontSize = scaled(flat.fontSize);
+    if (typeof flat.lineHeight === "number") flat.lineHeight = scaled(flat.lineHeight);
+  }
+  if (!flat.fontFamily) {
+    const family = fontFor(flat.fontWeight);
+    if (family) {
+      flat.fontFamily = family;
+      flat.fontWeight = "normal";
+    }
+  }
+  return flat;
+}

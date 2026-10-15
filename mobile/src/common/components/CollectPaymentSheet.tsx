@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
+import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AsyncSelect, C, DateField, Field, FieldRow, Input, PaymentSplit, PrimaryButton, Sheet, TextField, ThemeDropdown, Txt, ZERO_SPLIT, isBalanced, type SplitAmounts } from "@/common/components/ui";
+import { C, DateField, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropdown, Txt } from "@/common/components/ui";
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { recordPayment } from "@/modules/loans/services/paymentService";
-import { createBank, listBanksPage } from "@/modules/banks/services/bankService";
-import type { Bank } from "@/modules/banks/types/bank-types";
 import { inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
-import { useAuth } from "@/common/providers/AuthProvider";
 import { PAYMENT_TYPES, PAYMENT_TYPE_LABELS, apiErr, invalidateLoan, type PaymentType } from "./loanSheetKit";
 import { ErrorText } from "./ErrorText";
 
@@ -14,11 +13,12 @@ import { ErrorText } from "./ErrorText";
 // them to the paisa.
 const money = (v: number) => (v > 0 ? String(Math.round(v * 100) / 100) : "");
 
-// Amount a payment type normally settles; undefined for types with no
-// natural figure (Partial).
+// Amount a payment type normally settles. "Both" (Partial) prefills interest + principal.
 function autoAmount(l: Loan, t: PaymentType) {
   const v =
-    t === "Interest"
+    t === "Partial"
+      ? (l.outstandingInterest ?? 0) + (l.outstandingAmount ?? 0)
+      : t === "Interest"
       ? l.outstandingInterest
       : t === "Penal Interest"
         ? l.outstandingPenalInterest
@@ -34,7 +34,6 @@ type CollectPaymentSheetProps = { loan: Loan; visible: boolean; onClose: () => v
 
 /** Prototype #act-collect — record an EMI / part payment with a mode split. */
 export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymentSheetProps) {
-  const canCreateBank = useAuth().can("Bank_Management", "can_create_bank");
   const qc = useQueryClient();
   const [type, setType] = useState<PaymentType>("Interest");
   const [amount, setAmount] = useState("");
@@ -47,12 +46,10 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
   // back to the system-calculated figure.
   const [interest, setInterest] = useState("");
   const interestTouched = useRef(false);
-  const [reference, setReference] = useState("");
-  const [description, setDescription] = useState("");
-  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
-  const [bank, setBank] = useState<Bank | null>(null);
+  const [breakdown, setBreakdown] = useState<SplitPayment | null>(null);
+  // Bumped on each open so the breakdown rows start fresh.
+  const [openKey, setOpenKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const bankRequired = split.upiAmount > 0 || split.bankTransferAmount > 0 || split.chequeAmount > 0;
 
   // Fresh form each time the sheet opens.
   useEffect(() => {
@@ -60,12 +57,9 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
     const a = autoAmount(l, "Interest");
     setType("Interest");
     setAmount(a);
-    setSplit({ ...ZERO_SPLIT, cashAmount: +a || 0 });
+    setOpenKey((k) => k + 1);
     setDate(todayISO());
-    setReference("");
-    setDescription("");
     setCharge("");
-    setBank(null);
     setError(null);
     interestTouched.current = false;
     setInterest(money(l.outstandingInterest ?? 0));
@@ -92,10 +86,8 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
         type,
         processingFee: chargeAmt || undefined,
         paidOn: date,
-        ...split,
-        bankId: bankRequired ? bank?.id : undefined,
-        reference: reference.trim() || undefined,
-        description: description.trim() || undefined,
+        ...(breakdown?.split ?? {}),
+        bankId: breakdown?.bankId,
         interestOverride: interest.trim() ? Number(interest) : undefined,
       }),
     onSuccess: () => {
@@ -104,11 +96,6 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
     },
     onError: (e) => setError(apiErr(e, "Could not record the payment — try again.")),
   });
-
-  function changeAmount(v: string, c: string = charge) {
-    setAmount(v);
-    setSplit({ ...ZERO_SPLIT, cashAmount: (Number(v) > 0 ? Number(v) + (Number(c) > 0 ? Number(c) : 0) : 0) });
-  }
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Collect Payment">
@@ -122,63 +109,38 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
           labelOf={(t) => PAYMENT_TYPE_LABELS[t]}
           onChange={(t) => {
             setType(t);
-            changeAmount(autoAmount(l, t));
+            setAmount(autoAmount(l, t));
           }}
         />
       </Field>
       <FieldRow>
         <Field label="Amount">
-          <Input keyboardType="decimal-pad" value={amount} onChangeText={(v) => changeAmount(v)} placeholder="0" />
+          <Input keyboardType="decimal-pad" value={amount} onChangeText={setAmount} placeholder="0" />
         </Field>
         <DateField label="Payment date" value={date} onChange={setDate} max={todayISO()} />
       </FieldRow>
-      <Field label="Additional Charges (₹)">
-        <Input
-          keyboardType="decimal-pad"
-          value={charge}
-          onChangeText={(v) => {
-            setCharge(v);
-            changeAmount(amount, v);
-          }}
-          placeholder="e.g. late fee — added on top of Amount"
-        />
-        {chargeAmt > 0 ? (
-          <Txt style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Customer pays {inr(amt)} ({inr(typedAmt)} + {inr(chargeAmt)} charges)</Txt>
-        ) : null}
-      </Field>
-      <Field label="Interest (₹)">
-        <Input
-          keyboardType="decimal-pad"
-          value={interest}
-          onChangeText={(v) => {
-            interestTouched.current = true;
-            setInterest(v);
-          }}
-        />
-        <Txt style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
-          Outstanding interest {inr(l.outstandingInterest ?? 0)}
-          {(l.outstandingPenalInterest ?? 0) > 0 ? ` · penal ${inr(l.outstandingPenalInterest)}` : ""} — leave blank to use the system figure.
-        </Txt>
-      </Field>
-      <Field label="Payment breakdown">
-        <PaymentSplit amount={amt} value={split} onChange={setSplit} />
-      </Field>
-      {bankRequired ? (
-        <AsyncSelect<Bank>
-          label="Bank"
-          placeholder="Search or add a bank"
-          queryKey={["banks", "picker"]}
-          fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
-          selectedLabel={bank?.name}
-          onSelect={setBank}
-          onClear={() => setBank(null)}
-          keyOf={(b) => b.id}
-          renderItem={(b) => ({ title: b.name })}
-          onCreateNew={canCreateBank ? (name) => createBank({ name }) : undefined}
-        />
-      ) : null}
-      <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} />
-      <TextField label="Description" placeholder="Add a note (optional)" value={description} onChangeText={setDescription} />
+      <FieldRow>
+        <Field label="Additional Charges (₹)">
+          <Input keyboardType="decimal-pad" value={charge} onChangeText={setCharge} placeholder="e.g. late fee" />
+        </Field>
+        <Field label="Interest (₹)">
+          <Input
+            keyboardType="decimal-pad"
+            value={interest}
+            onChangeText={(v) => {
+              interestTouched.current = true;
+              setInterest(v);
+            }}
+          />
+        </Field>
+      </FieldRow>
+      <Txt style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>
+        {chargeAmt > 0 ? `Customer pays ${inr(amt)} (${inr(typedAmt)} + ${inr(chargeAmt)} charges). ` : "Charges are added on top of Amount. "}
+        Leave interest blank to use the system figure{(l.outstandingPenalInterest ?? 0) > 0 ? ` (penal ${inr(l.outstandingPenalInterest)} outstanding)` : ""}.
+      </Txt>
+      <View style={{ marginBottom: 12 }}>
+        <SplitPaymentInput key={openKey} total={amt} onChange={setBreakdown} />
+      </View>
       <ErrorText>{overSettle ? `More than the full settlement — only ${inr(settleOwed)} is owed.` : error}</ErrorText>
       <PrimaryButton
         label="Confirm Payment"
@@ -187,7 +149,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
           pay.mutate();
         }}
         loading={pay.isPending}
-        disabled={!(amt > 0) || overSettle || !date || !isBalanced(split, amt) || (bankRequired && !bank)}
+        disabled={!(amt > 0) || overSettle || !date || !breakdown?.ready}
       />
     </Sheet>
   );

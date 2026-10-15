@@ -317,7 +317,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
           ) : null}
         </div>
         {ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
-        <div className="tbl-wrap"><table className="tbl" data-ledger-scope="investment-ledger">
+        <div className="tbl-wrap"><table className="tbl tbl-cards" data-ledger-scope="investment-ledger">
           <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
           <tbody>
             {ledgerLoading ? (
@@ -331,18 +331,18 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
               ].filter(Boolean).join(" · ");
               return (
                 <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount}>
-                  <td>{fmtDate(r.date)}</td>
-                  <td style={{ whiteSpace: "nowrap" }}>{r.reference || "—"}</td>
-                  <td>
+                  <td data-label="Date">{fmtDate(r.date)}</td>
+                  <td data-label="Ref No" style={{ whiteSpace: "nowrap" }}>{r.reference || "—"}</td>
+                  <td data-label="Particulars">
                     {r.description || r.type}
                     {split && r.debitOrCredit === "debit" && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{split}</div>}
                   </td>
-                  <td>
+                  <td data-label="Method">
                     {modeCellFor(r.method)}
                   </td>
-                  <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
-                  <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                  <td className="num">{fmt(r.runningBalance)}</td>
+                  <td data-label="Debit" className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
+                  <td data-label="Credit" className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
+                  <td data-label="Balance" className="num">{fmt(r.runningBalance)}</td>
                 </tr>
               );
             })}
@@ -355,7 +355,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Interest Payout Schedule</h3></div>
           {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-          <div className="tbl-wrap"><table className="tbl tbl-center">
+          <div className="tbl-wrap"><table className="tbl tbl-center tbl-cards">
             <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {schedule.loading ? (
@@ -364,11 +364,11 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
                 <tr><td colSpan={6} className="empty compact">No payouts scheduled.</td></tr>
               ) : schedule.items.map((p) => (
                 <tr key={p.id}>
-                  <td>{p.sequenceNo}</td>
-                  <td>{fmtDate(p.dueDate)}</td>
-                  <td className="num">{fmt(p.amount)}</td>
-                  <td>{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
-                  <td><StatusChip status={p.status} /></td>
+                  <td data-label="#">{p.sequenceNo}</td>
+                  <td data-label="Due Date">{fmtDate(p.dueDate)}</td>
+                  <td data-label="Amount" className="num">{fmt(p.amount)}</td>
+                  <td data-label="Type">{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
+                  <td data-label="Status"><StatusChip status={p.status} /></td>
                   <td>
                     {canUpdate && p.status === "Pending" && (
                       <button className="btn plain sm" onClick={() => openMarkPaid(p)}>Mark Paid</button>

@@ -59,21 +59,21 @@
     {{with .Logo}}<img class="lg" src="{{.}}" alt="">{{end}}
     <div class="hd"><h2>{{.LenderName}}</h2>{{range $i, $l := .AddressLines}}<div class="{{if eq $i 0}}ad{{else}}ct{{end}}">{{$l}}</div>{{end}}{{with .Phones}}<div class="ct">Phone : {{.}}</div>{{end}}<div class="gl">GOLD LOAN RECEIPT</div></div>
     <table class="rg">
-      {{if .KMLRegNo}}<tr><td>Licence No</td><td>: {{.KMLRegNo}}</td></tr>{{end}}
+      <tr><td>Licence No</td><td>: {{if .KMLRegNo}}{{.KMLRegNo}}{{else}}—{{end}}</td></tr>
       <tr><td>GL. No</td><td>: {{.LoanNumber}}</td></tr>
       <tr><td>Name</td><td>: {{.CustomerName}}</td></tr>
       <tr><td>Date</td><td>: {{.LoanDateDisplay}}</td></tr>
-      <tr><td>Amount</td><td>: {{.PrincipalAmount}}</td></tr>
-      <tr><td>Weight</td><td>: {{.NetTotal}}</td></tr>
+      <tr><td>Amount</td><td>: {{.ReceiptAmount}}</td></tr>
+      <tr><td>Weight</td><td>: {{.NetTotal}} g</td></tr>
     </table>
     <div class="orn"><u>Ornaments &amp; Qty</u>{{range .Items}}<br>{{.Name}}-{{.Qty}}{{end}}</div>
     <div class="jw"><u>Jewel Photo</u><div class="sm">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div><div class="ls"><style>.tml-lsig .sig-img{max-height:20px;max-width:90px;display:block}</style><span class="tml-lsig">{{.LenderSignature}}</span></div><small>Authorized Signature<br>({{.LenderName}})</small></div>
-    <div class="terms">1. Principal and interest must be paid before the gold ornaments are taken back.<br>2. Once the term ends, the ornaments will be auctioned after notice is given.<br>3. Interest must be paid once every six months.<br>Working hours : 9 AM to 5 PM (Sunday holiday)</div>
+    <div class="terms"><div>1. Principal and interest must be paid, before the gold ornaments are taken back.</div><div>2. Once the term ends, the ornaments will be auctioned after notice is given.</div><div>3. Interest must be paid once every six months.</div><div>Working hours : 9 AM to 5 PM (Sunday holiday)</div></div>
   </div>
   <div class="r">
     <h3>Package Details</h3>
     <b>GL.NO</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {{.LoanNumber}}<br><b>Name</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {{.CustomerName}}<br>
-    <b>Lo Amt</b> &nbsp;&nbsp;&nbsp;: {{.PrincipalAmount}}<br><b>Weight</b> &nbsp;&nbsp;&nbsp;: {{.NetTotal}} gm<br><b>Total Qty : {{.TotalQty}}</b>
+    <b>Lo Amt</b> &nbsp;&nbsp;&nbsp;: {{.ReceiptAmount}}<br><b>Weight</b> &nbsp;&nbsp;&nbsp;: {{.NetTotal}} g<br><b>Total Qty : {{.TotalQty}}</b>
     {{with .PacketQR}}<div class="pqr"><img src="{{.}}" alt=""><span>Packet QR</span></div>{{end}}
   </div>
 </div>

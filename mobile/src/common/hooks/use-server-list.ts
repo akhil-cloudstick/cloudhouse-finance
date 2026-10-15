@@ -36,6 +36,7 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   pageSize = PAGE_SIZE,
   fresh = false,
   persistKey,
+  staleTime,
 }: {
   key: unknown[];
   fetchPage: (params: F & { q?: string; limit: number; offset: number }) => Promise<ServerPage<T>>;
@@ -47,6 +48,8 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   fresh?: boolean;
   /** Keep the search text under this key so it survives leaving the screen. */
   persistKey?: string;
+  /** How long fetched pages count as fresh (ms). */
+  staleTime?: number;
 }) {
   const qc = useQueryClient();
   // Runs once, before the query subscribes.
@@ -60,6 +63,7 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   const query = useInfiniteQuery({
     queryKey: [...key, "page", q, filters ?? {}],
     enabled,
+    staleTime,
     initialPageParam: 0,
     // Keep the previous rows on screen (dimmed, with the buffering spinner)
     // while a new search/filter result loads, instead of flashing empty.
@@ -69,7 +73,8 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
     getNextPageParam: (last, all) => (last?.hasMore ? all.length * pageSize : undefined),
   });
 
-  useRefetchOnFocus(query.refetch);
+  // A disabled (not yet opened) list must not be fetched by a screen focus.
+  useRefetchOnFocus((o) => (enabled ? query.refetch(o) : undefined));
 
   const items = useMemo(() => query.data?.pages.flatMap((p) => p?.items ?? []) ?? [], [query.data]);
   const total = query.data?.pages[0]?.total;
