@@ -177,13 +177,13 @@ func RequirePermission(permissionName string) echo.MiddlewareFunc {
 			allowed, err := cachedIsAllowed(c, roleID, permissionName)
 			if err != nil {
 				if errors.Is(err, ErrPermissionNotFound) {
-					return failAbort(c, http.StatusForbidden, "Permission not found")
+					return failForbidden(c, "Permission not found", permissionName)
 				}
 				log.Printf("permission check for %q (role %d) failed: %v", permissionName, roleID, err)
 				return failAbort(c, http.StatusInternalServerError, "permission check failed")
 			}
 			if !allowed {
-				return failAbort(c, http.StatusForbidden, "Access denied")
+				return failForbidden(c, "Access denied", permissionName)
 			}
 			return next(c)
 		}
@@ -532,6 +532,16 @@ func failAbort(c echo.Context, status int, message string) error {
 	return c.JSON(status, echo.Map{
 		"success": false,
 		"error":   message,
+	})
+}
+
+// failForbidden keeps "error" as the user-facing text and names the permission
+// the role lacks in "missing_permission", for reading in the network tab.
+func failForbidden(c echo.Context, message, permissionName string) error {
+	return c.JSON(http.StatusForbidden, echo.Map{
+		"success":            false,
+		"error":              message,
+		"missing_permission": permissionName,
 	})
 }
 

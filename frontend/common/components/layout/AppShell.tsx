@@ -270,6 +270,20 @@ function AppShellInner() {
     setSidebarOpen(false);
   }, [route, arg]);
 
+  // On narrow screens the sidebar is an overlay: a click outside it closes it.
+  // The burger is excluded — its own onClick toggles, so closing here too would
+  // make it close and immediately reopen.
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    function onOutside(e: PointerEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("#side, #burger")) return;
+      setSidebarOpen(false);
+    }
+    document.addEventListener("pointerdown", onOutside);
+    return () => document.removeEventListener("pointerdown", onOutside);
+  }, [sidebarOpen]);
+
   /* A focused <input type="number"> steps its value on every mouse-wheel tick,
    * so scrolling the page with the pointer over one silently changes an
    * amount. One document-level listener for every number field (modals

@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { StatusChip } from "@/common/components/ui/StatusChip";
-import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf } from "@/modules/investments/services/investmentService";
+import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVESTMENT_LEDGER_PAGE_SIZE, INVESTMENT_PAGE_SIZE, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModalContent";
@@ -21,42 +21,52 @@ import { Icon } from "@/common/components/Icon";
 import { routeHref } from "@/common/services/appRoutes";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { useScrollPageSize } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 
 /* Same click-paginated table pattern as personal-loans/components/
  * PersonalLoanDetail.tsx's usePagedTable + Pager. */
-function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; hasMore: boolean }>, resetKey: unknown) {
+function usePagedTable<T>(fetchPage: (page: number, size: number) => Promise<{ items: T[]; hasMore: boolean }>, resetKey: unknown, baseSize: number) {
   const [items, setItems] = useState<T[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Below the card breakpoint the pager is hidden and the list grows on scroll instead.
+  const { cards, size, more } = useScrollPageSize(baseSize);
+  const hasRows = useRef(false);
+  hasRows.current = items.length > 0;
+  const seq = useRef(0);
 
   const load = useCallback(async (p: number) => {
-    setLoading(true);
+    const my = ++seq.current;
+    if (!(cards && hasRows.current)) setLoading(true);
     try {
-      const res = await fetchPage(p - 1);
+      const res = await fetchPage(cards ? 0 : p - 1, size);
+      if (my !== seq.current) return;
       setItems(res.items);
       setHasMore(res.hasMore);
       setError("");
     } catch (e) {
+      if (my !== seq.current) return;
       setError(e instanceof ApiError ? e.message : "Could not load.");
     } finally {
-      setLoading(false);
+      if (my === seq.current) setLoading(false);
     }
-  }, [fetchPage]);
+  }, [fetchPage, cards, size]);
 
-  useEffect(() => { setPage(1); }, [resetKey]);
+  useEffect(() => { setPage(1); }, [resetKey, cards]);
   useEffect(() => { void load(page); }, [load, page]);
 
   const totalPages = hasMore ? page + 1 : page;
-  return { items, page, setPage, totalPages, loading, error, reload: () => load(page) };
+  return { items, page, setPage, totalPages, loading, error, reload: () => load(page), cards, hasMore, more };
 }
 
 type PagerProps = { page: number; totalPages: number; onChange: (p: number) => void };
 
 function Pager({ page, totalPages, onChange }: PagerProps) {
   return (
-    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+    <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
@@ -107,8 +117,9 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
 
   // The ledger is paged on the server (the running balance is computed over the whole ledger there).
   const ledgerTable = usePagedTable<InvestmentLedgerRow>(
-    useCallback((page) => (numericId ? getInvestmentLedgerPage(numericId, page) : Promise.resolve({ items: [], hasMore: false })), [numericId]),
-    numericId
+    useCallback((page, size) => (numericId ? getInvestmentLedgerPage(numericId, page, size) : Promise.resolve({ items: [], hasMore: false })), [numericId]),
+    numericId,
+    INVESTMENT_LEDGER_PAGE_SIZE
   );
   const ledger = ledgerTable.items;
   const ledgerLoading = ledgerTable.loading;
@@ -132,8 +143,9 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
   useEffect(() => { void refreshInvestment(); }, [refreshInvestment]);
 
   const schedule = usePagedTable<BackendInvestmentPayout>(
-    useCallback((page) => getInvestmentSchedulePage(numericId, page), [numericId]),
-    numericId
+    useCallback((page, size) => getInvestmentSchedulePage(numericId, page, size), [numericId]),
+    numericId,
+    INVESTMENT_PAGE_SIZE
   );
 
   if (loading) return <div className="notice">Loading investment…</div>;
@@ -348,6 +360,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             })}
           </tbody>
         </table></div>
+        <ScrollSentinel enabled={ledgerTable.cards && ledgerTable.hasMore && !ledgerTable.loading} onVisible={ledgerTable.more} watch={ledgerTable.items.length} />
         <Pager page={ledgerTable.page} totalPages={ledgerTable.totalPages} onChange={ledgerTable.setPage} />
       </div>
 
@@ -378,6 +391,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
               ))}
             </tbody>
           </table></div>
+          <ScrollSentinel enabled={schedule.cards && schedule.hasMore && !schedule.loading} onVisible={schedule.more} watch={schedule.items.length} />
           <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
         </div>
       )}

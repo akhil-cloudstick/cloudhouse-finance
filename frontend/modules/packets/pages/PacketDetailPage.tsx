@@ -66,6 +66,9 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
   const canOpen = useCanOpenRoute();
 
   const canCreateBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  // Locker names on this page come from the locker list — without locker
+  // view the packet still loads, just without them.
+  const canViewLockers = can("Locker_Management", "can_view_locker_module");
   // Every packet movement (check-in, ready-for-release, released) writes to
   // the packet, so they all need "can update packet" — hidden, not disabled,
   // without it (see Customers.tsx).
@@ -85,7 +88,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
     try {
       const pkt = await getPacketByCode(code);
       setP(pkt);
-      const [mv, lk] = await Promise.all([listMovements(pkt.id), listLockers()]);
+      const [mv, lk] = await Promise.all([listMovements(pkt.id), canViewLockers ? listLockers() : Promise.resolve([])]);
       setMovements(mv);
       setLockers(lk);
     } catch (e) {

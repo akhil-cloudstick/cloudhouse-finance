@@ -7,7 +7,6 @@
 export const PARENT_ROUTE: Record<string, string> = {
   customer: "customers",
   loan: "loans",
-  newloan: "loans",
   personalloan: "personalloans",
   investment: "investments",
   packet: "packets",
@@ -24,7 +23,7 @@ export const PARENT_ROUTE: Record<string, string> = {
 /* Ported from legacy/app.js's `titles` lookup, used for the header breadcrumb. */
 export const TITLES: Record<string, string> = {
   dashboard: "Dashboard", customers: "Customers & KYC", customer: "Customer 360°",
-  loans: "Loans", loan: "Loan Details", newloan: "New Gold Loan", schemes: "Loan Schemes",
+  loans: "Loans", loan: "Loan Details", newloan: "New Gold Loan", schemes: "Loan Schemes", loanrisk: "Loan Risk",
   personalloans: "Personal Loans", personalloan: "Personal Loan Details",
   investments: "Investments", investment: "Investment Details",
   goldrates: "Gold Rates", packets: "Packets & Lockers", packet: "Packet Detail", ledger: "Ledger",

@@ -593,7 +593,10 @@ func UpdatePermissions(c echo.Context) error {
 		return c.JSON(http.StatusForbidden, echo.Map{"success": false, "error": "System roles cannot be modified"})
 	}
 	var updates []RolePermissionUpdate
-	if err := BindJSON(c, &updates); err != nil || len(updates) == 0 {
+	if err := BindJSON(c, &updates); err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
+	}
+	if len(updates) == 0 {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Nothing to save. Please change at least one permission and try again."})
 	}
 	changed, err := updateRolePermissions(ctx, roleID, updates)

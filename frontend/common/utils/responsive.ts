@@ -79,20 +79,19 @@ export function getReportsPageSize(): number {
  * `max-width: 1100px` card breakpoint in app.css. */
 const CARD_MODE_MAX_WIDTH = 1100;
 
-function isCardMode(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.innerWidth <= CARD_MODE_MAX_WIDTH;
-}
+/* Stacked ledger tables (.tbl-stack) turn into cards at this wider width. */
+export const STACK_MODE_MAX_WIDTH = 1279;
 
-export function useIsCardMode(): boolean {
-  return useSyncExternalStore(subscribeResize, isCardMode, () => false);
+export function useIsCardMode(maxWidth: number = CARD_MODE_MAX_WIDTH): boolean {
+  const snapshot = useCallback(() => typeof window !== "undefined" && window.innerWidth <= maxWidth, [maxWidth]);
+  return useSyncExternalStore(subscribeResize, snapshot, () => false);
 }
 
 /* Page size that grows by `base` each time `more()` is called while the
  * table is in card mode (the page is always 1 there). The backend caps a page
  * at 500 rows. Outside card mode it is just `base`. */
-export function useScrollPageSize(base: number): { cards: boolean; size: number; more: () => void } {
-  const cards = useIsCardMode();
+export function useScrollPageSize(base: number, maxWidth: number = CARD_MODE_MAX_WIDTH): { cards: boolean; size: number; more: () => void } {
+  const cards = useIsCardMode(maxWidth);
   const [mult, setMult] = useState(1);
   useEffect(() => { if (!cards) setMult(1); }, [cards]);
   const maxMult = Math.max(1, Math.floor(500 / base));

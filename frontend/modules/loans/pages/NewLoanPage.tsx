@@ -121,6 +121,11 @@ type NewLoanPageProps = { customerId?: string };
 export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   const { isCrossBranch, can, selectedBranchId } = useAuth();
   const canPublishRate = can("Gold_Rate_Management", "can_create_gold_rate");
+  // Locker is optional on a new loan ("Assign later") — without locker view
+  // the picker is hidden rather than left to 403 on every search.
+  const canViewLockers = can("Locker_Management", "can_view_locker_module");
+  const canCreateOrnamentType = can("Ornament_Type_Management", "can_create_ornament_type");
+  const canDeleteDrafts = can("Loan_Management", "can_delete_loan");
   // Single-branch business: the Branch picker is locked to its one branch.
   const { singleBranch, policy } = useBranding();
   /* TML businesses must attach an overall (jewel) photo — it prints on the pledge book. */
@@ -632,9 +637,9 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     setSchemeLabel(d.scheme ? d.scheme.name : "");
     setBranchId(d.branchId);
     setBranchLabel(d.branch?.name || "");
-    setLockerId(d.lockerId ?? "");
+    setLockerId(canViewLockers ? d.lockerId ?? "" : "");
     setLockerLabel("");
-    if (d.lockerId) {
+    if (canViewLockers && d.lockerId) {
       getLocker(d.lockerId)
         .then((k) => setLockerLabel(lockerLabelOf(k)))
         .catch(() => {/* locker may have since been deleted — leave the label blank */});
@@ -856,7 +861,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
           </div>
           {/* Single branch: Locker, Loan No and Loan Date share one 3-column row
               so Locker isn't stretched full width. */}
-          <div className={showBranch ? "frow c2" : "frow c3"}>
+          <div className={showBranch || !canViewLockers ? "frow c2" : "frow c3"}>
             {showBranch && <div><label className="f">Branch</label>
               {/* Locked unless there's a real choice: only cross-branch roles
                   (Administrator, Management) may pick — the backend pins
@@ -876,7 +881,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
                 disabled={!isCrossBranch || singleBranch || selectedBranchId != null || branches.length <= 1}
               /></div>}
-            <div><label className="f">Locker / Storage</label>
+            {canViewLockers && <div><label className="f">Locker / Storage</label>
               {/* key={branchId}: SearchableSelect caches results per search
                 * term, so without remounting it kept showing the previous
                 * branch's lockers after the branch changed. */}
@@ -889,7 +894,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 getLabel={lockerLabelOf}
                 getId={(k) => String(k.id)}
                 placeholder="— Assign later — or search locker…"
-              /></div>
+              /></div>}
             {!showBranch && <>
               <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
               <div><label className="f">Loan Date</label><DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} /></div>
@@ -999,7 +1004,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                       getLabel={(t) => t.name}
                       getId={(t) => String(t.id)}
                       placeholder="Ornament type…"
-                      allowCreate
+                      allowCreate={canCreateOrnamentType}
                       onCreate={createOrnamentType}
                     />
                   </td>
@@ -1046,7 +1051,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                       getLabel={(t) => t.name}
                       getId={(t) => String(t.id)}
                       placeholder="Ornament type…"
-                      allowCreate
+                      allowCreate={canCreateOrnamentType}
                       onCreate={createOrnamentType}
                     />
                   </div>
@@ -1287,7 +1292,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                       </div>
                     </div>
                     <button className="btn plain sm" onClick={() => applyDraft(d)}>Open</button>
-                    <button className="btn danger sm" title="Discard draft" onClick={() => discardDraft(d.id)}>✕</button>
+                    {canDeleteDrafts && <button className="btn danger sm" title="Discard draft" onClick={() => discardDraft(d.id)}>✕</button>}
                   </div>
                 ))}
               </div>

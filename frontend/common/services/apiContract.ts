@@ -150,6 +150,18 @@ const ROUTES: [string, string, string, string][] = [
   "/users/:user_id/branding"
  ],
  [
+  "GET",
+  "/business-profile",
+  "GET",
+  "/users/:user_id/business-profile"
+ ],
+ [
+  "PUT",
+  "/business-profile",
+  "PATCH",
+  "/users/:user_id/business-profile/update"
+ ],
+ [
   "POST",
   "/customers/:id/verify-aadhaar/check",
   "POST",

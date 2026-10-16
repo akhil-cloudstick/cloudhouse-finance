@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Buffering, C, CenterModal, ChipToggle, Field, GrmTabs, Input, PrimaryButton, RepayItem, ReviewWarning, ServerFlatList, Txt, WarningBanner, toast } from "@/common/components/ui";
+import { Buffering, C, CenterModal, ChipToggle, Field, GrmTabs, Input, PrimaryButton, ReviewWarning, ServerFlatList, Txt, WarningBanner, toast } from "@/common/components/ui";
+import { Chevron } from "@/common/components/ui/Chevron";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { latestGoldRate, listGoldRatesPage, publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -24,7 +25,7 @@ import { s } from "./shellModalsShared";
 // Only karats whose rate actually changed are published, together as one history row.
 //
 // Set Rate lets staff set all three karats (Auto derives 22K/18K off 24K;
-// Manual types each independently); the History tab lists all three karats with who published them.
+// Manual types each independently); the History tab lists the 24K rate set on each day, with who published it.
 // ---------------------------------------------------------------------------
 type RateMode = "Auto" | "Manual";
 type Karat = 24 | 22 | 18;
@@ -39,6 +40,30 @@ const KARAT_ROWS: { k: Karat; label: string }[] = [
 const savedFineness = (k: Karat, k24: number, rate: number) => (k === 24 ? String(FINENESS_24K) : String(finenessFromRate(k24, rate, k)));
 const clampFineness = (v: string) => (v !== "" && +v > 100 ? "100" : v);
 type GoldRateModalProps = { visible: boolean; onClose: () => void };
+
+/* One day in the History tab: the 24K rate, with a chevron to reveal 22K and 18K. */
+function HistoryRate({ r, first }: { r: GoldRate; first: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={[s.histRow, !first && { borderTopWidth: 1, borderTopColor: C.line }]}>
+      <Pressable onPress={() => setOpen((o) => !o)} accessibilityRole="button" accessibilityLabel={open ? "Hide 22K and 18K rates" : "Show 22K and 18K rates"} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <Txt style={{ flex: 1, fontSize: 12.5, color: C.muted }}>{`${dmy(r.date || r.createdAt)}${r.setBy ? ` · ${r.setBy}` : ""}`}</Txt>
+        <Txt style={{ fontSize: 13.5, fontWeight: "700", color: C.ink }}>{`24K ${inr(r.k24)}`}</Txt>
+        <Chevron open={open} />
+      </Pressable>
+      {open ? (
+        <View style={{ marginTop: 8, gap: 4 }}>
+          {([["22K", r.k22], ["18K", r.k18]] as const).map(([lbl, v]) => (
+            <View key={lbl} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Txt style={{ fontSize: 12.5, color: C.muted }}>{lbl}</Txt>
+              <Txt style={{ fontSize: 13, fontWeight: "600", color: C.ink }}>{inr(v)}</Txt>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const qc = useQueryClient();
@@ -218,15 +243,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
             gutter={16}
             emptyText="No rate history yet."
             keyOf={(r) => String(r.id)}
-            renderItem={(r, i) => (
-              <RepayItem
-                first={i === 0}
-                label={`${dmy(r.date || r.createdAt)}${r.setBy ? ` · ${r.setBy}` : ""}`}
-                value={`24K ${inr(r.k24)} · 22K ${inr(r.k22)} · 18K ${inr(r.k18)}`}
-                valueColor={C.ink}
-                style={s.histRow}
-              />
-            )}
+            renderItem={(r, i) => <HistoryRate r={r} first={i === 0} />}
           />
         </View>
       )}

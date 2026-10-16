@@ -35,12 +35,6 @@ type createBusinessRequest struct {
 	AdminName     string   `json:"admin_name"`
 	AdminPhone    string   `json:"admin_phone"`
 	LegalName     string   `json:"legal_name"`
-	AddressLine   string   `json:"address_line"`
-	KMLRegNo      string   `json:"kml_reg_no"`
-	ContactPhone  string   `json:"contact_phone"`
-	LenderAge     string   `json:"lender_age"`
-	LenderPAN     string   `json:"lender_pan"`
-	LenderAadhaar string   `json:"lender_aadhaar"`
 	Policy        string   `json:"policy"`
 	AppURL        string   `json:"app_url"`
 	BrandColor    string   `json:"brand_color"`
@@ -92,12 +86,6 @@ type CreateBusinessInput struct {
 	AdminName     string
 	AdminPhone    string
 	LegalName     string
-	AddressLine   string
-	KMLRegNo      string
-	ContactPhone  string
-	LenderAge     string
-	LenderPAN     string
-	LenderAadhaar string
 	AppURL        string
 	BrandColor    string
 	Modules       []string
@@ -213,18 +201,6 @@ func createBusiness(ctx context.Context, actor *models.SuperAdminUser, in Create
 				strings.ToUpper(policy), strings.Join(bad, ", ")))
 		}
 		t.LegalName = strings.TrimSpace(in.LegalName)
-		t.AddressLine = strings.TrimSpace(in.AddressLine)
-		t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
-		contactPhone, perr := normalizeContactPhone(in.ContactPhone, true)
-		if perr != nil {
-			return perr
-		}
-		t.ContactPhone = contactPhone
-		age, pan, aadhaar, lerr := lenderIdentity(policy, in.LenderAge, in.LenderPAN, in.LenderAadhaar)
-		if lerr != nil {
-			return lerr
-		}
-		t.LenderAge, t.LenderPAN, t.LenderAadhaar = age, pan, aadhaar
 		t.AppURL = strings.TrimSpace(in.AppURL)
 		common.SetTenantModules(&t, in.Modules)
 		var tier commonModels.Tier
@@ -269,6 +245,9 @@ func createBusiness(ctx context.Context, actor *models.SuperAdminUser, in Create
 		}
 		if err := common.ApplyRestrictions(config.WithConn(newCtx, tx), []common.RoleRestriction{common.CrossBranchRestriction}); err != nil {
 			return fmt.Errorf("granting cross-branch access: %w", err)
+		}
+		if err := common.ApplyRestrictions(config.WithConn(newCtx, tx), common.GrantAllOnCreate); err != nil {
+			return fmt.Errorf("granting default permissions: %w", err)
 		}
 		b, err := common.FirstOrCreateByName(config.WithConn(newCtx, tx), "Head Office")
 		if err != nil {
@@ -496,12 +475,6 @@ func CreateBusiness(c echo.Context) error {
 		AdminName:     req.AdminName,
 		AdminPhone:    req.AdminPhone,
 		LegalName:     req.LegalName,
-		AddressLine:   req.AddressLine,
-		KMLRegNo:      req.KMLRegNo,
-		ContactPhone:  req.ContactPhone,
-		LenderAge:     req.LenderAge,
-		LenderPAN:     req.LenderPAN,
-		LenderAadhaar: req.LenderAadhaar,
 		Policy:        req.Policy,
 		AppURL:        req.AppURL,
 		BrandColor:    req.BrandColor,

@@ -18,7 +18,8 @@ import { IssueNoticeModalContent } from "@/modules/loans/components/IssueNoticeM
 import { getAuctionRecord, markAuctionEligible, listConcludedAuctionsPage, pendingDecision, hasUndisposedSurplus, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type ConcludedAuctionRowView, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useScrollPageSize } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { printAuctionLetter } from "@/modules/loans/utils/printAuctionLetter";
@@ -280,7 +281,9 @@ export function AuctionsPage() {
    * Auction") are now independently paginated, real server queries — each
    * filtered by hasSale so a sub-table's own page/offset never counts
    * against the other's rows (see loansApi.listConcludedAuctionsPage). */
-  const pageSize = useResponsivePageSize(15, 15);
+  // Below 1100px the tables are cards: no Prev/Next, the list grows as you
+  // scroll (`more` raises pageSize, page stays 1). Above it, pageSize is fixed.
+  const { cards, size: pageSize, more } = useScrollPageSize(15);
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
   const [conductedPage, setConductedPage] = useState(1);
   const [conductedHasMore, setConductedHasMore] = useState(false);
@@ -325,6 +328,10 @@ export function AuctionsPage() {
   // result set, or a search that leaves fewer pages than the current one
   // would strand the viewer on a page that no longer exists.
   useEffect(() => { setActivePage(1); }, [trimmedQ]);
+  // Entering card mode drops back to page 1 — card mode only ever grows page 1.
+  useEffect(() => {
+    if (cards) { setActivePage(1); setConductedPage(1); setClosedPage(1); }
+  }, [cards]);
 
   /* Loaded on demand — a concluded-case sweep across every loan is not worth
    * paying for until someone opens the tab. Fetched from the click handler
@@ -394,8 +401,10 @@ export function AuctionsPage() {
       void loadClosed(1, q.trim());
     }, 300);
     return () => clearTimeout(handle);
+    // pageSize/cards: card mode grows pageSize on scroll, which must refetch
+    // page 1 with the larger size (rows stay on screen meanwhile).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, [q, pageSize, cards]);
 
   return (
     <>
@@ -436,7 +445,8 @@ export function AuctionsPage() {
         ) : (
           <>
             {cases.map((l) => <AuctionCard key={l.id} l={l} onLoanChanged={refresh} />)}
-            <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <ScrollSentinel enabled={cards && allCases.length > cases.length} onVisible={more} watch={cases.length} />
+            <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={activePage <= 1} onClick={() => setActivePage((p) => Math.max(1, p - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {activePage} of {activeTotalPages}</span>
               <button className="btn plain sm" disabled={activePage >= activeTotalPages} onClick={() => setActivePage((p) => Math.min(activeTotalPages, p + 1))}>Next ›</button>
@@ -469,7 +479,7 @@ export function AuctionsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {conductedLoading ? (
+                  {conductedLoading && !(cards && conducted.length > 0) ? (
                     <tr><td colSpan={7} className="empty">Loading…</td></tr>
                   ) : conducted.length === 0 ? (
                     <tr><td colSpan={7} className="empty">No auctions have been conducted yet.</td></tr>
@@ -488,8 +498,9 @@ export function AuctionsPage() {
                   ))}
                 </tbody>
               </table>
+              <ScrollSentinel enabled={cards && conductedHasMore && !conductedLoading} onVisible={more} watch={conducted.length} />
             </div>
-            <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={conductedPage <= 1} onClick={() => changeConductedPage(Math.max(1, conductedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {conductedPage} of {conductedTotalPages}</span>
               <button className="btn plain sm" disabled={conductedPage >= conductedTotalPages} onClick={() => changeConductedPage(Math.min(conductedTotalPages, conductedPage + 1))}>Next ›</button>
@@ -513,7 +524,7 @@ export function AuctionsPage() {
                   <tr><th>Loan</th><th>Marked Eligible</th><th>Outcome</th></tr>
                 </thead>
                 <tbody>
-                  {closedLoading ? (
+                  {closedLoading && !(cards && closedWithoutSale.length > 0) ? (
                     <tr><td colSpan={3} className="empty">Loading…</td></tr>
                   ) : closedWithoutSale.length === 0 ? (
                     <tr><td colSpan={3} className="empty">No cases have closed without going to auction.</td></tr>
@@ -532,8 +543,9 @@ export function AuctionsPage() {
                   ))}
                 </tbody>
               </table>
+              <ScrollSentinel enabled={cards && closedHasMore && !closedLoading} onVisible={more} watch={closedWithoutSale.length} />
             </div>
-            <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={closedPage <= 1} onClick={() => changeClosedPage(Math.max(1, closedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {closedPage} of {closedTotalPages}</span>
               <button className="btn plain sm" disabled={closedPage >= closedTotalPages} onClick={() => changeClosedPage(Math.min(closedTotalPages, closedPage + 1))}>Next ›</button>

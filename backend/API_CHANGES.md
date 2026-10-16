@@ -683,6 +683,8 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/branches/switchable` | `GET /api/v1/users/:user_id/branches/switchable` |
 | `GET /api/v1/branding` | `GET /api/v1/users/:user_id/branding` |
 | `POST /api/v1/branding/connect-code` | `POST /api/v1/users/:user_id/branding/connect-code` |
+| `GET /api/v1/business-profile` | `GET /api/v1/users/:user_id/business-profile` |
+| `PUT /api/v1/business-profile` | `PATCH /api/v1/users/:user_id/business-profile/update` |
 | `GET /api/v1/cash-movements` | `GET /api/v1/users/:user_id/cash-movements` |
 | `POST /api/v1/cash-movements` | `POST /api/v1/users/:user_id/cash-movements` |
 | `GET /api/v1/cash-movements/:id` | `GET /api/v1/users/:user_id/cash-movements/:id` |

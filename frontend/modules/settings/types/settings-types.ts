@@ -15,3 +15,20 @@ export type ApiKeyView = {
   isSet: boolean;
   updatedAt?: string;
 };
+
+/* The business's own profile (backend/common/controllers/business_profile.go),
+ * edited in the Settings modal's Business Profile tab. `policy` is read-only
+ * (set by the platform); lender age, PAN and Aadhaar only apply under GML. */
+export type BusinessProfile = {
+  policy: string;
+  kmlRegNo: string;
+  contactPhone: string;
+  addressLine: string;
+  lenderAge: string;
+  lenderPan: string;
+  lenderAadhaar: string;
+};
+export type BusinessProfileInput = Pick<
+  BusinessProfile,
+  "kmlRegNo" | "contactPhone" | "addressLine" | "lenderAge" | "lenderPan" | "lenderAadhaar"
+>;

@@ -46,18 +46,18 @@ export function LockerDetailModalContent({ locker, canUpdate, onChanged }: Locke
         </div>
         <label className="f">Packets in this locker</label>
         <div className="tbl-wrap">
-          <table className="tbl tbl-center" style={{ minWidth: 0 }}>
+          <table className="tbl tbl-center tbl-cards" style={{ minWidth: 0 }}>
             <thead><tr><th>Packet</th><th>Loan</th><th>Customer</th><th className="num">Weight</th><th>Status</th></tr></thead>
             <tbody>
-              {packets === null && <tr><td colSpan={5} style={{ color: "var(--muted)" }}>Loading packets…</td></tr>}
-              {packets !== null && packets.length === 0 && <tr><td colSpan={5} style={{ color: "var(--muted)" }}>No packets in this locker.</td></tr>}
+              {packets === null && <tr><td colSpan={5} className="empty" style={{ color: "var(--muted)" }}>Loading packets…</td></tr>}
+              {packets !== null && packets.length === 0 && <tr><td colSpan={5} className="empty" style={{ color: "var(--muted)" }}>No packets in this locker.</td></tr>}
               {(packets || []).map((p) => (
                 <tr key={p.id} className="click" onClick={() => { closeModal(); navigate(`packet/${p.code}`); }}>
-                  <td><span className="id">{p.code}</span></td>
-                  <td>{p.loanNumber}</td>
-                  <td>{p.customerName}</td>
-                  <td className="num">{fmtW(p.totalWeight)}</td>
-                  <td><StatusChip status={p.status} /></td>
+                  <td data-label="Packet"><span className="id">{p.code}</span></td>
+                  <td data-label="Loan">{p.loanNumber}</td>
+                  <td data-label="Customer">{p.customerName}</td>
+                  <td className="num" data-label="Weight">{fmtW(p.totalWeight)}</td>
+                  <td data-label="Status"><StatusChip status={p.status} /></td>
                 </tr>
               ))}
             </tbody>

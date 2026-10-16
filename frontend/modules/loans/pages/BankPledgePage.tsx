@@ -14,7 +14,8 @@ import { SelectLoanForRepledgeModalContent } from "@/common/components/modals/Se
 import { BanksModalContent } from "@/modules/banks/components/BanksModalContent";
 import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { ApiError } from "@/common/services/httpClient";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useScrollPageSize } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
@@ -42,7 +43,9 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   const canCreatePledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canViewBanks = can("Bank_Management", "can_view_bank_module");
-  const pageSize = useResponsivePageSize(15, 15);
+  // Below 1100px the tables are cards: no Prev/Next, the list grows as you
+  // scroll (`more` raises pageSize, page stays 1). Above it, pageSize is fixed.
+  const { cards, size: pageSize, more } = useScrollPageSize(15);
   const [tab, setTab] = useState<"active" | "history">("active");
   // One search box for both tabs, matching loan number, bank name, or
   // customer name — seeded from the route arg when arriving via a
@@ -116,8 +119,10 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
       void loadHistory(1, trimmedQ);
     }, 300);
     return () => clearTimeout(handle);
+    // pageSize/cards: card mode grows pageSize on scroll, which must refetch
+    // page 1 with the larger size (rows stay on screen meanwhile).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trimmedQ]);
+  }, [trimmedQ, pageSize, cards]);
 
   function changePledgedPage(page: number) {
     setPledgedPage(page);
@@ -200,7 +205,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th className="col-act"></th></tr>
               </thead>
               <tbody>
-                {pledgedLoading ? (
+                {pledgedLoading && !(cards && pledged.length > 0) ? (
                   <tr><td colSpan={8} className="empty">Loading…</td></tr>
                 ) : pledged.length === 0 ? (
                   <tr><td colSpan={8} className="empty">No loans currently bank-pledged.</td></tr>
@@ -260,7 +265,8 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ScrollSentinel enabled={cards && pledgedHasMore && !pledgedLoading} onVisible={more} watch={pledged.length} />
+          <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => changePledgedPage(Math.max(1, pledgedPage - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
             <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => changePledgedPage(Math.min(pledgedTotalPages, pledgedPage + 1))}>Next ›</button>
@@ -277,7 +283,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {historyLoading ? (
+                {historyLoading && !(cards && history.length > 0) ? (
                   <tr><td colSpan={8} className="empty">Loading…</td></tr>
                 ) : history.length === 0 ? (
                   <tr><td colSpan={8} className="empty">No re-pledge records yet.</td></tr>
@@ -303,8 +309,9 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
               </tbody>
             </table>
           </div>
+          <ScrollSentinel enabled={cards && historyHasMore && !historyLoading} onVisible={more} watch={history.length} />
           {/* <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div> */}
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => changeHistoryPage(Math.max(1, historyPage - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
             <button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => changeHistoryPage(Math.min(historyTotalPages, historyPage + 1))}>Next ›</button>

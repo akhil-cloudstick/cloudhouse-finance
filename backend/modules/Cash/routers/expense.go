@@ -17,7 +17,7 @@ func ExpenseRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(expensePath+"/:id", cash.GetExpenseById, auth.Staff(perms.Read)...)
 	e.GET(expensePath+"/:id/entry", cash.GetExpenseEntry, auth.Staff(perms.Read)...)
 	// Editing an expense rewrites money records, so it needs the same right as recording one.
-	e.PUT(expensePath+"/:id", cash.UpdateExpense, auth.Staff(perms.Create)...)
+	e.PATCH(expensePath+"/:id/update", cash.UpdateExpense, auth.Staff(perms.Create)...)
 	e.PATCH(expensePath+"/:id/approve", cash.ApproveExpense, auth.Staff(perms.Update)...)
 	e.PATCH(expensePath+"/:id/reject", cash.RejectExpense, auth.Staff(perms.Update)...)
 	return e

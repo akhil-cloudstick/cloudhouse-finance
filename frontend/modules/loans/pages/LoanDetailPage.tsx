@@ -107,6 +107,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // delete rights is deliberate (see internal/authz/catalogue.go's own
   // comment on this permission).
   const canHardDeleteLoans = can("Loan_Management", "can_hard_delete_loan");
+  // The loan's packet (locker status, label code) is only looked up with
+  // packet view — without it the lookup would just 403.
+  const canViewPackets = can("Packet_Management", "can_view_packet_module");
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
@@ -310,9 +313,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // Pledge / Locker" warning below needs the packet's current stage to
   // stay in sync with those actions.
   useEffect(() => {
-    if (!loan) return;
+    if (!loan || !canViewPackets) return;
     listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
-  }, [loan?.numericId, loan?.bankPledgeStatus, loan?.status]);
+  }, [loan?.numericId, loan?.bankPledgeStatus, loan?.status, canViewPackets]);
 
   // The viewer who clicks Approve/Reject/Verify sees their own change
   // immediately (doApprove below calls setLoan(updated) directly) — this
@@ -762,7 +765,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   async function packetLabelData(): Promise<{ c: Awaited<ReturnType<typeof getCustomer>>; packetLabel: string; url: string; qr: string } | null> {
     const [c, packets] = await Promise.all([
       getCustomer(l.customerId),
-      listPackets({ loanId: l.numericId }).catch(() => []),
+      canViewPackets ? listPackets({ loanId: l.numericId }).catch(() => []) : [],
     ]);
     const packet = packets[0];
     const packetLabel = packet?.code || "PKT-" + l.numericId;

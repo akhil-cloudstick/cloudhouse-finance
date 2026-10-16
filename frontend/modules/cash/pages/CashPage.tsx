@@ -21,7 +21,8 @@ import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { canActAtStage, stageByPending } from "@/common/services/approvalWorkflowService";
 import { ApiError } from "@/common/services/httpClient";
 import { RejectRemarksModalContent } from "@/common/components/modals/RejectRemarksModalContent";
-import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { useScrollPageSize, STACK_MODE_MAX_WIDTH, useIsSmallScreen } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useShowBranch, useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { Kpi } from "@/modules/cash/components/Kpi";
@@ -94,7 +95,9 @@ export function CashPage() {
   const [movementsPage, setMovementsPage] = useState(() => rememberedLedgerPage("cash-movements") ?? 1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
-  const cashPageSize = useResponsivePageSize(15, 15);
+  // Card mode (<=1100px): Prev/Next gives way to scroll-to-load — the page stays 1 and the
+  // size grows. Above 1100px (incl. the stacked 1101-1279px layout) it is a fixed 15.
+  const { cards, size: cashPageSize, more } = useScrollPageSize(15, STACK_MODE_MAX_WIDTH);
   const smallScreen = useIsSmallScreen();
   const [expensesPage, setExpensesPage] = useState(() => rememberedLedgerPage("cash-expenses") ?? 1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
@@ -102,6 +105,9 @@ export function CashPage() {
   const [goldSalesPage, setGoldSalesPage] = useState(1);
   const [goldSalesHasMore, setGoldSalesHasMore] = useState(false);
   const [goldSalesTotal, setGoldSalesTotal] = useState(0);
+  useEffect(() => {
+    if (cards) { setMovementsPage(1); setExpensesPage(1); setGoldSalesPage(1); }
+  }, [cards]);
   const movementsTotalPages = Math.max(1, Math.ceil(movementsTotal / cashPageSize));
   const expensesTotalPages = Math.max(1, Math.ceil(expensesTotal / cashPageSize));
   const goldSalesTotalPages = Math.max(1, Math.ceil(goldSalesTotal / cashPageSize));
@@ -448,13 +454,14 @@ export function CashPage() {
               </tbody>
             </table>
           </div>
+          <ScrollSentinel enabled={cards && movementsHasMore} onVisible={more} watch={movements.length} />
           <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            {!cards && <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>}
             {/* No total-row count comes back from the {items, hasMore}
               * envelope — only whether another page exists — so this shows
               * just the current page rather than a fabricated "of N". */}
-            <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>
-            <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>
+            {!cards && <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>}
+            {!cards && <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>}
             <FooterTotals aligned items={[
               { value: movementSums.debit, color: "var(--red)" },
               { value: movementSums.credit, color: "var(--green)" },
@@ -500,10 +507,11 @@ export function CashPage() {
               </tbody>
             </table>
           </div>
+          <ScrollSentinel enabled={cards && expensesHasMore} onVisible={more} watch={expenses.length} />
           <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>
-            <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>
+            {!cards && <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>}
+            {!cards && <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>}
+            {!cards && <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>}
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}></span>
             <FooterTotals items={[{ label: "Total", value: expenseSum, color: "var(--red)" }]} />
           </div>
@@ -528,10 +536,11 @@ export function CashPage() {
               </tbody>
             </table>
           </div>
+          <ScrollSentinel enabled={cards && goldSalesHasMore} onVisible={more} watch={goldSales.length} />
           <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
-            <button className="btn plain sm" disabled={goldSalesPage <= 1} onClick={() => setGoldSalesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>
-            <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>
+            {!cards && <button className="btn plain sm" disabled={goldSalesPage <= 1} onClick={() => setGoldSalesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>}
+            {!cards && <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>}
+            {!cards && <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>}
             <span
               title="Sold amount automatically books into Cash-in-Hand as a cash-in movement"
               style={{ fontSize: 12.5, color: "var(--muted)", flex: "1 1 0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}

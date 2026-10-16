@@ -57,6 +57,7 @@ export function PacketsPage() {
     e.preventDefault();
     navigate(to);
   };
+  const canViewLockers = can("Locker_Management", "can_view_locker_module");
   const canCreateLockers = can("Locker_Management", "can_create_locker");
   const canUpdateLockers = can("Locker_Management", "can_update_locker");
 
@@ -143,6 +144,7 @@ export function PacketsPage() {
   // The locker column is independent of the table: it loads once (and after a
   // locker is added/edited), never on a page/status/search change.
   async function loadLockers() {
+    if (!canViewLockers) return;
     try {
       setLockers(await listLockers({ branchId: lockerBranchIds.map(Number), status: lockerStatuses }));
     } catch (e) {
@@ -216,14 +218,14 @@ export function PacketsPage() {
           Something went wrong. Please try again later.
         </p>
       )}
-      {cards && (
+      {cards && canViewLockers && (
         <div className="tabs" style={{ marginTop: 4, marginBottom: 8 }}>
           <button className={cardTab === "packets" ? "on" : ""} onClick={() => setCardTab("packets")}>Packets</button>
           <button className={cardTab === "lockers" ? "on" : ""} onClick={() => setCardTab("lockers")}>Lockers</button>
         </div>
       )}
-      <div className="grid cols21 packets-grid">
-        <div className="card tbl-card tbl-card-fill" style={cards && cardTab !== "packets" ? { display: "none" } : undefined}>
+      <div className={canViewLockers ? "grid cols21 packets-grid" : "grid packets-grid"}>
+        <div className="card tbl-card tbl-card-fill" style={cards && canViewLockers && cardTab !== "packets" ? { display: "none" } : undefined}>
           <div className="hd">
             <h3>Packets</h3>
             <div className="sp" />
@@ -280,7 +282,7 @@ export function PacketsPage() {
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
-        <div className="card tbl-card tbl-card-fill" style={cards && cardTab !== "lockers" ? { display: "none" } : undefined}>
+        {canViewLockers && <div className="card tbl-card tbl-card-fill" style={cards && cardTab !== "lockers" ? { display: "none" } : undefined}>
           <div className="hd">
             <h3>Lockers</h3>
             <div className="sp" />
@@ -307,7 +309,7 @@ export function PacketsPage() {
                   </td></tr>
                 )}
                 {pagedLockers.map((l) => (
-                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} onChanged={load} />)}>
+                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} onChanged={load} />, true)}>
                     <td data-label="Locker"><span className="id">{l.code}</span></td>
                     {showBranch && <td data-label="Branch">{l.branchName}</td>}
                     <td className="num" data-label="Packets">{l.occupied} / {l.capacity}</td>
@@ -323,7 +325,7 @@ export function PacketsPage() {
             <span style={{ fontSize: 12.5 }}>Page {lockerPageClamped} of {lockerTotalPages}</span>
             <button className="btn plain sm" disabled={lockerPageClamped >= lockerTotalPages} onClick={() => setLockerPage(Math.min(lockerTotalPages, lockerPageClamped + 1))}>Next ›</button>
           </div>
-        </div>
+        </div>}
       </div>
     </>
   );

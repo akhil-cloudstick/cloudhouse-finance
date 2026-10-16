@@ -13,6 +13,41 @@ import { useEffect } from "react";
  * every card: KPI tiles are rendered by seven different pages. */
 const SELECTOR = ".kpi .v, .kpi-fit";
 const MIN_SCALE = 0.55;
+/* Ledger amount cells and their footer totals: the columns have a fixed width,
+ * so a very large figure shrinks to fit that width instead of widening the
+ * column (which would push the footer totals out from under Debit / Credit). */
+const LEDGER_SELECTOR = ".ledger-amt td.num, .ledger-total-fit";
+
+function textWidth(el: HTMLElement): number {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  let left = Infinity;
+  let right = -Infinity;
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.textContent?.trim()) continue;
+    range.selectNodeContents(n);
+    const b = range.getBoundingClientRect();
+    left = Math.min(left, b.left);
+    right = Math.max(right, b.right);
+  }
+  return right > left ? right - left : 0;
+}
+
+function fitLedger(el: HTMLElement) {
+  if (el.dataset.fitOrig === undefined) el.dataset.fitOrig = el.style.fontSize;
+  el.style.fontSize = el.dataset.fitOrig;
+  // Stacked cards show the value on its own line, full width — nothing to fit.
+  if (el.closest(".tbl-stack") && window.innerWidth <= 1279) return;
+  const box = el.classList.contains("ledger-total-fit") ? (el.parentElement as HTMLElement) : el;
+  const cs = getComputedStyle(box);
+  const fixed = parseFloat(cs.minWidth);
+  const avail = (Number.isFinite(fixed) && fixed > 0 ? fixed : box.clientWidth) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const w = textWidth(el);
+  if (!avail || !w || w <= avail) return;
+  const base = parseFloat(getComputedStyle(el).fontSize);
+  if (!base) return;
+  el.style.fontSize = `${(base * Math.max((avail / w) * 0.97, MIN_SCALE)).toFixed(2)}px`;
+}
 
 function fit(el: HTMLElement) {
   // Remember what the element had inline (usually nothing) so resetting does
@@ -33,6 +68,7 @@ export function FitTextObserver() {
     const run = () => {
       frame = 0;
       document.querySelectorAll<HTMLElement>(SELECTOR).forEach(fit);
+      document.querySelectorAll<HTMLElement>(LEDGER_SELECTOR).forEach(fitLedger);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(run);

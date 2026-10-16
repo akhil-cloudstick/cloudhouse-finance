@@ -8,10 +8,10 @@ import (
 
 var extraParents = map[string][]string{
 	"can view branch ledger": {"can view branch module"},
-	"can hard delete loan":   {"can delete loan"},
 	"can create loan": {
 		"can view loan module", "can view customer module", "can view scheme module",
 		"can view gold rate module", "can view purity standard module", "can view ornament type module",
+		"can create upload",
 	},
 	"can create personal loan":       {"can view personal loan module", "can view customer module"},
 	"can create investment":          {"can view investment module", "can view customer module"},
@@ -32,7 +32,7 @@ var extraParents = map[string][]string{
 }
 
 var softParents = map[string][]string{
-	"can create loan":          {"can view locker module", "can create upload"},
+	"can create loan":          {"can view locker module"},
 	"can update loan":          {"can view bank module", "can view cash module", "can view packet module", "can view scheme module", "can view purity standard module"},
 	"can create customer":      {"can create upload"},
 	"can update customer":      {"can create upload"},

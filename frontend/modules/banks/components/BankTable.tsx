@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useScrollPageSize } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
@@ -41,7 +43,10 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const pageSize = inModal ? MODAL_PAGE_SIZE : PAGE_SIZE;
+  const { cards, size: scrollSize, more } = useScrollPageSize(PAGE_SIZE);
+  // Card mode: the page size grows as the list is scrolled (page stays 1).
+  const pageSize = inModal ? MODAL_PAGE_SIZE : scrollSize;
+  useEffect(() => { if (cards && !inModal) setPage(1); }, [cards, inModal]);
 
   async function load() {
     if (inModal && page > 1) setLoadingMore(true);
@@ -59,7 +64,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
     }
   }
 
-  useEffect(() => { load(); }, [page, reloadKey]);
+  useEffect(() => { load(); }, [page, reloadKey, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -150,8 +155,9 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
           Showing {rows.length} of {total}{hasMore ? " — scroll for more" : ""}
         </div>
       )}
+      {!inModal && <ScrollSentinel enabled={cards && hasMore} onVisible={more} watch={rows.length} />}
       {!inModal && (
-        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>

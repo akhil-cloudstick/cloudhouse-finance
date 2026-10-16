@@ -2,7 +2,9 @@
 
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { BackLink } from "@/common/components/ui/BackLink";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useScrollPageSize, STACK_MODE_MAX_WIDTH } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
@@ -32,10 +34,12 @@ const TRANSACTION_TYPE_OPTIONS = [
 
 const PAGE_SIZE = 15;
 
-type PagerProps = { page: number; total: number; pageSize: number; onChange: (p: number) => void };
+// In card mode (<=1279px) Prev/Next gives way to scroll-to-load, so there is no footer at all.
+type PagerProps = { page: number; total: number; pageSize: number; onChange: (p: number) => void; cards?: boolean };
 
-function Pager({ page, total, pageSize, onChange }: PagerProps) {
+function Pager({ page, total, pageSize, onChange, cards }: PagerProps) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (cards) return null;
   return (
     <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
@@ -75,7 +79,12 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
   const showBranch = useShowBranch();
   const [filters, setFilters] = usePersistedState<FilterValue>("reports:ledger-filters", {});
   const [page, setPage] = useState(1);
+  // Card mode (<=1279px): Prev/Next gives way to scroll-to-load — the page stays 1 and the size grows.
+  const { cards, size: pageSize, more } = useScrollPageSize(PAGE_SIZE, STACK_MODE_MAX_WIDTH);
+  useEffect(() => { if (cards) setPage(1); }, [cards]);
   const [items, setItems] = useState<CashMovementView[]>([]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const [total, setTotal] = useState(0);
   const [pageBalance, setPageBalance] = useState(0);
   const [sums, setSums] = useState({ debit: 0, credit: 0 });
@@ -120,8 +129,8 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
   ];
 
   useEffect(() => {
-    setLoading(true);
-    listCashMovementsPage(page, PAGE_SIZE, {
+    if (!(cards && itemsRef.current.length)) setLoading(true);
+    listCashMovementsPage(page, pageSize, {
       fromDate,
       toDate,
       branchIds: branchIds.length ? branchIds : undefined,
@@ -140,7 +149,7 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
         setError(e instanceof ApiError ? e.message : "Could not load the ledger.");
       })
       .finally(() => setLoading(false));
-  }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate, page, reloadKey]);
+  }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate, page, pageSize, cards, reloadKey]);
 
   async function onDownload(format: "pdf" | "xlsx") { return singleFlight("reports:ledger-export:"+format, async () => {
     setExporting(true);
@@ -200,7 +209,7 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl tbl-center">
+          <table className="tbl tbl-center tbl-stack">
             <thead>
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
@@ -211,20 +220,21 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
                 <tr><td colSpan={7} className="empty compact">No ledger entries found.</td></tr>
               ) : rows.map(({ m, balance }) => (
                 <tr key={m.id}>
-                  <td>{fmtDate(m.d)}</td>
+                  <td data-label="Date">{fmtDate(m.d)}</td>
                   {/* Same clickable cells as Cash.tsx's Ledger tab (ledgerCells.tsx). */}
-                  <td className="ledger-ref" title={refTitleFor(m)}>{refCellFor(m, categoryIds)}</td>
-                  <td style={{ textAlign: "center" }}>{particularsFor(m, categoryIds)}</td>
-                  <td>{modeCellFor(m.mode)}</td>
-                  <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
-                  <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
-                  <td className="num">{fmt(balance)}<LedgerEntryActions entryId={m.id} editable={m.editable} onChanged={() => setReloadKey((k) => k + 1)} /></td>
+                  <td className="ledger-ref" data-label="Ref No" title={refTitleFor(m)}>{refCellFor(m, categoryIds)}</td>
+                  <td data-label="Particulars" style={{ textAlign: "center" }}>{particularsFor(m, categoryIds)}</td>
+                  <td data-label="Mode">{modeCellFor(m.mode)}</td>
+                  <td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
+                  <td className="num" data-label="Credit" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
+                  <td className="num" data-label="Balance">{fmt(balance)}<LedgerEntryActions entryId={m.id} editable={m.editable} onChanged={() => setReloadKey((k) => k + 1)} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <Pager page={page} total={total} pageSize={PAGE_SIZE} onChange={setPage} />
+        <ScrollSentinel enabled={cards && items.length < total} onVisible={more} watch={items.length} />
+        <Pager page={page} total={total} pageSize={pageSize} onChange={setPage} cards={cards} />
       </div>
     </>
   );

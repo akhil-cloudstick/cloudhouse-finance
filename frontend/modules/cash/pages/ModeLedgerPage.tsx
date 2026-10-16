@@ -24,16 +24,19 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/com
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { goBack, routeHref } from "@/common/services/appRoutes";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { useScrollPageSize, STACK_MODE_MAX_WIDTH } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 
-type PagerProps = { page: number; total: number; pageSize: number; onChange: (p: number) => void; children?: React.ReactNode };
+// In card mode (<=1279px) the Prev/Next controls give way to scroll-to-load; the footer totals stay.
+type PagerProps = { page: number; total: number; pageSize: number; onChange: (p: number) => void; cards?: boolean; children?: React.ReactNode };
 
-function Pager({ page, total, pageSize, onChange, children }: PagerProps) {
+function Pager({ page, total, pageSize, onChange, cards, children }: PagerProps) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
-      <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
-      <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
-      <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+      {!cards && <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>}
+      {!cards && <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>}
+      {!cards && <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>}
       {children}
     </div>
   );
@@ -66,6 +69,9 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
   // Back from a drill-down, this ledger reopens on the page the user left.
   const [page, setPage] = useState(() => rememberedLedgerPage("mode") ?? 1);
   useEffect(() => { saveLedgerPosition({ mode: page }); }, [page]);
+  // Card mode (<=1279px): Prev/Next gives way to scroll-to-load — the page stays 1 and the size grows.
+  const { cards, size: pageSize, more } = useScrollPageSize(PARTY_PAGE_SIZE, STACK_MODE_MAX_WIDTH);
+  useEffect(() => { if (cards) setPage(1); }, [cards]);
   const [branches, setBranches] = useState<BranchView[]>([]);
   // No branch filter in a single-branch business (every row is its one
   // branch) or while the global branch selector already scopes the page.
@@ -112,20 +118,22 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
 
   // Only the latest request may land — see PartyLedger's refresh.
   const requestIdRef = useRef(0);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const refresh = useCallback(() => {
     const reqId = ++requestIdRef.current;
-    setLoading(true);
+    if (!(cards && itemsRef.current.length)) setLoading(true);
     const target = focusPending.current ? ledgerFocusTarget("mode") : null;
     getModeLedger(
       mode,
       page,
       { ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount } : {}), fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined },
-      PARTY_PAGE_SIZE
+      pageSize
     )
       .then(({ items, total, totalDebit, totalCredit, focusPage }) => {
         if (reqId !== requestIdRef.current) return;
         focusPending.current = false;
-        if (focusPage && focusPage !== page) setPage(focusPage);
+        if (focusPage && focusPage !== page && !cards) setPage(focusPage);
         setItems(items);
         setTotal(total);
         setTotals({ debit: totalDebit, credit: totalCredit });
@@ -138,7 +146,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
       })
       .finally(() => { if (reqId === requestIdRef.current) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, page, fromDate, toDate, JSON.stringify(branchIds), bankId, typeValues.join(",")]);
+  }, [mode, page, pageSize, cards, fromDate, toDate, JSON.stringify(branchIds), bankId, typeValues.join(",")]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useLedgerFocus("mode", !loading, [items]);
@@ -222,7 +230,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl tbl-center ledger-amt" data-ledger-scope="mode" data-ledger-page={page}>
+          <table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="mode" data-ledger-page={page}>
             <thead>
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th>{mode !== "Cash" && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
@@ -257,8 +265,8 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                     null;
                   return (
                   <tr key={`${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
-                    <td>{fmtDate(r.d)}</td>
-                    <td>
+                    <td data-label="Date">{fmtDate(r.d)}</td>
+                    <td data-label="Ref No">
                       {loanRef ? (
                         <LedgerRefLink kind="loan" id={loanRef} label={r.reference || loanRef} />
                       ) : invRef ? (
@@ -269,7 +277,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                         loanCatRef(r, categoryIds)
                       )}
                     </td>
-                    <td style={{ textAlign: "center" }}>
+                    <td data-label="Particulars" style={{ textAlign: "center" }}>
                     {r.description || r.type}
                     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4, marginTop: 4 }}>
                       {r.customerId ? (
@@ -279,11 +287,11 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                     </div>
                   </td>
                                         {mode !== "Cash" && (
-                      <td>{r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} /> : "—"}</td>
+                      <td data-label="Bank">{r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} /> : "—"}</td>
                     )}
-                    <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
-                    <td className="num" style={r.memo ? { color: "var(--muted)", fontStyle: "italic" } : { color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                    <td className="num">{fmt(r.runningBalance)}<LedgerEntryActions entryId={r.entryId} row={r} editable={r.editable} onChanged={refresh} /></td>
+                    <td className="num" data-label="Debit" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
+                    <td className="num" data-label="Credit" style={r.memo ? { color: "var(--muted)", fontStyle: "italic" } : { color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
+                    <td className="num" data-label="Balance">{fmt(r.runningBalance)}<LedgerEntryActions entryId={r.entryId} row={r} editable={r.editable} onChanged={refresh} /></td>
                   </tr>
                   );
                 });
@@ -291,7 +299,8 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
             </tbody>
           </table>
         </div>
-        <Pager page={page} total={total} pageSize={PARTY_PAGE_SIZE} onChange={setPage}>
+        <ScrollSentinel enabled={cards && items.length < total} onVisible={more} watch={items.length} />
+        <Pager page={page} total={total} pageSize={pageSize} onChange={setPage} cards={cards}>
           <FooterTotals aligned items={[
             { value: totals.debit, color: "var(--red)" },
             { value: totals.credit, color: "var(--green)" },

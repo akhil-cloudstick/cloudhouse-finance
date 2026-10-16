@@ -82,6 +82,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // makes for its own Bank Pledge card.
   useEffect(() => {
     if (!loan) return;
+    if (!can("Packet_Management", "can_view_packet_module")) return;
     listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
   }, [loan?.numericId, loan?.bankPledgeStatus]);
 

@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -28,30 +27,11 @@ var (
 
 const maxSignatureBytes = 1 << 20
 
-var policyLabels = map[string]string{
-	commonModels.PolicyKML: "KML — Kerala Money Lenders",
-	commonModels.PolicyGML: "GML — Gujarat Money Lenders",
-	commonModels.PolicyTML: "TML — Tamil Nadu Money Lenders",
-}
-
-var (
-	panPattern     = regexp.MustCompile(`^[A-Z]{5}[0-9]{4}[A-Z]$`)
-	aadhaarPattern = regexp.MustCompile(`^[0-9]{12}$`)
-)
-
-var contactPhonePattern = regexp.MustCompile(`^\+?[0-9][0-9 ()\-]{5,18}$`)
-
 type ProfileInput struct {
 	Name          string
 	LegalName     string
 	ShortName     string
 	LockupTagline string
-	AddressLine   string
-	KMLRegNo      string
-	ContactPhone  string
-	LenderAge     string
-	LenderPAN     string
-	LenderAadhaar string
 	AppURL        string
 	Policy        string
 }
@@ -87,12 +67,6 @@ type updateProfileRequest struct {
 	LegalName     string `json:"legal_name"`
 	ShortName     string `json:"short_name"`
 	LockupTagline string `json:"lockup_tagline"`
-	AddressLine   string `json:"address_line"`
-	KMLRegNo      string `json:"kml_reg_no"`
-	ContactPhone  string `json:"contact_phone"`
-	LenderAge     string `json:"lender_age"`
-	LenderPAN     string `json:"lender_pan"`
-	LenderAadhaar string `json:"lender_aadhaar"`
 	AppURL        string `json:"app_url"`
 	Policy        string `json:"policy"`
 	Reason        string `json:"reason"`
@@ -143,28 +117,14 @@ func updateProfile(ctx context.Context, actor *models.SuperAdminUser, id uint, i
 	t.LegalName = strings.TrimSpace(in.LegalName)
 	t.ShortName = strings.TrimSpace(in.ShortName)
 	t.LockupTagline = strings.TrimSpace(in.LockupTagline)
-	t.AddressLine = strings.TrimSpace(in.AddressLine)
-	t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
-	contactPhone, perr := normalizeContactPhone(in.ContactPhone, false)
-	if perr != nil {
-		return nil, perr
-	}
-	t.ContactPhone = contactPhone
 	t.AppURL = strings.TrimSpace(in.AppURL)
 	beforePolicy := commonModels.PolicyOrDefault(t.Policy)
 	beforeLanguages := t.DocumentLanguages
 	common.SetTenantPolicy(t, in.Policy)
-	if commonModels.PolicyOrDefault(t.Policy) == commonModels.PolicyGML {
-		age, pan, aadhaar, lerr := lenderIdentity(commonModels.PolicyGML, in.LenderAge, in.LenderPAN, in.LenderAadhaar)
-		if lerr != nil {
-			return nil, lerr
-		}
-		t.LenderAge, t.LenderPAN, t.LenderAadhaar = age, pan, aadhaar
-	}
 	if err := common.PersistTenant(ctx, t); err != nil {
 		return nil, err
 	}
-	detail := fmt.Sprintf("legalName=%q kmlRegNo=%q appUrl=%q policy=%q", t.LegalName, t.KMLRegNo, t.AppURL, t.Policy)
+	detail := fmt.Sprintf("legalName=%q appUrl=%q policy=%q", t.LegalName, t.AppURL, t.Policy)
 	if beforePolicy != t.Policy {
 		detail += fmt.Sprintf("; policy: %s -> %s (languages: %s -> %s)",
 			beforePolicy, t.Policy, beforeLanguages, t.DocumentLanguages)
@@ -482,7 +442,7 @@ func setLanguages(ctx context.Context, actor *models.SuperAdminUser, id uint, la
 func catalogueBusiness() CatalogueResponse {
 	policies := make([]PolicyOption, 0, len(commonModels.KnownPolicies))
 	for _, code := range commonModels.KnownPolicies {
-		label, ok := policyLabels[code]
+		label, ok := commonModels.PolicyLabels[code]
 		if !ok {
 			label = strings.ToUpper(code)
 		}
@@ -506,44 +466,6 @@ func optionalReason(reason string) string {
 	return reason
 }
 
-func lenderIdentity(policy, age, pan, aadhaar string) (string, string, string, error) {
-	if policy != commonModels.PolicyGML {
-		return "", "", "", nil
-	}
-	age = strings.TrimSpace(age)
-	pan = strings.ToUpper(strings.TrimSpace(pan))
-	aadhaar = strings.Join(strings.Fields(aadhaar), "")
-	n, err := strconv.Atoi(age)
-	if err != nil || n < 18 || n > 120 {
-		return "", "", "", common.NewBadRequest("lender age is required for a GML business (18–120)")
-	}
-	if !panPattern.MatchString(pan) {
-		return "", "", "", common.NewBadRequest("lender PAN is required for a GML business, e.g. ABCDE1234F")
-	}
-	if !aadhaarPattern.MatchString(aadhaar) {
-		return "", "", "", common.NewBadRequest("lender Aadhaar is required for a GML business (12 digits)")
-	}
-	return strconv.Itoa(n), pan, aadhaar, nil
-}
-
-func normalizeContactPhone(raw string, required bool) (string, error) {
-	var out []string
-	for _, p := range strings.Split(raw, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if !contactPhonePattern.MatchString(p) {
-			return "", common.NewBadRequest("contact phone must be one or more valid numbers separated by commas, e.g. +91 9000012345")
-		}
-		out = append(out, p)
-	}
-	if len(out) == 0 && required {
-		return "", common.NewBadRequest("contact phone number is required")
-	}
-	return strings.Join(out, ", "), nil
-}
-
 func UpdateSuperAdminProfile(c echo.Context) error {
 	id, err := common.IDParam(c, "id")
 	if err != nil {
@@ -558,12 +480,6 @@ func UpdateSuperAdminProfile(c echo.Context) error {
 		LegalName:     req.LegalName,
 		ShortName:     req.ShortName,
 		LockupTagline: req.LockupTagline,
-		AddressLine:   req.AddressLine,
-		KMLRegNo:      req.KMLRegNo,
-		ContactPhone:  req.ContactPhone,
-		LenderAge:     req.LenderAge,
-		LenderPAN:     req.LenderPAN,
-		LenderAadhaar: req.LenderAadhaar,
 		AppURL:        req.AppURL,
 		Policy:        req.Policy,
 	}, req.Reason)
