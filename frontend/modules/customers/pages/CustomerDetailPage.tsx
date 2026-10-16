@@ -55,6 +55,8 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const canOpen = useCanOpenRoute();
   const canViewLoans = canOpen("loan");
   const canViewAuctions = canOpen("auctions");
+  // The Ledger tab reads cash movements — only fetched with cash view.
+  const canViewCash = can("Cash_Management", "can_view_cash_module");
   // KYC verification writes back to the customer record, so it's an update;
   // logging an extension/release request against a loan is a loan update.
   // Anything not granted is hidden, not disabled (see Customers.tsx).
@@ -190,7 +192,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
   // Auction history needs "can view auction module" — not fetched without it.
   const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id && canViewAuctions);
-  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id);
+  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id && canViewCash);
   useEffect(() => { transactionPager.setPage(1); }, [JSON.stringify(ledgerLoanFilters)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // profile.loans still backs the "Request Extension / Release" picker
@@ -688,7 +690,9 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
                   <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
                   <tbody>
-                    {transactionPager.items.length === 0 ? (
+                    {!canViewCash ? (
+                      <tr><td colSpan={7} className="empty compact">You don't have permission to view the ledger.</td></tr>
+                    ) : transactionPager.items.length === 0 ? (
                       <tr><td colSpan={7} className="empty compact">No ledger entries recorded yet.</td></tr>
                     ) : transactionPager.items.map((r, i) => {
                       // Same reference detection as PartyLedger: the loan /

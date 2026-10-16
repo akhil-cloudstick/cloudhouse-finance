@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { useModal } from "@/common/components/ModalProvider";
+import { useAuth } from "@/common/providers/AuthProvider";
 import {
   BILLING_PLANS,
   findPlanIndex,
@@ -22,6 +23,7 @@ type PlanUpgradeProps = { status: BillingStatus };
  * is reloaded. */
 export function PlanUpgrade({ status }: PlanUpgradeProps) {
   const { openModal } = useModal();
+  const canViewBranches = useAuth().can("Branch_Management", "can_view_branch_module");
   const [quota, setQuota] = useState<BranchQuota | null>(null);
   const [cur, setCur] = useState(() => findPlanIndex(status.tierName));
   const [justUpgraded, setJustUpgraded] = useState(-1);
@@ -29,13 +31,14 @@ export function PlanUpgrade({ status }: PlanUpgradeProps) {
   useEffect(() => {
     // The branch quota pins the current plan and feeds the upgrade modal's
     // usage line; a role that can't read branches just goes without it.
+    if (!canViewBranches) return;
     getBranchQuota()
       .then((q) => {
         setQuota(q);
         setCur(findPlanIndex(status.tierName, q.quota));
       })
       .catch(() => setQuota(null));
-  }, [status.tierName]);
+  }, [status.tierName, canViewBranches]);
 
   const plan = BILLING_PLANS[cur];
   const used = quota?.used ?? null;
