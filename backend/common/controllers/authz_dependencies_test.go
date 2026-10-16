@@ -61,7 +61,7 @@ func TestCRUDUnderModuleView(t *testing.T) {
 			t.Errorf("%q should sit under %q, has %v", child, ancestor, AllParents(child))
 		}
 	}
-	for _, p := range []string{"can view scheme module", "can view gold rate module", "can view purity standard module", "can view ornament type module", "can view customer module"} {
+	for _, p := range []string{"can view scheme module", "can view gold rate module", "can view purity standard module", "can view ornament type module", "can view customer module", "can create upload"} {
 		if !slices.Contains(Dependents(p), "can create loan") {
 			t.Errorf("revoking %q should revoke create loan", p)
 		}

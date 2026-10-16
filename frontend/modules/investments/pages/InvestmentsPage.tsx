@@ -6,7 +6,8 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { useIsSmallScreen } from "@/common/utils/responsive";
+import { useIsSmallScreen, useScrollPageSize } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { listInvestmentsPage } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type InvestmentStatus } from "@/modules/investments/types/investment-types";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
@@ -20,8 +21,8 @@ const PAGE_SIZE = 10;
 /* Investments list — investor deposits managed separately from borrower
  * loans (see backend/internal/investment's package doc). Search (investment
  * # or investor name) and the status filter are both server-side (GET
- * /investments?q=&status=&limit=&offset=). Scroll-paginated: 10 rows at a
- * time, the next 10 fetched as the table is scrolled to its end. */
+ * /investments?q=&status=&limit=&offset=). Prev/Next pages of 10 on desktop;
+ * in card mode the list instead grows 10 at a time as it is scrolled. */
 export function InvestmentsPage() {
   const { can } = useAuth();
   const { openModal, closeModal } = useModal();
@@ -32,6 +33,7 @@ export function InvestmentsPage() {
   const [status, setStatus] = usePersistedState<"All" | InvestmentStatus>("investments:status", "All");
   const [q, setQ] = usePersistedState("investments:q", "");
   const [page, setPage] = useState(1);
+  const { cards, size: pageSize, more } = useScrollPageSize(PAGE_SIZE);
   // The status tabs became one grouped filter (single choice).
   const filterCategories: FilterCategory[] = [
     { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUSES.filter((st) => st !== "All").map((st) => ({ value: st, label: st })) },
@@ -41,10 +43,10 @@ export function InvestmentsPage() {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // A new filter/search restarts from page 1 (search debounced). Skipped on
   // mount — the fetch effect below already loads page 1 then.
@@ -55,48 +57,30 @@ export function InvestmentsPage() {
     return () => clearTimeout(handle);
   }, [status, q]);
 
-  // Page 1 replaces the rows (new filter/search, or a reload); every later
-  // page appends — scrolling to the end of the table fetches the next 10.
+  // Each fetch replaces the rows: a new page on desktop, or a larger page
+  // size in card mode (page stays 1 there).
   const fetchPage = useCallback(async (p: number) => {
-    if (p === 1) setLoading(true); else setLoadingMore(true);
+    setLoading(true);
     setError("");
     try {
-      const res = await listInvestmentsPage({ page: p, q: q.trim() || undefined, status, pageSize: PAGE_SIZE });
-      const items = res?.items || [];
-      setInvestments((prev) => (p === 1 ? items : [...prev, ...items]));
-      if (p === 1 && wrapRef.current) wrapRef.current.scrollTop = 0;
+      const res = await listInvestmentsPage({ page: p, q: q.trim() || undefined, status, pageSize });
+      setInvestments(res?.items || []);
+      if (wrapRef.current) wrapRef.current.scrollTop = 0;
       setHasMore(!!res?.hasMore);
       setTotal(res?.total || 0);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load investments.");
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
-  }, [q, status]);
+  }, [q, status, pageSize]);
 
   useEffect(() => {
     void fetchPage(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, reloadKey]);
+  }, [page, reloadKey, pageSize]);
 
   const refresh = () => { setPage(1); setReloadKey((k) => k + 1); };
-
-  function loadNextPage() {
-    if (hasMore && !loading && !loadingMore) setPage((p) => p + 1);
-  }
-
-  function onWrapScroll() {
-    const el = wrapRef.current;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) loadNextPage();
-  }
-
-  // A batch too short to overflow the table never fires onScroll, so keep
-  // loading until the rows actually scroll or the server runs out.
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (el && el.scrollHeight <= el.clientHeight) loadNextPage();
-  }, [investments, hasMore, loading, loadingMore]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function openNewInvestment() {
     openModal(<NewInvestmentModalContent onSaved={() => { closeModal(); refresh(); }} />);
@@ -132,19 +116,21 @@ export function InvestmentsPage() {
         />
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
-      <div className="tbl-wrap tbl-scroll" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center tbl-cards">
+      <div className="tbl-wrap tbl-scroll" ref={wrapRef}><table className="tbl tbl-center tbl-cards">
         <thead><tr><th>Investment / Investor</th><th className="num">Principal</th><th>Rate</th><th>Maturity</th><th>Status</th></tr></thead>
         <tbody>
-          {loading ? (
+          {loading && !(cards && investments.length > 0) ? (
             <tr><td colSpan={5} className="empty">Loading investments…</td></tr>
           ) : investments.length === 0 ? (
             <tr><td colSpan={5} className="empty">No investments</td></tr>
           ) : investments.map((i) => <InvestmentRow investment={i} key={i.id} />)}
-          {loadingMore && <tr><td colSpan={5} className="empty compact">Loading more…</td></tr>}
         </tbody>
       </table></div>
-      <div className="ft" style={{ fontSize: 12.5, color: "var(--muted)" }}>
-        Showing {investments.length} of {total || investments.length}{hasMore ? " — scroll for more" : ""}{hasMore && <button className="btn plain sm tbl-cards-more" style={{ marginLeft: 10 }} disabled={loadingMore} onClick={loadNextPage}>Load more</button>}
+      <ScrollSentinel enabled={cards && hasMore && !loading} onVisible={more} watch={investments.length} />
+      <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+        <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
       </div>
       </div>
     </>

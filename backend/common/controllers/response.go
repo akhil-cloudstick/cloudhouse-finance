@@ -86,6 +86,15 @@ func FailWith(c echo.Context, status int, message string, err error) error {
 }
 
 func FailErr(c echo.Context, err error) error {
+	var pe *PermissionDeniedError
+	if errors.As(err, &pe) {
+		logFailure(c, pe.Status(), pe.Error(), nil)
+		return c.JSON(pe.Status(), echo.Map{
+			"success":            false,
+			"error":              pe.Error(),
+			"missing_permission": pe.Permission,
+		})
+	}
 	var se StatusedError
 	if errors.As(err, &se) {
 		return Fail(c, se.Status(), se.Error())
@@ -101,7 +110,24 @@ func BindJSON(c echo.Context, v any) error {
 	if err := json.NewDecoder(req.Body).Decode(v); err != nil {
 		return err
 	}
-	return httpValidate.Struct(v)
+	return validateBody(v)
+}
+
+// validateBody runs the binding tags on a struct body, or on each element of a
+// list body — validator.Struct rejects anything that is not a struct outright.
+func validateBody(v any) error {
+	rv := reflect.Indirect(reflect.ValueOf(v))
+	switch rv.Kind() {
+	case reflect.Struct:
+		return httpValidate.Struct(v)
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < rv.Len(); i++ {
+			if err := validateBody(rv.Index(i).Interface()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func BindQuery(c echo.Context, v any) error {

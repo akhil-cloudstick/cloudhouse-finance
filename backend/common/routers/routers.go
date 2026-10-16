@@ -9,6 +9,7 @@ func CommonRoutes(e *echo.Echo) *echo.Echo {
 	BankRoutes(e)
 	BranchRoutes(e)
 	BrandingRoutes(e)
+	BusinessProfileRoutes(e)
 	CustomerAppRoutes(e)
 	CustomerRoutes(e)
 	DemoRoutes(e)

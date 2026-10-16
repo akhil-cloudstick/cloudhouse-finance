@@ -45,15 +45,20 @@ export async function deactivateBranch(id: number): Promise<BranchView> {
 /* The signed-in employee's own branch (set by auth-context). A role without
  * "can view branch module" still fills branch pickers with it: every role
  * except Administrator/Management only ever works in its own branch, and the
- * backend forces that on every write regardless. */
+ * backend forces that on every write regardless. When the role is known to
+ * lack that permission, GET /branches is not called at all — its 403 would
+ * raise the global "no access" toast on every page with a branch picker. */
 let ownBranchFallback: BranchView | null = null;
-export function setOwnBranchFallback(branch: { id: number; name: string; code?: string } | null) {
+let canListBranches = true;
+export function setOwnBranchFallback(branch: { id: number; name: string; code?: string } | null, canList = true) {
   ownBranchFallback = branch
     ? { id: branch.id, name: branch.name, code: branch.code || "", address: "", phone: "", isActive: true }
     : null;
+  canListBranches = canList;
 }
 
 export async function listActiveBranches(): Promise<BranchView[]> {
+  if (!canListBranches && ownBranchFallback) return [ownBranchFallback];
   try {
     const all = await listBranches();
     return all.filter((b) => b.isActive);

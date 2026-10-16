@@ -273,7 +273,7 @@ func getAuctionRecord(ctx context.Context, loanID uint, branchID *uint) (*models
 
 func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can mark loan auction eligible") {
-		return nil, common.NewForbidden("your role does not have permission to perform this auction step")
+		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can mark loan auction eligible")
 	}
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
@@ -318,7 +318,7 @@ func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, ac
 
 func SaveAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can issue auction notice") {
-		return nil, common.NewForbidden("your role does not have permission to perform this auction step")
+		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can issue auction notice")
 	}
 	if err := checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
@@ -365,7 +365,7 @@ func SaveAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks
 
 func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can schedule auction") {
-		return nil, common.NewForbidden("your role does not have permission to perform this auction step")
+		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can schedule auction")
 	}
 	if err := checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
@@ -400,7 +400,7 @@ func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date 
 
 func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmount, expenses float64, pay AuctionSalePayment, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can record auction sale") {
-		return nil, common.NewForbidden("your role does not have permission to perform this auction step")
+		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can record auction sale")
 	}
 	if saleAmount <= 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
@@ -620,7 +620,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 
 func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition, remarks, mode string, bankID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can settle auction") {
-		return nil, common.NewForbidden("your role does not have permission to perform this auction step")
+		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can settle auction")
 	}
 	switch disposition {
 	case AuctionSurplusRefundedToCustomer, "RecordedAsIncome":

@@ -957,7 +957,11 @@ h3,
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
+  /* Tighter drop shadow on top of the menu's soft one — the flyout is short,
+   * so the large negative-spread shadow alone barely shows beneath it. */
+  box-shadow:
+    0 8px 18px -6px color-mix(in oklab, var(--nav) 35%, transparent),
+    0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
   z-index: 61;
   padding: 6px;
 }
@@ -9114,7 +9118,7 @@ table.tbl.lockers-tbl {
   }
 }
 .newloan-sidebar .bd .inp {
-  flex: 1 1 80px !important;
+  flex: 0 1 140px !important;
   width: auto !important;
 }
 
@@ -9170,7 +9174,8 @@ table.tbl.lockers-tbl {
 @media (max-width: 1100px) {
   .ft.ft-scroll-hide { display: none; }
 }
-@media (min-width: 1101px) {
+/* Stacked ledgers (.tbl-stack) scroll-load up to 1279px. */
+@media (min-width: 1280px) {
   .scroll-sentinel { display: none; }
 }
 
@@ -9203,6 +9208,26 @@ table.tbl.lockers-tbl {
 }
 @media (max-width: 420px) {
   .kpis.kpis-money { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── Ledger KPI tiles on narrow screens: fill the whole row instead of hugging
+ * the left edge. The Ledger page's tile grid is a flex item (it shrank to one
+ * 213px column); the party/mode/branch ledger pages use plain .kpis with a
+ * fixed 213px tile. Dashboard, Loan Risk and Reports keep their own layouts. ── */
+@media (max-width: 1279px) {
+  .kpis.kpis-money { flex: 1 1 100%; min-width: 0; }
+  .kpis:not(.kpis-money):not(.dashboard-kpis):not(.kpis-compact) {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+  .kpis:not(.kpis-money):not(.dashboard-kpis):not(.kpis-compact) .kpi {
+    width: auto;
+    min-width: 0;
+  }
+}
+@media (max-width: 420px) {
+  .kpis:not(.kpis-money):not(.dashboard-kpis):not(.kpis-compact) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* ── Loan Risk tiles: a fluid grid (2 across on a phone, more as it widens). ── */
@@ -9345,4 +9370,86 @@ table.tbl.lockers-tbl {
   width: 100% !important;
   max-width: 100%;
   min-height: 84px;
+}
+
+/* Stacked ledger cards have no Debit / Credit columns to sit under, so the
+ * footer totals drop their column-width slots and just sit together. */
+@media (max-width: 1279px) {
+  .tbl-card:has(.tbl-stack) .ft-tot-aligned { margin-right: 0 !important; }
+  .tbl-card:has(.tbl-stack) .ft-tot-slot { width: auto !important; padding: 0 8px !important; }
+  .tbl-card:has(.tbl-stack) .ft-tot-spacer { display: none; }
+}
+
+/* Stacked ledger cards: every line is label on the left, value on the right,
+ * for the amount cells too (they kept their table column width and wrapped
+ * under the label), and the drilled-in row is tinted as one whole card
+ * instead of painting only the cells' own narrow boxes. */
+@media (max-width: 1279px) {
+  .tbl.tbl-stack.ledger-amt td.num,
+  .tbl.tbl-stack.ledger-amt td.num:last-child {
+    width: 100%;
+    min-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .tbl-stack td:not(.num) > div {
+    justify-content: flex-end !important;
+    margin-left: auto;
+  }
+
+  .tbl.tbl-stack tr.ledger-row-focus {
+    background: color-mix(in oklab, var(--brand) 12%, transparent);
+    box-shadow: inset 3px 0 0 var(--brand);
+  }
+
+  .tbl.tbl-stack tr.ledger-row-focus > td,
+  .tbl.tbl-stack tr.ledger-row-focus > td:first-child {
+    background: none;
+    box-shadow: none;
+  }
+}
+
+/* Stacked ledger cards: the label always takes the left edge and the value the
+ * right edge (even for a lone chip or a "—" that would otherwise sit by the
+ * label), and the entry info icon moves to the top of the card, before Date. */
+@media (max-width: 1279px) {
+  .tbl-stack td {
+    justify-content: flex-end;
+  }
+
+  .tbl-stack td::before {
+    margin-right: auto;
+  }
+
+  .tbl-stack tr:has(.ledger-info) {
+    position: relative;
+    padding-top: 30px;
+  }
+
+  .tbl-stack tr:has(.ledger-info) td:has(> .ledger-info) {
+    position: static;
+  }
+
+  .tbl-stack tr:has(.ledger-info) .ledger-info {
+    position: absolute;
+    top: 7px;
+    left: 12px;
+    right: auto;
+    transform: none;
+    margin-left: 0;
+  }
+}
+
+/* Stacked ledger cards: every line shares the same side padding, so labels
+ * start at one left edge, values end at one right edge and the dashed dividers
+ * run the same length (the amount lines had none, the others had the table's). */
+@media (max-width: 1279px) {
+  .tbl.tbl-stack td,
+  .tbl.tbl-stack td:first-child,
+  .tbl.tbl-stack td:last-child,
+  .tbl.tbl-stack td.num {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
 }

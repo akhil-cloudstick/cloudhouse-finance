@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useBalanceInHand } from "@/common/hooks/use-balance-in-hand";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -23,6 +23,8 @@ import { EsignLanguageModalContent } from "@/modules/loans/components/EsignLangu
 import { navigate, routeHref } from "@/common/services/appRoutes";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { useScrollPageSize } from "@/common/utils/responsive";
+import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 
 /* Click-paginated table (10 rows/page) — same shape/theme as the Customer
  * 360 detail tables (modules/customers/pages/CustomerDetailPage.tsx):
@@ -34,31 +36,41 @@ const BOND_LANG_OPTIONS: { value: PersonalLoanBondLang; label: string; native: s
   { value: "ml", label: "Malayalam", native: "വാഗ്ദത്ത പത്രം" },
 ];
 
-function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; hasMore: boolean; total: number; totalDebit?: number; totalCredit?: number }>, resetKey: unknown) {
+function usePagedTable<T>(fetchPage: (page: number, size: number) => Promise<{ items: T[]; hasMore: boolean; total: number; totalDebit?: number; totalCredit?: number }>, resetKey: unknown) {
   const [items, setItems] = useState<T[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   // Debit/Credit column sums over every page — only the ledger endpoint sends them.
   const [sums, setSums] = useState({ debit: 0, credit: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Below the card breakpoint the pager is hidden and the list grows on scroll instead.
+  const { cards, size, more } = useScrollPageSize(PERSONAL_LOAN_PAGE_SIZE);
+  const hasRows = useRef(false);
+  hasRows.current = items.length > 0;
+  const seq = useRef(0);
 
   const load = useCallback(async (p: number) => {
-    setLoading(true);
+    const my = ++seq.current;
+    if (!(cards && hasRows.current)) setLoading(true);
     try {
-      const res = await fetchPage(p - 1);
+      const res = await fetchPage(cards ? 0 : p - 1, size);
+      if (my !== seq.current) return;
       setItems(res.items);
       setTotal(Number.isFinite(res.total) ? res.total : 0);
+      setHasMore(!!res.hasMore);
       setSums({ debit: res.totalDebit ?? 0, credit: res.totalCredit ?? 0 });
       setError("");
     } catch (e) {
+      if (my !== seq.current) return;
       setError(e instanceof ApiError ? e.message : "Could not load.");
     } finally {
-      setLoading(false);
+      if (my === seq.current) setLoading(false);
     }
-  }, [fetchPage]);
+  }, [fetchPage, cards, size]);
 
-  useEffect(() => { setPage(1); }, [resetKey]);
+  useEffect(() => { setPage(1); }, [resetKey, cards]);
   useEffect(() => { void load(page); }, [load, page]);
 
   // Guards against a NaN total (a stale/failed request, or a response
@@ -66,7 +78,7 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
   // the Pager's Math.min(totalPages, ...)/Math.max(totalPages, ...) Next/
   // Prev handlers, into a NaN `page` itself.
   const totalPages = Math.max(1, Math.ceil((Number.isFinite(total) ? total : 0) / PERSONAL_LOAN_PAGE_SIZE));
-  return { items, page, setPage, totalPages, sums, loading, error, reload: () => load(page) };
+  return { items, page, setPage, totalPages, sums, loading, error, reload: () => load(page), cards, hasMore, more };
 }
 
 type PagerProps = { page: number; totalPages: number; onChange: (p: number) => void; children?: React.ReactNode };
@@ -82,7 +94,7 @@ type PagerProps = { page: number; totalPages: number; onChange: (p: number) => v
  * around, so the plain `.ft` here needs no such opt-out. */
 function Pager({ page, totalPages, onChange, children }: PagerProps) {
   return (
-    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", flexWrap: "wrap" }}>
+    <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", flexWrap: "wrap" }}>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
@@ -155,15 +167,15 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
   const [scheduleTab, setScheduleTab] = useState<"schedule" | "history">("schedule");
 
   const schedule = usePagedTable<BackendPersonalLoanInstallment>(
-    useCallback((page) => getPersonalLoanSchedulePage(numericId, page), [numericId]),
+    useCallback((page, size) => getPersonalLoanSchedulePage(numericId, page, size),[numericId]),
     numericId
   );
   const history = usePagedTable<BackendPersonalLoanHistory>(
-    useCallback((page) => getPersonalLoanHistoryPage(numericId, page), [numericId]),
+    useCallback((page, size) => getPersonalLoanHistoryPage(numericId, page, size),[numericId]),
     numericId
   );
   const payments = usePagedTable<BackendPersonalLoanPayment>(
-    useCallback((page) => listPersonalLoanPaymentsPage(numericId, page), [numericId]),
+    useCallback((page, size) => listPersonalLoanPaymentsPage(numericId, page, size),[numericId]),
     numericId
   );
 
@@ -405,6 +417,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                   ))}
                 </tbody>
               </table></div>
+              <ScrollSentinel enabled={schedule.cards && schedule.hasMore && !schedule.loading} onVisible={schedule.more} watch={schedule.items.length} />
               <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
             </>
           ) : (
@@ -431,6 +444,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                   ))}
                 </tbody>
               </table></div>
+              <ScrollSentinel enabled={history.cards && history.hasMore && !history.loading} onVisible={history.more} watch={history.items.length} />
               <Pager page={history.page} totalPages={history.totalPages} onChange={history.setPage} />
             </>
           )}
@@ -468,6 +482,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
               ))}
             </tbody>
           </table></div>
+          <ScrollSentinel enabled={payments.cards && payments.hasMore && !payments.loading} onVisible={payments.more} watch={payments.items.length} />
           <Pager page={payments.page} totalPages={payments.totalPages} onChange={payments.setPage}>
             <FooterTotals aligned items={[
               { value: payments.sums.debit, color: "var(--red)" },

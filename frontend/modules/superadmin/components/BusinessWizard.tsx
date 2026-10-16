@@ -124,13 +124,9 @@ export function BusinessWizard({
    * vendor edits it. Seeded true when editing an existing business so a saved
    * tagline is never silently overwritten by a rename. */
   const [taglineTouched, setTaglineTouched] = useState(!isCreate);
-  const [addressLine, setAddressLine] = useState(business?.addressLine ?? "");
-  const [kmlRegNo, setKmlRegNo] = useState(business?.kmlRegNo ?? "");
-  /* GML only: the lender's own identity, printed on the GML pledge agreement. */
-  const [contactPhone, setContactPhone] = useState(business?.contactPhone ?? "");
-  const [lenderAge, setLenderAge] = useState(business?.lenderAge ?? "");
-  const [lenderPan, setLenderPan] = useState(business?.lenderPan ?? "");
-  const [lenderAadhaar, setLenderAadhaar] = useState(business?.lenderAadhaar ?? "");
+  /* Registration no., phone, address and the GML lender particulars are not
+   * edited here: the business fills them in itself under Settings > Business
+   * Profile. */
   /* The document policy — which FAMILY of customer-facing paperwork this
    * business issues. Chosen before languages, because it decides which
    * languages are offered at all (see policyLanguages below). Defaults to the
@@ -412,12 +408,6 @@ export function BusinessWizard({
         legalName !== (business.legalName ?? "") ||
         shortName !== initialShortName ||
         tagline !== initialTagline ||
-        addressLine !== (business.addressLine ?? "") ||
-        kmlRegNo !== (business.kmlRegNo ?? "") ||
-        contactPhone !== (business.contactPhone ?? "") ||
-        lenderAge !== (business.lenderAge ?? "") ||
-        lenderPan !== (business.lenderPan ?? "") ||
-        lenderAadhaar !== (business.lenderAadhaar ?? "") ||
         policy !== initialPolicy ||
         appUrl !== (business.appUrl ?? "")),
     theme:
@@ -479,12 +469,6 @@ export function BusinessWizard({
           adminPassword,
           adminName,
           legalName,
-          addressLine,
-          kmlRegNo,
-          contactPhone,
-          lenderAge,
-          lenderPan,
-          lenderAadhaar,
           policy,
           appUrl,
           brandColor: color,
@@ -501,7 +485,7 @@ export function BusinessWizard({
         if (signatureFile) await uploadSignature(created.id, signatureFile, reason);
         if (shortName || tagline) {
           await updateProfile(created.id, {
-            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, contactPhone, lenderAge, lenderPan, lenderAadhaar, policy, appUrl, reason,
+            name, legalName, shortName, lockupTagline: tagline, policy, appUrl, reason,
           });
         }
         if (themeBeyondDefault) {
@@ -524,7 +508,7 @@ export function BusinessWizard({
         if (changed.plan) await changeTier(business.id, tierId, reason);
         if (changed.profile) {
           await updateProfile(business.id, {
-            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, contactPhone, lenderAge, lenderPan, lenderAadhaar, policy, appUrl, reason,
+            name, legalName, shortName, lockupTagline: tagline, policy, appUrl, reason,
           });
         }
         if (changed.theme) {
@@ -654,21 +638,6 @@ export function BusinessWizard({
                   />
                   <span className="sa-hint">The small line under the sidebar headline. Press Return to split it over two lines.</span>
                 </div>
-                <div className="sa-field">
-                  <label>Registration no.</label>
-                  <input value={kmlRegNo} onChange={(e) => setKmlRegNo(e.target.value)} />
-                  <span className="sa-hint">Printed on this business&rsquo;s lending documents.</span>
-                </div>
-                <div className="sa-field">
-                  <label>Business phone{isCreate ? " *" : ""}</label>
-                  <input
-                    value={contactPhone}
-                    inputMode="tel"
-                    placeholder="+91 9000012345, +91 9000067890"
-                    onChange={(e) => setContactPhone(e.target.value.replace(/[^0-9+,\-() ]/g, ""))}
-                  />
-                  <span className="sa-hint">Printed in the header of this business&rsquo;s slips and statements. Separate several numbers with commas.</span>
-                </div>
               </div>
 
               <div className="sa-field">
@@ -679,53 +648,11 @@ export function BusinessWizard({
                   ariaLabel="Document policy"
                   options={catalogue.policies.map((p) => ({ value: p.code, label: p.label }))}
                 />
-                <span className="sa-hint">Decides the pledge agreement and narrows document languages on the Grants step.</span>
-              </div>
-
-              {/* GML deeds name the licensee as a party, so their own age, PAN
-                  and Aadhaar are needed on the pledge agreement. The server
-                  requires all three under GML (superadmin.lenderIdentity). The
-                  Aadhaar is a plain, visible field — not masked. */}
-              {policy === "gml" && (
-                <div className="sa-grid-2">
-                  <div className="sa-field">
-                    <label>Lender age</label>
-                    <input
-                      value={lenderAge}
-                      inputMode="numeric"
-                      maxLength={3}
-                      onChange={(e) => setLenderAge(e.target.value.replace(/\D/g, ""))}
-                    />
-                  </div>
-                  <div className="sa-field">
-                    <label>Lender PAN</label>
-                    <input
-                      value={lenderPan}
-                      maxLength={10}
-                      placeholder="ABCDE1234F"
-                      onChange={(e) => setLenderPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-                    />
-                  </div>
-                  <div className="sa-field">
-                    <label>Lender Aadhaar no.</label>
-                    <input
-                      value={lenderAadhaar}
-                      inputMode="numeric"
-                      maxLength={12}
-                      placeholder="12 digits"
-                      onChange={(e) => setLenderAadhaar(e.target.value.replace(/\D/g, ""))}
-                    />
-                  </div>
-                  <span className="sa-hint" style={{ gridColumn: "1 / -1" }}>
-                    Required for GML. Printed on the pledge agreement as the lender&rsquo;s particulars.
-                  </span>
-                </div>
-              )}
-
-              <div className="sa-field">
-                <label>Registered address</label>
-                <input value={addressLine} onChange={(e) => setAddressLine(e.target.value)} />
-                <span className="sa-hint">One line, as it should appear on customer documents.</span>
+                <span className="sa-hint">
+                  Decides the pledge agreement and narrows document languages on the Grants step. Registration no.,
+                  phone, address{policy === "gml" ? " and the lender's age, PAN and Aadhaar" : ""} are filled in by the
+                  business itself under Settings &gt; Business Profile.
+                </span>
               </div>
 
               <div className="sa-field">
@@ -981,10 +908,6 @@ export function BusinessWizard({
                 <ReviewRow label="Plan" value={planLabelFor(tiers, tierId)} changed={changed.plan} />
                 <ReviewRow label="Legal name" value={legalName} changed={changed.profile} />
                 <ReviewRow label="Short name" value={shortName || "(falls back to business name)"} changed={changed.profile} />
-                <ReviewRow label="Address" value={addressLine} changed={changed.profile} />
-                <ReviewRow label="Registration no." value={kmlRegNo} changed={changed.profile} />
-<ReviewRow label="Business phone" value={contactPhone} changed={changed.profile} />
-{policy === "gml" && <ReviewRow label="Lender age" value={lenderAge} changed={changed.profile} />}                {policy === "gml" && <ReviewRow label="Lender PAN" value={lenderPan} changed={changed.profile} />}                {policy === "gml" && <ReviewRow label="Lender Aadhaar" value={lenderAadhaar} changed={changed.profile} />}
                 <ReviewRow
                   label="Document policy"
                   value={catalogue.policies.find((p) => p.code === policy)?.label ?? policy}

@@ -60,8 +60,8 @@ export async function resolveInvestmentNumber(number: string): Promise<number> {
 /* One server page of the ledger; `page` is 0-based like getInvestmentSchedulePage. */
 export const INVESTMENT_LEDGER_PAGE_SIZE = 10;
 
-export async function getInvestmentLedgerPage(id: number, page: number): Promise<{ items: InvestmentLedgerRow[]; hasMore: boolean }> {
-  const params = new URLSearchParams({ limit: String(INVESTMENT_LEDGER_PAGE_SIZE), offset: String(page * INVESTMENT_LEDGER_PAGE_SIZE) });
+export async function getInvestmentLedgerPage(id: number, page: number, pageSize: number = INVESTMENT_LEDGER_PAGE_SIZE): Promise<{ items: InvestmentLedgerRow[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ limit: String(pageSize), offset: String(page * pageSize) });
   const res = await apiFetch<{ items: InvestmentLedgerRow[] | null; hasMore?: boolean }>(`/investments/${id}/ledger?${params}`);
   return { items: res.items || [], hasMore: !!res.hasMore };
 }
@@ -75,8 +75,8 @@ export const INVESTMENT_PAGE_SIZE = 20;
 /* Unpaginated in practice (limit 20 comfortably covers a Monthly/12mo or
  * Yearly/multi-year schedule) — backs InvestmentDetail's schedule table.
  * `page` is 0-based, mirrors getPersonalLoanSchedulePage. */
-export function getInvestmentSchedulePage(id: number, page: number): Promise<{ items: BackendInvestmentPayout[]; hasMore: boolean }> {
-  const params = new URLSearchParams({ limit: String(INVESTMENT_PAGE_SIZE), offset: String(page * INVESTMENT_PAGE_SIZE) });
+export function getInvestmentSchedulePage(id: number, page: number, pageSize: number = INVESTMENT_PAGE_SIZE): Promise<{ items: BackendInvestmentPayout[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ limit: String(pageSize), offset: String(page * pageSize) });
   return apiFetch<{ items: BackendInvestmentPayout[]; hasMore: boolean }>(`/investments/${id}/schedule?${params}`);
 }
 

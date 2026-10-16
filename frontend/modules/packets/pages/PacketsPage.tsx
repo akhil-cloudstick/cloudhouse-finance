@@ -307,7 +307,7 @@ export function PacketsPage() {
                   </td></tr>
                 )}
                 {pagedLockers.map((l) => (
-                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} onChanged={load} />)}>
+                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} onChanged={load} />, true)}>
                     <td data-label="Locker"><span className="id">{l.code}</span></td>
                     {showBranch && <td data-label="Branch">{l.branchName}</td>}
                     <td className="num" data-label="Packets">{l.occupied} / {l.capacity}</td>

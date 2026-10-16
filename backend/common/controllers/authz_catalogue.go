@@ -67,6 +67,8 @@ var AuthzCatalogue = []PermissionDef{
 	{"can view report module", "View and export management reports", "Report Management"},
 	{"can view audit log module", "View the record of employee and branch changes", "Audit Log"},
 	{"can manage billing", "Subscribe to or renew this business's plan, and view billing status", "Billing"},
+	{"can view business profile module", "View the business profile (registration no., phone, address, lender particulars)", "Business Profile"},
+	{"can update business profile", "Edit the business profile printed on slips, statements and pledge agreements", "Business Profile"},
 	{"can view role and permission module", "View roles and their permission grants", "Role Management"},
 	{"can create role", "Create new roles", "Role Management"},
 	{"can update role", "Rename roles, edit their grants and the approval workflow", "Role Management"},
@@ -103,6 +105,14 @@ var Restrictions = []RoleRestriction{
 	{"can settle auction", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
 	{"can view audit log module", []string{"Administrator", "Management", "Auditor"}},
 	{"can manage billing", []string{"Administrator"}},
+}
+
+// Granted to every staff role of a newly created business, which otherwise
+// starts its non-Administrator roles with nothing; the administrator revokes
+// per role on the Roles screen.
+var GrantAllOnCreate = []RoleRestriction{
+	{"can view business profile module", StaffRoles},
+	{"can update business profile", StaffRoles},
 }
 
 type PermissionDef struct {

@@ -28,6 +28,12 @@ const (
 
 var KnownPolicies = []string{PolicyKML, PolicyGML, PolicyTML}
 
+var PolicyLabels = map[string]string{
+	PolicyKML: "KML — Kerala Money Lenders",
+	PolicyGML: "GML — Gujarat Money Lenders",
+	PolicyTML: "TML — Tamil Nadu Money Lenders",
+}
+
 var PolicyLanguages = map[string][]string{
 	PolicyKML: {LangEnglish, "ml"},
 	PolicyGML: {LangEnglish, "gu"},

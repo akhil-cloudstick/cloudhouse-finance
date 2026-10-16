@@ -172,7 +172,7 @@ func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, i
 		return nil, common.NewBadRequest("loan request has already been decided")
 	}
 	if !checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
-		return nil, common.NewForbidden("Access denied")
+		return nil, common.NewPermissionDenied("Access denied", "can verify release checklist")
 	}
 	if in.CustomerSawGold != nil {
 		if req.Locked {
@@ -215,7 +215,7 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 		return nil, common.NewBadRequest("payment can only be recorded while the release request is at the Manager review stage")
 	}
 	if !checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
-		return nil, common.NewForbidden("Access denied")
+		return nil, common.NewPermissionDenied("Access denied", "can verify release checklist")
 	}
 	if in.Discount < 0 || in.Amount < 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")

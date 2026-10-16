@@ -311,9 +311,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [employee, token]);
 
   // Branch pickers fall back to this when the role cannot list branches.
+  // Until permissions load, assume it can (pages don't render before then).
+  const canViewBranches = !permissionsLoaded || can("Branch_Management", "can_view_branch_module");
   useLayoutEffect(() => {
-    setOwnBranchFallback(employee?.branch ?? null);
-  }, [employee]);
+    setOwnBranchFallback(employee?.branch ?? null, canViewBranches);
+  }, [employee, canViewBranches]);
 
   const isSystem = employee?.isSystem === true;
   const isCrossBranch = can("Branch_Management", "can_view_all_branches");

@@ -140,8 +140,8 @@ export async function getMovementEntry(id: number): Promise<EntryInfo> {
  * (every payment part, or both legs of a self transfer) is replaced by the
  * edited version. Needs no permission of its own. */
 export async function updateMovementEntry(id: number, input: EntryUpdateInput): Promise<void> {
-  await apiFetch<{ id: number }>(`/cash-movements/${id}`, {
-    method: "PUT",
+  await apiFetch<{ id: number }>(`/cash-movements/${id}/update`, {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }
@@ -153,10 +153,10 @@ export async function getExpenseEntry(id: number): Promise<EntryInfo> {
 }
 
 /* Saves an edit made in an entry form: from the Expense Register it goes to
- * PUT /expenses/:id, from a ledger row to PUT /cash-movements/:id. */
+ * PATCH /expenses/:id/update, from a ledger row to PATCH /cash-movements/:id/update. */
 export async function saveEntryEdit(info: EntryInfo, input: EntryUpdateInput): Promise<void> {
-  await apiFetch<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}` : `/cash-movements/${info.movementId}`, {
-    method: "PUT",
+  await apiFetch<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}/update` : `/cash-movements/${info.movementId}/update`, {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }
