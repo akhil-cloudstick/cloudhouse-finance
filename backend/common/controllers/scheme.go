@@ -218,6 +218,27 @@ func validateTiers(in SchemeCreateInput) error {
 	return nil
 }
 
+// checkMultipleInterest refuses the Multiple interest method unless the business
+// has that module; a scheme already on it may still be edited after the module is
+// switched off, so its running loans are not stranded.
+func checkMultipleInterest(ctx context.Context, method, current string) error {
+	if method != commonModels.InterestMethodMultiple || current == commonModels.InterestMethodMultiple {
+		return nil
+	}
+	tenantID, ok := config.TenantFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return NewForbidden("multiple interest schemes are not enabled for your business")
+	}
+	enabled, err := HasModule(ctx, tenantID, commonModels.ModuleMultipleInterest)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return NewForbidden("multiple interest schemes are not enabled for your business")
+	}
+	return nil
+}
+
 func schemeValidate(in SchemeCreateInput) error {
 	if err := validateTiers(in); err != nil {
 		return err
@@ -259,6 +280,9 @@ func checkSchemeBranch(ctx context.Context, id uint) error {
 
 func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme, error) {
 	if err := schemeValidate(in); err != nil {
+		return nil, err
+	}
+	if err := checkMultipleInterest(ctx, in.InterestMethod, ""); err != nil {
 		return nil, err
 	}
 	normalizeTiers(&in)
@@ -340,6 +364,9 @@ func updateScheme(ctx context.Context, id uint, in SchemeUpdateInput, branchID *
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return nil, NewNotFound("scheme not found")
+	}
+	if err := checkMultipleInterest(ctx, in.InterestMethod, rec.InterestMethod); err != nil {
+		return nil, err
 	}
 	chargeType := in.ServiceChargeType
 	if chargeType == "" {

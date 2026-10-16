@@ -23,16 +23,20 @@ const (
 const printableHeightPx = (11.69 - 0.75 - 0.55) * 96
 
 // pageMargins are the PDF margins in inches; the TML pledge-book sheet (marked by tmlSheetMarker)
-// is laid out edge-to-edge like the printed original, so it gets tighter margins.
-type pageMargins struct{ top, bottom, side float64 }
+// is laid out edge-to-edge like the printed original, so it gets tighter margins and no
+// "Page x of y" footer — it is always a single A4 sheet.
+type pageMargins struct {
+	top, bottom, side float64
+	pageNumbers       bool
+}
 
 const tmlSheetMarker = `content="tml-bond"`
 
 func marginsFor(htmlDoc string) pageMargins {
 	if strings.Contains(htmlDoc, tmlSheetMarker) {
-		return pageMargins{top: 0.25, bottom: 0.4, side: 0.3}
+		return pageMargins{top: 0.2, bottom: 0.2, side: 0.3}
 	}
-	return pageMargins{top: 0.75, bottom: 0.55, side: pageSideMargin}
+	return pageMargins{top: 0.75, bottom: 0.55, side: pageSideMargin, pageNumbers: true}
 }
 
 func renderA4PDF(htmlDoc, label string) ([]byte, error) {
@@ -91,7 +95,7 @@ func renderA4PDFWithSlots(htmlDoc, label string) ([]byte, []config.SignatureSlot
 				WithMarginBottom(m.bottom).
 				WithMarginLeft(m.side).
 				WithMarginRight(m.side).
-				WithDisplayHeaderFooter(true).
+				WithDisplayHeaderFooter(m.pageNumbers).
 				WithHeaderTemplate(`<div style="font-size:1px"></div>`).
 				WithFooterTemplate(`
 <div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">

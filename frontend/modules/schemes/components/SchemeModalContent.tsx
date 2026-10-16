@@ -80,7 +80,12 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
   const [chargeValue, setChargeValue] = useState(s && s.serviceChargeType !== "None" ? String(s.serviceChargeValue) : "");
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
-  const { singleBranch } = useBranding();
+  const { singleBranch, hasModule } = useBranding();
+  // "Multiple interest" is a module the superadmin switches on per business;
+  // a scheme already on it keeps the option so it can still be edited.
+  const methodOptions = hasModule("multiple_interest") || s?.method === MULTIPLE_INTEREST
+    ? METHOD_OPTIONS
+    : METHOD_OPTIONS.filter((o) => o.value !== MULTIPLE_INTEREST);
   // Single-branch plan: no branch is ever shown — the field is not rendered.
   const showBranch = useShowBranch();
   // Locked (and defaulted) to the global branch selection when one is
@@ -157,35 +162,65 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
     }
   }); }
 
+  const statusField = (
+    <div><label className="f">Status</label>
+      <Select options={STATUS_OPTIONS} value={active ? "1" : "0"} onChange={(v) => setActive(v === "1")} /></div>
+  );
+  const penalField = (
+    <div className={fe.penal ? "has-err" : undefined}><label className="f">Penal Charges (% p.a.) *</label>
+      <input className="inp" inputMode="decimal" placeholder="e.g. 24" value={penal} onChange={(e) => { setPenal(cleanNum(e.target.value, true)); clearFe("penal"); }} /><FieldError msg={fe.penal} /></div>
+  );
+  const branchField = (
+    <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
+      {canViewAllBranches ? (
+        <Select
+          disabled={branchLocked}
+          options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+          value={branchId ? String(branchId) : ""}
+          onChange={(v) => { setBranchId(v ? Number(v) : ""); clearFe("branch"); }}
+          placeholder="Select branch…"
+        />
+      ) : (
+        // Non-admins are confined to their own branch — the backend
+        // enforces this regardless, so the field is locked rather
+        // than offering a choice they can't actually use.
+        <Select
+          options={[{ value: String(branchId || ""), label: s?.branchName || "Your branch" }]}
+          value={String(branchId || "")}
+          onChange={() => {}}
+          disabled
+        />
+      )}<FieldError msg={fe.branch} /></div>
+  );
+
   return (
     <>
       <div className="hd"><h3>{s ? "Edit Scheme — " + s.name : "New Loan Scheme"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
+        {/* Basics, then Interest, then Charges & status. Method and Minimum
+            Period keep their place whichever method is picked; only the rate
+            row swaps between one rate and the rate ladder. */}
         <div className="frow c2 scheme-frow">
           <div className={fe.name ? "has-err" : undefined}><label className="f">Scheme Name *</label><input className="inp" placeholder="e.g. Swarna Premium" value={name} onChange={(e) => { setName(e.target.value); clearFe("name"); }} /><FieldError msg={fe.name} /></div>
-          {isMultiple ? (
-            <div><label className="f">Minimum Period (days)</label><input className="inp" inputMode="numeric" value={minDays} onChange={(e) => setMinDays(cleanNum(e.target.value, false))} /></div>
-          ) : (
-            <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" inputMode="decimal" placeholder="12.5" value={rate} onChange={(e) => { setRate(cleanNum(e.target.value, true)); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
-          )}
+          {showBranch ? branchField : statusField}
         </div>
-        {!isMultiple && (
-          <div className="frow c2 scheme-frow">
-            <div><label className="f">Minimum Period (days)</label><input className="inp" inputMode="numeric" value={minDays} onChange={(e) => setMinDays(cleanNum(e.target.value, false))} /></div>
-            <div><label className="f">&nbsp;</label><div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.4 }}>Interest is charged for at least this many days, even if the loan is repaid earlier.</div></div>
-          </div>
-        )}
         <div className="frow c2 scheme-frow">
           <div className={fe.duration ? "has-err" : undefined}><label className="f">Loan Duration (months) *</label>
             <input className="inp" inputMode="numeric" placeholder="e.g. 12" value={duration} onChange={(e) => { setDuration(cleanNum(e.target.value, false)); clearFe("duration"); }} /><FieldError msg={fe.duration} /></div>
           <div className={fe.ltv ? "has-err" : undefined}><label className="f">LTV (%) *</label><input className="inp" inputMode="numeric" placeholder="e.g. 90" value={ltv} onChange={(e) => { setLtv(cleanNum(e.target.value, false)); clearFe("ltv"); }} /><FieldError msg={fe.ltv} /></div>
         </div>
+        <div className="scheme-sec">Interest</div>
         <div className="frow c2 scheme-frow">
-          <div><label className="f">Interest Calculation Method</label>
-            <Select options={METHOD_OPTIONS} value={method} onChange={setMethod} /></div>
-          <div className={fe.penal ? "has-err" : undefined}><label className="f">Penal Charges (% p.a.) *</label>
-            <input className="inp" inputMode="decimal" placeholder="e.g. 24" value={penal} onChange={(e) => { setPenal(cleanNum(e.target.value, true)); clearFe("penal"); }} /><FieldError msg={fe.penal} /></div>
+          <div><label className="f">Calculation Method</label>
+            <Select options={methodOptions} value={method} onChange={setMethod} /></div>
+          <div><label className="f">Minimum Period (days)</label><input className="inp" inputMode="numeric" value={minDays} onChange={(e) => setMinDays(cleanNum(e.target.value, false))} /></div>
         </div>
+        {!isMultiple && (
+          <div className="frow c2 scheme-frow">
+            <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" inputMode="decimal" placeholder="12.5" value={rate} onChange={(e) => { setRate(cleanNum(e.target.value, true)); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
+            {penalField}
+          </div>
+        )}
         {isMultiple && (
           <div className={fe.tiers ? "has-err scheme-frow" : "scheme-frow"} style={{ marginBottom: 12 }}>
             <label className="f">Rate ladder *</label>
@@ -199,7 +234,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
                 return (
                   <div key={i} className={fe[`tier${i}`] ? "has-err" : undefined} style={{ padding: "8px 12px", borderTop: i ? "1px dashed var(--line)" : undefined }}>
                   <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 28px", gap: 10, alignItems: "center" }}>
-                    <span style={{ color: "var(--gold-deep)", fontSize: 12 }}>{i + 1}</span>
+                    <span style={{ color: "var(--accent-deep)", fontSize: 12 }}>{i + 1}</span>
                     {last
                       ? <div className="inp" style={{ color: "var(--muted)", fontStyle: "italic" }}>Thereafter</div>
                       : <input className="inp" inputMode="numeric" placeholder="e.g. 90" value={t.days} onChange={(e) => patch({ days: cleanNum(e.target.value, false) })} />}
@@ -218,8 +253,13 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
             <FieldError msg={fe.tiers} />
           </div>
         )}
-        <div className="frow scheme-frow"><div><label className="f">Applicable Conditions</label>
-          <input className="inp" placeholder="e.g. Interest payable monthly; penal 24% p.a. after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
+        {isMultiple && (
+          <div className="frow c2 scheme-frow">
+            {penalField}
+            <div />
+          </div>
+        )}
+        <div className="scheme-sec">Charges &amp; status</div>
         <div className="frow c2 scheme-frow">
           <div><label className="f">Service Charge</label>
             <Select options={CHARGE_TYPE_OPTIONS} value={chargeType} onChange={(v) => setChargeType(v as ServiceChargeType)} /></div>
@@ -232,30 +272,15 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
               /><FieldError msg={fe.charge} /></div>
           )}
         </div>
-        <div className={showBranch ? "frow c2 scheme-frow" : "frow scheme-frow"}>
-          <div><label className="f">Status</label>
-            <Select options={STATUS_OPTIONS} value={active ? "1" : "0"} onChange={(v) => setActive(v === "1")} /></div>
-          {showBranch && <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
-            {canViewAllBranches ? (
-              <Select
-                disabled={branchLocked}
-                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-                value={branchId ? String(branchId) : ""}
-                onChange={(v) => { setBranchId(v ? Number(v) : ""); clearFe("branch"); }}
-                placeholder="Select branch…"
-              />
-            ) : (
-              // Non-admins are confined to their own branch — the backend
-              // enforces this regardless, so the field is locked rather
-              // than offering a choice they can't actually use.
-              <Select
-                options={[{ value: String(branchId || ""), label: s?.branchName || "Your branch" }]}
-                value={String(branchId || "")}
-                onChange={() => {}}
-                disabled
-              />
-            )}<FieldError msg={fe.branch} /></div>}
-        </div>
+        {/* Status sits up beside the name when there's no branch field. */}
+        {showBranch && (
+          <div className="frow c2 scheme-frow">
+            {statusField}
+            <div />
+          </div>
+        )}
+        <div className="frow scheme-frow"><div><label className="f">Applicable Conditions</label>
+          <input className="inp" placeholder="e.g. Interest payable monthly; penal 24% p.a. after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
         <div className="notice"><Icon name="shield" /> Scheme changes are restricted to authorized administrators and recorded in the audit trail.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

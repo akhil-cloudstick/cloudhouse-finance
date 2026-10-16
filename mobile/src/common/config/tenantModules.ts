@@ -18,6 +18,7 @@ export const TENANT_MODULES = {
   whatsapp: "whatsapp",
   personalLoans: "personal_loans",
   investments: "investments",
+  multipleInterest: "multiple_interest",
 } as const;
 
 export type TenantModule = (typeof TENANT_MODULES)[keyof typeof TENANT_MODULES];

@@ -30,7 +30,7 @@ var tmlSlipTemplate = mustLoadTemplate("tml_pledge_slip", "tml_pledge_slip.html"
 var tmlStatementTemplate = mustLoadTemplate("tml_statement", "tml_statement.html", nil)
 
 const bondPageStyleTML = `
-@page{size:A4;margin:.25in .3in .4in .3in}
+@page{size:A4;margin:.2in .3in .2in .3in}
 *{box-sizing:border-box}
 body{margin:0;padding:0;width:100%;font-family:Arial,'Noto Sans Tamil','Nirmala UI',sans-serif;font-size:13px;color:#000;line-height:1.3}
 table{border-collapse:collapse}
@@ -45,7 +45,7 @@ td,th{overflow-wrap:anywhere}
 .hdr .by{position:absolute;right:12px;top:62px;width:168px}
 .hdr .by span{display:block;text-align:center;font-family:'Times New Roman',serif;font-size:15px;margin-bottom:5px}
 .hdr .by div{height:41px;line-height:39px;border:1px solid #000;padding:0 9px;font-size:15px;white-space:nowrap}
-.top{display:flex;margin-top:12px;height:142px;align-items:flex-start}
+.top{display:flex;margin-top:12px;min-height:142px;align-items:flex-start}
 .cust{width:213px;height:142px;table-layout:fixed}
 .cust td{border:2px solid #000;padding:2px 7px;font-weight:700;font-size:13px;vertical-align:top}
 .cust tr:first-child td,.cust tr:last-child td{height:25px;vertical-align:middle}
@@ -61,7 +61,7 @@ td,th{overflow-wrap:anywhere}
 .loan td{border:1px solid #000;padding:2px 6px;font-family:'Times New Roman',serif;font-size:13px;line-height:14px}
 .loan td:first-child{width:66px}
 .loan td:last-child{font-family:Arial,sans-serif;font-weight:700;font-size:13px}
-.mid{display:flex;margin-top:18px;height:238px;align-items:flex-start}
+.mid{display:flex;margin-top:14px;height:238px;align-items:flex-start}
 .decl{position:relative;width:395px;height:238px;line-height:19px;font-size:12.5px;text-align:justify;overflow-wrap:anywhere}
 .decl .words{margin:4px 0 0;font-family:'Times New Roman',serif;font-size:14px;line-height:18px}
 .sig{position:absolute;left:0;top:192px;width:229px;height:46px;border:1px solid #000;padding:4px 8px;font-family:'Times New Roman',serif;font-size:15px;line-height:17px}
@@ -76,25 +76,28 @@ td,th{overflow-wrap:anywhere}
 .items.tot{border:2px solid #000;margin-top:0}
 .items.tot th{font-size:13px;height:19px;padding:1px 6px}
 .items.tot td{font-family:Arial,sans-serif;font-weight:700;font-size:14px;height:33px}
-.pay{display:grid;grid-template-columns:213px 230px 1fr auto;border-bottom:1.5px solid #000;margin-top:28px;padding:0 40px 3px 4px;font-family:'Times New Roman',serif;font-size:14px;line-height:16px}
+.pay{display:grid;grid-template-columns:213px 230px 1fr auto;border-bottom:1.5px solid #000;margin-top:20px;padding:0 40px 3px 4px;font-family:'Times New Roman',serif;font-size:14px;line-height:16px}
 .pay span:last-child{text-align:right}
 .recv{margin:7px 0 0;font-size:12.5px;line-height:15.5px;overflow-wrap:anywhere}
-.foot{display:flex;margin-top:24px;padding-left:28px;font-size:14px;line-height:18px}
+.foot{display:flex;margin-top:16px;padding-left:28px;font-size:14px;line-height:18px}
 .foot span:nth-child(1){width:264px}
 .foot span:nth-child(2){width:219px}
-.cut{border-top:1.5px dashed #000;margin:8px 0 10px}
-.rcpt{display:flex;height:326px;break-inside:avoid;page-break-inside:avoid}
-.rcpt .l{position:relative;margin-left:16px;width:454px;height:326px;border:1px solid #000;overflow:hidden}
+.cut{border-top:1.5px dashed #000;margin:6px 0 8px}
+.rcpt{display:flex;height:362px;break-inside:avoid;page-break-inside:avoid}
+.rcpt .l{position:relative;margin-left:16px;width:454px;height:362px;border:1px solid #000;overflow:hidden}
 .rcpt .l .lg{position:absolute;left:6px;top:6px;width:134px;height:104px;object-fit:contain}
 .rcpt .l .hd{position:absolute;left:144px;right:4px;top:4px;text-align:center;line-height:15px}
 .rcpt h2{margin:0;color:var(--brand,#423591);font-family:'Times New Roman',Georgia,serif;font-size:27px;line-height:29px;letter-spacing:1px;text-transform:uppercase}
 .rcpt .hd .ad{font-family:'Times New Roman',serif;font-size:15px;font-weight:700;line-height:16px}
 .rcpt .hd .ct{font-size:11.5px;font-weight:700;line-height:14px}
 .rcpt .hd .gl{font-family:'Times New Roman',serif;font-size:14px;font-weight:700;line-height:17px}
-.rg{position:absolute;left:5px;top:114px;width:198px;font-size:13px}
-.rg td+td{overflow-wrap:anywhere;line-height:15px}
-.rg td{padding:0 4px 0 0;height:20px;font-family:'Times New Roman',serif;font-size:13px}
-.rg td+td{font-weight:700;padding-left:14px}
+/* Labels hold one line in a fixed column; a long value (the customer name)
+ * wraps under itself, after the colon, and pushes the rows below it down. */
+.rg{position:absolute;left:5px;top:114px;width:200px;font-size:13px;table-layout:fixed}
+.rg td{padding:2px 4px 0 0;height:20px;font-family:'Times New Roman',serif;font-size:13px;line-height:15px;vertical-align:top}
+.rg td:first-child{width:72px;white-space:nowrap}
+.rg td+td{font-weight:700;padding-left:18px;text-indent:-8px;overflow-wrap:anywhere}
+.rg tr:first-child td+td{white-space:nowrap}
 .orn{position:absolute;left:206px;top:112px;width:124px;font-family:'Times New Roman',serif;font-size:14px;line-height:17px}
 .orn u{font-weight:700}
 .jw{position:absolute;left:335px;top:112px;width:112px;text-align:center;font-family:'Times New Roman',serif;font-size:14px;line-height:17px}
@@ -104,11 +107,17 @@ td,th{overflow-wrap:anywhere}
 .jw .ls{height:20px;display:flex;align-items:flex-end;justify-content:center}
 .jw .ls .sig-img{max-height:20px;max-width:90px;display:block}
 .jw small{display:block;font-size:11px;line-height:13px;white-space:nowrap}
-.terms{position:absolute;left:6px;right:6px;top:246px;text-align:center;font-family:'Times New Roman','Noto Sans Tamil',serif;font-size:10.5px;line-height:14px;border-top:1px solid #000;padding-top:3px}
+.terms{position:absolute;left:6px;right:6px;bottom:4px;text-align:center;font-family:'Times New Roman','Noto Sans Tamil',serif;font-size:10.5px;line-height:14px;border-top:1px solid #000;padding-top:3px}
 .terms div{white-space:nowrap;overflow:hidden}
 html[lang=ta] .terms{font-size:9.4px}
-.rcpt .r{margin-left:24px;border-left:1.5px dashed #999;padding:52px 0 0 16px;flex:1;font-size:14px;line-height:22px}
+.rcpt .r{margin-left:24px;border-left:1.5px dashed #999;padding:30px 0 0 16px;flex:1;font-size:14px;line-height:22px;overflow:hidden}
 .rcpt .r h3{margin:0 0 4px;font-size:17px;line-height:22px}
+/* Package Details: same label / value columns as the receipt, so a wrapped
+ * name continues under itself instead of under the labels. */
+.pk td{padding:0;font-size:14px;line-height:22px;vertical-align:top}
+.pk td:first-child{width:76px;font-weight:700;white-space:nowrap}
+.pk td+td{padding-left:8px;text-indent:-8px;overflow-wrap:anywhere}
+.pk tr:last-child td{font-weight:700}
 .pqr{margin-top:8px;text-align:center;font-size:11px;line-height:13px;width:130px}
 .pqr img{display:block;width:118px;height:118px;margin:0 auto 2px}
 `
