@@ -33,7 +33,7 @@
   <div class="decl">
     நான் <b>{{.CustomerName}}</b> {{.LenderName}} நிறுவனத்தில் அடகு வைக்கும் தங்க நகைகள் எனக்கு சொந்தமான நகைகள். நான் நகை அடகின் பேரில் வாங்கிய ரூபாய் <b>{{.PrincipalAmount}}/-</b> மேல் சொல்லப்பட்ட நகைகள் எனக்கு சொந்தமானவைகள் என்றும், மறுபக்கம் கூறப்பட்டுள்ள சட்ட திட்டங்களுக்குட்பட்டு அசலும் வட்டியும் செலுத்தி திரும்பப் பெற்றுக் கொள்வேன் என உறுதியளிக்கிறேன். நகைகள் திரும்பப்பெறாத பட்சத்தில் அவற்றை ஏலம் விட்டு விற்பதற்கும் சம்மதிக்கிறேன்.
     <p class="words">Rupees in Words : <b>{{.AmountWords}} Only</b></p>
-    <div class="sig"><span class="esign-slot">Signature</span></div>
+    <div class="sig"><span class="esign-slot" data-esign-dy="18">Signature</span></div>
   </div>
   <div class="right">
     <table class="items main">
@@ -72,8 +72,13 @@
   </div>
   <div class="r">
     <h3>Package Details</h3>
-    <b>GL.NO</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {{.LoanNumber}}<br><b>Name</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {{.CustomerName}}<br>
-    <b>Lo Amt</b> &nbsp;&nbsp;&nbsp;: {{.ReceiptAmount}}<br><b>Weight</b> &nbsp;&nbsp;&nbsp;: {{.NetTotal}} g<br><b>Total Qty : {{.TotalQty}}</b>
+    <table class="pk">
+      <tr><td>GL.NO</td><td>: {{.LoanNumber}}</td></tr>
+      <tr><td>Name</td><td>: {{.CustomerName}}</td></tr>
+      <tr><td>Lo Amt</td><td>: {{.ReceiptAmount}}</td></tr>
+      <tr><td>Weight</td><td>: {{.NetTotal}} g</td></tr>
+      <tr><td>Total Qty</td><td>: {{.TotalQty}}</td></tr>
+    </table>
     {{with .PacketQR}}<div class="pqr"><img src="{{.}}" alt=""><span>Packet QR</span></div>{{end}}
   </div>
 </div>

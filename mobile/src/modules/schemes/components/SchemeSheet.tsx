@@ -7,6 +7,8 @@ import { BranchField, useOwnBranch } from "@/modules/cash/components/EntryFormPa
 import { createScheme, toggleSchemeActive, updateScheme } from "@/modules/schemes/services/schemeService";
 import { type SchemeInput, type Scheme, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
 import { ApiError } from "@/common/services/httpClient";
+import { TENANT_MODULES } from "@/common/config/tenantModules";
+import { useTheme } from "@/common/theme/ThemeProvider";
 
 // ---------------------------------------------------------------------------
 // Scheme create / edit (prototype #scheme-create-modal). Same fields, wire
@@ -63,6 +65,12 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const qc = useQueryClient();
   const { employee } = useAuth();
   const editing = !!scheme;
+  // "Multiple interest" is switched on per business from the superadmin console;
+  // a scheme already on it keeps the option so it can still be edited.
+  const { hasModule } = useTheme();
+  const methods = hasModule(TENANT_MODULES.multipleInterest) || scheme?.interestMethod === "Multiple interest"
+    ? [...METHODS]
+    : METHODS.filter((m) => m !== "Multiple interest");
   // Branch picker — only for a role that can see every branch (hidden otherwise, like web); the scheme then
   // belongs to the user's own branch.
   const [branch, setBranch] = useOwnBranch(null);
@@ -178,7 +186,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
       </FieldRow>
       <FieldRow>
         <Field label="Interest calculation">
-          <ThemeDropdown<Method> value={method} options={[...METHODS]} onChange={setMethod} labelOf={(m) => METHOD_LABELS[m]} />
+          <ThemeDropdown<Method> value={method} options={methods} onChange={setMethod} labelOf={(m) => METHOD_LABELS[m]} />
         </Field>
         <Field label="Penal charges (p.a)">
           <Input placeholder="e.g. 24" keyboardType="decimal-pad" value={penalRate} onChangeText={(t) => setPenalRate(num(t))} />

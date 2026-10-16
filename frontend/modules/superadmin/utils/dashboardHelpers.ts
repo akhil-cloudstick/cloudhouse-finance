@@ -58,6 +58,7 @@ export const MODULE_LABELS: Record<string, string> = {
   branches: "Branch Management",
   demo_reset: "Demo Reset",
   whatsapp: "WhatsApp",
+  multiple_interest: "Multiple Interest Schemes",
 };
 export const LANGUAGE_LABELS: Record<string, string> = {
   en: "English",

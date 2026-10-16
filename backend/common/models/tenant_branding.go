@@ -12,9 +12,11 @@ const (
 	ModulePersonalLoans = "personal_loans"
 	ModuleInvestments   = "investments"
 	ModuleWhatsApp      = "whatsapp"
+	// Gates the "Multiple interest" scheme method (a rate ladder by days unpaid).
+	ModuleMultipleInterest = "multiple_interest"
 )
 
-var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp}
+var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp, ModuleMultipleInterest}
 
 const (
 	LangEnglish = "en"

@@ -33,7 +33,7 @@
   <div class="decl">
     I, <b>{{.CustomerName}}</b>, declare that the gold ornaments pledged with {{.LenderName}} are my own property. I have received a loan of Rs. <b>{{.PrincipalAmount}}/-</b> against the ornaments listed here, and I confirm that they belong to me. I undertake to pay the principal and interest under the terms and conditions printed on the other side and to take back my ornaments. If the ornaments are not redeemed, I agree that they may be sold by auction.
     <p class="words">Rupees in Words : <b>{{.AmountWords}} Only</b></p>
-    <div class="sig"><span class="esign-slot">Signature</span></div>
+    <div class="sig"><span class="esign-slot" data-esign-dy="18">Signature</span></div>
   </div>
   <div class="right">
     <table class="items main">
@@ -72,8 +72,13 @@
   </div>
   <div class="r">
     <h3>Package Details</h3>
-    <b>GL.NO</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {{.LoanNumber}}<br><b>Name</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {{.CustomerName}}<br>
-    <b>Lo Amt</b> &nbsp;&nbsp;&nbsp;: {{.ReceiptAmount}}<br><b>Weight</b> &nbsp;&nbsp;&nbsp;: {{.NetTotal}} g<br><b>Total Qty : {{.TotalQty}}</b>
+    <table class="pk">
+      <tr><td>GL.NO</td><td>: {{.LoanNumber}}</td></tr>
+      <tr><td>Name</td><td>: {{.CustomerName}}</td></tr>
+      <tr><td>Lo Amt</td><td>: {{.ReceiptAmount}}</td></tr>
+      <tr><td>Weight</td><td>: {{.NetTotal}} g</td></tr>
+      <tr><td>Total Qty</td><td>: {{.TotalQty}}</td></tr>
+    </table>
     {{with .PacketQR}}<div class="pqr"><img src="{{.}}" alt=""><span>Packet QR</span></div>{{end}}
   </div>
 </div>
