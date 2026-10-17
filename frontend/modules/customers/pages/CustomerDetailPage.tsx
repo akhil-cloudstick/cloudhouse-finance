@@ -6,7 +6,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
-import { fmt, fmtW, initials, fmtDate } from "@/common/utils/format";
+import { fmt, fmtW, initials, fmtDate, ageFromDob } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
@@ -472,17 +472,15 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                  * flow beside, KYC's chip alone under its label read as two
                  * disconnected lines instead of one field. */}
                 <div className="i"><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">KYC</div><StatusChip status={c.kycStatus} /></div></div>
-                {/* Forced onto one line regardless of the card's own width
-                 * (gridColumn:"1 / -1" takes the whole row instead of
-                 * competing for one of .kv's auto-fill columns) — at a
-                 * narrow card width .kv's own minmax(150px,1fr) columns
-                 * collapse to a single column, so Date of Birth and Phone
-                 * would otherwise stack one per line like everything else
-                 * here. */}
-                <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Date of Birth</div><div className="v">{fmtDate(c.dob)}</div></div>
-                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Phone</div><div className="v">{c.phone || "—"}</div></div>
-                </div>
+                {/* Each field is its own .kv item, so the grid's auto-fill
+                 * columns lay them out two-up in a wide card and one per
+                 * line in a narrow one — a forced single row here cropped
+                 * the phone number and wrapped the labels. */}
+                <div className="i"><div className="k">Phone</div><div className="v">{c.phone || "—"}</div></div>
+                <div className="i"><div className="k">Date of Birth</div><div className="v">{fmtDate(c.dob)}</div></div>
+                {/* Computed from the DOB so it stays current; the manually
+                 * entered Age is only the fallback when no DOB is on file. */}
+                <div className="i"><div className="k">Age</div><div className="v">{(() => { const age = ageFromDob(c.dob) ?? c.age; return age != null ? `${age} years` : "—"; })()}</div></div>
                 <div className="i"><div className="k">Address</div><div className="v">{c.address || "—"}</div></div>
               </div>
 
