@@ -45,6 +45,7 @@ var (
 	CurrentSession         func(ctx context.Context, employeeID uint) (Session, bool)
 	HasModule              func(ctx context.Context, tenantID uint, moduleKey string) (bool, error)
 	TenantIDForHost        func(ctx context.Context, host string) (uint, bool)
+	TenantIDForHostLabel   func(ctx context.Context, host string) (uint, bool)
 	SingleBranchHeadOffice func(ctx context.Context, tenantID uint) (headOfficeID uint, single bool, err error)
 )
 
@@ -300,11 +301,11 @@ func RequireSelf(param, ctxKey string) echo.MiddlewareFunc {
 }
 
 func Staff(extra ...echo.MiddlewareFunc) []echo.MiddlewareFunc {
-	return append([]echo.MiddlewareFunc{AuthMiddleware(), RequireSelf("user_id", "employeeId"), RequireHostMatchesTenant(), PinTenantConn(), PinSingleBranch()}, extra...)
+	return append([]echo.MiddlewareFunc{AuthMiddleware(), RequireSelf("user_id", "employeeId"), RequireHostMatchesTenant(true), PinTenantConn(), PinSingleBranch()}, extra...)
 }
 
 func Customer(extra ...echo.MiddlewareFunc) []echo.MiddlewareFunc {
-	return append([]echo.MiddlewareFunc{CustomerAuthMiddleware(), RequireSelf("customer_id", "customerId"), RequireHostMatchesTenant(), PinTenantConn()}, extra...)
+	return append([]echo.MiddlewareFunc{CustomerAuthMiddleware(), RequireSelf("customer_id", "customerId"), RequireHostMatchesTenant(false), PinTenantConn()}, extra...)
 }
 
 func SuperAdmin(extra ...echo.MiddlewareFunc) []echo.MiddlewareFunc {
@@ -569,14 +570,22 @@ func CarryRequestHost() echo.MiddlewareFunc {
 	}
 }
 
-func RequireHostMatchesTenant() echo.MiddlewareFunc {
+// RequireHostMatchesTenant rejects a session used on another business's host.
+// byLabel also checks <code>.<base domain> subdomains, so a browser still
+// signed in on a renamed or removed subdomain is signed out. Customer routes
+// pass false: the customer app calls one fixed API host for every lender.
+func RequireHostMatchesTenant(byLabel bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			tenantID, ok := TenantFromGin(c)
 			if !ok {
 				return next(c)
 			}
-			hostTenant, matched := TenantIDForHost(c.Request().Context(), c.Request().Host)
+			ctx, host := c.Request().Context(), c.Request().Host
+			hostTenant, matched := TenantIDForHost(ctx, host)
+			if !matched && byLabel && TenantIDForHostLabel != nil {
+				hostTenant, matched = TenantIDForHostLabel(ctx, host)
+			}
 			if matched && hostTenant != tenantID {
 				return failAbort(c, 401, "your session is no longer valid — please sign in again")
 			}

@@ -93,3 +93,25 @@ func TenantIDForHost(ctx context.Context, host string) (uint, bool) {
 	}
 	return t.ID, true
 }
+
+// TenantIDForHostLabel resolves a <code>.BaseDomain host to its tenant.
+// matched is false when the host carries no tenant label (apex, reserved
+// label, another domain) or the lookup failed. A label that names no
+// business — renamed or removed — returns (0, true), so it matches no session.
+func TenantIDForHostLabel(ctx context.Context, host string) (uint, bool) {
+	label, ok := SubdomainLabel(host)
+	if !ok {
+		return 0, false
+	}
+	var ids []uint
+	if err := config.BaseDB.
+		WithContext(config.AllowCrossTenant(ctx)).
+		Model(&commonModels.Tenant{}).Where("LOWER(code) = LOWER(?)", label).
+		Limit(1).Pluck("id", &ids).Error; err != nil {
+		return 0, false
+	}
+	if len(ids) == 0 {
+		return 0, true
+	}
+	return ids[0], true
+}

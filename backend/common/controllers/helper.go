@@ -34,6 +34,7 @@ func init() {
 	auth.CurrentSession = CurrentSession
 	auth.HasModule = HasModule
 	auth.TenantIDForHost = TenantIDForHost
+	auth.TenantIDForHostLabel = TenantIDForHostLabel
 	auth.SingleBranchHeadOffice = SingleBranchHeadOffice
 	config.AfterSetup(func() {
 		SetBaseDomain(config.Env.BaseDomain)
