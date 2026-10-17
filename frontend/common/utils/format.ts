@@ -60,6 +60,19 @@ export const fmtDate = (v?: string | null) => {
   return m && m[1] !== "0001" ? `${m[3]}-${m[2]}-${m[1]}` : "—";
 };
 
+// Whole years from a "YYYY-MM-DD" date of birth to today (local date), read
+// from the string like fmtDate so it never shifts a day across timezones.
+// null when empty, unparseable, Go's zero time, or in the future.
+export const ageFromDob = (v?: string | null): number | null => {
+  const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
+  if (!m || m[1] === "0001") return null;
+  const now = new Date();
+  const [y, mo, d] = [+m[1], +m[2], +m[3]];
+  const hadBirthday = now.getMonth() + 1 > mo || (now.getMonth() + 1 === mo && now.getDate() >= d);
+  const age = now.getFullYear() - y - (hadBirthday ? 0 : 1);
+  return age >= 0 ? age : null;
+};
+
 // Timestamp with its time kept: "05-10-2026 14:32" in local time. "—" when
 // empty or unparseable.
 export const fmtDateTime = (v?: string | null) => {
