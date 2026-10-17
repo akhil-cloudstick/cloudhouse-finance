@@ -1,17 +1,15 @@
 const path = require("node:path");
 const fs = require("node:fs");
 
-/* Reads the tenant subdomain the same way the frontend itself does for a
- * desktop build (see common/services/tenantSession.ts's desktopSlugFromApiBase):
- * NEXT_PUBLIC_API_BASE's own hostname names the tenant, since the desktop
- * window never has a tenant subdomain of its own to read. */
+// Tenant subdomain from NEXT_PUBLIC_API_BASE's host; falls back to "default"
+// (e.g. localhost) so local testing still refreshes the icon.
 function slugFromApiBase(apiBase) {
   try {
     const host = new URL(apiBase).hostname.toLowerCase();
     const labels = host.split(".");
-    return labels.length >= 3 ? labels[0] : null;
+    return labels.length >= 3 ? labels[0] : "default";
   } catch {
-    return null; // relative "/api/v1" — the normal non-desktop build
+    return null;
   }
 }
 
@@ -97,7 +95,7 @@ async function generateIconFromInitials(name, brandColor, root) {
  * PNGs in build/windows/ — Go's build tool links whatever .syso sits next to
  * main.go automatically, no further wiring needed. */
 function regenerateWindowsResource(root, run) {
-  run("go", ["run", "github.com/tc-hib/go-winres@latest", "make", "--in", "winres.json", "--out", "../rsrc"], {
+  run("go", ["run", "github.com/tc-hib/go-winres@latest", "make", "--in", "winres.json", "--out", "../rsrc", "--arch", "amd64"], {
     cwd: path.join(root, "desktop", "winres"),
   });
 }
