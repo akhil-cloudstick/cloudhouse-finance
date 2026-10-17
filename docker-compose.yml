@@ -16,15 +16,15 @@ services:
     container_name: cloudhousewild_db
     restart: always
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: cloudhouse_demo_db
+      POSTGRES_PASSWORD: cloudhouse_demo_db
+      POSTGRES_DB: cloudhouse_demo_db
     volumes:
       - cloudhousewild_db_pgdata:/var/lib/postgresql/data
     networks:
       - cloudhousewild_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U cloudhouse_demo_db -d cloudhouse_demo_db"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -38,6 +38,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: /api/v1
+        NEXT_PUBLIC_TENANT_APP_ORIGIN: ""
+        NEXT_PUBLIC_ENABLE_PLAN_UPGRADE: ""
+        NEXT_PUBLIC_ENABLE_UPDATE_NOTICE: ""
+        NEXT_PUBLIC_UPDATE_NOTES: ""
+        NEXT_PUBLIC_BILLING_PLANS: ""
     container_name: cloudhousewild_frontend
     profiles: ["manual-build"]
     mem_limit: 2048m
@@ -52,11 +59,35 @@ services:
       dockerfile: Dockerfile
     container_name: cloudhousewild_backend
     restart: always
-    env_file:
-      - .env
     environment:
+      PORT: "6789"
       DB_HOST: cloudhousewild_db
       DB_PORT: "5432"
+      DB_NAME: cloudhouse_demo_db
+      DB_USER: cloudhouse_demo_db
+      DB_PASSWORD: cloudhouse_demo_db
+      DB_SSLMODE: disable
+      FRONTEND_ORIGIN: "https://superadmin.cloudhousefinance.com,https://*.cloudhousefinance.com,http://wails.localhost,http://wails.localhost:34115"
+      BASE_DOMAIN: cloudhousefinance.com
+      JWT_SECRET: "aFTl+TbrYxhx3bI+BzJdvl4NduwE7q7M9ko4CT5l0yg="
+      JWT_EXPIRY: 3d
+      SETTINGS_ENCRYPTION_KEY: "6dUfHyEmi0/WvCfRhRUIEq7RZw95MgFNPhTLQDIRKBI="
+      AADHAAR_ENCRYPTION_KEY: "3Z5aiZbHp1owAWiFHkXRaTBWn4GnVz1XRzIJ8S6hMtw="
+      SMTP_HOST: ""
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: ""
+      RAZORPAY_KEY_ID: ""
+      RAZORPAY_KEY_SECRET: ""
+      RAZORPAY_WEBHOOK_SECRET: ""
+      SUREPASS_API_TOKEN: ""
+      SUREPASS_BASE_URL: ""
+      SUREPASS_ESIGN_TOKEN: ""
+      SUREPASS_ESIGN_BASE_URL: ""
+      WHATSAPP_ORIGIN: ""
+      WHATSAPP_API_KEY: ""
+      WHATSAPP_SESSION_ID: ""
     depends_on:
       cloudhousewild_db:
         condition: service_healthy

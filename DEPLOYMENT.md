@@ -45,14 +45,14 @@ because this host's CSF firewall allowlists app subnets by IP — see
 
 ## Env files
 
-- **`.env`** (repo root, next to `docker-compose.yml`) — the real secrets
-  file used by `golddemo_migrate` and `golddemo_backend` via `env_file:`.
-  Contains live DB credentials, JWT secret, encryption keys,
-  `FRONTEND_ORIGIN=https://golddemo.cloudhousefinance.com`, `PORT=6789`,
-  `SUPERADMIN_PASSWORD`, and blank third-party API keys (Twilio/Setu/
-  Cashfree/Razorpay). **Not shown here or copied to other branches** — it
-  holds live secrets. If missing on a target branch/environment, recreate it
-  from `backend/.env.example` (see below) with real values.
+- **Server: no `.env`.** All server config for both backend and frontend
+  lives in `docker-compose.yml` (backend `environment:`, frontend build
+  `args:`), so a clone shows exactly what production runs with, including
+  the secrets (`DB_PASSWORD`, `JWT_SECRET`, `SETTINGS_ENCRYPTION_KEY`,
+  `AADHAAR_ENCRYPTION_KEY`) — never change the JWT secret or encryption keys
+  on a live server (users get logged out / encrypted data becomes unreadable).
+- **Local development: `.env`.** The backend loads `backend/.env` (godotenv)
+  and `next dev` loads `frontend/.env*`; both are gitignored.
 - **`backend/.env.example`** — full documented template of every backend env
   var (DB connection, encryption keys, JWT, SMTP, Twilio, Setu PAN/
   DigiLocker/eSign, Cashfree, Razorpay, OpenWA integration, RLS setup SQL).
@@ -80,7 +80,6 @@ services). `golddemo_backend` is the only one that stays running.
   on the host, proxying `golddemo.cloudhousefinance.com` → `127.0.0.1:6789`.
 - The CSF firewall allowlist entry for the `172.31.0.0/16` subnet in
   `/etc/csf/csfpost.sh`.
-- The actual `.env` secrets file.
 
 If these are already in place on the host, they don't need to be redone when
 switching branches locally — only the in-repo Docker files matter for that.
