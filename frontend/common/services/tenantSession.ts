@@ -98,6 +98,46 @@ const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
 // The desktop app's own origin (Wails); it names no business.
 const DESKTOP_HOST = "wails.localhost";
 
+/* subdomainLabel is the shared rule both businessSlugFromHost() below and the
+ * desktop fallback use: given a lowercased host, the first label names a
+ * business only when there is something real in front of a qualifying
+ * domain. Returns null for a bare apex domain (no subdomain to read),
+ * "localhost" alone, a raw IP, or a reserved label — see the two lists
+ * above. */
+function subdomainLabel(host: string): string | null {
+  if (!host || IPV4_PATTERN.test(host)) return null;
+  const labels = host.split(".");
+  if (labels.length < 2) return null; // "localhost" alone, or an unqualified host
+  const candidate = labels[0];
+  if (!isValidSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
+  const rest = labels.slice(1).join(".");
+  if (LOCAL_HOST_SUFFIXES.includes(rest)) return candidate;
+  // A bare two-label apex ("cloudhousefinance.com") has no subdomain to
+  // read at all — only three-or-more labels put something in front of it.
+  return labels.length >= 3 ? candidate : null;
+}
+
+/* The desktop app is never served from a tenant subdomain — Wails always
+ * serves it from wails.localhost, regardless of which backend it talks to.
+ * So there is no Host to read a slug from the way the browser case does.
+ * Each desktop build already points at exactly one tenant's backend via
+ * NEXT_PUBLIC_API_BASE (see common/services/httpClient.ts), so that URL's
+ * own hostname is used instead: the same build that calls
+ * https://aj.cloudhousefinance.com/api/v1 also signs in as "aj".
+ *
+ * Returns null when NEXT_PUBLIC_API_BASE is unset or relative (the ordinary
+ * same-origin web/production setup), which is a no-op for every build that
+ * isn't desktop-with-a-tenant-URL. */
+function desktopSlugFromApiBase(): string | null {
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE;
+  if (!apiBase) return null;
+  try {
+    return subdomainLabel(new URL(apiBase).hostname.toLowerCase());
+  } catch {
+    return null; // relative path ("/api/v1") — no host to read
+  }
+}
+
 /* businessSlugFromHost reads a subdomain the way production will resolve a
  * tenant on a real domain: https://ambika.cloudhousefinance.com/... names
  * "ambika" without any /login/<slug> path segment at all. Mirrors (on the
@@ -109,19 +149,13 @@ const DESKTOP_HOST = "wails.localhost";
  * auth.Service validates like any other.
  *
  * Returns null for a bare apex domain (no subdomain to read), "localhost"
- * alone, a raw IP, or a reserved label — see the two lists above. */
+ * alone, a raw IP, or a reserved label — see the two lists above. On the
+ * desktop app's own host, falls back to desktopSlugFromApiBase() instead,
+ * since wails.localhost never names a business itself. */
 export function businessSlugFromHost(hostname?: string): string | null {
   const host = (hostname ?? (typeof window === "undefined" ? "" : window.location.hostname)).toLowerCase();
-  if (!host || IPV4_PATTERN.test(host) || host === DESKTOP_HOST) return null;
-  const labels = host.split(".");
-  if (labels.length < 2) return null; // "localhost" alone, or an unqualified host
-  const candidate = labels[0];
-  if (!isValidSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
-  const rest = labels.slice(1).join(".");
-  if (LOCAL_HOST_SUFFIXES.includes(rest)) return candidate;
-  // A bare two-label apex ("cloudhousefinance.com") has no subdomain to
-  // read at all — only three-or-more labels put something in front of it.
-  return labels.length >= 3 ? candidate : null;
+  if (host === DESKTOP_HOST) return desktopSlugFromApiBase();
+  return subdomainLabel(host);
 }
 
 /* activeBusinessSlug is the business this browser tab is operating as, in

@@ -17,7 +17,6 @@ import {
   DEFAULT_BRAND_COLOR,
 } from "@/common/config/theme";
 import { activeBusinessSlug, readToken } from "@/common/services/tenantSession";
-import { backendUrl } from "@/common/services/httpClient";
 import { fetchMyBranding, fetchPublicBranding } from "@/modules/branding/services/brandingService";
 import { type MyBranding } from "@/modules/branding/types/branding-types";
 
@@ -177,7 +176,7 @@ function initialBranding(): { state: typeof FALLBACK; cached: boolean } {
       shortName: id.shortName || id.name || FALLBACK.shortName,
       lockupTagline: id.lockupTagline,
       legalName: id.legalName || id.name || FALLBACK.legalName,
-      logoUrl: backendUrl(id.logoUrl),
+      logoUrl: id.logoUrl,
     },
     cached: true,
   };

@@ -108,7 +108,10 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     (s, r) => s + (+r.net || 0) * (+r.qty || 1) * (rateForPurityFull(goldRate, r.purity) ?? 0),
     0
   );
-  const eligibleLoanAmount = (totalGoldValue * schemeLtv) / 100;
+  // Rounded to paise like the backend's common.RoundMoney — the raw float can
+  // carry hidden digits past the two shown, which made the exact eligible
+  // amount typed into Principal fail the "cannot exceed" check.
+  const eligibleLoanAmount = Math.round(((totalGoldValue * schemeLtv) / 100) * 100) / 100;
 
   // Mirrors the backend's own materialChange check in Service.UpdateLoan —
   // scheme or principal differing from what's on file is what triggers
@@ -136,7 +139,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     // Amount field above, not a stale pre-edit figure — the backend
     // recomputes and enforces this independently on save too, but this
     // gives immediate feedback consistent with what's already on screen.
-    if (+principal > eligibleLoanAmount) {
+    if (Math.round(+principal * 100) / 100 > eligibleLoanAmount) {
       fail("principal", `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`);
       return;
     }
