@@ -55,8 +55,14 @@
 .bh-logo[data-shape="square"] { height: calc(var(--bh-logo-w, 48px) * var(--lockup-rail, 1)); }
 .bh-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .bh-logo[data-shape="wide"] img { height: auto; max-height: 64px; }
-.bh-logo[data-backing="light-pad"] { background: #fff; padding: 8%; border-radius: 12px; }
-.bh-logo[data-backing="dark-pad"] { background: rgba(0, 0, 0, .72); padding: 8%; border-radius: 12px; }
+/* Backing padding is 8% of the logo box itself. A bare `8%` resolves against
+ * the parent's width: the preview's wrapper is as wide as the logo, but the
+ * app sidebar's is the whole header row, which shrank the logo to a third. */
+.bh-logo[data-backing="light-pad"],
+.bh-logo[data-backing="dark-pad"] { padding: calc(var(--bh-logo-w, 48px) * var(--lockup-rail, 1) * .08); border-radius: 12px; }
+.bh-logo[data-backing="light-pad"] { background: #fff; }
+.bh-logo[data-backing="dark-pad"] { background: rgba(0, 0, 0, .72); }
+.bh-logo[data-backing="transparent"] { border-radius: 12px; overflow: hidden; }
 .bh-initial {
   width: 100%;
   aspect-ratio: 1;
