@@ -21,14 +21,15 @@ function run(cmd, args, opts = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-/* Full white-label for a desktop build: when NEXT_PUBLIC_API_BASE names a
- * tenant subdomain, pull that tenant's own name and logo and bake them into
- * the exe (icon + window title) — same source of truth the app itself reads
- * at runtime for branding, just read once more here at build time. A build
- * with no tenant URL (or an unreachable one) silently keeps the platform
- * default exe, exactly as before this existed. */
+/* Full white-label for a desktop build: when DESKTOP_API_BASE (or, for an
+ * older .env.local, NEXT_PUBLIC_API_BASE) names a tenant subdomain, pull
+ * that tenant's own name and logo and bake them into the exe (icon + window
+ * title) — same source of truth build-desktop.cjs resolves the actual API
+ * base from, just read once more here at build time. A build with no tenant
+ * URL (or an unreachable one) silently keeps the platform default exe,
+ * exactly as before this existed. */
 async function applyTenantBranding() {
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE;
+  const apiBase = process.env.DESKTOP_API_BASE || process.env.NEXT_PUBLIC_API_BASE;
   if (!apiBase) {
     writeWindowTitleOverride(root, null);
     return null;

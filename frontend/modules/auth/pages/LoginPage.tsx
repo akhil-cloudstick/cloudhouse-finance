@@ -344,7 +344,7 @@ function LoginPageInner() {
         <p className="powered">
           Powered by{" "}
           <a href="https://cloudhousetechnologies.com" target="_blank" rel="noopener">
-            CloudHouse
+            <span>CloudHouse</span>
           </a>
         </p>
       </div>

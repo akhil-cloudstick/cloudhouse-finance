@@ -42,10 +42,14 @@ const POLICY_FIELDS: Record<string, { title: string; hint: string; fields: Polic
   },
 };
 
-const EMPTY: BusinessProfileInput = { kmlRegNo: "", contactPhone: "", addressLine: "", lenderAge: "", lenderPan: "", lenderAadhaar: "" };
+const EMPTY: BusinessProfileInput = { name: "", legalName: "", shortName: "", lockupTagline: "", kmlRegNo: "", contactPhone: "", addressLine: "", lenderAge: "", lenderPan: "", lenderAadhaar: "" };
 
 function inputOf(p: BusinessProfile): BusinessProfileInput {
   return {
+    name: p.name ?? "",
+    legalName: p.legalName ?? "",
+    shortName: p.shortName ?? "",
+    lockupTagline: p.lockupTagline ?? "",
     kmlRegNo: p.kmlRegNo ?? "",
     contactPhone: p.contactPhone ?? "",
     addressLine: p.addressLine ?? "",
@@ -57,8 +61,9 @@ function inputOf(p: BusinessProfile): BusinessProfileInput {
 
 /* Settings modal > Business Profile: the details this business prints on its
  * own slips, statements and pledge agreements, plus the particulars its
- * document policy needs (GML: lender age, PAN, Aadhaar). The business name,
- * legal name and policy stay with the superadmin console. */
+ * document policy needs (GML: lender age, PAN, Aadhaar). The business,
+ * legal, short and sidebar names are editable here and in the superadmin
+ * console; the policy stays with the superadmin console. */
 export function BusinessProfilePanel() {
   const toast = useToast();
   const { can } = useAuth();
@@ -97,6 +102,10 @@ export function BusinessProfilePanel() {
   }
 
   async function save() {
+    if (!form.name.trim()) {
+      setErr("Business name is required.");
+      return;
+    }
     if (policySection) {
       const missing = policySection.fields.find((f) => !form[f.key].trim());
       if (missing) {
@@ -134,7 +143,28 @@ export function BusinessProfilePanel() {
 
       {profile !== null && (
         <>
-          <h5 style={{ ...GROUP_H, marginTop: 4 }}>Registration &amp; contact</h5>
+          <h5 style={{ ...GROUP_H, marginTop: 4 }}>Business names</h5>
+          <div className="frow c2">
+            <div><label className="f">Business name *</label>
+              <input className="inp" value={form.name} disabled={!canUpdate} maxLength={160}
+                onChange={(e) => set("name", e.target.value)} autoComplete="off" /></div>
+            <div><label className="f">Legal name</label>
+              <input className="inp" value={form.legalName} disabled={!canUpdate} maxLength={200}
+                onChange={(e) => set("legalName", e.target.value)} autoComplete="off" />
+              <span style={HINT}>Printed on slips, bonds and statements.</span></div>
+          </div>
+          <div className="frow c2">
+            <div><label className="f">Short name</label>
+              <input className="inp" value={form.shortName} disabled={!canUpdate} maxLength={40}
+                onChange={(e) => set("shortName", e.target.value)} autoComplete="off" />
+              <span style={HINT}>Sidebar headline, browser tab title and login text.</span></div>
+            <div><label className="f">Sidebar name</label>
+              <input className="inp" value={form.lockupTagline} disabled={!canUpdate} maxLength={120}
+                onChange={(e) => set("lockupTagline", e.target.value)} autoComplete="off" />
+              <span style={HINT}>Second line under the headline in the sidebar.</span></div>
+          </div>
+
+          <h5 style={GROUP_H}>Registration &amp; contact</h5>
           <div className="frow c2">
             <div><label className="f">Registration no.</label>
               <input className="inp" value={form.kmlRegNo} disabled={!canUpdate} maxLength={60}
@@ -159,7 +189,7 @@ export function BusinessProfilePanel() {
                   ? <span className="chip amber">Incomplete</span>
                   : <span className="chip green">Complete</span>}
               </h5>
-              <div className="frow c3">
+              <div className="frow c2">
                 {policySection.fields.map((f) => (
                   <div key={f.key}><label className="f">{f.label}</label>
                     <input className="inp" value={form[f.key]} disabled={!canUpdate} maxLength={f.maxLength}

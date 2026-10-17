@@ -33,6 +33,7 @@ type loanRequest struct {
 type updateLoanRequest struct {
 	SchemeID        *uint    `json:"scheme_id"`
 	PrincipalAmount *float64 `json:"principal_amount"`
+	OverallPhotoURL *string  `json:"overall_photo_url"`
 }
 
 type purityTestRequest struct {

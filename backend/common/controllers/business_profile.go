@@ -21,6 +21,10 @@ var (
 )
 
 type BusinessProfile struct {
+	Name          string `json:"name"`
+	LegalName     string `json:"legal_name"`
+	ShortName     string `json:"short_name"`
+	LockupTagline string `json:"lockup_tagline"`
 	Policy        string `json:"policy"`
 	KMLRegNo      string `json:"kml_reg_no"`
 	ContactPhone  string `json:"contact_phone"`
@@ -31,6 +35,10 @@ type BusinessProfile struct {
 }
 
 type BusinessProfileInput struct {
+	Name          string
+	LegalName     string
+	ShortName     string
+	LockupTagline string
 	KMLRegNo      string
 	ContactPhone  string
 	AddressLine   string
@@ -40,6 +48,10 @@ type BusinessProfileInput struct {
 }
 
 type updateBusinessProfileRequest struct {
+	Name          string `json:"name"`
+	LegalName     string `json:"legal_name"`
+	ShortName     string `json:"short_name"`
+	LockupTagline string `json:"lockup_tagline"`
 	KMLRegNo      string `json:"kml_reg_no"`
 	ContactPhone  string `json:"contact_phone"`
 	AddressLine   string `json:"address_line"`
@@ -50,6 +62,10 @@ type updateBusinessProfileRequest struct {
 
 func businessProfileOf(t *commonModels.Tenant) *BusinessProfile {
 	return &BusinessProfile{
+		Name:          t.Name,
+		LegalName:     t.LegalName,
+		ShortName:     t.ShortName,
+		LockupTagline: t.LockupTagline,
 		Policy:        commonModels.PolicyOrDefault(t.Policy),
 		KMLRegNo:      t.KMLRegNo,
 		ContactPhone:  t.ContactPhone,
@@ -115,8 +131,16 @@ func updateBusinessProfile(ctx context.Context, in BusinessProfileInput, by acto
 	if err != nil {
 		return nil, err
 	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return nil, NewBadRequest("business name is required")
+	}
 	policy := commonModels.PolicyOrDefault(t.Policy)
 	before := fmt.Sprintf("regNo=%q phone=%q address=%q", t.KMLRegNo, t.ContactPhone, t.AddressLine)
+	t.Name = name
+	t.LegalName = strings.TrimSpace(in.LegalName)
+	t.ShortName = strings.TrimSpace(in.ShortName)
+	t.LockupTagline = strings.TrimSpace(in.LockupTagline)
 	t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
 	t.ContactPhone = contactPhone
 	t.AddressLine = strings.TrimSpace(in.AddressLine)
@@ -160,6 +184,10 @@ func UpdateBusinessProfile(c echo.Context) error {
 	}
 	empID, role, _ := auth.ActorFromContext(c)
 	rec, err := updateBusinessProfile(ctx, BusinessProfileInput{
+		Name:          req.Name,
+		LegalName:     req.LegalName,
+		ShortName:     req.ShortName,
+		LockupTagline: req.LockupTagline,
 		KMLRegNo:      req.KMLRegNo,
 		ContactPhone:  req.ContactPhone,
 		AddressLine:   req.AddressLine,
