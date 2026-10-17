@@ -61,7 +61,7 @@
 <table>
 <thead><tr><th>અનુ.</th><th>વસ્તુનું વર્ણન</th><th>કેરેટ</th><th class="num">કુલ વજન (ગ્રામ)</th><th class="num">ચોખ્ખું વજન (ગ્રામ)</th><th class="num">અંદાજિત કિંમત (રૂ.)</th></tr></thead>
 <tbody>
-{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{printf "%.1f" $o.GrossWeight}}</td><td class="num">{{printf "%.1f" $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
+{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{wt $o.GrossWeight}}</td><td class="num">{{wt $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
 {{else}}<tr><td colspan="6" style="text-align:center;color:#777">{{.Blank}}</td></tr>
 {{end}}
 </tbody>

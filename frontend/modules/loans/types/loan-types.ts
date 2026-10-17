@@ -507,7 +507,7 @@ export type ApprovalInput = {
  * doc comment) — scheme and/or principal amount, either independently.
  * Ornaments themselves go through the existing addOrnament/updateOrnament/
  * deleteOrnament calls below, one ornament at a time, not through this. */
-export type UpdateLoanInput = { schemeId?: number; principalAmount?: number };
+export type UpdateLoanInput = { schemeId?: number; principalAmount?: number; overallPhotoUrl?: string };
 // employeeId is NOT sent — the backend derives the receiving employee's
 // identity from the authenticated JWT, never the request body (see
 // platform.ActorFromContext).

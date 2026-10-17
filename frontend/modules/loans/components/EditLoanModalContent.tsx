@@ -13,16 +13,21 @@ import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeServic
 import { type SchemeView } from "@/modules/schemes/types/scheme-types";
 import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
-import { updateLoan, addOrnament, updateOrnament, deleteOrnament } from "@/modules/loans/services/loanService";
+import { updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
+import { uploadFile } from "@/modules/customers/services/customerService";
+import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
+import { SafeImage } from "@/common/components/ui/SafeImage";
 import { type LoanView, type OrnamentView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
-type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean };
+// `photos` are the ornament's saved photos; `newPhotos` were uploaded in this
+// edit and are attached on Save (so Cancel leaves the loan untouched).
+type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean; photos: string[]; newPhotos: string[] };
 
 function toRow(o: OrnamentView): OrnRow {
-  return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), net: String(o.netWeight), qty: String(o.quantity) };
+  return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), net: String(o.netWeight), qty: String(o.quantity), photos: o.photoUrls ?? [], newPhotos: [] };
 }
 
 type EditLoanModalContentProps = { loan: LoanView; onSaved: () => void };
@@ -46,6 +51,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   const [schemeLtv, setSchemeLtv] = useState(loan.schemeLtv);
   const [principal, setPrincipal] = useState(String(loan.principal));
   const [rows, setRows] = useState<OrnRow[]>(loan.ornaments.map(toRow));
+  const [overallPhoto, setOverallPhoto] = useState(loan.overallPhotoUrl);
   const [err, setErr] = useState("");
   const [fe, setFe] = useState<Record<string, string>>({});
   // Row-level message: which ornament row (index into `rows`) it is about.
@@ -60,7 +66,27 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
   function addRow() {
-    setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", net: "", qty: "1" }]);
+    setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", net: "", qty: "1", photos: [], newPhotos: [] }]);
+  }
+  async function ornPhotoPicked(i: number, f: File) {
+    if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
+    try {
+      const url = await uploadFile(f);
+      setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, newPhotos: [...r.newPhotos, url] } : r)));
+    } catch {
+      toast("Could not upload photo — try again");
+    }
+  }
+  function dropNewPhoto(i: number, url: string) {
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, newPhotos: r.newPhotos.filter((u) => u !== url) } : r)));
+  }
+  async function overallPhotoPicked(f: File) {
+    if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
+    try {
+      setOverallPhoto(await uploadFile(f));
+    } catch {
+      toast("Could not upload photo — try again");
+    }
   }
   function removeRow(i: number) {
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, removed: true } : r)));
@@ -82,7 +108,10 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     (s, r) => s + (+r.net || 0) * (+r.qty || 1) * (rateForPurityFull(goldRate, r.purity) ?? 0),
     0
   );
-  const eligibleLoanAmount = (totalGoldValue * schemeLtv) / 100;
+  // Rounded to paise like the backend's common.RoundMoney — the raw float can
+  // carry hidden digits past the two shown, which made the exact eligible
+  // amount typed into Principal fail the "cannot exceed" check.
+  const eligibleLoanAmount = Math.round(((totalGoldValue * schemeLtv) / 100) * 100) / 100;
 
   // Mirrors the backend's own materialChange check in Service.UpdateLoan —
   // scheme or principal differing from what's on file is what triggers
@@ -110,7 +139,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     // Amount field above, not a stale pre-edit figure — the backend
     // recomputes and enforces this independently on save too, but this
     // gives immediate feedback consistent with what's already on screen.
-    if (+principal > eligibleLoanAmount) {
+    if (Math.round(+principal * 100) / 100 > eligibleLoanAmount) {
       fail("principal", `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`);
       return;
     }
@@ -136,13 +165,15 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
           if (r.id) await deleteOrnament(r.id);
         } else if (r.id) {
           await updateOrnament(r.id, input);
+          for (const url of r.newPhotos) await addOrnamentImage(r.id, url);
         } else {
-          await addOrnament(loan.numericId, input);
+          await addOrnament(loan.numericId, { ...input, images: r.newPhotos });
         }
       }
       await updateLoan(loan.numericId, {
         schemeId: schemeId !== loan.schemeId ? Number(schemeId) : undefined,
         principalAmount: +principal !== loan.principal ? +principal : undefined,
+        overallPhotoUrl: overallPhoto !== loan.overallPhotoUrl ? overallPhoto : undefined,
       });
       onSaved();
       closeModal();
@@ -159,7 +190,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   return (
     <>
       <div className="hd"><h3>Edit Loan — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="bd bd-scroll edit-loan-bd">
         <div className="frow c2">
           <div className={fe.scheme ? "has-err" : undefined}><label className="f">Scheme</label>
             <SearchableSelect<SchemeView>
@@ -241,6 +272,28 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                   <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
               </div>
               {rowErr?.idx === i && <FieldError msg={rowErr.msg} />}
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "10px 0" }}>
+                <label className="f" style={{ margin: "0 4px 0 0" }}>Photos</label>
+                {r.photos.map((u) => (
+                  <SafeImage key={u} src={u} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
+                ))}
+                {r.newPhotos.map((u) => (
+                  <span key={u} style={{ position: "relative", display: "inline-flex" }}>
+                    <SafeImage src={u} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--brand)" }} />
+                    <button type="button" title="Remove photo" aria-label="Remove photo"
+                      style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, padding: 0, borderRadius: "50%", border: "1px solid var(--line)", background: "var(--card, #fff)", color: "var(--red)", fontSize: 9, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                      onClick={() => dropNewPhoto(i, u)}>✕</button>
+                  </span>
+                ))}
+                <PhotoSourceMenu
+                  multiple
+                  onFile={(f) => { void ornPhotoPicked(i, f); }}
+                  webcamTitle={`Ornament Photo${r.name ? " — " + r.name : ""}`}
+                  trigger={(t) => (
+                    <button ref={t.ref} type="button" className="btn plain sm" style={{ height: 34 }} aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}><Icon name="camera" /> Add photo</button>
+                  )}
+                />
+              </div>
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button className="btn danger sm" onClick={() => removeRow(i)} title="Remove ornament">✕ Remove</button>
               </div>
@@ -250,6 +303,23 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
         <FieldError msg={fe.ornaments} />
         <div style={{ padding: "6px 0" }}>
           <button className="btn plain sm" onClick={addRow}><Icon name="plus" /> Add Ornament</button>
+        </div>
+
+        <div style={{ padding: "10px 0 2px" }}>
+          <label className="f">Overall Photo</label>
+          <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            {overallPhoto && <SafeImage src={overallPhoto} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />}
+            <PhotoSourceMenu
+              onFile={(f) => { void overallPhotoPicked(f); }}
+              webcamTitle="Overall Photo"
+              trigger={(t) => (
+                <button ref={t.ref} type="button" className="btn plain sm" aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}>
+                  <Icon name="camera" /> {overallPhoto ? "Change overall photo" : "Add overall photo"}
+                </button>
+              )}
+            />
+            {overallPhoto && <button type="button" className="btn plain sm" title="Remove overall photo" onClick={() => setOverallPhoto("")}>✕</button>}
+          </div>
         </div>
 
         <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>

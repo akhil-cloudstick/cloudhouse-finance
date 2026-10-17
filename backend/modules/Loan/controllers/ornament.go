@@ -92,6 +92,14 @@ func addOrnament(ctx context.Context, loanID uint, in AddOrnamentInput) (*models
 	if err := insertOrnament(ctx, &o); err != nil {
 		return nil, err
 	}
+	for _, url := range in.Images {
+		if url = strings.TrimSpace(url); url == "" {
+			continue
+		}
+		if err := addImage(ctx, &models.OrnamentImage{OrnamentID: o.ID, ImageURL: url}); err != nil {
+			return nil, err
+		}
+	}
 	return recalculateAndSave(ctx, l)
 }
 

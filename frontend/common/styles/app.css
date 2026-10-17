@@ -6968,6 +6968,14 @@ table.tbl {
   display: none;
 }
 
+/* Edit Loan keeps one constant height however many ornaments it holds — the
+ * body scrolls instead of the modal growing. The extra class outranks the
+ * auto-height `.modal:has(> .bd-scroll)` rules (including the short-screen cap). */
+.modal:has(> .bd-scroll.edit-loan-bd) {
+  height: min(720px, calc(100dvh - 32px));
+  max-height: min(720px, calc(100dvh - 32px));
+}
+
 /* Vertical gap between ornament cards (EditLoanModal.tsx) — wider on small
  * screens, where each card is already taller (its Gross/Net/Qty row has
  * just collapsed to one column, now via the standard `.frow.c3` rule since
@@ -8291,7 +8299,9 @@ html.has-titlebar body {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  background: var(--nav);
+  /* --nav-2, not --nav: the sidebar's gradient starts at --nav-2, so the bar
+   * runs straight into it with no visible seam. */
+  background: var(--nav-2);
   color: var(--nav-fg);
   font-size: 12px;
   user-select: none;
@@ -8304,7 +8314,7 @@ html.has-titlebar body {
   padding-left: 12px;
   min-width: 0;
 }
-.dtb-title img { width: 16px; height: 16px; flex-shrink: 0; }
+.dtb-title img { width: 16px; height: 16px; flex-shrink: 0; object-fit: contain; }
 .dtb-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dtb-btns { display: flex; --wails-draggable: no-drag; }
 .dtb-btn {

@@ -20,6 +20,10 @@ export type ApiKeyView = {
  * edited in the Settings modal's Business Profile tab. `policy` is read-only
  * (set by the platform); lender age, PAN and Aadhaar only apply under GML. */
 export type BusinessProfile = {
+  name: string;
+  legalName: string;
+  shortName: string;
+  lockupTagline: string;
   policy: string;
   kmlRegNo: string;
   contactPhone: string;
@@ -30,5 +34,5 @@ export type BusinessProfile = {
 };
 export type BusinessProfileInput = Pick<
   BusinessProfile,
-  "kmlRegNo" | "contactPhone" | "addressLine" | "lenderAge" | "lenderPan" | "lenderAadhaar"
+  "name" | "legalName" | "shortName" | "lockupTagline" | "kmlRegNo" | "contactPhone" | "addressLine" | "lenderAge" | "lenderPan" | "lenderAadhaar"
 >;

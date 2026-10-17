@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BRAND } from "@/common/config/brand";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { hasCustomTitleBar, windowControls } from "@/common/services/desktopBridge";
 
@@ -9,7 +8,7 @@ import { hasCustomTitleBar, windowControls } from "@/common/services/desktopBrid
  * title bar in the business's secondary colour (--nav, the same colour as the
  * sidebar). It renders nothing in a browser or in a window that has a frame. */
 export function DesktopTitleBar() {
-  const { shortName, name } = useBranding();
+  const { shortName, name, logoUrl } = useBranding();
   const [active, setActive] = useState(false);
   const [maximised, setMaximised] = useState(false);
 
@@ -38,7 +37,7 @@ export function DesktopTitleBar() {
   return (
     <div className="dtb" onDoubleClick={() => windowControls.toggleMaximise()}>
       <div className="dtb-title">
-        <img src={BRAND.markSrc} alt="" />
+        {logoUrl && <img src={logoUrl} alt="" />}
         <span>{shortName || name || "CloudHouse Finance"}</span>
       </div>
       <div className="dtb-btns" onDoubleClick={(e) => e.stopPropagation()}>

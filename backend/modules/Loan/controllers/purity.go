@@ -46,15 +46,15 @@ func rateForPurity(gr *commonModels.GoldRate, purity string) (float64, error) {
 	case karat != nil:
 		switch *karat {
 		case 24:
-			return gr.K24, nil
+			return math.Round(gr.K24), nil
 		case 22:
 			if gr.K22 > 0 {
-				return gr.K22, nil
+				return math.Round(gr.K22), nil
 			}
 			return math.Round(gr.K24 * 22 / 24), nil
 		case 18:
 			if gr.K18 > 0 {
-				return gr.K18, nil
+				return math.Round(gr.K18), nil
 			}
 			return math.Round(gr.K24 * 18 / 24), nil
 		default:
