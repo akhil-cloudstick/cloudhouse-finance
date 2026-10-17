@@ -27,6 +27,27 @@ export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.
 
 export const API_BASE = isDevelopment ? DEV_URL : PROD_URL;
 
+/* resolveAssetUrl turns a backend-relative path (logo_url, /uploads/...) into
+ * one that actually loads. Every such path comes back from the API as
+ * same-origin-relative, which is correct on the web (the Go binary serves
+ * both the API and this build from one origin) — but the desktop app's
+ * webview has its OWN origin (wails.localhost), unrelated to whichever
+ * tenant backend API_BASE points to, so a relative path there resolves
+ * against the wrong host and 404s/500s.
+ *
+ * API_BASE already carries the real backend's origin whenever it's a full
+ * URL (desktop builds, or NEXT_PUBLIC_API_BASE set for any other reason);
+ * when it's the normal relative "/api/v1" (same-origin web/production), this
+ * is a no-op and the path is returned unchanged. */
+export function resolveAssetUrl(path: string): string {
+  if (!path || /^(https?:|data:|blob:)/i.test(path)) return path;
+  try {
+    return new URL(path, API_BASE).toString();
+  } catch {
+    return path;
+  }
+}
+
 /* fetch rejects with a TypeError when the server can't be reached at all —
  * surfaced as an ApiError with status 0 so callers show one readable message. */
 async function networkFetch(url: string, init?: RequestInit): Promise<Response> {
@@ -116,7 +137,7 @@ export function apiRawFetch(path: string, init?: RequestInit): Promise<Response>
 /* A same-origin file URL (/uploads/*) fetched with this tab's own session
  * token and branch header — the same headers every wrapped request carries. */
 export function fetchWithSession(url: string): Promise<Response> {
-  return networkFetch(url, { headers: authHeader() });
+  return networkFetch(resolveAssetUrl(url), { headers: authHeader() });
 }
 
 /* Called whenever the backend rejects a request with 401 — clears the
