@@ -53,7 +53,7 @@ func LoadConfig() Config {
 	_ = godotenv.Load()
 	return Config{
 		FrontendDir:              getEnv("FRONTEND_DIR", "../frontend/out"),
-		FrontendOrigin:           getEnv("FRONTEND_ORIGIN", "http://localhost:3000,http://localhost:3100"),
+		FrontendOrigin:           getEnv("FRONTEND_ORIGIN", "http://localhost:3000,http://localhost:3100,http://wails.localhost:34115,http://wails.localhost"),
 		BaseDomain:               getEnv("BASE_DOMAIN", "cloudhousefinance.com"),
 		SettingsEncryptionKey:    getEnv("SETTINGS_ENCRYPTION_KEY", ""),
 		AadhaarEncryptionKey:     getEnv("AADHAAR_ENCRYPTION_KEY", ""),
