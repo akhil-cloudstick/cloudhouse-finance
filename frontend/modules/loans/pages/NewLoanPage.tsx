@@ -127,9 +127,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   const canCreateOrnamentType = can("Ornament_Type_Management", "can_create_ornament_type");
   const canDeleteDrafts = can("Loan_Management", "can_delete_loan");
   // Single-branch business: the Branch picker is locked to its one branch.
-  const { singleBranch, policy } = useBranding();
-  /* TML businesses must attach an overall (jewel) photo — it prints on the pledge book. */
-  const overallPhotoRequired = policy === "tml";
+  const { singleBranch } = useBranding();
   // Single-branch plan: no branch is ever shown — the Branch picker is not
   // rendered and locker labels drop the branch name.
   const showBranch = useShowBranch();
@@ -363,7 +361,6 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // on changes (ornaments edited, scheme swapped, rates refreshed) — the
   // field falls back to showing the new eligible amount as a placeholder
   // rather than silently keeping an amount computed against different gold.
-  const roundedEligible = Math.floor(eligible);
   // When the scheme adds its service charge to the principal, the FINAL
   // principal (what's entered here + the charge) is what the backend caps
   // at EligibleLoanAmount, not just the entered amount alone (see
@@ -376,7 +373,9 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // The cap applies to the entered loan amount only — an AddedToPrincipal
   // charge is added on top of it and does not eat into the eligible amount
   // (see loan.Service.Create).
-  const maxPrincipalEntry = roundedEligible;
+  // Rounded to the paisa exactly as the backend's RoundMoney does, so the full
+  // eligible amount (e.g. 5,987.17) can be entered, not just its whole rupees.
+  const maxPrincipalEntry = Math.round(eligible * 100) / 100;
   // Staff can reduce the disbursed principal below the ceiling, but never
   // raise it above — maxPrincipalEntry (eligible amount, minus any
   // AddedToPrincipal charge) is the hard cap a manual override may not
@@ -520,13 +519,15 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
       return ornPhotoMenu(i, <Icon name="camera" />, "Add ornament photos", { padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" });
     }
     return (
-      <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "flex-start" }}>
-        <span style={{ position: "relative", display: "inline-flex" }}>
-          <SafeImage src={imgs[0]} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={imgs.length > 1 ? `View all ${imgs.length} photos` : "View photo"} onClick={() => viewOrnImg(i)} />
-          {imgs.length > 1 && (
-            <span style={{ position: "absolute", right: -4, bottom: -4, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, background: "var(--brand-deep, #2b4a8c)", color: "#fff", fontSize: 10, lineHeight: "16px", textAlign: "center", pointerEvents: "none" }}>{imgs.length}</span>
-          )}
-        </span>
+      <div style={{ display: "inline-flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "flex-start", padding: "6px 6px 0 0" }}>
+        {imgs.map((u) => (
+          <span key={u} style={{ position: "relative", display: "inline-flex" }}>
+            <SafeImage src={u} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
+            <button type="button" title="Remove photo" aria-label="Remove photo"
+              style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, padding: 0, borderRadius: "50%", border: "1px solid var(--line)", background: "var(--card, #fff)", color: "var(--red)", fontSize: 9, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+              onClick={() => delOrnImg(i, u)}>✕</button>
+          </span>
+        ))}
         {ornPhotoMenu(i, "+", "Add more photos", { padding: "0 9px", height: 31 })}
       </div>
     );
@@ -690,7 +691,6 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     if (branchId === "") { toast("Please select a branch"); return; }
 
     if (!(principal > 0)) { toast("Please enter a valid loan amount"); return; }
-    if (overallPhotoRequired && !overallPhoto) { toast("Please add the overall photo of the ornaments"); return; }
     if (!isTodaySet) {
       toast("Today's gold rate must be set before creating a loan.");
       setShakeRateBanner(false);
@@ -1171,22 +1171,35 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                         id="loan-amount-input"
                         className="inp"
                         type="text"
-                        inputMode="numeric"
+                        inputMode="decimal"
                         autoComplete="off"
                         // principalOverride is prefilled to the eligible amount
                         // (see the roundedEligible effect above) rather than
                         // left empty, so this displays whatever's stored —
                         // including genuinely empty while staff are mid-edit.
-                        value={principalOverride ? (+principalOverride).toLocaleString("en-IN") : ""}
+                        // The integer part is grouped; the paise are shown as typed.
+                        value={principalOverride
+                          ? (() => {
+                              const [ip, fp] = principalOverride.split(".");
+                              return (+ip || 0).toLocaleString("en-IN") + (fp !== undefined ? "." + fp : "");
+                            })()
+                          : ""}
                         onChange={(e) => {
                           const el = e.target;
+                          const atEnd = (el.selectionStart ?? el.value.length) >= el.value.length;
                           // Digits left of the caret, so the caret can be put
                           // back after the same digit once the value is
                           // re-grouped — otherwise it jumps to the end and
                           // mid-number edits are impossible.
                           const digitsLeft = el.value.slice(0, el.selectionStart ?? el.value.length).replace(/\D/g, "").length;
-                          const clean = el.value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
-                          const num = clean === "" ? 0 : +clean;
+                          // Digits plus one decimal point, at most 2 paise digits.
+                          const raw = el.value.replace(/[^\d.]/g, "");
+                          const dot = raw.indexOf(".");
+                          const clean = (dot === -1
+                            ? raw
+                            : raw.slice(0, dot) + "." + raw.slice(dot + 1).replace(/\./g, "").slice(0, 2)
+                          ).replace(/^0+(?=\d)/, "");
+                          const num = clean === "" || clean === "." ? 0 : +clean;
                           // maxPrincipalEntry (the eligible amount) is a hard
                           // ceiling — clamp what's stored so the field never
                           // shows a figure the server would reject, and show
@@ -1200,7 +1213,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                           }
                           requestAnimationFrame(() => {
                             let pos = 0, seen = 0;
-                            while (pos < el.value.length && seen < digitsLeft) { if (/\d/.test(el.value[pos])) seen++; pos++; }
+                            if (atEnd) pos = el.value.length;
+                            else while (pos < el.value.length && seen < digitsLeft) { if (/\d/.test(el.value[pos])) seen++; pos++; }
                             el.setSelectionRange(pos, pos);
                           });
                         }}
@@ -1209,7 +1223,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                     </div>
                     {principalExceedsEligible && (
                       <p style={{ color: "var(--red)", fontSize: 12, margin: "0 0 4px", textAlign: "right" }}>
-                        Amount can&apos;t exceed {fmt(roundedEligible)}.
+                        Amount can&apos;t exceed {fmt(maxPrincipalEntry)}.
                       </p>
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: "8px 0 0", marginTop: 6, borderTop: "1px solid var(--line)" }}>
@@ -1224,7 +1238,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 );
               })()}
               <div style={{ padding: "10px 0 2px" }}>
-                <label className="f">{overallPhotoRequired ? "Overall Photo *" : "Overall Photo (optional)"}</label>
+                <label className="f">Overall Photo (optional)</label>
                 {/* One photo of the whole pledged lot — shown on the loan's
                     Details card; each ornament's own photos are in the table. */}
                 {overallPhoto ? (

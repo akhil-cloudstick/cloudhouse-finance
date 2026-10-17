@@ -37,7 +37,17 @@ const templatesDir = "./templates"
 
 var resolvedTemplatesDir = findTemplatesDir()
 
-var bondTemplateFuncs = template.FuncMap{"inc": func(i int) int { return i + 1 }}
+var bondTemplateFuncs = template.FuncMap{"inc": func(i int) int { return i + 1 }, "wt": fmtWeight}
+
+// fmtWeight prints a gold weight exactly as stored (up to 3 decimals), never
+// fewer than 2, so 12.345 stays 12.345 and 10 prints as 10.00.
+func fmtWeight(w float64) string {
+	s := strconv.FormatFloat(w, 'f', 3, 64)
+	if strings.HasSuffix(s, "0") {
+		s = s[:len(s)-1]
+	}
+	return s
+}
 
 var bondDocs = map[string]map[string]bondDoc{
 	commonModels.PolicyKML: {
@@ -487,7 +497,7 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	itemWeights := make([]string, 0, len(data.Ornaments))
 	for _, o := range data.Ornaments {
 		itemNames = append(itemNames, o.Name)
-		itemWeights = append(itemWeights, fmt.Sprintf("%.2f GM", o.NetWeight))
+		itemWeights = append(itemWeights, fmtWeight(o.NetWeight)+" GM")
 	}
 	itemNamesStr := strings.Join(itemNames, ", ")
 	if itemNamesStr == "" {
@@ -548,8 +558,8 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	for i := len(td.Items); i < 4; i++ {
 		td.PadRows = append(td.PadRows, i)
 	}
-	td.GrossTotal = fmt.Sprintf("%.2f", gross)
-	td.NetTotal = fmt.Sprintf("%.2f", net)
+	td.GrossTotal = fmtWeight(gross)
+	td.NetTotal = fmtWeight(net)
 	td.ReceiptAmount = fmt.Sprintf("%.2f", data.PrincipalAmount)
 	for _, d := range data.Disbursements {
 		td.Distribution = append(td.Distribution, bondDistRow{

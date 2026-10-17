@@ -275,7 +275,7 @@ func tmlSlipData(ctx context.Context, l *models.Loan) tmlSlipTemplateData {
 		if o.ReleasedAt != nil {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%d %s - Net wt=%vgm (Approx.)/Gross wt=%vgm", max(o.Quantity, 1), o.Name, o.NetWeight, o.GrossWeight))
+		parts = append(parts, fmt.Sprintf("%d %s - Net wt=%sgm (Approx.)/Gross wt=%sgm", max(o.Quantity, 1), o.Name, fmtWeight(o.NetWeight), fmtWeight(o.GrossWeight)))
 		gross += o.GrossWeight
 		net += o.NetWeight
 		stone += o.DeductionWeight
@@ -299,7 +299,7 @@ func tmlSlipData(ctx context.Context, l *models.Loan) tmlSlipTemplateData {
 		InterestDue: interestDue.Format("02/01/2006"), InterestDueNote: fmt.Sprintf("every 90 days from pledge date or last interest paid date, whichever is later but not exceeding Principal Due Date %s", l.DueDate.Format("02/01/2006")),
 		CustomerPhoto: uploadDataURL(tenantID, l.Customer.PhotoURL), OverallPhoto: uploadDataURL(tenantID, l.OverallPhotoURL),
 		Particulars: strings.Join(parts, ", "),
-		TotalWeight: fmt.Sprintf("%.2f", gross), StoneWeight: fmt.Sprintf("%.2f", stone), NetWeight: fmt.Sprintf("%.2f", net),
+		TotalWeight: fmtWeight(gross), StoneWeight: fmtWeight(stone), NetWeight: fmtWeight(net),
 		LenderSignature: lenderSignature(ctx),
 	}
 }

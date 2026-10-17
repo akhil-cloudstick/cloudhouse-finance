@@ -18,7 +18,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-var pledgeSlipTemplate = mustLoadTemplate("pledge_slip", "pledge_slip.html", template.FuncMap{"inc": func(i int) int { return i + 1 }})
+var pledgeSlipTemplate = mustLoadTemplate("pledge_slip", "pledge_slip.html", template.FuncMap{"inc": func(i int) int { return i + 1 }, "wt": fmtWeight})
 
 var slipHexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
@@ -104,7 +104,7 @@ func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData 
 	rows := make([]pledgeSlipOrnament, 0, len(l.Ornaments))
 	for _, o := range l.Ornaments {
 		rows = append(rows, pledgeSlipOrnament{
-			Name: o.Name, Purity: o.Purity, NetWeight: fmt.Sprintf("%.1f", o.NetWeight),
+			Name: o.Name, Purity: o.Purity, NetWeight: fmtWeight(o.NetWeight),
 			Quantity: o.Quantity, Value: slipRupees(o.GoldValue), Photo: slipPhoto(tenantID, o.Images),
 		})
 	}
@@ -123,7 +123,7 @@ func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData 
 		SchemeName: l.Scheme.Name, SchemeRate: fmt.Sprintf("%v", l.SchemeInterestRate), SchemeLTV: fmt.Sprintf("%v", l.SchemeLTVPercent),
 		Opened:         slipDate(l.OpenedDate),
 		Ornaments:      rows,
-		TotalNetWeight: fmt.Sprintf("%.1f", l.TotalNetWeight), TotalGoldValue: slipRupees(l.TotalGoldValue),
+		TotalNetWeight: fmtWeight(l.TotalNetWeight), TotalGoldValue: slipRupees(l.TotalGoldValue),
 		Principal: slipRupees(l.PrincipalAmount), Eligible: slipRupees(l.EligibleLoanAmount),
 		Distribution:    dist,
 		LenderSignature: lenderSignature(ctx),

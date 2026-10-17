@@ -87,6 +87,8 @@ type CreateInput struct {
 type UpdateLoanInput struct {
 	SchemeID        *uint
 	PrincipalAmount *float64
+	// nil leaves the overall photo alone; "" clears it.
+	OverallPhotoURL *string
 	ActorEmployeeID uint
 	ActorRole       string
 }
@@ -301,11 +303,6 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	}
 	if in.PrincipalAmount <= 0 {
 		return nil, common.NewBadRequest("principal amount must be greater than zero")
-	}
-	if strings.TrimSpace(in.OverallPhotoURL) == "" {
-		if t := tenantForContext(ctx); t != nil && commonModels.PolicyOrDefault(t.Policy) == commonModels.PolicyTML {
-			return nil, common.NewBadRequest("overall photo is required")
-		}
 	}
 	if !in.DueDate.After(in.OpenedDate) {
 		return nil, common.NewBadRequest("due date must be after the opened date")
@@ -574,6 +571,9 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 		if l.OutstandingAmount < 0 {
 			l.OutstandingAmount = 0
 		}
+	}
+	if in.OverallPhotoURL != nil {
+		l.OverallPhotoURL = strings.TrimSpace(*in.OverallPhotoURL)
 	}
 	ornaments, err := FindByLoanID(ctx, l.ID)
 	if err != nil {
@@ -1303,6 +1303,7 @@ func UpdateLoan(c echo.Context) error {
 	rec, err := updateLoan(auth.RequestContext(c), loanID, UpdateLoanInput{
 		SchemeID:        req.SchemeID,
 		PrincipalAmount: req.PrincipalAmount,
+		OverallPhotoURL: req.OverallPhotoURL,
 		ActorEmployeeID: actorEmployeeID,
 		ActorRole:       actorRole,
 	})

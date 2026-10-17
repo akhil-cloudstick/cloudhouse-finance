@@ -10,7 +10,7 @@
  *   fetchMyBranding()          the signed-in app's own business, taken from
  *                              the token — there is no id to pass.
  */
-import { apiRawFetch, apiFetchEnveloped } from "@/common/services/httpClient";
+import { apiRawFetch, apiFetchEnveloped, backendUrl } from "@/common/services/httpClient";
 import type { PublicBranding, MyBranding, ConnectCode } from "@/modules/branding/types/branding-types";
 
 /* A bare fetch rather than apiFetch: see the module comment. A failure here
@@ -28,16 +28,20 @@ export async function fetchPublicBranding(code: string | null): Promise<PublicBr
     const res = await apiRawFetch(`/public/branding/${encodeURIComponent(code)}`, { cache: "no-store" });
     if (!res.ok) return null;
     const body = (await res.json()) as { success?: boolean; data?: PublicBranding };
-    return body?.data ?? null;
+    const data = body?.data ?? null;
+    if (data?.logoUrl) data.logoUrl = backendUrl(data.logoUrl);
+    return data;
   } catch {
     return null;
   }
 }
 
-export function fetchMyBranding(): Promise<MyBranding> {
+export async function fetchMyBranding(): Promise<MyBranding> {
   // no-store — same reasoning as fetchPublicBranding above: this must never
   // serve a cached response after a superadmin edit.
-  return apiFetchEnveloped<MyBranding>("/branding", { cache: "no-store" });
+  const data = await apiFetchEnveloped<MyBranding>("/branding", { cache: "no-store" });
+  if (data?.logoUrl) data.logoUrl = backendUrl(data.logoUrl);
+  return data;
 }
 
 export function createConnectCode(): Promise<ConnectCode> {

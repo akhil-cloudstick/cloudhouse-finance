@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n frontend,openwa -c blue,green \"next dev -p 3001\" \"npm run dev:embedded --prefix ../OpenWA\"",
+    "dev": "concurrently -n frontend,openwa -c blue,green \"next dev -p 3000\" \"npm run dev:embedded --prefix ../OpenWA\"",
     "build": "next build",
     "start": "node scripts/start-desktop.cjs",
     "start:web": "next start",

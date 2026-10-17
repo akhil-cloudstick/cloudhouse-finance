@@ -27,6 +27,14 @@ export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.
 
 export const API_BASE = isDevelopment ? DEV_URL : PROD_URL;
 
+/* Root-relative backend file URLs (/uploads/…, the branding logo) resolve
+ * against the page's own origin. The desktop app has no server of its own,
+ * so when API_BASE names a host they are pointed at that host instead. */
+export function backendUrl(path: string): string {
+  if (!path.startsWith("/") || path.startsWith("//") || !/^https?:\/\//i.test(API_BASE)) return path;
+  return new URL(API_BASE).origin + path;
+}
+
 /* fetch rejects with a TypeError when the server can't be reached at all —
  * surfaced as an ApiError with status 0 so callers show one readable message. */
 async function networkFetch(url: string, init?: RequestInit): Promise<Response> {
@@ -116,7 +124,7 @@ export function apiRawFetch(path: string, init?: RequestInit): Promise<Response>
 /* A same-origin file URL (/uploads/*) fetched with this tab's own session
  * token and branch header — the same headers every wrapped request carries. */
 export function fetchWithSession(url: string): Promise<Response> {
-  return networkFetch(url, { headers: authHeader() });
+  return networkFetch(backendUrl(url), { headers: authHeader() });
 }
 
 /* Called whenever the backend rejects a request with 401 — clears the
