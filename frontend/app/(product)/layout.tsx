@@ -4,6 +4,7 @@ import "./globals.css";
 import "@/common/styles/app.css";
 import { AuthProvider } from "@/common/providers/AuthProvider";
 import { DesktopTitleBar } from "@/common/components/DesktopTitleBar";
+import { DesktopContextMenu } from "@/common/components/DesktopContextMenu";
 import { DESKTOP_RUNTIME_LOADER } from "@/common/services/desktopBridge";
 import { BrandingProvider } from "@/common/providers/BrandingProvider";
 import { BrandPreload } from "@/common/components/layout/BrandPreload";
@@ -128,6 +129,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             the business's logo and colour, and that is rendered before any
             session exists. */}
         <BrandingProvider>
+          <DesktopContextMenu />
           <DesktopTitleBar />
           <AuthProvider>{children}</AuthProvider>
         </BrandingProvider>

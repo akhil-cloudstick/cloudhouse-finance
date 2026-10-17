@@ -4,6 +4,7 @@ interface DesktopApp {
   CheckUpdate(): Promise<void>;
   DownloadUpdate(): Promise<void>;
   InstallUpdate(): Promise<void>;
+  OpenDevTools(): Promise<void>;
 }
 
 interface DesktopRuntime {

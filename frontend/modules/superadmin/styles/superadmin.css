@@ -1057,9 +1057,27 @@ body {
 .sa-btn.danger:hover:not(:disabled) { background: var(--sa-red-bg); }
 .sa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* --- DevToolsPinModal: the current PIN's view/copy row --- */
+.sa-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--sa-bg);
+  border: 1px solid var(--sa-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.sa-settings-pin {
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: var(--sa-ink);
+  margin-right: auto;
+}
+
 .sa-toolbar {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-bottom: 12px;
 }
 

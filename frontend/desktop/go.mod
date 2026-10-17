@@ -7,6 +7,13 @@ require (
 	golang.org/x/sys v0.46.0
 )
 
+// CloudHouse patch: adds a way to flip WebView2's DevTools on at runtime
+// (behind a PIN check), which upstream Wails only supports via a build tag
+// at startup. See wails-patched/wails-v2/internal/frontend/desktop/windows/frontend.go
+// for the one small addition — diff against the real v2.16.0 release before
+// ever bumping this version.
+replace github.com/wailsapp/wails/v2 => ./wails-patched/wails-v2
+
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/bep/debounce v1.2.1 // indirect

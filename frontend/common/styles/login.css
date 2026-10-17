@@ -245,6 +245,14 @@
   outline: none;
   transition: border-color .15s, background .15s, box-shadow .15s;
 }
+/* The page already draws its own eye toggle (the "eye" button below) —
+   without this, Edge/WebView2's own built-in password-reveal icon shows up
+   stacked right next to it, two eyes on one field. Chrome/Firefox have no
+   such built-in icon, so this is a no-op there. */
+.login-page .field input::-ms-reveal,
+.login-page .field input::-ms-clear {
+  display: none;
+}
 .login-page .field input:focus {
   background: #fff;
   border-color: var(--brand);

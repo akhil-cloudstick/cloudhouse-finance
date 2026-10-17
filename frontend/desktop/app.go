@@ -51,3 +51,9 @@ func (a *App) InstallUpdate() error {
 	runtime.Quit(a.ctx)
 	return nil
 }
+
+// OpenDevTools opens DevTools immediately. Called only after the frontend
+// has already confirmed the PIN with the backend — see PinModal.tsx.
+func (a *App) OpenDevTools() {
+	runtime.EventsEmit(a.ctx, "cloudhouse:enable-devtools")
+}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { DesktopContextMenu } from "@/common/components/DesktopContextMenu";
 
 /* Deliberately minimal — no next/font, no shared shell with the tenant app.
  * This is a separate deployable app on its own origin (see the repo root's
@@ -16,7 +17,10 @@ type SuperAdminRootLayoutProps = { children: React.ReactNode };
 export default function SuperAdminRootLayout({ children }: SuperAdminRootLayoutProps) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <DesktopContextMenu />
+        {children}
+      </body>
     </html>
   );
 }

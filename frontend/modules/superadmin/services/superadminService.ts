@@ -156,6 +156,22 @@ export function getCatalogue(): Promise<Catalogue> {
   return request<Catalogue>("/superadmin/catalogue");
 }
 
+export type DevToolsPin = { pin: string; isSet: boolean; updatedAt?: string };
+
+// Reversibly encrypted, not hashed, by design — can be read back as well as replaced.
+// NOTE: fromApi() already renames is_set/updated_at to isSet/updatedAt generically;
+// reading r.is_set here would silently be undefined.
+export function getDevToolsPin(): Promise<DevToolsPin> {
+  return request<DevToolsPin>("/superadmin/devtools-pin");
+}
+
+export function setDevToolsPin(pin: string, reason: string): Promise<{ updated: boolean }> {
+  return request<{ updated: boolean }>("/superadmin/devtools-pin", {
+    method: "PATCH",
+    body: JSON.stringify({ pin, reason }),
+  });
+}
+
 /* Note there is no `code` here. The sign-in code is part of the business's
  * identity — every staff member's /login/<code> bookmark depends on it — and
  * tenant.Tenant.Code documents it as immutable after creation. */

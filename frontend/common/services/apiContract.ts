@@ -1800,6 +1800,18 @@ const ROUTES: [string, string, string, string][] = [
   "/superadmin/users/:user_id/tiers"
  ],
  [
+  "GET",
+  "/superadmin/devtools-pin",
+  "GET",
+  "/superadmin/users/:user_id/devtools-pin"
+ ],
+ [
+  "PATCH",
+  "/superadmin/devtools-pin",
+  "PATCH",
+  "/superadmin/users/:user_id/devtools-pin"
+ ],
+ [
   "POST",
   "/superadmin/businesses/:id/reactivate",
   "POST",

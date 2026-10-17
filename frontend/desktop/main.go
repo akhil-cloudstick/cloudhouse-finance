@@ -97,16 +97,19 @@ func main() {
 		// [AssetHandler]/[ExternalAssetHandler] lines flooding the terminal
 		// during `npm run start`. Errors only, same as the backend's own
 		// terminal output.
-		LogLevel:    logger.ERROR,
-		Title:       windowTitle,
-		Width:       1440,
-		Height:      900,
-		MinWidth:    1100,
-		MinHeight:   700,
-		Frameless:   framelessWindow,
-		AssetServer: assetOptions(),
-		OnStartup:   app.startup,
-		Bind:        []any{app},
+		LogLevel: logger.ERROR,
+		// No native right-click menu at all — the app draws its own
+		// (DesktopContextMenu.tsx), PIN-gating Inspect every time.
+		EnableDefaultContextMenu: false,
+		Title:                    windowTitle,
+		Width:                    1440,
+		Height:                   900,
+		MinWidth:                 1100,
+		MinHeight:                700,
+		Frameless:                framelessWindow,
+		AssetServer:              assetOptions(),
+		OnStartup:                app.startup,
+		Bind:                     []any{app},
 	})
 	if err != nil {
 		log.Fatal(err)

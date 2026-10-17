@@ -16,6 +16,7 @@ func PublicRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(publicPath+"/branding/:code", common.GetPublicBranding)
 	e.GET(publicPath+"/branding/:code/logo", common.GetPublicLogo)
 	e.GET(publicPath+"/connect/:code", common.RedeemConnectCode)
+	e.POST(publicPath+"/devtools/unlock", common.UnlockDevTools)
 	return e
 }
 

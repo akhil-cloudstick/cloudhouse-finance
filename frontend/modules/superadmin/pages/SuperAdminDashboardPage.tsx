@@ -15,6 +15,7 @@ import { BusinessActionModal } from "@/modules/superadmin/components/BusinessAct
 import { TierPriceModal } from "@/modules/superadmin/components/TierPriceModal";
 import { BusinessDetail } from "@/modules/superadmin/components/BusinessDetail";
 import { BusinessWizard } from "@/modules/superadmin/components/BusinessWizard";
+import { DevToolsPinModal } from "@/modules/superadmin/components/DevToolsPinModal";
 import type { IconName, StepId } from "@/modules/superadmin/types/dashboard-types";
 import { formatDate, quotaText, MODULE_LABELS, LANGUAGE_LABELS } from "@/modules/superadmin/utils/dashboardHelpers";
 
@@ -52,7 +53,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: IconName; tit
     ],
   },
   {
-    group: "Platform",
+    group: "Audit",
     items: [
       {
         id: "audit",
@@ -101,6 +102,7 @@ export default function SuperAdminDashboardPage() {
     null
   );
   const [pricingTier, setPricingTier] = useState<Tier | null>(null);
+  const [devToolsPinOpen, setDevToolsPinOpen] = useState(false);
   const [user, setUser] = useState<ReturnType<typeof readSuperAdminUser>>(null);
   /* The business whose detail page is open, or null for the list. Bumping
    * detailVersion makes the open detail page refetch after any action. */
@@ -321,6 +323,9 @@ export default function SuperAdminDashboardPage() {
           {tab === "businesses" && detailId === null && (
             <>
               <div className="sa-toolbar">
+                <button className="sa-btn" onClick={() => setDevToolsPinOpen(true)}>
+                  DevTools PIN
+                </button>
                 <button className="sa-btn primary" onClick={() => setWizard({ business: null, openAt: "profile" })}>
                   + New business
                 </button>
@@ -540,6 +545,7 @@ export default function SuperAdminDashboardPage() {
               </table>
             </div>
           )}
+
         </div>
       </div>
 
@@ -577,6 +583,7 @@ export default function SuperAdminDashboardPage() {
         />
       )}
       {pricingTier && <TierPriceModal tier={pricingTier} onClose={() => setPricingTier(null)} onDone={afterAction} />}
+      {devToolsPinOpen && <DevToolsPinModal onClose={() => setDevToolsPinOpen(false)} />}
     </div>
   );
 }

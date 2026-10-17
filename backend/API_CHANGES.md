@@ -891,6 +891,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/public/branding/:code` | = |
 | `GET /api/v1/public/branding/:code/logo` | = |
 | `GET /api/v1/public/connect/:code` | = |
+| `POST /api/v1/public/devtools/unlock` | = |
 | `GET /api/v1/purity-standards` | `GET /api/v1/users/:user_id/purity-standards` |
 | `POST /api/v1/purity-standards` | `POST /api/v1/users/:user_id/purity-standards` |
 | `GET /api/v1/reminders` | `GET /api/v1/users/:user_id/reminders` |
@@ -970,6 +971,8 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `POST /api/v1/superadmin/businesses/:id/suspend` | `POST /api/v1/superadmin/users/:user_id/businesses/:id/suspend` |
 | `PUT /api/v1/superadmin/businesses/:id/tier` | `PATCH /api/v1/superadmin/users/:user_id/businesses/:id/tier` |
 | `GET /api/v1/superadmin/catalogue` | `GET /api/v1/superadmin/users/:user_id/catalogue` |
+| `GET /api/v1/superadmin/devtools-pin` | `GET /api/v1/superadmin/users/:user_id/devtools-pin` |
+| `PATCH /api/v1/superadmin/devtools-pin` | `PATCH /api/v1/superadmin/users/:user_id/devtools-pin` |
 | `POST /api/v1/superadmin/login` | = |
 | `GET /api/v1/superadmin/tiers` | `GET /api/v1/superadmin/users/:user_id/tiers` |
 | `PUT /api/v1/superadmin/tiers/:id/price` | `PATCH /api/v1/superadmin/users/:user_id/tiers/:id/price` |

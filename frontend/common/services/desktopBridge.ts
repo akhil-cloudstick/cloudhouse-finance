@@ -103,6 +103,15 @@ export function installUpdate(): Promise<BridgeResult> {
   return call((n) => n.InstallUpdate());
 }
 
+/* Opens WebView2's DevTools panel immediately. Call ONLY after the backend
+ * has already confirmed the PIN (see PinModal.tsx) — this makes no check of
+ * its own. There is no persisted "unlocked" state: every call here is a
+ * fresh PIN check on the caller's side, by design — closing DevTools and
+ * wanting it again always means going through PinModal again. */
+export function openDevTools(): Promise<BridgeResult> {
+  return call((n) => n.OpenDevTools());
+}
+
 export function onUpdateEvent(
   name: UpdateEventName,
   handler: (payload: UpdateEventPayload) => void,
