@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# generated per tenant build by scripts/tenant-icon.cjs — never the tenant to commit
+desktop/tenant_title_generated.go
+
 # dependencies
 /node_modules
 /.pnp

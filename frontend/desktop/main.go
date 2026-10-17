@@ -12,6 +12,7 @@ import (
 	"cloudhouse/desktop/update"
 
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
@@ -22,6 +23,10 @@ var assets embed.FS
 var (
 	version   = "dev"
 	updateURL = ""
+	// Overridden per tenant build via -ldflags -X (see scripts/package-win.cjs),
+	// which fetches the tenant's own display name before building. Falls back
+	// to the platform name for a build that isn't tenant-specific.
+	windowTitle = "CloudHouse Finance"
 )
 
 var headTag = regexp.MustCompile(`(?i)<head[^>]*>`)
@@ -77,8 +82,6 @@ func assetOptions() *assetserver.Options {
 	return &assetserver.Options{Assets: assets, Middleware: pageMiddleware(files)}
 }
 
-const windowTitle = "CloudHouse Finance"
-
 // The window has no native frame; the page draws its own title bar (DesktopTitleBar.tsx).
 const framelessWindow = true
 
@@ -90,6 +93,11 @@ func main() {
 
 	app := NewApp(version, updateURL)
 	err := wails.Run(&options.App{
+		// Wails' own default (debug) logs every asset request — the
+		// [AssetHandler]/[ExternalAssetHandler] lines flooding the terminal
+		// during `npm run start`. Errors only, same as the backend's own
+		// terminal output.
+		LogLevel:    logger.ERROR,
 		Title:       windowTitle,
 		Width:       1440,
 		Height:      900,

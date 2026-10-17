@@ -2,6 +2,13 @@ const { spawn, spawnSync } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
 const { loadEnvConfig } = require("@next/env");
+const {
+  fetchTenantBranding,
+  generateIconFromLogo,
+  generateIconFromInitials,
+  regenerateWindowsResource,
+  writeWindowTitleOverride,
+} = require("./tenant-icon.cjs");
 
 const root = path.join(__dirname, "..");
 loadEnvConfig(root, true);
@@ -29,7 +36,32 @@ function stop(child) {
   if (child && child.pid) spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
 }
 
+function run(cmd, args, opts = {}) {
+  const result = spawnSync(cmd, args, { stdio: "inherit", cwd: root, shell: true, ...opts });
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
 async function main() {
+  // `go run` links the same .syso resource file as a real build, so the
+  // taskbar icon during `npm run start` reflects whatever tenant's icon was
+  // last generated — regenerated here too, not just on `npm run dist`, so it
+  // never shows a stale tenant's icon while you're testing a different one.
+  const branding = await fetchTenantBranding(apiBase);
+  writeWindowTitleOverride(root, branding ? branding.name : null);
+  if (branding) {
+    try {
+      if (branding.logoUrl) {
+        await generateIconFromLogo(branding.logoUrl, root);
+      } else {
+        // No logo yet: an initials icon, never a stale previous tenant's.
+        await generateIconFromInitials(branding.name, branding.brandColor, root);
+      }
+      regenerateWindowsResource(root, run);
+    } catch (err) {
+      console.warn(`Could not build a tenant icon (${err.message}) — the taskbar icon may be stale for this tenant.`);
+    }
+  }
+
   // Its own dev server and distDir, so it never fights `npm run dev` for the lock on .next.
   const env = { ...process.env, DESKTOP_BUILD: "1", NEXT_PUBLIC_API_BASE: apiBase };
 

@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BRAND } from "@/common/config/brand";
+import BrandLogo from "@/common/components/BrandLogo";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { hasCustomTitleBar, windowControls } from "@/common/services/desktopBridge";
+import { NEUTRAL_DOCUMENT_TITLE } from "@/common/config/theme";
 
 /* The packaged app's window has no native frame, so the page draws its own
  * title bar in the business's secondary colour (--nav, the same colour as the
@@ -38,8 +39,12 @@ export function DesktopTitleBar() {
   return (
     <div className="dtb" onDoubleClick={() => windowControls.toggleMaximise()}>
       <div className="dtb-title">
-        <img src={BRAND.markSrc} alt="" />
-        <span>{shortName || name || "CloudHouse Finance"}</span>
+        {/* BrandLogo itself never falls back to the platform mark — no logo
+            yet renders the business's initial, or a neutral placeholder
+            before even the name is known. Same no-cross-brand rule as the
+            sidebar and login page. */}
+        <BrandLogo size={16} scalable={false} />
+        <span>{shortName || name || NEUTRAL_DOCUMENT_TITLE}</span>
       </div>
       <div className="dtb-btns" onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className="dtb-btn" aria-label="Minimise" onClick={() => windowControls.minimise()}>

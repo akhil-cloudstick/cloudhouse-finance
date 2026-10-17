@@ -116,8 +116,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             before the first frame. See BrandPreload for why a static
             export leaves no other place to do this. */}
         <BrandPreload />
-        {/* Last in <head>: the scripts it writes sit after every node React hydrates. */}
-        <script dangerouslySetInnerHTML={{ __html: DESKTOP_RUNTIME_LOADER }} />
+        {/* Last in <head>: the scripts it writes sit after every node React hydrates.
+            suppressHydrationWarning for the same reason as <html> above: in the
+            desktop dev shell this script's own document.write() rewrites the
+            page (injecting Wails' runtime.js/ipc.js) before React hydrates,
+            so this exact node legitimately differs from what was rendered. */}
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: DESKTOP_RUNTIME_LOADER }} />
       </head>
       <body>
         {/* BrandingProvider wraps AuthProvider: the sign-in page itself needs
