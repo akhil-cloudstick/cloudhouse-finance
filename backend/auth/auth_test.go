@@ -125,3 +125,44 @@ func TestEnforceBranchOnWriteRules(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireHostMatchesTenantByLabel(t *testing.T) {
+	TenantIDForHost = func(ctx context.Context, host string) (uint, bool) { return 0, false }
+	TenantIDForHostLabel = func(ctx context.Context, host string) (uint, bool) {
+		switch host {
+		case "sk.cloudhousefinance.com":
+			return 5, true
+		case "aj.cloudhousefinance.com":
+			return 7, true
+		case "rvs.cloudhousefinance.com":
+			return 0, true
+		}
+		return 0, false
+	}
+	defer func() { TenantIDForHost, TenantIDForHostLabel = nil, nil }()
+
+	cases := []struct {
+		host    string
+		byLabel bool
+		want    int
+	}{
+		{"sk.cloudhousefinance.com", true, 200},
+		{"rvs.cloudhousefinance.com", true, 401},
+		{"aj.cloudhousefinance.com", true, 401},
+		{"superadmin.cloudhousefinance.com", true, 200},
+		{"rvs.cloudhousefinance.com", false, 200},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Host = tc.host
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(req, rec)
+		c.Set("tenantId", uint(5))
+		_ = RequireHostMatchesTenant(tc.byLabel)(func(c echo.Context) error {
+			return c.NoContent(200)
+		})(c)
+		if rec.Code != tc.want {
+			t.Errorf("host %s byLabel=%v: got %d, want %d", tc.host, tc.byLabel, rec.Code, tc.want)
+		}
+	}
+}

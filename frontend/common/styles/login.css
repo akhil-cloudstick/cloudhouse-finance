@@ -459,12 +459,22 @@
 .login-page .powered {
   padding-top: 5px;
 }
+/* The vendor's own mark, so its colours are fixed on purpose: the logo
+   gradient from public/cloudhouse-wordmark.svg, never the business's
+   --brand. */
 .login-page .powered a {
-  color: var(--brand);
+  font-weight: 600;
   text-decoration: none;
 }
-.login-page .powered a:hover {
+.login-page .powered a span {
+  background: linear-gradient(90deg, #6644de 0%, #c61f8f 52%, #f99603 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.login-page .powered a:hover span {
   text-decoration: underline;
+  text-decoration-color: #c61f8f;
 }
 
 /* ── single-column pages ────────────────────────────────────── */
