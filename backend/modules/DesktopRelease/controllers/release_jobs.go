@@ -18,8 +18,16 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// Only Windows ships today; a slice so Mac/Linux later is just adding to it.
-var supportedTargets = []string{"win"}
+var supportedTargets = []string{"win", "mac", "linux"}
+
+// fileExtFor mirrors scripts/package-win.cjs/package-mac.cjs/package-linux.cjs's own naming:
+// Windows builds end in .exe; Mac/Linux binaries have no extension.
+func fileExtFor(osTarget string) string {
+	if osTarget == "win" {
+		return ".exe"
+	}
+	return ""
+}
 
 type triggerRequest struct {
 	TenantCode string   `json:"tenant_code"` // "" or "all" = every tenant (ignored for build_type=content)
@@ -142,7 +150,7 @@ func TriggerRelease(c echo.Context) error {
 			if req.BuildType == models.BuildTypeContent {
 				dispatchTenant = ""
 			}
-			if err := gh.Dispatch(ctx, releaseRef(), dispatchTenant, req.Version, req.BuildType); err != nil {
+			if err := gh.Dispatch(ctx, releaseRef(), dispatchTenant, req.Version, req.BuildType, osTarget); err != nil {
 				job.Status = models.StatusFailed
 			} else {
 				job.Status = models.StatusPreparing
@@ -256,7 +264,7 @@ func ListReleaseHistory(c echo.Context) error {
 	base := bucketPublicBase()
 	out := make([]historyEntry, 0, len(done))
 	for _, job := range done {
-		file := fmt.Sprintf("%s-finance-%s-%s.exe", job.TenantCode, job.Version, job.OS)
+		file := fmt.Sprintf("%s-finance-%s-%s%s", job.TenantCode, job.Version, job.OS, fileExtFor(job.OS))
 		url := ""
 		if base != "" {
 			url = strings.Join(filterNonEmpty([]string{base, job.TenantCode, file}), "/")

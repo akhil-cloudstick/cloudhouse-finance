@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "scripts": {
     "dev": "concurrently -n frontend,openwa -c blue,green \"next dev -p 3000\" \"npm run dev:embedded --prefix ../OpenWA\"",
@@ -9,9 +9,14 @@
     "start:web": "next start",
     "dist": "npm run dist:win",
     "dist:win": "node scripts/package-win.cjs",
+    "dist:mac": "node scripts/package-mac.cjs",
+    "finalize:mac": "node scripts/finalize-mac.cjs",
+    "dist:linux": "node scripts/package-linux.cjs",
     "dist:content": "node scripts/package-content.cjs",
     "release": "npm run release:win",
     "release:win": "npm run dist:win && npm run upload && npm run download && npm run prune",
+    "release:mac": "npm run dist:mac && npm run finalize:mac && npm run upload && npm run download && npm run prune",
+    "release:linux": "npm run dist:linux && npm run upload && npm run download && npm run prune",
     "release:content": "cross-env RELEASE_BUILD_TYPE=content npm run dist:content && cross-env RELEASE_BUILD_TYPE=content npm run upload && cross-env RELEASE_BUILD_TYPE=content npm run download",
     "upload": "node scripts/upload.js",
     "download": "node scripts/download.js",

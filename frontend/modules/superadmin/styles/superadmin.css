@@ -1135,66 +1135,54 @@ body {
   font-weight: 600;
 }
 
-.sa-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
+/* A two-way (or more) segmented toggle, e.g. the rebuild modal's Update type. */
+.sa-seg {
+  display: inline-flex;
+  background: var(--sa-bg);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
 }
-
-.sa-radio,
-.sa-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
+.sa-seg button {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--sa-muted);
+  cursor: pointer;
+}
+.sa-seg button:hover { color: var(--sa-ink); }
+.sa-seg button[aria-pressed="true"] {
+  background: var(--sa-card);
   color: var(--sa-ink);
-  font-weight: 400;
-  margin: 4px 0;
+  font-weight: 600;
+  box-shadow: 0 1px 2px oklch(0.2 0.02 285 / 12%);
 }
 
-/* Rebuild/release progress — one row per tenant/OS, or one shared row for a content update. */
-.sa-release-progress ul {
-  list-style: none;
-  margin: 10px 0;
-  padding: 0;
+/* A row of independently toggleable pills, e.g. the rebuild modal's "Build for" OS picker. */
+.sa-toggle-group {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sa-release-progress li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--sa-line);
-  border-radius: 8px;
-  font-size: 13px;
-}
-
-/* Plain version history, no status column — that's .sa-release-progress above. */
-.sa-release-history {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 6px;
 }
-.sa-release-history li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
+.sa-toggle-group button {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 14px;
   border: 1px solid var(--sa-line);
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 999px;
+  background: var(--sa-card);
+  color: var(--sa-ink);
+  cursor: pointer;
 }
-.sa-release-history-actions {
-  display: flex;
-  gap: 6px;
+.sa-toggle-group button:hover { background: var(--sa-bg); }
+.sa-toggle-group button[aria-pressed="true"] {
+  background: var(--sa-brand-pale);
+  border-color: var(--sa-brand);
+  color: var(--sa-brand-deep);
+  font-weight: 600;
 }
 
 /* The label colour here was the console's one real bug: it read

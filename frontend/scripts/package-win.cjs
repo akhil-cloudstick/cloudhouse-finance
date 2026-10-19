@@ -9,6 +9,8 @@ const {
   generateIconFromInitials,
   regenerateWindowsResource,
   writeWindowTitleOverride,
+  updateUrl,
+  contentUrl,
 } = require("./tenant-icon.cjs");
 
 const root = path.join(__dirname, "..");
@@ -56,27 +58,6 @@ async function applyTenantBranding() {
     console.warn(`Could not build a tenant icon (${err.message}) — the exe icon may be stale for this tenant.`);
   }
   return branding;
-}
-
-function bucketBase() {
-  const { S3_ENDPOINT, S3_BUCKET, S3_FOLDER } = process.env;
-  if (!S3_ENDPOINT || !S3_BUCKET) return "";
-  return [S3_ENDPOINT.replace(/\/+$/, ""), S3_BUCKET, (S3_FOLDER || "").replace(/^\/+|\/+$/g, "")]
-    .filter(Boolean)
-    .join("/");
-}
-
-// This tenant's own subfolder in B2, so its update check never sees another tenant's version.
-function updateUrl(tenantSlug) {
-  const base = bucketBase();
-  if (!base) return "";
-  return `${base}/${process.env.RELEASE_TENANT || tenantSlug || "common"}`;
-}
-
-// The shared "common" folder every tenant's app also checks, for a content-only release.
-function contentUrl() {
-  const base = bucketBase();
-  return base ? `${base}/common` : "";
 }
 
 function stageAssets() {

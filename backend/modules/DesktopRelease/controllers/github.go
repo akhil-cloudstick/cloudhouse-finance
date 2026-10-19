@@ -55,7 +55,7 @@ func (g *githubClient) do(ctx context.Context, method, url string, body any) (*h
 }
 
 // Dispatch starts release.yml; GitHub returns no run ID, so correlate via FindRecentRun after.
-func (g *githubClient) Dispatch(ctx context.Context, ref, tenant, version, buildType string) error {
+func (g *githubClient) Dispatch(ctx context.Context, ref, tenant, version, buildType, target string) error {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/workflows/%s/dispatches", g.owner, g.repo, g.workflowFile)
 	body := map[string]any{
 		"ref": ref,
@@ -63,6 +63,7 @@ func (g *githubClient) Dispatch(ctx context.Context, ref, tenant, version, build
 			"tenant":     tenant,
 			"version":    version,
 			"build_type": buildType,
+			"target":     target,
 		},
 	}
 	res, err := g.do(ctx, http.MethodPost, url, body)

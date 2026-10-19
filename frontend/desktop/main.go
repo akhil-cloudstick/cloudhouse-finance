@@ -21,7 +21,7 @@ import (
 var assets embed.FS
 
 var (
-	version   = "dev"
+	version   = "0.0.1"
 	updateURL = ""
 	// Shared (not per-tenant) content-package feed — the bucket's "common" folder.
 	contentUpdateURL = ""

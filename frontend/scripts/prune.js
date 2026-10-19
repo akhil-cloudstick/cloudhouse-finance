@@ -62,7 +62,8 @@ async function main() {
 
   // Groups by OS (e.g. "...-1.4.0-win.exe" -> "win") so each OS's limit is independent.
   const byOs = new Map();
-  const pattern = /-(\d+\.\d+\.\d+(?:-[\w.]+)?)-(\w+)\.\w+$/;
+  // Windows files end in an extension (...-win.exe); Mac/Linux binaries have none (...-mac, ...-linux).
+  const pattern = /-(\d+\.\d+\.\d+(?:-[\w.]+)?)-(\w+)(?:\.\w+)?$/;
   for (const key of files) {
     const m = pattern.exec(key);
     if (!m) continue;

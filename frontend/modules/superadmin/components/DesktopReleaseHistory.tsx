@@ -32,26 +32,38 @@ export function DesktopReleaseHistory({ tenantCode, refreshKey }: DesktopRelease
     }
   }
 
-  if (!entries) return null;
+  if (!entries) return <p className="sa-empty">Loading…</p>;
   if (entries.length === 0) return <p className="sa-empty">No past builds yet.</p>;
 
   return (
-    <ul className="sa-release-history">
-      {entries.map((e) => (
-        <li key={`${e.os}-${e.version}`}>
-          <span>
-            {e.version} <span className="sa-chip">{e.os}</span>
-          </span>
-          <span className="sa-release-history-actions">
-            <a className="sa-btn" href={e.downloadUrl} download>
-              Download
-            </a>
-            <button type="button" className="sa-btn" onClick={() => copyLink(e.downloadUrl)}>
-              {copied === e.downloadUrl ? "Copied" : "Copy link"}
-            </button>
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div className="sa-table-wrap">
+      <table className="sa-table">
+        <thead>
+          <tr>
+            <th>Version</th>
+            <th>OS</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e) => (
+            <tr key={`${e.os}-${e.version}`}>
+              <td>{e.version}</td>
+              <td>
+                <span className="sa-chip tag">{e.os}</span>
+              </td>
+              <td className="sa-actions">
+                <a className="sa-btn" href={e.downloadUrl} download>
+                  Download
+                </a>
+                <button type="button" className="sa-btn" onClick={() => copyLink(e.downloadUrl)}>
+                  {copied === e.downloadUrl ? "Copied" : "Copy link"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

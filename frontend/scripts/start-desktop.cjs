@@ -8,10 +8,14 @@ const {
   generateIconFromInitials,
   regenerateWindowsResource,
   writeWindowTitleOverride,
+  updateUrl,
+  contentUrl,
 } = require("./tenant-icon.cjs");
 
 const root = path.join(__dirname, "..");
 loadEnvConfig(root, true);
+// The real S3_* values live only in backend/.env now — fills in whatever frontend's own env didn't set.
+loadEnvConfig(path.join(root, "..", "backend"), true);
 
 const port = 3001;
 const devURL = `http://localhost:${port}`;
@@ -71,7 +75,9 @@ async function main() {
     while (!(await isUp())) await new Promise((r) => setTimeout(r, 1000));
   }
 
-  const shell = spawn("go", ["run", "-tags", "desktop,dev", "."], {
+  // Real feed URLs even in dev, so testing the update popup/badge doesn't need a packaged build.
+  const ldflags = `-X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()}`;
+  const shell = spawn("go", ["run", "-tags", "desktop,dev", "-ldflags", `"${ldflags}"`, "."], {
     cwd: path.join(root, "desktop"),
     stdio: "inherit",
     shell: true,

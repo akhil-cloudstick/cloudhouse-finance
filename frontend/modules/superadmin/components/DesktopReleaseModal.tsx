@@ -10,8 +10,12 @@ import {
 import type { DesktopReleaseJob } from "@/modules/superadmin/types/superadmin-types";
 import { ReasonField } from "@/modules/superadmin/components/ReasonField";
 
-// Only Windows ships today — keep in step with package-win.cjs / release.yml.
-const SUPPORTED_TARGETS = [{ value: "win", label: "Windows" }];
+// Keep in step with package-win.cjs/package-mac.cjs/package-linux.cjs and release.yml's job matrix.
+const SUPPORTED_TARGETS = [
+  { value: "win", label: "Windows" },
+  { value: "mac", label: "macOS" },
+  { value: "linux", label: "Linux" },
+];
 
 const STATUS_LABEL: Record<DesktopReleaseJob["status"], string> = {
   queued: "Queued…",
@@ -23,6 +27,21 @@ const STATUS_LABEL: Record<DesktopReleaseJob["status"], string> = {
   failed: "Failed",
   cancelled: "Cancelled",
 };
+
+const STATUS_CHIP: Record<DesktopReleaseJob["status"], string> = {
+  queued: "trial",
+  preparing: "trial",
+  building: "trial",
+  uploading: "trial",
+  verifying: "trial",
+  done: "active",
+  failed: "suspended",
+  cancelled: "off",
+};
+
+function isTerminal(status: DesktopReleaseJob["status"]) {
+  return status === "done" || status === "failed" || status === "cancelled";
+}
 
 type DesktopReleaseModalProps = {
   /* Present = single tenant; absent = every tenant ("content update" only offered then). */
@@ -36,7 +55,7 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
   const [buildType, setBuildType] = useState<"full" | "content">("full");
   const [targets, setTargets] = useState<string[]>(["win"]);
   const [reason, setReason] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [versionError, setVersionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [started, setStarted] = useState(false);
   const [jobs, setJobs] = useState<DesktopReleaseJob[]>([]);
@@ -55,17 +74,11 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
     setTargets((cur) => (cur.includes(value) ? cur.filter((t) => t !== value) : [...cur, value]));
   }
 
+  const canSubmit = version.trim() !== "" && (buildType !== "full" || targets.length > 0);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    if (!version.trim()) {
-      setError("Enter a version number.");
-      return;
-    }
-    if (targets.length === 0) {
-      setError("Pick at least one OS to build for.");
-      return;
-    }
+    setVersionError(null);
     setSubmitting(true);
     try {
       const res = await triggerDesktopRelease({
@@ -82,7 +95,7 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
         try {
           const refreshed = await listDesktopReleaseJobs(ids);
           setJobs(refreshed);
-          if (refreshed.every((j) => j.status === "done" || j.status === "failed" || j.status === "cancelled")) {
+          if (refreshed.every((j) => isTerminal(j.status))) {
             if (pollRef.current) clearInterval(pollRef.current);
             onDone?.();
           }
@@ -91,7 +104,7 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
         }
       }, 4000);
     } catch (err) {
-      setError(err instanceof SuperAdminApiError ? err.message : "Could not start the build.");
+      setVersionError(err instanceof SuperAdminApiError ? err.message : "Could not start the build.");
     } finally {
       setSubmitting(false);
     }
@@ -107,109 +120,132 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
   }
 
   const title = tenant ? `Rebuild — ${tenant.name}` : "Rebuild — all tenants";
-  const showingProgress = started;
 
   return (
-    <div className="sa-modal-backdrop" role="dialog" aria-modal="true">
-      <div className="sa-modal">
-        <h2>{title}</h2>
+    <div className="sa-modal-backdrop" onClick={onClose}>
+      <form className="sa-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="sa-modal-head">
+          <h2>{title}</h2>
+        </div>
 
-        {!showingProgress && (
-          <form onSubmit={submit}>
-            <div className="sa-field">
-              <label>New version</label>
-              <input
-                type="text"
-                value={version}
-                onChange={(e) => setVersion(e.target.value)}
-                placeholder="1.4.0"
-                required
-              />
-              <span className="sa-hint">Must be higher than the current live version — checked on submit.</span>
-            </div>
-
-            <div className="sa-field">
-              <label>Update type</label>
-              <label className="sa-radio">
+        <div className="sa-modal-body">
+          {!started ? (
+            <>
+              <div className={versionError ? "sa-field has-err" : "sa-field"}>
+                <label>New version</label>
                 <input
-                  type="radio"
-                  checked={buildType === "full"}
-                  onChange={() => setBuildType("full")}
+                  type="text"
+                  value={version}
+                  onChange={(e) => { setVersion(e.target.value); setVersionError(null); }}
+                  placeholder="1.4.0"
+                  autoFocus
+                  required
                 />
-                Full rebuild — native code changed
-              </label>
-              {canOfferContent && (
-                <label className="sa-radio">
-                  <input
-                    type="radio"
-                    checked={buildType === "content"}
-                    onChange={() => setBuildType("content")}
-                  />
-                  Content update — fast, no reinstall
-                </label>
-              )}
-            </div>
-
-            {buildType === "full" && (
-              <div className="sa-field">
-                <label>Build for</label>
-                {SUPPORTED_TARGETS.map((t) => (
-                  <label key={t.value} className="sa-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={targets.includes(t.value)}
-                      onChange={() => toggleTarget(t.value)}
-                    />
-                    {t.label}
-                  </label>
-                ))}
+                {versionError ? (
+                  <span className="sa-error" role="alert">{versionError}</span>
+                ) : (
+                  <span className="sa-hint">Must be higher than the current live version — checked on submit.</span>
+                )}
               </div>
-            )}
 
-            <ReasonField value={reason} onChange={setReason} required={false} />
-            {error && <p className="sa-error" role="alert">{error}</p>}
+              <div className="sa-field">
+                <label>Update type</label>
+                <div className="sa-seg" role="group" aria-label="Update type">
+                  <button type="button" aria-pressed={buildType === "full"} onClick={() => setBuildType("full")}>
+                    Full rebuild
+                  </button>
+                  {canOfferContent && (
+                    <button
+                      type="button"
+                      aria-pressed={buildType === "content"}
+                      onClick={() => setBuildType("content")}
+                    >
+                      Content update
+                    </button>
+                  )}
+                </div>
+                <span className="sa-hint">
+                  {buildType === "full"
+                    ? "Native code changed — produces a real installer, per OS checked below."
+                    : "Fast, shared package — every tenant's app updates in place, no reinstall."}
+                </span>
+              </div>
 
-            <div className="sa-modal-actions">
-              <button type="button" onClick={onClose} disabled={submitting}>
+              {buildType === "full" && (
+                <div className="sa-field">
+                  <label>Build for</label>
+                  <div className="sa-toggle-group" role="group" aria-label="Build for">
+                    {SUPPORTED_TARGETS.map((t) => (
+                      <button
+                        key={t.value}
+                        type="button"
+                        aria-pressed={targets.includes(t.value)}
+                        onClick={() => toggleTarget(t.value)}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="sa-hint">
+                    {targets.length === 0 ? "Pick at least one — required to start." : ""}
+                  </span>
+                </div>
+              )}
+
+              <ReasonField value={reason} onChange={setReason} required={false} />
+            </>
+          ) : (
+            <div className="sa-table-wrap">
+              <table className="sa-table">
+                <thead>
+                  <tr>
+                    {buildType === "full" && <th>Tenant</th>}
+                    {buildType === "full" && <th>OS</th>}
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.map((job) => (
+                    <tr key={job.id}>
+                      {buildType === "full" && <td>{job.tenantCode}</td>}
+                      {buildType === "full" && <td>{job.os}</td>}
+                      <td>
+                        <span className={`sa-chip ${STATUS_CHIP[job.status]}`}>{STATUS_LABEL[job.status]}</span>
+                      </td>
+                      <td>
+                        {!isTerminal(job.status) && (
+                          <button type="button" className="sa-btn danger" onClick={() => cancelJob(job.id)}>
+                            Cancel
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="sa-modal-foot">
+          <span className="sa-foot-spacer" />
+          {!started ? (
+            <>
+              <button type="button" className="sa-btn" onClick={onClose} disabled={submitting}>
                 Cancel
               </button>
-              <button type="submit" disabled={submitting}>
+              <button type="submit" className="sa-btn primary" disabled={submitting || !canSubmit}>
                 {submitting ? "Starting…" : "Confirm & start"}
               </button>
-            </div>
-          </form>
-        )}
-
-        {showingProgress && (
-          <div className="sa-release-progress">
-            {buildType === "content" ? (
-              <p>Progress — content update</p>
-            ) : (
-              <p>Progress{tenant ? ` — ${tenant.name}` : " — all tenants"}</p>
-            )}
-            <ul>
-              {jobs.map((job) => (
-                <li key={job.id}>
-                  <span>
-                    {buildType === "content" ? "" : `${job.tenantCode} (${job.os}): `}
-                    {STATUS_LABEL[job.status]}
-                  </span>
-                  {job.status !== "done" && job.status !== "failed" && job.status !== "cancelled" ? (
-                    <button type="button" onClick={() => cancelJob(job.id)}>
-                      Cancel
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-            <div className="sa-modal-actions">
-              <button type="button" onClick={onClose}>
-                Close
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+            </>
+          ) : (
+            <button type="button" className="sa-btn" onClick={onClose}>
+              Close
+            </button>
+          )}
+        </div>
+      </form>
     </div>
   );
 }
