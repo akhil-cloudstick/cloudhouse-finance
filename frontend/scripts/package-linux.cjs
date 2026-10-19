@@ -52,7 +52,8 @@ async function main() {
   const target = path.join(dist, file);
 
   const ldflags = `-s -w -X main.version=${version} -X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()}`;
-  run("go", ["build", "-tags", "desktop,production", "-ldflags", `"${ldflags}"`, "-o", `"${target}"`, "."], {
+  // webkit2_41: Wails' own build tag for Ubuntu 24.04+, which only ships webkit2gtk-4.1 (not 4.0).
+  run("go", ["build", "-tags", "desktop,production,webkit2_41", "-ldflags", `"${ldflags}"`, "-o", `"${target}"`, "."], {
     cwd: path.join(root, "desktop"),
     env: { ...process.env, GOOS: "linux", GOARCH: "amd64" },
   });

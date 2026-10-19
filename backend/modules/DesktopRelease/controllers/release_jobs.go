@@ -130,8 +130,13 @@ func TriggerRelease(c echo.Context) error {
 	}
 
 	adminID := currentAdminID(c)
+	targetList := strings.Join(targets, ",")
 	var created []models.ReleaseJob
 	for _, code := range tenantCodes {
+		// One dispatch per TENANT, not per (tenant, OS) — all OSes checked for
+		// this tenant run together as one workflow run with one job per OS,
+		// instead of a separate run each.
+		var rows []models.ReleaseJob
 		for _, osTarget := range targets {
 			job := models.ReleaseJob{
 				TenantCode:       code,
@@ -144,19 +149,23 @@ func TriggerRelease(c echo.Context) error {
 			if err := config.BaseDB.WithContext(ctx).Create(&job).Error; err != nil {
 				return common.FailErr(c, err)
 			}
-			created = append(created, job)
-
-			dispatchTenant := code
-			if req.BuildType == models.BuildTypeContent {
-				dispatchTenant = ""
-			}
-			if err := gh.Dispatch(ctx, releaseRef(), dispatchTenant, req.Version, req.BuildType, osTarget); err != nil {
-				job.Status = models.StatusFailed
-			} else {
-				job.Status = models.StatusPreparing
-			}
-			config.BaseDB.WithContext(ctx).Save(&job)
+			rows = append(rows, job)
 		}
+
+		dispatchTenant := code
+		if req.BuildType == models.BuildTypeContent {
+			dispatchTenant = ""
+		}
+		dispatchErr := gh.Dispatch(ctx, releaseRef(), dispatchTenant, req.Version, req.BuildType, targetList)
+		for i := range rows {
+			if dispatchErr != nil {
+				rows[i].Status = models.StatusFailed
+			} else {
+				rows[i].Status = models.StatusPreparing
+			}
+			config.BaseDB.WithContext(ctx).Save(&rows[i])
+		}
+		created = append(created, rows...)
 	}
 
 	return common.Success(c, http.StatusOK, echo.Map{"jobs": created})
@@ -207,7 +216,7 @@ func refreshJob(ctx context.Context, gh *githubClient, ghErr error, job *models.
 		config.BaseDB.WithContext(ctx).Save(job)
 	}
 
-	status, err := gh.CurrentStatus(ctx, *job.GitHubRunID)
+	status, err := gh.CurrentStatus(ctx, *job.GitHubRunID, job.OS)
 	if err != nil {
 		return
 	}

@@ -125,6 +125,7 @@ type runJobStep struct {
 }
 
 type runJob struct {
+	Name  string       `json:"name"`
 	Steps []runJobStep `json:"steps"`
 }
 
@@ -150,8 +151,10 @@ func stageFor(stepName string) string {
 	}
 }
 
-// CurrentStatus returns the run's single collapsed status (preparing/building/uploading/verifying/done/failed).
-func (g *githubClient) CurrentStatus(ctx context.Context, runID int64) (string, error) {
+// CurrentStatus returns the collapsed status (preparing/building/uploading/verifying/done/failed)
+// of the job within this run matching osTarget by name ("win"/"mac"/"linux" — a run can hold more
+// than one, since a single tenant dispatch now builds every checked OS in one run).
+func (g *githubClient) CurrentStatus(ctx context.Context, runID int64, osTarget string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/runs/%d/jobs", g.owner, g.repo, runID)
 	res, err := g.do(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -166,10 +169,17 @@ func (g *githubClient) CurrentStatus(ctx context.Context, runID int64) (string, 
 	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
 		return "", err
 	}
-	if len(parsed.Jobs) == 0 {
+	var job *runJob
+	for i := range parsed.Jobs {
+		if parsed.Jobs[i].Name == osTarget {
+			job = &parsed.Jobs[i]
+			break
+		}
+	}
+	if job == nil {
+		// This OS's job hasn't been scheduled/reported yet.
 		return "preparing", nil
 	}
-	job := parsed.Jobs[0]
 	last := "preparing"
 	for _, step := range job.Steps {
 		last = stageFor(strings.ToLower(step.Name))

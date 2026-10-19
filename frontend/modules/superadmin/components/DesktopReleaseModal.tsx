@@ -147,7 +147,7 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
 
   return (
     <div className="sa-modal-backdrop" onClick={onClose}>
-      <form className="sa-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+      <form className="sa-modal wide" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <div className="sa-modal-head">
           <h2>{title}</h2>
         </div>
