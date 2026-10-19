@@ -119,3 +119,44 @@ export function onUpdateEvent(
   if (!isDesktop() || !window.runtime) return noop;
   return window.runtime.EventsOn(`update:${name}`, (data) => handler((data ?? {}) as UpdateEventPayload));
 }
+
+// Content-only release — same shape as the full update above, "content:" prefixed, plus "applied".
+export type ContentUpdateEventName =
+  | "checking"
+  | "available"
+  | "not-available"
+  | "progress"
+  | "downloaded"
+  | "applied"
+  | "error";
+
+export async function activeContentVersion(): Promise<string | null> {
+  const native = app();
+  if (!native) return null;
+  try {
+    const v = await native.ActiveContentVersion();
+    return v || null;
+  } catch {
+    return null;
+  }
+}
+
+export function checkForContentUpdate(): Promise<BridgeResult> {
+  return call((n) => n.CheckContentUpdate());
+}
+
+export function downloadContentUpdate(): Promise<BridgeResult> {
+  return call((n) => n.DownloadContentUpdate());
+}
+
+export function applyContentUpdate(): Promise<BridgeResult> {
+  return call((n) => n.ApplyContentUpdate());
+}
+
+export function onContentUpdateEvent(
+  name: ContentUpdateEventName,
+  handler: (payload: UpdateEventPayload) => void,
+): () => void {
+  if (!isDesktop() || !window.runtime) return noop;
+  return window.runtime.EventsOn(`content:${name}`, (data) => handler((data ?? {}) as UpdateEventPayload));
+}

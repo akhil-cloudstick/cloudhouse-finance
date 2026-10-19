@@ -13,6 +13,8 @@ import {
   installUpdate,
   isDesktop,
   onUpdateEvent,
+  checkForContentUpdate,
+  onContentUpdateEvent,
 } from "@/common/services/desktopBridge";
 
 type UpdateState = "idle" | "checking" | "uptodate" | "available" | "downloading" | "ready" | "error";
@@ -44,6 +46,8 @@ export function AccountMenu() {
   const [upd, setUpd] = useState<UpdateState>("idle");
   const [progress, setProgress] = useState(0);
   const [updError, setUpdError] = useState("");
+  // Content-only release — folds into the same "waiting" dot as the full update.
+  const [contentAvailable, setContentAvailable] = useState(false);
   const branch = useBranchSwitch();
   const [branchOpen, setBranchOpen] = useState(false);
   const desktop = useSyncExternalStore(subscribeNever, isDesktop, () => false);
@@ -58,7 +62,13 @@ export function AccountMenu() {
       onUpdateEvent("progress", (p) => { setUpd("downloading"); setProgress(p.percent ?? 0); }),
       onUpdateEvent("downloaded", () => setUpd("ready")),
       onUpdateEvent("error", (p) => { setUpdError(p.message ?? "Update failed"); setUpd("error"); }),
+      onContentUpdateEvent("available", () => setContentAvailable(true)),
+      onContentUpdateEvent("not-available", () => setContentAvailable(false)),
+      onContentUpdateEvent("applied", () => setContentAvailable(false)),
     ];
+    // Checked once per app open, not only on an explicit click; a refresh remounts this component.
+    void checkForUpdate();
+    void checkForContentUpdate();
     return () => unsubscribe.forEach((off) => off());
   }, [desktop]);
 
@@ -94,9 +104,9 @@ export function AccountMenu() {
     if (id !== branch.selectedBranchId) branch.select(id);
   }
 
-  function openSettings() {
+  function openSettings(section?: string) {
     setOpen(false);
-    openModal(<SettingsModalContent />, true);
+    openModal(<SettingsModalContent initialSection={section} />, true);
   }
 
   function signOut() {
@@ -112,7 +122,8 @@ export function AccountMenu() {
   }
 
   const initial = employee?.name ? employee.name.charAt(0).toUpperCase() : "—";
-  const waiting = upd === "available" || upd === "ready";
+  // Stays on for either kind of pending update, regardless of dismiss.
+  const waiting = upd === "available" || upd === "ready" || contentAvailable;
   const busy = upd === "checking" || upd === "downloading";
 
   let updIcon: React.ReactNode;
@@ -228,10 +239,16 @@ export function AccountMenu() {
               <div className="acct-sep" />
             </>
           )}
-          <button type="button" role="menuitem" className="acct-item" onClick={openSettings}>
+          <button type="button" role="menuitem" className="acct-item" onClick={() => openSettings()}>
             <span className="i"><Icon name="gear" /></span>
             <span className="lbl">Settings</span>
           </button>
+          {desktop && contentAvailable && (
+            <button type="button" role="menuitem" className="acct-item new" onClick={() => openSettings("version")}>
+              <span className="i"><Icon name="arrowUp" /></span>
+              <span className="lbl">Content update available</span>
+            </button>
+          )}
           {desktop && (
             <button
               type="button"

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DesktopReleaseModal } from "@/modules/superadmin/components/DesktopReleaseModal";
+import { DesktopReleaseHistory } from "@/modules/superadmin/components/DesktopReleaseHistory";
 import { createPortal } from "react-dom";
 import { getBusinessOverview, PAYMENT_MODE_LABELS } from "@/modules/superadmin/services/superadminService";
 import { type Business, type BusinessOverview, type SubscriptionPayment, type Tier } from "@/modules/superadmin/types/superadmin-types";
@@ -65,6 +67,8 @@ export function BusinessDetail({
   const [recording, setRecording] = useState(false);
   const [removing, setRemoving] = useState<SubscriptionPayment | null>(null);
   const [editingExpiry, setEditingExpiry] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -131,8 +135,24 @@ export function BusinessDetail({
         <button className="sa-btn danger" onClick={() => onAct(b, "delete")}>
           Delete
         </button>
+        <button className="sa-btn" onClick={() => setRebuilding(true)}>
+          Rebuild this app
+        </button>
       </div>,
       )}
+
+      {rebuilding && (
+        <DesktopReleaseModal
+          tenant={{ code: b.code, name: b.name }}
+          onClose={() => setRebuilding(false)}
+          onDone={() => setHistoryRefresh((n) => n + 1)}
+        />
+      )}
+
+      <section className="sa-panel">
+        <h3>Desktop app versions</h3>
+        <DesktopReleaseHistory tenantCode={b.code} refreshKey={historyRefresh} />
+      </section>
 
       <section className="sa-panel sa-detail-head">
         {b.logoUrl ? (

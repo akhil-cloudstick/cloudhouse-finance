@@ -8,26 +8,38 @@ import { useBranding } from "@/common/providers/BrandingProvider";
 import { WhatsAppPanel } from "@/modules/integrations/components/WhatsAppPanel";
 import { ConnectMobilePanel } from "@/modules/integrations/components/ConnectMobilePanel";
 import { BusinessProfilePanel } from "@/modules/settings/components/BusinessProfilePanel";
+import { DesktopVersionPanel } from "@/modules/settings/components/DesktopVersionPanel";
+import { isDesktop } from "@/common/services/desktopBridge";
 
 /* One entry per section; `module` is the business module the superadmin
  * has to switch on for it to show up (tenant.KnownModules), none means always shown.
  * `perm` is the role permission ([module, key]) the section additionally needs. */
-const SECTIONS: { key: string; label: string; icon: "mobileLink" | "waOutline" | "bank"; module?: string; perm?: [string, string]; Panel: () => React.ReactNode }[] = [
+const SECTIONS: { key: string; label: string; icon: "mobileLink" | "waOutline" | "bank" | "arrowUp"; module?: string; perm?: [string, string]; desktopOnly?: boolean; Panel: () => React.ReactNode }[] = [
   { key: "profile", label: "Business Profile", icon: "bank", perm: ["Business_Profile", "can_view_business_profile_module"], Panel: BusinessProfilePanel },
   { key: "mobile", label: "Link Mobile", icon: "mobileLink", Panel: ConnectMobilePanel },
   { key: "whatsapp", label: "WhatsApp", icon: "waOutline", module: "whatsapp", Panel: WhatsAppPanel },
+  // Desktop only (section 7) — never shown on the web build.
+  { key: "version", label: "App Version", icon: "arrowUp", desktopOnly: true, Panel: DesktopVersionPanel },
 ];
 
+type SettingsModalContentProps = { initialSection?: string };
+
 /* Where a business keeps its profile, links the staff app and manages its integrations. Opened from the header account menu. */
-export function SettingsModalContent() {
+export function SettingsModalContent({ initialSection }: SettingsModalContentProps = {}) {
   const { closeModal } = useModal();
   const { hasModule } = useBranding();
   const { can } = useAuth();
+  const desktop = useMemo(() => isDesktop(), []);
   const items = useMemo(
-    () => SECTIONS.filter((i) => (!i.module || hasModule(i.module)) && (!i.perm || can(i.perm[0], i.perm[1]))),
-    [hasModule, can]
+    () =>
+      SECTIONS.filter(
+        (i) => (!i.desktopOnly || desktop) && (!i.module || hasModule(i.module)) && (!i.perm || can(i.perm[0], i.perm[1])),
+      ),
+    [hasModule, can, desktop],
   );
-  const [active, setActive] = useState(items[0].key);
+  const [active, setActive] = useState(
+    initialSection && items.some((i) => i.key === initialSection) ? initialSection : items[0].key,
+  );
   const current = items.find((i) => i.key === active) ?? items[0];
 
   return (

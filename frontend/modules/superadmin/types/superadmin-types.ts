@@ -226,3 +226,31 @@ export type ThemeInput = {
  * after a forgotten password. The password is write-only: it is never read
  * back, and an empty one on update keeps the current password. */
 export type AdminLogin = { employeeId: number; name: string; username: string; phone: string };
+
+// One real build: one tenant (or "common" for a content release), one OS.
+export type DesktopReleaseJob = {
+  id: number;
+  batchId: string;
+  tenantCode: string;
+  os: string;
+  version: string;
+  buildType: "full" | "content";
+  status: "queued" | "preparing" | "building" | "uploading" | "verifying" | "done" | "failed" | "cancelled";
+  createdAt: string;
+};
+
+// One version currently kept in B2 for a tenant — the plain history list, not the live in-progress view.
+export type DesktopReleaseHistoryEntry = {
+  tenantCode: string;
+  os: string;
+  version: string;
+  downloadUrl: string;
+};
+
+export type TriggerDesktopReleaseInput = {
+  tenantCode?: string; // "" or "all" = every tenant; ignored for buildType "content"
+  version: string;
+  buildType: "full" | "content";
+  targets?: string[]; // e.g. ["win"]
+  reason: string;
+};

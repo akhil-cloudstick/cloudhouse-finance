@@ -12,6 +12,7 @@ import { DEFAULT_BRAND_COLOR } from "@/modules/superadmin/config/theme";
 import { SuperAdminIcon } from "@/modules/superadmin/components/SuperAdminIcon";
 import { GrantChips } from "@/modules/superadmin/components/GrantChips";
 import { BusinessActionModal } from "@/modules/superadmin/components/BusinessActionModal";
+import { DesktopReleaseModal } from "@/modules/superadmin/components/DesktopReleaseModal";
 import { TierPriceModal } from "@/modules/superadmin/components/TierPriceModal";
 import { BusinessDetail } from "@/modules/superadmin/components/BusinessDetail";
 import { BusinessWizard } from "@/modules/superadmin/components/BusinessWizard";
@@ -103,6 +104,7 @@ export default function SuperAdminDashboardPage() {
   );
   const [pricingTier, setPricingTier] = useState<Tier | null>(null);
   const [devToolsPinOpen, setDevToolsPinOpen] = useState(false);
+  const [rebuildingAll, setRebuildingAll] = useState(false);
   const [user, setUser] = useState<ReturnType<typeof readSuperAdminUser>>(null);
   /* The business whose detail page is open, or null for the list. Bumping
    * detailVersion makes the open detail page refetch after any action. */
@@ -326,10 +328,15 @@ export default function SuperAdminDashboardPage() {
                 <button className="sa-btn" onClick={() => setDevToolsPinOpen(true)}>
                   DevTools PIN
                 </button>
+                <button className="sa-btn" onClick={() => setRebuildingAll(true)}>
+                  Rebuild all
+                </button>
                 <button className="sa-btn primary" onClick={() => setWizard({ business: null, openAt: "profile" })}>
                   + New business
                 </button>
               </div>
+
+              {rebuildingAll && <DesktopReleaseModal onClose={() => setRebuildingAll(false)} />}
               {businesses === null ? (
                 <p className="sa-empty">Loading…</p>
               ) : businesses.length === 0 ? (

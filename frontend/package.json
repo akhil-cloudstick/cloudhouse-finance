@@ -9,10 +9,13 @@
     "start:web": "next start",
     "dist": "npm run dist:win",
     "dist:win": "node scripts/package-win.cjs",
+    "dist:content": "node scripts/package-content.cjs",
     "release": "npm run release:win",
-    "release:win": "npm run dist:win && npm run upload && npm run download",
+    "release:win": "npm run dist:win && npm run upload && npm run download && npm run prune",
+    "release:content": "cross-env RELEASE_BUILD_TYPE=content npm run dist:content && cross-env RELEASE_BUILD_TYPE=content npm run upload && cross-env RELEASE_BUILD_TYPE=content npm run download",
     "upload": "node scripts/upload.js",
     "download": "node scripts/download.js",
+    "prune": "node scripts/prune.js",
     "tag": "node scripts/tag.cjs",
     "lint": "eslint"
   },
@@ -29,6 +32,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "typescript": "^5"

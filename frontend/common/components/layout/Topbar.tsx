@@ -12,6 +12,7 @@ import { Icon } from "@/common/components/Icon";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import GlobalSearch from "./GlobalSearch";
 import { AccountMenu } from "./AccountMenu";
+import { DesktopUpdatePopup } from "./DesktopUpdatePopup";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
@@ -96,6 +97,7 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
         )}
       </a>
       <AccountMenu />
+      <DesktopUpdatePopup />
     </header>
   );
 }

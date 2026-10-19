@@ -8,7 +8,7 @@
  * the wrong bearer token to a superadmin request. */
 import { apiRawFetch } from "@/common/services/httpClient";
 import { readSuperAdminToken } from "@/modules/superadmin/services/superadminSession";
-import type { LoginResponse, Tier, Business, CreateBusinessInput, PaymentMode, SubscriptionPayment, BusinessOverview, RecordPaymentInput, AuditLogEntry, Catalogue, ProfileInput, ThemeInput, AdminLogin } from "@/modules/superadmin/types/superadmin-types";
+import type { LoginResponse, Tier, Business, CreateBusinessInput, PaymentMode, SubscriptionPayment, BusinessOverview, RecordPaymentInput, AuditLogEntry, Catalogue, ProfileInput, ThemeInput, AdminLogin, DesktopReleaseJob, DesktopReleaseHistoryEntry, TriggerDesktopReleaseInput } from "@/modules/superadmin/types/superadmin-types";
 
 export class SuperAdminApiError extends Error {
   status: number;
@@ -300,4 +300,29 @@ export function clearSignature(id: number, reason: string): Promise<Business> {
   return request<Business>(`/superadmin/businesses/${id}/signature?reason=${encodeURIComponent(reason)}`, {
     method: "DELETE",
   });
+}
+
+// Desktop release jobs.
+export function triggerDesktopRelease(
+  input: TriggerDesktopReleaseInput,
+): Promise<{ jobs: DesktopReleaseJob[] }> {
+  return request<{ jobs: DesktopReleaseJob[] }>("/superadmin/desktop-releases", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function listDesktopReleaseJobs(ids: number[]): Promise<DesktopReleaseJob[]> {
+  return request<DesktopReleaseJob[]>(`/superadmin/desktop-releases?ids=${ids.join(",")}`);
+}
+
+export function cancelDesktopReleaseJob(id: number): Promise<DesktopReleaseJob> {
+  return request<DesktopReleaseJob>(`/superadmin/desktop-releases/${id}/cancel`, { method: "POST" });
+}
+
+// The plain "versions currently kept in the drive" list — not the live progress view above.
+export function listDesktopReleaseHistory(tenantCode: string): Promise<DesktopReleaseHistoryEntry[]> {
+  return request<DesktopReleaseHistoryEntry[]>(
+    `/superadmin/desktop-releases/history?tenant_code=${encodeURIComponent(tenantCode)}`,
+  );
 }

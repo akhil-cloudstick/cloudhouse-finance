@@ -1794,6 +1794,30 @@ const ROUTES: [string, string, string, string][] = [
   "/superadmin/users/:user_id/businesses/:id/payments"
  ],
  [
+  "POST",
+  "/superadmin/desktop-releases",
+  "POST",
+  "/superadmin/users/:user_id/desktop-releases"
+ ],
+ [
+  "GET",
+  "/superadmin/desktop-releases",
+  "GET",
+  "/superadmin/users/:user_id/desktop-releases"
+ ],
+ [
+  "POST",
+  "/superadmin/desktop-releases/:id/cancel",
+  "POST",
+  "/superadmin/users/:user_id/desktop-releases/:id/cancel"
+ ],
+ [
+  "GET",
+  "/superadmin/desktop-releases/history",
+  "GET",
+  "/superadmin/users/:user_id/desktop-releases/history"
+ ],
+ [
   "GET",
   "/superadmin/tiers",
   "GET",

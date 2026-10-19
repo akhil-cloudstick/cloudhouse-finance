@@ -1025,3 +1025,11 @@ It is not wired into any app yet. The other option is to migrate each app's serv
 - A bank's ledger no longer lists "Loan disbursed" rows. The loan ledger's Bank column shows the bank each draw landed in or each repayment came from.
 - `GET /personal-loans/:id/bond?lang=en|ml` (default `ml`) picks the English or Malayalam promissory note.
 - Migration `0044_alter_cash_loan_drop_bank.sql` makes `loan_cash_sources.bank_id` nullable.
+
+## Desktop release jobs (superadmin on-demand rebuild)
+
+- New endpoints under `/api/v1/superadmin/users/:user_id/desktop-releases`, used by the superadmin "Rebuild" buttons to trigger `.github/workflows/release.yml` on demand instead of only by git tag. See `documents/desktop_build_plan.md`.
+- `POST /desktop-releases` with `{tenant_code, version, build_type, targets, reason}` (`tenant_code` empty or `"all"` = every tenant, ignored when `build_type` is `"content"`; `build_type` is `"full"` (default, a real per-tenant installer) or `"content"` (the shared web-content package); `targets` is an OS list, e.g. `["win"]`, defaulting to every OS this build supports). Rejects a `version` that is not higher than what is already live for any tenant/folder this release touches. Returns `{jobs: [...]}`, one job per (tenant, OS); keep each job's `id` to poll it.
+- `GET /desktop-releases?ids=1,2,3` lists those jobs (by the ids the trigger response returned), refreshing each one's status from the triggered GitHub Actions run first. Each job has one `status`: `queued`/`preparing`/`building`/`uploading`/`verifying`/`done`/`failed`/`cancelled`.
+- `POST /desktop-releases/:id/cancel` cancels one job only — other jobs from the same trigger (other tenants/OS) are unaffected.
+- Migration `0054_create_desktop_release_jobs.sql`.
