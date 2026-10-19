@@ -326,3 +326,9 @@ export function listDesktopReleaseHistory(tenantCode: string): Promise<DesktopRe
     `/superadmin/desktop-releases/history?tenant_code=${encodeURIComponent(tenantCode)}`,
   );
 }
+
+export function getCurrentDesktopVersion(tenantCode: string, buildType: "full" | "content" = "full"): Promise<{ version: string | null }> {
+  return request<{ version: string | null }>(
+    `/superadmin/desktop-releases/current?tenant_code=${encodeURIComponent(tenantCode)}&build_type=${buildType}`,
+  );
+}

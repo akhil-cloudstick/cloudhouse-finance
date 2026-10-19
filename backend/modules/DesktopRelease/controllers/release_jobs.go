@@ -274,6 +274,22 @@ func ListReleaseHistory(c echo.Context) error {
 	return common.Success(c, http.StatusOK, out)
 }
 
+// CurrentVersion is what the superadmin "New version" field checks itself
+// against — so a lower-or-equal entry can't even be submitted, not just
+// rejected server-side after a wasted trip.
+func CurrentVersion(c echo.Context) error {
+	tenantCode := strings.TrimSpace(c.QueryParam("tenant_code"))
+	if tenantCode == "" {
+		return common.FailErr(c, common.NewBadRequest("tenant_code is required"))
+	}
+	buildType := c.QueryParam("build_type")
+	if buildType == "" {
+		buildType = models.BuildTypeFull
+	}
+	version, _ := currentLiveVersion(tenantCode, buildType)
+	return common.Success(c, http.StatusOK, echo.Map{"version": version})
+}
+
 func bucketPublicBase() string {
 	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv("S3_ENDPOINT")), "/")
 	bucket := strings.TrimSpace(os.Getenv("S3_BUCKET"))

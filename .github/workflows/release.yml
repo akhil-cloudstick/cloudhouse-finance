@@ -92,6 +92,18 @@ jobs:
       RELEASE_TENANT: ${{ github.event.inputs.tenant }}
       RELEASE_VERSION: ${{ github.event.inputs.version }}
       RELEASE_BUILD_TYPE: ${{ github.event.inputs.build_type }}
+      # Signing/notarization — no-ops until these exist, so the build stays green either way.
+      # MACOS_CERTIFICATE_P12_BASE64: `base64 -i DeveloperIDApplication.p12 | pbcopy` of your exported cert.
+      # MACOS_CERTIFICATE_PASSWORD: the password you set exporting that .p12.
+      # MACOS_SIGNING_IDENTITY: e.g. "Developer ID Application: Your Name (TEAMID)" — `security find-identity -v -p codesigning` shows it.
+      # APPLE_APP_SPECIFIC_PASSWORD: appleid.apple.com → Sign-In and Security (not your real Apple ID password).
+      # APPLE_TEAM_ID: developer.apple.com → Membership.
+      MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -105,15 +117,9 @@ jobs:
           cache-dependency-path: frontend/desktop/go.sum
       - run: npm ci
       - run: npm run dist:mac
-      # Signing/notarization — no-ops until these 3 secrets exist, so the build stays green either way.
-      # MACOS_CERTIFICATE_P12_BASE64: `base64 -i DeveloperIDApplication.p12 | pbcopy` of your exported cert.
-      # MACOS_CERTIFICATE_PASSWORD: the password you set exporting that .p12.
-      # MACOS_SIGNING_IDENTITY: e.g. "Developer ID Application: Your Name (TEAMID)" — `security find-identity -v -p codesigning` shows it.
+      # secrets can't be referenced directly in `if:` — that's why these read from env (set above) instead.
       - name: Import signing certificate
-        if: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 != '' }}
-        env:
-          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        if: ${{ env.MACOS_CERTIFICATE_P12_BASE64 != '' }}
         run: |
           echo "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > certificate.p12
           security create-keychain -p actions build.keychain
@@ -123,18 +129,10 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
           rm certificate.p12
       - name: Codesign .app
-        if: ${{ secrets.MACOS_SIGNING_IDENTITY != '' }}
-        env:
-          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        if: ${{ env.MACOS_SIGNING_IDENTITY != '' }}
         run: codesign --deep --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" dist/*.app
-      # Notarization — needs an app-specific password (appleid.apple.com → Sign-In and Security),
-      # not your real Apple ID password. APPLE_TEAM_ID is on developer.apple.com → Membership.
       - name: Notarize .app
-        if: ${{ secrets.APPLE_ID != '' }}
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        if: ${{ env.APPLE_ID != '' }}
         run: |
           APP=$(ls dist/*.app)
           ditto -c -k --keepParent "$APP" dist/notarize-submission.zip

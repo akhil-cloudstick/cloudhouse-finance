@@ -1819,6 +1819,12 @@ const ROUTES: [string, string, string, string][] = [
  ],
  [
   "GET",
+  "/superadmin/desktop-releases/current",
+  "GET",
+  "/superadmin/users/:user_id/desktop-releases/current"
+ ],
+ [
+  "GET",
   "/superadmin/tiers",
   "GET",
   "/superadmin/users/:user_id/tiers"

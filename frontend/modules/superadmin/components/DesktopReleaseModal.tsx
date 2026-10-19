@@ -5,6 +5,7 @@ import {
   triggerDesktopRelease,
   listDesktopReleaseJobs,
   cancelDesktopReleaseJob,
+  getCurrentDesktopVersion,
   SuperAdminApiError,
 } from "@/modules/superadmin/services/superadminService";
 import type { DesktopReleaseJob } from "@/modules/superadmin/types/superadmin-types";
@@ -43,6 +44,15 @@ function isTerminal(status: DesktopReleaseJob["status"]) {
   return status === "done" || status === "failed" || status === "cancelled";
 }
 
+function isHigherVersion(a: string, b: string): boolean {
+  const parts = (v: string) => v.trim().replace(/^v/i, "").split(".").map((n) => parseInt(n, 10) || 0);
+  const [a1, a2, a3] = parts(a);
+  const [b1, b2, b3] = parts(b);
+  if (a1 !== b1) return a1 > b1;
+  if (a2 !== b2) return a2 > b2;
+  return a3 > b3;
+}
+
 type DesktopReleaseModalProps = {
   /* Present = single tenant; absent = every tenant ("content update" only offered then). */
   tenant?: { code: string; name: string };
@@ -59,6 +69,8 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
   const [submitting, setSubmitting] = useState(false);
   const [started, setStarted] = useState(false);
   const [jobs, setJobs] = useState<DesktopReleaseJob[]>([]);
+  // Only well-defined for a single tenant — "all tenants" can each be on a different version.
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // "Content update" is shared by every tenant, so it's only offered when no single tenant is scoped.
@@ -69,6 +81,18 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!tenant) return;
+    let live = true;
+    getCurrentDesktopVersion(tenant.code, "full").then(
+      (res) => { if (live) setCurrentVersion(res.version); },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [tenant]);
 
   function toggleTarget(value: string) {
     setTargets((cur) => (cur.includes(value) ? cur.filter((t) => t !== value) : [...cur, value]));
@@ -132,19 +156,24 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
           {!started ? (
             <>
               <div className={versionError ? "sa-field has-err" : "sa-field"}>
-                <label>New version</label>
+                <label>
+                  New version
+                  {tenant && <span className="sa-hint"> — current: {currentVersion ?? "none yet"}</span>}
+                </label>
                 <input
                   type="text"
                   value={version}
                   onChange={(e) => { setVersion(e.target.value); setVersionError(null); }}
-                  placeholder="1.4.0"
+                  placeholder={currentVersion ?? "1.4.0"}
                   autoFocus
                   required
                 />
                 {versionError ? (
                   <span className="sa-error" role="alert">{versionError}</span>
+                ) : version.trim() && currentVersion && !isHigherVersion(version, currentVersion) ? (
+                  <span className="sa-error" role="alert">Must be higher than {currentVersion}.</span>
                 ) : (
-                  <span className="sa-hint">Must be higher than the current live version — checked on submit.</span>
+                  <span className="sa-hint">Must be higher than the current live version.</span>
                 )}
               </div>
 

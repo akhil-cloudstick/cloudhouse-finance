@@ -14,6 +14,7 @@ func DesktopReleaseModuleRoutes(e *echo.Echo) *echo.Echo {
 	e.POST(desktopReleasePath, desktopRelease.TriggerRelease, auth.SuperAdmin()...)
 	e.GET(desktopReleasePath, desktopRelease.ListReleaseJobs, auth.SuperAdmin()...)
 	e.GET(desktopReleasePath+"/history", desktopRelease.ListReleaseHistory, auth.SuperAdmin()...)
+	e.GET(desktopReleasePath+"/current", desktopRelease.CurrentVersion, auth.SuperAdmin()...)
 	e.POST(desktopReleasePath+"/:id/cancel", desktopRelease.CancelReleaseJob, auth.SuperAdmin()...)
 	return e
 }
