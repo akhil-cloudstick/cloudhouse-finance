@@ -24,6 +24,7 @@ type ReleaseJob struct {
 	Version          string    `json:"version" gorm:"not null;size:30"`
 	BuildType        string    `json:"build_type" gorm:"not null;size:10;default:full"`
 	Status           string    `json:"status" gorm:"not null;size:12;default:queued"`
+	DispatchToken    string    `json:"-" gorm:"column:dispatch_token;size:40"`
 	GitHubRunID      *int64    `json:"-" gorm:"column:github_run_id"`
 	CreatedByAdminID *uint     `json:"-" gorm:"column:created_by_admin_id"`
 	CreatedAt        time.Time `json:"created_at"`

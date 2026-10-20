@@ -55,7 +55,9 @@ async function main() {
   // webkit2_41: Wails' own build tag for Ubuntu 24.04+, which only ships webkit2gtk-4.1 (not 4.0).
   run("go", ["build", "-tags", "desktop,production,webkit2_41", "-ldflags", `"${ldflags}"`, "-o", `"${target}"`, "."], {
     cwd: path.join(root, "desktop"),
-    env: { ...process.env, GOOS: "linux", GOARCH: "amd64" },
+    // Wails' Linux webview binds GTK/WebKitGTK via cgo — CGO_ENABLED=0 (fine for Windows) silently
+    // drops every cgo file, so the package fails to even find its own Frontend type.
+    env: { ...process.env, GOOS: "linux", GOARCH: "amd64", CGO_ENABLED: "1" },
   });
   fs.chmodSync(target, 0o755);
 

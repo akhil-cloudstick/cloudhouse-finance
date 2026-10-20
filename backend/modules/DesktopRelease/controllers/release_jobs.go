@@ -6,6 +6,8 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/DesktopRelease/models"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,12 +15,19 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v4"
 )
 
 var supportedTargets = []string{"win", "mac", "linux"}
+
+// newDispatchToken is embedded in release.yml's run-name:, so a run can be found by an exact
+// match instead of a time guess — see github.go's FindRunByToken.
+func newDispatchToken() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 // fileExtFor mirrors scripts/package-win.cjs/package-mac.cjs/package-linux.cjs's own naming:
 // Windows builds end in .exe; Mac/Linux binaries have no extension.
@@ -136,6 +145,7 @@ func TriggerRelease(c echo.Context) error {
 		// One dispatch per TENANT, not per (tenant, OS) — all OSes checked for
 		// this tenant run together as one workflow run with one job per OS,
 		// instead of a separate run each.
+		token := newDispatchToken()
 		var rows []models.ReleaseJob
 		for _, osTarget := range targets {
 			job := models.ReleaseJob{
@@ -144,6 +154,7 @@ func TriggerRelease(c echo.Context) error {
 				Version:          req.Version,
 				BuildType:        req.BuildType,
 				Status:           models.StatusQueued,
+				DispatchToken:    token,
 				CreatedByAdminID: adminID,
 			}
 			if err := config.BaseDB.WithContext(ctx).Create(&job).Error; err != nil {
@@ -156,7 +167,7 @@ func TriggerRelease(c echo.Context) error {
 		if req.BuildType == models.BuildTypeContent {
 			dispatchTenant = ""
 		}
-		dispatchErr := gh.Dispatch(ctx, releaseRef(), dispatchTenant, req.Version, req.BuildType, targetList)
+		dispatchErr := gh.Dispatch(ctx, releaseRef(), dispatchTenant, req.Version, req.BuildType, targetList, token)
 		for i := range rows {
 			if dispatchErr != nil {
 				rows[i].Status = models.StatusFailed
@@ -207,7 +218,10 @@ func refreshJob(ctx context.Context, gh *githubClient, ghErr error, job *models.
 		return
 	}
 	if job.GitHubRunID == nil {
-		run, err := gh.FindRecentRun(ctx, job.CreatedAt.Add(-30*time.Second))
+		if job.DispatchToken == "" {
+			return
+		}
+		run, err := gh.FindRunByToken(ctx, job.DispatchToken)
 		if err != nil || run == nil {
 			return
 		}

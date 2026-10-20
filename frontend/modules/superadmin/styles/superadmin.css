@@ -1185,6 +1185,23 @@ body {
   font-weight: 600;
 }
 
+/* A build/upload/verify still in progress — so a "Preparing…" row doesn't read as stuck. */
+@keyframes sa-spin { to { transform: rotate(360deg); } }
+.sa-spin {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 5px;
+  border-radius: 50%;
+  border: 2px solid var(--sa-brand-pale);
+  border-right-color: var(--sa-brand);
+  animation: sa-spin 0.7s linear infinite;
+  vertical-align: -1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-spin { animation: none; }
+}
+
 /* The label colour here was the console's one real bug: it read
    oklch(0.95 ...) — near-white — against the white modal, so every field
    label was invisible. It now takes the same muted ink the rest of the light

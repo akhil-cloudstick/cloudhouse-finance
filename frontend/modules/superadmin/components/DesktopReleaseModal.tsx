@@ -60,6 +60,13 @@ type DesktopReleaseModalProps = {
   onDone?: () => void;
 };
 
+// Persisted so closing the modal (or reopening "Rebuild all") while a batch is still
+// running resumes its progress instead of offering a fresh form — you can't start a
+// second rebuild for the same scope until the first finishes or fails.
+function storageKey(tenant?: { code: string }): string {
+  return `desktop-release-active:${tenant ? tenant.code : "all"}`;
+}
+
 export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseModalProps) {
   const [version, setVersion] = useState("");
   const [buildType, setBuildType] = useState<"full" | "content">("full");
@@ -75,6 +82,48 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
 
   // "Content update" is shared by every tenant, so it's only offered when no single tenant is scoped.
   const canOfferContent = !tenant;
+
+  function pollJobs(ids: number[]) {
+    pollRef.current = setInterval(async () => {
+      try {
+        const refreshed = await listDesktopReleaseJobs(ids);
+        setJobs(refreshed);
+        if (refreshed.every((j) => isTerminal(j.status))) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          localStorage.removeItem(storageKey(tenant));
+          onDone?.();
+        }
+      } catch {
+        /* a transient poll failure isn't worth surfacing; the next tick retries */
+      }
+    }, 4000);
+  }
+
+  // Resume an already-running batch for this scope instead of showing the form again.
+  useEffect(() => {
+    const raw = localStorage.getItem(storageKey(tenant));
+    if (!raw) return;
+    let ids: number[];
+    try {
+      ids = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem(storageKey(tenant));
+      return;
+    }
+    listDesktopReleaseJobs(ids).then(
+      (refreshed) => {
+        if (refreshed.length === 0 || refreshed.every((j) => isTerminal(j.status))) {
+          localStorage.removeItem(storageKey(tenant));
+          return;
+        }
+        setJobs(refreshed);
+        setStarted(true);
+        pollJobs(ids);
+      },
+      () => localStorage.removeItem(storageKey(tenant)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -115,18 +164,8 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
       setStarted(true);
       setJobs(res.jobs);
       const ids = res.jobs.map((j) => j.id);
-      pollRef.current = setInterval(async () => {
-        try {
-          const refreshed = await listDesktopReleaseJobs(ids);
-          setJobs(refreshed);
-          if (refreshed.every((j) => isTerminal(j.status))) {
-            if (pollRef.current) clearInterval(pollRef.current);
-            onDone?.();
-          }
-        } catch {
-          /* a transient poll failure isn't worth surfacing; the next tick retries */
-        }
-      }, 4000);
+      localStorage.setItem(storageKey(tenant), JSON.stringify(ids));
+      pollJobs(ids);
     } catch (err) {
       setVersionError(err instanceof SuperAdminApiError ? err.message : "Could not start the build.");
     } finally {
@@ -240,6 +279,7 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
                       {buildType === "full" && <td>{job.tenantCode}</td>}
                       {buildType === "full" && <td>{job.os}</td>}
                       <td>
+                        {!isTerminal(job.status) && <span className="sa-spin" aria-hidden="true" />}
                         <span className={`sa-chip ${STATUS_CHIP[job.status]}`}>{STATUS_LABEL[job.status]}</span>
                       </td>
                       <td>

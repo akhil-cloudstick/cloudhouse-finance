@@ -81,7 +81,8 @@ async function main() {
   const ldflags = `-s -w -X main.version=${version} -X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()}`;
   run("go", ["build", "-tags", "desktop,production", "-ldflags", `"${ldflags}"`, "-o", `"${execPath}"`, "."], {
     cwd: path.join(root, "desktop"),
-    env: { ...process.env, GOOS: "darwin", GOARCH: "amd64" },
+    // Wails' macOS webview binds WebKit via cgo — CGO_ENABLED=0 (fine for Windows) silently drops every cgo file.
+    env: { ...process.env, GOOS: "darwin", GOARCH: "amd64", CGO_ENABLED: "1" },
   });
   fs.chmodSync(execPath, 0o755);
 
