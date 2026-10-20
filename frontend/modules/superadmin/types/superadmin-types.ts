@@ -252,5 +252,6 @@ export type TriggerDesktopReleaseInput = {
   version: string;
   buildType: "full" | "content";
   targets?: string[]; // e.g. ["win"]
+  isDev: boolean; // true = build points at your local backend, not the tenant's real one
   reason: string;
 };

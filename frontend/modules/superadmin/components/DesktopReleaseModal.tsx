@@ -71,6 +71,11 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
   const [version, setVersion] = useState("");
   const [buildType, setBuildType] = useState<"full" | "content">("full");
   const [targets, setTargets] = useState<string[]>(["win"]);
+  // Mirrors common/services/httpClient.ts's isDevelopment switch — true points the
+  // build at your own local backend (for testing with local-only tenant data),
+  // false at this tenant's real production subdomain. Defaults true: an accidental
+  // production build is worse than an extra click before one.
+  const [isDev, setIsDev] = useState(true);
   const [reason, setReason] = useState("");
   const [versionError, setVersionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -159,6 +164,7 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
         version: version.trim(),
         buildType,
         targets,
+        isDev,
         reason,
       });
       setStarted(true);
@@ -217,6 +223,23 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
               </div>
 
               <div className="sa-field">
+                <label>Environment</label>
+                <div className="sa-seg" role="group" aria-label="Environment">
+                  <button type="button" aria-pressed={isDev} onClick={() => setIsDev(true)}>
+                    Local test
+                  </button>
+                  <button type="button" aria-pressed={!isDev} onClick={() => setIsDev(false)}>
+                    Production
+                  </button>
+                </div>
+                <span className="sa-hint">
+                  {isDev
+                    ? "Build calls your own local backend — for testing with local-only tenant data."
+                    : "Build calls this tenant's real production server. Only pick this once it actually exists there."}
+                </span>
+              </div>
+
+              <div className="sa-field">
                 <label>Update type</label>
                 <div className="sa-seg" role="group" aria-label="Update type">
                   <button type="button" aria-pressed={buildType === "full"} onClick={() => setBuildType("full")}>
@@ -264,7 +287,7 @@ export function DesktopReleaseModal({ tenant, onClose, onDone }: DesktopReleaseM
             </>
           ) : (
             <div className="sa-table-wrap">
-              <table className="sa-table">
+              <table className="sa-table sa-table-compact">
                 <thead>
                   <tr>
                     {buildType === "full" && <th>Tenant</th>}

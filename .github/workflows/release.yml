@@ -2,7 +2,7 @@ name: desktop-release
 
 # Gives the backend an exact run to match against (not just "newest run around this time"),
 # which matters once multiple tenants dispatch within moments of each other (e.g. "rebuild all").
-run-name: ${{ github.event.inputs.correlation_id && format('release-{0}', github.event.inputs.correlation_id) || github.workflow }}
+run-name: ${{ github.event.inputs.correlation_id && format('{0}-{1}-{2}', github.event.inputs.tenant && github.event.inputs.tenant || 'common', github.event.inputs.version, github.event.inputs.correlation_id) || github.workflow }}
 
 on:
   push:
@@ -31,6 +31,12 @@ on:
         description: "OS(es) to build, comma-separated, e.g. \"win,linux\" (ignored for build_type=content, and for a tag push — which builds all three)."
         required: true
         default: "win"
+      is_dev:
+        description: "true = DESKTOP_API_BASE is your local backend (for testing with local tenants); false = the tenant's real production subdomain."
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
 
 jobs:
   win:
@@ -42,9 +48,10 @@ jobs:
         working-directory: frontend
     env:
       NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
-      # Per-tenant backend URL, so the build fetches THAT tenant's own name/logo — falls
-      # back to the plain secret only when no tenant was given (e.g. a bare tag push).
-      DESKTOP_API_BASE: ${{ github.event.inputs.tenant && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || secrets.DESKTOP_API_BASE }}
+      # ===== ENVIRONMENT (mirrors common/services/httpClient.ts's isDevelopment switch) =====
+      # is_dev=true  -> development API: your own local backend (testing with local-only tenants)
+      # is_dev=false -> production API: this tenant's own real subdomain
+      DESKTOP_API_BASE: ${{ github.event.inputs.is_dev == 'false' && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || (secrets.LOCAL_API_BASE != '' && secrets.LOCAL_API_BASE || 'http://localhost:8080/api/v1') }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       S3_REGION: ${{ secrets.S3_REGION }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
@@ -90,9 +97,10 @@ jobs:
         working-directory: frontend
     env:
       NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
-      # Per-tenant backend URL, so the build fetches THAT tenant's own name/logo — falls
-      # back to the plain secret only when no tenant was given (e.g. a bare tag push).
-      DESKTOP_API_BASE: ${{ github.event.inputs.tenant && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || secrets.DESKTOP_API_BASE }}
+      # ===== ENVIRONMENT (mirrors common/services/httpClient.ts's isDevelopment switch) =====
+      # is_dev=true  -> development API: your own local backend (testing with local-only tenants)
+      # is_dev=false -> production API: this tenant's own real subdomain
+      DESKTOP_API_BASE: ${{ github.event.inputs.is_dev == 'false' && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || (secrets.LOCAL_API_BASE != '' && secrets.LOCAL_API_BASE || 'http://localhost:8080/api/v1') }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       S3_REGION: ${{ secrets.S3_REGION }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
@@ -165,9 +173,10 @@ jobs:
         working-directory: frontend
     env:
       NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
-      # Per-tenant backend URL, so the build fetches THAT tenant's own name/logo — falls
-      # back to the plain secret only when no tenant was given (e.g. a bare tag push).
-      DESKTOP_API_BASE: ${{ github.event.inputs.tenant && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || secrets.DESKTOP_API_BASE }}
+      # ===== ENVIRONMENT (mirrors common/services/httpClient.ts's isDevelopment switch) =====
+      # is_dev=true  -> development API: your own local backend (testing with local-only tenants)
+      # is_dev=false -> production API: this tenant's own real subdomain
+      DESKTOP_API_BASE: ${{ github.event.inputs.is_dev == 'false' && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || (secrets.LOCAL_API_BASE != '' && secrets.LOCAL_API_BASE || 'http://localhost:8080/api/v1') }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       S3_REGION: ${{ secrets.S3_REGION }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}

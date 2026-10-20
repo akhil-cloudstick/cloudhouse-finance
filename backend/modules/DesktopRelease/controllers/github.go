@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -58,7 +59,7 @@ func (g *githubClient) do(ctx context.Context, method, url string, body any) (*h
 // using the unique token embedded in the run's name (release.yml's run-name:) — matching by
 // approximate time alone let two runs dispatched moments apart (e.g. "rebuild all") get confused
 // with each other, which is how a tenant's row could end up reading another tenant's "done".
-func (g *githubClient) Dispatch(ctx context.Context, ref, tenant, version, buildType, target, token string) error {
+func (g *githubClient) Dispatch(ctx context.Context, ref, tenant, version, buildType, target, token string, isDev bool) error {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/workflows/%s/dispatches", g.owner, g.repo, g.workflowFile)
 	body := map[string]any{
 		"ref": ref,
@@ -68,6 +69,7 @@ func (g *githubClient) Dispatch(ctx context.Context, ref, tenant, version, build
 			"build_type":     buildType,
 			"target":         target,
 			"correlation_id": token,
+			"is_dev":         strconv.FormatBool(isDev),
 		},
 	}
 	res, err := g.do(ctx, http.MethodPost, url, body)
@@ -95,10 +97,19 @@ type workflowRunsResponse struct {
 	WorkflowRuns []workflowRun `json:"workflow_runs"`
 }
 
+// ExpectedRunName mirrors release.yml's run-name: expression exactly — keep the two in step.
+func ExpectedRunName(tenant, version, token string) string {
+	display := tenant
+	if display == "" {
+		display = "common"
+	}
+	return fmt.Sprintf("%s-%s-%s", display, version, token)
+}
+
 // FindRunByToken finds the run whose name (release.yml's run-name:, built from this exact
-// dispatch's correlation_id input) matches — an exact match, not a time guess, so two runs
-// dispatched moments apart (e.g. "rebuild all") never get confused with each other.
-func (g *githubClient) FindRunByToken(ctx context.Context, token string) (*workflowRun, error) {
+// dispatch's inputs) matches — an exact match, not a time guess, so two runs dispatched
+// moments apart (e.g. "rebuild all") never get confused with each other.
+func (g *githubClient) FindRunByToken(ctx context.Context, want string) (*workflowRun, error) {
 	url := fmt.Sprintf(
 		"https://api.github.com/repos/%s/%s/actions/workflows/%s/runs?event=workflow_dispatch&per_page=20",
 		g.owner, g.repo, g.workflowFile,
@@ -116,7 +127,6 @@ func (g *githubClient) FindRunByToken(ctx context.Context, token string) (*workf
 	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
 		return nil, err
 	}
-	want := "release-" + token
 	for i := range parsed.WorkflowRuns {
 		if parsed.WorkflowRuns[i].DisplayTitle == want {
 			return &parsed.WorkflowRuns[i], nil

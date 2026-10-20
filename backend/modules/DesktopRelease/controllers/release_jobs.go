@@ -43,6 +43,7 @@ type triggerRequest struct {
 	Version    string   `json:"version"`
 	BuildType  string   `json:"build_type"` // "full" (default) or "content"
 	Targets    []string `json:"targets"`    // e.g. ["win"]; defaults to supportedTargets
+	IsDev      bool     `json:"is_dev"`     // true = build points at your local backend, not the tenant's real one
 	Reason     string   `json:"reason"`
 }
 
@@ -167,7 +168,7 @@ func TriggerRelease(c echo.Context) error {
 		if req.BuildType == models.BuildTypeContent {
 			dispatchTenant = ""
 		}
-		dispatchErr := gh.Dispatch(ctx, releaseRef(), dispatchTenant, req.Version, req.BuildType, targetList, token)
+		dispatchErr := gh.Dispatch(ctx, releaseRef(), dispatchTenant, req.Version, req.BuildType, targetList, token, req.IsDev)
 		for i := range rows {
 			if dispatchErr != nil {
 				rows[i].Status = models.StatusFailed
@@ -221,7 +222,7 @@ func refreshJob(ctx context.Context, gh *githubClient, ghErr error, job *models.
 		if job.DispatchToken == "" {
 			return
 		}
-		run, err := gh.FindRunByToken(ctx, job.DispatchToken)
+		run, err := gh.FindRunByToken(ctx, ExpectedRunName(job.TenantCode, job.Version, job.DispatchToken))
 		if err != nil || run == nil {
 			return
 		}

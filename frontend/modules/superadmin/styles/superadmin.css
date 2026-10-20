@@ -816,6 +816,11 @@ body {
 .sa-table-biz {
   min-width: 0;
 }
+/* Narrow tables (rebuild progress, version history) — no reason to force the
+   wide businesses-table minimum when 3-4 columns fit comfortably without it. */
+.sa-table-compact {
+  min-width: 0;
+}
 .sa-table-biz th,
 .sa-table-biz td {
   padding: 10px 10px;

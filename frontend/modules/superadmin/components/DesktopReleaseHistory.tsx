@@ -37,7 +37,7 @@ export function DesktopReleaseHistory({ tenantCode, refreshKey }: DesktopRelease
 
   return (
     <div className="sa-table-wrap">
-      <table className="sa-table">
+      <table className="sa-table sa-table-compact">
         <thead>
           <tr>
             <th>Version</th>
