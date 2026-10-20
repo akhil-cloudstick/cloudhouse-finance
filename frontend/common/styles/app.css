@@ -5288,6 +5288,16 @@ table.tbl {
  *
  * An opaque background is required, not inherited — rows scroll underneath
  * this bar. */
+.modal .ft .ft-err {
+  flex: 1;
+  align-self: center;
+  text-align: left;
+  color: var(--red);
+  font-size: 12.5px;
+  line-height: 1.35;
+  min-width: 0
+}
+
 .modal .ft {
   padding: 14px 22px;
   border-top: 1px solid var(--line);

@@ -377,9 +377,9 @@ function VoidPledgeModalContent({ rec, onDone }: VoidPledgeModalContentProps) {
           <label className="f">Reason *</label>
           <input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="why this record is being cancelled" maxLength={255} />
         </div></div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal} disabled={busy}>Cancel</button>
         <button className="btn danger" onClick={submit} disabled={busy}>{busy ? "Deleting…" : "Delete Entry"}</button>
       </div>

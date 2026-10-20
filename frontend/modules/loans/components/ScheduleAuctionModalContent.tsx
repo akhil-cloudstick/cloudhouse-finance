@@ -52,9 +52,9 @@ export function ScheduleAuctionModalContent({ loan, onSaved, onError }: Schedule
           <div className={fe.date ? "has-err" : undefined}><label className="f">Auction Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); setFe((cur) => ({ ...cur, date: "" })); }} /><FieldError msg={fe.date} /></div>
           <div className={fe.ref ? "has-err" : undefined}><label className="f">Reference Number</label><input className="inp" value={ref} onChange={(e) => { setRef(e.target.value); setFe((cur) => ({ ...cur, ref: "" })); }} /><FieldError msg={fe.ref} /></div>
         </div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Schedule"}</button>
       </div>

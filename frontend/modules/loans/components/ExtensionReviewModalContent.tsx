@@ -206,9 +206,9 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
             </button>
           </div>
         )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Close</button>
         {req.status === "Pending" && stageKey && canActOnStage && canDecide && (
           <>

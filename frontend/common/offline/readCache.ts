@@ -1,0 +1,197 @@
+/* Last answers for screens that read the server. Every successful GET is kept on this PC; when the server
+ * does not answer, the same request is answered from that copy, so lists, pickers and settings keep working
+ * with what this PC last saw. Only a request that got NO answer falls back: an answer from the server (even
+ * an error) is always shown as is.
+ *
+ * A request nobody has made before (a new filter, another page of a list) has no exact copy. It is then
+ * answered from the newest copy of the same endpoint: the same data as the last time, cut to the page asked
+ * for when it is a list. The store is warmed after sign-in (see warm.ts) so the common lists exist already. */
+
+import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
+import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjust";
+import { employeeId, offlineBusiness } from "./session";
+
+const VERSION = 2;
+const SKIP = /(^|\/)(auth|sync|uploads)(\/|$)|pdf|statement|export|download|qr|esign|receipt/i;
+// Loans and customers are answered from the local copy instead (it also holds loans the server has not numbered yet)
+const LOCAL_LOANS = /\/users\/\d+\/(loans|customers)(\?.*)?$|\/users\/\d+\/loans\/by-number\/[^/?]+(\?.*)?$|\/users\/\d+\/(loans|customers)\/\d+(\?.*)?$|\/users\/\d+\/loans\/\d+\/ledger(\?.*)?$|\/users\/(\d+)\/customers\/[^/?]+\/(profile360|loans|ornaments|payments|bank-pledges|auction-history)(\?.*)?$/;
+const MAX_BODY = 3 * 1024 * 1024;
+const MAX_QUEUED = 300;
+
+let enabled = false;
+let opening: Promise<void> | null = null;
+const queued: { path: string; view: string; body: string; emp: number }[] = [];
+
+/* Turned on once the PC's store is open. Answers seen before that (the app loads its lists the moment you sign
+ * in) were held in memory and are written now. */
+/* The sign-in page reads before anyone has signed in (the business's logo and name), when the store is not open
+ * yet. If the user has already chosen where it lives, open it for that business so those reads can be kept and
+ * recalled too. Does nothing on the web, before the folder is chosen, or when the business is not known. */
+async function openForReads(): Promise<void> {
+  if (enabled || !isDesktop()) return;
+  opening ??= (async () => {
+    try {
+      const business = offlineBusiness();
+      if (await offlineStore.rootChosen()) {
+        await offlineStore.open(business, "pc");
+        enabled = true;
+      }
+    } catch {
+      /* not available yet; the next read tries again */
+    }
+  })().finally(() => {
+    opening = null;
+  });
+  await opening;
+}
+
+export function setReadCacheEnabled(on: boolean): void {
+  enabled = on;
+  if (on) {
+    for (const q of queued.splice(0)) write(q.path, q.view, q.body, q.emp);
+  } else {
+    queued.length = 0;
+  }
+}
+
+/* Two 32-bit FNV-1a hashes, joined: a short stable file name for any request. */
+function hashOf(text: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ text.length;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x85ebca6b) >>> 0;
+  }
+  return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
+}
+
+/* The branch the signed-in person is viewing changes what a list returns, so it is part of the key. */
+function exactKey(emp: number, path: string, view: string): string {
+  return `${emp} ${view} ${path}`;
+}
+
+/* The same endpoint whatever the query: the newest answer for it. A full list (no page asked for) and a page
+ * of one are kept apart, so a page never replaces the whole list a later page can be cut from. */
+function familyKey(emp: number, path: string, view: string, paged: boolean): string {
+  // a list that is narrowed by "type" (the categories each form shows) is a different list per type
+  const q = queryOf(path);
+  const narrow = ["type", "role_id"].filter((k) => q.get(k)).map((k) => `${k}=${q.get(k)}`).join("&");
+  return `${emp} ${view} ${path.split("?")[0]}${narrow ? `?${narrow}` : ""} ${paged ? "paged" : "*"}`;
+}
+
+function queryOf(path: string): URLSearchParams {
+  return new URLSearchParams(path.includes("?") ? path.slice(path.indexOf("?") + 1) : "");
+}
+
+function isPaged(path: string): boolean {
+  return /[?&]limit=/.test(path);
+}
+
+function fileOf(key: string): string {
+  return `data/rc_${hashOf(key)}.json`;
+}
+
+export function cacheable(method: string, path: string): boolean {
+  return method === "GET" && isDesktop() && !SKIP.test(path) && !LOCAL_LOANS.test(path);
+}
+
+function put(key: string, path: string, body: string): void {
+  void offlineStore
+    .writeFile(fileOf(key), JSON.stringify({ v: VERSION, k: key, p: path, t: Date.now(), body }))
+    .catch(() => {});
+}
+
+function write(path: string, view: string, body: string, emp: number): void {
+  put(exactKey(emp, path, view), path, body);
+  put(familyKey(emp, path, view, isPaged(path)), path, body);
+}
+
+/* Fire and forget: a failed write only means this answer will not be there offline. */
+export function remember(path: string, view: string, body: string): void {
+  if (body.length > MAX_BODY) return;
+  const emp = employeeId() ?? 0;
+  if (enabled) write(path, view, body, emp);
+  else {
+    if (queued.length < MAX_QUEUED) queued.push({ path, view, body, emp });
+    // try to open the store so what was just read is kept even before sign-in
+    void openForReads().then(() => {
+      if (enabled) for (const q of queued.splice(0)) write(q.path, q.view, q.body, q.emp);
+    });
+  }
+}
+
+async function read(key: string): Promise<{ p: string; body: string } | null> {
+  try {
+    const text = await offlineStore.readFile(fileOf(key));
+    if (!text) return null;
+    const rec = JSON.parse(text) as { v?: number; k?: string; p?: string; body?: string };
+    return rec.v === VERSION && rec.k === key && typeof rec.body === "string" ? { p: rec.p ?? "", body: rec.body } : null;
+  } catch {
+    return null;
+  }
+}
+
+type Envelope = { success?: boolean; data?: unknown; [k: string]: unknown };
+
+/* Cuts a cached answer to the page and search the request asks for. The server's own filters (a status, a
+ * branch) are not repeated here, so a filtered list may show more than the server would have. */
+function reshape(cachedBody: string, path: string): string {
+  const qs = new URLSearchParams(path.includes("?") ? path.slice(path.indexOf("?") + 1) : "");
+  const limit = Number(qs.get("limit") ?? "0");
+  if (!(limit > 0)) return cachedBody;
+  let env: Envelope;
+  try {
+    env = JSON.parse(cachedBody) as Envelope;
+  } catch {
+    return cachedBody;
+  }
+  const data = env.data as unknown;
+  const all: unknown[] | null = Array.isArray(data)
+    ? data
+    : data && typeof data === "object" && Array.isArray((data as { items?: unknown[] }).items)
+      ? ((data as { items: unknown[] }).items)
+      : null;
+  if (!all) return cachedBody;
+  const page = Math.max(1, Number(qs.get("page") ?? "1") || 1);
+  const q = (qs.get("q") ?? "").trim().toLowerCase();
+  // simple "status" / "type" filters (the Extensions & Release page uses them), applied when the rows carry the field
+  const pick = (rowsIn: unknown[]) =>
+    rowsIn.filter((r) => {
+      const row = r as Record<string, unknown>;
+      return ["status", "type"].every((k) => {
+        const want = qs.get(k);
+        return !want || typeof row[k] !== "string" || String(row[k]).toLowerCase() === want.toLowerCase();
+      });
+    });
+  const wasPaged = !Array.isArray(data);
+  // a paged copy only holds the page that was cached, so only the first page can be answered from it
+  if (wasPaged && page > 1) return JSON.stringify({ ...env, data: { items: [], hasMore: false, limit, offset: (page - 1) * limit, total: all.length } });
+  const filtered = pick(all);
+  const rows = q ? filtered.filter((r) => JSON.stringify(r).toLowerCase().includes(q)) : filtered;
+  const from = (page - 1) * limit;
+  const items = rows.slice(from, from + limit);
+  return JSON.stringify({ ...env, data: { items, hasMore: from + limit < rows.length, limit, offset: from, total: rows.length } });
+}
+
+export async function recall(path: string, view: string): Promise<string | null> {
+  const body = await recallCopy(path, view);
+  // The cash figures and the cash ledger are the server's last answer; what this PC has taken or paid out since
+  // (entries still waiting to be sent) is added to them.
+  if (body === null) return null;
+  if (/\/cash\/summary(\?|$)/.test(path)) return adjustCashSummary(path, body);
+  if (/\/cash-movements(\?|$)/.test(path)) return adjustCashMovements(path, body);
+  if (/\/banks(\?|$)/.test(path)) return adjustBanks(body);
+  return body;
+}
+
+async function recallCopy(path: string, view: string): Promise<string | null> {
+  await openForReads();
+  const emp = employeeId() ?? 0;
+  const exact = await read(exactKey(emp, path, view));
+  if (exact) return exact.body;
+  const full = await read(familyKey(emp, path, view, false));
+  if (full) return reshape(full.body, path);
+  const paged = await read(familyKey(emp, path, view, true));
+  return paged ? reshape(paged.body, path) : null;
+}

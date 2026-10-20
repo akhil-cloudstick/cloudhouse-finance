@@ -134,9 +134,9 @@ export function BankModalContent({ bank: b, onSaved }: BankModalContentProps) {
         </div>
         <div className="frow"><div className={fe.phone ? "has-err" : undefined}><label className="f">Phone</label>
           <input className="inp" type="tel" inputMode="numeric" placeholder="10-digit phone" value={phone} onChange={(e) => onPhoneChange(e.target.value)} maxLength={10} autoComplete="off" /><FieldError msg={fe.phone} /></div></div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : b ? "Save Changes" : "Add Bank"}</button>
       </div>

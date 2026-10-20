@@ -318,6 +318,10 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 		ServiceChargeValue: in.ServiceChargeValue,
 		ServiceChargeMode:  in.ServiceChargeMode,
 	}
+	// a scheme queued on a PC keeps the id that PC gave it
+	if entry, queued := config.SyncEntryFromContext(ctx); queued {
+		rec.UUID = entry.ClientUUID
+	}
 	if err := insertScheme(ctx, rec); err != nil {
 		return nil, err
 	}

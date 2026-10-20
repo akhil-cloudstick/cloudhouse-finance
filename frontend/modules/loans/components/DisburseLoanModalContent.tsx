@@ -68,7 +68,7 @@ export function DisburseLoanModalContent({
         bankTransferAmount: split.bankTransferAmount,
         chequeAmount: split.chequeAmount,
         bankId,
-      });
+      }, loan.uuid);
       toast(`${isVerify ? "Verified" : "Approved"} — ${fmt(payout)} disbursed to the customer`);
       onSaved(updated);
       closeModal();

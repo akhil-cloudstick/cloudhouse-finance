@@ -53,9 +53,9 @@ export function RejectRemarksModalContent({
             <input className="inp" autoFocus value={remarks} onChange={(e) => { setRemarks(e.target.value); setRemarksErr(""); }} placeholder={required ? "" : "optional"} /><FieldError msg={remarksErr} />
           </div>
         </div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn danger" disabled={busy} onClick={confirm}>{busy ? "Rejecting…" : "Reject"}</button>
       </div>

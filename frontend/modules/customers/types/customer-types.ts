@@ -5,6 +5,8 @@ import { type BackendLoan, type LoanView, type BackendAuctionRecord, type Auctio
  * CustomerResponse — deliberately never the raw DB model, so there is no
  * Aadhaar ciphertext field to accidentally type in here). */
 export type BackendCustomer = {
+  // The id the PC gave the customer, known before the server numbers them.
+  uuid?: string;
   id: number;
   code: string;
   name: string;

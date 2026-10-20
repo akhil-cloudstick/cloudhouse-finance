@@ -39,7 +39,7 @@ export function LoanRow({ loan: l }: LoanRowProps) {
   const canOpen = useCanOpenRoute()("loan");
   return (
     <tr className={canOpen ? "click" : undefined} onClick={canOpen ? () => navigate("loan/" + l.id) : undefined}>
-      <td data-label="Loan / Customer"><span className="id">{l.id}</span><span className="sub">{l.customerName}</span></td>
+      <td data-label="Loan / Customer"><span className="id">{l.loanNumber || "Pending"}</span><span className="sub">{l.customerName}</span></td>
       <td data-label="Scheme">{l.schemeName}</td>
       <td className="td-date" data-label="Opened / Due">{fmtDate(l.opened)}<span className="sub">due {fmtDate(l.due)}</span></td>
       <td className="num" data-label="Principal">{fmt(l.principal)}</td>

@@ -1,4 +1,6 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, ApiError } from "@/common/services/httpClient";
+import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
 import { ledgerRowToView } from "./cashService";
 import { type BackendLedgerRow, type LedgerRowView } from "@/modules/cash/types/cash-types";
 import type { BackendExpenseCategory, LoanLedgerSummary } from "@/modules/cash/types/expense-category-types";
@@ -8,6 +10,15 @@ export const EXPENSE_CATEGORIES_PAGE_SIZE = 5;
 /* Page-shaped fetch for SearchableSelect's fetchFn contract — real
  * server-side pagination (GET /expense-categories?q=&limit=&offset=). */
 export async function searchExpenseCategoriesPage(q: string, page: number): Promise<{ items: BackendExpenseCategory[]; hasMore: boolean }> {
+  const r = await searchExpenseCategoriesLive(q, page);
+  if (page !== 0 || !offlineReady()) return r;
+  const needle = q.trim().toLowerCase();
+  const known = new Set(r.items.map((i) => i.name.toLowerCase()));
+  const pending = (listLocal("categories") as unknown as BackendExpenseCategory[]).filter((c) => (!c.type || c.type === "expense") && (!needle || c.name.toLowerCase().includes(needle)) && !known.has(c.name.toLowerCase()));
+  return { ...r, items: [...r.items, ...pending] };
+}
+
+async function searchExpenseCategoriesLive(q: string, page: number): Promise<{ items: BackendExpenseCategory[]; hasMore: boolean }> {
   const params = new URLSearchParams({ limit: String(EXPENSE_CATEGORIES_PAGE_SIZE), offset: String(page * EXPENSE_CATEGORIES_PAGE_SIZE) });
   if (q) params.set("q", q);
   const res = await apiFetch<{ items: BackendExpenseCategory[] | null; hasMore: boolean }>(`/expense-categories?${params}`);
@@ -27,10 +38,20 @@ function notifyExpenseCategoriesChanged() {
 }
 
 export async function createExpenseCategory(name: string): Promise<BackendExpenseCategory> {
-  const rec = await apiFetch<BackendExpenseCategory>("/expense-categories", {
-    method: "POST",
-    body: JSON.stringify({ name }),
-  });
+  let rec: BackendExpenseCategory;
+  try {
+    rec = await apiFetch<BackendExpenseCategory>("/expense-categories", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  } catch (e) {
+    // Desktop with no answer from the server: kept on this PC, listed at once, sent later.
+    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+    const entry = newEntry("POST", "/expense-categories", { name }, currentActor());
+    const draft = { id: -Math.floor(Math.random() * 1_000_000) - 1, name, type: "expense", uuid: entry.id, createdAt: new Date().toISOString() } as unknown as BackendExpenseCategory;
+    await enqueueAndWait(entry, () => upsertLocal("categories", draft as unknown as LocalRecord), () => removeLocal("categories", entry.id));
+    return draft;
+  }
   // Lets every category-ledger link resolve the new category straight away.
   notifyExpenseCategoriesChanged();
   return rec;

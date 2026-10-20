@@ -93,9 +93,9 @@ export function RequestExtensionModalContent({ loan, onSaved }: RequestExtension
           <div className={fe.months ? "has-err" : undefined}><label className="f">Extend By (months) *</label><input className="inp" type="number" min={1} value={months} onChange={(e) => { setMonths(e.target.value); setFe({}); }} disabled={hasArrears} /><FieldError msg={fe.months} /></div>
           <div><label className="f">Note</label><input className="inp" placeholder="optional detail" value={detail} onChange={(e) => setDetail(e.target.value)} disabled={hasArrears} /></div>
         </div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving || hasArrears} title={hasArrears ? "Pay the outstanding interest/penal interest first" : undefined}>
           <Icon name="check" /> {saving ? "Saving…" : "Log Request"}

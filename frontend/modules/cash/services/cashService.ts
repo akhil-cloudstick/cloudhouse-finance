@@ -1,4 +1,6 @@
-import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
+import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
 import { uploadFile } from "@/common/services/uploadService";
 import { categoryLedgerPath } from "./expenseCategoryService";
 import { branchHeader } from "@/common/services/branchSelection";
@@ -116,11 +118,24 @@ export async function exportExpenses(): Promise<void> {
 }
 
 export async function createCashMovement(input: CashMovementInput): Promise<CashMovementView> {
-  const rec = await apiFetch<BackendCashMovement>("/cash-movements", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return movementToView(rec);
+  try {
+    const rec = await apiFetch<BackendCashMovement>("/cash-movements", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return movementToView(rec);
+  } catch (e) {
+    // Desktop with no answer from the server: kept on this PC and sent later. Cash in hand, the bank balances and
+    // the ledger already include it (see common/offline/cashAdjust.ts) until the server has it.
+    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+    const entry = newEntry("POST", "/cash-movements", input, currentActor());
+    await enqueueAndWait(entry, () => undefined, () => undefined);
+    return movementToView({
+      id: 0, type: input.type, source: input.source, purpose: input.purpose, mode: input.mode, amount: input.amount,
+      branchId: input.branchId ?? null, occurredOn: input.occurredOn ?? new Date().toISOString(), createdAt: new Date().toISOString(),
+      remarks: input.remarks,
+    } as BackendCashMovement);
+  }
 }
 
 export async function createSelfTransfer(input: SelfTransferInput): Promise<void> {
@@ -207,11 +222,24 @@ export async function listExpensesPage(page: number, limit?: number): Promise<{ 
 }
 
 export async function createExpense(input: ExpenseFormInput): Promise<ExpenseView> {
-  const rec = await apiFetch<BackendExpense>("/expenses", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return expenseToView(rec);
+  try {
+    const rec = await apiFetch<BackendExpense>("/expenses", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return expenseToView(rec);
+  } catch (e) {
+    // Desktop with no answer from the server: kept on this PC and sent later. Cash in hand, the bank balances and the
+    // ledger already include it (see common/offline/cashAdjust.ts) until the server has it.
+    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+    const entry = newEntry("POST", "/expenses", input, currentActor());
+    await enqueueAndWait(entry, () => undefined, () => undefined);
+    return expenseToView({
+      id: 0, category: input.category, amount: input.amount, mode: input.mode, payee: input.payee ?? "",
+      branchId: input.branchId, occurredOn: input.occurredOn ?? new Date().toISOString(), createdAt: new Date().toISOString(),
+      remarks: input.remarks, receiptImage: input.receiptImage, status: "",
+    } as unknown as BackendExpense);
+  }
 }
 
 /* Approve/reject a Pending expense (only raised while the business has the

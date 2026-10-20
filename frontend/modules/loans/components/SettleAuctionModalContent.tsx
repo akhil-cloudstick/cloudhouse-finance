@@ -138,9 +138,9 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
           <input className="inp" value={remarks} onChange={(e) => { setRemarks(e.target.value); setFe((cur) => ({ ...cur, remarks: "" })); }} placeholder="reason / reference" maxLength={255} /><FieldError msg={fe.remarks} />
         </div></div>
         <p style={{ fontSize: 12, color: "var(--muted)" }}>This can only be recorded once — a surplus cannot be disposed of twice.</p>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         {/* Not blanket-disabled on `!disposition` — that would block save()'s
          * own "Please choose what happens to the surplus" validation (and

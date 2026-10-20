@@ -1,6 +1,23 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
+import { offlineStore } from "@/common/services/desktopBridge";
+import { enqueueAndWait, getLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
+import { enabledStages, fetchApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import {
+  applyActionLocally,
+  applyPaymentLocally,
+  buildOptimisticLoan,
+  currentActor,
+  filterLocalLoans,
+  localLoanByKey,
+  localLoanByNumericId,
+  localLoans,
+  pendingKey,
+  saveOptimisticLoan,
+  sortNewestFirst,
+  type CreateLoanHint,
+} from "@/modules/loans/services/loanOffline";
 import { printPdfJob } from "@/common/utils/print";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import type { OrnamentRequestInput, CreateLoanInput, BackendOrnament, BackendLoanPayment, BackendBankPledgeRecord, BackendLoan, OrnamentView, PaymentView, BankPledgeView, LoanView, BackendCustomerOrnamentRow, CustomerOrnamentRowView, BackendCustomerPaymentRow, CustomerPaymentRowView, BackendCustomerBankPledgeRow, CustomerBankPledgeRowView, SaveDraftInput, BackendLoanDraft, IndemnityBondEsignStart, EsignWitnessInput, IndemnityBondDeliverBy, IndemnityBondEsignCheck, LoanFilters, PurityTestInput, SanctionStage, ApprovalStageRecord, ApprovalInput, UpdateLoanInput, PaymentInput, TopUpInput, LoanTopUpView, TopUpApprovalInput, BankPledgeInput, BankPledgeCashTreatment, BankPledgeRecordView, AuctionStage, AuctionSettlementStatus, AuctionSurplusDisposition, AuctionDecisionStatus, AuctionDecisionRequestView, AuctionRecordView, BackendAuctionDecisionRequest, BackendAuctionRecord, BackendCustomerAuctionRow, CustomerAuctionRowView, BackendConcludedAuctionRow, ConcludedAuctionRowView, LoanLedgerEntry, LoanLedgerPage, LoanLedgerQuery, BackendLoanLedgerEntry, BackendLoanRequest, RequestView, LoanRequestFilters, LoanRiskLevel, LoanRiskRow, LoanRiskCounts, ChecklistInput, ReleasePaymentInput, ReleaseApprovalInput, ExtensionApprovalInput, IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types";
@@ -82,9 +99,10 @@ export function toCustomerBankPledgeRowView(p: BackendCustomerBankPledgeRow): Cu
 
 export function toView(l: BackendLoan): LoanView {
   return {
-    id: l.loanNumber,
-    numericId: l.id,
-    loanNumber: l.loanNumber,
+    id: l.loanNumber || (l.uuid ? pendingKey(l.uuid) : ""),
+    numericId: l.id || 0,
+    uuid: l.uuid || "",
+    loanNumber: l.loanNumber || "",
     branchId: l.branchId,
     branchName: l.branch?.name || "—",
     customerId: String(l.customerId),
@@ -150,12 +168,30 @@ export function toView(l: BackendLoan): LoanView {
  * internal/loan/repository.go's OrnamentRepository.FindByLoanID, which
  * orders "id asc") returns them back in that same order, so callers may
  * zip the input rows with `ornaments` in the response by array index. */
-export async function createLoan(input: CreateLoanInput): Promise<BackendLoan> {
-  return apiFetch<BackendLoan>("/loans", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+export async function createLoan(input: CreateLoanInput, hint?: CreateLoanHint): Promise<BackendLoan> {
+  if (!offlineReady() || !hint) {
+    return apiFetch<BackendLoan>("/loans", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+  // Desktop: the save goes into the outbox first, with the local copy updated in the same step. If the server
+  // answers within a few seconds the real loan comes back exactly as online; otherwise the loan shows with a
+  // PENDING number and is sent by the cron.
+  const entry = newEntry("POST", "/loans", input, currentActor());
+  entry.targets = [entry.id];
+  const draft = { ...buildOptimisticLoan(entry.id, input, hint), uuid: entry.id };
+  const outcome = await enqueueAndWait(
+    entry,
+    () => saveOptimisticLoan(draft),
+    () => removeLocal("loans", entry.id),
+  );
+  const saved = getLocal("loans", entry.id) as unknown as BackendLoan | undefined;
+  if (saved) return saved;
+  if (outcome === "sent") throw new ApiError("The loan was saved but could not be read back. Refresh the list.", 0);
+  return draft;
 }
+export type { CreateLoanHint };
 
 export async function saveDraft(input: SaveDraftInput): Promise<BackendLoanDraft> {
   return apiFetch<BackendLoanDraft>("/loans/drafts", {
@@ -189,10 +225,15 @@ export async function deleteDraft(draftId: number): Promise<void> {
 
 /* Attaches one photo to an already-created ornament. */
 export async function addOrnamentImage(ornamentId: number, imageUrl: string): Promise<unknown> {
-  return apiFetch(`/loans/ornaments/${ornamentId}/images`, {
-    method: "POST",
-    body: JSON.stringify({ imageUrl }),
-  });
+  try {
+    return await apiFetch(`/loans/ornaments/${ornamentId}/images`, {
+      method: "POST",
+      body: JSON.stringify({ imageUrl }),
+    });
+  } catch (e) {
+    if (ornamentId > 0 && (await queueRawIfUnreachable(e, "POST", `/loans/ornaments/${ornamentId}/images`, { imageUrl }))) return undefined;
+    throw e;
+  }
 }
 
 export async function startIndemnityBondEsign(
@@ -239,7 +280,52 @@ export async function checkPledgeSlipEsign(loanId: number): Promise<IndemnityBon
 const csv = (v: string | number | (string | number)[]) => (Array.isArray(v) ? v.join(",") : String(v));
 const hasValue = (v?: string | number | (string | number)[]) => (Array.isArray(v) ? v.length > 0 : !!v);
 
+/* On the desktop, a read the server did not answer at all is answered from the local copy, which also
+ * holds loans made on this PC that the server has not numbered yet. An answer from the server, even an
+ * error, is never replaced. */
+/* A save that has no local picture to update (a request, a bank re-pledge): sent as usual, and only when the server
+ * does not answer at all it is kept in the outbox, addressed by the loan's UUID, and sent later. Returns the local
+ * loan so the screen can carry on; what the entry changes appears once it has been sent. Returns null when this is
+ * not the desktop, or the loan is not known on this PC, so the caller reports the failure as before. */
+async function queueIfUnreachable(e: unknown, loanId: number, suffix: string, method: "POST" | "PUT", body: unknown): Promise<BackendLoan | null> {
+  if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) return null;
+  const rec = localLoanByNumericId(loanId);
+  if (!rec?.uuid) return null;
+  const entry = newEntry(method, `/loans/uuid:${rec.uuid}${suffix}`, body, currentActor(), [rec.uuid]);
+  await enqueueAndWait(entry, () => undefined, () => undefined);
+  return rec as unknown as BackendLoan;
+}
+
+const NOT_SYNCED = "This loan has not reached the server yet. Its ornaments can be changed once it has.";
+
+/* A change that has no local picture to update beyond the loan itself: sent as usual, and only when the server does
+ * not answer at all it is kept in the outbox and sent later. Ornament changes address the ornament by its server id,
+ * so they need the loan to be on the server already; the loan is shown as it was until the entry has been sent. */
+async function queueRawIfUnreachable(e: unknown, method: "POST" | "PUT" | "DELETE", path: string, body: unknown, loanId?: number): Promise<boolean> {
+  if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) return false;
+  const rec = loanId ? localLoanByNumericId(loanId) : undefined;
+  const entry = newEntry(method, path, body, currentActor(), rec?.uuid ? [rec.uuid] : []);
+  await enqueueAndWait(entry, () => undefined, () => undefined);
+  return true;
+}
+
+async function orLocal<T>(live: () => Promise<T>, local: () => T): Promise<T> {
+  try {
+    return await live();
+  } catch (e) {
+    if (offlineReady() && e instanceof ApiError && e.status === 0) return local();
+    throw e;
+  }
+}
+
 export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
+  return orLocal(
+    () => listLoansLive(filters),
+    () => sortNewestFirst(filterLocalLoans(localLoans(), filters)).map(toView),
+  );
+}
+
+async function listLoansLive(filters?: LoanFilters): Promise<LoanView[]> {
   const params = new URLSearchParams();
   if (filters?.q) params.set("q", filters.q);
   if (filters && hasValue(filters.status)) params.set("status", csv(filters.status!));
@@ -267,6 +353,20 @@ export async function listLoansPage(
   filters: LoanFilters & { page: number; limit?: number }
 ): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
   const pageSize = filters.limit ?? getLoansPageSize();
+  return orLocal(
+    () => listLoansPageLive(filters, pageSize),
+    () => {
+      const all = sortNewestFirst(filterLocalLoans(localLoans(), filters));
+      const from = (filters.page - 1) * pageSize;
+      return { items: all.slice(from, from + pageSize).map(toView), hasMore: from + pageSize < all.length, total: all.length };
+    },
+  );
+}
+
+async function listLoansPageLive(
+  filters: LoanFilters & { page: number; limit?: number },
+  pageSize: number,
+): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({
     limit: String(pageSize),
     offset: String((filters.page - 1) * pageSize),
@@ -303,6 +403,21 @@ export async function searchLoansPage(
   page: number,
   opts?: { excludeBankPledged?: boolean }
 ): Promise<{ items: LoanView[]; hasMore: boolean }> {
+  return orLocal(
+    () => searchLoansPageLive(q, page, opts),
+    () => {
+      const all = sortNewestFirst(filterLocalLoans(localLoans(), { q })).filter((l) => !opts?.excludeBankPledged || l.bankPledgeStatus === "Not Pledged");
+      const from = page * LOAN_PAGE_SIZE;
+      return { items: all.slice(from, from + LOAN_PAGE_SIZE).map(toView), hasMore: from + LOAN_PAGE_SIZE < all.length };
+    },
+  );
+}
+
+async function searchLoansPageLive(
+  q: string,
+  page: number,
+  opts?: { excludeBankPledged?: boolean }
+): Promise<{ items: LoanView[]; hasMore: boolean }> {
   const params = new URLSearchParams({
     q,
     limit: String(LOAN_PAGE_SIZE),
@@ -314,8 +429,14 @@ export async function searchLoansPage(
 }
 
 export async function getLoan(id: number): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/${id}`);
-  return toView(rec);
+  return orLocal(
+    async () => toView(await apiFetch<BackendLoan>(`/loans/${id}`)),
+    () => {
+      const rec = localLoanByNumericId(id);
+      if (!rec) throw new ApiError("Loan not found", 404);
+      return toView(rec);
+    },
+  );
 }
 
 /* Direct, atomic lookup by loan number (backend/internal/loan's GET
@@ -324,31 +445,66 @@ export async function getLoan(id: number): Promise<LoanView> {
  * needed two round trips and could show a transient "Loan not found" if
  * the list call raced against another in-flight /loans request. */
 export async function getLoanByNumber(loanNumber: string): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/by-number/${encodeURIComponent(loanNumber)}`);
-  return toView(rec);
+  const local = () => {
+    const rec = localLoanByKey(loanNumber);
+    if (!rec) throw new ApiError("Loan not found", 404);
+    return toView(rec);
+  };
+  // A loan made offline is known here only by its PENDING key until the server numbers it.
+  if (offlineReady() && loanNumber.startsWith("PENDING-")) {
+    const rec = localLoanByKey(loanNumber);
+    if (rec && !rec.loanNumber) return toView(rec);
+    if (rec) loanNumber = rec.loanNumber;
+  }
+  return orLocal(async () => toView(await apiFetch<BackendLoan>(`/loans/by-number/${encodeURIComponent(loanNumber)}`)), local);
 }
 
 export async function addOrnament(loanId: number, input: OrnamentRequestInput): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/ornaments`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return toView(rec);
+  if (!loanId && offlineReady()) throw new ApiError(NOT_SYNCED, 0);
+  try {
+    const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/ornaments`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return toView(rec);
+  } catch (e) {
+    const uuid = localLoanByNumericId(loanId)?.uuid;
+    if (uuid && (await queueRawIfUnreachable(e, "POST", `/loans/uuid:${uuid}/ornaments`, input, loanId))) return toView(localLoanByNumericId(loanId)!);
+    throw e;
+  }
 }
 
 export async function updateOrnament(ornamentId: number, input: OrnamentRequestInput): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/ornaments/${ornamentId}`, {
-    method: "PUT",
-    body: JSON.stringify(input),
-  });
-  return toView(rec);
+  if (ornamentId < 0 && offlineReady()) throw new ApiError(NOT_SYNCED, 0);
+  try {
+    const rec = await apiFetch<BackendLoan>(`/loans/ornaments/${ornamentId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+    return toView(rec);
+  } catch (e) {
+    if (await queueRawIfUnreachable(e, "PUT", `/loans/ornaments/${ornamentId}`, input)) return placeholderLoanView();
+    throw e;
+  }
 }
 
 /* Refused server-side if this is the loan's last remaining ornament, or if
  * the loan is already Closed/Auctioned — see backend Service.DeleteOrnament. */
 export async function deleteOrnament(ornamentId: number): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/ornaments/${ornamentId}`, { method: "DELETE" });
-  return toView(rec);
+  if (ornamentId < 0 && offlineReady()) throw new ApiError(NOT_SYNCED, 0);
+  try {
+    const rec = await apiFetch<BackendLoan>(`/loans/ornaments/${ornamentId}`, { method: "DELETE" });
+    return toView(rec);
+  } catch (e) {
+    if (await queueRawIfUnreachable(e, "DELETE", `/loans/ornaments/${ornamentId}`, undefined)) return placeholderLoanView();
+    throw e;
+  }
+}
+
+/* The callers of the ornament changes ignore the loan they get back (the screen reloads the loan), so a queued
+ * change returns an empty one rather than a made-up loan. */
+function placeholderLoanView(): LoanView {
+  return {} as LoanView;
 }
 
 export async function recordPurityTest(ornamentId: number, input: PurityTestInput): Promise<BackendOrnament> {
@@ -391,36 +547,109 @@ export async function listLoanApprovals(loanId: number): Promise<ApprovalStageRe
   return (await apiFetch<ApprovalStageRecord[]>(`/loans/${loanId}/approvals`)) || [];
 }
 
-export async function approveLoan(loanId: number, input: ApprovalInput): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/approve`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return toView(rec);
+export async function approveLoan(loanId: number, input: ApprovalInput, uuid?: string): Promise<LoanView> {
+  const ref = loanId || !uuid ? String(loanId) : `uuid:${uuid}`;
+  const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
+  if (!offlineReady() || !local) {
+    const rec = await apiFetch<BackendLoan>(`/loans/${ref}/approve`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return toView(rec);
+  }
+  // Desktop: one explicit action is one outbox entry, addressed by the loan UUID so it can point at a loan
+  // the server has not numbered yet. The local copy moves to the next stage in the same step.
+  const chain = enabledStages(await fetchApprovalWorkflow().catch(() => []), "loan_sanction");
+  const actor = currentActor();
+  const entry = newEntry("POST", `/loans/uuid:${uuid}/approve`, input, actor, [uuid!]);
+  const before = local;
+  const after = applyActionLocally(local, input, chain, actor);
+  await enqueueAndWait(
+    entry,
+    () => upsertLocal("loans", after as unknown as LocalRecord),
+    () => upsertLocal("loans", before as unknown as LocalRecord),
+  );
+  return toView((getLocal("loans", uuid!) as unknown as BackendLoan | undefined) ?? after);
 }
 
-export async function updateLoan(loanId: number, input: UpdateLoanInput): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}`, {
-    method: "PATCH",
-    body: JSON.stringify(input),
-  });
-  return toView(rec);
+export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: string): Promise<LoanView> {
+  const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
+  try {
+    const rec = await apiFetch<BackendLoan>(`/loans/${loanId || `uuid:${uuid}`}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+    return toView(rec);
+  } catch (e) {
+    // Desktop with no answer from the server: the change shows on this loan at once and is sent later.
+    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0 || !local || !uuid) throw e;
+    const entry = newEntry("PATCH", `/loans/uuid:${uuid}`, input, currentActor(), [uuid]);
+    const after = {
+      ...local,
+      ...(input.principalAmount !== undefined ? { principalAmount: input.principalAmount, outstandingAmount: input.principalAmount } : {}),
+      ...(input.schemeId !== undefined ? { schemeId: typeof input.schemeId === "number" ? input.schemeId : local.schemeId } : {}),
+      ...(input.overallPhotoUrl !== undefined ? { overallPhotoUrl: input.overallPhotoUrl } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    await enqueueAndWait(
+      entry,
+      () => upsertLocal("loans", after as unknown as LocalRecord),
+      () => upsertLocal("loans", local as unknown as LocalRecord),
+    );
+    return toView(after);
+  }
 }
 
 /* Permanently deletes a loan and every record tied to it — a real DELETE,
  * no undo. Gated server-side by its own "can hard delete loan" permission,
  * independent of the ordinary "can delete loan" grant — see backend
  * Service.HardDeleteLoan's own doc comment for the full cascade. */
-export async function hardDeleteLoan(loanId: number): Promise<void> {
-  await apiFetch<unknown>(`/loans/${loanId}/hard-delete`, { method: "DELETE" });
+export async function hardDeleteLoan(loanId: number, uuid?: string): Promise<void> {
+  // A loan this PC made that the server has never seen: deleting it just cancels what was waiting to be sent.
+  if (offlineReady() && !loanId && uuid) {
+    for (const line of await offlineStore.readOutbox()) {
+      try {
+        const e = JSON.parse(line) as { id: string; targets?: string[] };
+        if (e.targets?.includes(uuid)) await offlineStore.deleteOutboxEntry(e.id);
+      } catch {
+        /* a line that cannot be read touches nothing */
+      }
+    }
+    await removeLocal("loans", uuid);
+    return;
+  }
+  try {
+    await apiFetch<unknown>(`/loans/${loanId}/hard-delete`, { method: "DELETE" });
+  } catch (e) {
+    // Desktop with no answer from the server: the loan leaves this PC's list now and the delete is sent later.
+    const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
+    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0 || !local || !uuid) throw e;
+    const entry = newEntry("DELETE", `/loans/uuid:${uuid}/hard-delete`, undefined, currentActor(), [uuid]);
+    await enqueueAndWait(entry, () => removeLocal("loans", uuid), () => upsertLocal("loans", local as unknown as LocalRecord));
+  }
 }
 
-export async function recordPayment(loanId: number, input: PaymentInput): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/payments`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return toView(rec);
+export async function recordPayment(loanId: number, input: PaymentInput, uuid?: string): Promise<LoanView> {
+  const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
+  if (!offlineReady() || !local) {
+    const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/payments`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return toView(rec);
+  }
+  // Desktop: the payment is one outbox entry addressed by the loan UUID. It shows on the loan at once; the
+  // server works out the split and the new balances when it receives the entry.
+  const actor = currentActor();
+  const entry = newEntry("POST", `/loans/uuid:${uuid}/payments`, input, actor, [uuid!]);
+  const before = local;
+  const after = applyPaymentLocally(local, input, actor);
+  await enqueueAndWait(
+    entry,
+    () => upsertLocal("loans", after as unknown as LocalRecord),
+    () => upsertLocal("loans", before as unknown as LocalRecord),
+  );
+  return toView((getLocal("loans", uuid!) as unknown as BackendLoan | undefined) ?? after);
 }
 
 /* When the business has the loan_topup approval flow switched on, this
@@ -447,11 +676,17 @@ export async function approveTopUp(topUpId: number, input: TopUpApprovalInput): 
 }
 
 export async function recordBankPledge(loanId: number, input: BankPledgeInput): Promise<LoanView> {
-  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return toView(rec);
+  try {
+    const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    return toView(rec);
+  } catch (e) {
+    const queued = await queueIfUnreachable(e, loanId, "/bank-pledge", "POST", input);
+    if (queued) return toView(queued);
+    throw e;
+  }
 }
 
 /* `payment` is how the pledged amount is paid back to the bank (only used for
@@ -735,7 +970,63 @@ function toLedgerEntry(e: BackendLoanLedgerEntry): LoanLedgerEntry {
   }
 }
 
-export async function getLoanLedger(loanId: number, q: LoanLedgerQuery): Promise<LoanLedgerPage> {
+/* The ledger worked out from this PC's local copy of the loan, for when the server does not answer. It is the
+ * same table (sanction, interest, payments, running balance), built from what the PC holds: the amounts, the
+ * interest owed to date and every payment, including ones taken here that the server has not received yet. The
+ * server's own dated interest rows, top-ups and auction rows come back when the server answers again. */
+export function buildLocalLedger(rec: BackendLoan, q: LoanLedgerQuery): LoanLedgerPage {
+  const rows: LoanLedgerEntry[] = [];
+  const payments = [...(rec.payments ?? [])].sort((a, b) => (a.paidOn ?? "").localeCompare(b.paidOn ?? "") || a.id - b.id);
+  const disbursement = payments.find((p) => p.type === "Disbursement") ?? null;
+  const opened = (rec.disbursementDate || rec.openedDate || "").slice(0, 10);
+  let balance = 0;
+  const sanctioned = rec.status !== "Pending Approval" && rec.status !== "Rejected";
+  if (sanctioned) {
+    balance += rec.principalAmount;
+    rows.push({ key: "sanction", date: opened, amount: rec.principalAmount, kind: "sanction", balance, payment: disbursement ? toPaymentView(disbursement) : null });
+    const interest = Math.max(rec.accruedInterest ?? 0, (rec.outstandingInterest ?? 0) + (rec.interestPaid ?? 0));
+    if (interest > 0.004) {
+      balance += interest;
+      rows.push({ key: "interest-local", date: opened, amount: interest, kind: "interest", balance });
+    }
+    const penal = Math.max(rec.accruedPenalInterest ?? 0, (rec.outstandingPenalInterest ?? 0) + (rec.penalInterestPaid ?? 0));
+    if (penal > 0.004) {
+      balance += penal;
+      rows.push({ key: "penal-local", date: opened, amount: penal, kind: "penal", balance });
+    }
+  }
+  payments.forEach((p, i) => {
+    if (p.type === "Disbursement") return;
+    balance -= p.amount;
+    rows.push({ key: `payment-${p.id || `local-${i}`}`, date: (p.paidOn ?? "").slice(0, 10), amount: p.amount, kind: "payment", balance, row: toPaymentView(p), auction: null });
+  });
+  const wanted = (kind: string) => !q.kinds?.length || q.kinds.includes(kind);
+  const kept = rows.filter((r) => (!q.from || r.date >= q.from) && (!q.to || r.date <= q.to) && wanted(r.kind));
+  const limit = q.limit > 0 ? q.limit : 100;
+  const offset = q.offset >= 0 && q.offset < kept.length ? q.offset : 0;
+  const keptDebit = kept.filter((r) => r.kind === "sanction" || r.kind === "interest" || r.kind === "penal").reduce((s, r) => s + r.amount, 0);
+  const keptCredit = kept.filter((r) => r.kind === "payment").reduce((s, r) => s + r.amount, 0);
+  return { items: kept.slice(offset, offset + limit), total: kept.length, limit, offset, totalDebit: keptDebit, totalCredit: keptCredit };
+}
+
+export async function getLoanLedger(loanId: number, q: LoanLedgerQuery, uuid?: string): Promise<LoanLedgerPage> {
+  const localRec = () => (uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined) ?? localLoanByNumericId(loanId);
+  // a loan the server has not numbered yet has no ledger there; it is shown from the local copy
+  if (offlineReady() && !loanId) {
+    const rec = localRec();
+    if (rec) return buildLocalLedger(rec, q);
+  }
+  return orLocal(
+    () => getLoanLedgerLive(loanId, q),
+    () => {
+      const rec = localRec();
+      if (!rec) throw new ApiError("Ledger not available", 404);
+      return buildLocalLedger(rec, q);
+    },
+  );
+}
+
+async function getLoanLedgerLive(loanId: number, q: LoanLedgerQuery): Promise<LoanLedgerPage> {
   const params = new URLSearchParams({ limit: String(q.limit), offset: String(q.offset) });
   if (q.from) params.set("from", q.from);
   if (q.to) params.set("to", q.to);
@@ -927,11 +1218,17 @@ export async function listLoanRiskAssessmentPage(
 }
 
 export async function createExtensionRequest(loanId: number, months: number, detail?: string): Promise<RequestView> {
-  const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/extension-request`, {
-    method: "POST",
-    body: JSON.stringify({ months, detail }),
-  });
-  return toRequestView(rec);
+  try {
+    const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/extension-request`, {
+      method: "POST",
+      body: JSON.stringify({ months, detail }),
+    });
+    return toRequestView(rec);
+  } catch (e) {
+    const queued = await queueIfUnreachable(e, loanId, "/extension-request", "POST", { months, detail });
+    if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Extension", status: "Pending", requestedBy: "Staff", detail: detail ?? "", requestedExtensionMonths: months } as unknown as BackendLoanRequest);
+    throw e;
+  }
 }
 
 /* ornamentIds selects a Partial Ornament Release's subset of the loan's
@@ -941,11 +1238,18 @@ export async function createExtensionRequest(loanId: number, months: number, det
  * selected (see CreateReleaseRequest's own doc comment), so the caller
  * doesn't need to special-case "select all" as anything but a normal call. */
 export async function createReleaseRequest(loanId: number, detail?: string, ornamentIds?: number[]): Promise<RequestView> {
-  const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/release-request`, {
-    method: "POST",
-    body: JSON.stringify({ detail, ornamentIds: ornamentIds && ornamentIds.length ? ornamentIds : undefined }),
-  });
-  return toRequestView(rec);
+  const body = { detail, ornamentIds: ornamentIds && ornamentIds.length ? ornamentIds : undefined };
+  try {
+    const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/release-request`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return toRequestView(rec);
+  } catch (e) {
+    const queued = await queueIfUnreachable(e, loanId, "/release-request", "POST", body);
+    if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Release", status: "Pending", requestedBy: "Staff", detail: detail ?? "" } as unknown as BackendLoanRequest);
+    throw e;
+  }
 }
 
 /* Extension-only decision — one step, mirrors DecideRequest on the backend.

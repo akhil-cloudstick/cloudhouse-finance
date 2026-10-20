@@ -283,7 +283,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
       limit: LEDGER_PAGE_SIZE,
       offset: (ledgerPage - 1) * LEDGER_PAGE_SIZE,
       ...(focus ? ("key" in focus ? { focusKey: focus.key } : { focusDate: focus.date, focusAmount: focus.amount }) : {}),
-    })
+    }, loan.uuid)
       .then((page) => {
         if (cancelled) return;
         // Cleared only once a response lands — dev StrictMode cancels the
@@ -358,7 +358,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
       // The acting employee/role are derived server-side from the
       // logged-in user's JWT — never sent from here (see
       // loansApi.ts's ApprovalInput doc comment).
-      const updated = await approveLoan(l.numericId, { stage, action });
+      const updated = await approveLoan(l.numericId, { stage, action }, l.uuid);
       setLoan(updated);
       refreshLoans();
       // Name the stage the loan moved on to, from this business's own chain
@@ -580,7 +580,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     }
   }
 
-  async function onExportLedger() { return singleFlight("loan:ledger-export:"+l.numericId, async () => {
+  async function onExportLedger() {
+  if (!l.numericId) { toast("Available once the loan has synced."); return; }
+  return singleFlight("loan:ledger-export:"+l.numericId, async () => {
     if (!l) return;
     setLedgerExporting(true);
     try {
@@ -642,7 +644,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
    * has no equivalent a page's CSS can drive. NewLoan.tsx's pre-submission
    * preview still uses the old client-side copy — there's no saved loan
    * id yet to render against. */
-  function printBond(lang: BondLang = "en") { void singleFlight("loan:print-bond:"+l.numericId+":"+lang, async () => {
+  function printBond(lang: BondLang = "en") {
+  if (!l.numericId) { toast("Available once the loan has synced."); return; }
+  void singleFlight("loan:print-bond:"+l.numericId+":"+lang, async () => {
     setPrintingBond(true);
     return downloadIndemnityBondPDF(l.numericId, lang)
       .catch(() => toast("Could not print the pledge agreement — try again."))
@@ -654,7 +658,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
    * print dialog, same as the pledge agreement above. The customer's phone
    * and address come from their record, the header from the business
    * profile — both resolved on the server. */
-  async function printPledgeSlip() { return singleFlight("loan:print-pledge-slip:"+l.numericId, async () => {
+  async function printPledgeSlip() {
+  if (!l.numericId) { toast("Available once the loan has synced."); return; }
+  return singleFlight("loan:print-pledge-slip:"+l.numericId, async () => {
     setPrintingSlip(true);
     return downloadPledgeSlipPDF(l.numericId)
       .catch(() => toast("Could not print the pledge slip — try again."))
@@ -666,7 +672,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
    * prints. Server-rendered (GET /loans/:id/release-agreement/pdf) — see
    * downloadReleaseAgreementPDF's doc comment — so there's no more
    * client-side data assembly here, unlike the old printReleaseAgreement(). */
-  async function printReleaseAgreementDoc(lang: "en" | "ml") { return singleFlight("loan:print-release-agreement:"+l.numericId+":"+lang, async () => {
+  async function printReleaseAgreementDoc(lang: "en" | "ml") {
+  if (!l.numericId) { toast("Available once the loan has synced."); return; }
+  return singleFlight("loan:print-release-agreement:"+l.numericId+":"+lang, async () => {
     setPrintingReleaseAgreement(true);
     try {
       await downloadReleaseAgreementPDF(l.numericId, lang);
@@ -690,7 +698,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
    * document in its own tab first (the "preview" — the browser's own
    * print dialog only appears after, and can be cancelled from there
    * without ever producing a file) rather than silently generating a PDF. */
-  async function printStatement() { return singleFlight("loan:print-statement:"+l.numericId, async () => {
+  async function printStatement() {
+  if (!l.numericId) { toast("Available once the loan has synced."); return; }
+  return singleFlight("loan:print-statement:"+l.numericId, async () => {
     setPrintingStatement(true);
     if (policy === "tml") {
       /* TML businesses print the server-rendered payment receipt instead. */
@@ -817,7 +827,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     </div>`;
   }
 
-  async function printPacketLabel() { return singleFlight("loan:print-label:"+l.numericId, async () => {
+  async function printPacketLabel() {
+  if (!l.numericId) { toast("Available once the loan has synced."); return; }
+  return singleFlight("loan:print-label:"+l.numericId, async () => {
     setPrintingLabel(true);
     try {
       const data = await packetLabelData();
@@ -869,7 +881,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
    * markup/CSS (labelStyle/labelBodyHTML) as the standalone label print,
    * just without the 81mm @page override. Order is slip then label, per the
    * print-format request this was added for. */
-  async function printSlipAndLabel() { return singleFlight("loan:print-slip-label:"+l.numericId, async () => {
+  async function printSlipAndLabel() {
+  if (!l.numericId) { toast("Available once the loan has synced."); return; }
+  return singleFlight("loan:print-slip-label:"+l.numericId, async () => {
     setPrintingSlipAndLabel(true);
     try {
       const [slip, data] = await Promise.all([fetchPledgeSlipParts(l.numericId), packetLabelData()]);
@@ -1059,7 +1073,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
          * `.page-h`'s own wrap threshold, dropping the whole button
          * cluster to its own line on anything but a very wide window even
          * though there was visibly still room for it beside the title. */}
-        <div className="page-h-title"><h1>{l.id} {/* Defaulted is the more specific state — a defaulted loan's own
+        <div className="page-h-title"><h1>{l.loanNumber || "Pending"} {/* Defaulted is the more specific state — a defaulted loan's own
               l.status still reads "Overdue" backend-side, so without this
               guard the title showed both "Overdue" and "Defaulted" chips
               side by side for the same loan. */}
@@ -1175,7 +1189,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                             </>
                           }
                           onConfirm={async () => {
-                            await hardDeleteLoan(l.numericId);
+                            await hardDeleteLoan(l.numericId, l.uuid);
                             toast("Loan deleted permanently");
                             refreshLoans();
                             navigate("loans");
@@ -1202,6 +1216,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
             <button
             ref={docsMenuTriggerRef}
             className="btn ghost"
+            disabled={!l.numericId}
+            title={!l.numericId ? "Documents are available once the loan has synced" : undefined}
             onClick={() => { setSlipSubOpen(false); setBondSubOpen(false); setDocsMenuOpen((v) => !v); }}
             aria-haspopup="menu"
             aria-expanded={docsMenuOpen}

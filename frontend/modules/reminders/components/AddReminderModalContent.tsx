@@ -127,9 +127,9 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
         <div className="frow">
           <div><label className="f">Note</label><input className="inp" placeholder="e.g. Call about overdue interest" value={note} onChange={(e) => setNote(e.target.value)} /></div>
         </div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Add Reminder"}</button>
       </div>

@@ -14,8 +14,10 @@ export type OrnamentRequestInput = {
 /* Mirrors backend/internal/loan/handler.go's loanRequest exactly. */
 export type CreateLoanInput = {
   branchId: number;
-  customerId: number;
-  schemeId: number;
+  // A number, or uuid:<uuid> for a customer registered on this PC that the server has not numbered yet.
+  customerId: number | string;
+  // A number, or uuid:<uuid> for a scheme made on this PC that the server has not numbered yet.
+  schemeId: number | string;
   openedDate: string; // "YYYY-MM-DD"
   dueDate: string; // "YYYY-MM-DD"
   principalAmount: number;
@@ -144,6 +146,8 @@ type NestedCustomer = { id: number; name: string; code: string; phone: string };
 type NestedScheme = { id: number; name: string; interestRate: number; ltvPercent: number; interestMethod: string; penalRate: number };
 export type BackendLoan = {
   id: number;
+  // The id the PC gave the loan, known before the server numbers it (see loanOffline.ts).
+  uuid?: string;
   loanNumber: string;
   branchId: number;
   branch?: NestedBranch;
@@ -284,8 +288,9 @@ export type BankPledgeView = {
   voidReason: string;
 };
 export type LoanView = {
-  id: string; // loanNumber
-  numericId: number; // raw backend id, needed for mutation endpoints
+  id: string; // loanNumber, or PENDING-xxxxxxxx until the server numbers a loan made offline
+  numericId: number; // raw backend id, needed for mutation endpoints; 0 until the server has the loan
+  uuid: string; // the id the PC gave the loan, "" for a loan that predates offline mode
   loanNumber: string;
   branchId: number;
   branchName: string;
@@ -507,7 +512,7 @@ export type ApprovalInput = {
  * doc comment) — scheme and/or principal amount, either independently.
  * Ornaments themselves go through the existing addOrnament/updateOrnament/
  * deleteOrnament calls below, one ornament at a time, not through this. */
-export type UpdateLoanInput = { schemeId?: number; principalAmount?: number; overallPhotoUrl?: string };
+export type UpdateLoanInput = { schemeId?: number | string; principalAmount?: number; overallPhotoUrl?: string };
 // employeeId is NOT sent — the backend derives the receiving employee's
 // identity from the authenticated JWT, never the request body (see
 // platform.ActorFromContext).

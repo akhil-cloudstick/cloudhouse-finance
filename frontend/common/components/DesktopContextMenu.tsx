@@ -1,17 +1,15 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import { isDesktop } from "@/common/services/desktopBridge";
-import { PinModal } from "@/common/components/PinModal";
+import { isDesktop, openDevTools } from "@/common/services/desktopBridge";
 
 type MenuState = { x: number; y: number } | null;
 
 // Replaces WebView2's native right-click menu (disabled in main.go/the
-// patched frontend.go). "Inspect" always opens the PIN modal fresh — no
-// persisted unlock.
+// patched frontend.go). "Inspect" opens the developer tools (Elements,
+// Console, Network, ...) straight away, the same as in a browser.
 export function DesktopContextMenu() {
   const [menu, setMenu] = useState<MenuState>(null);
-  const [pinOpen, setPinOpen] = useState(false);
 
   useEffect(() => {
     if (!isDesktop()) return;
@@ -49,14 +47,13 @@ export function DesktopContextMenu() {
           </button>
           <button
             type="button"
-            onClick={() => { setMenu(null); setPinOpen(true); }}
+            onClick={() => { setMenu(null); void openDevTools(); }}
             style={menuItemStyle}
           >
             Inspect
           </button>
         </div>
       )}
-      {pinOpen && <PinModal onClose={() => setPinOpen(false)} />}
     </>
   );
 }

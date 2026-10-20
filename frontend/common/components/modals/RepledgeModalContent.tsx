@@ -232,9 +232,9 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
           </div>
         )}
 
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Repledge to Bank"}</button>
       </div>

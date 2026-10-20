@@ -399,6 +399,10 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 		return nil, err
 	}
 	rec.LoanNumber = fmt.Sprintf("LN-%05d", maxSuffix+1)
+	// a loan queued on a PC keeps the id that PC gave it
+	if entry, queued := config.SyncEntryFromContext(ctx); queued {
+		rec.UUID = entry.ClientUUID
+	}
 	if err := insertLoan(ctx, rec); err != nil {
 		return nil, err
 	}

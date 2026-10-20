@@ -37,6 +37,10 @@ const nextConfig: NextConfig = {
   // Set only by scripts/build-desktop.cjs, so the web build keeps writing to out/.
   distDir: process.env.DESKTOP_BUILD ? "dist-desktop" : undefined,
 
+  // Optional: caps the build's worker processes. On a PC short of free memory the default (one per core) can
+  // exhaust it during "Collecting page data" and the build dies with exit code 3221226505. Unset = unchanged.
+  ...(process.env.NEXT_BUILD_CPUS ? { experimental: { cpus: Math.max(1, Number(process.env.NEXT_BUILD_CPUS) || 1) } } : {}),
+
   async rewrites() {
     return [
       { source: "/api/v1/:path*", destination: `${BACKEND_ORIGIN}/api/v1/:path*` },

@@ -1,8 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState, useLayoutEffect } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useLayoutEffect } from "react";
+import { startOffline, stopOffline } from "@/common/offline";
+import { offlineLogin, rememberLogin } from "@/common/offline/loginCache";
+import { ApiError } from "@/common/services/httpClient";
+import { offlineStore } from "@/common/services/desktopBridge";
 import { login as loginRequest } from "@/common/services/authService";
-import { type AuthEmployee } from "@/common/types/auth-types";
+import { type AuthEmployee, type LoginResponse } from "@/common/types/auth-types";
 import { fetchMyPermissions } from "@/common/services/permissionService";
 import { type PermissionMap } from "@/common/types/permission-types";
 import { DEFAULT_APPROVAL_WORKFLOW, fetchApprovalWorkflow } from "@/common/services/approvalWorkflowService";
@@ -234,7 +238,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = useCallback(
     async (identifier: string, password: string, businessCode?: string) => {
       const code = businessCode?.trim() || businessCodeForRequest();
-      const res = await loginRequest(identifier, password, code);
+      let res: LoginResponse;
+      try {
+        res = await loginRequest(identifier, password, code);
+        // Saved before this returns: the moment login() finishes the page moves into the app, and that would cut a
+        // save still running in the background short. Bounded, so a slow disk can never hold the sign-in up.
+        await Promise.race([rememberLogin(identifier, password, res), new Promise<void>((resolve) => setTimeout(resolve, 4000))]);
+      } catch (e) {
+        // Desktop only: when the server cannot be reached at all, someone who has signed in on this PC before may
+        // sign in again. A server that answers (a wrong password, say) is never overruled.
+        if (!(e instanceof ApiError) || e.status !== 0) throw e;
+        const offline = await offlineLogin(identifier, password);
+        if (offline.status === "ok") res = offline.response;
+        else if (offline.status === "wrong") throw new ApiError("invalid username/phone or password", 401);
+        else if (offline.status === "locked") throw new ApiError("Too many attempts. Wait a moment and try again.", 429);
+        else if (offlineStore.available()) {
+          throw new ApiError("The server cannot be reached, and this PC has no saved sign-in for that user. Sign in once while the server is reachable and it will work offline afterwards.", 0);
+        } else throw e;
+      }
       writeSession(code || null, res.token, JSON.stringify(res.employee));
       // A fresh sign-in starts at "all branches" rather than reopening
       // whatever a previous session under this business chose.
@@ -291,6 +312,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // matches on its value. Signing out with a stale closure would sweep the
     // PREVIOUS token's buckets and leave the current one behind.
   }, [token]);
+
+  // Desktop only: once signed in, open this PC's offline store and start the sender. Does nothing in a browser.
+  useEffect(() => {
+    if (token && employee) void startOffline();
+    else stopOffline();
+  }, [token, employee]);
 
   const refetchPermissions = useCallback(() => {
     if (employee) void loadPermissions(employee);

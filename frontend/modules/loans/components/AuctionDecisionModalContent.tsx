@@ -123,9 +123,9 @@ export function AuctionDecisionModalContent({
           <label className="f">Remarks {isShortfall ? "*" : ""}</label>
           <input className="inp" value={remarks} onChange={(e) => { setRemarks(e.target.value); setFe((cur) => ({ ...cur, remarks: "" })); }} placeholder="reason for this decision" maxLength={255} /><FieldError msg={fe.remarks} />
         </div></div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         {/* Not blanket-disabled on `!decision` — see the Settle button's own
          * comment above for why. */}

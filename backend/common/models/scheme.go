@@ -30,6 +30,7 @@ type RateTier struct {
 type Scheme struct {
 	config.TenantScoped
 	ID                 uint           `json:"id" gorm:"primaryKey"`
+	UUID               string         `json:"uuid" gorm:"type:uuid;default:gen_random_uuid()"`
 	BranchID           uint           `json:"branch_id" gorm:"not null"`
 	Branch             Branch         `json:"branch" gorm:"foreignKey:BranchID"`
 	Code               string         `json:"code" gorm:"index;size:20"`

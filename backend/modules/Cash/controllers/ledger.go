@@ -348,7 +348,7 @@ func scanCashMovementsForLedger(db *gorm.DB, whereCol string, whereArg uint, fro
 		Joins("LEFT JOIN customers c ON c.id = m.party_customer_id").
 		Joins("LEFT JOIN loan_cash_sources lcs ON lcs.cash_movement_id = m.id").
 		Where("m."+whereCol, whereArg).
-		Where("m.source IS DISTINCT FROM ?", "Collection").
+		Where(movementNotShownByPaymentSQL).
 		Where("m.source IS DISTINCT FROM ?", "GoldSale")
 	if !fromDate.IsZero() {
 		q = q.Where("m.occurred_on >= ?", fromDate)
@@ -948,6 +948,15 @@ func applyBranchScope(q *gorm.DB, col string, branchID *uint, branchIDs []uint) 
 	return q
 }
 
+// A repayment is listed from its loan payment row (which carries the mode split and what it was applied to), so its cash
+// movement is left out of the ledger. Only when a payment row really stands for that movement, though: an older repayment
+// has a payment row with no mode split and no link to its movement, and a movement of that kind is listed as it is, so the
+// ledger adds up to the same cash in hand the summary reports. Personal-loan collections are listed from their own table.
+const movementNotShownByPaymentSQL = `(m.source IS DISTINCT FROM 'Collection' OR (m.purpose NOT LIKE '%PL-%' AND NOT EXISTS (
+	SELECT 1 FROM loan_payments lp
+	WHERE m.transaction_group_id <> '' AND lp.cash_transaction_group_id = m.transaction_group_id
+	AND lp.cash_amount + lp.upi_amount + lp.bank_transfer_amount + lp.cheque_amount > 0)))`
+
 func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID              uint
@@ -971,7 +980,7 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankID *uint, bran
 		Joins("LEFT JOIN customers c ON c.id = m.party_customer_id").
 		Joins("LEFT JOIN loan_cash_sources lcs ON lcs.cash_movement_id = m.id").
 		Where("m.mode = ?", mode).
-		Where("m.source IS DISTINCT FROM ?", "Collection").
+		Where(movementNotShownByPaymentSQL).
 		Where("m.source IS DISTINCT FROM ?", "GoldSale")
 	if bankID != nil {
 		q = q.Where("m.bank_id = ?", *bankID)

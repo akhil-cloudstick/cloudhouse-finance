@@ -333,9 +333,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         {req.status === "Pending" && !activeStage && (
           <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> No release approval is configured — {flowOf(workflow, "loan_release")?.offBehavior}</p>
         )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Close</button>
         {req.status === "Pending" && canDecide && canActOnStage && !!stage && (
           <>

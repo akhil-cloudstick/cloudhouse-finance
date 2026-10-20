@@ -1,4 +1,8 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, ApiError } from "@/common/services/httpClient";
+import { enqueueAndWait, getLocal, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
+import { getSelectedBranchId } from "@/common/services/branchSelection";
+import { buildOptimisticCustomer, UUID_ID } from "@/modules/customers/services/customerOffline";
 import { uploadFile as uploadSharedFile } from "@/common/services/uploadService";
 import { isSmallScreen } from "@/common/utils/responsive";
 import { toView as toLoanView, toAuctionRecordView, toCustomerOrnamentRowView, toCustomerPaymentRowView, toCustomerBankPledgeRowView, toCustomerAuctionRowView } from "@/modules/loans/services/loanService";
@@ -7,7 +11,8 @@ import type { BackendCustomer, CustomerView, CustomerFormInput, PanVerificationR
 
 function toView(c: BackendCustomer): CustomerView {
   return {
-    id: String(c.id),
+    // a customer the server has not numbered yet is known by the id the PC gave them
+    id: c.id ? String(c.id) : c.uuid ? UUID_ID + c.uuid : "",
     code: c.code,
     name: c.name,
     phone: c.phone,
@@ -86,9 +91,35 @@ function toRequestBody(input: CustomerFormInput) {
   };
 }
 
+/* On the desktop, a read the server did not answer at all is answered from this PC's local copy (this
+ * branch's customers). An answer from the server, even an error, is never replaced. */
+async function orLocal<T>(live: () => Promise<T>, local: () => T): Promise<T> {
+  try {
+    return await live();
+  } catch (e) {
+    if (offlineReady() && e instanceof ApiError && e.status === 0) return local();
+    throw e;
+  }
+}
+
+function localCustomers(): BackendCustomer[] {
+  // the branch picked in the switcher narrows an admin's local copy, as the X-Branch-Id header does live
+  const picked = getSelectedBranchId();
+  return (listLocal("customers") as unknown as BackendCustomer[])
+    .filter((c) => !picked || c.branchId === picked)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function matchesCustomer(c: BackendCustomer, q: string): boolean {
+  const needle = q.trim().toLowerCase();
+  return !needle || [c.name, c.code, c.phone].join(" ").toLowerCase().includes(needle);
+}
+
 export async function listCustomers(): Promise<CustomerView[]> {
-  const rec = await apiFetch<BackendCustomer[]>("/customers");
-  return (rec || []).map(toView);
+  return orLocal(
+    async () => ((await apiFetch<BackendCustomer[]>("/customers")) || []).map(toView),
+    () => localCustomers().map(toView),
+  );
 }
 
 export const CUSTOMERS_TABLE_PAGE_SIZE = 10;
@@ -110,8 +141,21 @@ export async function listCustomersPage(
   if (filters?.panStatus) params.set("panStatus", filters.panStatus);
   if (filters?.aadhaarStatus) params.set("aadhaarStatus", filters.aadhaarStatus);
   if (filters?.branchIds?.length) params.set("branchIds", filters.branchIds.join(","));
-  const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean; total?: number }>(`/customers?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean; total?: number }>(`/customers?${params}`);
+      return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+    },
+    () => {
+      const all = localCustomers()
+        .filter((c) => matchesCustomer(c, q))
+        .filter((c) => !filters?.panStatus || c.panStatus === filters.panStatus)
+        .filter((c) => !filters?.aadhaarStatus || c.aadhaarStatus === filters.aadhaarStatus)
+        .filter((c) => !filters?.branchIds?.length || filters.branchIds.includes(String(c.branchId)));
+      const from = (page - 1) * pageSize;
+      return { items: all.slice(from, from + pageSize).map(toView), hasMore: from + pageSize < all.length, total: all.length };
+    },
+  );
 }
 
 /* Server-side search across name/code/phone — backs SearchableSelect
@@ -130,8 +174,17 @@ const CUSTOMER_PAGE_SIZE = 5;
  * (see backend/internal/customer/handler.go's List). */
 export async function searchCustomersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE) });
-  const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
+      return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+    },
+    () => {
+      const all = localCustomers().filter((c) => c.customerType !== "Investor" && matchesCustomer(c, q));
+      const from = page * CUSTOMER_PAGE_SIZE;
+      return { items: all.slice(from, from + CUSTOMER_PAGE_SIZE).map(toView), hasMore: from + CUSTOMER_PAGE_SIZE < all.length };
+    },
+  );
 }
 
 /* Same as searchCustomersPage, narrowed to Investor customers only — backs
@@ -144,8 +197,14 @@ export async function searchInvestorsPage(q: string, page: number): Promise<{ it
 }
 
 export async function getCustomer(id: string): Promise<CustomerView> {
-  const rec = await apiFetch<BackendCustomer>(`/customers/${id}`);
-  return toView(rec);
+  return orLocal(
+    async () => toView(await apiFetch<BackendCustomer>(`/customers/${id}`)),
+    () => {
+      const rec = (listLocal("customers") as unknown as BackendCustomer[]).find((c) => (id.startsWith(UUID_ID) ? c.uuid === id.slice(UUID_ID.length) : String(c.id) === id));
+      if (!rec) throw new ApiError("Customer not found", 404);
+      return toView(rec);
+    },
+  );
 }
 
 export async function verifyCustomerPan(id: string): Promise<PanVerificationResult> {
@@ -180,12 +239,29 @@ export async function checkAadhaarVerify(customerId: string): Promise<AadhaarVer
   return { status: res.status, customer: res.customer ? toView(res.customer) : undefined, matchedName: res.matchedName, dob: res.dob, failureReasons: res.failureReasons ?? [] };
 }
 
-export async function createCustomer(input: CustomerFormInput): Promise<CustomerView> {
-  const rec = await apiFetch<BackendCustomer>("/customers", {
-    method: "POST",
-    body: JSON.stringify(toRequestBody(input)),
-  });
-  return toView(rec);
+export async function createCustomer(input: CustomerFormInput, hint?: { branchName?: string }): Promise<CustomerView> {
+  if (!offlineReady()) {
+    const rec = await apiFetch<BackendCustomer>("/customers", {
+      method: "POST",
+      body: JSON.stringify(toRequestBody(input)),
+    });
+    return toView(rec);
+  }
+  // Desktop: the save goes into the outbox first and the customer is in the local copy at once, so a loan can
+  // be started for them straight away. If the server answers within a few seconds the real record comes back
+  // (with its customer code), otherwise they show without a code until the next send.
+  const entry = newEntry("POST", "/customers", toRequestBody(input), currentActor());
+  entry.targets = [entry.id];
+  const draft = buildOptimisticCustomer(entry.id, input, hint);
+  await enqueueAndWait(
+    entry,
+    () => upsertLocal("customers", draft as unknown as LocalRecord),
+    () => removeLocal("customers", entry.id),
+  );
+  // a customer merged into one already on file (the same phone, PAN or Aadhaar, entered on another PC) is the
+  // existing record once the pull has run
+  const saved = (getLocal("customers", entry.id) as unknown as BackendCustomer | undefined) ?? draft;
+  return toView(saved);
 }
 
 export async function updateCustomer(id: string, input: CustomerFormInput): Promise<CustomerView> {
@@ -221,6 +297,25 @@ export async function getCustomer360(
   if (range?.from) qs.set("from", range.from);
   if (range?.to) qs.set("to", range.to);
   const suffix = qs.toString() ? `?${qs}` : "";
+  return orLocal(() => getCustomer360Live(id, suffix), () => {
+    const cust = localCustomerRecord(id);
+    if (!cust) throw new ApiError("Customer not found", 404);
+    const loans = localLoansOf(id, range);
+    const closed = loans.filter((l) => l.status === "Closed");
+    return {
+      customer: toView(cust),
+      loans: loans.map(toLoanView),
+      auctionHistory: [],
+      totalDisbursed: loans.reduce((s, l) => s + (l.disbursedAmount ?? 0), 0),
+      totalOutstanding: loans.reduce((s, l) => s + (l.totalOutstandingBalance ?? l.outstandingAmount ?? 0), 0),
+      totalPaid: loans.reduce((s, l) => s + (l.totalPaid ?? 0), 0),
+      activeLoanCount: loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected").length,
+      closedLoanCount: closed.length,
+    };
+  });
+}
+
+async function getCustomer360Live(id: string, suffix: string): Promise<Customer360View> {
   const rec = await apiFetch<BackendCustomer360>(`/customers/${id}/profile360${suffix}`);
   return {
     customer: toView(rec.customer),
@@ -259,6 +354,29 @@ function subTableParams(page: number, range?: { from?: string; to?: string }, li
   return params;
 }
 
+/* The customer details page, worked out from this PC's local copy for when the server does not answer: that
+ * customer's loans and what hangs off them (ornaments, payments, bank pledges). Auction history is held only on
+ * the server, so it is empty here. */
+function localCustomerRecord(id: string): BackendCustomer | undefined {
+  return (listLocal("customers") as unknown as BackendCustomer[]).find((c) => (id.startsWith(UUID_ID) ? c.uuid === id.slice(UUID_ID.length) : String(c.id) === id));
+}
+
+function localLoansOf(id: string, range?: { from?: string; to?: string }): BackendLoan[] {
+  const cust = localCustomerRecord(id);
+  if (!cust) return [];
+  const all = listLocal("loans") as unknown as BackendLoan[];
+  return all
+    .filter((l) => (cust.id ? l.customerId === cust.id : l.customerId === 0 && l.customer?.name === cust.name))
+    .filter((l) => (!range?.from || l.openedDate.slice(0, 10) >= range.from) && (!range?.to || l.openedDate.slice(0, 10) <= range.to))
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
+function pageOfLocal<T>(all: T[], page: number, limit?: number): { items: T[]; hasMore: boolean; total: number } {
+  const size = limit ?? (isSmallScreen() ? 7 : 10);
+  const from = (page - 1) * size;
+  return { items: all.slice(from, from + size), hasMore: from + size < all.length, total: all.length };
+}
+
 export async function listCustomerLoansPage(
   customerId: string,
   page: number,
@@ -266,8 +384,16 @@ export async function listCustomerLoansPage(
   limit?: number
 ): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
-  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/loans?${params}`);
-  return { items: (rec?.items || []).map(toLoanView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/loans?${params}`);
+      return { items: (rec?.items || []).map(toLoanView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+    },
+    () => {
+      const p = pageOfLocal(localLoansOf(customerId, range), page, limit);
+      return { ...p, items: p.items.map(toLoanView) };
+    },
+  );
 }
 
 export async function listCustomerOrnamentsPage(
@@ -277,8 +403,17 @@ export async function listCustomerOrnamentsPage(
   limit?: number
 ): Promise<{ items: CustomerOrnamentRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
-  const rec = await apiFetch<{ items: BackendCustomerOrnamentRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/ornaments?${params}`);
-  return { items: (rec?.items || []).map(toCustomerOrnamentRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendCustomerOrnamentRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/ornaments?${params}`);
+      return { items: (rec?.items || []).map(toCustomerOrnamentRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+    },
+    () => {
+      const rows = localLoansOf(customerId, range).flatMap((l) => (l.ornaments ?? []).map((o) => ({ ...o, loanId: l.id, loanNumber: l.loanNumber })));
+      const p = pageOfLocal(rows, page, limit);
+      return { ...p, items: p.items.map(toCustomerOrnamentRowView) };
+    },
+  );
 }
 
 export async function listCustomerPaymentsPage(
@@ -288,8 +423,19 @@ export async function listCustomerPaymentsPage(
   limit?: number
 ): Promise<{ items: CustomerPaymentRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
-  const rec = await apiFetch<{ items: BackendCustomerPaymentRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/payments?${params}`);
-  return { items: (rec?.items || []).map(toCustomerPaymentRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendCustomerPaymentRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/payments?${params}`);
+      return { items: (rec?.items || []).map(toCustomerPaymentRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+    },
+    () => {
+      const rows = localLoansOf(customerId, range)
+        .flatMap((l) => (l.payments ?? []).map((p) => ({ ...p, loanId: l.id, loanNumber: l.loanNumber })))
+        .sort((a, b) => (b.paidOn ?? "").localeCompare(a.paidOn ?? ""));
+      const p = pageOfLocal(rows, page, limit);
+      return { ...p, items: p.items.map(toCustomerPaymentRowView) };
+    },
+  );
 }
 
 export async function listCustomerBankPledgesPage(
@@ -299,8 +445,17 @@ export async function listCustomerBankPledgesPage(
   limit?: number
 ): Promise<{ items: CustomerBankPledgeRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
-  const rec = await apiFetch<{ items: BackendCustomerBankPledgeRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/bank-pledges?${params}`);
-  return { items: (rec?.items || []).map(toCustomerBankPledgeRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendCustomerBankPledgeRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/bank-pledges?${params}`);
+      return { items: (rec?.items || []).map(toCustomerBankPledgeRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+    },
+    () => {
+      const rows = localLoansOf(customerId, range).flatMap((l) => (l.bankPledges ?? []).map((b) => ({ ...b, loanId: l.id, loanNumber: l.loanNumber })));
+      const p = pageOfLocal(rows, page, limit);
+      return { ...p, items: p.items.map(toCustomerBankPledgeRowView) };
+    },
+  );
 }
 
 export async function listCustomerAuctionHistoryPage(
@@ -310,8 +465,13 @@ export async function listCustomerAuctionHistoryPage(
   limit?: number
 ): Promise<{ items: CustomerAuctionRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
-  const rec = await apiFetch<{ items: BackendCustomerAuctionRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/auction-history?${params}`);
-  return { items: (rec?.items || []).map(toCustomerAuctionRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendCustomerAuctionRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/auction-history?${params}`);
+      return { items: (rec?.items || []).map(toCustomerAuctionRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+    },
+    () => ({ items: [], hasMore: false, total: 0 }),
+  );
 }
 
 /* Uploads one file (photo/identity proof/address proof/KYC document) to the

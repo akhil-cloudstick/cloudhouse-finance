@@ -160,3 +160,21 @@ export function onContentUpdateEvent(
   if (!isDesktop() || !window.runtime) return noop;
   return window.runtime.EventsOn(`content:${name}`, (data) => handler((data ?? {}) as UpdateEventPayload));
 }
+
+/* Offline store. Plain files on this PC, kept by the Go side (flushed appends, whole-file swaps, protected
+ * secrets). In a browser there is no store, so offline mode is off and every call reports that. */
+export const offlineStore = {
+  available: (): boolean => isDesktop(),
+  open: (business: string, device: string) => app()!.StoreOpen(business, device),
+  appendOutbox: (line: string) => app()!.StoreAppendOutbox(line),
+  readOutbox: () => app()!.StoreReadOutbox(),
+  deleteOutboxEntry: (id: string) => app()!.StoreDeleteOutboxEntry(id),
+  readFile: (name: string) => app()!.StoreReadFile(name),
+  writeFile: (name: string, content: string) => app()!.StoreWriteFile(name, content),
+  log: (level: string, message: string) => app()?.StoreLog(level, message).catch(noop),
+  root: () => app()!.StoreRoot(),
+  rootChosen: () => app()!.StoreRootChosen(),
+  /* Opens the folder picker and moves the offline data there; resolves to the new folder, or "" if closed. */
+  chooseFolder: () => app()!.StoreChooseFolder(),
+  useDefaultFolder: () => app()!.StoreUseDefaultFolder(),
+};

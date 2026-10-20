@@ -13,6 +13,7 @@ import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeServic
 import { type SchemeView } from "@/modules/schemes/types/scheme-types";
 import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
+import { customerRef } from "@/modules/customers/services/customerOffline";
 import { updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
 import { uploadFile } from "@/modules/customers/services/customerService";
 import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
@@ -171,10 +172,10 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
         }
       }
       await updateLoan(loan.numericId, {
-        schemeId: schemeId !== loan.schemeId ? Number(schemeId) : undefined,
+        schemeId: schemeId !== loan.schemeId ? customerRef(schemeId) : undefined,
         principalAmount: +principal !== loan.principal ? +principal : undefined,
         overallPhotoUrl: overallPhoto !== loan.overallPhotoUrl ? overallPhoto : undefined,
-      });
+      }, loan.uuid);
       onSaved();
       closeModal();
       toast("Loan updated");
@@ -327,12 +328,12 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
           — the eligible loan amount recalculates automatically from these ornaments on save; the principal
           above is rejected if it ends up higher than the new eligible amount.
         </p>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       {/* The sticky-within-`.modal-bg` treatment this used to declare inline
           is now on `.modal .ft` in app.css, for every modal — nothing needed
           here beyond the class. */}
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
       </div>

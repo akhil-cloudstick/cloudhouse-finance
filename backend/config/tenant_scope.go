@@ -46,6 +46,7 @@ var tenantScopedTables = map[string]bool{
 	"approval_stage_settings": true, "approval_actions": true,
 	"approval_chains": true, "approval_category_modes": true,
 	"whatsapp_sessions": true,
+	"sync_receipts":     true, "sync_flags": true, "sync_aliases": true, "devices": true,
 }
 
 type Conn interface {

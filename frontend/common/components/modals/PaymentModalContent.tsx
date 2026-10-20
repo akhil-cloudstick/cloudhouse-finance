@@ -366,7 +366,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           chequeAmount: split.chequeAmount,
           bankId,
           interestOverride,
-        });
+        }, loan.uuid);
       }
       // closeModal only hides the shared shell — this component stays
       // mounted, so the portalled popup has to be dropped explicitly.

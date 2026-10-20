@@ -148,7 +148,7 @@ export function RegisterCustomerModalContent({
         ...(place.trim() ? { place: place.trim() } : {}),
         ...(pinCode.trim() ? { pinCode: pinCode.trim() } : {}),
         ...(age.trim() ? { age: Number(age) } : {}),
-      });
+      }, { branchName: branches.find((b) => b.id === Number(branchId))?.name });
 
       if (onCreated) {
         onCreated(c);
@@ -156,7 +156,7 @@ export function RegisterCustomerModalContent({
       }
       onSaved?.();
       closeModal();
-      toast(`${n} registered — ${c.code} · KYC auto-verified (stage 1 — no live verification yet)`);
+      toast(c.code ? `${n} registered — ${c.code} · KYC auto-verified (stage 1 — no live verification yet)` : `${n} registered. The customer code is added once the server is reachable.`);
       // Open the new record only for a role that may view customers (a
       // create-only role stays put rather than hitting the refusal toast).
       if (canOpen("customer")) navigate("customer/" + c.id);
@@ -247,9 +247,9 @@ export function RegisterCustomerModalContent({
             </div>
           </>
         )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Registering…" : "Register Customer"}</button>
       </div>

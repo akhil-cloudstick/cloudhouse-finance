@@ -1,10 +1,13 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
+import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
 import type { BackendScheme, SchemeView, SchemeFormInput, SchemeStatementFilters } from "@/modules/schemes/types/scheme-types";
 
 function toView(s: BackendScheme): SchemeView {
   return {
-    id: String(s.id),
+    // a scheme the server has not numbered yet is known by the id the PC gave it
+    id: s.id ? String(s.id) : s.uuid ? `uuid:${s.uuid}` : "",
     code: s.code,
     name: s.name,
     rate: s.interestRate,
@@ -45,7 +48,22 @@ function toRequestBody(input: SchemeFormInput) {
 
 /* Server-side search. `q` matches scheme name, code, LTV % and duration
  * (months); `methods` narrows to those interest calculation methods. */
+/* Schemes made on this PC that the server has not accepted yet, narrowed like the server would. */
+function pendingSchemes(q = "", methods?: string[], activeOnly = false): SchemeView[] {
+  if (!offlineReady()) return [];
+  const needle = q.trim().toLowerCase();
+  return (listLocal("schemes") as unknown as BackendScheme[])
+    .filter((s) => !activeOnly || s.isActive)
+    .filter((s) => !methods?.length || methods.includes(s.interestMethod))
+    .filter((s) => !needle || [s.name, String(s.ltvPercent), String(s.durationMonths)].join(" ").toLowerCase().includes(needle))
+    .map(toView);
+}
+
 export async function listSchemes(filters?: { q?: string; methods?: string[] }): Promise<SchemeView[]> {
+  return [...(await listSchemesLive(filters)), ...pendingSchemes(filters?.q, filters?.methods)];
+}
+
+async function listSchemesLive(filters?: { q?: string; methods?: string[] }): Promise<SchemeView[]> {
   const params = new URLSearchParams();
   if (filters?.q) params.set("q", filters.q);
   if (filters?.methods?.length) params.set("method", filters.methods.join(","));
@@ -66,14 +84,16 @@ export async function listSchemesPage(
   if (filters.q) params.set("q", filters.q);
   if (filters.methods?.length) params.set("method", filters.methods.join(","));
   const rec = await apiFetch<{ items: BackendScheme[] | null; hasMore: boolean }>(`/schemes?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const items = (rec?.items || []).map(toView);
+  // the first page also lists schemes made on this PC that are still waiting to be sent
+  return { items: page === 0 ? [...items, ...pendingSchemes(filters.q, filters.methods)] : items, hasMore: !!rec?.hasMore };
 }
 
 /* Server-side search (by name) across active schemes only — backs
  * SearchableSelect pickers (see NewLoan.tsx). */
 export async function searchActiveSchemes(q: string): Promise<SchemeView[]> {
   const rec = await apiFetch<BackendScheme[]>(`/schemes/active?q=${encodeURIComponent(q)}`);
-  return (rec || []).map(toView);
+  return [...(rec || []).map(toView), ...pendingSchemes(q, undefined, true)];
 }
 
 const SCHEME_PAGE_SIZE = 5;
@@ -85,15 +105,35 @@ const SCHEME_PAGE_SIZE = 5;
 export async function searchActiveSchemesPage(q: string, page: number): Promise<{ items: SchemeView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ q, limit: String(SCHEME_PAGE_SIZE), offset: String(page * SCHEME_PAGE_SIZE) });
   const rec = await apiFetch<{ items: BackendScheme[]; hasMore: boolean }>(`/schemes/active?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const items = (rec?.items || []).map(toView);
+  return { items: page === 0 ? [...items, ...pendingSchemes(q, undefined, true)] : items, hasMore: !!rec?.hasMore };
 }
 
 export async function createScheme(input: SchemeFormInput): Promise<SchemeView> {
-  const rec = await apiFetch<BackendScheme>("/schemes", {
-    method: "POST",
-    body: JSON.stringify(toRequestBody(input)),
-  });
-  return toView(rec);
+  try {
+    const rec = await apiFetch<BackendScheme>("/schemes", {
+      method: "POST",
+      body: JSON.stringify(toRequestBody(input)),
+    });
+    return toView(rec);
+  } catch (e) {
+    // Desktop with no answer from the server: keep the scheme on this PC, list it at once, and send it later.
+    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+    const entry = newEntry("POST", "/schemes", toRequestBody(input), currentActor());
+    entry.targets = [entry.id];
+    const draft = {
+      uuid: entry.id, id: 0, code: "", name: input.name, interestRate: input.rate, rateTiers: input.rateTiers,
+      minimumDays: input.minimumDays, durationMonths: input.durationMonths, ltvPercent: input.ltv,
+      interestMethod: input.method, penalRate: input.penal, conditions: input.cond, isActive: input.active,
+      branchId: input.branchId, serviceChargeType: input.serviceChargeType, serviceChargeValue: input.serviceChargeValue,
+    } as BackendScheme;
+    await enqueueAndWait(
+      entry,
+      () => upsertLocal("schemes", draft as unknown as LocalRecord),
+      () => removeLocal("schemes", entry.id),
+    );
+    return toView(draft);
+  }
 }
 
 export async function updateScheme(id: string, input: SchemeFormInput): Promise<SchemeView> {

@@ -9,6 +9,8 @@ export type ServiceChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
 export type RateTier = { days: number; rate: number };
 export type BackendScheme = {
   id: number;
+  // The id the PC gave a scheme made while the server was unreachable.
+  uuid?: string;
   code: string;
   name: string;
   interestRate: number;

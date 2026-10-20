@@ -7,6 +7,8 @@ import {
 } from "@/common/services/tenantSession";
 import { branchHeader } from "@/common/services/branchSelection";
 import { fromApi, toApi } from "@/common/services/apiContract";
+import { cacheable, recall, remember } from "@/common/offline/readCache";
+import { signHeaders } from "@/common/offline/device";
 
 // ===== ENVIRONMENT =====
 // Flip this before building. false = production.
@@ -50,6 +52,20 @@ export function resolveAssetUrl(path: string): string {
 
 /* fetch rejects with a TypeError when the server can't be reached at all —
  * surfaced as an ApiError with status 0 so callers show one readable message. */
+export const UNREACHABLE_EVENT = "app:server-unreachable";
+const QUIET_PATH = /\/(sync\/pull|devices|uploads)(\/|\?|$)/;
+let quietDepth = 0;
+
+/* Runs background work whose failures must not raise the pop-up. */
+export async function quietly<T>(fn: () => Promise<T>): Promise<T> {
+  quietDepth++;
+  try {
+    return await fn();
+  } finally {
+    quietDepth--;
+  }
+}
+
 async function networkFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
@@ -62,11 +78,33 @@ async function networkFetch(url: string, init?: RequestInit): Promise<Response> 
 /* Every request goes through the backend contract adapter (common/services/apiContract.ts):
  * paths, verbs, query and body move to the current API, and JSON responses come back
  * in the shapes the screens already read. */
-async function contractFetch(path: string, init?: RequestInit): Promise<Response> {
+async function contractFetch(path: string, init?: RequestInit, signed = false): Promise<Response> {
   // the identity in the path is the principal of the token this request actually carries (staff or superadmin)
   const sent = new Headers(init?.headers).get("Authorization")?.replace(/^Bearer\s+/i, "") || null;
   const req = toApi(init?.method ?? "GET", path, init?.body ?? undefined, sent ?? readToken());
-  const res = await networkFetch(`${API_BASE}${req.path}`, { ...init, method: req.method, body: req.body as BodyInit | undefined });
+  if (signed) {
+    // entries replayed from the outbox prove which PC sent them: HMAC of the exact bytes that go on the wire
+    const proof = await signHeaders(typeof req.body === "string" ? req.body : "");
+    init = { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers).entries()), ...proof } };
+  }
+  const keep = cacheable(req.method, req.path);
+  const view = keep ? JSON.stringify(branchHeader()) : "";
+  let res: Response;
+  try {
+    res = await networkFetch(`${API_BASE}${req.path}`, { ...init, method: req.method, body: req.body as BodyInit | undefined });
+  } catch (e) {
+    // No answer at all (offline mode only): show what this PC last saw for the same request.
+    if (keep && e instanceof ApiError && e.status === 0) {
+      const hit = await recall(req.path, view);
+      if (hit !== null) return new Response(hit, { status: 200, headers: { "content-type": "application/json", "X-From-Cache": "true" } });
+    }
+    // Nothing to show instead: a pop-up as well as the text in the page. Background work (the sync, the warm-up)
+    // never raises it, and a screen answered from the PC's own copy never reaches here.
+    if (e instanceof ApiError && e.status === 0 && !signed && quietDepth === 0 && !QUIET_PATH.test(req.path) && typeof window !== "undefined") {
+      window.dispatchEvent(new Event(UNREACHABLE_EVENT));
+    }
+    throw e;
+  }
   if (!(res.headers.get("content-type") ?? "").includes("application/json")) return res;
   const text = await res.text();
   let adapted = text;
@@ -75,6 +113,7 @@ async function contractFetch(path: string, init?: RequestInit): Promise<Response
   } catch {
     /* not valid JSON despite the header: hand it back untouched */
   }
+  if (keep && res.ok) remember(req.path, view, adapted);
   const headers = new Headers(res.headers);
   headers.delete("content-length");
   return new Response(res.status === 204 ? null : adapted, { status: res.status, statusText: res.statusText, headers });
@@ -245,6 +284,66 @@ export async function apiFetchEnvelope<T extends { success: boolean; error?: str
     throw new ApiError(body?.error || res.statusText, res.status);
   }
   return body as T;
+}
+
+/* Fetches a path only so its answer is kept for offline use (see common/offline/readCache.ts). It never
+ * reports a failure and never triggers the sign-in or "forbidden" handling: a role that may not see a list
+ * just has nothing to keep. */
+export async function warmGet(path: string): Promise<void> {
+  try {
+    await contractFetch(path, { headers: jsonHeaders() });
+  } catch {
+    /* nothing to keep */
+  }
+}
+
+/* Like warmGet, but hands back the parsed answer (null when there is none). */
+export async function warmJson(path: string): Promise<unknown | null> {
+  try {
+    const res = await contractFetch(path, { headers: jsonHeaders() });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/* One queued offline entry sent to the server as the same request the app makes today, plus the
+ * entry's UUID and the moment the user clicked. "saved" and "duplicate" both mean the server has it, so the
+ * line can go; anything else (no answer, timeout, a server error) means keep the line and try again.
+ * A rejected session never bounces to the login page here: a replay is background work. */
+export type ReplayOutcome = "saved" | "duplicate" | "retry";
+export type ReplayResult = { outcome: ReplayOutcome; status: number; body?: unknown; message?: string };
+
+export async function replayRequest(req: {
+  method: string;
+  path: string;
+  body?: unknown;
+  clientUuid: string;
+  occurredAt: string;
+}): Promise<ReplayResult> {
+  let res: Response;
+  try {
+    res = await contractFetch(
+      req.path,
+      {
+        method: req.method,
+        headers: { ...jsonHeaders(), "X-Client-Uuid": req.clientUuid, "X-Occurred-At": req.occurredAt },
+        body: req.body === undefined ? undefined : JSON.stringify(req.body),
+      },
+      true,
+    );
+  } catch (e) {
+    return { outcome: "retry", status: e instanceof ApiError ? e.status : 0, message: e instanceof Error ? e.message : String(e) };
+  }
+  let body: unknown;
+  try {
+    body = res.status === 204 ? undefined : await res.json();
+  } catch {
+    /* an empty or non-JSON body still carries the status */
+  }
+  if (res.ok) return { outcome: res.headers.get("X-Sync-Duplicate") === "true" ? "duplicate" : "saved", status: res.status, body };
+  const message = (body as { error?: string } | undefined)?.error || res.statusText;
+  return { outcome: "retry", status: res.status, body, message };
 }
 
 /* Like apiFetch, but for multipart file uploads — deliberately does NOT set

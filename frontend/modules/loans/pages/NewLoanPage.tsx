@@ -21,6 +21,9 @@ import { type SchemeView } from "@/modules/schemes/types/scheme-types";
 import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
 import { createLoan, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber } from "@/modules/loans/services/loanService";
+import { pendingKey } from "@/modules/loans/services/loanOffline";
+import { customerRef } from "@/modules/customers/services/customerOffline";
+import { firstStage as firstSanctionStage } from "@/common/services/approvalWorkflowService";
 import { type BackendLoanDraft, type SaveDraftInput } from "@/modules/loans/types/loan-types";
 import { publishGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
@@ -709,8 +712,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     try {
       const loan = await createLoan({
         branchId: Number(branchId),
-        customerId: Number(custId),
-        schemeId: Number(schemeId),
+        customerId: customerRef(custId),
+        schemeId: customerRef(schemeId),
         openedDate,
         dueDate: localISO(due),
         principalAmount: principal,
@@ -735,6 +738,14 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
         ...(draftId ? { draftId } : {}),
         ...(additionalInfo.trim() ? { additionalInfo: additionalInfo.trim() } : {}),
         ...(sch && sch.serviceChargeType !== "None" ? { serviceChargeMode: chargeMode } : {}),
+      }, {
+        // What the server would work out, for a loan made while it does not answer (desktop only).
+        customerName: custLabel.replace(/\s*\([^()]*\)\s*$/, ""),
+        customerCode: (custLabel.match(/\(([^()]*)\)\s*$/) ?? [])[1] ?? "",
+        branchName: branchLabel,
+        scheme: { name: s.name, rate: s.rate, ltv: s.ltv, method: s.method, penal: s.penal, serviceChargeType: s.serviceChargeType, serviceChargeValue: s.serviceChargeValue },
+        ornamentValues: rows.map((r) => r.netW * (rateForPurityFull(rates, r.p) ?? 0)).filter((_, i) => rows[i].w > 0 && rows[i].q > 0),
+        firstStage: firstSanctionStage(workflow, "loan_sanction")?.pending ?? "LoanOperator",
       });
 
       // The draft (if any) was consumed server-side by the create call above.
@@ -747,8 +758,9 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
       // new loan enters the chain — name the stage it is now waiting at (the
       // first enabled one, read back from the created loan).
       const firstStage = stageByPending(workflow, "loan_sanction", loan.approvalStage);
-      toast(`Loan ${loan.loanNumber} submitted for approval${firstStage ? ` — awaiting ${firstStage.label}` : ""}`);
-      navigate("loan/" + loan.loanNumber);
+      const loanKey = loan.loanNumber || (loan.uuid ? pendingKey(loan.uuid) : "");
+      toast(`Loan ${loan.loanNumber || "(number pending)"} submitted for approval${firstStage ? ` — awaiting ${firstStage.label}` : ""}`);
+      navigate("loan/" + loanKey);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Could not submit loan — try again");
     } finally {

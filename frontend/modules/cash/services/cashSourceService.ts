@@ -1,4 +1,6 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, ApiError } from "@/common/services/httpClient";
+import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
 import type { BackendLoanCashSource } from "@/modules/cash/types/cash-types";
 import type { BackendCashSource, LoanBalance } from "@/modules/cash/types/cash-source-types";
 
@@ -14,7 +16,21 @@ export const CASH_SOURCES_PAGE_SIZE = 5;
  * server-side pagination (GET /cash-sources?q=&limit=&offset=), unlike
  * bankService.ts's searchBanksPage which the bank list's small size lets
  * skip paging entirely. */
+/* Categories made on this PC that the server has not accepted yet, narrowed by the search text. */
+function pendingCategories(q: string): BackendCashSource[] {
+  if (!offlineReady()) return [];
+  const needle = q.trim().toLowerCase();
+  return (listLocal("categories") as unknown as (BackendCashSource & { type?: string })[]).filter((c) => (!c.type || c.type === "cash_in") && (!needle || c.name.toLowerCase().includes(needle)));
+}
+
 export async function searchCashSourcesPage(q: string, page: number): Promise<{ items: BackendCashSource[]; hasMore: boolean }> {
+  const r = await searchCashSourcesLive(q, page);
+  if (page !== 0) return r;
+  const known = new Set(r.items.map((i) => i.name.toLowerCase()));
+  return { ...r, items: [...r.items, ...pendingCategories(q).filter((c) => !known.has(c.name.toLowerCase()))] };
+}
+
+async function searchCashSourcesLive(q: string, page: number): Promise<{ items: BackendCashSource[]; hasMore: boolean }> {
   const params = new URLSearchParams({ limit: String(CASH_SOURCES_PAGE_SIZE), offset: String(page * CASH_SOURCES_PAGE_SIZE) });
   if (q) params.set("q", q);
   const res = await apiFetch<{ items: BackendCashSource[] | null; hasMore: boolean }>(`/cash-sources?${params}`);
@@ -35,6 +51,20 @@ export async function searchLoanSourcesPage(q: string, page: number): Promise<{ 
  * insensitive) already exists — returns the existing row instead (the
  * backend's find-or-create behaviour). */
 export async function createCashSource(name: string): Promise<BackendCashSource> {
+  try {
+    return await createCashSourceLive(name);
+  } catch (e) {
+    // Desktop with no answer from the server: the category is kept on this PC, listed at once, and sent later.
+    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+    const entry = newEntry("POST", "/cash-sources", { name }, currentActor());
+    // a temporary negative id keeps it distinct in the picker; the server's own list replaces it once sent
+    const draft = { id: -Math.floor(Math.random() * 1_000_000) - 1, name, type: "cash_in", uuid: entry.id } as unknown as BackendCashSource;
+    await enqueueAndWait(entry, () => upsertLocal("categories", draft as unknown as LocalRecord), () => removeLocal("categories", entry.id));
+    return draft;
+  }
+}
+
+async function createCashSourceLive(name: string): Promise<BackendCashSource> {
   return apiFetch<BackendCashSource>("/cash-sources", {
     method: "POST",
     body: JSON.stringify({ name }),

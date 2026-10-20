@@ -593,12 +593,11 @@ func (f *Frontend) setupChromium() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// cloudhouse patch: AreDevToolsEnabled is never set true, ever — see
-	// cloudhouseEnableDevToolsEvent below. Left at its default (false),
-	// permanently, in every build: this is what makes F12/Ctrl+Shift+F12 and
-	// the (also permanently disabled) native menu's "Inspect Element"
-	// unreachable by any path other than this app's own PIN-gated one.
-	err = settings.PutAreDevToolsEnabled(false)
+	// cloudhouse patch: developer tools are on in every build, like a browser's: F12 / Ctrl+Shift+I open them,
+	// and so does "Inspect" in DesktopContextMenu.tsx (which goes through cloudhouseEnableDevToolsEvent below).
+	// The native context menu itself stays off (EnableDefaultContextMenu in main.go) so the app's own menu is
+	// the only one shown. There is no PIN any more.
+	err = settings.PutAreDevToolsEnabled(true)
 	if err != nil {
 		log.Fatal(err)
 	}

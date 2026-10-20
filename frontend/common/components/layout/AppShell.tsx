@@ -9,6 +9,9 @@ import { LoansProvider } from "@/modules/loans/store/LoansProvider";
 import { GoldRatesProvider } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { ModalProvider } from "@/common/components/ModalProvider";
 import { ToastProvider, useToast } from "@/common/components/ToastProvider";
+import { ENTRY_REFUSED_EVENT } from "@/common/offline/live";
+import { UNREACHABLE_EVENT } from "@/common/services/httpClient";
+import { OfflineStoragePrompt } from "@/common/components/OfflineStoragePrompt";
 import { TooltipLayer } from "@/common/components/TooltipLayer";
 import { FitTextObserver } from "@/common/components/ui/FitTextObserver";
 import { Sidebar } from "@/common/components/layout/Sidebar";
@@ -224,6 +227,26 @@ function AppShellInner() {
     return () => setNavigationGuard(null);
   }, [permissionsLoaded, brandingLoaded, can, hasModule, singleBranch, toast]);
 
+  // The server cannot be reached: a pop-up, at most once every few seconds however many requests fail together.
+  useEffect(() => {
+    let last = 0;
+    const show = () => {
+      if (Date.now() - last < 6000) return;
+      last = Date.now();
+      toast("Couldn't reach the server. Check your connection and try again.");
+    };
+    window.addEventListener(UNREACHABLE_EVENT, show);
+    return () => window.removeEventListener(UNREACHABLE_EVENT, show);
+  }, [toast]);
+
+  // A save made earlier on this PC that the server turned down when it was sent from the queue, worded as an
+  // ordinary failed save would be.
+  useEffect(() => {
+    const show = (e: Event) => toast((e as CustomEvent<{ message?: string }>).detail?.message || "A saved entry was not accepted by the server.");
+    window.addEventListener(ENTRY_REFUSED_EVENT, show);
+    return () => window.removeEventListener(ENTRY_REFUSED_EVENT, show);
+  }, [toast]);
+
   /* In-app links navigate WITHOUT a full page load.
    *
    * Every route link in the console is a plain <a href="/ctfi/loan/GL-1001">,
@@ -367,6 +390,7 @@ export function AppShell() {
               <ToastProvider>
                 <ModalProvider>
                   <AppShellInner />
+                  <OfflineStoragePrompt />
                   <FitTextObserver />
                   <TooltipLayer />
                 </ModalProvider>

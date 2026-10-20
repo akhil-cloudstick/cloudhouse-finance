@@ -170,6 +170,8 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/users/:user_id/loans":                                                   list(),
 	"GET /api/v1/users/:user_id/loans/:id":                                                probe("id=loans"),
 	"GET /api/v1/users/:user_id/loans/:id/pledge-slip":                                    probe("id=loans"),
+	"POST /api/v1/users/:user_id/devices":                                                 self("registers the caller's own PC; the business and employee come from the token, there is no identifier to substitute"),
+	"GET /api/v1/users/:user_id/sync/pull":                                                list(),
 	"GET /api/v1/users/:user_id/loans/next-number":                                        self("next number in the caller's own business sequence, taken from the token; no identifier to substitute"),
 	"GET /api/v1/users/:user_id/loans/:id/approvals":                                      probe("id=loans"),
 	"GET /api/v1/users/:user_id/loans/:id/statement":                                      probe("id=loans"),

@@ -358,9 +358,9 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
         <div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
           <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /><FieldError msg={fe.remarks} /></div></div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+          {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : isGoldSale ? "Record Sale" : "Add Cash"}</button>
       </div>

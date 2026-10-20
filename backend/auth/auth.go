@@ -301,7 +301,7 @@ func RequireSelf(param, ctxKey string) echo.MiddlewareFunc {
 }
 
 func Staff(extra ...echo.MiddlewareFunc) []echo.MiddlewareFunc {
-	return append([]echo.MiddlewareFunc{AuthMiddleware(), RequireSelf("user_id", "employeeId"), RequireHostMatchesTenant(true), PinTenantConn(), PinSingleBranch()}, extra...)
+	return append([]echo.MiddlewareFunc{AuthMiddleware(), RequireSelf("user_id", "employeeId"), RequireHostMatchesTenant(true), PinTenantConn(), PinSingleBranch(), SyncEntry()}, extra...)
 }
 
 func Customer(extra ...echo.MiddlewareFunc) []echo.MiddlewareFunc {
@@ -380,7 +380,8 @@ func CORS(allowedOrigins string) echo.MiddlewareFunc {
 				c.Response().Header().Set("Vary", "Origin")
 			}
 			c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Branch-Id")
+			c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Branch-Id, X-Client-Uuid, X-Occurred-At, X-Device-Id, X-Device-Signature")
+			c.Response().Header().Set("Access-Control-Expose-Headers", "X-Sync-Duplicate")
 			if c.Request().Method == http.MethodOptions {
 				return c.NoContent(http.StatusNoContent)
 			}
