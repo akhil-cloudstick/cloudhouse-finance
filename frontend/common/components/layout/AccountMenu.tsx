@@ -9,15 +9,14 @@ import { useBranchSwitch } from "@/common/hooks/use-branch-switch";
 import { SettingsModalContent } from "@/modules/integrations/components/SettingsModalContent";
 import {
   checkForUpdate,
-  downloadUpdate,
-  installUpdate,
   isDesktop,
   onUpdateEvent,
+  checkForContentUpdate,
+  onContentUpdateEvent,
 } from "@/common/services/desktopBridge";
 
 type UpdateState = "idle" | "checking" | "uptodate" | "available" | "downloading" | "ready" | "error";
 
-const RING_C = 2 * Math.PI * 7;
 const subscribeNever = () => () => {};
 
 /* The header's name chip, opening a small dropdown that holds what used to
@@ -42,8 +41,8 @@ export function AccountMenu() {
   const { openModal } = useModal();
   const [open, setOpen] = useState(false);
   const [upd, setUpd] = useState<UpdateState>("idle");
-  const [progress, setProgress] = useState(0);
-  const [updError, setUpdError] = useState("");
+  // Content-only release — folds into the same "waiting" dot as the full update.
+  const [contentAvailable, setContentAvailable] = useState(false);
   const branch = useBranchSwitch();
   const [branchOpen, setBranchOpen] = useState(false);
   const desktop = useSyncExternalStore(subscribeNever, isDesktop, () => false);
@@ -55,10 +54,16 @@ export function AccountMenu() {
       onUpdateEvent("checking", () => setUpd("checking")),
       onUpdateEvent("available", () => setUpd("available")),
       onUpdateEvent("not-available", () => setUpd("uptodate")),
-      onUpdateEvent("progress", (p) => { setUpd("downloading"); setProgress(p.percent ?? 0); }),
+      onUpdateEvent("progress", () => setUpd("downloading")),
       onUpdateEvent("downloaded", () => setUpd("ready")),
-      onUpdateEvent("error", (p) => { setUpdError(p.message ?? "Update failed"); setUpd("error"); }),
+      onUpdateEvent("error", () => setUpd("error")),
+      onContentUpdateEvent("available", () => setContentAvailable(true)),
+      onContentUpdateEvent("not-available", () => setContentAvailable(false)),
+      onContentUpdateEvent("applied", () => setContentAvailable(false)),
     ];
+    // Checked once per app open, not only on an explicit click; a refresh remounts this component.
+    void checkForUpdate();
+    void checkForContentUpdate();
     return () => unsubscribe.forEach((off) => off());
   }, [desktop]);
 
@@ -79,24 +84,15 @@ export function AccountMenu() {
     };
   }, [open]);
 
-  function onUpdateRow() {
-    if (upd === "idle" || upd === "uptodate" || upd === "error") void checkForUpdate();
-    else if (upd === "available") {
-      setUpd("downloading");
-      setProgress(0);
-      void downloadUpdate();
-    } else if (upd === "ready") void installUpdate();
-  }
-
   function pickBranch(id: number | null) {
     setBranchOpen(false);
     setOpen(false);
     if (id !== branch.selectedBranchId) branch.select(id);
   }
 
-  function openSettings() {
+  function openSettings(section?: string) {
     setOpen(false);
-    openModal(<SettingsModalContent />, true);
+    openModal(<SettingsModalContent initialSection={section} />, true);
   }
 
   function signOut() {
@@ -112,42 +108,9 @@ export function AccountMenu() {
   }
 
   const initial = employee?.name ? employee.name.charAt(0).toUpperCase() : "—";
-  const waiting = upd === "available" || upd === "ready";
-  const busy = upd === "checking" || upd === "downloading";
-
-  let updIcon: React.ReactNode;
-  let updLabel: string;
-  let updEnd: React.ReactNode = null;
-  if (upd === "checking") {
-    updIcon = <span className="acct-spin" />;
-    updLabel = "Checking for updates…";
-  } else if (upd === "uptodate") {
-    updIcon = <Icon name="check" />;
-    updLabel = "Up to date";
-  } else if (upd === "available") {
-    updIcon = <Icon name="arrowUp" />;
-    updLabel = "Update available";
-    updEnd = <span className="acct-ibtn" title="Download update"><Icon name="download" /></span>;
-  } else if (upd === "downloading") {
-    updIcon = (
-      <svg className="acct-ring" viewBox="0 0 18 18" aria-hidden="true">
-        <circle className="trk" cx="9" cy="9" r="7" fill="none" strokeWidth="2.5" />
-        <circle className="val" cx="9" cy="9" r="7" fill="none" strokeWidth="2.5" strokeLinecap="round"
-          strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - progress / 100)} />
-      </svg>
-    );
-    updLabel = `Downloading… ${Math.round(progress)}%`;
-  } else if (upd === "ready") {
-    updIcon = <Icon name="check" />;
-    updLabel = "Update ready · Restart";
-    updEnd = <span className="acct-ibtn" title="Restart to install"><Icon name="refresh" /></span>;
-  } else if (upd === "error") {
-    updIcon = <Icon name="refresh" />;
-    updLabel = "Update failed · Retry";
-  } else {
-    updIcon = <Icon name="refresh" />;
-    updLabel = "Check for updates";
-  }
+  // Stays on for either kind of pending update, regardless of dismiss. Checking/acting on it
+  // happens only in Settings (DesktopVersionPanel) — this dropdown just surfaces the dot.
+  const waiting = upd === "available" || upd === "ready" || contentAvailable;
 
   return (
     <div className="acct" ref={root}>
@@ -228,25 +191,10 @@ export function AccountMenu() {
               <div className="acct-sep" />
             </>
           )}
-          <button type="button" role="menuitem" className="acct-item" onClick={openSettings}>
+          <button type="button" role="menuitem" className="acct-item" onClick={() => openSettings()}>
             <span className="i"><Icon name="gear" /></span>
             <span className="lbl">Settings</span>
           </button>
-          {desktop && (
-            <button
-              type="button"
-              role="menuitem"
-              className={`acct-item${busy ? " busy" : ""}${upd === "available" ? " new" : ""}${upd === "uptodate" || upd === "ready" ? " ok" : ""}`}
-              onClick={onUpdateRow}
-              disabled={busy}
-              title={upd === "error" ? updError : undefined}
-              aria-live="polite"
-            >
-              <span className="i">{updIcon}</span>
-              <span className="lbl">{updLabel}</span>
-              {updEnd}
-            </button>
-          )}
           <div className="acct-sep" />
           <button type="button" role="menuitem" className="acct-item danger" onClick={signOut}>
             <span className="i"><Icon name="logout" /></span>

@@ -8,6 +8,7 @@ import (
 	cashRouters "cloudhouse/backend/modules/Cash/routers"
 	customerAppRouters "cloudhouse/backend/modules/CustomerApp/routers"
 	dashboardRouters "cloudhouse/backend/modules/Dashboard/routers"
+	desktopReleaseRouters "cloudhouse/backend/modules/DesktopRelease/routers"
 	investmentRouters "cloudhouse/backend/modules/Investment/routers"
 	loanRouters "cloudhouse/backend/modules/Loan/routers"
 	lockerRouters "cloudhouse/backend/modules/Locker/routers"
@@ -58,6 +59,7 @@ func InitRoutes(e *echo.Echo) *echo.Echo {
 	billingRouters.BillingModuleRoutes(e)
 	customerAppRouters.CustomerAppModuleRoutes(e)
 	superAdminRouters.SuperAdminModuleRoutes(e)
+	desktopReleaseRouters.DesktopReleaseModuleRoutes(e)
 	e.RouteNotFound("/api/v1/users/:user_id/*", echo.NotFoundHandler, auth.Staff()...)
 	e.RouteNotFound("/api/v1/customers/:customer_id/*", echo.NotFoundHandler, auth.Customer()...)
 	e.RouteNotFound("/api/v1/superadmin/users/:user_id/*", echo.NotFoundHandler, auth.SuperAdmin()...)

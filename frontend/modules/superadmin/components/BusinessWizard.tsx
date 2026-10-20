@@ -9,6 +9,7 @@ import BrandingStep, { type BrandingDraft } from "@/modules/superadmin/component
 import { classicLayout, LAYOUT_PRESETS, LOGO_WIDTH_SQUARE, matchingPreset, parseHeaderLayout, serializeHeaderLayout, type HeaderLayout } from "@/common/config/headerLayout";
 import { ReasonField } from "@/modules/superadmin/components/ReasonField";
 import { ReviewRow } from "@/modules/superadmin/components/ReviewRow";
+import { DesktopReleaseModal } from "@/modules/superadmin/components/DesktopReleaseModal";
 import { sortedTiers, plansFor, downgradeNote, planLabel, MODULE_LABELS, LANGUAGE_LABELS } from "@/modules/superadmin/utils/dashboardHelpers";
 import { useActiveBranches } from "@/modules/superadmin/hooks/use-active-branches";
 import { StepId } from "@/modules/superadmin/types/dashboard-types";
@@ -302,6 +303,9 @@ export function BusinessWizard({
   }
 
   const [reason, setReason] = useState("");
+  // Create only: offer the new tenant's first desktop build; it runs server-side regardless of this modal.
+  const [startBuildAfterCreate, setStartBuildAfterCreate] = useState(true);
+  const [createdForBuild, setCreatedForBuild] = useState<{ code: string; name: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -542,6 +546,11 @@ export function BusinessWizard({
           });
         }
       }
+      if (isCreate && startBuildAfterCreate) {
+        setCreatedForBuild({ code, name });
+        onDone();
+        return;
+      }
       onDone();
       onClose();
     } catch (err) {
@@ -549,6 +558,10 @@ export function BusinessWizard({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (createdForBuild) {
+    return <DesktopReleaseModal tenant={createdForBuild} onClose={onClose} />;
   }
 
   return (
@@ -973,6 +986,16 @@ export function BusinessWizard({
                   </>
                 )}
               </dl>
+              {isCreate && (
+                <label className="sa-checkbox" style={{ marginTop: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={startBuildAfterCreate}
+                    onChange={(e) => setStartBuildAfterCreate(e.target.checked)}
+                  />
+                  Start this tenant&rsquo;s first desktop build after creating
+                </label>
+              )}
               <div style={{ marginTop: 14 }}>
                 <ReasonField value={reason} onChange={setReason} required={reasonRequired} />
               </div>

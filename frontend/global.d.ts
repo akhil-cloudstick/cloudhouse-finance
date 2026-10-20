@@ -5,6 +5,11 @@ interface DesktopApp {
   DownloadUpdate(): Promise<void>;
   InstallUpdate(): Promise<void>;
   OpenDevTools(): Promise<void>;
+  // Content-only release; "" = still on the embedded (built-in) content.
+  ActiveContentVersion(): Promise<string>;
+  CheckContentUpdate(): Promise<void>;
+  DownloadContentUpdate(): Promise<void>;
+  ApplyContentUpdate(): Promise<void>;
 }
 
 interface DesktopRuntime {
