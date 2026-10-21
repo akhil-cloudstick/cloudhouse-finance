@@ -4,10 +4,7 @@ import { colors as C } from "@/common/theme/colors";
 
 export { C };
 
-/** Pull-to-refresh with the app's own loader: the native RefreshControl
- * still provides the pull gesture, but its system spinner is hidden
- * (moved off-screen on Android, transparent on iOS) — the list shows its
- * <Buffering /> while `refreshing` instead, same as any other reload. */
+/** Keeps RefreshControl's pull gesture but hides its system spinner so the list's own <Buffering /> shows instead. */
 export function pullRefreshControl(refreshing: boolean, onRefresh: () => void) {
   return (
     <RefreshControl

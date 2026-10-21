@@ -1,18 +1,8 @@
-// Per-business theming — one picked colour drives the whole brand ramp.
-// Ported from frontend/common/config/theme.ts: same maths (Ottosson's OKLab
-// transform, held-lightness ramp, gamut-fit binary search), producing hex
-// directly since React Native has no CSS custom properties to write oklch()
-// into — see that file's header comment for the full rationale.
-//
-// Keep the six steps' l/chromaRatio values in step with theme.ts's RAMP and
-// with app.css's :root — all three describe the same design.
-
+// Keep the six steps' l/chromaRatio values in step with frontend/common/config/theme.ts's RAMP.
 export type Oklch = { l: number; c: number; h: number };
 
 const BRAND_REFERENCE_CHROMA = 0.162;
 
-// token names match the keys in ./colors.ts (brandDeep/brand/brandMid/
-// brandLight/brandPale/brandFaint), not theme.ts's "--brand*" CSS vars.
 const RAMP: { token: string; l: number; chromaRatio: number }[] = [
   { token: "brandDeep", l: 0.4, chromaRatio: 0.145 / BRAND_REFERENCE_CHROMA },
   { token: "brand", l: 0.515, chromaRatio: 1 },
@@ -103,13 +93,7 @@ export type BrandRampHex = {
   brandFaint: string;
 };
 
-/**
- * deriveBrandRampHex regenerates all six brand steps from one picked colour,
- * as hex, ready to spread into colors.ts's shape. A malformed/unparseable
- * value falls back to the platform default rather than throwing — this can
- * run before the first paint, and a bad stored colour must degrade to the
- * default theme, never crash the app.
- */
+// Falls back to the platform default on a malformed value rather than throwing; this can run before first paint.
 export function deriveBrandRampHex(hex: string | null | undefined): BrandRampHex {
   const picked = (hex && hexToOklch(hex)) || hexToOklch(DEFAULT_BRAND_COLOR)!;
   const out = {} as BrandRampHex;

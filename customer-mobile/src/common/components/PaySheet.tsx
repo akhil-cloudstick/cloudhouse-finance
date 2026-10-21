@@ -13,33 +13,19 @@ import { RazorpayPaymentType } from "@/modules/payments/services/paymentService"
 import { Loan } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
 
-// `react-native-razorpay` needs a native module (RNRazorpayCheckout) that
-// plain Expo Go doesn't have — it's only present in a custom dev-client
-// build (`npx expo run:android`/`eas build --profile development`).
-// Detecting it at runtime lets this screen work in BOTH environments
-// without the customer needing to know which one they're running:
-// Solution B (native checkout) when the module is linked, Solution A
-// (Razorpay's own Web Checkout loaded in a WebView — see
-// RazorpayWebCheckout.tsx, no native module required) as the Expo Go
-// fallback.
+// Detect native checkout module at runtime; falls back to WebView checkout (RazorpayWebCheckout.tsx) in Expo Go.
 const RAZORPAY_NATIVE_AVAILABLE = !!NativeModules.RNRazorpayCheckout;
 
 function money(n: number | undefined | null): string {
   return `₹${(n ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
-// paise-safe equality check — amounts come from floats on both sides, so a
-// direct === risks false negatives from rounding.
+// Paise-safe equality: avoids float rounding false negatives from a direct ===.
 function amountsEqual(a: number, b: number): boolean {
   return Math.round(a * 100) === Math.round(b * 100);
 }
 
-// Infers the payment `type` sent to the backend purely to pick the right
-// server-side waterfall (see backend/internal/loan/service.go's
-// allocatePayment) — per the plan's exact-match rules: an amount exactly
-// equal to outstanding interest+penal -> Interest; exactly equal to the
-// settlement quote -> FullSettlement; anything else -> Partial. The
-// allocation waterfall itself decides where the money actually goes.
+// Picks the backend allocation type by exact-match amount; the server-side waterfall decides where money actually goes.
 function inferPaymentType(amount: number, interestDue: number, settlementAmount: number): RazorpayPaymentType {
   if (amountsEqual(amount, interestDue)) return "Interest";
   if (amountsEqual(amount, settlementAmount)) return "FullSettlement";
@@ -53,10 +39,7 @@ type PaySheetProps = {
   onPaid: () => void;
 };
 
-// Shared "Pay" bottom sheet used by both Loan Detail (app/(tabs)/loans/[id].tsx) and
-// the Payments tab (app/(tabs)/payments.tsx) — per the plan's DRY note. The
-// customer always types the amount by hand (no quick-select chips); the
-// outstanding-interest/total-outstanding lines are informational only.
+// Shared by Loan Detail and the Payments tab; amount is always typed by hand, no quick-select chips.
 export function PaySheet({
   visible,
   onClose,
@@ -67,11 +50,7 @@ export function PaySheet({
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
 
-  // Solution A's pending state — set only when falling back to the WebView
-  // checkout (native module unavailable). Holds what's needed to verify
-  // once the WebView reports success, since that happens on a later,
-  // separate turn (a modal callback), not inline in submit()'s try block
-  // the way the native path's awaited RazorpayCheckout.open() does.
+  // Holds payment details to verify later, since the WebView fallback reports success via a separate callback.
   const [webCheckoutOptions, setWebCheckoutOptions] = useState<RazorpayWebCheckoutOptions | null>(null);
   const [pendingPayment, setPendingPayment] = useState<{ orderId: string; amount: number; type: RazorpayPaymentType } | null>(null);
 
@@ -90,16 +69,8 @@ export function PaySheet({
   const parsedAmount = Number(amount);
   const isValid = amount !== "" && parsedAmount > 0 && parsedAmount <= totalOutstanding;
 
-  // Shared by both paths: verifies the checkout signature server-side and,
-  // only on success, shows the confirmation and closes the sheet.
   async function verifyAndFinish(orderId: string, paymentId: string, signature: string, paidAmount: number, type: RazorpayPaymentType) {
     await paymentsApi.verifyPayment(loan.id, { orderId, paymentId, signature, amount: paidAmount, type });
-    // Closes immediately rather than showing "Payment successful." for a
-    // beat first (was a 900ms, then a 400ms, artificial delay on top of the
-    // verifyPayment() await above, which is already a real network round
-    // trip) — by the time this line runs the payment is genuinely confirmed
-    // server-side, so there's nothing left to wait on. onPaid() refreshes
-    // the underlying screen, which is where the customer sees the result.
     onClose();
     onPaid();
   }
@@ -113,9 +84,6 @@ export function PaySheet({
       const order = await paymentsApi.createOrder(loan.id, { amount: parsedAmount, type });
 
       if (!RAZORPAY_NATIVE_AVAILABLE) {
-        // Solution A: hand off to the WebView checkout modal — it takes
-        // over from here and calls back via handleWebCheckout*() below, not
-        // this function.
         setPendingPayment({ orderId: order.orderId, amount: parsedAmount, type });
         setWebCheckoutOptions({
           key: order.keyId,
@@ -128,7 +96,6 @@ export function PaySheet({
         return;
       }
 
-      // Solution B: native checkout (dev-client build only).
       const result = await RazorpayCheckout.open({
         key: order.keyId,
         order_id: order.orderId,
@@ -139,18 +106,13 @@ export function PaySheet({
       });
       await verifyAndFinish(order.orderId, result.razorpay_payment_id, result.razorpay_signature, parsedAmount, type);
     } catch (err) {
-      // A cancelled/failed Razorpay checkout rejects with { code,
-      // description } rather than an ApiError.
+      // A cancelled/failed Razorpay checkout rejects with { code, description } rather than an ApiError.
       const description = err && typeof err === "object" && "description" in err ? String((err as any).description) : undefined;
       setMessage({
         text: err instanceof ApiError ? err.message : description || "Payment could not be completed.",
         error: true,
       });
     } finally {
-      // Solution A's spinner is released by its own handlers below instead
-      // (submit() returns early before this point in that branch, but the
-      // finally still runs — setSubmitting(false) here is harmless since
-      // the WebView modal, not the button, owns the UI at that point).
       setSubmitting(false);
     }
   }
@@ -172,9 +134,6 @@ export function PaySheet({
   function handleWebCheckoutCancel() {
     setWebCheckoutOptions(null);
     setPendingPayment(null);
-    // Previously silent — the customer just saw this same amount screen
-    // reappear with no explanation at all, indistinguishable from the
-    // payment having silently failed. Now explicit either way.
     setMessage({ text: "Payment cancelled.", error: true });
   }
 

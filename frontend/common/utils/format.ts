@@ -1,14 +1,7 @@
-/* Ported from legacy/app.js's small formatting/lookup helpers. */
 import type { CustomerView } from "@/modules/customers/types/customer-types";
 import type { SchemeView } from "@/modules/schemes/types/scheme-types";
 
-// Money is shown to 2 decimals everywhere. Rounding each figure to whole
-// rupees used to make component lines disagree with their own total (₹5,487.60
-// principal + ₹1.40 interest rendered as "₹5,488 + ₹1 = ₹5,490"), which reads
-// as a maths error to a cashier and invites over-collection by a rupee or two.
-// A NaN/Infinity (e.g. a 0/0 ratio, or a figure derived from a response that
-// never arrived because the backend was down) renders as "-" rather than
-// "₹NaN" (Infinity too). null/undefined still read as zero.
+// 2-decimal money avoids total/line mismatches; NaN/Infinity show as "-" not "₹NaN".
 export const fmt = (n: number) => {
   const v = n ?? 0;
   if (!Number.isFinite(v)) return "-";
@@ -37,13 +30,9 @@ const STATUS_COLOR: Record<string, string> = {
   "Name Mismatch": "red",
   // Investment (internal/investment) status/payout chips.
   Matured: "amber", Renewed: "blue", Paid: "green",
-  // verificationLabel()'s 3-value summary (customerService.ts) — shown as a
-  // chip in the New Loan customer picker's dropdown rows.
+  // verificationLabel()'s 3-value summary (customerService.ts) for the New Loan customer picker.
   "Part Verified": "amber", Unverified: "red",
-  // Loan-level only — a packet whose gold was auctioned still shows plain
-  // "Released" (see loan.PacketMover.RecordGoldReleaseMovement), it's the
-  // loan's own status that distinguishes an auction sale from an ordinary
-  // release.
+  // Loan-level only: packets stay "Released" after auction; the loan's status marks the sale.
   Auctioned: "red", "Auctioned - Balance Due": "red",
 };
 
@@ -51,18 +40,14 @@ export function statusChipColor(status: string): string {
   return STATUS_COLOR[status] || "gray";
 }
 
-// App-wide date style: "05-10-2026" (DD-MM-YYYY). Reads the YYYY-MM-DD prefix
-// of an ISO date/timestamp directly so it never shifts a day across timezones.
-// "—" when empty or unparseable.
+// DD-MM-YYYY from the ISO prefix (avoids timezone day-shift); "—" if unparseable.
 export const fmtDate = (v?: string | null) => {
   const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
   // Year 0001 is Go's zero time.Time — the backend's "never set" — not a date.
   return m && m[1] !== "0001" ? `${m[3]}-${m[2]}-${m[1]}` : "—";
 };
 
-// Whole years from a "YYYY-MM-DD" date of birth to today (local date), read
-// from the string like fmtDate so it never shifts a day across timezones.
-// null when empty, unparseable, Go's zero time, or in the future.
+// Age from YYYY-MM-DD dob, read directly to avoid timezone shift; null if invalid/future.
 export const ageFromDob = (v?: string | null): number | null => {
   const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
   if (!m || m[1] === "0001") return null;
@@ -73,8 +58,7 @@ export const ageFromDob = (v?: string | null): number | null => {
   return age >= 0 ? age : null;
 };
 
-// Timestamp with its time kept: "05-10-2026 14:32" in local time. "—" when
-// empty or unparseable.
+// "05-10-2026 14:32" local time; "—" if unparseable.
 export const fmtDateTime = (v?: string | null) => {
   const d = v ? new Date(v) : null;
   if (!d || Number.isNaN(d.getTime())) return "—";
@@ -82,7 +66,6 @@ export const fmtDateTime = (v?: string | null) => {
   return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
-// Today's local date as "05-10-2026".
 export const fmtToday = () => {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");

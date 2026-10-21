@@ -9,14 +9,7 @@ type CardProps = {
   blur?: boolean;
 };
 
-// `blur` swaps the card's solid fill for a translucent one — used where a
-// "glass" surface was asked for (My Loans list rows, the Payment History
-// card) rather than every Card everywhere. Real Android blur
-// (`blurMethod="dimezisBlurView"`) needs an explicit `blurTarget` ref onto
-// a `BlurTargetView` wrapping whatever should be sampled, which isn't wired
-// up here — without it expo-blur falls back to no blur but keeps warning
-// about it on every render, so Android just gets the translucent tint with
-// no blur prop at all. iOS's BlurView blurs natively without that wiring.
+// Android's real blur needs an unwired blurTarget ref, so it gets a translucent tint with no blur prop instead.
 export function Card({
   children,
   style,

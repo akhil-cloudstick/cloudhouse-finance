@@ -17,25 +17,14 @@ import { fetchRoles } from "@/common/services/permissionService";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
-/* The seeded roles — the fallback list when the live one (GET /roles,
- * which also carries custom roles) cannot be loaded because this user lacks
- * the role-view permission. The backend accepts any role that exists. */
+// Fallback list when GET /roles can't be loaded (no role-view permission). The backend accepts any existing role.
 const DEFAULT_ROLES = [
   "Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
   "Accountant", "Collection Staff", "Auction Administrator", "Auditor",
 ];
 
-/* "Administrator" was useful while every install had exactly one login that
- * needed to do everything for testing — with real tenants now created
- * through the superadmin console (each seeded with its own Administrator
- * already granted full access), a business's own admin minting MORE
- * Administrators from this ordinary form is a mistake waiting to happen, not
- * a thing anyone needs. Hidden from the picker rather than removed from
- * the list: the role itself still exists server-side (backend/internal/authz's
- * IsSystem protection, and every tenant's seeded admin still needs it), and
- * an employee who already holds it must still show correctly when editing
- * them — see the ROLE_OPTIONS fallback below. Hidden by the roles list's
- * isSystem flag; the name is only the fallback list's guess. */
+// Hidden from the picker (not removed) so minting more Administrators from this form isn't offered,
+// while an employee who already holds the role still shows correctly when editing them.
 const DEFAULT_HIDDEN_ROLES = ["Administrator"];
 
 function roleOptionsFor(roles: string[], hiddenRoles: string[], currentRole: string) {
@@ -59,8 +48,7 @@ const SERVER_FIELDS: Record<string, RegExp> = {
 const PW_LETTERS = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ";
 const PW_DIGITS = "23456789";
 
-/* 10-character random password with at least one letter and one digit —
- * comfortably over the backend's 8-character minimum (ErrPasswordTooShort). */
+// 10 characters, guaranteed at least one letter and one digit; well over the backend's 8-char minimum.
 function generatePassword(): string {
   const all = PW_LETTERS + PW_DIGITS;
   const rnd = new Uint32Array(10);
@@ -73,11 +61,6 @@ function generatePassword(): string {
 
 type EmployeeModalContentProps = { employee?: EmployeeView; onSaved?: () => void };
 
-/* Ported from legacy/app.js's `openEmployeeModal()` / `saveEmployee()`, now
- * wired to the real Go backend (`POST`/`PUT /api/v1/employees`) following
- * the BranchModal.tsx pattern. Supports both create and edit modes — pass
- * `employee` to pre-fill and edit an existing record. Branch options come
- * from the real Branch Management API (`GET /api/v1/branches`). */
 export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -98,35 +81,24 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
       .catch(() => { /* no role-view permission: keep the seeded list */ });
   }, []);
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
-  // Single-branch plan: no branch is ever shown — the field is not rendered.
   const showBranch = useShowBranch();
-  // Locked (and defaulted) to the global branch selection when one is
-  // active, the same way a single-branch business locks it.
   const lockedBranchId = useLockedBranchId();
   const branchLocked = singleBranch || lockedBranchId != null;
   const [branchId, setBranchId] = useState<number | "">(
     employee?.branchId || (!canViewAllBranches && myBranchId ? myBranchId : lockedBranchId || "")
   );
-  // Login credentials. On create the password is pre-filled with a generated
-  // one (shown, so it can be handed to the employee). On edit it starts blank
-  // and is only changed if someone types/generates a new one — saving an
-  // edit never rotates the password on its own (backend Update skips a
-  // blank password).
+  // On edit, a blank password keeps the current one (backend Update skips a blank password).
   const [username, setUsername] = useState(employee?.username || "");
   const [password, setPassword] = useState(() => (employee ? "" : generatePassword()));
   const [passwordVisible, setPasswordVisible] = useState(!employee);
   const [err, setErr] = useState("");
-  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
   const [fe, setFe] = useState<Record<string, string>>({});
   const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    // Non-admins are confined to their own branch (the backend enforces
-    // this server-side regardless) — auto-lock the field instead of
-    // offering a dropdown of branches they can't actually use.
+    // Non-admins are confined to their own branch; lock the field rather than offer an unusable dropdown.
     if (!canViewAllBranches) {
       if (myBranchId) setBranchId(myBranchId);
       return;
@@ -138,7 +110,6 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
   }, [employee, canViewAllBranches, myBranchId]);
 
   function onPhoneChange(v: string) {
-    // Digits only, capped at 10 — matches BranchModal.tsx's phone input.
     const digits = v.replace(/\D/g, "").slice(0, 10);
     setPhone(digits);
   }
@@ -183,8 +154,7 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
       onSaved?.();
       closeModal();
     } catch (e) {
-      // Server-side errors (5xx) are never shown to the user verbatim — only
-      // genuine validation messages (4xx, already human-readable) are surfaced.
+      // 5xx errors never shown verbatim; only genuine 4xx validation messages are surfaced.
       if (e instanceof ApiError && e.status >= 500) {
         setErr("Something went wrong saving this employee. Please try again.");
       } else {
@@ -228,9 +198,6 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
                 placeholder="Select branch…"
               />
             ) : (
-              // Non-admins are confined to their own branch — the backend
-              // enforces this regardless, so the field is locked rather than
-              // offering a choice they can't actually use.
               <Select
                 options={[{ value: String(branchId || ""), label: employee?.branchName || "Your branch" }]}
                 value={String(branchId || "")}
@@ -239,10 +206,6 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
               />
             )}<FieldError msg={fe.branch} /></div>}
         </div>
-        {/* Login credentials. Create: password is pre-generated (shown) so it
-          * can be handed to the employee. Edit: username can be set/changed
-          * and the password field starts blank — fill it (or Generate) only
-          * to change the password; blank keeps the current one. */}
         <div className="frow c2">
             <div className={fe.username ? "has-err" : undefined}><label className="f">Username (for login)</label>
               <input className="inp" placeholder="e.g. arun.kumar" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={60} autoComplete="off" /><FieldError msg={fe.username} /></div>

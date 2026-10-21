@@ -1,4 +1,3 @@
-// Mirrors backend/internal/scheme's Scheme JSON shape.
 export type ServiceChargeType = "None" | "Flat" | "Percent";
 export type ServiceChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
 
@@ -21,8 +20,6 @@ export type Scheme = {
   penalRate?: number;
   conditions?: string;
   isActive: boolean;
-  // Optional charge applied to every loan opened under this scheme —
-  // mirrors web schemeService.ts's BackendScheme fields.
   serviceChargeType?: ServiceChargeType;
   serviceChargeValue?: number;
   /** Legacy — the collection method is chosen per loan now; not edited on a scheme. */

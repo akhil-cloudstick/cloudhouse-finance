@@ -1,10 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { rememberToken } from "./apiContract";
 
-// The customer session JWT — short-lived (see backend's sessionTokenTTL),
-// re-obtained via OTP or device-login. Distinct storage key from the staff
-// app's ("cloudhouse_jwt") since these are separate installs/devices in
-// practice, but kept distinct defensively either way.
+// Distinct storage key from the staff app's ("cloudhouse_jwt") kept defensively separate.
 const TOKEN_KEY = "cloudhousecustomer_session_jwt";
 
 export async function saveToken(token: string): Promise<void> {

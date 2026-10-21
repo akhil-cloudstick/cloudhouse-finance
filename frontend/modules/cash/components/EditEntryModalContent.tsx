@@ -11,10 +11,6 @@ import { SelfTransferModalContent } from "@/modules/cash/components/SelfTransfer
 // viaExpense: entryId is an expense id (the Expense Register's Edit button), not a cash movement.
 type EditEntryModalContentProps = { entryId: number; onSaved?: () => void; info?: EntryInfo; viaExpense?: boolean };
 
-/* The ledger's Edit button for a cash-in, a debit or a self transfer: loads
- * the entry and opens the same form it was recorded with — Credit, Debit or
- * Self Transfer — filled in. Saving replaces the whole entry (every payment
- * line, or both legs of a transfer). */
 export function EditEntryModalContent({ entryId, onSaved, info: given, viaExpense }: EditEntryModalContentProps) {
   const { closeModal } = useModal();
   const [info, setInfo] = useState<EntryInfo | null>(given ?? null);

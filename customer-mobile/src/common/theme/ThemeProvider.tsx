@@ -7,10 +7,7 @@ import { fetchPublicBranding, fetchMyBranding, resolveLogoUrl } from "@/common/s
 import { getBusinessCode, isValidBusinessCode, normalizeBusinessCode } from "@/common/services/businessCode";
 import { getToken } from "@/common/services/tokenStorage";
 
-// Per-tenant colour + logo (see backend/internal/branding), same approach as
-// mobile/src/common/theme/ThemeProvider.tsx — cached per lender code so a cold
-// start repaints the last-known brand colour immediately instead of
-// flashing the platform default while the fetch is in flight.
+// Cached per lender code so a cold start repaints the last-known brand colour instead of flashing the default.
 const BRAND_COLOR_CACHE_PREFIX = "cloudhousecustomer_brand_color::";
 const LOGO_URL_CACHE_PREFIX = "cloudhousecustomer_logo_url::";
 
@@ -35,12 +32,8 @@ type Colors = { [K in keyof typeof defaultColors]: string };
 type ThemeState = {
   colors: Colors;
   typeScale: typeof typeScale;
-  // Resolved, absolute logo URL, or null to use the bundled platform mark.
   logoUrl: string | null;
-  // Re-fetches branding — call after a successful sign-in (the remembered
-  // code may have just changed). Pass `codeOverride` while the lender-code
-  // field is still being typed, before it's saved to SecureStore, so the
-  // login screen's theme previews the business the customer is entering.
+  // codeOverride lets the login screen preview a lender's theme before the code is saved.
   refreshBranding: (codeOverride?: string) => void;
 };
 
@@ -87,8 +80,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       await writeCache(BRAND_COLOR_CACHE_PREFIX, code, branding.brandColor);
       await writeCache(LOGO_URL_CACHE_PREFIX, code, branding.logoUrl || "");
     } catch {
-      // Offline/unreachable — the cached (or default) theme from above
-      // stays in place; never block the app on a branding fetch failing.
+      // Offline/unreachable: keep the cached/default theme, never block the app on this.
     }
   }, [applyBrandColor]);
 

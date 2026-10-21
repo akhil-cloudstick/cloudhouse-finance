@@ -1,23 +1,5 @@
-/* The arranged sidebar header — shared by the app's Sidebar and the superadmin
- * console's Branding step, which edits it with a live preview.
- *
- * WHY A TREE. Businesses bring every shape of logo: a square seal next to a
- * short code, a wide wordmark that already carries the full name, no logo at
- * all. A fixed "logo beside two lines of text" lockup fits the first only. So
- * the vendor arranges the three header items — logo, title, subtitle — by drag
- * and drop, and the result is stored as rows and columns nested inside each
- * other:
- *
- *   { dir: "row", children: ["logo", { dir: "col", children: ["title", "sub"] }] }
- *
- * is the classic lockup. An item left out of the tree is hidden.
- *
- * The backend validates the same shape (superadmin/header_layout.go) and stores
- * it normalised; parseHeaderLayout below re-checks it on the way in, so a bad
- * value degrades to the classic lockup rather than a broken sidebar.
- *
- * Pure and DOM-free: the console and the app must agree exactly.
- */
+// A tree of rows/columns since logos vary in shape; an item left out of the tree is hidden.
+// Backend validates the same shape (superadmin/header_layout.go); parseHeaderLayout degrades a bad value to classic.
 
 export type HeaderItem = "logo" | "title" | "sub";
 export type HeaderDir = "row" | "col";
@@ -44,7 +26,7 @@ export const HEADER_ITEMS: HeaderItem[] = ["logo", "title", "sub"];
 export const HEADER_ALIGNS: HeaderAlign[] = ["start", "center", "spread"];
 export const HEADER_PADS: HeaderPad[] = ["compact", "normal", "roomy"];
 
-/* Limits — keep in step with backend/internal/superadmin/header_layout.go. */
+// Limits — keep in step with backend/internal/superadmin/header_layout.go.
 export const LOGO_WIDTH_MIN = 24;
 export const LOGO_WIDTH_MAX = 212;
 export const LOGO_WIDTH_SQUARE = 48;
@@ -61,10 +43,7 @@ const col = (...children: HeaderChild[]): HeaderNode => ({ dir: "col", children 
 
 const isNode = (c: HeaderChild | null | undefined): c is HeaderNode => !!c && typeof c === "object";
 
-/* --- Tree operations ---------------------------------------------------------
- * Every operation returns a NEW tree (the console keeps undo history) and is
- * followed by normalize, so the stored shape is always the simplest one: no
- * empty containers, no single-child containers, no row directly inside a row. */
+// --- Tree operations --- Each returns a NEW tree (undo history) and normalizes to the simplest shape.
 
 function normalizeChild(c: HeaderChild | null): HeaderChild | null {
   if (!isNode(c)) return c;
@@ -137,9 +116,7 @@ export function appendItem(tree: HeaderNode, item: HeaderItem): HeaderNode {
   return rootify(t.dir === "col" ? col(...t.children, item) : col(t, item));
 }
 
-/* --- Starting layouts ----------------------------------------------------------
- * One click arranges the header; dragging fine-tunes from there. A starting
- * layout only re-arranges what is currently shown — hidden items stay hidden. */
+// --- Starting layouts --- A preset only re-arranges what is currently shown; hidden items stay hidden.
 export type LayoutPreset = "side" | "stack" | "split" | "inline";
 export const LAYOUT_PRESETS: { id: LayoutPreset; label: string }[] = [
   { id: "side", label: "Beside" },
@@ -180,7 +157,7 @@ export function matchingPreset(tree: HeaderNode): LayoutPreset | null {
   return null;
 }
 
-/* --- Defaults and parsing ------------------------------------------------------ */
+// --- Defaults and parsing ---
 
 /** The classic lockup as a layout: what an un-arranged business renders. */
 export function classicLayout(shape: LogoShape = "square"): HeaderLayout {
@@ -245,7 +222,7 @@ export function serializeHeaderLayout(l: HeaderLayout): string {
   return JSON.stringify({ v: 1, ...l, tree: rootify(l.tree) });
 }
 
-/* --- Text --------------------------------------------------------------------- */
+// --- Text ---
 
 /** Subtitle text as shown: Return (or a typed "\n" or "/n") breaks the line, at most two lines. */
 export function normalizeSubtitle(v: string | null | undefined): string {
@@ -259,9 +236,7 @@ export function normalizeSubtitle(v: string | null | undefined): string {
     .join("\n");
 }
 
-/* Automatic sizes — the same length steps as the classic lockup
- * (common/utils/brandLockup.ts): the longest string that still fits the rail
- * on one line at each size. */
+// Same length steps as the classic lockup (common/utils/brandLockup.ts).
 export function autoTitleSize(text: string): number {
   const n = text.trim().length;
   return n <= 6 ? 26 : n <= 10 ? 21 : n <= 12 ? 17 : 14;

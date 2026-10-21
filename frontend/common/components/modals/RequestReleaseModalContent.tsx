@@ -14,48 +14,26 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = { ornaments: /ornament|collateral|remaining/i };
 
-// Mirrors backend/internal/loan/service.go's partialReleaseRemaining — the
-// same buffered formula the server re-checks on submit, computed here too
-// so staff get live feedback as they check/uncheck ornaments instead of a
-// round trip per click. buffer = 5% of principal, absorbing ordinary drift
-// between selection and Manager/Management approval.
+// Mirrors backend's partialReleaseRemaining for live feedback; buffer = 5% of principal absorbs approval drift.
 function partialReleaseRemaining(outstandingBalance: number, principalAmount: number, remainingGoldValue: number, ltvPercent: number): number {
   const buffer = 0.05 * principalAmount;
   return (outstandingBalance + buffer) - (remainingGoldValue * ltvPercent) / 100;
 }
 type RequestReleaseModalContentProps = { loan: LoanView; onSaved: () => void };
 
-/* Request Release — pick which pledged ornaments come out this time (all
- * start checked; that default, left unchanged, is exactly today's full
- * release) and log the request in one screen. Selecting every ornament
- * skips the "Remaining" collateral condition entirely (matches the
- * backend's CreateReleaseRequest 100%-selection rule); unchecking any
- * requires the remaining collateral to still cover the loan on its own.
- * Approving moves the loan to "Closure Requested" (full) or releases just
- * the selected ornaments while the loan stays Active (partial) — actual
- * settlement still happens through the existing Record Payment flow,
- * reachable from the release review screen. Reuses LoanDetail.tsx's own
- * Pledged Ornaments table column layout so the two screens read the same. */
+// Selecting every ornament skips the "Remaining" collateral condition (matches backend's 100%-selection rule).
 export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: RequestReleaseModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
 
-  // The caller's `loan` prop can be stale by the time this modal actually
-  // opens — LoanDetail.tsx only re-fetches on an explicit action, and
-  // CustomerDetail.tsx's loan picker hands over a snapshot from whenever
-  // Customer 360 last loaded. An ornament already released by an EARLIER
-  // partial release would then still show as pledged here, letting staff
-  // select it again for a second request. Re-fetched on mount, same
-  // pattern ReleaseReviewModal.common/components/modals/PaymentModalContent.tsx already use for the
-  // same reason.
+  // The caller's `loan` prop can be stale, letting an already-released ornament show as pledged; re-fetch on mount.
   const [loan, setLoan] = useState(initialLoan);
   useEffect(() => {
     let cancelled = false;
     getLoan(initialLoan.numericId).then((fresh) => {
       if (cancelled) return;
       setLoan(fresh);
-      // Re-sync the selection to the freshly-fetched pledged set — the
-      // initial useState below ran against the (possibly stale) prop.
+      // Re-sync selection to the freshly-fetched set; the initial useState below ran against the stale prop.
       setSelected(new Set(fresh.ornaments.filter((o) => !o.releasedAt).map((o) => o.id)));
     }).catch(() => { /* keep the possibly-stale prop rather than blocking the form */ });
     return () => { cancelled = true; };
@@ -69,18 +47,10 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
   // A server message about the picked ornaments shows under the table; `err` keeps the rest.
   const [ornamentsErr, setOrnamentsErr] = useState("");
   const [saving, setSaving] = useState(false);
-  // A fast double-click was creating two duplicate Release requests for the
-  // same loan — `disabled={saving}` alone isn't enough since both clicks can
-  // read it as still-false in the same tick.
+  // `disabled={saving}` alone isn't enough: both clicks of a fast double-click can read it as still-false.
   const submittingRef = useRef(false);
 
-  // Ornaments already named on a Pending Release request against this same
-  // loan — the backend allows more than one Release request to exist at
-  // once (nothing stops it), but logging a second one against gold that's
-  // already awaiting a decision just duplicates the ask and confuses which
-  // request staff should actually act on. A Pending request with an empty
-  // ornamentIds list is a FULL release — every currently-pledged ornament
-  // counts as already requested in that case.
+  // A Pending request with an empty ornamentIds list is a FULL release — every pledged ornament counts as requested.
   const [pendingOrnamentIds, setPendingOrnamentIds] = useState<Set<number> | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -125,9 +95,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
     setSaving(true);
     try {
       const ornamentIds = Array.from(selected);
-      // Passing every pledged ornament's id behaves identically to omitting
-      // ornamentIds entirely — see createReleaseRequest's own doc comment —
-      // so there is no separate "full release" branch to keep in sync here.
+      // Passing every pledged ornament's id behaves identically to omitting ornamentIds entirely.
       await createReleaseRequest(loan.numericId, detail.trim() || (allSelected ? "Full settlement requested" : "Partial release requested"), ornamentIds);
       onSaved();
       closeModal();
@@ -175,8 +143,6 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
         </table></div>
         <FieldError msg={ornamentsErr} />
         </div>
-        {/* Plain inline text, not a notice/toast banner — see the plan's
-         * wireframe note on why these live figures stay out of `.notice`. */}
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>
           <div className="i"><div className="k">Minimum Amount to Release the Gold</div>
             <div className="v" style={{ color: conditionMet ? "var(--green, #1a7f37)" : "var(--red)" }}>

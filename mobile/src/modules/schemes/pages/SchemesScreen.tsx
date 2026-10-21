@@ -13,11 +13,6 @@ import { deleteScheme, listSchemesPage } from "@/modules/schemes/services/scheme
 import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 
-// Schemes tab — prototype #header-schemes + #page-schemes. Search (scheme
-// name / code) is the server `q` on GET /schemes; rows page in 10 at a time.
-// Create / edit open the Scheme sheet; Download Statement opens the
-// statement sheet (server-built PDF / xlsx).
-
 const INTEREST_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", "Multiple interest"] as const;
 const FILTER_SECTIONS: GFSection[] = [{ kind: "static", key: "method", label: "Interest method", options: INTEREST_METHODS.map((m) => ({ value: m, label: m })) }];
 
@@ -44,7 +39,6 @@ export default function SchemesScreen() {
   const canCreate = can("Scheme_Management", "can_create_scheme");
   const canUpdate = can("Scheme_Management", "can_update_scheme");
   const canDelete = can("Scheme_Management", "can_delete_scheme");
-  // The statement needs the loan module and ledger export (same as web).
   const canStatement = can("Loan_Management", "can_view_loan_module") && can("Ledger_Export", "can_export_ledger");
   const showBranch = useShowBranch();
   const qc = useQueryClient();

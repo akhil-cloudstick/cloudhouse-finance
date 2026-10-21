@@ -10,10 +10,6 @@ import type { CalendarEvent } from "@/modules/reminders/types/reminder-types";
 import { ReminderItem } from "./ReminderItem";
 import { ReminderCreateSheet } from "./ReminderCreateSheet";
 
-// ---------------------------------------------------------------------------
-// Reminders modal (dashboard bell) — not in the prototype; built from its
-// own pieces (.reminder-item + pills inside a rise-up sheet).
-// ---------------------------------------------------------------------------
 type RemScope = "Today" | "Upcoming" | "Overdue";
 function rangeFor(scope: RemScope): { from: string; to: string } {
   const t = todayISO();

@@ -26,11 +26,6 @@ import { dmy, todayISO } from "@/common/utils/format";
 import type { CalendarEvent } from "@/modules/reminders/types/reminder-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 
-// Reminders — prototype #header-reminders + #page-reminders: month header
-// with prev/next, calendar grid with per-day dots (one bounded month query),
-// the selected day's events paged from the server, and a server-side search
-// (`q`) over the visible month. FAB opens Add Reminder for the selected day.
-
 const pad = (n: number) => String(n).padStart(2, "0");
 const isoOf = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -61,7 +56,6 @@ export default function RemindersScreen() {
   const canUpdateReminder = can("Reminder_Management", "can_update_reminder");
   const canDeleteReminder = can("Reminder_Management", "can_delete_reminder");
   const qc = useQueryClient();
-  // Mark a manual reminder Done / delete it — the calendar and the day list reload.
   const reload = () => qc.invalidateQueries({ queryKey: ["reminders"] });
   const done = useMutation({ mutationFn: (id: number) => completeReminder(id), onSuccess: reload, onError: (e) => toast.error("Couldn't mark it done", userMessage(e, "Try again.")) });
   const remove = useMutation({ mutationFn: (id: number) => deleteReminder(id), onSuccess: reload, onError: (e) => toast.error("Couldn't delete it", userMessage(e, "Try again.")) });
@@ -71,7 +65,6 @@ export default function RemindersScreen() {
   const from = isoOf(y, m, 1);
   const to = isoOf(y, m, new Date(y, m + 1, 0).getDate());
 
-  // Dots for the visible month only (bounded window).
   const monthEvents = useQuery({ queryKey: ["reminders", "calendar", from, to], queryFn: () => getCalendarEvents(from, to) });
   const dots = useMemo(() => {
     const map: Record<string, ("red" | "amber" | "blue")[]> = {};
@@ -84,7 +77,6 @@ export default function RemindersScreen() {
     return map;
   }, [monthEvents.data]);
 
-  // Day list — or, while searching, matches across the visible month.
   const [searchText, setSearchText] = useState("");
   const searching = searchText.trim().length > 0;
   const range = searching ? { from, to } : { from: selected, to: selected };
@@ -131,8 +123,6 @@ export default function RemindersScreen() {
       header={<FlatHeader title="Reminders" subtitle="Follow-ups & promise-to-pay" />}
       floating={canCreate ? <FabCorner onPress={() => setAdding(true)} label="Add reminder" /> : undefined}
     >
-      {/* The outer list only carries the calendar header; the day's events sit
-          in a height-capped box below it that pages (10 at a time) as it scrolls. */}
       <ServerFlatList
         list={{
           isLoading: false,

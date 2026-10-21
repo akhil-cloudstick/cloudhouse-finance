@@ -24,19 +24,7 @@ const SERVER_FIELDS: Record<string, RegExp> = {
 
 type RepledgeModalContentProps = { loan: LoanView; onSaved: () => void };
 
-/* Ported from legacy/app.js's `openRepledgeModal()` / `saveRepledge()`. Now
- * posts to the real POST /loans/:id/bank-pledge endpoint. The old mock's
- * bank picker (sourced from db.banks, a hardcoded list) has no backend
- * equivalent — replaced with a free-text bank name field, matching the
- * backend's BankPledgeRecord.BankName (a plain string, not a Bank
- * resource) — that's since changed: banks are now a real backend resource
- * (see internal/bank), so the field below is a SearchableSelect against
- * `GET /banks`. Unlike NewLoan.tsx's ornament-type picker, inline creation
- * is intentionally disabled here — per the bank re-pledge spec, a bank
- * must be registered (with its branch/IFSC/account details) via "Add
- * Bank" (BankModal.tsx) before it can be re-pledged against, so staff
- * can't accidentally create a bare, detail-less bank record from this
- * modal. */
+// No inline bank creation here: a bank must be registered via "Add Bank" (with branch/IFSC/account) first.
 export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -58,11 +46,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
   const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
   const [saving, setSaving] = useState(false);
 
-  /* Defaults to RecordOnly — the harmless choice. Staff must actively opt in to
-   * moving money, rather than being blocked by a required field: leaving this
-   * alone just files a paperwork record. Immutable once saved (a wrong pick is
-   * fixed by voiding the record), so the consequence is spelled out below the
-   * control rather than left to be discovered afterwards. */
+  // Defaults to RecordOnly (harmless); immutable once saved, a wrong pick is fixed by voiding the record.
   const [cashTreatment, setCashTreatment] = useState<BankPledgeCashTreatment>("RecordOnly");
   // How the bank's advance reached the branch — only asked for "CashIn".
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
@@ -141,13 +125,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
         )}
 
         <div className="rp-sec-h"><span>Bank pledge details</span></div>
-        {/* Small screens pack all 6 fields into a tight 3-col x 2-row grid
-         * (an explicit inline gridTemplateColumns, since `.frow.c3` collapses
-         * to one column below the usual breakpoint — that collapse is right
-         * for every other c3 usage, just not this compact small-screen
-         * layout) to keep the modal short enough that its footer buttons
-         * don't get pushed below the fold. Regular screens keep the
-         * original, more spacious row grouping instead. */}
+        {/* Explicit gridTemplateColumns here since `.frow.c3`'s usual collapse-to-one-column is too tall. */}
         {smallScreen ? (
           <>
             <div className="frow rp-grid rp-compact" style={{ gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
@@ -188,9 +166,6 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
           </div>
         )}
 
-        {/* Cash treatment. Not every re-pledge brings money into the branch
-          * till — some are purely book-keeping — so this is an explicit choice
-          * per transaction rather than an assumption. */}
         <div className="rp-sec-h rp-after-grid"><span>Cash treatment *</span></div>
         <div>
           <div className="rp-opts">

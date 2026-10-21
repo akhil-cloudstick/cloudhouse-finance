@@ -1,10 +1,5 @@
-// Mirrors backend/internal/packet's JSON shape. Manual moves:
-// "Packet Generated" -> "Locker Stored" -> "Released"; "Returned" ->
-// "Locker Stored" | "Released". "Bank Pledged"/"Returned" are only entered
-// via the loan's bank pledge and its release. "Ready For Release" is legacy:
-// nothing moves into it, a packet already there can go -> "Released".
-// A movement with fromStatus === toStatus is a partial ornament release
-// (remarks explain it), not a stage change.
+// "Bank Pledged"/"Returned" are only entered via the loan's bank pledge and its release.
+// A movement with fromStatus === toStatus is a partial ornament release, not a stage change.
 export type PacketMovement = {
   id: number;
   packetId: number;
@@ -16,10 +11,7 @@ export type PacketMovement = {
   createdAt: string;
 };
 
-// A packet's "contents" are the ornaments of the loan it belongs to — the
-// backend preloads them (packet/repository.go's Preload("Loan.Ornaments")),
-// so they arrive nested under `loan`, not on the packet itself. Mirrors
-// backend/internal/loan/model.go's Ornament.
+// A packet's "contents" are the ornaments of the loan it belongs to, nested under `loan`.
 export type PacketOrnament = {
   id: number;
   name: string;

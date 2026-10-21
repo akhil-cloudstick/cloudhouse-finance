@@ -5,16 +5,7 @@ import BrandLogo from "@/common/components/BrandLogo";
 import { useSearchParams } from "next/navigation";
 import "@/common/styles/login.css";
 
-/* Where Setu's DigiLocker sends the CUSTOMER's own browser tab back to once
- * they finish Aadhaar + OTP login (see CustomerDetail.tsx's
- * sendAadhaarVerificationLink, which opens the DigiLocker URL in a new tab
- * with this page as redirectUrl). This page has nothing to do — the actual
- * verification result is fetched separately when staff click "Check Status"
- * back in the original tab (CheckAadhaarVerify polls Setu by the stored
- * request id, keyed to the customer, not to anything in this URL) — so it
- * just confirms what happened and tells the customer they can close the tab.
- * Before this page existed, DigiLocker's redirect landed on Next's plain
- * 404, which looked like the verification itself had failed. */
+// Just confirms and tells the customer to close the tab; staff fetch the real result via "Check Status".
 function DigilockerCallbackContent() {
   const searchParams = useSearchParams();
   const success = searchParams.get("success") === "True";

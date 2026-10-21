@@ -44,13 +44,6 @@ import { dmy, inr, todayISO } from "@/common/utils/format";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { useCanOpen } from "@/common/config/routePermissions";
 
-// Reports — prototype #header-reports + #page-reports (grouped report rows)
-// and #report-table-modal. Tapping a report opens its table in a sheet:
-// server-paged (page / page_size = 10) with a server-side search (`q`) and
-// optional from/to, rows as accordion rows, Export .xlsx + Print through the
-// server export (GET /reports/export/:key). Balance Sheet / P&L / Form G are
-// statements, rendered as statement lines inside the same sheet.
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type RowView = { id?: string; name: string; sub?: string; amount?: string; status?: string; details?: AccDetail[] };
 // "link" opens another screen instead of a report sheet (see `href`).
@@ -80,7 +73,6 @@ const monthsAgo = (months: number) => {
 };
 
 const REPORTS: ReportDef[] = [
-  // Loans & Collections
   {
     key: "disbursement",
     title: "Daily Loan Disbursement",
@@ -138,7 +130,6 @@ const REPORTS: ReportDef[] = [
     sub: (t) => `${t?.count ?? 0} payments`,
     row: (r) => ({ id: r.loanNumber, name: r.type, sub: dmy(r.paidOn), amount: inr(r.amount), details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Staff", v: r.employeeName || "—" }] }),
   },
-  // Gold & Custody
   {
     key: "gold-weight",
     title: "Gold / Ornament & Weight",
@@ -218,7 +209,6 @@ const REPORTS: ReportDef[] = [
     sub: (t) => `${inr(t?.totalSaleAmount)} total sale amount`,
     row: (r) => ({ id: r.loanNumber, name: r.stage, sub: dmy(r.auctionDate), amount: inr(r.saleAmount), status: r.settlementStatus, details: [{ k: "Auction date", v: dmy(r.auctionDate) }, { k: "Sale amount", v: inr(r.saleAmount) }] }),
   },
-  // Branch & Compliance
   {
     key: "expense-cashflow",
     title: "Expense & Cash Flow",
@@ -307,7 +297,6 @@ const REPORTS: ReportDef[] = [
       details: [{ k: "Principal", v: inr(r.principalAmount) }, { k: "Disbursed", v: inr(r.disbursedAmount) }, { k: "Branch", v: r.branchName || "—" }],
     }),
   },
-  // Financial Statements
   {
     key: "balance-sheet",
     title: "Balance Sheet",
@@ -335,10 +324,6 @@ const REPORTS: ReportDef[] = [
     kind: "formg",
     defaultRange: () => ({ from: monthsAgo(3), to: todayISO() }),
   },
-  // Web's "Ledger / Statement Export" tile — its own page inside Reports
-  // (app/(tabs)/ledger-statement.tsx): Branch/Customer/Type/Date filters,
-  // running balance, clickable loan/customer/bank/category/mode links and a
-  // PDF / Excel export of whatever the filters show.
   {
     key: "ledger-export",
     title: "Ledger Report",
@@ -346,7 +331,6 @@ const REPORTS: ReportDef[] = [
     kind: "link",
     href: "/ledger-statement?from=reports",
   },
-  // Investments
   {
     key: "investments-deposit-register",
     title: "Investment Deposit Register",
@@ -396,13 +380,10 @@ export default function ReportsScreen() {
   const [open, setOpen] = useState<ReportDef | null>(null);
 
   const canOpen = useCanOpen();
-  // A "link" row (e.g. Ledger / Statement) only when its page may be opened.
   const available = REPORTS.filter((r) => (!r.tenantModule || hasModule(r.tenantModule)) && (r.kind !== "link" || !r.href || canOpen(r.href)));
-  // Static list of report titles (not data) — filtered locally.
   const needle = search.trim().toLowerCase();
   const shown = needle ? available.filter((r) => r.title.toLowerCase().includes(needle)) : available;
 
-  // Dashboard tiles deep-link here with ?section=<key>; `t` re-applies it per tap.
   const params = useLocalSearchParams<{ section?: string; t?: string }>();
   const openReport = (r: ReportDef) => {
     if (r.kind === "link" && r.href) openPage(`${r.href}&t=${Date.now()}`);
@@ -437,9 +418,6 @@ export default function ReportsScreen() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Report table sheet (prototype #report-table-modal)
-// ---------------------------------------------------------------------------
 async function downloadExport(key: string, format: "xlsx" | "pdf", range: { from?: string; to?: string; q?: string; branchId?: number; status?: string; triggerType?: string }) {
   const token = await getToken();
   const targetUri = `${FileSystem.cacheDirectory}${key}-${Date.now()}.${format}`;
@@ -461,7 +439,6 @@ type ReportSheetProps = { report: ReportDef | null; onClose: () => void };
 
 function ReportSheet({ report, onClose }: ReportSheetProps) {
   const visible = !!report;
-  // No Branch filter for a one-branch business or a branch-confined role (same rule as web).
   const showBranchFilter = useShowBranchFilter();
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const from = gfDate(fv, "date").from ?? "";
@@ -473,9 +450,7 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
 
   useEffect(() => {
     if (report) {
-      // Table reports open on the current month, like web; the statements set their own range.
       const r = report.defaultRange?.() ?? (report.kind === "table" ? { from: firstOfMonth(), to: todayISO() } : {});
-      // Default range seeds the Date section; Reset all clears it (like web).
       setFv({ options: {}, dates: { date: { from: r.from || undefined, to: r.to || undefined } } });
     }
   }, [report]);
@@ -496,13 +471,11 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
       return { items: res.rows ?? [], hasMore: page * p.limit < (res.totalCount ?? 0), total: res.totalCount };
     },
   });
-  // Reset the search box when switching reports.
   useEffect(() => {
     list.setSearch("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report?.key]);
 
-  // Statements are short fixed layouts — every line in one request.
   const statement = useQuery({
     queryKey: ["reports", "statement", report?.key, from, to, branchId],
     queryFn: () => report!.fetch!({ from: from || undefined, to: to || undefined, branchId, pageSize: 500 }),
@@ -555,8 +528,6 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
       </Card>
     ) : null;
 
-  // One grouped filter (Branch, the report's extra dropdown, Date) with the
-  // Export Excel / Export PDF buttons beside it, in the table header.
   const sections: GFSection[] = report
     ? [
         ...(!showBranchFilter ? [] : [{
@@ -657,13 +628,10 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
 
 type Line = { title: string; detail: string; bold?: boolean; indent: number };
 
-// Balance Sheet / P&L lines: headers and totals bold, sub-items indented,
-// header lines carry no amount (mirrors the web statement cells).
 function statementLine(r: StatementRow): Line {
   return { title: r.label, detail: r.style === "header" ? "" : inr(r.amount), bold: !!r.style, indent: r.indent ?? 0 };
 }
 
-// Form G is one fixed-layout statement, flattened into section + line rows.
 function formGLines(s?: FormGStatement): Line[] {
   if (!s) return [];
   const out: Line[] = [];

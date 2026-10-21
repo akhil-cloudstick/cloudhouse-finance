@@ -95,10 +95,6 @@ type PaymentBreakdownFieldsProps = {
   error?: PaymentIssue | null;
 };
 
-/* Mode with its payment breakdown — the Credit and Debit forms' Mode section.
- * Each line is a mode, its amount and (for UPI / Bank Transfer) the bank it
- * moved through; the lines must add up to the entry's Amount, and each one is
- * saved as its own ledger entry. */
 export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally = true, label, error }: PaymentBreakdownFieldsProps) {
   useEffect(() => {
     if (rows.length !== 1 || !rows[0].auto) return;

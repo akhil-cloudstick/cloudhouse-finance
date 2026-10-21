@@ -22,8 +22,7 @@ function contentUrl() {
   return base ? `${base}/common` : "";
 }
 
-// Tenant subdomain from NEXT_PUBLIC_API_BASE's host; falls back to "default"
-// (e.g. localhost) so local testing still refreshes the icon.
+// Tenant subdomain from the API base host; falls back to "default" for local testing.
 function slugFromApiBase(apiBase) {
   try {
     const host = new URL(apiBase).hostname.toLowerCase();
@@ -34,10 +33,7 @@ function slugFromApiBase(apiBase) {
   }
 }
 
-/* Fetches the tenant's public name + logo straight from the backend, the
- * same unauthenticated endpoint the sign-in page itself calls. Never throws:
- * a build with no NEXT_PUBLIC_API_BASE, or a backend that's unreachable at
- * build time, should still produce the default-branded exe rather than fail. */
+// Never throws: a missing/unreachable backend must still produce the default-branded exe.
 async function fetchTenantBranding(apiBase) {
   const slug = slugFromApiBase(apiBase);
   if (!slug) return null;
@@ -57,10 +53,7 @@ async function fetchTenantBranding(apiBase) {
   }
 }
 
-/* Builds the 4 Windows icon sizes from a tenant's logo (often a wide
- * wordmark, not pre-squared) by padding it onto a square black canvas,
- * matching the dark-pad style already used for this logo elsewhere in the
- * app (see common/components/BrandLogo.tsx's "dark-pad" display option). */
+// Pads a (often non-square) logo onto a black square, like BrandLogo.tsx's "dark-pad" style.
 async function generateIconFromLogo(logoUrl, root) {
   const sharp = require("sharp");
   const res = await fetch(logoUrl);
@@ -87,12 +80,7 @@ async function generateIconFromLogo(logoUrl, root) {
   await sharp(square).resize(256, 256).toFile(path.join(winDir, "icon.png"));
 }
 
-/* Builds the 4 Windows icon sizes from the tenant's NAME when they have no
- * logo uploaded yet — the tenant's initial on their own brand colour, the
- * same placeholder common/components/BrandLogo.tsx draws in the app itself
- * for the exact same case. Without this, a logo-less tenant's build would
- * either keep a stale previous tenant's icon on disk or fall back to
- * CloudHouse's, both wrong: the icon must always match the CURRENT build. */
+// Initial-on-color icon (matches BrandLogo.tsx) so a logo-less tenant never keeps a stale icon.
 async function generateIconFromInitials(name, brandColor, root) {
   const sharp = require("sharp");
   const initial = (name.trim().charAt(0) || "?").toUpperCase();
@@ -112,19 +100,14 @@ async function generateIconFromInitials(name, brandColor, root) {
   await sharp(square).resize(256, 256).toFile(path.join(winDir, "icon.png"));
 }
 
-/* Regenerates desktop/rsrc_windows_amd64.syso from the (now tenant-branded)
- * PNGs in build/windows/ — Go's build tool links whatever .syso sits next to
- * main.go automatically, no further wiring needed. */
+// Go's build links whatever .syso sits next to main.go automatically; no extra wiring needed.
 function regenerateWindowsResource(root, run) {
   run("go", ["run", "github.com/tc-hib/go-winres@latest", "make", "--in", "winres.json", "--out", "../rsrc", "--arch", "amd64"], {
     cwd: path.join(root, "desktop", "winres"),
   });
 }
 
-/* Writes (or removes) the generated file that overrides main.go's default
- * windowTitle. A separate generated file rather than an ldflags -X value:
- * ldflags -X needs the value to survive raw shell word-splitting, which a
- * tenant name with a space in it ("AJ Finance") does not. */
+// Generated file, not ldflags -X, since -X breaks on tenant names with spaces.
 function writeWindowTitleOverride(root, name) {
   const genPath = path.join(root, "desktop", "tenant_title_generated.go");
   if (!name) {

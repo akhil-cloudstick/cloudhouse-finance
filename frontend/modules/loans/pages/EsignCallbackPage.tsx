@@ -1,16 +1,7 @@
 import "@/common/styles/login.css";
 
-/* Landing page Setu redirects the CUSTOMER back to after they finish (or
- * abandon) Aadhaar+OTP signing of the indemnity bond — the `redirectUrl`
- * LoanDetail.tsx passes to POST /loans/:id/indemnity-bond/esign/start.
- *
- * Deliberately a plain, static, unauthenticated page: it's opened on the
- * customer's own device, not a staff session, so it must not try to read the
- * app's auth state or call the API. Signing outcome is NOT read from this
- * redirect — staff confirm it from the loan page ("Check eSign Status", which
- * polls Setu server-side), because a redirect the customer can navigate away
- * from is not something to treat as proof of signature. Without this route
- * the customer landed on a 404 after signing. */
+// Deliberately plain and unauthenticated — opened on the customer's own device, not a staff session.
+// Signing outcome is NOT read from this redirect; staff confirm it via "Check eSign Status" polling Setu server-side.
 export default function EsignCallbackPage() {
   return (
     <div className="login-page">

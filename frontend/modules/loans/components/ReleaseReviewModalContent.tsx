@@ -19,43 +19,22 @@ import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError } from "@/common/components/ui/FieldError";
 
-// Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
-// no-buffer check ApproveReleaseRequest re-runs at Manager/Management
-// approval. Only used here to decide whether to reveal the Top-Up Payment
-// prompt BEFORE attempting the approval call; the backend remains the
-// authority (ErrDriftPaymentRequired) and this is just an earlier signal so
-// staff aren't surprised by a rejected Approve click.
+// Mirrors the backend's own drift check, used here only as an earlier signal before the real approval call.
 function partialReleaseDrift(outstandingBalance: number, remainingGoldValue: number, ltvPercent: number): number {
   return outstandingBalance - (remainingGoldValue * ltvPercent) / 100;
 }
 
 type ReleaseReviewModalContentProps = { request: RequestView; onSaved: () => void };
 
-/* Staff review screen for a pending Release request — shown from
- * Requests.tsx's "Review" button. Reworked to the 2-item checklist
- * (Customer Saw Gold + Record Payment via the general payment modal) — see
- * backend/internal/loan/model_request.go's LoanRequest doc comment. Once a
- * payment is recorded (PaymentRecorded/Locked flip true), the checkbox can
- * no longer be changed and Reject disappears entirely — see
- * Service.ApproveReleaseRequest's ErrRequestLocked. Both full and partial
- * releases go through this same screen; l.isPartial only changes what
- * CompleteRelease does at the final approval. */
+// Once a payment is recorded, the checklist locks and Reject disappears entirely — see ErrRequestLocked.
 export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewModalContentProps) {
   const { closeModal, openModal } = useModal();
   const toast = useToast();
-  // Without "can update loan" this modal is a read-only view: the checklist
-  // toggles stay locked and the approve/reject pair never renders (see
-  // Requests.tsx, which labels the row button View in that case).
+  // Without "can update loan" this modal is read-only: checklist stays locked and approve/reject never renders.
   const { can, role, isSystem } = useAuth();
   const canOpen = useCanOpenRoute();
   const canDecide = can("Loan_Management", "can_update_loan");
-  // Checklist verification and the two Manager/Management approval stages
-  // each need their own "Release Approval" permission on top of the
-  // general canDecide gate — see internal/authz.Catalogue and backend/
-  // internal/loan/service.go's VerifyReleaseChecklist/ApproveReleaseRequest.
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
-  // Which of the Manager/Management stages apply is per-business
-  // configuration (flow "loan_release").
   const { config: workflow } = useApprovalWorkflow();
 
   const [loan, setLoan] = useState<LoanView | null>(null);
@@ -65,21 +44,13 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [notesErr, setNotesErr] = useState("");
-  // Reveals the Top-Up Payment prompt only after ApproveReleaseRequest
-  // actually refuses with the drift error — hidden otherwise, per the plan.
   const [showTopUp, setShowTopUp] = useState(false);
 
   useEffect(() => {
     getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
   }, [request.loanNumericId]);
 
-  // The backend no longer gates CustomerSawGold on the packet's own stage
-  // (see VerifyReleaseChecklist's own doc comment — that's tracked
-  // separately in internal/packet now), but ticking it while the gold is
-  // still physically pledged to a bank or sitting in a locker would have
-  // staff attest to something that hasn't actually happened yet. Caught
-  // here instead, same listPackets({loanId}) call LoanDetail.tsx already
-  // makes for its own Bank Pledge card.
+  // Ticking "customer saw gold" while it's still pledged to a bank or in a locker would attest to something untrue.
   useEffect(() => {
     if (!loan) return;
     if (!can("Packet_Management", "can_view_packet_module")) return;
@@ -89,25 +60,18 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const goldStillHeld = loan?.bankPledgeStatus === "Bank Pledged" || packet?.status === "Locker Stored";
   const goldHeldReason = loan?.bankPledgeStatus === "Bank Pledged" ? "pledged to a bank" : "checked into a locker";
 
-  // Re-fetches this one request after a payment recorded via the general
-  // Record Payment modal — that modal returns a LoanView, not the updated
-  // RequestView, so PaymentRecorded/Locked/ApprovalStage have to be pulled
-  // fresh here rather than threaded back through its onSaved callback.
+  // Record Payment's modal returns a LoanView, not the updated RequestView, so re-fetch the request fresh here.
   async function refreshRequest() {
     try {
       const all = await listLoanRequests({ loanId: request.loanNumericId });
       const fresh = all.find((r) => r.id === req.id);
       if (fresh) setReq(fresh);
     } catch {
-      /* keep the possibly-stale request rather than blocking the modal */
+      // keep the possibly-stale request rather than blocking the modal
     }
   }
 
-  // The pending stage from this business's chain (an empty approvalStage
-  // reads as PendingManager, like the backend). With every release stage
-  // switched off there is nothing to approve — recording the payment
-  // completes the release — unless the request was already parked on a
-  // stage before it was switched off, which can still be acted on.
+  // With every release stage switched off, recording payment completes the release — unless parked on one pre-switch-off.
   const releaseOff = isFlowOff(workflow, "loan_release");
   const stageView = req.status === "Pending" ? stageByPending(workflow, "loan_release", req.approvalStage) : null;
   const parkedOnDisabled = !!stageView && !stageView.enabled && !!req.approvalStage;
@@ -120,24 +84,14 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
   const gaveGoldCheckboxDisabled = saving || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || goldStillHeld;
 
-  // Live pre-check for the Top-Up Payment reveal — only meaningful for a
-  // partial release (a full release keeps today's plain
-  // outstanding<=0.01 gate, no LTV math involved).
+  // Only meaningful for a partial release; a full release keeps the plain outstanding<=0.01 gate.
   const remainingCollateral = loan && req.isPartial
     ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).reduce((sum, o) => sum + o.goldValue, 0)
     : 0;
   const drift = loan && req.isPartial ? partialReleaseDrift(loan.totalOutstandingBalance, remainingCollateral, loan.schemeLtv) : 0;
   const driftLikely = req.isPartial && drift > 0.01;
 
-  // Mirrors ApproveReleaseRequest's own fallback: PaymentRecorded is
-  // ordinarily set by clicking Record Payment against THIS request, but a
-  // loan can already satisfy the release's financial condition without
-  // that — paid down by an ordinary payment before the release was even
-  // requested, or via the Top-Up Payment path above (which posts against
-  // the plain loan, not this request). In that case the backend accepts
-  // Approve anyway, so the button/messaging here must not block on
-  // paymentRecorded alone or it would show a stale "must record payment"
-  // warning for a release that's actually ready to go.
+  // A loan can satisfy the financial condition without PaymentRecorded being set (e.g. paid down earlier), so check both.
   const paymentConditionMet = req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
   async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
@@ -172,15 +126,11 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     setSaving(true);
     setErr("");
     try {
-      // The acting employee is derived server-side from the logged-in
-      // user's JWT — no employeeId sent from here.
       const updated = await approveReleaseRequest(req.id, { stage, action });
       setReq(updated);
       onSaved();
       if (action !== "Approved" || updated.status !== "Approved") {
-        // Approved-but-not-final (Manager stage on a two-stage chain) keeps
-        // the modal open so staff can see the advanced stage; Rejected and
-        // final Approved both close it.
+        // Approved-but-not-final keeps the modal open to show the advanced stage; Rejected and final Approved close it.
         if (action === "Rejected") {
           closeModal();
           toast("Release request rejected");
@@ -193,9 +143,6 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       }
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && /drift|top-up/i.test(e.message)) {
-        // ErrDriftPaymentRequired — the buffer that absorbed drift at
-        // creation time no longer covers it. Reveal the Top-Up Payment
-        // prompt instead of just showing the raw error.
         setShowTopUp(true);
         setErr("Outstanding balance has drifted above what the remaining collateral supports — record a top-up payment below, then try approving again.");
       } else {
@@ -215,8 +162,6 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         </h3>
         <button className="x" onClick={closeModal}>×</button>
       </div>
-      {/* `bd-scroll` caps the modal at the viewport and scrolls THIS body
-        * instead of the page behind it — see app.css. */}
       <div className="bd bd-scroll">
         {loan ? (
           <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
@@ -259,8 +204,6 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
             <p className="notice" style={{ marginTop: 8, color: "var(--red)" }}>
               <Icon name="shield" />{" "}
               This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
-              {/* Real route links (the old "#bankpledge/…" hash form opened the
-                * dashboard), and plain text for a role that can't open them. */}
               {loan.bankPledgeStatus === "Bank Pledged" ? (
                 canOpen("bankpledge") ? (
                   <a href={routeHref(`bankpledge/${loan.id}`)} onClick={closeModal}>Bank &amp; Gold Re-Pledge</a>
@@ -296,12 +239,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           <div style={{ marginTop: 12 }}>
             <label className="f">Top-Up Payment</label>
             <p className="ccheck-hint" style={{ marginBottom: 8 }}>Record the shortfall against the loan, then try Approve again.</p>
-            {/* Deliberately NOT releaseRequestId — a top-up is a payment
-              * against the LOAN itself (see LoanRequest.Locked's own doc
-              * comment: RecordPayment is not blocked by Locked, only
-              * VerifyReleaseChecklist/ApproveReleaseRequest are), posted
-              * through the plain /loans/:id/payments endpoint like any
-              * other payment, not the release-request endpoint. */}
+            {/* Deliberately NOT releaseRequestId — a top-up is a payment against the LOAN itself, not this request. */}
             <button className="btn ghost sm" onClick={() => openModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}>
               <Icon name="coin" /> Record Top-Up Payment
             </button>
@@ -339,9 +277,6 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         <button className="btn ghost" onClick={closeModal}>Close</button>
         {req.status === "Pending" && canDecide && canActOnStage && !!stage && (
           <>
-            {/* Locked (a payment has already been recorded against this
-              * request) removes Reject entirely — see LoanRequest.Locked's
-              * own doc comment (ErrRequestLocked). */}
             {!req.locked && <button className="btn danger" disabled={saving} onClick={() => decide("Rejected")}>Reject</button>}
             <button className="btn" disabled={saving || !req.customerSawGold || !paymentConditionMet} onClick={() => decide("Approved")}>
               <Icon name="check" /> Approve ({stageName})

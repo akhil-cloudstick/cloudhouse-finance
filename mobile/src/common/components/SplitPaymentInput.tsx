@@ -3,22 +3,16 @@ import { PaymentBreakdownFields, isBankMode, newPaymentRow, type PaymentRow } fr
 import type { SplitAmounts } from "@/modules/investments/types/investment-types";
 import { ZERO_SPLIT, round2, splitTotal } from "@/common/utils/paymentSplit";
 
-/** What SplitPaymentInput reports: the backend's four split columns, the one bank to send
- * alongside them, how much of the total is still unallocated, and whether the breakdown is
- * ready to submit (adds up, and every UPI / Bank Transfer line has its bank). */
+// Ready means the split adds up and every UPI / Bank Transfer line has its bank.
 export type SplitPayment = { split: SplitAmounts; bankId?: number; remaining: number; ready: boolean };
 
 type SplitPaymentInputProps = {
-  /** The amount the breakdown must add up to. A lone untouched line follows it. */
   total: number;
   onChange: (value: SplitPayment) => void;
   bankLabel?: string;
 };
 
-/** Mobile counterpart of web's SplitPaymentInput: the Cash module's payment breakdown (mode,
- * amount and, for UPI / Bank Transfer, the bank) mapped to the backend's four split columns.
- * One payment event stores exactly one bank, so the first bank picked across the non-cash
- * lines is the one sent (web's firstSelectedBankId). */
+// One payment event stores exactly one bank, so the first bank picked across non-cash lines is the one sent.
 export function SplitPaymentInput({ total, onChange, bankLabel = "Bank (your account)" }: SplitPaymentInputProps) {
   const [rows, setRows] = useState<PaymentRow[]>(() => [newPaymentRow()]);
 

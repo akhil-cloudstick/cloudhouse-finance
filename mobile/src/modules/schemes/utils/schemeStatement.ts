@@ -9,9 +9,6 @@ function mimeTypeFor(format: "pdf" | "xlsx"): string {
   return format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 }
 
-// Downloads GET /schemes/:id/statement?...&format=pdf|xlsx (see
-// backend/internal/loan/statement.go) into the cache dir — the shared first
-// step of downloadSchemeStatement.
 async function downloadToCache(
   schemeId: number,
   format: "pdf" | "xlsx",
@@ -36,12 +33,6 @@ async function downloadToCache(
   return result.uri;
 }
 
-// Downloads the statement and raises the native share sheet — same
-// download-to-cache-file + Sharing.shareAsync pattern as reports.tsx's
-// exportSection, reused here instead of re-implementing PDF/xlsx generation
-// on-device: the backend already builds the file from the same loan+payment
-// data the web Download Statement modal renders. This is genuinely "share",
-// not "save".
 export async function downloadSchemeStatement(
   schemeId: number,
   format: "pdf" | "xlsx",

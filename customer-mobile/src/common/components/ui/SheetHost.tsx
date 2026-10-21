@@ -1,12 +1,7 @@
 import React, { useSyncExternalStore } from "react";
 import { StyleSheet, View } from "react-native";
 
-// Ported from mobile/src/components/sheetHost.tsx — see that file's doc
-// comment for why sheets aren't rendered in a native <Modal> (Android
-// edge-to-edge breaks a Modal's own window bounds). BottomSheetModal
-// publishes its content here; SheetHost is mounted once as a sibling of
-// <Slot/> in app/_layout.tsx.
-
+// Sheets aren't rendered in a native <Modal> since Android edge-to-edge breaks a Modal's own window bounds.
 type Entry = { id: string; node: React.ReactNode };
 
 let entries: Entry[] = [];

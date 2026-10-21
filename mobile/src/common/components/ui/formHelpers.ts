@@ -5,7 +5,6 @@ import { ZERO_SPLIT, isBalanced, splitTotal } from "@/common/utils/paymentSplit"
 import type { SplitAmounts } from "@/modules/investments/types/investment-types";
 import { dmy } from "@/common/utils/format";
 
-// ---- Date field (input look, opens a themed month calendar) ---------------
 // Shown as DD-MM-YYYY; the value itself stays YYYY-MM-DD.
 export function isoToPretty(v?: string | null) {
   return v ? dmy(v) : "";
@@ -15,7 +14,6 @@ export function toISODate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// ---- payment split (.payment-mode-chips + .payment-split-grid) -------------
 // Uses the same SplitAmounts shape the payment APIs take (PaymentBreakdown.tsx).
 export type { SplitAmounts };
 export { ZERO_SPLIT, isBalanced, splitTotal };

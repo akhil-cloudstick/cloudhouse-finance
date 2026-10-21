@@ -19,22 +19,7 @@ type UpdateState = "idle" | "checking" | "uptodate" | "available" | "downloading
 
 const subscribeNever = () => () => {};
 
-/* The header's name chip, opening a small dropdown that holds what used to
- * be three separate things: the Connect mobile app button, the sidebar's
- * update card (formerly layout/UpdateNotice.tsx) and the Sign out link.
- *
- * The "Check for updates" row exists only in the desktop app, where it drives
- * the native updater (see desktopBridge); the web build never shows it. Every
- * update state fits the same row height — the icon slot swaps for a spinner
- * or a progress ring.
- *
- * The update state lives here rather than in the dropdown, so closing the
- * menu (or moving between pages — Topbar stays mounted) doesn't stop a
- * download. A dot on the avatar shows when an update is waiting.
- *
- * Multi-branch Administrators/Management also get the global branch selector
- * here ("Branch: …" row expanding to the branch list) — see useBranchSwitch.
- * It scopes the whole app, so the chosen branch is echoed under the name. */
+// Update state lives here (not the dropdown) so closing the menu or navigating doesn't stop a download.
 export function AccountMenu() {
   const { employee, logout } = useAuth();
   const { name: businessName } = useBranding();
@@ -97,13 +82,7 @@ export function AccountMenu() {
 
   function signOut() {
     setOpen(false);
-    /* Drop the session and stop. The navigation belongs to common/components/layout/AuthGuard.tsx,
-     * whose guard already watches for exactly this ("no token in the app
-     * shell → go to the sign-in page") and does it as a full document load,
-     * which is required: the console and the sign-in page are separate
-     * documents in the static export, and the business-first URL that reaches
-     * the latter (/ctfi/login) exists only as a dev rewrite and a server-side
-     * fallback that Next's client router knows nothing about. */
+    // Navigation is AuthGuard.tsx's job: it watches for the dropped token and redirects as a full page load.
     logout();
   }
 
@@ -127,10 +106,6 @@ export function AccountMenu() {
         </span>
         <span className="nm">
           {employee?.name || "Not signed in"}
-          {/* With a branch selector, the branch the whole app is scoped to is
-            * kept in view (the role moves to the menu header); a branch-confined
-            * employee sees their own branch; with no branches at all
-            * (single-branch plan) — the role. */}
           {branch.visible
             ? <span className="acct-branch" title={`Viewing: ${branch.selectedName}`}>{branch.selectedName}</span>
             : branch.ownBranchName

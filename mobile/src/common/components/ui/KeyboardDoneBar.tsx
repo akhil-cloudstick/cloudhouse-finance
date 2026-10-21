@@ -3,10 +3,7 @@ import { InputAccessoryView, Keyboard, Platform, Pressable, StyleSheet, View, ty
 import { C } from "./base";
 import { Txt } from "./Txt";
 
-// iOS number / decimal / phone pads have no Return key, so once one is up
-// there's no way to put it away. Inputs using those pads attach this bar
-// (a "Done" button above the keyboard) through `inputAccessoryViewID`.
-// Android keyboards always have their own dismiss key, so it's iOS-only.
+// iOS number/decimal/phone pads have no Return key; Android pads always have a dismiss key.
 
 export const KEYBOARD_DONE_ID = "keyboard-done-bar";
 

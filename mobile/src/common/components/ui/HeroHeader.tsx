@@ -48,9 +48,6 @@ export function HeroHeader({
 }: HeroHeaderProps) {
   const insets = useSafeAreaInsets();
   const searchBtn = useRef<View>(null);
-  // While collapsing, the logo stays where the flat header's logo sits, the
-  // name and icons fade as the page title fades in over them, and the body
-  // (cash, rates, segment) slides up under the rising bottom edge.
   const morph = useContext(HeroMorphContext);
   const fx = useMemo(
     () =>
@@ -79,7 +76,6 @@ export function HeroHeader({
             ref={searchBtn}
             style={s.aIcBtn}
             onPressIn={() =>
-              // The search panel grows out of this icon.
               searchBtn.current?.measureInWindow((x, y, w, h) => setOverlayOrigin({ x: x + w / 2, y: y + h / 2 }))
             }
             onPress={onSearch}

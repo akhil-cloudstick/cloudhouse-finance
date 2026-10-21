@@ -55,7 +55,7 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
       const msg = e instanceof ApiError ? e.message : "Could not record the sale — try again.";
       const field = fieldForMessage(msg, SERVER_FIELDS);
       if (field) fail(field, msg); else { setFe({}); setErr(msg); }
-      onError?.(); // see IssueNoticeModalContent's onError comment above
+      onError?.();
     } finally {
       setSaving(false);
     }
@@ -81,13 +81,7 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
         <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontWeight: 600, color: preview >= 0 ? "var(--green)" : "var(--red)" }}>
           <span>{preview >= 0 ? "Surplus" : "Shortfall"}</span><span>{fmt(Math.abs(preview))}</span>
         </div>
-        {/* Spell out the consequence before the click. The two outcomes differ
-          * sharply — one closes the loan, the other keeps a real balance owing
-          * and escalates it to management — and the amount entered here is what
-          * decides which, so it should not be a surprise afterwards. */}
-        {/* .notice is display:flex, so all text must sit inside ONE child
-          * element — otherwise each <b> becomes its own flex item and the
-          * amounts get pulled out into separate columns mid-sentence. */}
+        {/* .notice is display:flex — text must sit inside ONE child element or each <b> becomes its own column. */}
         {sale > 0 && (
           <div className="notice" style={{ fontSize: 12.5 }}>
             <Icon name="shield" />

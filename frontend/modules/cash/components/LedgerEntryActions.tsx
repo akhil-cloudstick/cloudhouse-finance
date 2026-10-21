@@ -8,24 +8,14 @@ import { RowInfoModalContent } from "@/modules/cash/components/RowInfoModalConte
 import { type LedgerRowView } from "@/modules/cash/types/cash-types";
 
 type LedgerEntryActionsProps = {
-  // The cash movement behind the row. Every row with an entryId gets the info
-  // icon; `editable` only decides whether its popup also offers Edit.
   entryId?: number;
   editable?: boolean;
-  // The ledger row itself: lets a row with no entryId (a loan payment…) still
-  // show an info popup built from its own fields.
-  row?: LedgerRowView;
-  // Called after an edit is saved, so the table can reload.
+  row?: LedgerRowView; // lets a row with no entryId still show an info popup built from its own fields
   onChanged?: () => void;
 };
 
 const btn = { border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" } as const;
 
-/* The info icon (remarks + details popup) every ledger row shows. Edit lives
- * inside that popup and only appears there when the entry is one a person
- * keyed in (cash-in, debit, self transfer). It sits in the Balance cell's
- * right padding (.ledger-info, app.css) so it adds no width to the table; in
- * the stacked card layout it flows inline. */
 export function LedgerEntryActions({ entryId, row, onChanged }: LedgerEntryActionsProps) {
   const { openModal } = useModal();
   if (!entryId && !row) return null;

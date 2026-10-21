@@ -36,10 +36,7 @@ function toNeedsAttentionItem(r: BackendNeedsAttentionItem): NeedsAttentionItem 
   };
 }
 
-/* Backs Dashboard.tsx's "Needs Attention" card — real server-side
- * pagination (backend/internal/dashboard) over the merged pending-approval/
- * pending-request/auction-eligible rows, 15 per page (fixed server-side,
- * matching backend/internal/dashboard/service.go's NeedsAttentionPageSize). */
+// 15 per page, fixed server-side.
 export async function getNeedsAttentionPage(page: number): Promise<NeedsAttentionResult> {
   const rec = await apiFetch<BackendNeedsAttentionResult>(`/dashboard/needs-attention?page=${page}`);
   return {

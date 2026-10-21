@@ -21,14 +21,7 @@ type MovementFilterSheetProps = {
   title?: string;
 };
 
-/** Branch/Customer/Type/Date multi-select filter — mirrors web's
- * FilterPanel (Cash.tsx) as tabs of checkable rows inside one sheet
- * (mobile has no direct FilterPanel equivalent). Selecting a Branch narrows
- * the Customer tab's own list to customers whose home branch is one of
- * those (a customer belongs to exactly one branch), same cross-filter rule
- * as web. Applies immediately (no separate "Apply" step) since each toggle
- * already re-queries the (debounced) list underneath via useServerList's
- * `filters`. */
+// Selecting a Branch narrows the Customer tab to customers whose home branch is one of those, same as web.
 export function MovementFilterSheet({
   visible,
   onClose,

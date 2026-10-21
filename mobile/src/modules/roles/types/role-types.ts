@@ -1,13 +1,4 @@
-
-
-// Mirrors src/common/services/permissionService.ts — same endpoints,
-// same envelope split (the /roles CRUD endpoints are still bare-resource;
-// only /employees/:id/permissions has migrated to the house envelope, same
-// as src/common/services/permissionService.ts's fetchMyPermissions).
-
-/** One row of GET /employees/:id/permissions's matrix — see
- * backend/internal/authz.Repository.AdminMatrix. */
-/** A related permission, with its granted state — parents must all be on before a permission can be; dependents are switched off with it. */
+// A related permission, with its granted state — parents must all be on before a permission can be; dependents are switched off with it.
 export type PermissionRef = {
   permission_id: number;
   name: string;

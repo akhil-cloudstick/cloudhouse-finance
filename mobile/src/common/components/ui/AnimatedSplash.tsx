@@ -5,22 +5,9 @@ import { BRAND } from "@/common/config/brand";
 import { colors } from "@/common/theme/colors";
 import { fonts } from "@/common/theme/typography";
 
-// "Hero Gradient" splash — the animated hand-off from the native splash.
-//
-// The native splash (app.json: expo-splash-screen) is the logo tile
-// (assets/splash-tile.png, 96 wide) centred on solid nav2 maroon. This
-// starts in exactly that state, so there's no jump when the native one
-// hides, then:
-//   1. the hero gradient (nav → nav2 → brand, as on every page header)
-//      fades in over the solid maroon,
-//   2. the logo gives a small pop,
-//   3. "CloudHouse Finance" tightens in from wide letter-spacing, then the
-//      descriptor rises in,
-//   4. a gold shimmer sweeps along a thin line under the name,
-//   5. the splash lifts up and away, revealing the app — whose maroon
-//      header continues the same gradient.
-// All on the native driver, except the name's letter-spacing (layout), which
-// is approximated with a native scaleX instead.
+// Animated hand-off from the native splash: starts in the native splash's exact state (tile on solid
+// maroon) so there's no jump, then fades in the hero gradient, pops the logo, animates in the name/
+// descriptor, sweeps a shimmer, and lifts away to reveal the app.
 
 const TILE = 96; // matches app.json expo-splash-screen imageWidth
 const SPLASH_TILE = require("../../../../assets/splash-tile.png");
@@ -70,16 +57,12 @@ export function AnimatedSplash({ onReady, onDone }: AnimatedSplashProps) {
       style={[StyleSheet.absoluteFill, s.root, { transform: [{ translateY: exit.interpolate({ inputRange: [0, 1], outputRange: [0, -h] }) }] }]}
       onLayout={(e) => {
         setH(e.nativeEvent.layout.height);
-        // Our first frame now matches the native splash — hide it.
         if (!laidOut) {
           setLaidOut(true);
           onReady();
         }
       }}
     >
-      {/* Hero gradient, fading in over the native solid maroon. Nothing else
-          sits behind the logo — no glow patch, no tile, no ring — so the
-          transparent mark blends straight into the gradient. */}
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: grad }]}>
         <Svg width="100%" height="100%">
           <Defs>
@@ -93,8 +76,6 @@ export function AnimatedSplash({ onReady, onDone }: AnimatedSplashProps) {
         </Svg>
       </Animated.View>
 
-      {/* Tile stays exactly where the native splash drew it; the text block
-          is laid out below it without moving it off-centre. */}
       <View style={s.center}>
         <View style={s.tileWrap}>
           <Animated.View
@@ -139,14 +120,9 @@ const TEXT_BLOCK_H = 96;
 
 const s = StyleSheet.create({
   root: { zIndex: 200000, elevation: 200000, backgroundColor: colors.nav2, alignItems: "center", justifyContent: "center" },
-  // Tile centred on screen like the native splash; the text sits below it
-  // in a fixed-height block balanced by equal padding on top.
   center: { alignItems: "center", paddingTop: TEXT_BLOCK_H },
   tileWrap: { width: TILE, height: TILE, alignItems: "center", justifyContent: "center" },
-  // No drop shadow — the tile image (splash-tile.png) is a transparent PNG
-  // of the cloud mark's irregular silhouette, not a filled square; a
-  // rectangular shadow drawn under it read as a floating grey box behind
-  // the artwork instead of blending into the gradient behind it.
+  // No drop shadow: the tile is a transparent irregular silhouette, so a rectangular shadow looked like a floating box.
   tileShadow: {},
   textBlock: { height: TEXT_BLOCK_H, alignItems: "center", paddingTop: 22 },
   name: { fontFamily: fonts.display, fontSize: 24, fontWeight: "800", color: "#ffffff", letterSpacing: 0.4 },

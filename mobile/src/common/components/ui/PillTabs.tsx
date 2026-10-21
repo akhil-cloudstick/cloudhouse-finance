@@ -13,7 +13,6 @@ type PillTabsProps<T extends string> = {
   inSheet?: boolean;
 };
 
-// ---- .cust-tabs (sticky pill tabs) ----------------------------------------
 export function PillTabs<T extends string>({
   tabs,
   value,
@@ -22,8 +21,7 @@ export function PillTabs<T extends string>({
   style,
   inSheet,
 }: PillTabsProps<T>) {
-  // Two or three tabs split the width equally with a sliding highlight;
-  // longer sets keep the horizontally scrolling pills.
+  // Two or three tabs get an equal-width sliding highlight; longer sets scroll horizontally.
   if (tabs.length <= 3) return <SegmentTabs tabs={tabs} value={value} onChange={onChange} labels={labels} style={style} inSheet={inSheet} />;
   return (
     <View style={[inSheet ? s.pillTabsSheet : s.pillTabs, style]}>

@@ -31,11 +31,6 @@ function toneForStatus(status: string): StatusTone {
   return "muted";
 }
 
-// Extension: Loan Officer -> Branch Manager -> Management (3 stages).
-// Release: Manager -> Management (2 stages, existing/unchanged chain).
-// Mirrors backend/internal/loan/model.go's ApprovalStagePendingLoanOfficer/
-// PendingBranchManager/PendingManagement (Extension) and
-// ApprovalStagePendingManager/PendingManagement (Release).
 const EXTENSION_STAGES = ["Loan Officer", "Branch Manager", "Management"];
 const RELEASE_STAGES = ["Manager", "Management"];
 
@@ -43,9 +38,6 @@ function stagesFor(type: LoanRequest["type"]): string[] {
   return type === "Extension" ? EXTENSION_STAGES : RELEASE_STAGES;
 }
 
-// Maps the request's current approvalStage to the index of the stage that
-// is (or was) pending — everything before it is Approved, everything after
-// is not yet reached. Terminal Approved/Rejected map past the end.
 function pendingIndex(req: LoanRequest): number {
   switch (req.approvalStage) {
     case "PendingLoanOfficer":
@@ -56,7 +48,7 @@ function pendingIndex(req: LoanRequest): number {
     case "PendingManagement":
       return req.type === "Extension" ? 2 : 1;
     default:
-      return stagesFor(req.type).length; // Approved/Rejected/unset
+      return stagesFor(req.type).length;
   }
 }
 
@@ -66,10 +58,7 @@ function dotState(req: LoanRequest, index: number): DotState {
   const pIdx = pendingIndex(req);
   if (req.status === "Approved") return "approved";
   if (req.status === "Rejected") {
-    // Best-effort: the codebase doesn't expose per-stage RequestApproval
-    // rows to the customer app, so a rejected request can't show exactly
-    // which stage rejected it here — every stage up to (and including) the
-    // one it was pending on when rejected is shown terminal-rejected.
+    // No per-stage approval data is exposed here, so every stage up to the pending one shows as rejected.
     return index <= pIdx ? "rejected" : "upcoming";
   }
   if (index < pIdx) return "approved";
@@ -97,8 +86,6 @@ export default function LoanDetailScreen() {
 
   const [loan, setLoan] = useState<Loan | null>(null);
   const [latestRequest, setLatestRequest] = useState<LoanRequest | null>(null);
-  // While one of each is Pending, its request button is replaced by a
-  // "waiting for approval" note so the same gold can't be requested twice.
   const [pendingRelease, setPendingRelease] = useState(false);
   const [pendingExtension, setPendingExtension] = useState(false);
   const [payments, setPayments] = useState<LoanPayment[]>([]);
@@ -355,8 +342,6 @@ type ExtensionSheetProps = {
   onSubmitted: () => void;
 };
 
-// --- Request Extension sheet -------------------------------------------
-
 function ExtensionSheet({
   visible,
   onClose,
@@ -436,8 +421,6 @@ type ReleaseSheetProps = {
   outstanding: number;
   onSubmitted: () => void;
 };
-
-// --- Request Gold Release sheet -----------------------------------------
 
 function ReleaseSheet({
   visible,

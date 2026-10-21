@@ -4,35 +4,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextSheetId, sheetStore } from "./SheetHost";
 import { C } from "./base";
 
-// Dropdown menu layer — the standard mobile dropdown: the field stays where
-// it is, the list opens directly under it (or above it when there isn't
-// room below), a transparent backdrop covers the rest of the screen, and a
-// tap anywhere outside / hardware back / picking an item closes it. The
-// menu is published into SheetHost so no card, sheet or scroll view can
-// clip it or grow when it opens.
+// Published into SheetHost so no card, sheet or scroll view can clip it or grow when it opens.
 
 export type Anchor = { x: number; y: number; w: number; h: number };
 
 const GAP = 4;
 const EDGE = 8;
-// The overlay layer's window origin and height barely ever change, so the
-// last measurement is reused on the next open — the list can then show on
-// its first frame instead of waiting for a fresh native measure.
+// Overlay origin/height barely change, so the last measurement is reused to avoid a fresh native measure.
 let lastOrigin: { x: number; y: number } | null = null;
 let lastLayerH = 0;
 
-// The list sits on its own layer at a fixed screen position, so it has to
-// be told when the form under it moves — a sheet/page scrolling (by hand, or
-// Android scrolling the focused field into view) or a sheet resizing for
-// the keyboard. Scrollers and sheets call this; an open list re-measures
-// its field on the next frame and follows it.
+// Scrollers/sheets call this when the form under the fixed-position list moves, so it can re-measure.
 const shiftListeners = new Set<() => void>();
 export function notifyLayoutShift() {
   shiftListeners.forEach((l) => l());
 }
 
-// A scroll the user starts (dragging the sheet/page behind the list) closes
-// any open list, like a native dropdown.
+// A scroll the user starts closes any open list, like a native dropdown.
 const dragListeners = new Set<() => void>();
 export function notifyUserScroll() {
   dragListeners.forEach((l) => l());
@@ -73,15 +61,11 @@ function Layer({
   const insets = useSafeAreaInsets();
   const win = useWindowDimensions();
   const [kbTop, setKbTop] = useState<number | null>(null);
-  // Natural (unclipped) size of the list: fixed header + scroll content.
   const [headH, setHeadH] = useState(0);
   const [contentH, setContentH] = useState(0);
   const h = contentH ? headH + contentH + 10 : 0;
-  // Where this layer itself sits in window coordinates. The field is
-  // measured with measureInWindow, which on Android (edge-to-edge, keyboard
-  // up) doesn't always share the overlay's origin — the list then landed
-  // over the field. Measuring the layer the same way and subtracting keeps
-  // both in one coordinate space.
+  // Measuring the layer with measureInWindow too (like the field) keeps both in one coordinate
+  // space — on Android (edge-to-edge, keyboard up) they don't always share an origin otherwise.
   const rootRef = useRef<View>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(lastOrigin);
   const [layerH, setLayerH] = useState(lastLayerH);
@@ -120,17 +104,14 @@ function Layer({
     };
   }, []);
 
-  // Typeable dropdowns open together with the keyboard, which takes a
-  // moment to come up and then shrinks/scrolls the sheet — showing the list
-  // straight away made it jump (often flipping above the field). Hold it
-  // until the keyboard is up and the field has stopped moving.
+  // Held until the keyboard is up and settled, else a typeable dropdown jumps as the sheet resizes.
   const [kbWait, setKbWait] = useState(() => !!awaitKeyboard && !Keyboard.isVisible());
   const kbShown = useRef(false);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!kbWait) return;
     const done = () => setKbWait(false);
-    // No keyboard came (hardware keyboard, focus lost) — show anyway.
+    // Fallback in case no keyboard comes (hardware keyboard, focus lost).
     const fallback = setTimeout(done, 1200);
     const sub = Keyboard.addListener("keyboardDidShow", () => {
       kbShown.current = true;
@@ -145,15 +126,13 @@ function Layer({
     };
   }, [kbWait]);
   useEffect(() => {
-    // Each re-measure after the keyboard is up restarts a short settle.
     if (!kbWait || !kbShown.current) return;
     if (settle.current) clearTimeout(settle.current);
     settle.current = setTimeout(() => setKbWait(false), 90);
   }, [anchor, kbWait]);
 
   useEffect(() => {
-    // The keyboard can shift the form under the field — re-measure once it
-    // has settled (twice: right away and after the sheet's own animation).
+    // Re-measure twice: right away and after the sheet's own resize animation finishes.
     const timers: ReturnType<typeof setTimeout>[] = [];
     const settle = () => {
       timers.push(setTimeout(() => cbRef.current.onRemeasure?.(), 60));
@@ -181,7 +160,6 @@ function Layer({
 
   const oy = origin?.y ?? 0;
   const ox = origin?.x ?? 0;
-  // Field and keyboard edge, relative to this layer.
   const fy = anchor.y - oy;
   const fx = anchor.x - ox;
   const topLimit = insets.top + EDGE;
@@ -191,18 +169,13 @@ function Layer({
 
   const below = bottomLimit - (fy + anchor.h + GAP);
   const above = fy - GAP - topLimit;
-  // When even a full-height list fits below the field, it opens below
-  // right away. Only near the bottom of the screen does it wait one layout
-  // pass for its real height to decide between below and above.
   const fitsBelow = below >= maxHeight;
   const up = !fitsBelow && h > 0 && Math.min(h, maxHeight) > below && above > below;
   const room = Math.max(0, up ? above : below);
   const cap = Math.min(maxHeight, room);
   const ready = !kbWait && !!origin && (fitsBelow || h > 0) && (!up || layerH > 0);
-  // Above the field it's pinned by its bottom edge, so it needs no height.
   const place = up ? { bottom: layerH - (fy - GAP) } : { top: fy + anchor.h + GAP };
 
-  // Short fade + settle once it can be placed.
   const [fade] = useState(() => new Animated.Value(0));
   useEffect(() => {
     if (!ready) return;
@@ -211,8 +184,7 @@ function Layer({
 
   return (
     <View ref={rootRef} collapsable={false} onLayout={measureOrigin} style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Closes on touch-down, so starting to scroll the form behind also
-          closes the list instead of the list staying put while it moves. */}
+      {/* Closes on touch-down so scrolling the form behind also closes the list. */}
       <Pressable style={StyleSheet.absoluteFill} onPressIn={onClose} accessibilityLabel="Close list" />
       <Animated.View
         style={[
@@ -269,8 +241,7 @@ export function Popover({
 }: PopoverProps) {
   const [id] = useState(nextSheetId);
 
-  // Re-published on every render while open, so the menu always shows the
-  // owner's latest options/selection (SheetHost re-renders alone).
+  // Re-published on every render while open, so the menu always shows the owner's latest state.
   useEffect(() => {
     if (!anchor) {
       sheetStore.remove(id);

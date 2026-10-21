@@ -44,11 +44,6 @@ import { dmy, inr } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { isUserCancel, loadErrorText, userMessage } from "@/common/services/apiErrors";
 
-// Investments — prototype #header-investments + #page-investments and the
-// inv-filter / inv-create / investment-plans / inv-plan-create / inv-detail /
-// inv-addcash / inv-withdraw / inv-closerenew sheets. Search (INV no.,
-// investor name/code) and the status filter are backend params.
-
 const STATUS_FILTERS = ["All", "Active", "Matured", "Closed", "Renewed"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 const PAYMENT_MODES: PaymentMode[] = ["Cash", "UPI", "Bank Transfer", "Cheque"];
@@ -84,7 +79,6 @@ export default function InvestmentsScreen() {
         />
       }
       floating={
-        // One corner button that opens upward into both actions.
         canCreate || canUpdate ? (
           <FabMenu
             label="Investment actions"
@@ -159,9 +153,6 @@ export default function InvestmentsScreen() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Investment Plans (prototype #investment-plans-modal) + Add/Edit Plan
-// ---------------------------------------------------------------------------
 const FIXED_PAYOUT_FREQUENCIES = ["Monthly", "Quarterly", "Yearly"] as const;
 const FREQ_STEP_MONTHS: Record<string, number> = { Monthly: 1, Quarterly: 3, Yearly: 12 };
 
@@ -362,9 +353,6 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
 
 type CreateInvestmentSheetProps = { visible: boolean; onClose: () => void; onCreated: (inv: Investment) => void };
 
-// ---------------------------------------------------------------------------
-// Create Investment (prototype #inv-create-modal)
-// ---------------------------------------------------------------------------
 function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestmentSheetProps) {
   const qc = useQueryClient();
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -456,9 +444,6 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
 
 type InvestmentDetailSheetProps = { investmentId: number | null; onClose: () => void; canUpdate: boolean };
 
-// ---------------------------------------------------------------------------
-// Detail (prototype #inv-detail-modal) + schedule / transactions (paged)
-// ---------------------------------------------------------------------------
 function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentDetailSheetProps) {
   const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
   const qc = useQueryClient();
@@ -667,7 +652,6 @@ function ModeField({ value, onChange }: ModeFieldProps) {
   );
 }
 
-// prototype #inv-addcash-modal
 function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
@@ -704,7 +688,6 @@ function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
   );
 }
 
-// prototype #inv-withdraw-modal
 function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [from, setFrom] = useState<(typeof WITHDRAW_FROM)[number]>("Interest");
   const [interest, setInterest] = useState("");
@@ -760,13 +743,11 @@ function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
   );
 }
 
-// prototype #inv-closerenew-modal
 function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [act, setAct] = useState<"Close" | "Renew">("Close");
   const [plan, setPlan] = useState<InvestmentPlan | null>(null);
   const [principal, setPrincipal] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  // A Live investment pays principal plus interest out on Close.
   const payable = (inv.outstandingPrincipal || 0) + (inv.outstandingInterest || 0);
   const needsPayout = inv.engine === "Live" && act === "Close" && payable > 0;
   const [error, setError] = useState<string | null>(null);
@@ -819,8 +800,7 @@ function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
 
 type PayInterestSheetProps = { inv: Investment; visible: boolean; onClose: () => void; onDone: () => void };
 
-// Pay several months of a scheduled investment's interest in one go — the amount is applied to the oldest
-// unpaid months in order, each in full, so it has to be a whole number of months (same as web).
+// Amount applies to the oldest unpaid months in order, each in full — so it must be a whole number of months.
 function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetProps) {
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
@@ -833,14 +813,12 @@ function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetPro
       setAmount("");
     }
   }, [visible]);
-  // Start from the oldest unpaid month once the list arrives.
   useEffect(() => {
     if (visible && months.length && !amount) setAmount(String(months[0].amount));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, months.length]);
 
   const amt = Number(amount) || 0;
-  // How many whole months the typed amount covers (a part-month is not allowed).
   let covered = 0;
   let sum = 0;
   for (const mth of months) {
@@ -892,7 +870,6 @@ function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetPro
 
 type MarkPaidSheetProps = { inv: Investment; payout: InvestmentPayout | null; onClose: () => void; onDone: () => void };
 
-// Mark a scheduled payout paid — picks the payment mode for the full amount.
 function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [error, setError] = useState<string | null>(null);

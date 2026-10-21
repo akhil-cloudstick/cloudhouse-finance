@@ -18,9 +18,6 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
-      // Without an explicit android_ripple/hitSlop the touch target is just
-      // the laid-out box, which is correct — but only if the box actually
-      // spans the width it appears to (see alignSelf in styles.base).
       hitSlop={8}
       style={({ pressed }) => [
         styles.base,
@@ -42,12 +39,7 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
 }
 
 const styles = StyleSheet.create({
-  // alignSelf:"stretch" so the button's own box spans the full width of its
-  // container rather than depending on the parent's default alignment. In a
-  // parent that aligns its children to center/flex-start (or any row
-  // container), this Pressable would otherwise shrink to fit its label —
-  // leaving the visible background looking full-width while only the
-  // text-sized region actually accepted touches.
+  // alignSelf:"stretch" so the Pressable spans its container's width rather than shrinking to fit the label.
   base: {
     height: 48,
     borderRadius: 10,

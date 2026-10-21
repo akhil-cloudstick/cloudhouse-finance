@@ -1,12 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-// The long-lived device token issued by POST /customer/auth/register-device
-// (see plan step 34/55) — stored in SecureStore, only ever read back after a
-// successful local biometric check (expo-local-authentication), then
-// exchanged server-side for a fresh session JWT via POST
-// /customer/auth/device-login. Its presence is also what app/_layout.tsx
-// uses to decide "try biometric" vs. "go straight to OTP login".
+// Read back only after a successful local biometric check; its presence decides biometric vs. OTP login.
 const DEVICE_TOKEN_KEY = "cloudhousecustomer_device_token";
 const DEVICE_ID_KEY = "cloudhousecustomer_device_id";
 
@@ -22,13 +17,7 @@ export async function clearDeviceToken(): Promise<void> {
   await SecureStore.deleteItemAsync(DEVICE_TOKEN_KEY);
 }
 
-// getOrCreateDeviceId returns a stable, random identifier for this install,
-// generated once and persisted — used as the deviceId sent to
-// register-device/verified server-side against the stored device token's
-// row. Not a hardware identifier (Android/iOS don't expose one to apps
-// anymore); a per-install random id is sufficient since its only job is to
-// scope a single device's token for revocation, not to fingerprint the
-// device itself.
+// Per-install random id, not a hardware identifier; only needs to scope a token for revocation, not fingerprint the device.
 export async function getOrCreateDeviceId(): Promise<string> {
   const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
   if (existing) return existing;

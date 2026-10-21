@@ -15,8 +15,6 @@ import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/respons
 import { routeHref } from "@/common/services/appRoutes";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 
-/* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
- * Go backend (`GET /api/v1/employees`), following the Branches.tsx pattern. */
 export function EmployeesPage() {
   const { openModal } = useModal();
   const toast = useToast();
@@ -105,12 +103,6 @@ export function EmployeesPage() {
                   <tr key={e.id}>
                     <td data-label="Employee">
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                        {/* flexShrink:0 — the parent span is display:inline-flex,
-                          * and a flex item's default flex-shrink:1 applies even
-                          * with an explicit width/height set, so a long employee
-                          * name pushing this row's content past its column's
-                          * available width was squeezing the circle down instead
-                          * of just wrapping/truncating the name text beside it. */}
                         <span className="av" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", background: "linear-gradient(135deg,var(--brand-mid),var(--brand-deep))", color: "#fff", display: "grid", placeContent: "center", fontWeight: 600, fontSize: 11.5 }}>{initials(e.name)}</span>
                         <span><b>{e.name}</b><span className="sub">{e.code}</span></span>
                       </span>

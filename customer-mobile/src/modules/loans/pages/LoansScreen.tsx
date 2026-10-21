@@ -14,10 +14,7 @@ import { Loan } from "@/modules/loans/services/loanService";
 
 const PAGE_SIZE = 10;
 
-// Filter chip labels shown to the customer -> the `status` query param sent
-// to GET /customer/loans (omitted entirely for "All"). Each tap is its own
-// server-side call from offset 0 — never an in-memory filter of one fetched
-// list, per the plan's decision.
+// Each filter tap is its own server-side call from offset 0, never an in-memory filter of one fetched list.
 const FILTERS = ["All", "Active", "Due Soon", "Overdue", "Closed"] as const;
 type FilterLabel = (typeof FILTERS)[number];
 
@@ -49,8 +46,6 @@ export default function LoansScreen() {
     return loansApi.listLoans({ status, limit: PAGE_SIZE, offset });
   }, []);
 
-  // Re-fetches from offset 0 whenever the filter changes — a real new
-  // network request every time, not a client-side re-slice.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -82,8 +77,7 @@ export default function LoansScreen() {
       setItems(res.items);
       setHasMore(res.hasMore);
     } catch {
-      // Keep whatever was already on screen — a failed refresh shouldn't
-      // wipe the list.
+      // Keep whatever was already on screen; a failed refresh shouldn't wipe the list.
     } finally {
       setRefreshing(false);
     }
@@ -97,7 +91,7 @@ export default function LoansScreen() {
       setItems((prev) => [...prev, ...res.items]);
       setHasMore(res.hasMore);
     } catch {
-      // Leave hasMore as-is — the next onEndReached retries.
+      // Leave hasMore as-is; the next onEndReached retries.
     } finally {
       setLoadingMore(false);
     }

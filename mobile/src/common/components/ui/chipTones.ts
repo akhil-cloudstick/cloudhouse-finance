@@ -2,7 +2,6 @@
 import { StyleSheet } from "react-native";
 import { C } from "./base";
 
-// ---- .status-chip ---------------------------------------------------------
 export type ChipTone = "active" | "overdue" | "due" | "closed" | "info";
 
 export const TONES: Record<ChipTone, { fg: string; bg: string }> = {

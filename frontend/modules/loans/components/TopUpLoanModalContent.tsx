@@ -18,31 +18,12 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 type TopUpLoanModalContentProps = { loan: LoanView; onSaved: (updated: LoanView) => void; initialAmount?: string; initialReference?: string };
 
-/* Draws additional cash against an already-Active loan's spare eligible
- * value, without closing/reopening it — a single-step flow (no multi-stage
- * sanction chain). Shows current headroom (eligibleLoanAmount -
- * outstanding); if the requested amount exceeds it, the backend rejects
- * with ErrTopUpShortfall and this modal chains straight into the existing
- * "Edit Loan" ornament-add flow, then reopens itself once ornaments are
- * saved so the new (larger) headroom is visible without a second click.
- *
- * When the business has the loan_topup approval flow switched on, the same
- * form submits the top-up INTO that chain instead: nothing is paid out yet,
- * the loan comes back unchanged, and LoanDetail shows the pending top-up
- * with its stage tracker until the final stage approves (and pays) it.
- *
- * When interest is outstanding and staff pick "Customer pays it first", Top
- * Up redirects to Record Payment preset to "Interest only" instead of
- * letting the backend bounce it; once that payment is confirmed this modal
- * reopens on the refreshed loan with the entered amount/reference kept
- * (initialAmount/initialReference). The modal host holds one modal at a
- * time, so the reopen has to be explicit. */
+// If the amount exceeds headroom, chains into "Edit Loan" ornament-add, then reopens itself on the larger headroom.
 export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initialReference = "" }: TopUpLoanModalContentProps) {
   const { openModal, closeModal } = useModal();
   const toast = useToast();
   const { config: workflow } = useApprovalWorkflow();
-  // Topping up is its own grant; the add-ornaments and pay-interest
-  // shortcuts below are loan edits/payments, so they need "can update loan".
+  // Topping up is its own grant; the add-ornaments/pay-interest shortcuts need "can update loan".
   const canUpdateLoans = useAuth().can("Loan_Management", "can_update_loan");
   const needsApproval = !isFlowOff(workflow, "loan_topup");
   const headroom = Math.max(0, loan.eligibleLoanAmount - loan.outstanding);
@@ -58,13 +39,8 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
   const [fe, setFe] = useState<Record<string, string>>({});
   const [shortfall, setShortfall] = useState(false);
   const [saving, setSaving] = useState(false);
-  // Staff's choice for the outstanding interest/penal interest currently
-  // standing on the loan (see TopUpInput.settleInterest) — only relevant
-  // when hasArrears; ignored server-side otherwise.
   const [settleMode, setSettleMode] = useState<"require" | "deduct">("require");
-  // Reveals a "Record Payment" fallback in place of the raw error when the
-  // backend bounces a "require" top-up for still-unpaid arrears (mirrors
-  // ExtensionReviewModal.tsx's own needsPayment pattern).
+  // Reveals a "Record Payment" fallback in place of the raw error when the backend bounces a "require" top-up.
   const [needsPayment, setNeedsPayment] = useState(false);
 
   const amt = +amount || 0;
@@ -76,9 +52,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
       <EditLoanModalContent
         loan={loan}
         onSaved={async () => {
-          // EditLoanModalContent's onSaved carries no payload — re-fetch so
-          // the reopened top-up modal sees the now-larger eligible amount,
-          // matching what the customer originally asked for.
+          // onSaved carries no payload — re-fetch so the reopened modal sees the now-larger eligible amount.
           const updated = await getLoan(loan.numericId);
           onSaved(updated);
           openModal(<TopUpLoanModalContent loan={updated} onSaved={onSaved} />);
@@ -88,8 +62,6 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
     );
   }
 
-  // Redirects to Record Payment on "Interest only" (prefilled with the
-  // interest + penal owed), then reopens this modal on the refreshed loan.
   function openPayInterest() {
     openModal(
       <PaymentModalContent
@@ -144,8 +116,6 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
         setShortfall(true);
         fail("amount", e.message);
       } else if (e instanceof ApiError && e.status === 400 && /outstanding interest/i.test(e.message)) {
-        // ErrTopUpNeedsPayment — settleMode is "require" and arrears still
-        // stand. Reveal the Record Payment prompt instead of the raw error.
         setNeedsPayment(true);
         setFe({});
         setErr("Outstanding interest/penal interest must be paid before this top-up can proceed — record a payment below, or switch to \"Deduct from payout\" above.");

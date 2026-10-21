@@ -14,29 +14,16 @@ type GoldRatesState = {
   loading: boolean;
   error: string;
   refresh: () => void;
-  /* Bumps every time a refresh completes, so views that page their own
-   * history (GoldRates.tsx) can refetch after a rate is published. */
-  version: number;
-  /* True when `latest.date` ("YYYY-MM-DD") matches today's local date
-   * string. False when no rate has ever been published (EMPTY_RATE, date
-   * === "") or the newest published rate is from an earlier day — mirrors
-   * the backend's loan.ErrGoldRateNotSetToday day-boundary check. */
-  isTodaySet: boolean;
+  version: number; // bumps on every refresh so pages depending on history can refetch
+  isTodaySet: boolean; // true when latest.date matches today's local date
 };
 
 const GoldRatesContext = createContext<GoldRatesState | null>(null);
 
 type GoldRatesProviderProps = { children: React.ReactNode };
 
-/**
- * Shared, real (backend-backed) gold rate + history — read across Topbar,
- * Dashboard, GoldRates and NewLoan, mirroring CustomersProvider.tsx's
- * pattern. `latest` falls back to EMPTY_RATE (all zeros) when no rate has
- * ever been published yet (backend returns 404 for /gold-rates/latest).
- */
+// `latest` falls back to EMPTY_RATE when no rate has ever been published yet (404 for /gold-rates/latest).
 export function GoldRatesProvider({ children }: GoldRatesProviderProps) {
-  // Loaded for every page, so only fetched when this role can view the
-  // module — otherwise it stays empty instead of failing with a 403.
   const { can, permissionsLoaded } = useAuth();
   const allowed = can("Gold_Rate_Management", "can_view_gold_rate_module");
   const [latest, setLatest] = useState<GoldRateView>(EMPTY_RATE);
@@ -60,8 +47,7 @@ export function GoldRatesProvider({ children }: GoldRatesProviderProps) {
     ])
       .then(([latestRate, hist]) => {
         setLatest(latestRate || EMPTY_RATE);
-        // Newest first, matching the old rateHistory[0] = most-recent convention.
-        setHistory([...hist].sort((a, b) => (a.id < b.id ? 1 : -1)));
+        setHistory([...hist].sort((a, b) => (a.id < b.id ? 1 : -1))); // newest first
         setVersion((v) => v + 1);
         setError("");
       })
@@ -71,9 +57,6 @@ export function GoldRatesProvider({ children }: GoldRatesProviderProps) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Matches the "YYYY-MM-DD" comparison convention used elsewhere (e.g.
-  // Auctions.modules/cash/pages/CashPage.tsx/Dashboard.tsx's `today` const) and mirrors the
-  // backend's loan.ErrGoldRateNotSetToday day-boundary check.
   const isTodaySet = !!latest.date && latest.date === new Date().toISOString().slice(0, 10);
 
   return (

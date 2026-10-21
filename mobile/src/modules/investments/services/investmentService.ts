@@ -5,9 +5,6 @@ export function listInvestmentPlans(activeOnly?: boolean) {
   return apiRequest<InvestmentPlan[]>("/investment-plans", { params: activeOnly ? { activeOnly: true } : undefined });
 }
 
-// Page-scoped list — same 0-based offset/{items,hasMore} convention as the
-// rest of this app's mobile list screens (web's own listInvestmentsPage
-// uses a 1-based `page` instead).
 export function listInvestmentsPage(params: {
   q?: string;
   status?: InvestmentStatus;
@@ -83,14 +80,11 @@ export function updateInvestmentPlan(id: number, input: CreatePlanInput) {
   return apiRequest<InvestmentPlan>(`/investment-plans/${id}`, { method: "PUT", body: input });
 }
 
-// Paged + searchable plan list (GET /investment-plans?limit=&offset=&q=) —
-// opt-in pagination server-side returns {items, hasMore, total}. Used by the
-// Investment Plans sheet (10 per page, `q` matches the plan name).
 export function listInvestmentPlansPage(params: { q?: string; activeOnly?: boolean; limit: number; offset: number }) {
   return apiRequest<{ items: InvestmentPlan[] | null; hasMore: boolean; total?: number }>("/investment-plans", { params });
 }
 
-// The unpaid interest months of a scheduled investment, oldest first (web's getPendingInterest).
+// The unpaid interest months of a scheduled investment, oldest first.
 export function getPendingInterest(investmentId: number) {
   return apiRequest<{ items: InvestmentPayout[] | null }>(`/investments/${investmentId}/pending-interest`).then((r) => r.items ?? []);
 }

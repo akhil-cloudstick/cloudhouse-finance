@@ -1,14 +1,9 @@
-// Mirrors backend/internal/investment's JSON shapes / frontend/modules/
-// src/modules/investments/services/investmentService.ts's BackendInvestment etc. —
-// investor deposits, a separate product from borrower loans.
 export type InterestRateType = "Simple" | "Compound";
 export type PayoutFrequency = "Daily" | "Weekly" | "Monthly" | "Quarterly" | "Yearly";
 export type InvestmentStatus = "Active" | "Matured" | "Closed" | "Renewed";
 export type PayoutStatus = "Pending" | "Paid";
 export type InvestmentEngine = "Schedule" | "Live";
-// Display/document-generation label, not a separate calculation engine —
-// see backend/internal/investment/model_plan.go's ProductType* doc comment
-// and frontend investmentService.ts's identical ProductType.
+// Display/document-generation label, not a separate calculation engine.
 export type InvestmentProductType = "Deposit" | "Bond";
 
 export type InvestmentPlan = {
@@ -46,7 +41,7 @@ export type Investment = {
   renewedToInvestmentId: number | null;
   createdAt: string;
   engine: InvestmentEngine;
-  // Live-engine only — running balance fields (zero/unused under Schedule).
+  // Live-engine only; zero/unused under Schedule.
   outstandingPrincipal: number;
   accruedInterest: number;
   interestWithdrawn: number;
@@ -88,17 +83,13 @@ export type CreateInvestmentInput = {
   customerId: number;
   planId: number;
   principalAmount: number;
-  // How the investor's money reached the branch, and the bank account a UPI / Bank Transfer share landed in.
   cashAmount?: number;
   upiAmount?: number;
   bankTransferAmount?: number;
   chequeAmount?: number;
   bankId?: number;
 };
-// The 4-field split (cash/upi/bankTransfer/cheque) only needs to sum to the
-// total — a single mode with the full amount is a valid, first-class case
-// (see platform.ValidateSplit/DeriveMethod), so mobile builds this from a
-// plain ChipSelect mode picker rather than a full multi-mode split UI.
+// The split only needs to sum to the total; a single mode with the full amount is valid.
 export type PaymentMode = "Cash" | "UPI" | "Bank Transfer" | "Cheque";
 export type SplitAmounts = { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number };
 export type MaturityAction = "Close" | "Renew";

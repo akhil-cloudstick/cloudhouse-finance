@@ -8,13 +8,7 @@ import { inr, todayISO } from "@/common/utils/format";
 import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 
-// ---------------------------------------------------------------------------
-// Download Statement (prototype #scheme-statement-modal). The file itself is
-// built by the backend (GET /schemes/:id/statement, src/modules/schemes/utils/schemeStatement.ts)
-// from every loan in range — nothing is assembled on the phone. The optional
-// loan picker below pages loans in range from the server 10 at a time.
-// ---------------------------------------------------------------------------
-
+// The statement file is built server-side; the loan picker below pages loans in range, 10 at a time.
 const firstOfMonth = () => `${todayISO().slice(0, 8)}01`;
 const PAGE = 10;
 type SchemeStatementSheetProps = { visible: boolean; onClose: () => void; scheme: Scheme | null };

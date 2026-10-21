@@ -21,9 +21,7 @@ function money(n: number | undefined | null): string {
   return `₹${(n ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
-// Keeps the real file extension from a URL (e.g. ".jpg", ".pdf") so the
-// downloaded local file opens correctly in whatever the customer's device
-// hands it to — staff-uploaded KYC documents aren't guaranteed to be PDFs.
+// Keeps the real extension since staff-uploaded KYC documents aren't guaranteed to be PDFs.
 function extname(url: string): string {
   const match = /\.[a-zA-Z0-9]{2,4}(?:\?|$)/.exec(url);
   return match ? match[0].replace(/\?$/, "") : "";
@@ -31,11 +29,6 @@ function extname(url: string): string {
 
 type KYCDocRow = { key: string; label: string; icon: "doc"; url?: string };
 
-// Documents tab per the Batch 5 plan: a per-loan statement PDF (loan picker
-// + download, mirroring payments.tsx's "Pay a loan" picker and receipt
-// download pattern) plus a read-only list of the customer's own
-// staff-uploaded KYC documents — already present on the profile fetched by
-// AuthContext since Batch 4, no separate fetch needed here.
 export default function DocumentsScreen() {
   const { customer } = useAuth();
   const [notifOpen, setNotifOpen] = useState(false);

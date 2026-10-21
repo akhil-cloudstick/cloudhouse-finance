@@ -10,9 +10,6 @@ import type { Loan } from "@/modules/loans/types/loan-types";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { userMessage } from "@/common/services/apiErrors";
 
-// ---------------------------------------------------------------------------
-// Add Reminder (prototype #reminder-create-modal)
-// ---------------------------------------------------------------------------
 type RType = "Follow-Up" | "Promise-to-Pay" | "Custom";
 type ReminderCreateSheetProps = { visible: boolean; onClose: () => void; defaultDate?: string };
 

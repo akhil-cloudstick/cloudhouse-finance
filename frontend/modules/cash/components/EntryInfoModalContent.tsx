@@ -20,9 +20,6 @@ const KIND_LABEL: Record<EntryKind, string> = {
 // initial: the entry already fetched by the caller, so the popup opens complete instead of loading in front of the user.
 type EntryInfoModalContentProps = { entryId: number; onChanged?: () => void; initial?: EntryInfo };
 
-/* The ledger's info popup for a cash-in, a debit or a self transfer: its
- * remarks and everything recorded about it — category, amount, date, the
- * payment breakdown (or the From / To banks of a transfer), branch, bill. */
 export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfoModalContentProps) {
   const { closeModal, openModal } = useModal();
   const [info, setInfo] = useState<EntryInfo | null>(initial ?? null);
@@ -41,8 +38,6 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
     return (
       <>
         <div className="hd"><h3>Entry Details</h3><button className="x" onClick={closeModal}>×</button></div>
-        {/* Same sections as the loaded view, so the popup keeps its size and
-         * nothing pops in piece by piece once the entry arrives. */}
         <div className="bd bd-scroll" style={{ minHeight: 360 }}>
           {err ? (
             <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>

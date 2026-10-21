@@ -1,8 +1,7 @@
 import React from "react";
 import Svg, { Circle, Line, Path, Polygon, Polyline, Rect } from "react-native-svg";
 
-// Exact port of the ICONS map in ui-demos/staff-app-prototype.html — same
-// paths, default sizes and stroke widths, so every glyph matches the design.
+// Exact port of the ICONS map in ui-demos/staff-app-prototype.html, so every glyph matches the design.
 type Def = { size: number; stroke?: number; fill?: boolean; body: React.ReactNode };
 
 const DEFS: Record<string, Def> = {
@@ -31,8 +30,7 @@ const DEFS: Record<string, Def> = {
   transfer: { size: 18, stroke: 2, body: <><Polyline points="17 1 21 5 17 9" /><Path d="M3 11V9a4 4 0 0 1 4-4h14" /><Polyline points="7 23 3 19 7 15" /><Path d="M21 13v2a4 4 0 0 1-4 4H3" /></> },
   alert: { size: 18, stroke: 2, body: <><Path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><Line x1="12" y1="9" x2="12" y2="13" /><Line x1="12" y1="17" x2="12.01" y2="17" /></> },
   layers: { size: 19, stroke: 2, body: <><Polygon points="12 2 2 7 12 12 22 7 12 2" /><Polyline points="2 17 12 22 22 17" /><Polyline points="2 12 12 17 22 12" /></> },
-  // Not in the prototype's map, used by screens the prototype doesn't draw
-  // (admin modules, QR packet lookup) — same stroke language.
+  // Not in the prototype's map; added for admin modules/QR packet lookup, same stroke language.
   shield: { size: 18, stroke: 2, body: <Path d="M12 3 5 6v5c0 5 3.5 8.5 7 10 3.5-1.5 7-5 7-10V6Z" /> },
   gear: { size: 18, stroke: 2, body: <><Circle cx="12" cy="12" r="3" /><Path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></> },
   scan: { size: 18, stroke: 2, body: <Path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M4 12h16" /> },

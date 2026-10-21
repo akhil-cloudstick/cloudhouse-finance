@@ -15,10 +15,6 @@ const TABS: { type: EntryType; label: string }[] = [
 
 type AddEntryModalContentProps = { onSaved?: () => void; defaultBranchId?: number };
 
-/* The Ledger's single "Add Entry" modal. The Credit / Debit / Self Transfer
- * switch lives at the top of the modal; each tab is the existing Add Cash /
- * Record Expense form, or the Self Transfer form, so every one of them keeps
- * its own fields, categories and "search or add" pickers unchanged. */
 export function AddEntryModalContent({ onSaved, defaultBranchId }: AddEntryModalContentProps) {
   const [type, setType] = useState<EntryType>("credit");
 

@@ -1,10 +1,7 @@
 import { apiRequestEnveloped as apiRequest } from "@/common/services/httpClient";
 import { Loan } from "@/modules/loans/types/loan-types";
 
-// Backs POST /loans/:id/payments (backend/internal/loan/handler.go's
-// RecordPayment/paymentRequest). paidOn is YYYY-MM-DD; the actor
-// (receivedByEmployeeId) is derived server-side from the JWT, never sent
-// from here.
+// paidOn is YYYY-MM-DD; the actor is derived server-side from the JWT, never sent from here.
 export function recordPayment(
   loanId: number,
   input: {
@@ -13,20 +10,16 @@ export function recordPayment(
     processingFee?: number;
     paidOn: string;
     method?: string;
-    // Per-mode split; must sum to amount when sent (platform.ValidateSplit).
+    // Per-mode split; must sum to amount when sent.
     cashAmount?: number;
     upiAmount?: number;
     bankTransferAmount?: number;
     chequeAmount?: number;
-    // Which bank the UPI/Bank Transfer/Cheque portion landed in — required
-    // when any of those three is non-zero (see backend's
-    // ErrBankRequiredForSplitMode).
+    // Required when UPI/Bank Transfer/Cheque is non-zero.
     bankId?: number;
     reference?: string;
     description?: string;
-    // Overrides the system-calculated interest bucket for this payment
-    // only (see backend's PaymentInput.InterestOverride doc comment) —
-    // omit to use the live-calculated figure.
+    // Overrides the system-calculated interest bucket for this payment only; omit to use the live figure.
     interestOverride?: number;
   }
 ) {

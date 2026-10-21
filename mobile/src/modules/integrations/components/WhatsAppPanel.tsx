@@ -25,9 +25,6 @@ function displayPairing(code: string): string {
   return code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 }
 
-/* Settings > Integrations > WhatsApp. The business's own WhatsApp link: connect
- * by scanning a QR or by typing the number for a pairing code, or disconnect.
- * Mirrors the web panel (frontend/modules/integrations). */
 export function WhatsAppPanel() {
   const [session, setSession] = useState<WhatsAppSession | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -80,7 +77,6 @@ export function WhatsAppPanel() {
 
   async function cancelConnect() {
     setMethod(null);
-    // an unfinished attempt would otherwise keep a session running on the server
     if (session && !session.connected) {
       try {
         await disconnectWhatsApp();
@@ -158,8 +154,7 @@ function ConnectFlow({
   const linked = useRef(onLinked);
   linked.current = onLinked;
 
-  // Poll until the phone has linked. The QR rotates every ~20s on WhatsApp's side,
-  // so it is re-read on every tick while the QR tab is open.
+  // QR rotates every ~20s on WhatsApp's side, so it's re-read on every poll tick.
   useEffect(() => {
     let stop = false;
     async function tick() {

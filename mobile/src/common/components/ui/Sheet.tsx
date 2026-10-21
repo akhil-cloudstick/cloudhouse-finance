@@ -6,11 +6,7 @@ import { nextSheetId, sheetStore } from "./SheetHost";
 import { C } from "./base";
 import { ModalHead } from "./ModalHead";
 
-// ---- footer slot ----------------------------------------------------------
-// Lets a component nested deep inside a sheet (e.g. a review panel) put its
-// action buttons in that sheet's sticky footer: <SheetFooter> publishes into
-// a tiny per-sheet store that only the footer slot subscribes to, so the
-// publish never re-renders the sheet body (no update loop).
+// <SheetFooter> publishes into a per-sheet store so only the footer slot re-renders, avoiding an update loop.
 type Slot = { get: () => React.ReactNode; set: (n: React.ReactNode) => void; subscribe: (l: () => void) => () => void };
 export const SlotContext = createContext<Slot | null>(null);
 
@@ -45,21 +41,15 @@ function FooterSlot({ slot, auto }: FooterSlotProps) {
   );
 }
 
-/** Components that mark themselves footer-able (PrimaryButton, BtnRow2) —
- * set as a static flag to avoid a Sheet ⇄ Form import cycle. */
+/** Static flag set by footer-able components (PrimaryButton, BtnRow2) to avoid a Sheet <-> Form import cycle. */
 type FooterFlag = { stickyFooter?: boolean };
 
-/** Splits trailing footer-able elements (the sheet's action buttons) off the
- * end of the body so they can sit in a sticky footer. Fragments are
- * flattened; falsy children are ignored. */
 function splitFooter(children: React.ReactNode): {
   body: React.ReactNode[];
   footer: React.ReactNode[];
 } {
   const flat: React.ReactNode[] = [];
-  // Children.toArray keys restart at ".0" inside every fragment, so once
-  // nested fragments are flattened into one list their keys collide
-  // (React's duplicate-key error). Prefix each key with its fragment path.
+  // Prefix each key with its fragment path to avoid React duplicate-key collisions once fragments are flattened.
   const walk = (nodes: React.ReactNode, path: string) =>
     React.Children.toArray(nodes).forEach((n) => {
       if (React.isValidElement(n) && n.type === React.Fragment) walk((n.props as { children?: React.ReactNode }).children, `${path}${String(n.key)}/`);
@@ -89,11 +79,7 @@ type SheetProps = {
   stickyFooter?: boolean;
 };
 
-/** Rise-up bottom sheet (.modal-card.sheet-bottom): handle, head, scrolling
- * body, and a sticky footer holding the sheet's trailing action button(s)
- * so they stay reachable however long the form is. Pass `scroll={false}`
- * when the body supplies its own SheetFlatList (paged lists inside a sheet),
- * or `stickyFooter={false}` to keep the buttons in the scroll. */
+/** Pass `scroll={false}` for a body with its own SheetFlatList, or `stickyFooter={false}` to keep buttons in the scroll. */
 export function Sheet({
   visible,
   onClose,
@@ -142,10 +128,7 @@ export function useOverlay(
   const anim = useRef(new Animated.Value(0)).current;
   const shownRef = useRef(onShown);
   shownRef.current = onShown;
-  // The open animation starts only once the overlay has been published and
-  // drawn (next frame). Starting it in the same effect that mounts it ran
-  // the first part of the slide before the view existed — it looked like
-  // it jumped in.
+  // Open animation waits a frame after mount; starting it in the mounting effect skipped the first part of the slide.
   const pendingOpen = useRef(false);
   const idRef = useRef<string>(undefined as unknown as string);
   if (!idRef.current) idRef.current = nextSheetId();

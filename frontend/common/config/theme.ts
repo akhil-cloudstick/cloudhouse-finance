@@ -1,34 +1,14 @@
-/* Per-business theming — one picked colour drives the whole brand ramp.
- *
- * WHY THIS EXISTS. The `:root` block in common/styles/app.css defines six brand
- * steps (deep/brand/mid/light/pale/faint) that 115 `var(--brand*)` rules read
- * from. Those six are not six independent choices: they are ONE colour walked
- * up and down a fixed lightness/chroma curve, all on the same hue. So a
- * business picks one colour and this file regenerates the curve around it —
- * which is why the superadmin console offers a single picker rather than six.
- *
- * Everything is oklch, matching app.css. Lightness in oklch is perceptual, so
- * holding L fixed and moving only the hue keeps each step's contrast roughly
- * where it was designed to be — the reason the ramp survives an arbitrary hue
- * at all, and why this could not be done by scaling sRGB channels.
- */
+// One picked brand colour regenerates all six app.css --brand* steps by walking a fixed oklch curve.
 
 export type Oklch = { l: number; c: number; h: number };
 
-/* The reference ramp, read straight off app.css's :root. L is absolute; C is
- * expressed as a RATIO of --brand's own chroma (0.162) so a muted pick stays
- * muted and a vivid one stays vivid, instead of every business landing on the
- * same saturation.
- *
- * Keep in step with app.css. If a step's L changes there, change it here — the
- * fallback stylesheet and the generated one must describe the same design. */
+// Reference ramp from app.css's :root; chroma is a RATIO of --brand's own chroma so saturation scales with the pick. Keep in step with app.css.
 const BRAND_REFERENCE_CHROMA = 0.162;
 
 const RAMP: { token: string; l: number; chromaRatio: number }[] = [
   { token: "--brand-deep", l: 0.4, chromaRatio: 0.145 / BRAND_REFERENCE_CHROMA },
   { token: "--brand", l: 0.515, chromaRatio: 1 },
-  // Deliberately LIGHTER than --brand: it is a fill (tabs, selected days,
-  // hairlines), never text. See app.css's note.
+  // --brand-mid is deliberately LIGHTER than --brand: it's a fill (tabs, selected days), never text.
   { token: "--brand-mid", l: 0.58, chromaRatio: 0.15 / BRAND_REFERENCE_CHROMA },
   { token: "--brand-light", l: 0.75, chromaRatio: 0.1 / BRAND_REFERENCE_CHROMA },
   { token: "--brand-pale", l: 0.955, chromaRatio: 0.02 / BRAND_REFERENCE_CHROMA },
@@ -38,12 +18,7 @@ const RAMP: { token: string; l: number; chromaRatio: number }[] = [
 /** The platform default, mirroring app.css and backend/internal/branding. */
 export const DEFAULT_BRAND_COLOR = "#6054bf";
 
-/* --- sRGB <-> OKLCH ---------------------------------------------------------
- *
- * Hand-rolled rather than pulled from a library: this is ~60 lines of
- * well-defined matrix maths, and the app has no colour dependency today
- * (package.json is next/react/react-dom/qrcode). Ottosson's OKLab transform.
- */
+// Hand-rolled sRGB <-> OKLCH (Ottosson's OKLab transform) since the app has no colour library dependency.
 
 function srgbToLinear(v: number): number {
   return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
@@ -75,9 +50,7 @@ export function hexToOklch(hex: string): Oklch | null {
   return { l: okL, c: chroma, h: hue };
 }
 
-/* oklchToRgb returns channels in 0..1 and a flag for whether the colour fell
- * outside sRGB before clamping — which is what gamutFit below uses to walk
- * chroma down instead of letting the browser clip unpredictably. */
+// Returns channels in 0..1 plus whether the colour fell outside sRGB, which gamutFit uses to walk chroma down.
 function oklchToLinearRgb({ l, c, h }: Oklch): { r: number; g: number; b: number; inGamut: boolean } {
   const hr = (h * Math.PI) / 180;
   const a = c * Math.cos(hr);
@@ -96,12 +69,7 @@ function oklchToLinearRgb({ l, c, h }: Oklch): { r: number; g: number; b: number
   return { r, g, b, inGamut };
 }
 
-/* gamutFit reduces chroma until the colour fits in sRGB.
- *
- * app.css's header warns that above the gamut ceiling browsers gamut-map
- * differently and Chrome and Safari disagree — which would desync the hex
- * mirrors this file also produces for print. Binary search on chroma keeps
- * lightness and hue exact and gives one answer everywhere. */
+// Binary search on chroma until the colour fits sRGB, keeping L/H exact (browsers disagree on out-of-gamut mapping).
 function gamutFit(color: Oklch): Oklch {
   if (oklchToLinearRgb(color).inGamut) return color;
   let lo = 0;
@@ -127,19 +95,9 @@ export function oklchToCss({ l, c, h }: Oklch): string {
   return `oklch(${l.toFixed(3)} ${c.toFixed(3)} ${h.toFixed(1)})`;
 }
 
-/* --- The ramp --------------------------------------------------------------- */
-
 export type BrandRamp = Record<string, Oklch>;
 
-/**
- * deriveBrandRamp regenerates all six brand steps from one picked colour,
- * keeping its hue and scaling the reference chroma curve by how saturated the
- * pick actually is.
- *
- * A malformed or unparseable value falls back to the platform default rather
- * than throwing: this runs during first paint, and a bad stored colour must
- * degrade to the default theme, never to a blank app.
- */
+// Regenerates all six brand steps from one colour. Falls back to the default on a bad value instead of throwing, since this runs during first paint.
 export function deriveBrandRamp(hex: string): BrandRamp {
   const picked = hexToOklch(hex) ?? hexToOklch(DEFAULT_BRAND_COLOR)!;
   const ramp: BrandRamp = {};
@@ -150,19 +108,7 @@ export function deriveBrandRamp(hex: string): BrandRamp {
       h: picked.h,
     });
   }
-  // --brand is pinned to the EXACT picked colour (only gamut-fit, never
-  // re-lightened) — not the RAMP table's l:0.515 for that step, which
-  // normalises every business's pick to one fixed lightness regardless of
-  // how light or dark the colour they actually chose is. A business that
-  // picks a genuinely dark navy like #1a3e93 (L≈0.39) got a NOTICEABLY
-  // lighter blue rendered as its "primary" everywhere — buttons, links,
-  // headings — than the hex they entered, which was never actually
-  // achievable through the UI at all: the default button/link colour
-  // (.btn, --brand) simply never equalled what was typed for any colour
-  // whose own lightness wasn't already 0.515. The rest of the ramp
-  // (deep/mid/light/pale/faint) keeps deriving from the RAMP table as
-  // before — those are supporting shades, not the colour itself, and are
-  // fine to land at their own designed lightness steps.
+  // --brand is pinned to the EXACT picked colour (gamut-fit only), not the RAMP table's l:0.515 — otherwise a dark pick like navy renders noticeably lighter than entered.
   ramp["--brand"] = gamutFit(picked);
   return ramp;
 }
@@ -175,17 +121,7 @@ export function brandRampHex(hex: string): Record<string, string> {
   return out;
 }
 
-/* --- Second/third colours ---------------------------------------------------
- *
- * Most businesses only ever set BrandColor and get one ramp. A minority need
- * 2-3 coordinated colours (their mark genuinely uses more than tints of one
- * hue) — SecondaryColor/AccentColor exist for exactly that case, and are
- * OPTIONAL: unset means "don't emit these variables at all", not "derive one
- * from the primary colour". `deriveNamedRamp` is deriveBrandRamp generalised
- * to write under an arbitrary token prefix, so the same OKLCH curve/gamut-fit
- * logic produces the --brand2 and --brand3 step variables exactly the way it
- * produces the --brand ones.
- */
+// Secondary/accent colours are OPTIONAL (unset = don't emit those variables). deriveNamedRamp generalises deriveBrandRamp to write under an arbitrary token prefix (--brand2, --brand3).
 
 const RAMP_SUFFIXES = ["deep", "", "mid", "light", "pale", "faint"] as const;
 
@@ -193,7 +129,7 @@ const RAMP_SUFFIXES = ["deep", "", "mid", "light", "pale", "faint"] as const;
 function deriveNamedRamp(hex: string, prefix: string): BrandRamp {
   const ramp = deriveBrandRamp(hex);
   const out: BrandRamp = {};
-  const brandTokens = Object.keys(ramp); // in RAMP's declared order
+  const brandTokens = Object.keys(ramp);
   brandTokens.forEach((token, i) => {
     const suffix = RAMP_SUFFIXES[i];
     out[suffix ? `${prefix}-${suffix}` : prefix] = ramp[token];
@@ -210,21 +146,8 @@ function clearNamedRamp(root: CSSStyleDeclaration, prefix: string): void {
   for (const suffix of RAMP_SUFFIXES) root.removeProperty(suffix ? `${prefix}-${suffix}` : prefix);
 }
 
-/* --- Fonts -------------------------------------------------------------------
- *
- * FontFamily is chosen from a FIXED allow-list, never free text: the value
- * comes from the backend (also validated against a closed set — see
- * backend/internal/superadmin/profile.go's knownFontFamilies) and is written
- * straight into a CSS custom property, so an arbitrary string here would be
- * a way to inject CSS, not just a typo. Keep this list in the same order and
- * with the same keys as the backend's.
- */
-/* Each choice leads with the font the app actually LOADS. next/font registers
- * a self-hosted face under a generated name, exposed only through its CSS
- * variable (app/(product)/layout.tsx), so a bare "Inter" or "Poppins" here
- * matched nothing and fell through to the system font — Inter and Poppins
- * looked identical to System. The quoted name after each var() is only the
- * fallback for a page where the variable is not defined. */
+// FontFamily is a FIXED allow-list (must match backend profile.go's knownFontFamilies) since it's written straight into a CSS property.
+// Each value leads with the next/font CSS variable (app/(product)/layout.tsx); a bare name here would fall through to the system font.
 export const FONT_FAMILIES: Record<string, string> = {
   inter: 'var(--font-sans, "Inter"), system-ui, -apple-system, "Segoe UI", sans-serif',
   system: '-apple-system, system-ui, "Segoe UI", Roboto, sans-serif',
@@ -235,24 +158,14 @@ export const DEFAULT_FONT_FAMILY = "inter";
 
 /** Base font-size multiplier per scale preset, applied as --brand-font-scale. */
 export const FONT_SCALES: Record<string, number> = {
-  compact: 0.9375, // ~15px base if the page's default is 16px
+  compact: 0.9375,
   default: 1,
   comfortable: 1.0625,
 };
 export const DEFAULT_FONT_SCALE = "default";
 
-/* --- Logo slot ---------------------------------------------------------------
- *
- * LogoScale/LogoDisplay never touch a CSS variable that other rules already
- * key off of — they're consumed directly by BrandLogo.tsx — but the presets
- * live here so the frontend and backend (profile.go's knownLogoScales/
- * knownLogoDisplays) enumerate the exact same closed sets in one place each.
- */
-/* Range widened from an earlier {small,default,large} capped at 1.25: a real
- * reference tenant's sidebar logo was hand-set to 80px against this app's
- * 48px base slot — a 1.67x multiplier "large" could not reach at all, which
- * would have made exact visual parity with that tenant impossible from this
- * dropdown no matter what the operator picked. */
+// LogoScale/LogoDisplay presets must stay in sync with backend profile.go's knownLogoScales/knownLogoDisplays.
+// Range goes up to 1.7x: a real tenant needed an 80px logo against this app's 48px base slot, beyond the old 1.25 cap.
 export const LOGO_SCALES: Record<string, number> = {
   small: 0.75,
   default: 1,
@@ -265,15 +178,9 @@ export type LogoDisplay = (typeof LOGO_DISPLAYS)[number];
 export const DEFAULT_LOGO_DISPLAY: LogoDisplay = "transparent";
 
 
-/* The two decorations whose colour lives INSIDE a data-URI SVG, where CSS
- * cannot interpolate a variable — see the --page-pattern/--select-caret
- * block in common/styles/app.css. Rebuilt here with the derived hex so they track
- * the business's colour like everything else.
- *
- * The `#` must be percent-encoded as %23 inside a data URI; leaving it raw
- * silently truncates the URL at the fragment and the image disappears. */
+// These two SVG data-URI decorations can't read a CSS variable internally, so they're rebuilt here with the derived hex (# must be %-encoded or the URI truncates).
 function pagePatternURI(hex: string): string {
-  const c = encodeURIComponent(hex); // "#" becomes "%23"
+  const c = encodeURIComponent(hex);
   return `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='${c}' stroke-width='0.5' opacity='0.035'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3C/g%3E%3C/svg%3E")`;
 }
 
@@ -281,8 +188,7 @@ function selectCaretURI(hex: string): string {
   const c = encodeURIComponent(hex);
   return `url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='${c}' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`;
 }
-/** Everything applyBrandTheme can set. Every field is optional except the
- * primary colour, matching how little a business is required to configure. */
+/** Everything applyBrandTheme can set. Every field optional except primary. */
 export type BrandTheme = {
   primary?: string | null;
   secondary?: string | null;
@@ -294,18 +200,7 @@ export type BrandTheme = {
   onBrandText?: string | null;
 };
 
-/* --- Text colours on the brand grounds ----------------------------------------
- *
- * Sidebar and button text used to be hardcoded white. That is right for the
- * dark grounds most businesses pick, and unreadable on the light secondary
- * colour some logos need. So the text colour is now a setting, and its
- * automatic value follows one rule: white, unless white would fail WCAG AA
- * (4.5:1) on that ground AND a dark ink of the ground's own hue reads better.
- * A vendor-picked colour always wins over the rule.
- *
- * The superadmin console's live preview calls these same functions, so what
- * the vendor sees while editing is exactly what the business's app renders.
- */
+// Auto text colour rule: white unless it fails WCAG AA (4.5:1) on the ground AND a dark ink of the ground's hue reads better. A vendor-picked colour always wins.
 const AA_CONTRAST = 4.5;
 
 function hexLuminance(hex: string): number {
@@ -332,9 +227,7 @@ export function autoTextColor(bgHex: string): string {
   return hexContrast(ink, bgHex) > white ? ink : "#ffffff";
 }
 
-/* The sidebar ground: the secondary colour when set, otherwise a dark shade on
- * the primary's own hue (calibrated against a real hand-picked navy, #0e2050:
- * L≈0.26 C≈0.091). One function so the app and the console preview agree. */
+// Sidebar ground: secondary colour when set, else a dark shade on the primary's hue (calibrated against reference navy #0e2050).
 function navOklchFor(primary: string, secondary: string | null | undefined): Oklch {
   const primaryOklch = hexToOklch(primary || DEFAULT_BRAND_COLOR) ?? hexToOklch(DEFAULT_BRAND_COLOR)!;
   const sidebarSourceOklch = secondary ? hexToOklch(secondary) : null;
@@ -343,9 +236,7 @@ function navOklchFor(primary: string, secondary: string | null | undefined): Okl
     : gamutFit({ l: 0.22, c: Math.min(primaryOklch.c * 0.65, 0.11), h: primaryOklch.h });
 }
 
-/* The second gradient stop: a step LIGHTER than a dark ground (the reference
- * sidebar's own subtle top-to-bottom gradient), but a step DARKER than a light
- * one — lightening an already-light ground just clips to white. */
+// Gradient stop: lighter than a dark ground, darker than a light one (lightening an already-light ground just clips to white).
 function nav2OklchFor(nav: Oklch): Oklch {
   return nav.l > 0.6
     ? gamutFit({ l: nav.l - 0.03, c: nav.c, h: nav.h })
@@ -382,8 +273,7 @@ export function resolveBrandColors(t: BrandTheme): BrandColors {
   };
 }
 
-/** The CSS variables a theme sets that the console preview also needs, scoped
- * to an element instead of the document. */
+/** The CSS variables a theme sets, scoped to an element instead of the document (for the console preview). */
 export function brandPreviewVars(t: BrandTheme): Record<string, string> {
   const c = resolveBrandColors(t);
   return {
@@ -396,22 +286,7 @@ export function brandPreviewVars(t: BrandTheme): Record<string, string> {
   };
 }
 
-/**
- * applyBrandTheme writes the ramp(s), font variables onto the document root,
- * where all 115 `var(--brand*)` consumers in app.css and login.css pick up
- * --brand* immediately. login.css's `color-mix(in oklab, var(--brand) ...)`
- * focus rings follow for free, since they are expressed in terms of the
- * variable rather than a literal.
- *
- * Accepts either a bare hex string (the pre-existing call shape, kept so
- * every caller that only ever set one colour does not need to change) or a
- * full BrandTheme. secondary is OPTIONAL: omitting it clears the --brand2
- * step variables rather than deriving a guess, so CSS that only reads the
- * plain --brand variables is completely unaffected by a business that has
- * not set it.
- *
- * Safe to call before React mounts, and safe to call repeatedly.
- */
+// Writes the ramp(s) and font variables onto the document root. Accepts a bare hex (legacy call shape) or a full BrandTheme; secondary is optional and clears --brand2 when unset. Safe before React mounts and safe to call repeatedly.
 export function applyBrandTheme(theme: string | null | undefined | BrandTheme): void {
   if (typeof document === "undefined") return;
   const t: BrandTheme = typeof theme === "string" || theme == null ? { primary: theme } : theme;
@@ -420,82 +295,30 @@ export function applyBrandTheme(theme: string | null | undefined | BrandTheme): 
   for (const [token, color] of Object.entries(ramp)) {
     root.style.setProperty(token, oklchToCss(color));
   }
-  // The two data-URI decorations, which cannot read a variable from inside
-  // the SVG and so are regenerated whole.
   const brandHex = oklchToHex(ramp["--brand"]);
   root.style.setProperty("--page-pattern", pagePatternURI(brandHex));
   root.style.setProperty("--select-caret", selectCaretURI(brandHex));
 
-  // --nav/--nav-2 (the sidebar/login-panel/toast dark ground) were a FIXED
-  // near-black in :root, never touched by applyBrandTheme at all — so a
-  // tenant's colour changed buttons/links/fills but the sidebar itself
-  // stayed the same near-black for every business.
-  //
-  // Deliberately NOT its own 3rd colour picker in the console — two pickers
-  // (primary/secondary) already exist and a 3rd "sidebar colour" duplicated
-  // what secondary is for, without a documented reason to pick one over the
-  // other. So NOTHING here reads `t.sidebarColor` — a dedicated field
-  // briefly existed, got exposed in the console, and was then removed in
-  // favour of secondary; a business that happened to set it during that
-  // window would otherwise have that invisible, no-longer-editable value
-  // silently keep overriding a correctly-set secondary colour forever,
-  // which is exactly the bug this comment used to describe as a *feature*
-  // ("still supported... just not exposed") before it actually bit a real
-  // tenant. In priority order now:
-  //   1. secondary set — the sidebar/login panel IS what "a second
-  //      coordinated colour" is for in this product: most real brands (the
-  //      CTFI-style reference this was checked against included) use a
-  //      second colour for exactly this dark ground, distinct from the
-  //      primary (buttons/links).
-  //   2. unset — auto-derived from the primary colour's own hue, calibrated
-  //      against a real hand-picked reference navy (#0e2050 converted to
-  //      OKLCH: L≈0.26 C≈0.091 h≈265) so a business that has set only a
-  //      primary colour still gets a plausible tinted dark ground rather
-  //      than flat black.
-  //
-  // --nav-2 is a step LIGHTER than --nav (not equal, as an earlier flat
-  // version had it) — matching the reference's own subtle top-to-bottom
-  // sidebar gradient (its --nav-2 is measurably lighter than --nav), applied
-  // automatically from whichever colour --nav itself resolved to, so this
-  // never needs its own separate setting either.
+  // --nav/--nav-2: secondary colour when set, else auto-derived from primary's hue. Deliberately no separate "sidebar colour" field (removed in favour of secondary; do not reintroduce t.sidebarColor).
   const primaryOklch = hexToOklch(t.primary || DEFAULT_BRAND_COLOR) ?? hexToOklch(DEFAULT_BRAND_COLOR)!;
   const navOklch = navOklchFor(t.primary || DEFAULT_BRAND_COLOR, t.secondary);
   root.style.setProperty("--nav", oklchToCss(navOklch));
   root.style.setProperty("--nav-2", oklchToCss(nav2OklchFor(navOklch)));
 
-  // Text on those grounds — see resolveBrandColors. Set every time (never
-  // left over from a previous business), since a light sidebar with white
-  // text is unreadable.
+  // Set every time (never left over from a previous business) since a light sidebar with white text is unreadable.
   const colors = resolveBrandColors(t);
   root.style.setProperty("--nav-fg", colors.navFg);
   root.style.setProperty("--on-brand", colors.onBrand);
   root.style.setProperty("--nav-ink", colors.navInk);
 
-  // --nav-label — the sidebar's section headings ("OVERVIEW", "LENDING",
-  // etc.). Was a flat oklch(0.95 0.006 290 / 50%) — a near-white at low
-  // opacity, completely independent of any tenant's colour, which reads as
-  // a generic "faded white" rather than the reference's actual technique:
-  // its label colour (#55637d) is a MUTED, MID-lightness step of the SAME
-  // hue as its own primary colour (~262° for both), not white-at-an-alpha
-  // at all. Calibrated against that real value (L≈0.50, C≈0.045 on the
-  // primary's own hue) so the "faded" look tracks whatever colour a
-  // business has actually picked instead of looking the same for everyone.
+  // --nav-label (sidebar section headings): a muted, mid-lightness step on the primary's own hue, not a flat white-at-alpha, so it tracks the tenant's colour.
   const navLabelOklch = gamutFit({ l: 0.55, c: Math.min(primaryOklch.c * 0.3, 0.05), h: primaryOklch.h });
   root.style.setProperty("--nav-label", oklchToCss(navLabelOklch));
 
   if (t.secondary) applyNamedRamp(root.style, t.secondary, "--brand2");
   else clearNamedRamp(root.style, "--brand2");
 
-  // --brand-gradient is the login panel's small divider line (common/styles/login.css's
-  // .bp-rule) — its only remaining consumer now that the sidebar's own top
-  // rail and the login panel's hardcoded glow-orb wash have both been
-  // removed. No longer reads a 3rd "accent" colour at all: that field had
-  // exactly one visible use in the whole product (this gradient) and
-  // nothing else, so asking every business to pick a 3rd colour for one
-  // small divider line wasn't worth the confusion — see PRIMARY/SECONDARY
-  // colour, which cover buttons/links and the sidebar/login background
-  // respectively. Just those two now: primary's own deep step fading to
-  // secondary (or, with no secondary set, to primary's own light step).
+  // --brand-gradient: the login panel's divider line (login.css's .bp-rule). Uses only primary/secondary, not a dedicated 3rd colour (not worth the confusion for one divider line).
   const secondOklch = t.secondary ? hexToOklch(t.secondary) : null;
   const stop0 = oklchToCss(ramp["--brand-deep"]);
   const stop1 = secondOklch ? oklchToCss(gamutFit(secondOklch)) : oklchToCss(ramp["--brand-light"]);
@@ -507,25 +330,7 @@ export function applyBrandTheme(theme: string | null | undefined | BrandTheme): 
   root.style.setProperty("--brand-font-scale", String(fontScale));
 }
 
-/* applyFavicon installs an icon as the browser tab icon, and keeps it there.
- *
- * Next's static export would bake one icon into every page's HTML at build
- * time — there's no per-request way to vary it server-side, same constraint
- * applyBrandTheme's own header explains for colour. So app/(product)/layout.tsx ships NO
- * icon in its metadata at all, brand-preload.tsx inserts the one icon link
- * before first paint, and this is the runtime equivalent. Callers should
- * normally go through applyBrandFavicon below, which turns a business's raw
- * logo into an icon that is actually visible at tab size.
- *
- * An empty href is a no-op, not a clear — it leaves whatever icon is already
- * showing rather than ever pointing the tab at a broken/empty href.
- *
- * LATCHED, like applyDocumentTitle and for the same reason: anything else that
- * inserts a <link rel="icon"> after ours (a metadata commit, a library, a
- * future layout) would win, because browsers use the LAST icon in tree order.
- * That race is what made the tab icon randomly blank on some loads. A
- * MutationObserver re-appends ours whenever it is no longer the last icon.
- */
+// Installs the tab icon and LATCHES it: a MutationObserver re-appends ours whenever something else inserts a later <link rel="icon">, since browsers use the last one in tree order. An empty href is a no-op, not a clear. Prefer applyBrandFavicon below (turns a raw logo into a tab-size-visible icon).
 let latchedFavicon: string | null = null;
 let faviconObserver: MutationObserver | null = null;
 
@@ -536,14 +341,7 @@ function faviconIsCurrent(): boolean {
 }
 
 function insertFavicon(href: string): void {
-  // Removing and re-inserting the <link>, not mutating .href in place:
-  // several browsers only re-fetch a favicon when the element is inserted
-  // into the document, not on an attribute change to an existing one.
-  //
-  // Only OUR link (data-brand-icon) is ever removed. Any other icon link is
-  // left alone — if React owns it, removing it behind React's back makes
-  // React's own later removal crash with "Cannot read properties of null
-  // (reading 'removeChild')". Ours being last is enough.
+  // Remove-and-reinsert (not mutate .href): some browsers only re-fetch a favicon on insertion. Only our own data-brand-icon link is removed, never one React may own.
   document.querySelectorAll<HTMLLinkElement>("link[data-brand-icon]").forEach((el) => el.remove());
   const link = document.createElement("link");
   link.rel = "icon";
@@ -567,39 +365,13 @@ export function applyFavicon(href: string | null | undefined): void {
   watchFavicon();
 }
 
-/* --- Tab icon from an arbitrary logo -----------------------------------------
- *
- * A business uploads whatever logo it has: a JPEG with a solid background, a
- * transparent PNG with white artwork meant for a dark header, a wide wordmark,
- * a 4000px original. Used raw as a favicon, many of those are INVISIBLE at
- * 16px — white artwork on a transparent background disappears into a light
- * tab strip, and a wide wordmark shrinks to a hairline. That, not the
- * fetching, is why some businesses appeared to have no tab icon.
- *
- * So the tab never gets the raw upload. buildFavicon normalises ANY logo into
- * a small square PNG, deciding everything from the pixels themselves:
- *
- *   - transparent margins are trimmed, so the mark fills the icon;
- *   - the result is contain-fitted into a square, whatever the aspect ratio;
- *   - the logo is never put on a background: opaque logos carry their own,
- *     transparent ones stay transparent;
- *   - only artwork that would vanish into a light or dark tab strip (measured
- *     luminance, not guessed) gets a thin outline following its own shape;
- *   - no logo, or one that will not load, becomes the business's initials on
- *     its brand colour. Never blank.
- */
+// buildFavicon normalises an arbitrary uploaded logo into a small square PNG: trims transparent margins, contain-fits it, adds an outline only where the artwork would vanish into a light/dark tab strip, and falls back to initials-on-brand-colour. Needed because raw logos (wide wordmarks, white-on-transparent art) are often invisible at 16px.
 const FAVICON_SIZE = 64;
 /** Part of the cache key — bump when the drawing below changes. */
 const FAVICON_VERSION = "3";
 /** Below this share of transparent pixels a logo counts as opaque. */
 const FAVICON_OPAQUE_RATIO = 0.05;
-/* Typical browser tab strips, light and dark theme (Chrome's #dee1e6 and
- * #35363a), as relative luminance. A pixel at least FAVICON_PIXEL_CONTRAST
- * against a strip shows on it; a logo with less than FAVICON_VISIBLE_SHARE of
- * its artwork showing is effectively invisible there and gets an outline.
- *
- * A SHARE, not an average: a logo with a white fill and blue detail averages
- * out "light", yet its blue reads perfectly on a light tab and needs nothing. */
+// Typical tab-strip luminances (Chrome's #dee1e6/#35363a). A SHARE of visible pixels, not an average, since a mostly-white logo with blue detail still reads fine on a light tab.
 const FAVICON_LIGHT_TAB_LUM = 0.75;
 const FAVICON_DARK_TAB_LUM = 0.036;
 const FAVICON_PIXEL_CONTRAST = 2;
@@ -666,7 +438,6 @@ function initialsOf(name: string): string {
   return letters.join("").toUpperCase();
 }
 
-/* text is the exact letters to draw (already chosen by the caller), up to 3. */
 function monogramFavicon(brandColor: string, text: string): string | null {
   const ctx = newCanvas(FAVICON_SIZE, FAVICON_SIZE);
   if (!ctx) return null;
@@ -674,7 +445,6 @@ function monogramFavicon(brandColor: string, text: string): string | null {
   const tileLum = relativeLuminance(...rgb);
   roundedTile(ctx, `rgb(${rgb.join(",")})`);
   if (text) {
-    // White or near-black letters, whichever reads better on this colour.
     ctx.fillStyle = contrastRatio(tileLum, 1) >= contrastRatio(tileLum, relativeLuminance(17, 17, 17)) ? "#fff" : "#111";
     ctx.font = `700 ${text.length > 2 ? 21 : text.length > 1 ? 28 : 38}px ${FAVICON_FONT}`;
     ctx.textAlign = "center";
@@ -684,10 +454,9 @@ function monogramFavicon(brandColor: string, text: string): string | null {
   return ctx.canvas.toDataURL("image/png");
 }
 
-/* logoFavicon analyses and redraws a loaded logo. Throws if the canvas is
- * tainted (a cross-origin logo without CORS), which the caller handles. */
+// Throws if the canvas is tainted (cross-origin logo without CORS); the caller handles that.
 function logoFavicon(img: HTMLImageElement): string | null {
-  // Analyse at a bounded size: a 4000px original costs the same as a 256px one.
+  // Analyse at a bounded size so a 4000px original doesn't cost more than a 256px one.
   const scale = Math.min(1, 256 / Math.max(img.naturalWidth, img.naturalHeight));
   const aw = Math.max(1, Math.round(img.naturalWidth * scale));
   const ah = Math.max(1, Math.round(img.naturalHeight * scale));
@@ -744,11 +513,7 @@ function logoFavicon(img: HTMLImageElement): string | null {
     target.drawImage(img, sx, sy, sw, sh, dx + ox, dy + oy, dw, dh);
   };
 
-  /* No background, ever — the logo is shown as the business made it. Only
-   * when the artwork would vanish into a tab strip (white artwork on a light
-   * strip, black artwork on a dark one) does it get a thin OUTLINE following
-   * its own shape, dark for a light strip and light for a dark one. A logo
-   * with enough visible detail on both strips gets nothing. */
+  // No background, ever. Only artwork that would vanish into a strip gets a thin outline matching its own shape.
   if (!opaque) {
     const outline =
       showsOnLight / art < FAVICON_VISIBLE_SHARE
@@ -757,7 +522,6 @@ function logoFavicon(img: HTMLImageElement): string | null {
           ? "rgba(255,255,255,0.9)"
           : "";
     if (outline) {
-      // The logo's silhouette in the outline colour, stamped around it.
       const sil = newCanvas(FAVICON_SIZE, FAVICON_SIZE);
       if (sil) {
         draw(sil);
@@ -775,16 +539,12 @@ function logoFavicon(img: HTMLImageElement): string | null {
   return ctx.canvas.toDataURL("image/png");
 }
 
-/* buildFavicon returns an icon href for a business: a normalised PNG data URL
- * whenever the browser allows it. Never throws. Falls back to the raw logo URL
- * only when the logo loads but cannot be read (a cross-origin logo without
- * CORS) — exactly the pre-normalisation behaviour, so this never does worse. */
+// Returns a normalised PNG data URL when possible; never throws. Falls back to the raw logo URL only when it loads but can't be read (cross-origin, no CORS).
 export type FaviconSource = {
   logoUrl: string;
   brandColor: string;
   name: string;
-  /** Letters to draw instead of the logo — set when the logo is WIDE, since a
-   * wordmark shrunk to 16px is an unreadable smear. Up to 3 characters. */
+  /** Letters to draw instead of the logo when it's a wide wordmark (unreadable at 16px). Up to 3 characters. */
   monogram?: string;
 };
 
@@ -820,10 +580,7 @@ export async function buildFavicon(opts: FaviconSource): Promise<string | null> 
   }
 }
 
-/* Pre-paint cache of the GENERATED icon, per slug — read synchronously by
- * brand-preload.tsx, so a reload shows the business's icon on the first frame
- * without waiting for a fetch or a canvas. `src` records what it was built
- * from; a replaced logo, a new colour or a renamed business rebuilds it. */
+// Pre-paint cache of the generated icon per slug, read synchronously by brand-preload.tsx. `src` records what it was built from, so a changed logo/colour/name rebuilds it.
 export const BRAND_FAVICON_KEY_PREFIX = "cloudhouse_brand_favicon::";
 
 type CachedFavicon = { src: string; icon: string };
@@ -850,24 +607,21 @@ export function applyCachedFavicon(slug: string | null): boolean {
 
 let faviconBuildSeq = 0;
 
-/* applyBrandFavicon is what BrandingProvider calls once a business's branding
- * is known: build (or reuse) the normalised icon, show it, cache it. */
+// Called by BrandingProvider once branding is known: builds (or reuses) the normalised icon, shows it, caches it.
 export async function applyBrandFavicon(
   slug: string | null,
   brand: FaviconSource
 ): Promise<void> {
   if (typeof window === "undefined") return;
-  // Nothing to build from yet — keep whatever is showing.
   if (!brand.logoUrl && !brand.name) return;
-  // FAVICON_VERSION first: bumping it rebuilds every cached icon after a
-  // change to how icons are drawn.
+  // FAVICON_VERSION first so bumping it rebuilds every cached icon after a drawing change.
   const src = [FAVICON_VERSION, brand.logoUrl, brand.brandColor, brand.name, brand.monogram || ""].join("|");
   const cached = readCachedFavicon(slug);
   if (cached && cached.src === src) {
     applyFavicon(cached.icon);
     return;
   }
-  // A later call supersedes this one; drop a stale result.
+  // A later call supersedes this one.
   const seq = ++faviconBuildSeq;
   const icon = await buildFavicon(brand);
   if (seq !== faviconBuildSeq || !icon) return;
@@ -879,35 +633,7 @@ export async function applyBrandFavicon(
   }
 }
 
-/* applyDocumentTitle is applyFavicon's counterpart for the browser TAB TEXT
- * — same problem (a build-time static value, `app/(product)/layout.tsx`'s Metadata
- * `title`, baked once for every tenant), same fix (set it at runtime once a
- * tenant's own name is known).
- *
- * WHY A PLAIN ASSIGNMENT IS NOT ENOUGH. It used to be one, on the reasoning
- * that document.title has no caching quirk to work around. It does not — but
- * it has a competitor. Next's App Router does not render <Metadata> together
- * with the page: it resolves it in a separate, suspended branch of the tree
- * that commits whenever it is ready, which may be BEFORE or AFTER this
- * function runs on any given load. When it commits last it writes the neutral
- * "Loading…" back over the business's real name, and nothing re-runs to
- * correct it — the "tab stuck on Loading…, fixed by a refresh, broken again
- * by the next one" symptom, random precisely because it is a race. React then
- * believes the title element already says "Loading…", so later renders are
- * no-ops and it never self-corrects. That same commit is also what briefly
- * empties the title, which is when the browser falls back to showing the raw
- * URL — the "tab says localhost:3000" half of the report.
- *
- * So the tenant's title is LATCHED: assigned, then re-asserted by a
- * MutationObserver any time anything else changes it. The observer is
- * installed once and watches only the <title> element, so the cost is a
- * handful of callbacks over the page's life.
- *
- * The latch is deliberately one-directional: only a later applyDocumentTitle
- * call (real branding arriving, or the navigation re-assert in
- * BrandingProvider) changes what is held. An empty name is a no-op, not a
- * release — an empty document.title is the URL-in-the-tab bug itself.
- */
+// applyFavicon's counterpart for the tab text. A plain assignment isn't enough: Next's App Router resolves <Metadata> in a separate branch that can commit AFTER this runs, overwriting the real title back to "Loading…" (or briefly empty, showing the raw URL) in a race. So the title is LATCHED and re-asserted by a MutationObserver whenever something else changes it. One-directional: only a later applyDocumentTitle call changes the latch; an empty name is a no-op, not a release.
 let latchedTitle: string | null = null;
 let titleObserver: MutationObserver | null = null;
 
@@ -916,9 +642,7 @@ function watchDocumentTitle(): void {
   titleObserver = new MutationObserver(() => {
     if (latchedTitle && document.title !== latchedTitle) document.title = latchedTitle;
   });
-  /* childList on <head> catches Next REPLACING the <title> element wholesale;
-   * subtree + characterData catches it rewriting the text node inside the
-   * existing one. Both occur, depending on how the metadata branch commits. */
+  // childList catches Next replacing <title> wholesale; subtree+characterData catches it rewriting the text node in place.
   titleObserver.observe(document.head, { childList: true, subtree: true, characterData: true });
 }
 
@@ -929,11 +653,7 @@ export function applyDocumentTitle(businessName: string | null | undefined): voi
   watchDocumentTitle();
 }
 
-/** Cached alongside the theme, for the SAME reason as the colour: a static
- * export's first paint happens before any fetch can return, and without a
- * cached value to replay the tab briefly (or, on a slow connection, not so
- * briefly) shows the platform title instead of the signed-in business's own
- * — see brand-preload.tsx, which reads this synchronously before hydration. */
+// Cached for the same reason as the colour: without a replay value, first paint briefly shows the platform title instead of the business's own (see brand-preload.tsx).
 export const BRAND_TITLE_KEY_PREFIX = "cloudhouse_brand_title::";
 
 export function cacheDocumentTitle(slug: string | null, businessName: string): void {
@@ -945,14 +665,7 @@ export function cacheDocumentTitle(slug: string | null, businessName: string): v
   }
 }
 
-/* --- Pre-paint cache --------------------------------------------------------
- *
- * next.config.ts sets output: "export", so there is no server render to inject
- * the colour into — the first paint happens before any fetch can return. The
- * colour is therefore cached per business slug and replayed by a tiny blocking
- * script in app/(product)/layout.tsx, exactly like tenantSession.ts keys sessions per
- * slug so two businesses in two tabs cannot clobber each other.
- */
+// next.config.ts uses output: "export" (no server render), so the colour is cached per slug and replayed by a blocking script in app/(product)/layout.tsx before first paint.
 
 export const BRAND_COLOR_KEY_PREFIX = "cloudhouse_brand::";
 
@@ -970,16 +683,10 @@ export function readCachedBrandColor(slug: string | null): string | null {
   }
 }
 
-/** Full-theme cache, alongside the plain-hex key above (same key: readers of
- * the old plain-string value still get a valid hex, since JSON.parse on a
- * bare "#rrggbb" string throws and readCachedBrandTheme falls back to
- * readCachedBrandColor for exactly that transition case). */
+// Full-theme cache. readCachedBrandTheme falls back to the old plain-hex key when JSON.parse fails, for the migration case.
 export const BRAND_THEME_KEY_PREFIX = "cloudhouse_brand_theme::";
 
-/* The resolved sidebar ground and text colours, replayed by brand-preload.tsx
- * before first paint. Without it a business with a light sidebar would flash
- * the default dark one (with white text) on every load. Plain hex values, so
- * the inline script needs no colour maths of its own. */
+// Resolved sidebar ground/text colours as plain hex, replayed before first paint so the inline script needs no colour maths and a light sidebar doesn't flash dark.
 export const BRAND_VARS_KEY_PREFIX = "cloudhouse_brand_vars::";
 
 export function cacheBrandTheme(slug: string | null, theme: BrandTheme): void {
@@ -995,8 +702,7 @@ export function cacheBrandTheme(slug: string | null, theme: BrandTheme): void {
     );
     window.localStorage.setItem(BRAND_THEME_KEY_PREFIX + (slug || "default"), JSON.stringify(theme));
   } catch {
-    /* Private mode / storage disabled — the theme still applies for this
-     * page load, it just flashes the default on the next one. */
+    // Private mode / storage disabled — theme still applies this load, flashes default next time.
   }
 }
 
@@ -1006,24 +712,13 @@ export function readCachedBrandTheme(slug: string | null): BrandTheme | null {
     const raw = window.localStorage.getItem(BRAND_THEME_KEY_PREFIX + (slug || "default"));
     if (raw) return JSON.parse(raw) as BrandTheme;
   } catch {
-    /* fall through to the plain-colour cache below */
+    // fall through to the plain-colour cache below
   }
   const hex = readCachedBrandColor(slug);
   return hex ? { primary: hex } : null;
 }
 
-/* --- Pre-paint logo cache ---------------------------------------------------
- *
- * The colour and the tab text are replayed before the first paint; the LOGO
- * was not, which is why a cold load still showed the platform mark for a
- * frame or two in the tab icon and on the login panel. Same cache, same
- * per-slug keying, read synchronously by brand-preload.tsx.
- *
- * Product rule this serves: a business must never see any brand but its own,
- * not even for a frame — not another business's, and not the vendor's. When
- * no cached logo exists (the very first visit on this browser) the correct
- * answer is a neutral placeholder, never the platform mark.
- */
+// Pre-paint logo cache, same per-slug keying as colour/title, read synchronously by brand-preload.tsx. Rule: a business must never see any other brand, even for a frame — first visit (no cache) falls back to a neutral placeholder, never the platform mark.
 export const BRAND_LOGO_KEY_PREFIX = "cloudhouse_brand_logo::";
 
 export function cacheBrandLogo(slug: string | null, logoUrl: string): void {
@@ -1031,7 +726,7 @@ export function cacheBrandLogo(slug: string | null, logoUrl: string): void {
   try {
     window.localStorage.setItem(BRAND_LOGO_KEY_PREFIX + (slug || "default"), logoUrl);
   } catch {
-    /* Private mode / storage disabled — first paint falls back to neutral */
+    // Private mode / storage disabled — first paint falls back to neutral
   }
 }
 
@@ -1053,8 +748,5 @@ export function readCachedDocumentTitle(slug: string | null): string | null {
   }
 }
 
-/* The tab text shown while a business's own name is still unknown. Never the
- * platform name: see the header above. A single space would collapse to the
- * URL in most browsers, which leaks nothing but reads as broken, so this says
- * what is actually happening. */
+// Tab text while the business name is unknown. Never the platform name; not a single space either (collapses to the URL in most browsers).
 export const NEUTRAL_DOCUMENT_TITLE = "Loading…";

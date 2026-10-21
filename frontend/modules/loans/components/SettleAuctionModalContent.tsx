@@ -14,15 +14,7 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 type SettleAuctionModalContentProps = { loan: LoanView; rec: AuctionRecordView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void };
 
-/* SettleAuctionModalContent is now specifically the SURPLUS DISPOSITION step.
- * It is only reachable when the sale covered the debt in full — a shortfall goes
- * through the management decision instead (AuctionDecisionModalContent below),
- * and the backend rejects settling such a loan.
- *
- * The surplus is the customer's money, so what happens to it is recorded as an
- * explicit decision with no pre-selected default: previously the dropdown
- * defaulted based on the sign of the surplus, which meant the common path was to
- * accept whatever was already highlighted without really choosing. */
+// The surplus disposition has no pre-selected default, so staff make an explicit decision rather than accept a highlight.
 export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: SettleAuctionModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -36,12 +28,7 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
   const [bankId, setBankId] = useState<number | undefined>(undefined);
 
   const surplus = rec.surplusPayableAmount;
-  // Guards a double-click/double-Enter that fires both calls before React
-  // has re-rendered the disabled button — `saving` state alone isn't
-  // enough since both calls can read it as still-false in the same tick.
-  // Without this, the first call could settle the case and the second
-  // then fails against the now-concluded case with a confusing "no active
-  // auction" error, even though the settle itself succeeded.
+  // Guards a double-click/double-Enter firing both calls before React re-renders the disabled button.
   const submittingRef = useRef(false);
 
   const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
@@ -50,8 +37,7 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
     if (submittingRef.current) return;
     setErr(""); setFe({});
     if (!disposition) { fail("disposition", "Please choose what happens to the surplus."); return; }
-    // Retaining a customer's money needs a stated reason — enforced server-side
-    // too, so this is a courtesy check rather than the control.
+    // Enforced server-side too; this is a courtesy check, not the control.
     if (disposition === "RecordedAsIncome" && !remarks.trim()) {
       fail("remarks", "Please state why the surplus is being retained.");
       return;
@@ -73,11 +59,8 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
         ? `Surplus of ${fmt(surplus)} marked for refund to ${loan.customerName}`
         : `Auction settled for ${loan.id} — surplus retained as income`);
     } catch (e) {
-      onError?.(); // see IssueNoticeModalContent's onError comment above
-      // "already settled" means a previous attempt already succeeded (a
-      // stale screen re-submitting after its first click went through) —
-      // nothing left for this modal to do, so close it instead of leaving
-      // staff staring at a settle form for a case that's already done.
+      onError?.();
+      // A stale screen re-submitting after its first click already succeeded — close rather than show a dead form.
       if (e instanceof ApiError && /already been settled/i.test(e.message)) {
         closeModal();
         toast("This auction case was already settled.");
@@ -142,10 +125,6 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        {/* Not blanket-disabled on `!disposition` — that would block save()'s
-         * own "Please choose what happens to the surplus" validation (and
-         * Enter-to-submit, see common/utils/enterToSubmit.ts) from ever
-         * running, silently doing nothing instead of showing the warning. */}
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Settle"}</button>
       </div>
     </>

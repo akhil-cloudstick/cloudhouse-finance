@@ -9,11 +9,9 @@ import type { Loan } from "@/modules/loans/types/loan-types";
 import { PAYMENT_TYPES, PAYMENT_TYPE_LABELS, apiErr, invalidateLoan, type PaymentType } from "./loanSheetKit";
 import { ErrorText } from "./ErrorText";
 
-// Interest / amount prefills are accrued figures with long decimals — show
-// them to the paisa.
+// Accrued figures have long decimals — round to the paisa.
 const money = (v: number) => (v > 0 ? String(Math.round(v * 100) / 100) : "");
 
-// Amount a payment type normally settles. "Both" (Partial) prefills interest + principal.
 function autoAmount(l: Loan, t: PaymentType) {
   const v =
     t === "Partial"
@@ -37,21 +35,15 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
   const qc = useQueryClient();
   const [type, setType] = useState<PaymentType>("Interest");
   const [amount, setAmount] = useState("");
-  // Additional Charges are collected ON TOP of Amount (the charge settles the
-  // fee bucket instead of eating into the principal), same as web.
+  // Additional Charges settle the fee bucket on top of Amount instead of eating into principal.
   const [charge, setCharge] = useState("");
   const [date, setDate] = useState(todayISO());
-  // Prefilled with the live-calculated outstanding interest (matching the web
-  // PaymentModal) — editable to charge a different amount, or cleared to fall
-  // back to the system-calculated figure.
   const [interest, setInterest] = useState("");
   const interestTouched = useRef(false);
   const [breakdown, setBreakdown] = useState<SplitPayment | null>(null);
-  // Bumped on each open so the breakdown rows start fresh.
   const [openKey, setOpenKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  // Fresh form each time the sheet opens.
   useEffect(() => {
     if (!visible) return;
     const a = autoAmount(l, "Interest");
@@ -74,9 +66,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
 
   const typedAmt = Number(amount) || 0;
   const chargeAmt = Number(charge) > 0 ? Number(charge) : 0;
-  // Total cash handed over: the loan amount plus the charge.
   const amt = typedAmt > 0 ? typedAmt + chargeAmt : 0;
-  // Full Settlement is exactly what is owed — no more, no less.
   const settleOwed = (l.settlementAmount ?? l.totalOutstandingBalance ?? 0);
   const overSettle = type === "Full Settlement" && settleOwed > 0 && typedAmt > settleOwed + 0.01;
   const pay = useMutation({

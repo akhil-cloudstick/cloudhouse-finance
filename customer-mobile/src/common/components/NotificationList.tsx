@@ -6,33 +6,9 @@ import { colors } from "@/common/theme/colors";
 import { useNotifications } from "@/common/providers/NotificationsProvider";
 import { Notification } from "@/common/services/notificationService";
 
-// The bell modal's real content, replacing every screen's
-// <ComingSoon title="Notifications" /> stub. Reads from the shared
-// NotificationsContext (mounted once at app root — see app/_layout.tsx) so
-// every screen's bell shows the exact same live list, newest first.
-//
-// A FlatList rather than a ScrollView so history pages in as the customer
-// scrolls (onEndReached -> loadMore(), see NotificationsContext.tsx) instead
-// of being capped at whatever the first fetch returned. It only actually
-// scrolls now that BottomSheetModal.tsx's drag-to-close handle no longer
-// captures every touch on the sheet — previously the outer PanResponder
-// claimed any vertical drag before this list ever saw it, which is why only
-// the first ~4 rows (whatever fit before the eye had to scroll) were ever
-// reachable.
-//
-// Each row shows a gold unread dot for `!n.read` — server-truth state (see
-// NotificationsContext's doc comment), not a client-side watermark. Tapping
-// a row opens NotificationDetailModal (below) with its full title/body and
-// marks it read via markRead(), which optimistically flips the row and fires
-// POST /customer/notifications/:id/read in the background.
 export function NotificationList() {
   const { items, markRead, loadMore, hasMore, loadingMore } = useNotifications();
-  // The hosting BottomSheetModal caps itself at maxHeightPct={60} but has no
-  // *definite* height (it hugs its content up to that cap), so flex sizing
-  // inside it has nothing concrete to shrink against. Computing the list's
-  // height from the window instead guarantees it fits: 60% of the screen
-  // minus the sheet's own chrome (drag handle, "Notifications" title, the
-  // footer line, and the sheet's vertical padding).
+  // BottomSheetModal has no definite height (hugs content up to maxHeightPct), so compute the list cap from the window.
   const { height: windowHeight } = useWindowDimensions();
   const listMaxHeight = Math.max(200, windowHeight * 0.6 - 150);
 
@@ -68,10 +44,6 @@ export function NotificationList() {
         Notifications
       </ThemedText>
       <FlatList
-        // Derived from the window rather than a fixed 480 (which could exceed
-        // the sheet's own 60% cap on shorter screens, pushing the list's lower
-        // half outside the sheet's bounds — where Android stops delivering
-        // touches to it at all).
         style={{ maxHeight: listMaxHeight }}
         nestedScrollEnabled
         data={items}
@@ -80,15 +52,7 @@ export function NotificationList() {
         showsVerticalScrollIndicator={false}
         onEndReachedThreshold={0.4}
         onEndReached={() => loadMore()}
-        // Android defaults this to true, and it's a known cause of a
-        // FlatList going unresponsive to touch after its content changes
-        // dynamically (loadMore appending a page right as onEndReached
-        // fires) and the list is then unmounted/remounted (closing and
-        // reopening this sheet) — clipped-subview bookkeeping doesn't
-        // reliably recover across that combination. Off entirely here since
-        // this list is short (paged 20 at a time, capped at ~6 visible
-        // rows), so there's no meaningful perf cost to losing the
-        // off-screen-view-recycling optimization it provides.
+        // Android's default true causes the list to go unresponsive after content changes + remount.
         removeClippedSubviews={false}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.brandDeep} style={{ marginVertical: 12 }} /> : null}
         ListEmptyComponent={
@@ -103,11 +67,6 @@ export function NotificationList() {
         </ThemedText>
       ) : null}
 
-      {/* Stacks on top of the list's own BottomSheetModal (see the tab
-          screens' <BottomSheetModal><NotificationList/></BottomSheetModal>)
-          — SheetHost keys sheets by their own generated id, so two open at
-          once is fine. dragToClose is left on (default) since this one has
-          no inner scrollable to fight over touches with. */}
       <BottomSheetModal visible={!!selected} onClose={() => setSelected(null)} maxHeightPct={50}>
         {selected ? (
           <View style={{ paddingBottom: 8 }}>

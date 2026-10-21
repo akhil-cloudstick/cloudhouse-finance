@@ -34,14 +34,6 @@ import { useSubTablePage } from "@/modules/customers/hooks/use-sub-table-page";
 
 type CustomerDetailPageProps = { id?: string };
 
-/* Ported from legacy/app.js's `renderCustomerDetail(id)`. Now a real
- * Customer 360° view backed by one aggregation call
- * (`GET /api/v1/customers/:id/profile360`) instead of KYC/profile data
- * from `GET /api/v1/customers/:id` plus a client-side filter over the
- * shared loans list — that older approach only ever showed a bare loan
- * table, with no ornament/payment/bank-pledge/auction history in one
- * place. SMS reminder / follow-up history is still omitted — no data
- * source exists anywhere yet. */
 export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const { openModal } = useModal();
   const showBranch = useShowBranch();
@@ -49,43 +41,22 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
   const smallScreen = useIsSmallScreen();
-  // Hidden rather than shown as a form that can only fail with a 403.
   const canCreateLoans = can("Loan_Management", "can_create_loan");
-  // Loan numbers link to the loan only for a role that can open it.
   const canOpen = useCanOpenRoute();
   const canViewLoans = canOpen("loan");
   const canViewAuctions = canOpen("auctions");
-  // The Ledger tab reads cash movements — only fetched with cash view.
   const canViewCash = can("Cash_Management", "can_view_cash_module");
-  // KYC verification writes back to the customer record, so it's an update;
-  // logging an extension/release request against a loan is a loan update.
-  // Anything not granted is hidden, not disabled (see Customers.tsx).
   const canUpdateCustomers = can("Customer_Management", "can_update_customer");
   const canUpdateLoans = can("Loan_Management", "can_update_loan");
   const canHardDeleteCustomers = can("Customer_Management", "can_hard_delete_customer");
 
   const [profile, setProfile] = useState<Customer360View | null>(null);
   const [error, setError] = useState("");
-  // Separate loading flags per verification — sharing one flag made the PAN
-  // and Aadhaar buttons both show "Verifying…"/"Starting…" whenever either
-  // one was clicked, even though they're independent calls.
   const [verifyingPan, setVerifyingPan] = useState(false);
   const [startingAadhaar, setStartingAadhaar] = useState(false);
-  // DigiLocker Aadhaar verify is a redirect flow — "started" means the
-  // customer's been sent the DigiLocker login URL and we're waiting for
-  // them to complete it on their own device, so a "Check Status" button
-  // replaces "Send Verification Link" until they confirm or we give up.
+  // "started": the DigiLocker login URL was sent; "Check Status" replaces "Send Verification Link" until resolved.
   const [aadhaarStarted, setAadhaarStarted] = useState(false);
   const [checkingAadhaar, setCheckingAadhaar] = useState(false);
-  // Opened-date window for the whole profile. Empty = unbounded on that
-  // side; both are handed to the backend, which filters the loans and
-  // recomputes the relationship totals over the narrowed set — nothing here
-  // is filtered client-side.
-  // Opened-date filter for the 5 non-Ledger tables (Loan History, Pledged
-  // Ornaments, Payment History, Bank Pledges, Auction History) — rendered as
-  // a FilterPanel in the table card's own header (same spot/pattern as the
-  // Ledger tab's filter) rather than a standalone row above the whole 360
-  // view, so it reads as belonging to "this table" instead of the page.
   const [openedDateFilter, setOpenedDateFilter] = useState<FilterValue>({});
   const openedDateCategories: FilterCategory[] = [{ key: "__date", label: "Date", kind: "date" }];
   const from = openedDateFilter.__dateFrom || "";
@@ -109,19 +80,11 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const listPayments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
   const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
   const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  // Every CashMovement tagged to this customer (PartyCustomerID) — same
-  // underlying query as the standalone Party Transactions page
-  // (PartyLedger.tsx), reached here instead via this customer's own 360
-  // view. listCashMovementsByCustomer's {items,total,totals} envelope is
-  // adapted to useSubTablePage's {items,hasMore,total} contract.
   const numericCustomerId = Number(id);
 
-  // Ledger tab's own filters — a Loan picker (scroll-paginated, backend-
-  // driven via listCustomerLoansPage) plus a Date range, kept separate from
-  // the shared 360-view `from`/`to` above since the ledger can be filtered
-  // independently of the rest of the profile.
+  // Ledger tab's own filters, kept separate from the shared 360-view from/to since it filters independently.
   const [ledgerFilters, setLedgerFilters] = useState<FilterValue>({});
-  const ledgerLoanFilters = Array.isArray(ledgerFilters.loan) ? ledgerFilters.loan : []; // multi-select — any of these loans
+  const ledgerLoanFilters = Array.isArray(ledgerFilters.loan) ? ledgerFilters.loan : [];
   const ledgerFrom = ledgerFilters.__dateFrom;
   const ledgerTo = ledgerFilters.__dateTo;
   const ledgerCategories: FilterCategory[] = [
@@ -165,19 +128,10 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
   const [activeTable, setActiveTable] = useState(0);
   const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History", "Ledger"];
-  // One icon per tab, same order as TABLE_TABS — shown on the rail so each
-  // stop says which table it selects.
   const TABLE_TAB_ICONS = ["list", "scale", "coin", "bank", "gavel", "chart"];
-  // Tables are switched only by clicking the rail buttons — the mouse wheel /
-  // trackpad no longer changes tab (it scrolls the table or page as usual).
   const railRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
 
-  // Edit Customer / Request Extension-Release / New Loan / Delete Customer
-  // used to be 4 separate header buttons — collapsed into one "Actions"
-  // dropdown the same way LoanDetail.tsx's "Documents"/"Loan Actions" menus
-  // are, since the header outgrew the space next to the customer name on
-  // anything but a very wide screen.
   const {
     open: actionsMenuOpen,
     setOpen: setActionsMenuOpen,
@@ -190,26 +144,13 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
   const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
   const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
-  // Auction history needs "can view auction module" — not fetched without it.
   const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id && canViewAuctions);
   const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id && canViewCash);
   useEffect(() => { transactionPager.setPage(1); }, [JSON.stringify(ledgerLoanFilters)]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // profile.loans still backs the "Request Extension / Release" picker
-  // below — that's a full-set picker, not a paginated table, so it keeps
-  // reading straight off getCustomer360's response.
   const cLoans = profile?.loans || [];
 
-  // A range change keeps the previously loaded profile on screen (dimmed
-  // via `reloading`) so the page doesn't blank out between fetches.
   if (error && !profile) return <div className="empty">Customer not found — {error}</div>;
-  // `page-fade-in` on both the loading placeholder and the loaded content
-  // below smooths the swap between them — without it, switching into a
-  // customer's page from elsewhere (e.g. the dashboard) hard-cut from the
-  // page's header/sidebar (already on screen) to this bare loading line,
-  // then hard-cut again to the full hero once the fetch resolved. Now both
-  // states fade in the same way, so the hero doesn't feel like a separate,
-  // late-arriving element next to a header that "loaded" first.
   if (!profile) return <div className="empty page-fade-in">Loading customer…</div>;
 
   const c = profile.customer;
@@ -407,39 +348,16 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
         )}
         {canUpdateLoans && <button className="btn ghost" onClick={openRequestPicker}><Icon name="unlock" /> Extension / Release</button>}
         {canCreateLoans && <a className="btn" href={routeHref("newloan", c.id)}><Icon name="plus" /> New Loan</a>}
-        {/* Edit Customer + Delete Customer collapsed into one "Actions"
-         * dropdown — same pattern as LoanDetail.tsx's "Documents"/"Loan
-         * Actions" menus. Delete stays the ONLY delete action offered here —
-         * no separate "soft delete" alternative next to it. Gated by its own
-         * permission ("can hard delete customer"), independent of ordinary
-         * update/delete rights. */}
-        
       </div>
-      {/* Small-screen margin override (matches Loans.tsx's own hr override)
-       * — without it this rule was reading as missing on small/short
-       * (useIsSmallScreen) windows, sitting too close to the header above
-       * to read as its own divider line. */}
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
       {error && (
         <div style={{ marginBottom: 12, fontSize: 12.5, color: "var(--red)" }}>{error}</div>
       )}
-      {/* cust-360 pins the left card column to a fixed width so it stays put
-          when the tab switches between tables of different column counts, and
-          makes the tables fit their column instead of scrolling sideways. */}
       <div className="grid cols12 cust-360" style={{ alignItems: "stretch", ...(reloading ? { opacity: 0.6 } : {}) }}>
         <div className="grid">
-          {/* KYC & Verification, Identity & KYC Documents, Nominee Information and
-              Overall Loan Details were 4 separate cards stacked in this column —
-              merged into one card with a divider + sub-heading per section so the
-              column reads as one profile panel instead of four short ones. */}
           <div className="card gtop"><div className="hd"><h3>Customer Profile</h3></div>
             <div className="bd cust-profile">
               <div className="kv">
-                {/* Label and chip inline (one line), matching KYC's own
-                 * pattern below — the masked value and any verify action
-                 * move to their own line underneath, rather than all three
-                 * (label / value / chip) competing to fit on one line the
-                 * way this used to render. */}
                 <div className="i">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">PAN</div><StatusChip status={c.panStatus} /></div>
                   <div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -467,19 +385,9 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                     )}
                   </div>
                 </div>
-                {/* Label and chip inline (one line) rather than the usual
-                 * stacked .k-above-.v — with no accompanying value text to
-                 * flow beside, KYC's chip alone under its label read as two
-                 * disconnected lines instead of one field. */}
                 <div className="i"><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">KYC</div><StatusChip status={c.kycStatus} /></div></div>
-                {/* Each field is its own .kv item, so the grid's auto-fill
-                 * columns lay them out two-up in a wide card and one per
-                 * line in a narrow one — a forced single row here cropped
-                 * the phone number and wrapped the labels. */}
                 <div className="i"><div className="k">Phone</div><div className="v">{c.phone || "—"}</div></div>
                 <div className="i"><div className="k">Date of Birth</div><div className="v">{fmtDate(c.dob)}</div></div>
-                {/* Computed from the DOB so it stays current; the manually
-                 * entered Age is only the fallback when no DOB is on file. */}
                 <div className="i"><div className="k">Age</div><div className="v">{(() => { const age = ageFromDob(c.dob) ?? c.age; return age != null ? `${age} years` : "—"; })()}</div></div>
                 <div className="i"><div className="k">Address</div><div className="v">{c.address || "—"}</div></div>
               </div>
@@ -496,14 +404,6 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                 <>
                   <h4 className="cust-profile-h4">Nominee Information</h4>
                   <div className="kv">
-                    {/* Name and Relation share one flex-wrap row, with
-                     * Relation+Phone bundled as a single atomic item within
-                     * it (their own inner flex row) — a short name leaves
-                     * room for Name and Relation to sit on the same line;
-                     * once the name is long enough to fill the row, the
-                     * Relation+Phone pair wraps down together onto the next
-                     * line instead of Relation stranding alone away from
-                     * the Phone it belongs beside. */}
                     <div className="i" style={{ gridColumn: "1 / -1" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
                         <div style={{ flex: "1 1 auto", minWidth: 100 }}><div className="k">Name</div><div className="v">{c.nomineeName || "—"}</div></div>
@@ -520,17 +420,10 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               <h4 className="cust-profile-h4">Overall Loan Details</h4>
               <div className="kv">
                 <div className="i"><div className="k">Total Disbursed</div><div className="v">{fmt(profile.totalDisbursed)}</div></div>
-                {/* Outstanding and Total Paid read as one pair (what's left
-                 * vs. what's already come in) — kept on one line the same
-                 * way as the others here, rather than splitting across two
-                 * rows at this card's narrow width. */}
                 <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Outstanding</div><div className="v">{fmt(profile.totalOutstanding)}</div></div>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Total Paid</div><div className="v">{fmt(profile.totalPaid)}</div></div>
                 </div>
-                {/* Active/Closed read as one loan-status summary — kept on
-                 * one line the same way as the pairs above, rather than
-                 * splitting across two rows at this card's narrow width. */}
                 <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Active Loans</div><div className="v">{profile.activeLoanCount}</div></div>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Closed Loans</div><div className="v">{profile.closedLoanCount}</div></div>
@@ -540,10 +433,6 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
           </div>
         </div>
         <div ref={rowRef} className="cust-360-tabrow" style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }}>
-          {/* The rail selects the table below. Each stop carries the icon for
-            its own table (loans / ornaments / payments / bank / auction) so
-            the rail reads without hovering for the tooltip. (No wheel handler:
-            tabs change by click only.) */}
           <div className="tab-rail" ref={railRef}>
             <div className="tab-rail-line" />
             {TABLE_TABS.map((label, i) => (
@@ -583,13 +472,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               )}
             </div>
 
-            {/* All 6 panels stay mounted and are only shown/hidden via
-              * `hidden` — a conditional `{activeTable === i && <div>...}`
-              * used to unmount/remount the whole table (rows, pager, DOM)
-              * on every tab click, which read as the page reloading even
-              * though no data was ever refetched. `hidden` keeps each
-              * panel's DOM and the tab-slide-up entrance animation intact,
-              * without re-running any of the fetches above. */}
+            {/* Panels stay mounted (hidden, not unmounted) so switching tabs never re-triggers a fetch. */}
             <div hidden={activeTable !== 0} className={activeTable === 0 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
                   <thead><tr><th>Loan</th><th>Scheme</th><th className="th-opened-due">Opened / <span className="th-due-part">Due</span></th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
@@ -693,17 +576,13 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                     ) : transactionPager.items.length === 0 ? (
                       <tr><td colSpan={7} className="empty compact">No ledger entries recorded yet.</td></tr>
                     ) : transactionPager.items.map((r, i) => {
-                      // Same reference detection as PartyLedger: the loan /
-                      // investment / personal-loan number is either the row's
-                      // reference or trails its description ("… — LN-00048").
                       const refOf = (re: RegExp, tail: RegExp) =>
                         (r.reference && r.reference.match(re)?.[0]) || r.description.match(tail)?.[1] || null;
                       const loanRef = refOf(/^LN-\d+/i, /—\s*(LN-\S+)\s*$/i);
                       const invRef = refOf(/^INV-\d+/i, /—\s*(INV-\S+)\s*$/i);
                       const plRef = refOf(/^PL-\d+/i, /—\s*(PL-\S+)\s*$/i);
                       return (
-                      // A split payment yields one row per method, all sharing
-                      // the movement's id — so the id alone isn't unique.
+                      // A split payment yields one row per method, all sharing the movement's id.
                       <tr key={`${r.type}-${r.id}-${r.method}-${i}`}>
                         <td data-label="Date" className="td-date">{fmtDate(r.d)}</td>
                         <td data-label="Ref No" className="ledger-ref" title={r.reference || undefined}>

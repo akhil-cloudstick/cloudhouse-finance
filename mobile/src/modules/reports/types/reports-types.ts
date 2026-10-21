@@ -1,11 +1,3 @@
-
-
-// Thin wrapper mirroring frontend/lib/reportsApi.ts's endpoints, backed by
-// backend/internal/reports (handler.go/routes.go/model.go). Every JSON list
-// endpoint shares the same request/response shape: common Filter query
-// params in, {rows, totals, totalCount} out (reports.Result) — so one
-// generic fetch helper + one function per endpoint is enough here too.
-
 export type ReportFilters = {
   from?: string; // "YYYY-MM-DD"
   to?: string; // "YYYY-MM-DD"
@@ -21,7 +13,6 @@ export type ReportResult<Row, Totals> = {
   totals: Totals;
   totalCount: number;
 };
-/* ---- Row/Totals shapes (mirror backend/internal/reports/model.go). ---- */
 
 export type DisbursementRow = {
   loanId: number; loanNumber: string; openedDate: string; amount: number;
@@ -92,8 +83,6 @@ export type CommunicationHistoryRow = {
   id: number; recipientName: string; recipientPhone: string; channel: string; triggerType: string; status: string; sentAt: string;
 };
 export type CommunicationHistoryTotals = { count: number; sent: number; failed: number };
-/* ---- Reports added after the original 16 (web parity with
- * src/modules/reports/services/reportsService.ts). ---- */
 
 export type PersonalLoanRow = {
   loanId: number; loanNumber: string; openedDate: string; customerName: string; branchName: string;
@@ -118,16 +107,12 @@ export type MaturityRegisterRow = {
   principalAmount: number; maturityDate: string; status: string;
 };
 export type MaturityRegisterTotals = { active: number; matured: number; closed: number; renewed: number; count: number };
-/* Balance Sheet / P&L print one row per statement line (Ind AS Division
- * III) — label carries its "I."/"(1)"/"(a)" prefix; style/indent are
- * display hints only. */
+// label carries its "I."/"(1)"/"(a)" prefix; style/indent are display hints only.
 export type StatementStyle = "" | "header" | "total";
 export type StatementRow = { label: string; amount: number; style: StatementStyle; indent: number };
 export type BalanceSheetTotals = { totalAssets: number; totalLiabilities: number; totalEquity: number };
 export type ProfitLossTotals = { totalIncome: number; totalExpenses: number; profitForPeriod: number };
-/* Form G (Kerala Money-Lenders Rules 1964, Rule 15(3)) — a single
- * fixed-layout statement, not {rows, totals}; see
- * backend/internal/reports/formg.go. */
+// Form G (Kerala Money-Lenders Rules 1964, Rule 15(3)) is one fixed-layout statement, not {rows, totals}.
 export type FormGLoanCategory = { label: string; persons: number; amount: number; remarks: string };
 export type FormGStatement = {
   periodLabel: string;

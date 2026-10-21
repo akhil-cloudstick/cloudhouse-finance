@@ -25,13 +25,9 @@ function money(n: number | undefined | null): string {
   return `₹${(n ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
-// Payments tab per the Batch 3 plan: a "Pay a loan" card (loan picker + Pay
-// Now, opening the same PaySheet as Loan Detail) and a paginated global
-// payment history with a per-row receipt download/print button.
 export default function PaymentsScreen() {
   const [notifOpen, setNotifOpen] = useState(false);
 
-  // --- Pay-a-loan picker --------------------------------------------------
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loansLoading, setLoansLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -41,8 +37,7 @@ export default function PaymentsScreen() {
   useEffect(() => {
     (async () => {
       try {
-        // No `status` filter — a customer may want to pay against any loan
-        // that still carries a balance, not only "Active" ones.
+        // No status filter: a customer may want to pay any loan with a balance, not only "Active" ones.
         const res = await loansApi.listLoans({ limit: 50, offset: 0 });
         setLoans(res.items);
       } catch {
@@ -59,13 +54,11 @@ export default function PaymentsScreen() {
       const fresh = await loansApi.getLoan(selectedLoan.id);
       setSelectedLoan(fresh);
     } catch {
-      // Keep the stale copy — the payment history reload below still
-      // reflects the new payment even if this refetch fails.
+      // Keep the stale copy; the history reload below still reflects the new payment.
     }
     loadHistory(0, true);
   }
 
-  // --- Payment history (paginated, all loans) -----------------------------
   const [items, setItems] = useState<LoanPayment[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -115,14 +108,13 @@ export default function PaymentsScreen() {
       try {
         await Print.printAsync({ uri: file.uri });
       } catch {
-        // Some Android configurations reject printAsync's uri path — fall
-        // back to the plain share sheet so the receipt is still reachable.
+        // Some Android configs reject printAsync's uri path; fall back to the share sheet.
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(file.uri);
         }
       }
     } catch {
-      // Best-effort: leave the row as-is, the customer can retry the tap.
+      // Best-effort: leave the row as-is, retry on next tap.
     } finally {
       setDownloadingId(null);
     }

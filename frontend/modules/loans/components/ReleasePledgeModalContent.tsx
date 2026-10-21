@@ -17,10 +17,7 @@ type ReleasePledgeModalContentProps = {
   onConfirm: (payment: ReleasePayment | undefined) => Promise<void>;
 };
 
-/* Confirms releasing gold from a bank pledge. A "CashIn" pledge pays the
- * pledged amount back to the bank, so staff pick how it is given (Cash / UPI /
- * Bank Transfer / Cheque, plus the branch bank account a non-cash share leaves
- * from). A "RecordOnly" pledge moved no money, so there is nothing to pick. */
+// A "RecordOnly" pledge moved no money, so there is nothing to pick.
 export function ReleasePledgeModalContent({
   bankName,
   amount,

@@ -21,26 +21,9 @@ import { resolveAssetUrl } from "@/common/services/httpClient";
 import { fetchMyBranding, fetchPublicBranding } from "@/modules/branding/services/brandingService";
 import { type MyBranding } from "@/modules/branding/types/branding-types";
 
-/* The business's own identity — name, logo, colour — and the two grants that
- * decide what the app will show at all.
- *
- * Sits beside AuthProvider rather than inside it because branding is needed
- * in states where there is no session: the sign-in page renders a business's
- * logo and colour before anyone has authenticated. So this loads in two
- * stages:
- *
- *   1. Signed out — the PUBLIC endpoint, keyed by the slug in the URL
- *      (/<code>/login). Name, logo and colour only.
- *   2. Signed in — the authenticated endpoint, which additionally returns the
- *      address, registration number, enabled modules and document languages.
- *      The business comes from the token, never the URL: the slug SELECTS a
- *      business to authenticate against and never grants anything, exactly as
- *      tenantSession.ts's header comment sets out.
- *
- * Everything falls back to the platform brand (common/config/brand.ts). A
- * branding lookup that fails must degrade to CloudHouse's own mark, never to
- * a blank shell — and, critically, never to another business's branding.
- */
+// Sits beside AuthProvider (not inside it) since branding is needed pre-session — the sign-in page shows a business's logo/colour before auth.
+// Loads in two stages: (1) signed out — PUBLIC endpoint keyed by the URL slug, name/logo/colour only; (2) signed in — authenticated endpoint, also returns address/reg no/modules/languages, business resolved from the token not the URL (see tenantSession.ts).
+// Everything falls back to the platform brand; a failed lookup degrades to CloudHouse's own mark, never another tenant's.
 
 export type BrandingValue = {
   name: string;
@@ -104,12 +87,7 @@ export type BrandingValue = {
 };
 
 const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "loaded" | "cached"> = {
-  /* EMPTY, not the platform brand. This is what every consumer renders on the
-   * one load where a business's own identity is not yet known, and the rule is
-   * that a business sees its own brand or a neutral placeholder — never the
-   * vendor's and never another tenant's, not even for a frame. Chrome that
-   * reads these (Sidebar, Topbar, the login panel, BrandLogo) handles the empty
-   * case explicitly rather than substituting a name of its own. */
+  // EMPTY, not the platform brand — a business sees its own brand or a neutral placeholder, never the vendor's or another tenant's, not even for a frame.
   name: "",
   legalName: "",
   shortName: "",
@@ -139,30 +117,8 @@ const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "l
 
 const BrandingContext = createContext<BrandingValue | undefined>(undefined);
 
-/* initialBranding replays the business's last-known name and logo so a reload
- * renders ITS identity on the first frame rather than the platform's.
- *
- * Returns FALLBACK only when this browser has never loaded this business.
- * Callers must treat that state (loaded === false and cached === false) as
- * "show a neutral placeholder" — never as licence to paint the platform mark,
- * which is the whole flash this file exists to remove.
- *
- * Applied from an EFFECT, never during render. This used to be a lazy
- * useState initializer, on the reasoning that a lazy initializer "runs in the
- * browser only". It does not: lazy means it runs on the first render rather
- * than every render, and the client's first render is the HYDRATION render —
- * the one pass that must match the prerendered HTML exactly. The build has no
- * localStorage, so it rendered BrandLogo's neutral placeholder while a
- * returning user's browser rendered an <img>: two different elements in one
- * slot, which React reports as a hydration mismatch and then crashes trying
- * to unpick ("Cannot read properties of null (reading 'removeChild')").
- *
- * Deferring costs nothing visually. The browser paints the prerendered HTML —
- * the placeholder — before any of this code runs either way; the cache can
- * only ever swap it afterwards. What is genuinely pre-paint is the inline
- * script in brand-preload.tsx, which sets colours, title and favicon outside
- * React's tree, where there is no hydration contract to break.
- */
+// Replays the business's last-known name/logo so a reload shows its identity on the first frame. Returns FALLBACK only when this browser never loaded this business (treat as neutral placeholder, never the platform mark).
+// Must be applied from an EFFECT, not a lazy useState initializer: the client's first render is the hydration render, which must match the server's no-localStorage output or React crashes on mismatch. Deferring costs nothing visually since the prerendered HTML paints first either way.
 function initialBranding(): { state: typeof FALLBACK; cached: boolean } {
   const id = readCachedBrandIdentity(activeBusinessSlug());
   if (!id) return { state: FALLBACK, cached: false };
@@ -183,10 +139,7 @@ function initialBranding(): { state: typeof FALLBACK; cached: boolean } {
   };
 }
 
-/* The tab icon draws letters instead of the logo when the logo is WIDE (a
- * wordmark shrunk to 16px is an unreadable smear), or when an arranged header
- * has no logo: the short name, else the sign-in code. Businesses still on the
- * classic lockup keep the icon they had. */
+// Draws letters instead of the logo when the logo is wide (unreadable at 16px) or an arranged header has no logo. Classic-lockup businesses keep the icon they had.
 function faviconMonogram(
   layout: HeaderLayout | null,
   logoUrl: string,
@@ -202,56 +155,25 @@ function faviconMonogram(
 type BrandingProviderProps = { children: React.ReactNode };
 
 export function BrandingProvider({ children }: BrandingProviderProps) {
-  /* FALLBACK on the first render, on BOTH sides — that is what makes the
-   * hydration render agree with the prerendered HTML. The cache lands in the
-   * effect below, one tick later. */
+  // FALLBACK on both the server and first client render, so hydration agrees with the prerendered HTML; the cache lands one tick later in the effect below.
   const [state, setState] = useState(FALLBACK);
   const [cached, setCached] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const pathname = usePathname();
 
-  /* Replay the cache and re-assert the cached favicon, after hydration.
-   *
-   * brand-preload.tsx already set the favicon before the first paint, but
-   * Next's App Router re-applies the static <Metadata> when it hydrates,
-   * which put the neutral placeholder back and left it there until the fetch
-   * returned — the "tab stays wrong until the next refresh" symptom. The tab
-   * text itself is handled by the dedicated effect below, not here.
-   */
+  // Replays the cache and re-asserts the favicon after hydration, since Next's App Router re-applies the static <Metadata> on hydrate and would otherwise leave the neutral placeholder until the fetch returns.
   useEffect(() => {
     const seed = initialBranding();
     if (!seed.cached) return;
-    /* set-state-in-effect is exactly what is wanted here, not an oversight.
-     * localStorage is an external system React cannot read during render
-     * without breaking hydration — which is the bug this effect exists to
-     * fix. One extra render on mount is the price, and it is invisible: the
-     * browser has already painted the prerendered HTML by this point. */
+    // set-state-in-effect is intentional: localStorage can't be read during render without breaking hydration.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setState(seed.state);
     setCached(true);
-    /* The cached GENERATED icon, not the raw logo — see applyBrandFavicon.
-     * Rebuilding here would use FALLBACK's colour, since the seed carries no
-     * theme; the fetch below rebuilds if anything actually changed. */
+    // The cached GENERATED icon, not the raw logo — see applyBrandFavicon. The fetch below rebuilds it if anything changed.
     applyCachedFavicon(activeBusinessSlug());
   }, []);
 
-  /* The tab text, in ONE place, re-applied whenever the answer could change.
-   *
-   * Three bugs lived in doing this at each fetch site instead. A fetch that
-   * returned nothing (unknown slug, a 404, a backend blip) skipped its
-   * apply call entirely and left "Loading…" in the tab forever, with no
-   * retry and nothing to recover it but a manual reload. A browser holding a
-   * cached title but no cached profile took an early return and never
-   * re-asserted after the App Router restored the static metadata title. And
-   * because every apply was tied to a fetch that runs once per mount, a
-   * client-side navigation could restore the metadata title with nothing left
-   * to overwrite it again.
-   *
-   * Keying on pathname fixes the third; falling back through the title cache
-   * to the neutral placeholder fixes the other two. The result is never
-   * empty, which matters: an empty document.title makes the browser display
-   * the raw URL, the "tab shows localhost:3000/ctfi/newloan" symptom.
-   */
+  // Tab text in one place, re-applied on every pathname/shortName change — a per-fetch-site apply left "Loading…" stuck on a failed fetch or a client-side nav restoring the static metadata title. Falls back through the title cache to the neutral placeholder so it's never empty (an empty title shows the raw URL).
   useEffect(() => {
     applyDocumentTitle(
       state.shortName || readCachedDocumentTitle(activeBusinessSlug()) || NEUTRAL_DOCUMENT_TITLE
@@ -261,10 +183,7 @@ export function BrandingProvider({ children }: BrandingProviderProps) {
   const load = useCallback(async () => {
     const slug = activeBusinessSlug();
 
-    // Signed in: the authoritative read. Modules and languages only ever
-    // come from here — the public endpoint deliberately does not expose
-    // them, and a grant read from an unauthenticated endpoint would be a
-    // grant anyone could ask about.
+    // Signed in: the authoritative read. Modules/languages only ever come from here — the public endpoint deliberately doesn't expose them.
     if (readToken()) {
       try {
         const b: MyBranding = await fetchMyBranding();
@@ -319,13 +238,9 @@ export function BrandingProvider({ children }: BrandingProviderProps) {
           logoDisplay: next.logoDisplay,
         });
         cacheBrandLogo(slug, next.logoUrl);
-        /* Only CACHE here — applying is the title effect's job, driven off
-         * state.shortName, which setState above has just changed. Applying at
-         * the fetch sites too is what let the failure paths below fall
-         * through with the tab still saying "Loading…". */
+        // Only CACHE here — applying is the title effect's job, driven off state.shortName.
         cacheDocumentTitle(slug, next.shortName);
-        // The print templates are plain string builders and cannot read
-        // React context — see printBrand in common/config/brand.ts.
+        // Print templates are plain string builders and can't read React context — see printBrand in brand.ts.
         cacheBrandProfile(slug, {
           legalName: next.legalName,
           kmlRegNo: next.kmlRegNo,

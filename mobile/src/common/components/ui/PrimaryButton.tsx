@@ -13,7 +13,7 @@ type PrimaryButtonProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-// ---- .btn-primary ---------------------------------------------------------
+/** .btn-primary */
 export function PrimaryButton({
   label,
   onPress,

@@ -1,6 +1,4 @@
-// Where the next top overlay should grow from — the centre of the control
-// that opened it (e.g. the header's search icon), in window coordinates.
-// Set just before opening; read and cleared by TopModal as it opens.
+// Point the next top overlay grows from; set before opening, read and cleared by TopModal.
 export type OverlayOrigin = { x: number; y: number };
 
 let origin: OverlayOrigin | null = null;

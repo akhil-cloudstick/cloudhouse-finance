@@ -15,28 +15,9 @@ import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
-/* What the Amount is allowed to pay off. Every mode clears any outstanding
- * processing fee first — a fee is a real charge, not something staff can
- * defer — and the backend rejects an amount that overshoots the buckets the
- * chosen mode is allowed to touch (see allocatePayment / ErrExceedsOutstanding).
- *
- * "Both" is the default and is what every payment used to be: the full
- * fee → penal → interest → principal waterfall. The narrower modes exist for
- * a customer settling one specific charge and leaving the rest standing.
- * Note there is no separate "interest without penal" mode — penal interest IS
- * interest, so Interest pays it first; Penal Interest is the one that stops
- * early. Adjustment/Waiver (non-cash ledger corrections) and the auction
- * types are deliberately absent: the backend refuses them on this endpoint.
- *
- * What each mode reaches, in waterfall order (no longer spelled out as a
- * hint line under the picker — the allocation preview further down shows
- * the same thing against the actual Amount, and the hint was costing this
- * modal more height than it was worth):
- *   Partial         fee → penal interest → interest → principal
- *   Interest        fee → penal interest → interest
- *   Penal Interest  fee → penal interest
- *   Principal       fee → principal
- *   Full Settlement everything owed; short of that the backend rejects it */
+// What Amount is allowed to pay off. Every mode clears the fee first; the backend rejects an overshoot of the buckets the mode is allowed to touch (allocatePayment/ErrExceedsOutstanding).
+// Waterfall order per mode: Partial fee→penal→interest→principal; Interest fee→penal→interest; Penal Interest fee→penal; Principal fee→principal; Full Settlement everything owed.
+// Adjustment/Waiver and auction types are deliberately absent — the backend refuses them on this endpoint.
 const ALLOCATION_MODES = [
   { value: "Partial", label: "Both — interest, then principal" },
   { value: "Interest", label: "Interest only" },
@@ -45,17 +26,8 @@ const ALLOCATION_MODES = [
   { value: "Full Settlement", label: "Full settlement — close the loan" },
 ];
 
-/* previewAllocation mirrors backend/internal/loan/service.go's
- * allocatePayment for the modes this modal offers, so staff can see where the
- * Amount actually lands BEFORE recording it — "Both" in particular spreads
- * one figure across penal interest, interest and principal, which the single
- * Amount box gave no hint of. The backend remains the authority: this is a
- * display of the same waterfall, and an overshoot is still rejected there.
- *
- * `over` is what the amount could not place in any bucket the mode is allowed
- * to touch — the condition the backend turns into ErrExceedsOutstanding —
- * for Full Settlement the ceiling is everything owed (incl. any additional
- * charge): SHORT below it, OVER above it. */
+// Mirrors backend service.go's allocatePayment so staff see where Amount lands before recording; the backend remains the authority and still rejects an overshoot.
+// `over` is what didn't fit any bucket the mode allows (ErrExceedsOutstanding); for Full Settlement the ceiling is everything owed.
 function previewAllocation(loan: LoanView, mode: string, amount: number) {
   const feeOwed = loan.outstandingProcessingFee;
   const penalOwed = loan.outstandingPenalInterest;
@@ -67,8 +39,6 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
     return { fee: feeOwed, penal: penalOwed, interest: interestOwed, principal: principalOwed, over: Math.max(0, amount - total), short: Math.max(0, total - amount) };
   }
 
-  // Every mode clears an outstanding fee first; the buckets after that are
-  // what the mode is allowed to reach.
   let left = amount;
   const take = (owed: number, allowed: boolean) => {
     if (!allowed) return 0;
@@ -83,42 +53,13 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
   return { fee, penal, interest, principal, over: Math.max(0, left), short: 0 };
 }
 
-/* Ported from legacy/app.js's `openPaymentModal()` / `savePayment()`. Posts
- * to the real POST /loans/:id/payments endpoint. Simplified from a
- * Payment-Type dropdown down to a single Amount field, then restored as the
- * "Apply Payment To" picker above (ALLOCATION_MODES) on request. The default,
- * "Both", is the backend's "Partial" waterfall allocation — processing fee →
- * penal interest → interest → principal (see
- * backend/internal/loan/service.go's allocatePayment) — so staff can leave the
- * picker alone for the ordinary case, and a payment covering everything owed
- * (including any outstanding fee) auto-closes the loan (same generic
- * close-on-zero-outstanding check the backend already runs regardless of
- * payment type). Adjustment/Waiver (non-cash ledger corrections) are no
- * longer reachable from this modal — an explicit scope decision, not an
- * oversight; a different entry point would need to be built if they're
- * still needed.
- *
- * Also collects an optional processing fee / additional charge — entering
- * one adds it to the loan's total owed (Loan.OutstandingProcessingFee)
- * *before* Amount is allocated, so this same payment's Amount pays the fee
- * off first, ahead of penal interest/interest/principal (see
- * LoanPayment.ProcessingFee/ProcessingFeeApplied). It's not extra cash on
- * top of Amount — Amount is the total cash handed over either way. */
-// releaseRequestId, when passed, routes this same form at the release
-// endpoint (POST /loans/requests/:requestId/release-payment) instead of the
-// plain loan payment endpoint, and reveals a Discount field only relevant
-// in that context (negotiated reduction, no-cash entry) — see the release
-// review screen's own "Record Payment"/"Top-Up Payment" actions
-// (ReleaseReviewModal.tsx). Everything else (allocation mode, split
-// payment, interest override, processing fee) is identical either way, so
-// this stays one component rather than a duplicate bespoke modal.
-//
-// initialMode preselects "Apply Payment To" (and so the prefilled Amount) —
-// e.g. the top-up modal's "pay the interest first" redirect opens this on
-// "Interest". Ignored if it isn't one of ALLOCATION_MODES.
+// Posts to POST /loans/:id/payments. Default "Both" mode is the backend's "Partial" waterfall (fee→penal→interest→principal); covering everything owed auto-closes the loan.
+// Adjustment/Waiver are deliberately not reachable from this modal — a scope decision, not an oversight.
+// A processing fee entered here is added to the loan's owed fee BEFORE Amount is allocated, so this payment's Amount pays it off first — not extra cash on top of Amount.
+// releaseRequestId routes this form at the release-payment endpoint instead and reveals a Discount field, otherwise identical — kept as one component rather than a duplicate modal.
+// initialMode preselects "Apply Payment To" (e.g. the top-up modal's "pay interest first" redirect); ignored if not one of ALLOCATION_MODES.
 
-// Prefilled money figures are accrued/prorated, so they carry long decimals —
-// show them to the paisa.
+// Prefilled money figures are accrued/prorated, so they carry long decimals — show to the paisa.
 const prefill = (v: number) => (v > 0 ? String(Math.round(v * 100) / 100) : "");
 
 // Which field a server message is about, by its words (first match wins).
@@ -137,34 +78,21 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   const today = new Date().toISOString().slice(0, 10);
   const startMode = ALLOCATION_MODES.some((m) => m.value === initialMode) ? initialMode! : ALLOCATION_MODES[0].value;
 
-  // The caller's `loan` prop can be a few minutes (or a full accrual cycle)
-  // stale by the time staff actually open this modal — LoanDetail.tsx only
-  // re-fetches on an explicit action, not on every render. Re-fetching here
-  // on mount guarantees the outstanding-interest figure shown (both the
-  // notice line above and the Interest field's prefill below) reflects
-  // whatever has accrued up to THIS moment, not whatever it was when the
-  // page last loaded.
+  // The caller's `loan` prop can be stale (LoanDetail.tsx only re-fetches on an explicit action); re-fetch on mount so the shown interest reflects what's accrued up to now.
   const [loan, setLoan] = useState(initialLoan);
   useEffect(() => {
     let cancelled = false;
     getLoan(initialLoan.numericId).then((fresh) => {
       if (cancelled) return;
       setLoan(fresh);
-      // Only overwrite the prefill if the user hasn't already touched it —
-      // an in-flight refresh landing after they've started typing their
-      // own override would otherwise clobber it mid-edit.
+      // Don't clobber a figure the user has already started typing.
       if (!interestTouchedRef.current) setInterestRaw(prefill(fresh.outstandingInterest));
     }).catch(() => { /* keep the possibly-stale prop rather than blocking the form */ });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialLoan.numericId]);
 
-  // amountForMode is what's actually owed in the bucket(s) the picked mode
-  // reaches — same buckets previewAllocation below draws from — so staff
-  // rarely have to type Amount by hand at all; picking a mode just fills in
-  // what it would fully clear. Full Settlement/Partial ("Both") both reach
-  // everything owed, since Partial's waterfall is the same fee→penal→
-  // interest→principal chain a settlement pays in full.
+  // What's owed in the bucket(s) the picked mode reaches, so picking a mode fills in what it would fully clear.
   function amountForMode(l: LoanView, m: string): number {
     switch (m) {
       case "Interest":
@@ -184,18 +112,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     const v = amountForMode(initialLoan, startMode);
     return v > 0 ? prefill(v) : "";
   });
-  // Set the instant a mode is picked, before the user has typed their own
-  // Amount — once they touch the field by hand this stops overwriting it, same
-  // "prefill, don't fight an edit" rule as the Interest field's own
-  // interestTouchedRef below.
+  // Once the user touches Amount by hand, stop overwriting it with a prefill — same rule as interestTouchedRef below.
   const amountTouchedRef = useRef(false);
-  // Picking a narrower mode (Interest/Penal/Principal/Full Settlement) always
-  // refills Amount with what that mode clears — keeping a typed figure made
-  // the picker look broken (the receipt still showed the old amount, now
-  // overshooting the new mode). Only "Both" keeps a typed amount, since any
-  // figure is valid there.
-  // The Amount refill itself lives in the effect below (it also depends on
-  // Interest and Additional Charges), so picking a mode only sets the mode.
+  // Narrower modes always refill Amount with what they clear (a stale typed figure would overshoot); only "Both" keeps a typed amount. The refill itself lives in the effect below.
   function selectMode(nextMode: string) {
     setMode(nextMode);
   }
@@ -203,33 +122,22 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     amountTouchedRef.current = true;
     setAmt(v);
   }
-  // Prefilled with the live-calculated figure but editable — the formula
-  // (see backend accrual.go's projectAccrual: minimum one month, then
-  // whole months + a daily-prorated remainder) is a formula, not a court
-  // order, and staff need to be able to charge a different actual amount
-  // for a specific settlement. Cleared by hand means "use whatever the
-  // system calculates".
+  // Prefilled from the live calculation but editable — staff may charge a different actual amount. Cleared by hand means "use whatever the system calculates".
   const [interest, setInterestRaw] = useState(prefill(initialLoan.outstandingInterest));
   const interestTouchedRef = useRef(false);
   function setInterest(v: string) {
     interestTouchedRef.current = true;
     setInterestRaw(v);
   }
-  // Defaults to the full waterfall, which is what every payment did before
-  // this picker existed — so leaving it alone reproduces the old behaviour.
   const [mode, setMode] = useState(startMode);
   const [fee, setFee] = useState("");
   const [date, setDate] = useState(today);
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
-  // Release-context only (releaseRequestId set) — a negotiated reduction
-  // with no cash movement, posted alongside the payment as a real
-  // PaymentTypeDiscount ledger entry (see backend/internal/loan/service.go's
-  // RecordReleaseRequestPayment).
+  // Release-context only: a negotiated reduction with no cash movement, posted as its own PaymentTypeDiscount ledger entry.
   const [discount, setDiscount] = useState("");
-  // An error is about the figures as they were when it was raised — it's
-  // stamped with them and stops showing the moment any of them change.
+  // An error is stamped with the figures as they were when raised and stops showing once any of them change.
   const figuresKey = [amt, mode, remaining, fee, interest, discount].join("|");
   // `field` is the input the message is about; "" means it fits no field and shows in the footer.
   const [errState, setErrState] = useState({ msg: "", field: "", key: "" });
@@ -240,38 +148,21 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // Editing the date or the payment breakdown doesn't change the figures key, so clear those by hand.
   const clearField = (f: string) => setErrState((cur) => (cur.field === f ? { msg: "", field: "", key: "" } : cur));
   const [saving, setSaving] = useState(false);
-  // Synchronous guard against a double post: `saving` only disables the
-  // button after a re-render, so a fast double-click or a held Enter on the
-  // focused Confirm button could call save() twice before that. "done"
-  // stays set after success — this component outlives closeModal (the
-  // shell only hides it), so nothing may record a second time.
+  // Synchronous guard against a double post: `saving` alone only disables the button after a re-render. "done" stays set since this component outlives closeModal.
   const postRef = useRef<"idle" | "posting" | "done">("idle");
-  // True while the confirmation popup is open over the form. The form stays
-  // as-is underneath, so going Back keeps everything entered.
+  // True while the confirmation popup is open over the form (which stays as-is underneath, so Back keeps everything entered).
   const [confirming, setConfirming] = useState(false);
 
-  // A fee entered here is added to the loan's owed fee BEFORE Amount is
-  // allocated (see this component's doc comment), so the preview has to see
-  // it too or it would under-report what the fee bucket swallows.
-  // Additional Charges are collected ON TOP of Amount — the customer pays
-  // Amount + charges, and the charge settles the fee bucket so none of Amount
-  // is eaten by it. previewAmount is that total cash handed over.
-  // Amount is the total cash handed over — the picked bucket(s) PLUS any
-  // Additional Charges — so the figure typed/prefilled here is what the
-  // customer pays and what gets recorded.
+  // Amount is the total cash handed over — picked bucket(s) plus any Additional Charges — so the preview must account for the fee the same way allocation will.
   const charge = +fee > 0 ? +fee : 0;
   const previewAmount = +amt > 0 ? +amt : 0;
-  // An Interest override replaces the computed interest server-side (see
-  // PaymentInput.InterestOverride), so the preview uses it the same way.
+  // An Interest override replaces the computed interest server-side; preview uses it the same way.
   const previewLoan = {
     ...loan,
     outstandingProcessingFee: loan.outstandingProcessingFee + (+fee || 0),
     outstandingInterest: interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest,
   };
   const alloc = previewAllocation(previewLoan, mode, previewAmount);
-  // Prefill Amount with what the picked option owes (interest override
-  // respected) plus the Additional Charges. "Both" keeps a hand-typed figure
-  // since any amount is valid there.
   const interestForAmount = interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest;
   const modeTotal = amountForMode({ ...loan, outstandingInterest: interestForAmount, settlementAmount: loan.settlementAmount - loan.outstandingInterest + interestForAmount }, mode) + charge;
   useEffect(() => {
@@ -301,41 +192,13 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     postRef.current = "posting";
     setSaving(true);
     try {
-      // The receiving employee is derived server-side from the logged-in
-      // user's JWT — no employeeId sent from here (see loansApi.ts's
-      // PaymentInput doc comment).
+      // The receiving employee is derived server-side from the JWT — no employeeId sent from here.
       if (releaseRequestId != null) {
-        // Amount here is what's typed as the full settlement figure — the
-        // discount is a negotiated reduction covering part of it with no
-        // cash movement, so the actual cash payment sent alongside it is
-        // the remainder. RecordReleaseRequestPayment applies the discount
-        // as its own ledger entry FIRST, which reduces the loan's
-        // outstanding balance before the payment call runs — sending the
-        // undiscounted amount here would then overshoot what's left owed
-        // and get rejected as ErrExceedsOutstanding, even though the
-        // discount had already gone through (see that function's own
-        // sequencing). Netting it out here keeps the two in sync.
+        // RecordReleaseRequestPayment applies the discount as its own ledger entry FIRST, reducing outstanding balance before this call runs — net it out here or the undiscounted amount overshoots and gets rejected.
         const cashAmount = Math.round((amount - discountAmount) * 100) / 100;
-        // interestOverride is prefilled from outstandingInterest at MODAL-
-        // OPEN time (see the `interest` state's own doc comment) — a fixed
-        // snapshot, not live. The discount posted just above (inside
-        // RecordReleaseRequestPayment) reduces outstanding interest FIRST
-        // in its own penal->interest->principal waterfall before this
-        // payment call ever runs, so that stale prefilled figure no longer
-        // matches what's actually still owed once a discount is in play —
-        // sending it anyway made Full Settlement's amount-vs-total check
-        // compare against the wrong total and reject a correct payment.
-        // Only suppressed when the user hasn't hand-edited the field
-        // (interestTouchedRef): an explicit override is still respected,
-        // same as with no discount at all.
+        // interestOverride is a snapshot from modal-open time; once a discount reduces outstanding interest first, that stale figure mismatches the real total, so suppress it unless the user explicitly edited the field.
         const effectiveInterestOverride = discountAmount > 0 && !interestTouchedRef.current ? undefined : interestOverride;
-        // The split breakdown (cash/UPI/bank transfer/cheque) was entered
-        // against the full pre-discount Amount, so it no longer sums to
-        // cashAmount once the discount is netted out above — scaled down
-        // by the same ratio so it still adds up to what's actually being
-        // sent (ValidateSplit on the backend requires the parts to sum to
-        // the whole). Discount-only settlements (nothing left to pay in
-        // cash) skip the split entirely.
+        // The split was entered against the full pre-discount amount, so scale it down by the same ratio to sum to cashAmount (ValidateSplit requires parts to sum to the whole).
         const splitRatio = amount > 0 ? cashAmount / amount : 0;
         const scaledSplit = cashAmount <= 0.01 ? ZERO_SPLIT : {
           cashAmount: Math.round(split.cashAmount * splitRatio * 100) / 100,
@@ -343,9 +206,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           bankTransferAmount: Math.round(split.bankTransferAmount * splitRatio * 100) / 100,
           chequeAmount: Math.round(split.chequeAmount * splitRatio * 100) / 100,
         };
-        // Rounding across four components can leave a fraction of a rupee
-        // unaccounted for — folded into cash (the default/most common mode)
-        // rather than left as drift the backend's own sum check would reject.
+        // Rounding drift across the four components is folded into cash so the sum check doesn't reject it.
         const scaledTotal = scaledSplit.cashAmount + scaledSplit.upiAmount + scaledSplit.bankTransferAmount + scaledSplit.chequeAmount;
         scaledSplit.cashAmount = Math.round((scaledSplit.cashAmount + (cashAmount - scaledTotal)) * 100) / 100;
         await recordReleasePayment(releaseRequestId, {
@@ -368,30 +229,25 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           interestOverride,
         });
       }
-      // closeModal only hides the shared shell — this component stays
-      // mounted, so the portalled popup has to be dropped explicitly.
+      // closeModal only hides the shared shell; drop the portalled popup explicitly.
       postRef.current = "done";
       setConfirming(false);
       onSaved();
       closeModal();
       toast(`Payment of ${fmt(amount)} recorded${processingFee ? ` (incl. ${fmt(processingFee)} processing fee charged)` : ""}`);
     } catch (e) {
-      // A throw after the post succeeded (e.g. from onSaved) must not
-      // re-open the door; only a rejected post allows a corrected retry.
+      // A throw after the post succeeded (e.g. from onSaved) must not re-open the door.
       if (postRef.current === "done") return;
       postRef.current = "idle";
       const msg = e instanceof ApiError ? e.message : "Could not record the payment — try again.";
       setErr(msg, fieldForMessage(msg, SERVER_FIELDS));
-      // Back to the form so the rejected figures can be corrected.
       setConfirming(false);
     } finally {
       setSaving(false);
     }
   }); }
 
-  // Live receipt figures (the right-hand panel) — what's left on the loan
-  // once previewAllocation's split lands, against the same fee-and-override
-  // adjusted previewLoan it allocated from.
+  // Live receipt figures: what's left on the loan once previewAllocation's split lands.
   const paidBy = ([
     ["Cash", split.cashAmount],
     ["UPI", split.upiAmount],
@@ -419,9 +275,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   return (
     <>
       <div className="hd"><h3>Record Payment — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      {/* `bd-scroll` caps the modal at the viewport and scrolls THIS body
-        * instead of the page behind it (see app.css). Select's option list
-        * is position:fixed, so the scrolling body can't clip it. */}
+      {/* bd-scroll caps the modal at the viewport and scrolls this body; Select's option list is position:fixed so it isn't clipped. */}
       <div className="bd bd-scroll">
         <div className="pay-layout">
           <div className="pay-form">
@@ -491,16 +345,12 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
         </div>
       </div>
       <div className="ft">
-        {/* Never a silently disabled button: whatever is blocking Review
-          * (or the server's last rejection) is spelled out here. */}
+        {/* Never a silently disabled button: whatever is blocking Review is spelled out here. */}
         <span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? "Select a bank" : "")) || err}</span>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
       </div>
-      {/* Portalled to <body> so it stacks over the whole Record Payment modal
-        * as its own smaller popup instead of replacing its content. React
-        * events still bubble to the payment modal, so its shared Enter-to-
-        * submit handler sees the focused Confirm button and leaves it alone. */}
+      {/* Portalled to <body> so it stacks over the modal as its own popup; React events still bubble so the shared Enter-to-submit handler sees the focused Confirm button. */}
       {confirming && createPortal(
         <div
           className="modal-bg open pay-confirm-bg"
@@ -515,9 +365,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                 <div style={{ fontSize: 26, fontWeight: 700 }}>{fmt(previewAmount)}</div>
                 <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{loan.id} · {loan.customerName}</div>
               </div>
-              {/* One plain list, top to bottom: what the payment is for and how it was paid, then what it
-                * paid in the order the loan is cleared (penal interest, interest, charges, principal),
-                * then the total being paid. No boxes — rules between the groups only. */}
+              {/* Plain top-to-bottom list: payment info, what it paid off, then the total. No boxes, just rules between groups. */}
               {(() => {
                 const row = (label: string, value: string, opts?: { indent?: boolean; strong?: boolean; color?: string }) => (
                   <Fragment key={label}>

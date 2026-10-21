@@ -40,12 +40,6 @@ type ServerFlatListProps<T> = {
   scrollKey?: unknown;
 };
 
-/**
- * Server-paged list for a page body: renders `header` (search, filters,
- * tabs…) scrolling with the rows, the rows themselves inside the table
- * gutter, a centred buffering spinner while loading / re-querying, a footer
- * spinner while the next page loads, and the prototype's empty text.
- */
 export function ServerFlatList<T>({
   list,
   items,
@@ -69,7 +63,7 @@ export function ServerFlatList<T>({
     const t = setTimeout(() => listRef.current?.scrollToIndex({ index: focusIndex, viewPosition: 0.25, animated: true }), 250);
     return () => clearTimeout(t);
   }, [focusIndex]);
-  // Content may still be loading, so retry a few times until it is tall enough to reach the offset.
+  // Retry at increasing delays until content is tall enough to reach the offset.
   useEffect(() => {
     if (!initialOffset) return;
     const timers = [0, 80, 250, 600].map((ms) => setTimeout(() => listRef.current?.scrollToOffset({ offset: initialOffset, animated: false }), ms));
@@ -81,12 +75,10 @@ export function ServerFlatList<T>({
   const ListComp = (inSheet ? SheetFlatList : FlatList) as typeof FlatList;
   const errorText = loadErrorText(list.error);
   return (
-    // One row open at a time across the whole list.
     <AccGroup>
     <ListComp
       ref={listRef}
       onScrollToIndexFailed={(info) => {
-        // Rows are not measured yet: jump near it, then try again.
         listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
         setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.25, animated: true }), 150);
       }}

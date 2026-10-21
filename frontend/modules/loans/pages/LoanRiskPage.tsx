@@ -16,26 +16,7 @@ const RISK_LABEL: Record<LoanRiskLevel, string> = { Safe: "Safe", AtRisk: "At Ri
 // All three levels, in the order the KPI tiles/filter pills display them.
 const RISK_LEVELS: LoanRiskLevel[] = ["Loss", "AtRisk", "Safe"];
 
-/* Gold-value risk assessment — compares each open loan's principal against
- * what its pledged gold would fetch sold TODAY (backend/internal/loan/
- * service.go's ListLoanRiskAssessment: today's published rate × each
- * ornament's own purity/weight), not the value the loan was opened at, so a
- * loan that looked fully covered at disbursement can still surface here if
- * the gold price has since fallen.
- *
- * Loss: today's gold value is below the principal outright — the gold,
- * sold today, would not even cover what's lent out.
- * At Risk: covered today, but by less than the 10% safety margin
- * (RiskBufferPercent on the backend) — the cushion has eroded.
- * Safe: comfortably covered.
- *
- * Server-side paginated (8/page), with a loan-status filter, a risk-level
- * filter, and an opened-date range filter — all sent straight to GET
- * /loans/risk-assessment's `status`/`riskLevel`/`from`/`to` params, same
- * convention as Loans.tsx and Cash Movements' own date filter. The KPI
- * tiles come from the same response's `counts`/`total`, which cover every
- * loan matching status/from/to regardless of the riskLevel filter, not
- * just the current page. */
+// A loan fully covered at disbursement can surface here if the gold price has since fallen.
 export function LoanRiskPage() {
   const { cards, size: pageSize, more } = useScrollPageSize(LOAN_RISK_PAGE_SIZE);
   const [rows, setRows] = useState<LoanRiskRow[]>([]);
@@ -50,8 +31,6 @@ export function LoanRiskPage() {
   const [fromDate, setFromDate] = usePersistedState("loanrisk:from", "");
   const [toDate, setToDate] = usePersistedState("loanrisk:to", "");
 
-  // One grouped filter: Status, Risk level (single choice each) and the
-  // opened-date range.
   const filterCategories: FilterCategory[] = [
     { key: "status", label: "Status", kind: "static", singleSelect: true, options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
     { key: "risk", label: "Risk", kind: "static", singleSelect: true, options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
@@ -65,8 +44,7 @@ export function LoanRiskPage() {
   };
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // Any filter change resets back to page 1 rather than leaving the user
-  // stranded on a page number the new filter may not have.
+  // Reset to page 1 on filter change, or the user could be stranded on a page the new filter doesn't have.
   useEffect(() => { setPage(1); }, [status, riskLevel, fromDate, toDate]);
 
   const refresh = useCallback(() => {
@@ -100,13 +78,7 @@ export function LoanRiskPage() {
       </div>
       <hr className="gold-rule" />
 
-      {/* Each tile also acts as a one-click filter for that risk level —
-        * clicking the level already selected clears it back to "All", same
-        * toggle behavior as re-picking a Select's current value would give,
-        * but faster since the count is already right there. Counts
-        * themselves always reflect the full status/date-matched set (see
-        * loanService.ts's LoanRiskCounts doc comment), so the other two
-        * tiles don't collapse to zero while one level is selected. */}
+      {/* Each tile is also a one-click filter; clicking the already-selected level clears it back to "All". */}
       <div className="loan-risk-bar" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
       <div className="kpis kpis-compact">
         <div className="kpi"><div className="l">Total Open Loans</div><div className="v">{total}</div></div>
@@ -193,7 +165,6 @@ export function LoanRiskPage() {
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
         </div>
-        {/* <div className="ft">Red = gold, sold today, would not cover the principal · Orange = covered by less than a 10% margin · Green = comfortably covered</div> */}
       </div>
     </div>
   );

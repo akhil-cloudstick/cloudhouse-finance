@@ -5,13 +5,7 @@ export function fetchRoles(): Promise<RoleRecord[]> {
   return apiRequestEnveloped<RoleRecord[]>("/roles");
 }
 
-// NOT apiRequestEnveloped: this endpoint's body is flat — {success, role,
-// data} — with role and data as siblings of success, not nested under a
-// `data` field the way the generic envelope convention expects (see
-// backend/internal/authz/handler.go's Matrix). Unwrapping it with
-// apiRequestEnveloped silently returned just the inner `data` object and
-// dropped `role`, which left `res.role`/`res.data` both undefined here and
-// the screen stuck on its loading state forever.
+// NOT apiRequestEnveloped: this endpoint's body is flat {success, role, data}, not the usual envelope.
 export function fetchRoleMatrix(actingEmployeeId: number, roleId: number, search?: string): Promise<MatrixResponse> {
   return apiRequest<MatrixResponse>(`/employees/${actingEmployeeId}/permissions`, {
     params: { role_id: roleId, search },

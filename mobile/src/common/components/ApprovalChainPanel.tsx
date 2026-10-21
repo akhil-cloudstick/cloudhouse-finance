@@ -23,13 +23,7 @@ type ApprovalChainPanelProps = {
   onError: (message: string) => void;
 };
 
-/* The tenant-configured approval chain for one item — the Stepper (enabled
- * stages, plus the item's own stage if it's parked on a disabled one), whose
- * turn it is, and — when the signed-in employee holds that stage's
- * permission — decision remarks with Reject / Approve. Shared by the
- * extension, top-up and personal-loan reviews; the
- * caller supplies the actual API call (`decide`) and what to do after.
- * Renders nothing but the rejection note when the flow has no stages. */
+// Shared approval chain UI for extension/top-up/personal-loan reviews; caller supplies the `decide` API call.
 export function ApprovalChainPanel({
   flow,
   pending,

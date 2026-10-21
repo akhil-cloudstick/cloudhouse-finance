@@ -1,12 +1,4 @@
-// Ported from frontend/common/styles/app.css ":root" — the CloudHouse Finance
-// theme. Keep these values in sync with that file and with
-// mobile/src/common/theme/colors.ts; do not invent new colors in
-// screens/components, import from here instead.
-//
-// The key names below are the ROLE each colour plays, not its hue, so a
-// re-theme stays a values-only change: `brand` is the primary and carries the
-// magenta at the heart of the CloudHouse cloud, `nav`/`nav2` are the violet
-// dark grounds, and `accent` is the orange the logo's gradient lands on.
+// Keys name the ROLE each colour plays, not its hue, so a re-theme stays a values-only change.
 export const colors = {
   brandDeep: "#8a0f5c",
   brand: "#c0177a",
@@ -35,14 +27,11 @@ export const colors = {
   redBg: "#fcebe9",
   amber: "#b57a0a",
   amberBg: "#fdf3dc",
-  // Teal rather than blue, so an "informational" tone cannot be mistaken for
-  // a brand tone at a glance.
+  // Teal rather than blue, so "informational" isn't mistaken for a brand tone at a glance.
   info: "#0e7490",
   infoBg: "#e0f2f7",
 } as const;
 
-// "brand"/"info" replace the old "gold"/"blue" tones — they name the role, so
-// they survive a re-theme.
 export type StatusTone = "green" | "red" | "amber" | "info" | "brand" | "muted";
 
 export function statusColors(tone: StatusTone): { fg: string; bg: string } {

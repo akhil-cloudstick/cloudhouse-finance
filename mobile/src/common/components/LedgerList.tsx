@@ -18,10 +18,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { LedgerLink } from "./LedgerLink";
 import { EntrySub, useEntryActions } from "@/modules/cash/components/EntryActions";
 
-// Mobile counterpart of the web ledger drill-downs (PartyLedger.tsx,
-// ModeLedgerPage.tsx): every bank / customer / payment mode / expense
-// category has its own ledger, and each row links on to the others it
-// touches — one shared screen, app/(tabs)/cash/[id].tsx, keyed by kind.
+// One shared screen, app/(tabs)/cash/[id].tsx, keyed by kind — mobile counterpart of web's ledger drill-downs.
 
 /** The transaction a ledger link was followed from — the ledger it opens scrolls to and highlights the same one. */
 export type LedgerFocus = { date: string; amount: number };
@@ -84,9 +81,6 @@ export function useExpenseCategoryIds(): Record<string, number> {
   return q.data ?? {};
 }
 
-/** An in-row hyperlink. `to` is the page it opens ("/cash", "/loans"): when
- * the user can't open that page it renders as plain text. */
-// A ledger entry's bill — opens the uploaded image (server-root-relative URL).
 export function billDetail(receiptImage?: string): { k: string; v: React.ReactNode }[] {
   if (!receiptImage) return [];
   return [{ k: "Bill", v: <BillLink path={receiptImage} /> }];
@@ -142,10 +136,8 @@ function categoryRefOf(r: LedgerRow, categoryIds: Record<string, number>, focus:
 type LedgerRowItemProps ={ r: LedgerRow; index: number; kind: LedgerKind; ledgerRef: string; categoryIds: Record<string, number>; highlight?: boolean };
 
 function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds, highlight }: LedgerRowItemProps) {
-  // Links on this row open the other ledgers on this same transaction.
   const focus: LedgerFocus = { date: r.date, amount: r.amount };
   const isDebit = r.debitOrCredit === "debit";
-  // A cash-in / debit / self transfer a person keyed in: info icon + Edit.
   // Every row gets the info icon; rows with no cash movement behind them open a popup built from the row itself.
   const entry = useEntryActions(r.entryId, r.editable, r);
   const loanRef = loanRefOf(r.reference) || loanRefOf(r.description);
@@ -159,7 +151,6 @@ function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds, highlight }: Le
 
   // A memo row records how money was applied (an auction applied to a loan), not money moving — greyed like web.
   const memo = !!r.memo;
-  // Mobile has no per-record page for these two, so the link opens their list.
   const refCell = loanRef ? <LedgerLink label={r.reference || loanRef} to="/loans" onPress={() => openLoanByNumber(loanRef)} />
     : invRef ? <LedgerLink label={invRef} to="/investments" onPress={() => openPage("/investments")} />
     : plRef ? <LedgerLink label={plRef} to="/personal-loans" onPress={() => openPage("/personal-loans")} />
@@ -212,8 +203,6 @@ type LedgerListOptions = { kind: LedgerKind; ledgerRef: string; onCategoryName?:
  * it in ONE persistent list (the customer profile) instead of swapping lists.
  * `controls` is the filter row + totals; `renderItem`/`keyOf` draw the rows. */
 export function useLedgerList({ kind, ledgerRef, onCategoryName, focus, enabled = true, fresh = true }: LedgerListOptions) {
-  // One grouped filter: Mode (bank ledger only), Branch + Bank (mode ledgers;
-  // Cash has no bank of record), and Date — like web's PartyLedger / ModeLedgerPage.
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   // No Branch filter for a one-branch business or a branch-confined role (same rule as web).
   const showBranchFilter = useShowBranchFilter();
@@ -335,7 +324,6 @@ export function useLedgerList({ kind, ledgerRef, onCategoryName, focus, enabled 
 
   const controls = (
     <>
-          {/* paddingBottom keeps the same gap above the first row whether or not the totals card shows. */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
             <GroupedFilter title="Filter ledger" sections={sections} value={fv} onChange={setFv} />
             <View style={{ flex: 1 }} />
@@ -353,7 +341,6 @@ export function useLedgerList({ kind, ledgerRef, onCategoryName, focus, enabled 
               ))}
             </View>
           ) : null}
-          {/* One line each — side by side, large amounts were clipped off the edge of the screen. */}
           {totals ? (
             <View style={{ marginHorizontal: 18, marginBottom: 14, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
               {totalRows.map(([k, v, color], i) => (

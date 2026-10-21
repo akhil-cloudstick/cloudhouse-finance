@@ -46,12 +46,6 @@ function Pager({ page, total, pageSize, onChange, cards, children }: PagerProps)
 
 type PartyLedgerPageProps = { kind: "bank" | "customer" | "category"; id?: string };
 
-/* One bank's or one customer's full cash-movement history — drilled into
- * from a Cash & Expenses row (Cash.tsx's clickable bank/customer cells) or
- * reachable directly via /ledger-bank/:id / /ledger-customer/:id. Same
- * underlying query (ListCashMovementsByBank/Customer) also backs
- * CustomerDetail.tsx's own "Transactions" tab — one query, two entry
- * points, per the plan's design. */
 export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
@@ -61,28 +55,21 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   const [labelError, setLabelError] = useState("");
   const [items, setItems] = useState<LedgerRowView[]>([]);
   const [total, setTotal] = useState(0);
-  // Back from a drill-down, this ledger reopens on the page the user left.
   const [page, setPage] = useState(() => rememberedLedgerPage("party") ?? 1);
   useEffect(() => { saveLedgerPosition({ party: page }); }, [page]);
-  // Card mode (<=1279px): Prev/Next gives way to scroll-to-load — the page stays 1 and the size grows.
   const { cards, size: pageSize, more } = useScrollPageSize(kind === "category" ? EXPENSE_CATEGORY_LEDGER_PAGE_SIZE : PARTY_PAGE_SIZE, STACK_MODE_MAX_WIDTH);
   useEffect(() => { if (cards) setPage(1); }, [cards]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
   const [totals, setTotals] = useState({ debit: 0, credit: 0 });
-  // Set when this category is a loan source — the ledger is then the loan's
-  // own, with a principal-based running balance.
+  // Set when this category is a loan source — the ledger is then the loan's own, principal-based balance.
   const [loan, setLoan] = useState<LoanLedgerSummary | undefined>();
-  // Mode filter — only offered on a bank's own ledger (UPI/Bank
-  // Transfer/Cheque/Cash all pass through a bank); customer/category ledgers
-  // don't get this, same "meaningless outside a bank ledger" reasoning as
-  // ModeLedgerPage's own Bank filter being Cash-only-excluded.
+  // Mode filter only makes sense on a bank's own ledger.
   const [modeFilters, setModeFilters] = usePersistedState<FilterValue>("party:filters", {});
   const modeValues = (Array.isArray(modeFilters.mode) ? modeFilters.mode : []) as LedgerMode[];
   const fromDate = modeFilters.__dateFrom || "";
   const toDate = modeFilters.__dateTo || "";
-  // One grouped filter: Mode (bank ledgers only) and Date.
   const modeFilterCategories: FilterCategory[] = [
     ...(kind === "bank" ? [{ key: "mode", label: "Mode", kind: "static" as const, options: LEDGER_MODES.map((m) => ({ value: m, label: m })) }] : []),
     { key: "__date", label: "Date", kind: "date" as const },
@@ -101,15 +88,9 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
         .then((c: CustomerView) => setLabel(`${c.name} (${c.code})`))
         .catch(() => setLabelError("Customer not found."));
     }
-    // Category has no separate "get one" endpoint — its name comes back
-    // alongside the first ledger page itself (see refresh()'s categoryName
-    // handling below), so nothing to fetch here.
+    // Category has no separate "get one" endpoint; its name comes back with the first ledger page.
   }, [kind, numericId]);
 
-  // Any filter change resets back to page 1; moving to another ledger (this
-  // component stays mounted across bank/customer/category ids) starts on its
-  // remembered page. Compared against the previous key so neither fires on
-  // mount, where the initial page state already applies.
   const filterKey = `${fromDate}|${toDate}|${JSON.stringify(modeValues)}`;
   const prevFilterKey = useRef(filterKey);
   useEffect(() => {
@@ -119,7 +100,6 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   }, [filterKey]);
   const ledgerKey = `${kind}/${numericId}`;
   const prevLedgerKey = useRef(ledgerKey);
-  // Opened from another ledger on a transaction: the first load asks the server for the page holding it.
   const focusPending = useRef(true);
   useEffect(() => {
     if (prevLedgerKey.current === ledgerKey) return;
@@ -129,8 +109,6 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   }, [ledgerKey]);
 
 
-  // Only the latest request may land — switching ledger/page fires a new
-  // one before the previous has answered.
   const requestIdRef = useRef(0);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -168,7 +146,6 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, numericId, page, pageSize, cards, fromDate, toDate, JSON.stringify(modeValues)]);
 
-  // Server-side sums over every row matching the filters, not just this page.
   const totalDebit = totals.debit;
   const totalCredit = totals.credit;
 
@@ -188,8 +165,6 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   }); }
 
   if (labelError) return <div className="notice">{labelError}</div>;
-  // /ledger-bank with no id (or a non-numeric one) names no ledger — say so
-  // rather than sitting on "Loading…" forever.
   if (!numericId) {
     return (
       <div className="notice">
@@ -241,32 +216,21 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
               ) : items.length === 0 ? (
                 <tr><td colSpan={loan ? 8 : 7} className="empty compact">No transactions found.</td></tr>
               ) : items.map((r, i) => {
-                // A loan-number-shaped reference (e.g. "LN-00047") gets a
-                // clickable ledger-ref chip like the customer/bank refs
-                // beside it, instead of sitting there as dead text — same
-                // "click a reference, land on its own ledger" pattern as
-                // LedgerRefLink's other kinds. A plain cash_movement row
-                // (e.g. a loan top-up) carries no Reference at all — its loan
-                // number instead sits inside Description ("Loan top-up —
-                // LN-00048"), same shape Cash.tsx's own LOAN_NUMBER_RE parses.
+                // A loan/personal-loan/investment reference may sit in `reference` or trail the description.
                 const loanRef =
                   (r.reference && r.reference.match(/^LN-\d+/i)?.[0]) ||
                   r.description.match(/—\s*(LN-\S+)\s*$/i)?.[1] ||
                   null;
-                // Same for an investment deposit/payout ("… — INV-00003"),
-                // linking to that investment's own ledger.
                 const invRef =
                   (r.reference && r.reference.match(/^INV-\d+/i)?.[0]) ||
                   r.description.match(/—\s*(INV-\S+)\s*$/i)?.[1] ||
                   null;
-                // And a personal-loan payment ("PL-00003").
                 const plRef =
                   (r.reference && r.reference.match(/^PL-\d+/i)?.[0]) ||
                   r.description.match(/—\s*(PL-\S+)\s*$/i)?.[1] ||
                   null;
                 return (
-                // A loan ledger mixes movement and expense ids (plus the
-                // id-less opening row), so key by position there.
+                // A loan ledger mixes movement/expense ids plus an id-less opening row; key by position.
                 <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
                   <td data-label="Date">{fmtDate(r.d)}</td>
                   <td data-label="Ref No">

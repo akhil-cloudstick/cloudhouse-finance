@@ -42,20 +42,14 @@ const noWheelStep = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.b
 
 const searchTransferCategories = searchCategoriesPage("self_transfer");
 
-// `edit` opens the form on an existing self transfer (from the ledger's Edit button).
 type SelfTransferModalContentProps = { onSaved?: () => void; defaultBranchId?: number; tabs?: ReactNode; edit?: EntryInfo };
 
-/* Self Transfer tab of the Ledger's Add Entry modal. Moves money between two
- * of the business's own banks: the backend records a debit on From Bank and a
- * credit on To Bank. A loan category has no To Bank: the transfer is a
- * repayment, debited from From Bank and credited on that loan's ledger. */
+// A loan category has no To Bank: the transfer is a repayment credited on that loan's ledger instead.
 export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit }: SelfTransferModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
-  // Editing starts from the entry's category name; the full row (a loan's
-  // details) is looked up below.
   const [catRec, setCatRec] = useState<BackendCategory | null>(edit ? ({ id: 0, name: edit.category } as BackendCategory) : null);
   const category = catRec?.name ?? "";
   useEffect(() => {
@@ -65,7 +59,6 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
       if (found) setCatRec(found);
     }).catch(() => {});
   }, [edit]);
-  // A loan category (name starts with "Loan") makes this a repayment on that loan.
   const loan = catRec && isLoanSource(catRec.name) ? catRec : null;
   const loanReady = !!loan;
 
@@ -78,9 +71,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
   const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
 
-  // A transfer to a loan is a repayment — it can't exceed what has been drawn
-  // and not yet repaid. Blocks the button (the backend refuses it too). When
-  // editing, the entry's own amount is already counted as repaid.
+  // A loan repayment can't exceed what has been drawn and not yet repaid; blocks the button.
   const loanBal = useLoanBalance(loan);
   const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit ? edit.amount : 0) : 0;
   const loanExceeded = !!loanBal && (+amt || 0) > owed + 0.005;
@@ -90,7 +81,6 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
 
   const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
   const [err, setErr] = useState("");
-  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
   const [fe, setFe] = useState<Record<string, string>>({});
   const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
   const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
@@ -98,10 +88,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
 
   const [branches, setBranches] = useState<BranchView[]>([]);
   const { singleBranch } = useBranding();
-  // Single-branch plan: no branch is ever shown — the field is not rendered.
   const showBranch = useShowBranch();
-  // Locked (and defaulted) to the global branch selection when one is
-  // active, the same way a single-branch business locks it.
   const lockedBranchId = useLockedBranchId();
   const branchLocked = singleBranch || lockedBranchId != null;
   const [branchId, setBranchId] = useState<number | "">(edit?.branchId || defaultBranchId || lockedBranchId || "");
@@ -175,8 +162,6 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
       <div className="hd"><h3>{edit ? "Edit Self Transfer" : "Self Transfer"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll entry-form">
         {tabs}
-        {/* Same order as every entry form: Category → Date → Mode → Amount → Branch → Bill
-            (the From/To banks sit with Mode, since they replace the usual Bank field). */}
         <div className="frow">
           <div className={fe.category ? "has-err" : undefined}><label className="f">Category *</label>
             <SearchableSelect<BackendCategory>

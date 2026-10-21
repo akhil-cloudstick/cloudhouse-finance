@@ -14,13 +14,7 @@ import { getBusinessCode, isValidBusinessCode, normalizeBusinessCode, saveBusine
 
 type Step = "phone" | "otp";
 
-// Two-step phone -> OTP flow (WhatsApp-delivered code), per the plan. On a
-// successful verify, the app immediately tries to register this device for
-// biometric sign-in next time — that's mandatory in the sense that it
-// always attempts it, but a device with no usable biometric
-// hardware/enrollment simply can't complete registration; the user still
-// ends up signed in via the session token either way, and every later cold
-// start on that device just falls back to OTP (see app/_layout.tsx).
+// Devices without usable biometric hardware just sign in via the session token and fall back to OTP next time.
 export default function LoginScreen() {
   const { completeLogin } = useAuth();
   const { colors, logoUrl, refreshBranding } = useTheme();
@@ -31,18 +25,8 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [biometricNotice, setBiometricNotice] = useState<string | null>(null);
 
-  // A device token surviving until this screen shows means either the app's
-  // cold-start biometric attempt (app/_layout.tsx's bootstrapSession) was
-  // cancelled/failed rather than server-rejected (that path leaves the
-  // token intact on purpose), or the customer navigated here some other
-  // way with one still stored. Either way, offer a retry without forcing
-  // a full OTP re-verification.
   const [biometricLoading, setBiometricLoading] = useState(false);
   const [hasDeviceToken, setHasDeviceToken] = useState(false);
-
-  // The lender this app last signed in to, so a returning borrower does not
-  // retype it. Empty on a fresh install, which is correct: a single-lender
-  // backend resolves the lender itself.
   const [businessCode, setBusinessCode] = useState("");
 
   useEffect(() => {
@@ -50,8 +34,7 @@ export default function LoginScreen() {
     getBusinessCode().then(setBusinessCode);
   }, []);
 
-  // Debounced: previews the entered lender's theme/logo as the customer
-  // types, without hammering the public branding endpoint on every keystroke.
+  // Debounced to avoid hammering the branding endpoint on every keystroke.
   useEffect(() => {
     const timer = setTimeout(() => refreshBranding(businessCode), 400);
     return () => clearTimeout(timer);
@@ -75,13 +58,11 @@ export default function LoginScreen() {
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: `Sign in to ${BRAND.legalName}`,
       });
-      if (!result.success) return; // cancelled — token stays valid, stay on this screen
+      if (!result.success) return;
       try {
         const session = await authApi.deviceLogin(deviceToken);
         await completeLogin(session);
       } catch (err) {
-        // The server rejected this token (revoked/expired) — it's
-        // genuinely dead now, so clear it and drop back to plain OTP.
         await clearDeviceToken();
         setHasDeviceToken(false);
         setError(err instanceof ApiError ? err.message : "Biometric sign-in is no longer available on this device — please sign in with an OTP.");
@@ -114,10 +95,6 @@ export default function LoginScreen() {
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = hasHardware && (await LocalAuthentication.isEnrolledAsync());
       if (!hasHardware || !isEnrolled) {
-        // No usable biometric hardware/enrollment — device registration is
-        // skipped. This is the documented fallback path, not a dead end:
-        // the customer is already signed in via the session token, and
-        // future app opens will simply show the OTP screen again.
         setBiometricNotice(
           "Your device doesn't have biometric unlock set up, so quick sign-in isn't available. You can still sign in with an OTP any time."
         );
@@ -141,8 +118,7 @@ export default function LoginScreen() {
     try {
       const lender = normalizeBusinessCode(businessCode);
       const session = await authApi.verifyOtp(phone.trim(), code.trim(), lender);
-      // Remembered only after the code has actually worked, so a mistyped one
-      // is never persisted and offered back on the next sign-in.
+      // Saved only after a successful verify so a mistyped code is never persisted.
       await saveBusinessCode(lender);
       await completeLogin(session);
       await enrollDeviceBiometric();
@@ -175,12 +151,7 @@ export default function LoginScreen() {
                 value={phone}
                 onChangeText={setPhone}
               />
-              {/* The lender's code. A borrower's phone number is unique only
-                * WITHIN a lender, so with more than one running on the backend
-                * the phone alone is ambiguous. Optional and remembered after
-                * the first successful sign-in, so a returning borrower never
-                * types it twice — and invisible in practice on a
-                * single-lender backend, which resolves it itself. */}
+              {/* Phone is only unique within a lender, so this disambiguates when more than one lender exists. */}
               <GoldTextInput
                 label="Lender code (if your lender gave you one)"
                 autoCapitalize="none"

@@ -13,36 +13,8 @@ import { ServerFlatList } from "./ServerFlatList";
 import { SearchInput } from "./SearchInput";
 import { useServerList } from "@/common/hooks/use-server-list";
 
-/**
- * GroupedFilter — ONE filter control per table/list (mobile twin of web's
- * FilterPanel). A trigger pill ("Filters" + count badge) opens a sheet with a
- * scrolling row of group tabs (each with its selected count) and the active
- * group's list below it. "Reset all" is a text link in the header (only when
- * something is selected) and one "Show results" button closes the sheet; no
- * chips row, no standalone clear outside. Put the pill in the table header and
- * the Download buttons next to it. Filters apply live (onChange per tap).
- *
- * Usage:
- *   const [fv, setFv] = useState(emptyGroupedFilter());
- *   <GroupedFilter title="Filter report" value={fv} onChange={setFv} sections={[
- *     { kind: "async", key: "branch", label: "Branch", single: true,
- *       fetchPage: ({ q, limit, offset }) => listBranchesPage({ q, limit, offset })
- *         .then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })) },
- *     { kind: "static", key: "status", label: "Status", single: true, options: [{ value: "Active", label: "Active" }] },
- *     { kind: "date", key: "date", label: "Date", hideFrom?: false },
- *   ]} />
- *
- * Section kinds:
- *   static  { options, single? }  fixed list (checklist, or radio rows when single); searchable when long
- *   async   { fetchPage, deps?, single? } paginated + searchable list (server paged, 10/page)
- *   date    { hideFrom?, toLabel? } From / To date range (hideFrom: "as of" single date)
- *
- * Value: `{ options: { [key]: {value,label}[] }, dates: { [key]: {from?,to?} } }`
- * — selected options keep their labels so names can be shown without
- * refetching. Helpers: emptyGroupedFilter(), gfValues(v,key) -> string[],
- * gfFirst(v,key) -> string|undefined, gfDate(v,key), groupedFilterCount(v).
- * Props: `style` styles the trigger, `disabled` blocks opening.
- */
+/** GroupedFilter — ONE filter control per table/list (mobile twin of web's FilterPanel): a
+ * trigger pill opens a sheet with group tabs and the active group's list; filters apply live. */
 export type GFOption = { value: string; label: string };
 export type GFSection =
   | { kind: "static"; key: string; label: string; options: GFOption[]; single?: boolean }

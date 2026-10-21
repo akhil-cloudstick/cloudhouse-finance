@@ -5,8 +5,6 @@ import type { BackendExpenseCategory, LoanLedgerSummary } from "@/modules/cash/t
 
 export const EXPENSE_CATEGORIES_PAGE_SIZE = 5;
 
-/* Page-shaped fetch for SearchableSelect's fetchFn contract — real
- * server-side pagination (GET /expense-categories?q=&limit=&offset=). */
 export async function searchExpenseCategoriesPage(q: string, page: number): Promise<{ items: BackendExpenseCategory[]; hasMore: boolean }> {
   const params = new URLSearchParams({ limit: String(EXPENSE_CATEGORIES_PAGE_SIZE), offset: String(page * EXPENSE_CATEGORIES_PAGE_SIZE) });
   if (q) params.set("q", q);
@@ -14,12 +12,7 @@ export async function searchExpenseCategoriesPage(q: string, page: number): Prom
   return { items: res.items || [], hasMore: !!res.hasMore };
 }
 
-/* Creates a new expense category, or — if one with the same name (case
- * insensitive) already exists — returns the existing row instead (the
- * backend's find-or-create behaviour). */
-// Fired by createExpenseCategory so every mounted useExpenseCategoryIds
-// reloads — otherwise a category added from ExpenseModal has no ledger link
-// until the page is refreshed.
+// Fired by createExpenseCategory so every mounted useExpenseCategoryIds reloads.
 export const EXPENSE_CATEGORIES_CHANGED = "expense-categories-changed";
 
 function notifyExpenseCategoriesChanged() {
@@ -31,26 +24,18 @@ export async function createExpenseCategory(name: string): Promise<BackendExpens
     method: "POST",
     body: JSON.stringify({ name }),
   });
-  // Lets every category-ledger link resolve the new category straight away.
   notifyExpenseCategoriesChanged();
   return rec;
 }
 
 export const EXPENSE_CATEGORY_LEDGER_PAGE_SIZE = 12;
 
-/* The category-ledger endpoint — used for the JSON drill-down below and the
- * PDF export in cashService.ts. A function declaration, so it is hoisted for
- * cashService (which this file also imports from). */
+// Function declaration so it is hoisted for cashService, which this file also imports from.
 export function categoryLedgerPath(categoryId: number | string): string {
   return `/expense-categories/${categoryId}/ledger`;
 }
 
-/* Category ledger drill-down — every Expense recorded under this category,
- * as the same combined LedgerRow shape the bank/customer/loan ledgers use
- * (backend/internal/cash/ledger.go's ListLedgerByCategory). Matches by name
- * server-side (Expense.Category is still free text, no CategoryID FK yet —
- * see that function's own doc comment), so the id here is only used to
- * resolve which category, not as a join key on Expense itself. */
+// Matches by name server-side (Expense.Category is still free text, no CategoryID FK yet).
 export async function getExpenseCategoryLedger(
   categoryId: number,
   page: number,

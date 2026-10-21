@@ -5,11 +5,7 @@ import { C } from "./base";
 export type AccDetail = { k: string; v: React.ReactNode; color?: string };
 export type AccAction = { label: string; onPress: () => void; primary?: boolean; danger?: boolean; disabled?: boolean };
 
-// ---- one-open-at-a-time accordion -----------------------------------------
-// Rows inside an <AccGroup> share a single "open" slot: opening a row closes
-// whichever was open before. ServerFlatList wraps every list in one, and
-// gives each row its item key (AccRowKey) so the open row survives the list
-// virtualising it off-screen and back.
+// Rows in an <AccGroup> share one "open" slot; AccRowKey lets the open row survive list virtualisation.
 type AccGroupState = { open: string | null | undefined; setOpen: (k: string | null) => void };
 export const AccGroupContext = createContext<AccGroupState | null>(null);
 export const AccRowKey = createContext<string | null>(null);

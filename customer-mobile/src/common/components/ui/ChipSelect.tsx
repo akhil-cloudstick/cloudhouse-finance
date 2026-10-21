@@ -10,8 +10,6 @@ type ChipSelectProps<T extends string> = {
   label?: string;
 };
 
-// Ported from mobile/src/components/ChipSelect.tsx, re-pointed at this
-// app's own theme files — same styling/behavior, just this app's colors.
 export function ChipSelect<T extends string>({
   options,
   value,

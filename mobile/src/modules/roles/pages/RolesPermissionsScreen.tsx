@@ -36,13 +36,6 @@ import { userMessage } from "@/common/services/apiErrors";
 
 type ErrorTextProps = { children: React.ReactNode };
 
-// Roles & Permissions — not drawn in the prototype; mobile port of
-// frontend/modules/roles/pages/RolesPermissionsPage.tsx restyled in the
-// prototype's language: a role picker sheet, SearchInput (server-side `search`),
-// per-module cards of CheckItem permission rows, and Sheets for new /
-// edit role. Same gates: can_view_role_and_permission_module on the page, plus
-// create / update / delete role; system roles are read-only.
-
 function ErrorText({ children }: ErrorTextProps) {
   return <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{children}</Txt>;
 }
@@ -173,9 +166,6 @@ function NewRoleSheet({ visible, onClose, onCreated }: NewRoleSheetProps) {
   );
 }
 
-// Permissions (the role matrix below) and Approval Workflow (who approves
-// what — src/modules/roles/components/ApprovalWorkflowTab.tsx) are the page's two
-// tabs, switched from pill tabs at the top of the page.
 const PAGE_TABS = ["permissions", "workflow"] as const;
 type PageTab = (typeof PAGE_TABS)[number];
 
@@ -253,17 +243,13 @@ export default function RolesPermissionsScreen() {
     return out;
   }, [matrix, pending]);
 
-  // A related permission's on/off state including unsaved edits — it may be hidden by the search, so the
-  // server's granted flag is the fallback.
   const isOn = (ref: PermissionRef) => pending[ref.permission_id] ?? ref.granted;
-  // Dependents about to be switched off along with a permission (asked to confirm first).
   const [cascade, setCascade] = useState<{ row: PermissionRow; dependents: PermissionRef[] } | null>(null);
 
   function toggle(row: PermissionRow) {
     if (!canUpdateRole || role?.isSystem) return;
     const current = pending[row.permission_id] ?? row.permission;
     if (!current) {
-      // A permission can't be switched on while any parent is still off.
       const missing = (row.parents ?? []).filter((p) => !isOn(p));
       if (missing.length > 0) {
         toast.error("Turn on its parent first", `Please turn on ${missing.map((p) => p.label).join(", ")} first.`);
@@ -301,7 +287,6 @@ export default function RolesPermissionsScreen() {
       }));
       await updateRolePermissions(employee.id, roleId, updates);
       toast.success("Changes saved");
-      // Role names are unique per business; the employee carries the name, not the id.
       if (role?.name === employee.role) void refetchPermissions();
       setPending({});
       loadMatrix();
@@ -344,8 +329,6 @@ export default function RolesPermissionsScreen() {
     <Screen
       header={header}
       floating={
-        // One corner button that opens upward into both actions — the same
-        // grouping as the Bank Pledges page.
         canEditRole || canCreateRole ? (
           <FabMenu
             label="Role actions"
@@ -362,7 +345,6 @@ export default function RolesPermissionsScreen() {
         {roles == null && !error ? (
           <Buffering block />
         ) : (
-          // The role is picked from a rise-up list rather than a tab strip.
           <Card style={{ marginTop: 14, marginBottom: 0, paddingVertical: 4 }}>
             <SheetListItem
               first

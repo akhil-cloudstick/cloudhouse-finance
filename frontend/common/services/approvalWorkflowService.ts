@@ -38,9 +38,7 @@ function flowMeta(
   return { key, label, actionLabel, category, finalAction, offBehavior, minEnabled, maxSteps, stages };
 }
 
-/* Fallback used until GET /approval-workflow answers, or if it fails — the
- * legacy default chains. Keep in step with backend/internal/workflow/
- * catalogue.go. */
+// Fallback until GET /approval-workflow answers or if it fails. Keep in step with backend's catalogue.go.
 export const DEFAULT_APPROVAL_WORKFLOW: ApprovalWorkflowConfig = [
   flowMeta("loan_sanction", "Gold loan sanction", "Sanction", "gold_loan", "disburses",
     "At least one approver is required — the last approver disburses the loan.", ["Loan Operator", "Branch Manager", "Management"], 1),
@@ -66,9 +64,7 @@ export async function fetchApprovalCategories(): Promise<CategoryView[]> {
   return (await apiFetch<CategoryView[]>("/approval-workflow/categories")) || [];
 }
 
-/* Saves one category: its mode and, for shared, the one chain (steps) or,
- * for per-action, each flow's chain (flows). Role IDs in approval order.
- * The backend refuses (400) a chain that breaks a flow's min/max. */
+// The backend refuses (400) a chain that breaks a flow's min/max.
 export function updateApprovalCategory(category: string, body: UpdateCategoryInput): Promise<CategoryView> {
   return apiFetch<CategoryView>(`/approval-workflow/categories/${category}`, {
     method: "PUT",
@@ -76,10 +72,7 @@ export function updateApprovalCategory(category: string, body: UpdateCategoryInp
   });
 }
 
-/* --- Lookups ------------------------------------------------------------
- * Every helper falls back to the catalogue default when the flow is missing
- * from `config` (e.g. an older backend), so callers never need a null check
- * on the flow itself. */
+// --- Lookups --- Each helper falls back to the catalogue default when the flow is missing from `config`.
 
 export function flowOf(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string): FlowView | undefined {
   return config.find((f) => f.key === flow) ?? DEFAULT_APPROVAL_WORKFLOW.find((f) => f.key === flow);
@@ -93,20 +86,15 @@ export function isFlowOff(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey 
   return enabledStages(config, flow).length === 0;
 }
 
-// A release request's approvalStage is "" until the first stage is reached
-// explicitly — the backend reads that as PendingManager.
 function normalizePending(flow: string, pending: string): string {
+  // An unset release request reads as PendingManager.
   if (flow === "loan_release" && !pending) return "PendingManager";
-  // The retired 4th sanction checkpoint — the backend migrates rows off it.
+  // Retired 4th sanction checkpoint; the backend migrates rows off it.
   if (flow === "loan_sanction" && pending === "AuthorizedManagement") return "FinalSanction";
   return pending;
 }
 
-/* Index in the chain of the stage an item stored with value v waits at —
- * mirrors workflow.Chain.resolve: an exact match; else a legacy value (its
- * flow's first legacy stage → the first step, any other → the step of the
- * same role); else, for a role key no longer in the chain, the first step.
- * -1 for an empty chain, no value, or a decided item ("Approved"/…). */
+// Mirrors workflow.Chain.resolve. -1 for an empty chain, no value, or a decided item ("Approved"/...).
 function resolveIndex(stages: StageView[], flow: string, v: string, field: "key" | "pending"): number {
   if (!v || stages.length === 0) return -1;
   const exact = stages.findIndex((s) => s[field] === v);
@@ -117,9 +105,7 @@ function resolveIndex(stages: StageView[], flow: string, v: string, field: "key"
     const byRole = stages.findIndex((s) => s.role === legacy[li].role);
     if (byRole >= 0) return byRole;
   }
-  // Only a legacy value or a role key ("R<id>") whose role has left the
-  // chain waits at the first step. Anything else — "Approved", "Rejected" —
-  // is not waiting anywhere.
+  // Only a legacy value or an orphaned role key ("R<id>") waits at the first step.
   return li >= 0 || /^R\d+$/.test(v) ? 0 : -1;
 }
 
@@ -135,15 +121,14 @@ export function stageByKey(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey
   return i >= 0 ? stages[i] : null;
 }
 
-/* The stage after stageKey — mirrors workflow.Chain.Next. */
+// Mirrors workflow.Chain.Next.
 export function nextStage(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, stageKey: string): StageView | null {
   const stages = enabledStages(config, flow);
   const i = resolveIndex(stages, flow, stageKey, "key");
   return i >= 0 ? stages[i + 1] ?? null : null;
 }
 
-/* Whether acting at stageKey runs the flow's real action (disburse, extend,
- * release, post) — mirrors workflow.Chain.IsFinal. */
+// Mirrors workflow.Chain.IsFinal.
 export function isFinalStage(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, stageKey: string): boolean {
   return nextStage(config, flow, stageKey) === null;
 }
@@ -152,29 +137,22 @@ export function firstStage(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey
   return enabledStages(config, flow)[0] ?? null;
 }
 
-/* The chain a tracker draws: every role of the flow, in order. The item's
- * current stage always resolves onto one of them (see stageByPending), so
- * the current-pending argument older callers pass is no longer needed. */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function chainFor(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, _currentPending?: string | null): StageView[] {
   return enabledStages(config, flow);
 }
 
-/* Tracker labels for a chain — the last step names what it does, e.g.
- * "Management (disburses)". */
+// The last step's label names what it does, e.g. "Management (disburses)".
 export function trackerLabels(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, chain: StageView[]): string[] {
   const finalAction = flowOf(config, flow)?.finalAction;
   return chain.map((s, i) => (i === chain.length - 1 && finalAction ? `${s.label} (${finalAction})` : s.label));
 }
 
-/* Label for a stored pending value, falling back to the raw value. */
 export function stageLabel(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, pending: string | null | undefined): string {
   return stageByPending(config, flow, pending)?.label ?? (pending || "—");
 }
 
-/* Whether the signed-in user may act at stage s: its own role, or the
- * system role — mirrors workflow.Service.CanAct. Role names are unique per
- * business. A UX nicety only; the server enforces it regardless. */
+// Mirrors workflow.Service.CanAct. A UX nicety only; the server enforces it regardless.
 export function canActAtStage(actor: { role: string | null; isSystem: boolean }, s: StageView | null | undefined): boolean {
   if (!s) return false;
   return actor.isSystem || (!!actor.role && actor.role === s.role);

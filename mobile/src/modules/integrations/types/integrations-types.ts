@@ -1,5 +1,4 @@
-/* OpenWA's session states, plus "not_connected" for a business with no session
- * yet — see backend/modules/WhatsApp/models/session.go. */
+// "not_connected" covers a business with no session yet.
 export type WhatsAppStatus =
   | "not_connected"
   | "created"

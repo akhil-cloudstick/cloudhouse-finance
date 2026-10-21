@@ -12,22 +12,12 @@ import { uploadFile } from "@/common/services/uploadService";
 import { PickedFile } from "@/common/types/upload-types";
 import { useUploadSource } from "@/common/components/BillSheet";
 
-// The web modal collects these with a bare <input type="file">. On mobile the
-// equivalent is drawn in the app's own language instead of the platform's:
-// a dashed "attach" tile, a themed source chooser raised as a BottomSheetModal
-// (the same sheet the More menu uses), and a thumbnail/filename chip once
-// something is attached. Nothing here shows stock picker chrome beyond the
-// OS gallery/camera/file screens themselves, which aren't ours to restyle.
-//
-// The file is uploaded as soon as it's picked and the field holds the
-// resulting "/uploads/..." URL, so submitting the form is a plain JSON POST
-// with no multipart work left to do — same split as the web modal, which
-// uploads in save() before createCustomer.
+// Uploaded as soon as it's picked; the field holds the resulting "/uploads/..." URL, so the form
+// submits as a plain JSON POST with no multipart work left to do.
 
 type Source = { key: string; label: string; icon: string; run: () => Promise<PickedFile | null> };
 
-// Thrown for a denied permission — the one non-API error whose message is
-// meant for the user as-is (see pick()'s catch).
+// The one non-API error whose message is meant for the user as-is.
 export class PermissionError extends Error {}
 
 export async function fromCamera(): Promise<PickedFile | null> {
@@ -100,11 +90,7 @@ export function DocumentField({
       setName(file.name);
       onChange(url);
     } catch (e) {
-      // Backend rejections (ApiError) carry a message written for staff —
-      // "file is too large", "unsupported file type" — so those are shown.
-      // Anything else is an internal JS/native error ("Unsupported
-      // FormDataPart implementation", a picker crash) that means nothing to
-      // the person holding the phone, so it's logged and replaced.
+      // ApiError messages are staff-facing and safe to show; other errors are internal, so log and replace.
       if (e instanceof ApiError) {
         setError(e.message);
       } else {

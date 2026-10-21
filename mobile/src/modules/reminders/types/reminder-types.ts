@@ -1,5 +1,4 @@
-// Mirrors backend/internal/reminder/model.go's CalendarEvent JSON shape —
-// merges manual reminders with computed loan due/overdue/interest events.
+// Merges manual reminders with computed loan due/overdue/interest events.
 export type CalendarEvent = {
   date: string;
   type: "InterestDue" | "LoanDue" | "Overdue" | "FollowUp" | "PromiseToPay" | "Custom" | "PersonalLoanDue" | "PersonalLoanOverdue" | "AuctionScheduled";
@@ -15,8 +14,6 @@ export type CalendarEvent = {
   status?: string;
 };
 
-// Mirrors backend/internal/reminder/model.go's Reminder JSON shape — the
-// persisted row returned by POST /reminders (reminderRequest in handler.go).
 export type Reminder = {
   id: number;
   customerId: number;
@@ -29,9 +26,6 @@ export type Reminder = {
   createdAt: string;
   updatedAt: string;
 };
-// GET /reminders with limit/offset — paged, searchable reminder list for the
-// dashboard bell's Reminders modal and the Reminders page's day list.
-// `q` matches customer name/code and loan number server-side.
 export type ReminderRow = Reminder & {
   customer?: { id: number; name: string; code?: string };
   loan?: { id: number; loanNumber: string };

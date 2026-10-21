@@ -8,27 +8,17 @@ import { getLocker, listLockersPage } from "@/modules/lockers/services/lockerSer
 import { dmy, inr } from "@/common/utils/format";
 import type { Locker } from "@/modules/lockers/types/locker-types";
 
-// Packet detail (prototype #packet-detail-modal): field grid, custody
-// stepper, packet contents, actions (Check In to Locker / Repledge to Bank /
-// Release Packet) and movement history. Same movement rules and permission
-// gates as before — every move is POST /packets/:id/movements.
-
 const GENERATED = "Packet Generated";
 const LOCKER_STORED = "Locker Stored";
 const BANK_PLEDGED = "Bank Pledged";
 const RETURNED = "Returned";
-const READY_FOR_RELEASE = "Ready For Release";
- // legacy — nothing moves into it any more
+const READY_FOR_RELEASE = "Ready For Release"; // legacy — nothing moves into it any more
 const RELEASED = "Released";
-// Loan outcomes after which the gold has left custody — the backend rejects
-// every movement, so no actions are offered.
 const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
 const g = (n?: number) => `${+(n ?? 0).toFixed(2)} g`;
 const errText = (msg: string | null) => (msg ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{msg}</Txt> : null);
 type PacketDetailBodyProps = { packetId: number; onOpenLoan: (loanId: number) => void };
 
-/** Packet detail body — used by the Packets sheet and the /packets/[id]
- * route (deep links from loan detail / release review). */
 export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps) {
   const qc = useQueryClient();
   const { employee, can } = useAuth();
@@ -52,8 +42,6 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
     setRemarks("");
   }, [packetId]);
 
-  // Movement rows and the current locker carry only an id — resolve codes
-  // per distinct locker (usually one or two).
   const lockerIds = Array.from(
     new Set([packet.data?.currentLockerId, ...(movements.data ?? []).map((m) => m.lockerId)].filter((v): v is number => typeof v === "number" && v > 0))
   );
@@ -90,8 +78,6 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   const isAuctioned = AUCTIONED_LOAN.includes(loanStatus);
   const movementLocked = isAuctioned || loanStatus === "Closed" || loanStatus === "Rejected";
 
-  // Rail shows only the stages this packet can pass through: the bank detour
-  // only once it's been pledged, the legacy stage only if used.
   const visited = new Set([status, ...(movements.data ?? []).map((m) => m.toStatus)]);
   const rail = [GENERATED, LOCKER_STORED];
   if (visited.has(BANK_PLEDGED) || visited.has(RETURNED)) rail.push(BANK_PLEDGED, RETURNED);
@@ -181,8 +167,6 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
                   }}
                 />
               ) : null}
-              {/* A bank pledge is a real transaction recorded on the loan —
-                  it moves the packet to Bank Pledged itself. */}
               {canRepledge ? <PrimaryButton label="Repledge to Bank" variant="outline" onPress={() => onOpenLoan(p.loanId)} /> : null}
             </BtnRow2>
           ) : null}
@@ -207,7 +191,6 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
           <Buffering />
         ) : movements.data?.length ? (
           movements.data.map((m, i) => {
-            // Same-status rows are partial ornament releases, not moves.
             const isRemark = !!m.fromStatus && m.fromStatus === m.toStatus;
             const title = isRemark
               ? m.remarks
@@ -236,8 +219,6 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
           label="Locker"
           placeholder="Search locker code"
           queryKey={["lockers", "picker", branchId]}
-          // A locker physically lives at one branch; `status=active` returns
-          // only active lockers that still have room.
           fetcher={async (q) => (await listLockersPage({ branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? []}
           selectedLabel={locker ? `${locker.code} (${locker.occupied}/${locker.capacity})` : undefined}
           onClear={() => setLocker(null)}

@@ -1,14 +1,6 @@
-
-
-// Mirrors src/modules/personal-loans/services/personalLoanService.ts's
-// types exactly (backend/internal/personalloan's models) — an unsecured,
-// no-KYC loan product separate from the Gold Loan module.
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
-// "Pending Approval" / "Rejected" only when the tenant's "personal_loan"
-// approval flow is on: nothing is disbursed (and there is no schedule) until
-// its final stage approves the loan. "Pending" is unrelated — a penal-cycle
-// state of an already-disbursed loan.
+// "Pending" here is unrelated to "Pending Approval" — it's a penal-cycle state of a disbursed loan.
 export type PersonalLoanStatus = "Active" | "Pending" | "Closed" | "Renewed" | "Defaulted" | "Pending Approval" | "Rejected";
 export type PersonalLoan = {
   id: number;
@@ -27,8 +19,6 @@ export type PersonalLoan = {
   outstandingAmount: number;
   totalPaid: number;
   status: PersonalLoanStatus;
-  // Pending stage value (personal_loan flow) while "Pending Approval";
-  // "Approved" / "Rejected" once decided; "" when created without a chain.
   approvalStage?: string;
   openedDate: string;
   disbursedAt: string;
@@ -73,15 +63,11 @@ export type CreatePersonalLoanInput = {
   interestValue: number;
   frequency: Frequency;
   tenureCount: number;
-  // Omit or 0 to default to the loan's own effective interest rate — see
-  // backend CreateInput.PenalInterestRate's doc comment.
+  // Omit or 0 to default to the loan's own effective interest rate.
   penalInterestRate?: number;
-  // Omit or 0 for no grace period.
   gracePeriodDays?: number;
-  // true: hand over the full principal now (no interest withheld upfront);
-  // the customer then owes Principal + Interest. Default false.
+  // true: hand over the full principal now; the customer then owes Principal + Interest.
   fullDisbursement?: boolean;
-  // How the amount handed to the customer left the till, and the branch bank account a UPI / Bank Transfer share leaves from.
   cashAmount?: number;
   upiAmount?: number;
   bankTransferAmount?: number;
@@ -94,7 +80,6 @@ export type RenewInput = {
   interestValue: number;
   frequency: Frequency;
   tenureCount: number;
-  // The payout split (when the renewal pays the customer anything) and the bank a non-cash share leaves from.
   cashAmount?: number;
   upiAmount?: number;
   bankTransferAmount?: number;
@@ -108,7 +93,6 @@ export type RenewalPreview = {
   shortfall: boolean;
 };
 export type RenewResult = { oldLoan: PersonalLoan; newLoan: PersonalLoan };
-// --- Approval chain (tenant's "personal_loan" flow) ---------------------------
 
 export type PersonalLoanApproval = {
   id: number;

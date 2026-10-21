@@ -1,6 +1,3 @@
-// Mirrors backend/internal/customer/model.go's CustomerResponse — the only
-// shape the API ever returns for a Customer (raw model fields like
-// aadhaarEncrypted/digilockerRequestId are deliberately never exposed).
 export type KYCStatusValue = "Pending" | "Verified" | "Failed" | "Name Mismatch";
 
 export type Customer = {

@@ -16,9 +16,7 @@ export function SheetScrollView(props: ScrollViewProps) {
   const ref = useRef<ScrollView>(null);
   const offset = useRef(0);
   const viewH = useRef(0);
-  // iOS doesn't scroll a focused input into view (Android does). Once the
-  // keyboard is up and the sheet has shrunk above it, bring the focused
-  // field into the visible part of this scroller.
+  // iOS doesn't scroll a focused input into view once the keyboard shrinks the sheet (Android does), so do it manually.
   useEffect(() => {
     if (Platform.OS !== "ios") return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -48,8 +46,7 @@ export function SheetScrollView(props: ScrollViewProps) {
     <ScrollView
       ref={ref}
       bounces={false}
-      // Android 12+ stretches a list pulled past its top; that stretch and
-      // the sheet following the same drag fought each other (jitter).
+      // Android 12+ overscroll stretch fought the sheet's own drag, causing jitter.
       overScrollMode="never"
       scrollEventThrottle={16}
       keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}

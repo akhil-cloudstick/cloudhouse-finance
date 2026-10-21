@@ -1,6 +1,4 @@
-// react-native-razorpay ships no TypeScript declarations. This mirrors the
-// subset of its native SDK surface PaySheet.tsx uses — see
-// https://razorpay.com/docs/payments/payment-gateway/react-native-integration/standard/build-integration/
+// react-native-razorpay ships no TypeScript declarations; mirrors the subset of its native SDK PaySheet.tsx uses.
 declare module "react-native-razorpay" {
   export type RazorpayOptions = {
     key: string;

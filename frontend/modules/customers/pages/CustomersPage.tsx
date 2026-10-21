@@ -24,16 +24,7 @@ const VERIFICATION_STATUS_OPTIONS = [
   { value: "Name Mismatch", label: "Name Mismatch" },
 ];
 
-/* Ported from legacy/app.js's `renderCustomers()`. Loads real data from the
- * Go backend (`GET /api/v1/customers`) instead of the localStorage mock
- * store — see the Customer Module stage-1 plan. Loan counts come from the
- * real backend-backed `useLoans()`.
- *
- * The table below is paginated (10/page, one API call per page) via
- * listCustomersPage — kept separate from CustomersProvider's `customers`,
- * which other pages (GlobalSearch, New Loan's picker) still rely on as a
- * single fetch-once-and-refresh full list. `customers.length` from the
- * provider is only used for the header's overview count. */
+// Table below is paginated via listCustomersPage; customers.length from the provider backs the header count only.
 export function CustomersPage() {
   const { loans } = useLoans();
   const { customers, refresh: refreshAll } = useCustomers();
@@ -41,9 +32,6 @@ export function CustomersPage() {
   const basePageSize = useResponsivePageSize(15, 15);
   const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   const smallScreen = useIsSmallScreen();
-  // Action buttons are hidden outright when the role doesn't hold the
-  // permission behind them — a disabled-looking control the user can never
-  // use is worse than no control at all (house standard §12).
   const { can } = useAuth();
   const showBranch = useShowBranch();
   const canCreateCustomers = can("Customer_Management", "can_create_customer");
@@ -51,7 +39,6 @@ export function CustomersPage() {
   const [panStatus, setPanStatus] = usePersistedState("customers:pan", "");
   const [aadhaarStatus, setAadhaarStatus] = usePersistedState("customers:aadhaar", "");
   const [page, setPage] = useState(1);
-  // One grouped filter: PAN and Aadhaar verification status (single choice each).
   const filterCategories: FilterCategory[] = [
     { key: "pan", label: "PAN Verified", kind: "static", singleSelect: true, options: VERIFICATION_STATUS_OPTIONS },
     { key: "aadhaar", label: "Aadhaar Verified", kind: "static", singleSelect: true, options: VERIFICATION_STATUS_OPTIONS },
@@ -80,8 +67,6 @@ export function CustomersPage() {
 
   function refresh() {
     refreshAll();
-    // Re-run the current page's query rather than resetting to page 1, so
-    // registering/editing a customer doesn't bounce the viewer's place.
     setPage((p) => p);
     listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus })
       .then((res) => { setRows(res.items); setHasMore(res.hasMore); setTotal(res.total); setError(""); })

@@ -10,22 +10,7 @@ type WebcamCaptureProps = {
   onClose: () => void;
 };
 
-/**
- * Takes a still photo from the computer's webcam and hands it back as a
- * JPEG `File` — the same shape a file `<input>` produces — so callers can
- * push it through their existing upload path unchanged (customer photo,
- * ornament photo, …).
- *
- * Portalled to <body> as its own stacked `.modal-bg` (same approach as
- * PaymentModal's confirm popup) rather than going through `openModal`,
- * because it's usually opened from INSIDE another modal (Register/Edit
- * Customer) and `openModal` would replace that modal's content, losing
- * everything already typed into the form.
- *
- * getUserMedia only works in a secure context — https or localhost. Over a
- * plain-http LAN address the browser hides the camera API entirely, so that
- * case gets its own message instead of a generic failure.
- */
+// Portalled as its own modal-bg (not openModal) since it's usually opened from inside another modal.
 export function WebcamCapture({
   title = "Take Photo",
   onCapture,
@@ -34,9 +19,7 @@ export function WebcamCapture({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  // `requestedId` drives the stream (only changes when the user picks a
-  // camera); `deviceId` is just what the picker shows — filling it in from
-  // the default stream must not restart that stream.
+  // `requestedId` drives the stream; `deviceId` is just the picker's display and must not restart it.
   const [requestedId, setRequestedId] = useState("");
   const [deviceId, setDeviceId] = useState("");
   // Only ever mounted from a click, so `navigator` always exists here.
@@ -59,8 +42,6 @@ export function WebcamCapture({
     setError("");
   }
 
-  // (Re)opens the stream whenever the chosen camera changes, and always
-  // releases it on unmount so the webcam light goes off with the dialog.
   useEffect(() => {
     if (unsupported) return;
     let cancelled = false;
@@ -77,8 +58,7 @@ export function WebcamCapture({
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(() => {});
         }
-        // Device labels are only populated after permission is granted,
-        // so the camera list is read here rather than up front.
+        // Device labels only populate after permission is granted, so the list is read here.
         const all = await navigator.mediaDevices.enumerateDevices();
         if (cancelled) return;
         const cams = all.filter((d) => d.kind === "videoinput");
@@ -134,10 +114,7 @@ export function WebcamCapture({
     <div
       className="modal-bg open pay-confirm-bg"
       onClick={(e) => { if (e.target === e.currentTarget) close(); }}
-      // Portalled, but React still bubbles events up the component tree —
-      // without stopPropagation, Enter here reaches the host modal/page's
-      // Enter-to-submit handler and fires ITS primary button (Register,
-      // Create Loan, …) behind this dialog.
+      // Without stopPropagation, Enter bubbles to the host modal's own Enter-to-submit handler.
       onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") close(); }}
     >
       <div className="modal wide" role="dialog" aria-modal="true">

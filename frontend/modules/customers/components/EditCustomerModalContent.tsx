@@ -23,16 +23,8 @@ const SERVER_FIELDS: Record<string, RegExp> = {
 
 type EditCustomerModalContentProps = { customer: CustomerView; onSaved?: () => void };
 
-/* Edit counterpart to RegisterCustomerModal.tsx's create form, wired to the
- * PUT /api/v1/customers/:id update that already existed in customersApi.ts
- * but had no UI calling it. Same field set and validation as create; the
- * only differences are (1) fields are pre-filled from the customer passed
- * in, and (2) the 4 document inputs only replace their stored URL when a
- * new file is chosen — leaving one blank keeps the existing document
- * (matches the backend's full-replace PUT, which would otherwise wipe a
- * URL that isn't resent). Aadhaar is intentionally left blank on open (the
- * backend never returns the plaintext number) — leaving it blank on save
- * keeps the on-file Aadhaar untouched, see service.go's Update. */
+// Leaving a document input blank keeps the existing file; a blank Aadhaar keeps the on-file value
+// (the backend never returns the plaintext number, so it always opens blank here).
 export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -41,12 +33,8 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
   const [phone, setPhone] = useState(customer.phone);
   const [dob, setDob] = useState(customer.dob);
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
-  // Single-branch plan: no branch is ever shown — the field is not rendered.
   const showBranch = useShowBranch();
-  // Locked (and defaulted) to the global branch selection when one is
-  // active, the same way a single-branch business locks it.
   const lockedBranchId = useLockedBranchId();
   const branchLocked = singleBranch || lockedBranchId != null;
   const [branchId, setBranchId] = useState<number | "">(customer.branchId);
@@ -62,10 +50,6 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
   const [addressProofFile, setAddressProofFile] = useState<File | null>(null);
   const [kycDocFile, setKycDocFile] = useState<File | null>(null);
 
-  // "Additional Information" — collapsed by default, all optional, same
-  // fields RegisterCustomerModal.tsx's own Additional Information section
-  // collects, pre-filled here from whatever the customer already has on
-  // file (blank for a customer registered before this section existed).
   const [showAdditional, setShowAdditional] = useState(false);
   const [fatherName, setFatherName] = useState(customer.fatherName || "");
   const [age, setAge] = useState(customer.age ? String(customer.age) : "");
@@ -85,8 +69,6 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
     listActiveBranches()
       .then((list) => {
         setBranches(list);
-        // Single-branch plan: the field is hidden, so a customer saved
-        // without a branch falls back to the only branch and still validates.
         if (singleBranch && list.length) setBranchId((cur) => cur || list[0].id);
       })
       .catch(() => setErr("Could not load branches — try again later."));

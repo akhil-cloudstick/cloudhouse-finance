@@ -24,10 +24,7 @@ type AsyncSelectProps<T> = {
   renderItem: (v: T) => { title: string; sub?: string };
   onClear?: () => void;
   minChars?: number;
-  // Opt-in "+ Create '<query>'" row, shown ahead of results when the typed
-  // query doesn't exactly match (case-insensitive) any loaded item's title —
-  // same allowCreate convention as the web's SearchableSelect.tsx. Resolves
-  // to the created item, which is then selected exactly like a picked row.
+  // Opt-in "+ Create '<query>'" row shown when the typed query matches no loaded item's title.
   onCreateNew?: (q: string) => Promise<T>;
 };
 

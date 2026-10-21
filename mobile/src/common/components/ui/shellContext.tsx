@@ -9,11 +9,7 @@ import { canOpenPath } from "@/common/config/routePermissions";
 import { toast } from "./ToastHost";
 import { FlatHeader } from "./FlatHeader";
 
-// ---------------------------------------------------------------------------
-// Shell actions — one set of global openers (New Loan sheet, More sheet,
-// search, gold rate, reminders) provided by app/(tabs)/_layout.tsx so every
-// header / quick action drives the same sheet instance.
-// ---------------------------------------------------------------------------
+// Global openers provided by app/(tabs)/_layout.tsx so every header/quick action shares one sheet instance.
 export type ShellActions = {
   openNewLoan: () => void;
   /** New Loan with this customer already picked (from the customer page). */
@@ -39,39 +35,15 @@ export const ShellContext = createContext<ShellActions>({
 });
 export const useShell = () => useContext(ShellContext);
 
-/** Shown for the moment between leaving a page and the next one drawing. */
 const BLANK_HEADER = <FlatHeader title="" />;
 
-/** Set by HeaderHost while the hero collapses into (or grows back out of) a
- * page's flat header. `p` runs 0 (hero open) → 1 (collapsed to the flat
- * header's height); `lift` is the height difference between the two. */
+/** p: 0 (hero open) to 1 (collapsed into flat header); lift: height diff between the two. */
 export type HeroMorph = { p: Animated.Value; lift: Animated.Value };
 export const HeroMorphContext = createContext<HeroMorph | null>(null);
 
-// ---------------------------------------------------------------------------
-// Screen + scroller
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Persistent header. Inside the tabs shell a page doesn't draw its own
-// header: every page publishes it to <HeaderHost>, which sits above every
-// navigator and shows the header of the page that most recently gained
-// focus. Switching pages (tab or push) leaves the header still and only
-// swaps its text while the bodies slide underneath. The page keeps an
-// invisible copy in place as a spacer of the same height.
-//
-// Focus is reported by each page itself (useIsFocused + the blur event),
-// not read off the root navigation state: that state doesn't always carry
-// a nested navigator's routes yet (first login, a module stack), and
-// looking pages up in it left the header blank. Between a page blurring (or
-// openPage() starting a jump) and the next one taking focus, the outgoing
-// header is HELD rather than blanked — see publishHeader — so the header is
-// never seen empty mid-switch; NavCover hides the body during that gap.
-// ---------------------------------------------------------------------------
-// NavCover (drawn by the tab bar, over the pages and under the header / bar)
-// hides the body from the moment an openPage() jump starts until the
-// destination has drawn, then fades away — so the header morph and the new
-// page arrive together instead of the page showing under the old header.
+// Persistent header: pages publish to <HeaderHost> instead of drawing their own; focus is
+// reported per-page (not from root nav state, which can lag nested navigators). The outgoing
+// header is held (not blanked) between pages losing/gaining focus; NavCover hides the body meanwhile.
 type CoverPhase = "off" | "on" | "leaving";
 let coverPhase: CoverPhase = "off";
 let coverTimer: ReturnType<typeof setTimeout> | null = null;
@@ -92,11 +64,8 @@ export const coverStore = {
   begin: () => {
     if (coverTimer) clearTimeout(coverTimer);
     coverStore.set("on");
-    // Never leave the page covered if the destination fails to report in.
-    coverTimer = setTimeout(coverStore.end, 1500);
+    coverTimer = setTimeout(coverStore.end, 1500); // safety timeout if destination never reports focus
   },
-  /** The destination has taken focus: give its native screen two frames to
-   * draw, then fade the cover away. */
   end: () => {
     if (coverTimer) clearTimeout(coverTimer);
     coverTimer = null;
@@ -112,11 +81,7 @@ let headerSeq = 0;
 let headerPending = false;
 let headerSnapshot: React.ReactNode = null;
 let headerHoldTimer: ReturnType<typeof setTimeout> | null = null;
-// How long the outgoing header is held for a page that never reports focus
-// (one not built on <Screen>) before giving up and blanking. Same budget as
-// the NavCover's own safety timeout.
-const HEADER_HOLD_MS = 1500;
-// Set by HeaderHost: whether a header node is the Dashboard hero (the tall one).
+const HEADER_HOLD_MS = 1500; // how long to hold the outgoing header before blanking
 let isTallHeader: (node: React.ReactNode) => boolean = () => false;
 export function setTallHeaderCheck(fn: (node: React.ReactNode) => boolean) {
   isTallHeader = fn;
@@ -131,21 +96,10 @@ function publishHeader() {
   } else if (headerSnapshot == null) {
     headerSnapshot = BLANK_HEADER;
   } else if (isTallHeader(headerSnapshot)) {
-    // Leaving the Dashboard: every other page has a flat header, so start the hero's collapse
-    // now — together with the page slide — instead of holding the hero until the next page has
-    // rendered (a heavy page kept it on screen well after the slide had finished). The page's
-    // own title lands on the collapsing flat header as soon as it reports focus.
+    // Leaving the Dashboard: collapse the hero immediately with the page slide, not after the next page renders.
     headerSnapshot = BLANK_HEADER;
   } else {
-    // Between pages — the old one has blurred (or openPage() has started a
-    // jump) and the new one hasn't reported focus yet. That gap is a frame or
-    // more: the destination is frozen (freezeOnBlur) until it re-renders. It
-    // used to publish BLANK_HEADER here, so every page switch showed the
-    // header empty for that gap — the Dashboard hero blinking out — and the
-    // tall→short curtain in HeaderHost then animated toward the BLANK
-    // header's height before the real header's text popped in on top. Holding
-    // the outgoing header instead means HeaderHost only ever sees real
-    // header → real header, and its curtain runs once, to the right height.
+    // Hold the outgoing header during the focus gap so HeaderHost always sees real->real, never a blank flash.
     if (!headerHoldTimer) {
       headerHoldTimer = setTimeout(() => {
         headerHoldTimer = null;
@@ -181,8 +135,6 @@ export const headerStore = {
   remove: (key: string) => {
     if (headerEntries.delete(key)) publishHeader();
   },
-  /** A page switch is under way: hold the current header until the next page
-   * takes focus (see publishHeader). */
   pending: () => {
     headerPending = true;
     coverStore.begin();
@@ -200,32 +152,21 @@ export const HeaderHostContext = createContext(false);
 export const FAB_CAPTION_H = 18;
 const FAB_MENU_W = 72;
 
-/** One corner button that opens upward into a panel of actions (like a
- * phone's side-panel launcher): closed it's a round chevron button; tapped,
- * a rounded panel rises out of it listing each action as an icon with its
- * name, and the chevron turns to fold it back. Tapping outside or picking
- * an action closes it. */
 export type FabMenuAction = {
   label: string;
   icon: string;
   onPress: () => void;
-  /** Highlights the item — when the menu switches what the page shows, the one on screen. */
   active?: boolean;
-  /** Small gold dot on the item, e.g. unsaved changes there. */
   dot?: boolean;
 };
 
-// ---------------------------------------------------------------------------
-// Cross-page navigation
-// ---------------------------------------------------------------------------
 type TabsNav = BottomTabBarProps["navigation"];
 type TabsState = BottomTabBarProps["state"];
 export const tabsRef: { nav: TabsNav | null; state: TabsState | null } = { nav: null, state: null };
 
 let directSeq = 0;
 
-// Tabs that are folders (their own stack: index + [id]); the rest are a
-// single screen.
+// Tabs with their own stack (index + [id]); the rest are a single screen.
 const STACK_TABS = new Set([
   "customers",
   "loans",
@@ -254,31 +195,14 @@ function parsePath(path: string) {
   return { tab: parts[0] ?? "", id: parts[1], params };
 }
 
-/**
- * Open a page from anywhere (dashboard quick links, search hits, "View
- * Loan" on another module…). Within the current tab it's a normal push.
- *
- * Across tabs, switching the active tab and resetting its stack to just the
- * destination screen are done as ONE dispatch on the tabs navigator itself
- * (a RESET of its whole state, not two separate `navigate`/`dispatch`
- * calls). React Navigation applies a dispatch as a single state update —
- * there's no render in between where the target tab is visible with its old
- * content, because it was never made visible with any content but the
- * destination. Doing this in two steps (make the tab visible, THEN swap its
- * stack) always leaves a gap — however briefly — where the tab shows
- * whatever it last had (its list), which is exactly the flash this avoids.
- * Back returns to the page it was opened from (the tabs keep a history).
- */
+// Cross-tab jumps reset the tabs navigator in ONE dispatch (not visible-then-swap-stack) to avoid
+// a flash of the target tab's old content before the destination renders.
 export function openPage(path: string) {
-  // Every quick link, KPI tile and hyperlink lands here — refuse a page the
-  // user can't view (src/common/config/routePermissions.ts) instead of opening it
-  // onto a screen of 403s.
   if (!canOpenPath(path)) {
     toast.error("Access denied", "You don't have permission to open this page.");
     return;
   }
-  // Fetch the destination's data first (briefly), so it mounts with its real header and
-  // body at once instead of a placeholder header + spinner that then fills in.
+  // Prefetch so the destination mounts with real header/body instead of placeholder-then-fill.
   const loading = prefetchPage?.(path);
   if (!loading) return navigateTo(path);
   let done = false;
@@ -291,14 +215,12 @@ export function openPage(path: string) {
   setTimeout(go, PREFETCH_WAIT_MS);
 }
 
-// Registered by the tabs layout (it holds the query client): starts loading what a path's page
-// needs and returns the promise, or null when nothing needs loading (already cached / no data).
+// Registered by the tabs layout; starts loading a path's page data, returns null if nothing to load.
 let prefetchPage: ((path: string) => Promise<unknown> | null) | null = null;
 export function setPagePrefetch(fn: typeof prefetchPage) {
   prefetchPage = fn;
 }
-// Longest a link waits for that data before opening the page anyway (it then loads in place).
-const PREFETCH_WAIT_MS = 600;
+const PREFETCH_WAIT_MS = 600; // longest a link waits for prefetch before opening anyway
 
 function navigateTo(path: string) {
   const { nav, state } = tabsRef;
@@ -313,17 +235,8 @@ function navigateTo(path: string) {
   headerStore.pending();
   const screen = id ? "[id]" : "index";
   const screenParams = id ? { ...params, id, direct: "1" } : params;
-  // The guard above already ruled out `current === tab` — this is always a
-  // cross-tab jump, so the target's own stack (whatever it was left showing)
-  // is never the thing about to become visible; it's always being replaced.
-  //
-  // The target stack is given exactly ONE route, the destination. Its
-  // navigator uses a `route.state` handed down like this whether it's
-  // already mounted or mounting for the first time (useNavigationBuilder
-  // rehydrates from it), and StackRouter keeps just the routes it's given —
-  // so the list is never created underneath, never flashes, and isn't there
-  // for Back to land on. Back from the detail therefore falls straight
-  // through to the tabs' history: the page it was opened from.
+  // Target stack gets exactly ONE route (the destination), so its list is never created
+  // underneath and isn't there for Back to land on; Back falls through to the tabs' history.
   if (!STACK_TABS.has(tab)) {
     focusTab(nav, state, targetIndex, { params });
     return;
@@ -331,18 +244,8 @@ function navigateTo(path: string) {
   focusTab(nav, state, targetIndex, { stack: { name: screen, params: screenParams } });
 }
 
-/**
- * Focus a tab and, optionally, set its stack to a single screen — all in one
- * RESET of the TABS navigator's own state.
- *
- * Why not address the tab's nested stack directly (`target: nested.key`)?
- * The stack state openPage() hands down is rehydrated by the stack's own
- * navigator, which gives it a NEW key and only reports that back up to the
- * tabs state after the next action inside that stack. Until then the tabs
- * state still holds the old key, so an action targeted at it reaches no
- * navigator ("The action 'RESET' … was not handled by any navigator").
- * Going through the tabs navigator never needs that key.
- */
+// Focus a tab and optionally reset its stack to one screen, via a single RESET on the tabs
+// navigator (addressing the nested stack directly fails: its key isn't known until it reports back).
 export function focusTab(
   nav: TabsNav,
   state: TabsState,
@@ -350,11 +253,8 @@ export function focusTab(
   change: { params?: object; stack?: { name: string; params?: object } }
 ) {
   const target = state.routes[targetIndex];
-  // A stack change also gives the tab route a NEW key. The tab's scene is keyed by it, so the
-  // old stack (still showing its list — tabs like Loans are mounted up front) is dropped and a
-  // fresh one mounts straight onto the destination. Handing the new state to the already-mounted
-  // stack instead only took effect a render later, so the list was drawn first and the detail
-  // landed over it.
+  // A stack change gives the tab route a NEW key, so a fresh scene mounts straight onto the
+  // destination instead of the old stack's list flashing first.
   const n = change.stack ? ++directSeq : 0;
   const nextKey = change.stack ? `${target.name}-direct-${n}` : target.key;
   const routes = state.routes.map((r, i) => {
@@ -368,16 +268,8 @@ export function focusTab(
     }
     return change.params ? { ...r, params: change.params } : r;
   });
-  // The tab router's own back-navigation (both hardware Back and this
-  // Tabs' `backBehavior="history"`) is driven entirely by `state.history`,
-  // a list of previously-focused route keys that only its own actions
-  // (JUMP_TO/NAVIGATE/GO_BACK) know how to maintain — a raw RESET, if it
-  // doesn't include one, replaces it with nothing. Drop the target's old key
-  // (it may just have been replaced above) and append its current one,
-  // exactly like the router's own changeIndex does for backBehavior="history"
-  // (de-dupe, then append). Skipping this was the bug — Back from a loan
-  // opened this way had no history left to fall into, and Android closed the
-  // app outright.
+  // A raw RESET wipes state.history unless we rebuild it (de-dupe + append), or Back after this
+  // jump has nowhere to fall into and Android closes the app outright.
   const history = (state.history ?? [])
     .filter((it) => (it && typeof it === "object" && "key" in it ? it.key !== target.key && it.key !== nextKey : true))
     .concat({ type: "route" as const, key: nextKey });
@@ -393,15 +285,11 @@ export const s = StyleSheet.create({
   headerShell: { zIndex: 20 },
   headerSpacer: { opacity: 0 },
   headerHost: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 30 },
-  // Same rounded bottom as the hero (aHeader) it stands in for.
   headerCurtain: { position: "absolute", top: 0, left: 0, right: 0 },
-  // The hero's rounded bottom, on the clip whose edge rises / drops.
   heroClip: { borderBottomLeftRadius: 26, borderBottomRightRadius: 26, overflow: "hidden" },
   body: { flex: 1 },
   headerFade: { position: "absolute", top: 0, left: 0, right: 0 },
 
-  // .flat-header
-  // Hero-coloured like the Dashboard header (HeroBackground), white on top.
   flatHeader: { paddingHorizontal: 18, paddingBottom: 14, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, overflow: "hidden", backgroundColor: C.nav },
   flatTopRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   backBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
@@ -413,7 +301,6 @@ export const s = StyleSheet.create({
   flatIcBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
   flatDot: { position: "absolute", top: 6, right: 6, width: 6, height: 6, borderRadius: 3, backgroundColor: "#ffd166" },
 
-  // .a-header
   aHeader: { paddingHorizontal: 18, paddingBottom: 18, borderBottomLeftRadius: 26, borderBottomRightRadius: 26, overflow: "hidden" },
   aTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   aId: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -446,12 +333,10 @@ export const s = StyleSheet.create({
   aSegTxt: { fontSize: 12.5, fontWeight: "700", color: "rgba(255,255,255,0.75)" },
   aSegTxtActive: { color: C.brandDeep },
 
-  // .fab-corner
   fab: {
     position: "absolute",
     right: 16,
-    // Above the tab bar's fade (40), below the bar itself (50).
-    zIndex: 45,
+    zIndex: 45, // above the tab bar's fade (40), below the bar itself (50)
     width: 52,
     height: 52,
     borderRadius: 26,
@@ -460,14 +345,9 @@ export const s = StyleSheet.create({
     justifyContent: "center",
     ...shadow(10, 22, 0.3, "0, 0, 0"),
   },
-  // Exactly the button's width, so left and right FABs sit the same 16px
-  // from their edges whatever their caption length; the caption is centred
-  // under the button and may overhang it.
-  // FabMenu panel: a rounded column rising from the corner button.
   fabMenu: {
     position: "absolute",
-    // Centred on the corner button (right 16 + 52/2 = 42 from the edge).
-    right: 42 - FAB_MENU_W / 2,
+    right: 42 - FAB_MENU_W / 2, // centred on the corner button (right 16 + 52/2)
     zIndex: 45,
     width: FAB_MENU_W,
     paddingTop: 14,
@@ -488,7 +368,6 @@ export const s = StyleSheet.create({
   fabInline: { position: "relative", right: undefined },
   fabCaption: { width: 96, height: FAB_CAPTION_H, paddingTop: 4, fontSize: 11, fontWeight: "700", color: C.brandDeep, textAlign: "center" },
 
-  // .ld-actions-bar
   ldBar: { position: "absolute", left: 14, right: 14, zIndex: 35, flexDirection: "row", gap: 10 },
   ldBtn: {
     flex: 1,
@@ -506,7 +385,6 @@ export const s = StyleSheet.create({
   ldBtnPrimary: { backgroundColor: C.brandDeep, borderColor: C.brandDeep },
   ldBtnTxt: { fontWeight: "700", fontSize: 13.5 },
 
-  // .tabfade / .tabbar
   tabFade: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 40 },
   tabbar: {
     position: "absolute",
@@ -528,8 +406,6 @@ export const s = StyleSheet.create({
   tabLbl: { fontSize: 10, fontWeight: "600", color: C.muted },
   tabLblActive: { color: C.brandDeep },
   tabFab: { top: -22 },
-  // Centre Loans button while Loans is the open tab: brighter fill, a soft
-  // brand ring and glow, slightly larger.
   tabFabIcActive: {
     backgroundColor: C.brand,
     borderColor: C.brandPale,

@@ -27,10 +27,6 @@ function NavCover() {
   if (phase === "off") return null;
   return <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.bg, opacity: fade }]} />;
 }
-// ---------------------------------------------------------------------------
-// Bottom tab bar
-// ---------------------------------------------------------------------------
-
 type TabDef = { route: string; label: string; icon: string; fab?: boolean };
 // Each tab's permission comes from ROUTE_PERMISSIONS (routeAllowed below).
 const TABS: TabDef[] = [
@@ -39,7 +35,6 @@ const TABS: TabDef[] = [
   { route: "loans", label: "Loans", icon: "note", fab: true },
   { route: "schemes", label: "Schemes", icon: "layers" },
 ];
-// How far the tab bar's fade reaches above the bar itself.
 const TAB_FADE_ABOVE = 36;
 /** .tabbar + .tabfade — Dashboard / Customers / Loans (centre FAB) / Schemes / More. */
 export function PTabBar({ state, navigation }: BottomTabBarProps) {
@@ -52,14 +47,9 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
   const { openMore } = useShell();
   const { can } = useAuth();
   const navRoute = state.routes[state.index]?.name;
-  // The tapped tab lights up on touch-down, before the (heavier) new page
-  // renders: the highlight commits first and navigation follows on the next
-  // frame, so bar and page change together instead of the bar lagging.
+  // Highlight commits on touch-down, before navigation, so bar and page change together.
   const [pressed, setPressed] = useState<string | null>(null);
-  // Navigation has caught up with the tap: drop the early highlight. Done
-  // during render (React's "adjust state when a value changes" pattern), not
-  // in an effect — an effect would paint once with the stale value and then
-  // re-render, which is exactly the cascade the lint rule flags.
+  // Dropped during render, not an effect, to avoid a stale-paint-then-rerender cascade.
   if (pressed && pressed === navRoute) setPressed(null);
   const activeRoute = pressed && pressed !== navRoute ? pressed : navRoute;
   const tabs = TABS.filter((t) => routeAllowed(t.route, can));
@@ -76,36 +66,27 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
   function navigateTo(route: (typeof state.routes)[number]) {
     const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
     if (event.defaultPrevented) return setPressed(null);
-    // Always land on the tab's root list (a deep push, or a page opened
-    // from another tab, can leave the nested stack parked on a detail).
+    // Always land on the tab's root list, not a detail left over from a deep push.
     const nested = route.state;
     if (nested?.type === "stack" && nested.routes?.[0]?.name !== "index") {
-      // Opened via openPage(): the stack holds only a detail page, and its
-      // key in this state may be stale (see focusTab). Swap it for the list
-      // and focus the tab in one step, through the tabs navigator itself.
+      // Opened via openPage(): key may be stale (see focusTab), so swap to the list and focus in one step.
       focusTab(navigation, state, state.routes.indexOf(route), { stack: { name: "index" } });
       if (route.name === navRoute) setPressed(null);
       return;
     }
     if (nested?.type === "stack" && nested.key && (nested.index ?? 0) > 0) {
-      // A stack with the list at its root got here by pushes made inside
-      // it, so its navigator has reported its real key — safe to target.
       navigation.dispatch({ type: "POP_TO_TOP", target: nested.key });
     }
     if (route.name !== navRoute) navigation.navigate(route.name);
     else setPressed(null);
   }
 
-  // Hidden while typing: on devices where the window resizes for the
-  // keyboard, the bottom-anchored bar would otherwise ride up above it.
+  // Hidden while typing so the bar doesn't ride up above a resizing keyboard.
   if (keyboardUp) return <NavCover />;
 
   return (
     <>
       <NavCover />
-      {/* Gradual fade covering the bar's full height plus a strip above it,
-          so content eases out before it reaches the bar instead of meeting
-          a hard edge. */}
       <Fade from="bottom" height={PTAB_INSET + PTAB_HEIGHT + TAB_FADE_ABOVE + tabBarLift(insets.bottom)} solidAt={0.6} style={s.tabFade} />
       <View style={[s.tabbar, { bottom: PTAB_INSET + tabBarLift(insets.bottom) }]}>
         {tabs.map((t) => {

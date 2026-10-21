@@ -10,25 +10,11 @@ type PurityPickerProps = {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
-  // Forwarded to SearchableSelect's compactMinWidth — Dashboard's Gold Loan
-  // Calculator and NewLoan's ornament rows pass 70; every other caller (the
-  // purity re-test flow's RateModal) keeps the default 60.
+  // Forwarded to SearchableSelect's compactMinWidth.
   dropdownMinWidth?: number;
 };
 
-/* Shared purity-entry control: a Karat/Fineness% toggle plus a
- * SearchableSelect suggest-or-create field against the purity_standards
- * reference table (see backend/internal/puritystandard). Used everywhere
- * purity is entered — NewLoan.tsx's ornament rows, the purity re-test
- * flow, and Dashboard.tsx's gold-value calculator — so all three stay
- * consistent instead of each having its own ad-hoc purity input.
- *
- * `value` is the canonical unit-suffixed string ("22K" / "91.6%", or "").
- * The toggle's initial unit is inferred from `value` if it already parses;
- * otherwise defaults to karat mode. Switching the toggle does NOT
- * recompute `value` into the other unit — it just changes which list
- * staff are searching/creating against, per the user's explicit choice
- * that whichever unit they pick is the one used in the formula. */
+// Switching the unit toggle does NOT recompute `value` — it just changes which list is searched/created against.
 export function PurityPicker({
   value,
   onChange,
@@ -62,10 +48,7 @@ export function PurityPicker({
     return createPurityStandardByFineness(num);
   }
 
-  // Client-side range validation ahead of the create call — gives
-  // immediate feedback instead of round-tripping to the backend for an
-  // out-of-range value it will reject with a 400 anyway (see
-  // puritystandard.ValidateKarat/ValidateFineness).
+  // Mirrors backend puritystandard.ValidateKarat/ValidateFineness to avoid a round trip for a 400.
   const typed = Number(label || "0");
   const rangeError =
     label && unit === "karat" && !isKaratInRange(typed)
@@ -76,27 +59,13 @@ export function PurityPicker({
 
   return (
     <div className="pur-wrap">
-      {/* Both this Karat/Fineness% slide toggle and the search field beside
-       * it are pinned to a Net Wt (g) input's rendered height (padding:6px
-       * 8px, font-size:14px, 1px border — see NewLoan.tsx's ornament row)
-       * so the table row doesn't grow taller than it needs to for this cell.
-       * `.pur-row`/`.pur-toggle` (app.css) carry that shared row layout as
-       * real classes rather than inline styles specifically so the two
-       * responsive overrides there can stack them onto two lines (toggle
-       * above, search field below): a plain max-width:480px window-width
-       * rule for a genuinely narrow browser window, and a container query
-       * scoped to Dashboard.tsx's `.calc-card` for a caller whose own
-       * rendered width is narrow independent of the window (that card sits
-       * in the dashboard's sidebar column) — see app.css for both. Side by
-       * side (the default here) left "Fineness" clipped to "Finenes" and
-       * the search box squeezed to a sliver whenever either condition hit. */}
+      {/* `.pur-row`/`.pur-toggle` (app.css) let narrow layouts stack to two lines; side-by-side clipped "Fineness". */}
       <div className="pur-row">
         <div
           role="tablist"
           aria-label="Purity unit"
           className="pur-toggle"
         >
-          {/* Sliding thumb — animates between the two halves on unit change. */}
           <div
             aria-hidden
             style={{
@@ -156,9 +125,6 @@ export function PurityPicker({
             Fineness
           </button>
         </div>
-        {/* minWidth:34 is the floor this box should never shrink below
-         * (matches the Net Wt/Qty inputs beside it in NewLoan.tsx, which
-         * share the same 34×31 minimum). */}
         <div className="purity-select pur-search">
           <SearchableSelect<BackendPurityStandard>
             value={label}

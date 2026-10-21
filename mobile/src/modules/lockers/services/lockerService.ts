@@ -1,14 +1,10 @@
 import { apiRequestEnveloped as apiRequest } from "@/common/services/httpClient";
 import { Locker, type LockerInput } from "@/modules/lockers/types/locker-types";
 
-// Branch-scoped only, no query params today.
 export function listLockers() {
   return apiRequest<Locker[]>("/lockers");
 }
 
-// Page-scoped variant: passing `limit` flips the backend (locker/
-// handler.go's List) into the {items, hasMore} envelope — used by the
-// paginated mobile Lockers list (10/page, one API call per page).
 export function listLockersPage(params: {
   branchId?: number | string;
   q?: string;
@@ -34,9 +30,7 @@ export function updateLocker(id: number, input: LockerInput) {
   return apiRequest<Locker>(`/lockers/${id}`, { method: "PUT", body: input });
 }
 
-// Backend rejects with ErrInUse (surfaced via ApiError) if the locker is
-// currently occupied — the UI just needs to show that message, not
-// pre-check occupancy itself.
+// Backend rejects (ErrInUse) if the locker is currently occupied; no need to pre-check here.
 export function deleteLocker(id: number) {
   return apiRequest<void>(`/lockers/${id}`, { method: "DELETE" });
 }

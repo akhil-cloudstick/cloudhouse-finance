@@ -14,10 +14,6 @@ type FabCornerProps = {
   caption?: string;
 };
 
-// ---------------------------------------------------------------------------
-// Floating page elements
-// ---------------------------------------------------------------------------
-
 /** .fab-corner — bottom-right, above the tab bar. */
 export function FabCorner({
   onPress,
@@ -29,8 +25,6 @@ export function FabCorner({
   const insets = useSafeAreaInsets();
   if (caption)
     return (
-      // The caption sits where an uncaptioned FAB's bottom edge would be, so
-      // the whole button + label stays clear of the tab bar below it.
       <View style={[s.fabWrap, { bottom: 96 + tabBarLift(insets.bottom) }, side === "left" ? { left: 16 } : { right: 16 }]} pointerEvents="box-none">
         <Pressable style={[s.fab, s.fabInline]} onPress={onPress} accessibilityLabel={label ?? caption}>
           <PIcon name={icon} color="#fff" />

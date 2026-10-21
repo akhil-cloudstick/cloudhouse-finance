@@ -28,7 +28,6 @@ const cs = StyleSheet.create({
   chipTxtActive: { color: "#fff" },
 });
 
-// ---- .chip-toggle ---------------------------------------------------------
 export function ChipToggle<T extends string>({
   options,
   value,

@@ -7,28 +7,18 @@ import { GoldButton } from "@/common/components/ui/GoldButton";
 import { colors } from "@/common/theme/colors";
 
 type QrScannerProps = {
-  /** In embedded mode: whether scanning is live — flipping it back to true
-   * re-arms the single-fire lock for the next scan. */
+  // In embedded mode: toggling visible back to true re-arms the single-fire lock for the next scan.
   visible: boolean;
   onClose: () => void;
-  /** Called once per open with the decoded QR string (raw, unparsed) — the
-   * caller owns interpreting it (see parseLabel below) and closing the
-   * scanner once it's done with the result. */
+  // Called once per open with the raw decoded QR string; caller owns interpreting it (see parseLabel below).
   onScanned: (data: string) => void;
   title?: string;
-  /** Render just the camera + frame, without its own full-screen Modal,
-   * title or close button — for a screen that IS the scanner (the connect
-   * screen, app/(auth)/connect.tsx) and draws its own controls on top. */
+  // Render just camera + frame, no Modal/title/close — for a screen that IS the scanner and draws its own controls.
   embedded?: boolean;
   permissionText?: string;
 };
 
-// Full-screen QR scanner sheet — used by Packets/Lockers' "Scan Label"
-// buttons to read the QR printed on a packet label (see
-// src/modules/loans/utils/loanPrint.ts's printPacketLabel, which encodes
-// `${API_ORIGIN}/app#packet/<code>` or `#loan/<loanNumber>`). Deliberately a
-// plain React Native `Modal` rather than BottomSheetModal — this needs the
-// full screen for the camera preview, not a sheet rising partway up.
+// Plain React Native Modal rather than BottomSheetModal — needs the full screen for the camera preview.
 export function QrScanner({
   visible,
   onClose,
@@ -39,10 +29,7 @@ export function QrScanner({
 }: QrScannerProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
-  // A CameraView keeps firing onBarcodeScanned for every frame that still
-  // contains the code — without this lock, a single scan re-fires dozens of
-  // times before the caller has a chance to close the sheet or navigate
-  // away, potentially re-triggering navigation/lookups repeatedly.
+  // Without this lock, CameraView refires onBarcodeScanned dozens of times before the caller can navigate away.
   const [locked, setLocked] = useState(false);
 
   useEffect(() => {
@@ -101,9 +88,7 @@ const styles = StyleSheet.create({
   permissionWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   closeBtn: { position: "absolute", right: 16, zIndex: 2, padding: 4 },
   titleWrap: { position: "absolute", left: 0, right: 0, alignItems: "center", zIndex: 2 },
-  // Plain viewfinder frame — no corner-bracket art, just a bordered box
-  // suggesting where to hold the label. Sized to roughly match a scannable
-  // QR at arm's length rather than the whole preview.
+  // Sized to roughly match a scannable QR at arm's length rather than the whole preview.
   frame: {
     position: "absolute",
     top: "28%",
@@ -116,14 +101,7 @@ const styles = StyleSheet.create({
   },
 });
 
-// Recovers what a scanned label points at. Both printers (loanPrint.ts's
-// printPacketLabel and the web LoanDetail) encode `<origin>/<app path>#packet/<code>`
-// when the loan already has a packet, but fall back to `#loan/<loanNumber>`
-// when it doesn't — so a label printed before the packet was created only
-// carries the loan. Some scanners hand the fragment back percent-encoded
-// (`%23packet/...`), so the string is decoded before matching. Returns null
-// for anything else (a QR code from another system, etc.) so callers can
-// show "not a packet label" rather than silently mis-navigating.
+// Labels encode #packet/<code>, falling back to #loan/<loanNumber> if printed before the packet existed.
 export type ScannedLabel = { kind: "packet"; code: string } | { kind: "loan"; loanNumber: string };
 
 export function parseLabel(scanned: string): ScannedLabel | null {

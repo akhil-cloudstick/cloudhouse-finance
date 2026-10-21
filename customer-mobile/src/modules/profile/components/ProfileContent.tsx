@@ -14,18 +14,6 @@ import * as profileApi from "@/common/services/profileService";
 import { Customer, KYCStatusValue } from "@/common/types/customer-types";
 import { ApiError, resolveAssetUrl } from "@/common/services/httpClient";
 
-// Batch 4/5: the identity/nominee/KYC-verification body for the Profile tab
-// (app/(tabs)/more.tsx — FloatingHeader's avatar button navigates straight
-// into this tab rather than pushing a separate top-level route, so the tab
-// bar stays mounted and there's exactly one Profile screen instance). This
-// component owns everything below the header, plus an optional `footer`
-// node rendered after the KYC card (the tab's Log out button).
-//
-// Fully view-only otherwise — no editing of any field in this batch;
-// customer-triggered PAN/Aadhaar verification reuses the same Setu/
-// DigiLocker logic staff use today (see
-// backend/internal/customer/customer_mobile_handler.go).
-
 function toneForKYC(status: KYCStatusValue | string): StatusTone {
   switch (status) {
     case "Verified":
@@ -33,7 +21,7 @@ function toneForKYC(status: KYCStatusValue | string): StatusTone {
     case "Pending":
       return "amber";
     default:
-      return "red"; // "Failed" | "Name Mismatch"
+      return "red";
   }
 }
 
@@ -51,9 +39,6 @@ function StatusPill({ status }: StatusPillProps) {
   );
 }
 
-// Both PAN and Aadhaar verify calls resolve to the same 3-outcome banner
-// shape — Verified / Name Mismatch / Failed — so a shared type + renderer
-// keeps the two flows visibly identical.
 type Outcome = { text: string; tone: "green" | "red" } | null;
 
 function outcomeForStatus(status: string, kind: "PAN" | "Aadhaar"): Outcome {
@@ -122,9 +107,7 @@ export function ProfileContent({ footer }: ProfileContentProps) {
       pollCancelled.current = false;
       setAadhaarPolling(true);
 
-      // Regardless of how the browser session resolves (success/cancel/
-      // dismiss) we poll status server-side — that's the real verification,
-      // not the browser's own resolution.
+      // Poll status server-side regardless of how the browser session resolves; that's the real verification.
       await WebBrowser.openAuthSessionAsync(start.url, redirectUrl);
 
       for (let attempt = 0; attempt < 10 && !pollCancelled.current; attempt++) {

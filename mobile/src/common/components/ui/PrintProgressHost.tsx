@@ -3,12 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
 
-// Full-screen "Preparing document…" overlay for server-rendered PDFs. The
-// backend renders each document through headless Chrome, which takes a few
-// seconds, and nothing on screen changed in that time — so staff tapped
-// Print again. withPrintProgress wraps the download; PrintProgressHost
-// (mounted once in app/_layout.tsx, after ToastHost) draws the overlay above
-// every screen and sheet. Same module-level store pattern as Toast.tsx.
+// Overlay while a backend PDF renders (headless Chrome, a few seconds) so staff don't tap Print twice.
 // Reference-counted so overlapping jobs keep it up until the last finishes.
 
 let jobs = 0;
@@ -23,9 +18,7 @@ const subscribe = (l: () => void) => {
 };
 const getActive = () => jobs > 0;
 
-// Runs job with the overlay shown. Hidden as soon as the PDF has downloaded,
-// i.e. before the OS print dialog opens — that dialog is its own native UI
-// and an overlay left behind it would stay after it closes.
+// Hidden as soon as the PDF downloads, before the OS print dialog opens, so it isn't left behind it.
 export async function withPrintProgress<T>(job: () => Promise<T>, text = "Preparing document…"): Promise<T> {
   label = text;
   jobs++;

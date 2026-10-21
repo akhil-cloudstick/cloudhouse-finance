@@ -6,8 +6,7 @@ import { Icon } from "@/common/components/Icon";
 import { singleFlight } from "@/common/utils/singleFlight";
 import type { EsignDeliverBy } from "@/modules/loans/components/EsignLanguageModalContent";
 
-/* Collects how the pledge slip eSign link is delivered (GML only — the customer is the only
- * signer, no witnesses). Normal printing is chosen from the Documents menu's side picker. */
+// Customer is the only signer here, no witnesses.
 type PledgeSlipModalContentProps = {
   loanNumber: string;
   customerName: string;

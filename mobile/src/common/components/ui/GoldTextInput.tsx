@@ -6,22 +6,8 @@ import { typeScale, textStyle } from "@/common/theme/typography";
 import { ThemedText } from "./ThemedText";
 import { doneBarFor } from "./KeyboardDoneBar";
 
-// `right` renders an accessory (e.g. the show/hide-password eye toggle)
-// inside the input's right edge without every caller reimplementing the
-// positioning — see login.app/(auth)/reset-password.tsx for the password case.
-// `containerStyle` positions the label + input together — use it (never
-// `style`, which only moves the input box) for insets like the
-// `paddingHorizontal: 16` full-bleed list screens apply, otherwise the
-// label stays flush left while the input shifts and they look misaligned.
-// `blur` swaps the field's solid fill for a translucent one — used on the
-// search bars that sit right under FloatingHeader (see loans/customers/
-// schemes list screens), matching that header's glass look. Real Android
-// blur (`blurMethod="dimezisBlurView"`) needs an explicit `blurTarget` ref
-// onto a `BlurTargetView` wrapping whatever should be sampled, which isn't
-// wired up here — without it expo-blur falls back to no blur but keeps
-// warning about it on every render, so Android just gets the translucent
-// tint with no blur prop at all. iOS's BlurView blurs natively without
-// that wiring.
+// `containerStyle` (not `style`, which only moves the input box) keeps the label aligned with the input.
+// `blur` is iOS-only here: Android needs a `blurTarget` wiring we don't have, so it gets a plain tint.
 export function GoldTextInput({
   label,
   style,
@@ -35,10 +21,7 @@ export function GoldTextInput({
   right?: React.ReactNode;
   containerStyle?: StyleProp<ViewStyle>;
   blur?: boolean;
-  // Bright, alarm-red border override for a value that's flagged as
-  // wrong (e.g. Set Today's Gold Rate's purity-hierarchy check) — a
-  // deliberately more saturated red than colors.red, which stays muted
-  // for everyday validation text.
+  // Deliberately more saturated red than colors.red, for a flagged-wrong value.
   invalid?: boolean;
 }) {
   const InputSurface = blur && Platform.OS === "ios" ? BlurView : View;
@@ -74,9 +57,7 @@ const styles = StyleSheet.create({
   wrap: { marginBottom: 14 },
   label: { marginBottom: 6 },
   inputRow: { position: "relative", justifyContent: "center" },
-  // Wraps the TextInput so `blur` mode can put a BlurView in charge of the
-  // box's fill (border/radius/height) while the TextInput itself stays
-  // transparent — a BlurView can't be the input's own backgroundColor.
+  // BlurView can't be the input's own backgroundColor, so it wraps the TextInput instead.
   inputBox: {
     height: 48,
     borderRadius: 12,

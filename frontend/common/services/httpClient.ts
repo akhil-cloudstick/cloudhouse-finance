@@ -19,26 +19,9 @@ const PROD_URL = process.env.NEXT_PUBLIC_API_BASE || "/api/v1";
 // Razorpay's hosted checkout script — the one third-party host the app loads.
 export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.js";
 
-/* Thin fetch wrapper for the Go backend (Gin, `/api/v1/...`). In production
- * the backend serves the built frontend from the same origin, so requests
- * can go to a relative `/api/v1` path. In dev (`next dev` on its own port)
- * point NEXT_PUBLIC_API_BASE at the backend, e.g. http://localhost:8080/api/v1.
- */
-
 export const API_BASE = isDevelopment ? DEV_URL : PROD_URL;
 
-/* resolveAssetUrl turns a backend-relative path (logo_url, /uploads/...) into
- * one that actually loads. Every such path comes back from the API as
- * same-origin-relative, which is correct on the web (the Go binary serves
- * both the API and this build from one origin) — but the desktop app's
- * webview has its OWN origin (wails.localhost), unrelated to whichever
- * tenant backend API_BASE points to, so a relative path there resolves
- * against the wrong host and 404s/500s.
- *
- * API_BASE already carries the real backend's origin whenever it's a full
- * URL (desktop builds, or NEXT_PUBLIC_API_BASE set for any other reason);
- * when it's the normal relative "/api/v1" (same-origin web/production), this
- * is a no-op and the path is returned unchanged. */
+// Desktop's webview has its own origin, so a relative path there needs API_BASE's real host.
 export function resolveAssetUrl(path: string): string {
   if (!path || /^(https?:|data:|blob:)/i.test(path)) return path;
   try {
@@ -80,15 +63,7 @@ async function contractFetch(path: string, init?: RequestInit): Promise<Response
   return new Response(res.status === 204 ? null : adapted, { status: res.status, statusText: res.statusText, headers });
 }
 
-/* The JWT session lives in common/services/tenantSession.ts, keyed by
- * business slug.
- *
- * It used to be a single "cloudhouse_token" key read directly here. Every
- * business shares one browser origin, so that one key meant two businesses
- * open in two tabs silently clobbered each other's session. Keys are per-slug
- * now, and this wrapper asks tenantSession which business the current tab is
- * operating as rather than knowing any key itself. */
-
+// Session is per-business-slug (common/services/tenantSession.ts), so two tabs on different businesses don't clobber each other.
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -97,28 +72,18 @@ export class ApiError extends Error {
   }
 }
 
-/* getAuthToken is exported for the two endpoints that stream binary bodies
- * (loan statements, report exports) and therefore build their own fetch
- * instead of going through the wrappers below. They previously read the
- * localStorage key directly, which is exactly how a per-business session gets
- * missed — the key is no longer theirs to know. */
+// Exported for the two binary-stream endpoints (statements, exports) that build their own fetch.
 export function getAuthToken(): string | null {
   return readToken();
 }
 
-/* branchHeader() rides along on every authenticated request. It is a view
- * control, not a credential: the backend narrows a cross-branch role's own
- * data to one branch and ignores it entirely for every other role — it can
- * never widen access or cross a business (see platform.GetBranchScope). */
+// branchHeader is a view filter, not a credential — the backend owns and enforces branch scoping (platform.GetBranchScope).
 function authHeader(): Record<string, string> {
   const token = readToken();
   return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() };
 }
 
-/* The headers for a JSON request: defaults, then auth + branch, then the
- * caller's own. Spread *after* opts in the fetch init — spreading opts last
- * (as this used to) let any caller-supplied `headers` replace the whole
- * object and silently drop Authorization / X-Branch-Id. */
+// Caller headers spread last so they can't silently drop Authorization / X-Branch-Id.
 function jsonHeaders(opts?: RequestInit): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -140,24 +105,13 @@ export function fetchWithSession(url: string): Promise<Response> {
   return networkFetch(resolveAssetUrl(url), { headers: authHeader() });
 }
 
-/* Called whenever the backend rejects a request with 401 — clears the
- * stored session and bounces to the login page. Skipped for the /auth/*
- * endpoints themselves: a wrong password on /auth/login is an expected 401
- * that the login form needs to show inline, not a reason to force-navigate
- * away.
- *
- * The bounce keeps the business slug. Sending a signed-out user to a bare
- * /login would drop the one piece of information that lets them get back in
- * without being asked for a business code they may never have been told. */
+// Clears session and bounces to login on 401; skips /auth/* so a bad-password 401 shows inline instead.
 function handleUnauthorized(path: string) {
   if (typeof window === "undefined") return;
   if (path.startsWith("/auth/")) return;
   const slug = activeBusinessSlug();
   clearSession(slug);
-  // A host-resolved tenant's address bar never had the slug in it — don't
-  // write one back in when bouncing to the sign-in page. A path-resolved
-  // slug, or the bare-install fallback with no path/host match at all, keep
-  // carrying it forward exactly as before.
+  // Only keep the slug in the URL if it was already there (host-resolved tenants never had it).
   const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
   const includeInUrl = resolvedSlug === null || fromPath;
   const target = loginPath(slug, includeInUrl);
@@ -166,8 +120,7 @@ function handleUnauthorized(path: string) {
   }
 }
 
-/* A 403 must be visible, not just thrown. The bootstrap permissions call is
- * excluded: it has its own retry state, and reacting to it would loop. */
+// Bootstrap permissions call is excluded — it has its own retry state, reacting here would loop.
 export const FORBIDDEN_EVENT = "app:forbidden";
 
 function handleForbidden(path: string) {
@@ -198,13 +151,7 @@ export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> 
   return (await res.json()) as T;
 }
 
-/* apiFetchEnveloped is apiFetch's counterpart for backend modules that have
- * been migrated to the house response envelope ({success, data} / {success,
- * error}) — see backend/internal/platform/httpx. Only call this for a module
- * whose Go handlers have actually been migrated (branch is the first);
- * every other module still returns the old bare-resource shape and must keep
- * using apiFetch until its own handlers move over. Once every module has
- * migrated, this replaces apiFetch outright and this comment goes away. */
+// For modules migrated to the {success,data}/{success,error} envelope (httpx) — others still use apiFetch.
 export async function apiFetchEnveloped<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await contractFetch(path, { ...opts, headers: jsonHeaders(opts) });
   let body: { success?: boolean; data?: T; message?: unknown; error?: string } | undefined;
@@ -217,18 +164,11 @@ export async function apiFetchEnveloped<T>(path: string, opts?: RequestInit): Pr
     handleAuthFailure(res.status, path);
     throw new ApiError(body?.error || res.statusText, res.status);
   }
-  // Most success responses carry the resource under `data`; a
-  // delete/action-confirmation response instead carries a plain string
-  // under `message` (see httpx.SuccessMessage) — fall back to that so
-  // callers expecting a confirmation string still get one.
+  // A delete/confirmation response carries a string under `message` instead of `data` (httpx.SuccessMessage).
   return (body?.data !== undefined ? body.data : body?.message) as T;
 }
 
-/* apiFetchEnvelope is apiFetchEnveloped's counterpart for the rare endpoint
- * whose envelope carries more than just {success, data} — e.g.
- * GET /employees/:id/permissions also returns a top-level `role` field
- * alongside `data` (see internal/authz.Handler.Matrix). Returns the whole
- * parsed body so the caller can read whichever extra fields it needs. */
+// For the rare envelope with extra top-level fields beyond {success,data} (e.g. permissions' `role`).
 export async function apiFetchEnvelope<T extends { success: boolean; error?: string }>(
   path: string,
   opts?: RequestInit
@@ -247,10 +187,7 @@ export async function apiFetchEnvelope<T extends { success: boolean; error?: str
   return body as T;
 }
 
-/* Like apiFetch, but for multipart file uploads — deliberately does NOT set
- * a Content-Type header, so the browser can set its own with the correct
- * multipart boundary (apiFetch's default "application/json" would break
- * a FormData body). Used by modules/customers/services/customerService.ts's uploadFile(). */
+// No Content-Type set — the browser must set its own multipart boundary for FormData.
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
   const res = await contractFetch(path, {
     method: "POST",
@@ -271,8 +208,7 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
   return (await res.json()) as T;
 }
 
-/* apiUploadEnveloped is apiUpload's counterpart for the now-migrated
- * `upload` module ({success, data: {url}} — see backend/internal/upload). */
+// apiUpload's counterpart for the migrated `upload` module ({success, data: {url}}).
 export async function apiUploadEnveloped<T>(path: string, formData: FormData): Promise<T> {
   const res = await contractFetch(path, {
     method: "POST",

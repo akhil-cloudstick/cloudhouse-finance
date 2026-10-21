@@ -4,9 +4,6 @@ import type { CategoryType, BackendCategory } from "@/modules/cash/types/categor
 
 export const CATEGORIES_PAGE_SIZE = 5;
 
-/* Page-shaped fetch for SearchableSelect's fetchFn contract
- * (GET /categories?type=&q=&limit=&offset=) — the categories shown on that
- * form: its own plus every common one. */
 export function searchCategoriesPage(type: CategoryType) {
   return async (q: string, page: number): Promise<{ items: BackendCategory[]; hasMore: boolean }> => {
     const params = new URLSearchParams({ type, limit: String(CATEGORIES_PAGE_SIZE), offset: String(page * CATEGORIES_PAGE_SIZE) });
@@ -16,9 +13,7 @@ export function searchCategoriesPage(type: CategoryType) {
   };
 }
 
-/* Creates a category of `type`, or — when the name already exists (any
- * type) — returns that row, made common if it belonged to another form (the
- * backend's find-or-create rule). */
+// Find-or-create: a name match from another form returns that row, made common.
 export function createCategory(type: CategoryType) {
   return async (name: string): Promise<BackendCategory> => {
     const rec = await apiFetch<BackendCategory>("/categories", {

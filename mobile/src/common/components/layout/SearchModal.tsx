@@ -11,25 +11,19 @@ import type { Customer } from "@/modules/customers/types/customer-types";
 import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import { s } from "./shellModalsShared";
 
-// ---------------------------------------------------------------------------
-// Global search (prototype #search-modal) — slides down from the top.
-// ---------------------------------------------------------------------------
 const SEARCH_SCOPES = ["All", "Customers", "Loan No.", "Scheme"] as const;
 type SearchScope = (typeof SEARCH_SCOPES)[number];
 type SearchModalProps = { visible: boolean; onClose: () => void };
 
 export function SearchModal({ visible, onClose }: SearchModalProps) {
   const [picked, setScope] = useState<SearchScope>("All");
-  // Only the scopes whose results the user can open: customers → Customers,
-  // loans → All / Loan No., and a scheme hit opens the loan list filtered by it.
+  // Only the scopes whose results the user can open.
   const canOpen = useCanOpen();
   const scopes = SEARCH_SCOPES.filter((sc) =>
     sc === "Customers" ? canOpen("/customers") : sc === "Scheme" ? canOpen("/schemes") && canOpen("/loans") : canOpen("/loans")
   );
   const scope: SearchScope | undefined = scopes.includes(picked) ? picked : scopes[0];
-  // Nothing heavy happens while the panel slides in: the result lists
-  // mount (and start fetching) and the keyboard rises only once it has
-  // finished — doing either mid-slide is what made the opening stutter.
+  // Result lists mount and the keyboard rises only once the slide-in finishes, to avoid a stutter.
   const searchInput = useRef<TextInput>(null);
   const [opened, setOpened] = useState(false);
   useEffect(() => {
@@ -140,8 +134,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
       <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: 4 }}>
         {scopes.length > 1 && scope ? <FilterChipRow options={scopes} value={scope} onChange={setScope} style={{ marginBottom: 0 }} /> : null}
       </View>
-      {/* Fixed-height placeholder while sliding, so the panel doesn't
-          change size (or render the lists) mid-animation. */}
+      {/* Fixed-height placeholder while sliding, so the panel doesn't resize mid-animation. */}
       <View style={{ maxHeight: 460, paddingTop: 6 }}>{opened ? body : <View style={{ height: 300 }} />}</View>
     </TopModal>
   );

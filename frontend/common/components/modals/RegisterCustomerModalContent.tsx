@@ -110,9 +110,7 @@ export function RegisterCustomerModalContent({
     const p = phone.trim();
     setErr(""); setFe({});
     if (n.length < 3) { fail("name", "Please enter the customer’s full name."); return; }
-    // Exactly 10 digits — the input is digit-filtered and capped at 10, and
-    // this matches what the mobile register screen enforces. The old
-    // /^\d[\d ]{8,}$/ let 9-digit and space-separated numbers through.
+    // Exactly 10 digits, matching the mobile register screen (the old regex let 9-digit/space-separated numbers through).
     if (!p) { fail("phone", "Please enter the customer’s mobile number."); return; }
     if (!/^\d{10}$/.test(p)) { fail("phone", "Please enter a valid 10-digit mobile number."); return; }
     if (!branchId) { fail("branch", "Please select a branch."); return; }
@@ -157,8 +155,7 @@ export function RegisterCustomerModalContent({
       onSaved?.();
       closeModal();
       toast(`${n} registered — ${c.code} · KYC auto-verified (stage 1 — no live verification yet)`);
-      // Open the new record only for a role that may view customers (a
-      // create-only role stays put rather than hitting the refusal toast).
+      // A create-only role stays put rather than hitting the refusal toast.
       if (canOpen("customer")) navigate("customer/" + c.id);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to register customer.";
@@ -174,14 +171,10 @@ export function RegisterCustomerModalContent({
       <div className="hd"><h3>Register Customer</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll register-customer-bd">
         <label className="f">Personal Details</label>
-        {/* Always a 3-column grid so every input keeps the same width; when the
-            branch picker is hidden (single branch) Date of Birth takes its
-            slot, otherwise DOB drops to the next row. */}
+        {/* Always a 3-column grid; when the branch picker is hidden DOB takes its slot, otherwise DOB drops to the next row. */}
         <div className="frow c3">
           <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => { setName(e.target.value); clearFe("name"); }} /><FieldError msg={fe.name} /></div>
-          {/* Digit-filtered on input like Aadhaar below (and like the mobile
-              app's register screen), so letters/spaces/punctuation can't be
-              typed at all rather than being caught only on save. */}
+          {/* Digit-filtered on input so letters/spaces/punctuation can't be typed at all, not just caught on save. */}
           <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "")); clearFe("phone"); }} /><FieldError msg={fe.phone} /></div>
           {showBranch && (
             <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
@@ -216,10 +209,7 @@ export function RegisterCustomerModalContent({
           <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)} /></div>
           <div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
-        {/* Collapsed by default — the personal-loan-only fields this used to
-            be CreateCustomerModal.tsx's own dedicated form for, kept
-            optional here since general (gold-loan) registration never
-            required them. */}
+        {/* Collapsed by default — these fields are optional for general (gold-loan) registration. */}
         <button
           type="button"
           className="btn plain sm"

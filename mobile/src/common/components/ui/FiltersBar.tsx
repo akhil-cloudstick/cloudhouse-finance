@@ -12,7 +12,6 @@ type FiltersBarProps = {
   showCount?: boolean;
 };
 
-// ---- .fd-b-pill (Filters (n) trigger) + summary text ----------------------
 export function FiltersBar({
   count,
   summary,

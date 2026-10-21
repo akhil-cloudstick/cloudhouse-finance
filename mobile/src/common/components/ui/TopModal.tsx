@@ -21,13 +21,9 @@ export function TopModal({
   children,
 }: TopModalProps) {
   const insets = useSafeAreaInsets();
-  // A fixed slide distance close to the panel's height: re-measuring it
-  // mid-slide changed the interpolation under a running animation (a
-  // visible hitch), and a fixed 700px spent half the slide off-screen.
+  // Fixed slide distance: re-measuring mid-slide caused a visible hitch, and a flat 700px left half the slide off-screen.
   const travel = insets.top + 420;
-  // Opened from a control that recorded its position (the search icon):
-  // the panel grows out of that point and unfolds downward instead of
-  // sliding in from above. Read once per opening.
+  // When opened from a control that recorded its position, the panel grows out of that point instead of sliding from above.
   const [origin, setOrigin] = useState<OverlayOrigin | null>(null);
   const [wasVisible, setWasVisible] = useState(false);
   if (visible !== wasVisible) {

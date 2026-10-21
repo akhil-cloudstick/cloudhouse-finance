@@ -51,42 +51,28 @@ const MODE_DESCRIPTION: Record<LedgerMode, string> = {
 
 type ModeLedgerPageProps = { mode: LedgerMode };
 
-/* One payment mode's own ledger — a sub-ledger of the branch/global cash
- * movement views, scoped to only transactions recorded in that mode (see
- * backend/internal/cash/ledger.go's ListModeLedger). Reachable via
- * #cash-ledger / #upi-ledger / #bank-transfer-ledger / #cheque-ledger — one
- * shared component parametrized by mode instead of four near-identical
- * copies. Branch scoping is enforced server-side (platform.GetBranchScope) —
- * a Branch Manager's own branch is locked in regardless of what's picked
- * here. Cash has no bank of record, so its own ledger never shows the Bank
- * filter; every other mode does. */
+// Cash has no bank of record, so its own ledger never shows the Bank filter; every other mode does.
 export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
   const categoryIds = useExpenseCategoryIds();
   const [items, setItems] = useState<LedgerRowView[]>([]);
   const [total, setTotal] = useState(0);
-  // Back from a drill-down, this ledger reopens on the page the user left.
   const [page, setPage] = useState(() => rememberedLedgerPage("mode") ?? 1);
   useEffect(() => { saveLedgerPosition({ mode: page }); }, [page]);
-  // Card mode (<=1279px): Prev/Next gives way to scroll-to-load — the page stays 1 and the size grows.
   const { cards, size: pageSize, more } = useScrollPageSize(PARTY_PAGE_SIZE, STACK_MODE_MAX_WIDTH);
   useEffect(() => { if (cards) setPage(1); }, [cards]);
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // No branch filter in a single-branch business (every row is its one
-  // branch) or while the global branch selector already scopes the page.
   const showBranchFilter = useShowBranchFilter();
   const [filters, setFilters] = usePersistedState<FilterValue>("mode:filters", {});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  // Server-side sums over every row matching the filters, not just this page.
   const [totals, setTotals] = useState({ debit: 0, credit: 0 });
   const [exporting, setExporting] = useState(false);
 
   const fromDate = filters.__dateFrom || "";
   const toDate = filters.__dateTo || "";
-  // Ignored while the Branch filter is hidden — a stale saved selection
-  // would otherwise intersect the global branch to an empty page.
+  // Ignored while the Branch filter is hidden, so a stale saved selection can't empty the page.
   const branchIds = showBranchFilter && Array.isArray(filters.branch) ? filters.branch : [];
   const typeValues = Array.isArray(filters.type) ? filters.type : [];
   const bankValues = Array.isArray(filters.bank) ? filters.bank : [];
@@ -96,9 +82,6 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
     listActiveBranches().then(setBranches).catch(() => {});
   }, []);
 
-  // Any filter change resets back to page 1; switching to another mode's
-  // ledger (same component, new `mode`) starts on its remembered page.
-  // Compared against the previous key so neither fires on mount.
   const filterKey = `${fromDate}|${toDate}|${JSON.stringify(branchIds)}|${bankId ?? ""}|${typeValues.join(",")}`;
   const prevFilterKey = useRef(filterKey);
   useEffect(() => {
@@ -107,7 +90,6 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
     setPage(1);
   }, [filterKey]);
   const prevMode = useRef(mode);
-  // Opened from another ledger on a transaction: the first load asks the server for the page holding it.
   const focusPending = useRef(true);
   useEffect(() => {
     if (prevMode.current === mode) return;
@@ -116,7 +98,6 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
     setPage(rememberedLedgerPage("mode") ?? 1);
   }, [mode]);
 
-  // Only the latest request may land — see PartyLedger's refresh.
   const requestIdRef = useRef(0);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -240,17 +221,8 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
               ) : items.length === 0 ? (
                 <tr><td colSpan={mode !== "Cash" ? 7 : 6} className="empty compact">No transactions found.</td></tr>
               ) : (() => {
-                // The balance comes from the server — a true running balance over the
-                // whole filtered ledger, so the newest row equals the Net above.
                 return items.map((r) => {
-                  // A gold-loan reference ("LN-00047") gets a clickable link
-                  // to that loan — #loan/:loanNumber resolves it directly.
-                  // A personal-loan ("PL-00012") or investment ("INV-00003")
-                  // reference links the same way — both detail pages resolve
-                  // their number to the id. A plain cash_movement row (e.g. a loan top-up) carries no
-                  // Reference at all — its loan number instead sits inside
-                  // Description ("Loan top-up — LN-00048"), same shape
-                  // Cash.tsx's own LOAN_NUMBER_RE parses.
+                  // A loan/personal-loan/investment reference may sit in `reference` or trail the description.
                   const loanRef =
                     (r.reference && r.reference.match(/^LN-\d+/i)?.[0]) ||
                     r.description.match(/—\s*(LN-\S+)\s*$/i)?.[1] ||

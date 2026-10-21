@@ -1,5 +1,4 @@
-// `expo-router`'s root export of `Tabs` is deprecated in SDK 57 — the
-// supported path is `expo-router/js-tabs`.
+// expo-router's root `Tabs` export is deprecated in SDK 57 — use expo-router/js-tabs instead.
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { syncPersistedSection } from "@/common/hooks/use-persisted-state";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -25,19 +24,10 @@ import { routeEnabled } from "@/common/config/tenantModules";
 import { routeAllowed, setRouteChecker } from "@/common/config/routePermissions";
 import { useAuth } from "@/common/providers/AuthProvider";
 
-// Staff shell (ui-demos/staff-app-prototype.html): a persistent floating tab
-// bar — Dashboard / Customers / Loans (centre FAB) / Schemes / More — and
-// screen-owned headers (every screen renders its own FlatHeader/HeroHeader
-// via <Screen>, so navigators here never draw one: headerShown is false
-// everywhere). Every other module is reached from the More sheet.
-//
-// ShellContext carries the global openers — New Loan, More, search, gold
-// rate, reminders, profile — so every header and quick action drives the one
-// instance of each sheet mounted here.
+// ShellContext carries the global openers (New Loan, More, search, gold rate, reminders, profile) used everywhere.
 const SCREEN_W = Dimensions.get("window").width;
 
-// One guard for every optional module (src/common/config/tenantModules.ts): catches
-// a deep link, a stale nav state, or a module switched off while open.
+// Catches a deep link, a stale nav state, or a module switched off while open.
 function useTenantModuleGuard() {
   const segments = useSegments();
   const router = useRouter();
@@ -61,8 +51,7 @@ function useRoutePermissionGuard() {
 
 type RouteGateProps = { route: string; children: React.ReactElement };
 
-// The permission twin of the guard above, decided during render so a page
-// this role can't view (deep link, router.push()) never mounts.
+// Decided during render so a page this role can't view never mounts.
 function RouteGate({ route, children }: RouteGateProps) {
   const { can, permissionsLoaded } = useAuth();
   if (!permissionsLoaded) {
@@ -111,8 +100,7 @@ type SheetName = "newLoan" | "more" | "search" | "gold" | "reminders" | "profile
 
 type CollectLauncherProps = { loanId: number | null; onClose: () => void };
 
-// Collect Payment opened from a list or the dashboard: fetch just this loan
-// and show its sheet over the current page — no loan-detail navigation.
+// Fetches just this loan and shows its sheet over the current page — no loan-detail navigation.
 function CollectLauncher({ loanId, onClose }: CollectLauncherProps) {
   const loan = useQuery({ queryKey: ["loan", String(loanId)], queryFn: () => getLoan(loanId!), enabled: loanId != null });
   useEffect(() => {
@@ -139,8 +127,7 @@ function usePagePrefetch() {
 }
 
 export default function TabsLayout() {
-  // Before any screen below reads its remembered filters: entering a different
-  // section clears them (see usePersistedState.ts).
+  // Entering a different section clears its remembered filters (see usePersistedState.ts).
   syncPersistedSection(((useSegments() as string[])[1]) ?? "");
   useTenantModuleGuard();
   useRoutePermissionGuard();
@@ -177,21 +164,15 @@ export default function TabsLayout() {
       <View style={{ flex: 1 }}>
       <Tabs
         tabBar={(props) => <PTabBar {...props} />}
-        // Back walks the pages visited (so a page opened from a quick link
-        // returns to where it was opened), rather than jumping to Dashboard.
+        // Back walks the pages visited rather than jumping to Dashboard.
         backBehavior="history"
         screenLayout={({ route, children }) => <RouteGate route={route.name}>{children}</RouteGate>}
         screenOptions={{
           headerShown: false,
           sceneStyle: { backgroundColor: "transparent" },
-          // A tab keeps its stack when left, so Back can return to the exact
-          // page; tapping the tab in the bar resets it to the module root.
-          // openPage() (Shell.tsx) switches tabs and resets a tab's stack in
-          // one dispatch, so a hidden tab is never rendered mid-flight with
-          // stale content to freeze in place — every tab can freeze on blur.
+          // A tab keeps its stack when left so Back can return to the exact page; openPage() resets it on tab tap.
           freezeOnBlur: true,
-          // Slide only — no opacity (Android redraws elevation shadows under
-          // an animating opacity, which made edges flash).
+          // Slide only — an animating opacity made Android elevation shadows flash at the edges.
           sceneStyleInterpolator: ({ current }) => ({
             sceneStyle: {
               transform: [
@@ -202,13 +183,13 @@ export default function TabsLayout() {
           transitionSpec: { animation: "timing", config: { duration: 220, easing: Easing.out(Easing.cubic) } },
         }}
       >
-        {/* --- tab bar destinations --- */}
+        {/* tab bar destinations */}
         <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
         <Tabs.Screen name="customers" options={{ title: "Customers", lazy: false }} />
         <Tabs.Screen name="loans" options={{ title: "Loans", lazy: false }} />
         <Tabs.Screen name="schemes" options={{ title: "Schemes" }} />
 
-        {/* --- reachable from the More sheet --- */}
+        {/* reachable from the More sheet */}
         <Tabs.Screen name="auctions" options={{ title: "Auctions", href: null }} />
         <Tabs.Screen name="packets" options={{ title: "Packets & Lockers", href: null }} />
         <Tabs.Screen name="banks" options={{ title: "Bank Pledges", href: null }} />
@@ -226,7 +207,6 @@ export default function TabsLayout() {
         <Tabs.Screen name="settings" options={{ title: "Settings", href: null }} />
         <Tabs.Screen name="billing" options={{ title: "Billing & Plan", href: null }} />
       </Tabs>
-      {/* One header above every page — see Screen in Shell.tsx. */}
       <HeaderHost />
       <PermissionsFailedBanner />
       </View>

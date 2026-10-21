@@ -10,13 +10,6 @@ import { ApiError } from "@/common/services/httpClient";
 import { TENANT_MODULES } from "@/common/config/tenantModules";
 import { useTheme } from "@/common/theme/ThemeProvider";
 
-// ---------------------------------------------------------------------------
-// Scheme create / edit (prototype #scheme-create-modal). Same fields, wire
-// values and validation as the old schemes/new.tsx + schemes/[id].tsx edit
-// sheet (web SchemeModal.tsx): interest method is stored as the full text,
-// service charge None/Flat/Percent (how it is collected is chosen per loan).
-// ---------------------------------------------------------------------------
-
 const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", "Multiple interest"] as const;
 type Method = (typeof METHODS)[number];
 const METHOD_LABELS: Record<Method, string> = {
@@ -27,9 +20,7 @@ const METHOD_LABELS: Record<Method, string> = {
   "Multiple interest": "Multiple interest",
 };
 
-// Multiple-interest ladder: each step's rate applies while interest has been
-// unpaid for up to `days` days; the last step is "Thereafter". Same rules and
-// summary wording as web SchemeModalContent.tsx.
+// Each step's rate applies while interest has been unpaid for up to `days` days; the last step is "Thereafter".
 type TierDraft = { days: string; rate: string };
 const EMPTY_TIERS: TierDraft[] = [{ days: "", rate: "" }, { days: "", rate: "" }];
 function tiersError(tiers: TierDraft[]): string {
@@ -65,14 +56,11 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const qc = useQueryClient();
   const { employee } = useAuth();
   const editing = !!scheme;
-  // "Multiple interest" is switched on per business from the superadmin console;
-  // a scheme already on it keeps the option so it can still be edited.
+  // A scheme already on "Multiple interest" keeps the option even if the tenant module is off.
   const { hasModule } = useTheme();
   const methods = hasModule(TENANT_MODULES.multipleInterest) || scheme?.interestMethod === "Multiple interest"
     ? [...METHODS]
     : METHODS.filter((m) => m !== "Multiple interest");
-  // Branch picker — only for a role that can see every branch (hidden otherwise, like web); the scheme then
-  // belongs to the user's own branch.
   const [branch, setBranch] = useOwnBranch(null);
 
   const [name, setName] = useState("");
@@ -85,7 +73,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const [minDays, setMinDays] = useState("0");
   const [penalRate, setPenalRate] = useState("");
   const [conditions, setConditions] = useState("");
-  // New schemes default to Active (web SchemeModal parity; backend defaults false).
+  // New schemes default to Active; backend itself defaults false.
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("Active");
   const [chargeType, setChargeType] = useState<ServiceChargeType>("None");
   const [chargeValue, setChargeValue] = useState("");
@@ -116,7 +104,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
       const input: SchemeInput = {
         name,
         branchId: branch?.id ?? (scheme ? scheme.branchId : employee!.branchId),
-        // Multiple interest: the scheme's headline rate is the first step's rate.
+        // Multiple interest's headline rate is the first step's rate.
         interestRate: isMultiple ? Number(tiers[0].rate) : Number(interestRate),
         rateTiers: isMultiple ? tiers.map((t, i) => ({ days: i === tiers.length - 1 ? 0 : parseInt(t.days, 10), rate: Number(t.rate) })) : [],
         minimumDays: parseInt(minDays, 10) || 0,
@@ -125,8 +113,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         interestMethod: method,
         penalRate: penalRate ? Number(penalRate) : undefined,
         conditions: conditions.trim() || undefined,
-        // Edit keeps the stored flag in the PUT and flips it through the
-        // dedicated toggle endpoint below (same as the old detail screen).
+        // Edit keeps the stored flag in the PUT; the toggle endpoint below flips it.
         isActive: scheme ? scheme.isActive : status === "Active",
         serviceChargeType: chargeType,
         serviceChargeValue: chargeType === "None" ? 0 : Number(chargeValue),

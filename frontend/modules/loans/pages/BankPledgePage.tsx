@@ -21,36 +21,20 @@ import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
 type BankPledgePageProps = { focusLoanNumber?: string };
 
-/* Ported from legacy/app.js's `renderBankPledge()`. The mock version also
- * showed a directory of banks (db.banks, a hardcoded list with per-bank
- * exposure totals) — that resource doesn't exist on the backend
- * (BankPledgeRecord.BankName is a free-text field, not a Bank entity), so
- * the bank-directory panel is dropped here.
- *
- * The page now has two tabs. "Active" is the original view of currently-pledged
- * loans. "History" exists because that view alone made a released re-pledge
- * vanish from the UI completely — there was no way to see what had been pledged
- * where, for how much, or who released it. */
 export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   const { error, refresh } = useLoans();
   const { openModal, closeModal } = useModal();
   const { can } = useAuth();
   const canOpen = useCanOpenRoute();
   const toast = useToast();
-  // Recording a re-pledge (and adding the bank it goes to) is a create;
-  // releasing or voiding one is an update. Whatever the role can't do is
-  // hidden outright (see Customers.tsx).
+  // Whatever the role can't do (create vs update pledges) is hidden outright.
   const canCreatePledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canViewBanks = can("Bank_Management", "can_view_bank_module");
-  // Below 1100px the tables are cards: no Prev/Next, the list grows as you
-  // scroll (`more` raises pageSize, page stays 1). Above it, pageSize is fixed.
+  // Below 1100px the tables are cards: no Prev/Next, the list grows as you scroll. Above it, pageSize is fixed.
   const { cards, size: pageSize, more } = useScrollPageSize(15);
   const [tab, setTab] = useState<"active" | "history">("active");
-  // One search box for both tabs, matching loan number, bank name, or
-  // customer name — seeded from the route arg when arriving via a
-  // "#bankpledge/LN-00013"-style link (see ReleaseReviewModal.tsx's
-  // gold-still-pledged warning), same pattern as Auctions.tsx's own search.
+  // Seeded from the route arg when arriving via a "#bankpledge/LN-00013"-style link.
   const [q, setQ] = useState(focusLoanNumber || "");
   const trimmedQ = q.trim();
   const [releasingId, setReleasingId] = useState<number | null>(null);
@@ -62,10 +46,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   const [historyTotal, setHistoryTotal] = useState(0);
   const historyTotalPages = Math.max(1, Math.ceil(historyTotal / pageSize));
 
-  // Active tab — paginated straight off the backend (bankPledgeStatus is a
-  // real column, see LoanFilter.BankPledgeStatus) rather than filtering
-  // LoansProvider's full `loans` array, which won't stay complete as loan
-  // volume grows.
+  // Active tab — paginated straight off the backend rather than filtering LoansProvider's full array.
   const [pledged, setPledged] = useState<LoanView[]>([]);
   const [pledgedLoading, setPledgedLoading] = useState(true);
   const [pledgedError, setPledgedError] = useState("");
@@ -105,12 +86,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
     }
   }, [pageSize]);
 
-  // Both tabs' data is kept in sync with the search box regardless of which
-  // one is open — a loan that's already been released/voided drops out of
-  // the Active tab's own bankPledgeStatus filter, so it can only ever be
-  // found via History; querying both unconditionally (debounced, and on
-  // mount since trimmedQ starts truthy when arriving via focusLoanNumber)
-  // means switching tabs never shows stale results for whatever's typed.
+  // Both tabs query unconditionally so switching tabs never shows stale results for whatever's typed.
   useEffect(() => {
     const handle = setTimeout(() => {
       setPledgedPage(1);
@@ -119,8 +95,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
       void loadHistory(1, trimmedQ);
     }, 300);
     return () => clearTimeout(handle);
-    // pageSize/cards: card mode grows pageSize on scroll, which must refetch
-    // page 1 with the larger size (rows stay on screen meanwhile).
+    // pageSize/cards: card mode grows pageSize on scroll, which must refetch page 1 with the larger size.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trimmedQ, pageSize, cards]);
 
@@ -151,9 +126,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
     );
   }
 
-  /* Release now asks first. It moves cash (for a CashIn pledge) and changes
-   * where the gold physically is, which is too consequential for a single
-   * unconfirmed click — the old version fired immediately. */
+  // Release asks for confirmation first: it moves cash and changes where the gold physically is.
   function confirmRelease(loanId: number, pledgeId: number, bankName: string, amount: number, treatment: string) {
     openModal(
       <ReleasePledgeModalContent
@@ -271,7 +244,6 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
             <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
             <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => changePledgedPage(Math.min(pledgedTotalPages, pledgedPage + 1))}>Next ›</button>
           </div>
-          {/* <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div> */}
         </div>
       ) : (
         <div className="card tbl-card tbl-card-fill">
@@ -297,8 +269,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                     <td data-label="Pledged">{fmtDate(r.pledgeDate)}</td>
                     <td data-label="Released">{fmtDate(r.releaseDate)}</td>
                     <td data-label="Status">
-                      {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see item #13's
-                        * Void→Delete relabel: this is a UI wording change, not a status-value rename. */}
+                      {/* Wire value stays "Voided"; only the displayed label is "Deleted". */}
                       <span className={`pill ${r.status === "Voided" ? "red" : r.status === "Released" ? "" : "green"}`}>{r.status === "Voided" ? "Deleted" : r.status}</span>
                       {r.status === "Voided" && r.voidReason && (
                         <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{r.voidReason}</div>
@@ -310,7 +281,6 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
             </table>
           </div>
           <ScrollSentinel enabled={cards && historyHasMore && !historyLoading} onVisible={more} watch={history.length} />
-          {/* <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div> */}
           <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => changeHistoryPage(Math.max(1, historyPage - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
@@ -324,9 +294,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 
 type CashTreatmentBadgeProps = { treatment: string };
 
-/* "Cash Added" vs "Record Only" is the single most important thing to be able
- * to see at a glance on a re-pledge: it determines whether releasing it will
- * move money, and it cannot be changed after the fact. */
+// Determines whether releasing moves money, and cannot be changed after the fact.
 function CashTreatmentBadge({ treatment }: CashTreatmentBadgeProps) {
   const isCash = treatment === "CashIn";
   return (
@@ -362,7 +330,7 @@ function VoidPledgeModalContent({ rec, onDone }: VoidPledgeModalContentProps) {
     <>
       <div className="hd"><h3>Delete Repledge Record</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        {/* .notice is display:flex — keep the text in one child element. */}
+        {/* .notice is display:flex — keep text in one child element. */}
         <div className="notice" style={{ marginBottom: 14 }}>
           <Icon name="shield" />
           <span>

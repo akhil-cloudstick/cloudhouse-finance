@@ -5,10 +5,7 @@ import { C } from "./base";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
 
-// In-app toast — the themed replacement for a native Alert.alert() when all
-// we have to say is "done" or "that failed". One at a time, slides down
-// from the top above every screen and sheet (ToastHost is mounted after
-// SheetHost in app/_layout.tsx), dismisses itself or on tap.
+// In-app toast replacing native Alert.alert(); one at a time, mounted after SheetHost so it sits above every sheet.
 
 export type ToastTone = "success" | "error" | "info";
 type ToastMsg = { id: number; title: string; message?: string; tone: ToastTone };

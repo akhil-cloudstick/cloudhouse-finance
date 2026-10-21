@@ -56,17 +56,9 @@ import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { loadErrorText, userMessage } from "@/common/services/apiErrors";
 
-// Personal Loans — prototype #header-personalloans + #page-personalloans and
-// the pl-filter / pl-create / pl-collect / pl-detail / pl-renew sheets.
-// Search (PL no., customer name/code) and the frequency filter are backend
-// params on GET /personal-loans; rows page in 10 at a time.
-
 const FREQS = ["Daily", "Weekly", "Monthly"] as const;
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer"] as const;
 const PER: Record<Frequency, string> = { Daily: "day", Weekly: "wk", Monthly: "mo" };
-
-// "Pending approval" lists loans waiting in the tenant's "personal_loan"
-// approval chain (status filter is server-side).
 
 type Filters = { frequency?: string; status?: string };
 
@@ -82,8 +74,7 @@ const FILTER_SECTIONS: GFSection[] = [
 
 const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 
-// Mirrors the web NewPersonalLoanModal's client-side preview of the
-// backend's computeInterest — the backend recomputes and is the source of truth.
+// A client-side preview only; the backend recomputes and is the source of truth.
 function computeInterest(principal: number, interestType: InterestType, value: number): number {
   const raw = interestType === "Percentage" ? (principal * value) / 100 : value;
   return Math.round(raw * 100) / 100;
@@ -94,7 +85,6 @@ export default function PersonalLoansScreen() {
   const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
 
-  // One grouped filter, multi-select: Frequency and Status (same options as web), sent comma-joined.
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("personalLoans:filters", emptyGroupedFilter());
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -102,7 +92,6 @@ export default function PersonalLoansScreen() {
   const [collectLoan, setCollectLoan] = useState<PersonalLoan | null>(null);
   const [renewLoan, setRenewLoan] = useState<PersonalLoan | null>(null);
 
-  // ?id=<personal loan id> (dashboard "Needs attention") opens its detail.
   const params = useLocalSearchParams<{ id?: string; t?: string }>();
   useEffect(() => {
     if (params.id && Number(params.id)) setDetailId(Number(params.id));
@@ -181,13 +170,8 @@ export default function PersonalLoansScreen() {
 
 type CreatePersonalLoanSheetProps = { visible: boolean; onClose: () => void; onCreated: (l: PersonalLoan) => void };
 
-// ---------------------------------------------------------------------------
-// Create Personal Loan (prototype #pl-create-modal)
-// ---------------------------------------------------------------------------
 function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonalLoanSheetProps) {
   const qc = useQueryClient();
-  // Tenant's "personal_loan" flow on → the loan is created "Pending
-  // Approval" and only disbursed once its final stage approves it.
   const needsApproval = !isFlowOff(useApprovalWorkflow(), "personal_loan");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [principal, setPrincipal] = useState("");
@@ -195,10 +179,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
   const [interestValue, setInterestValue] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("Daily");
   const [tenureCount, setTenureCount] = useState("");
-  // Same as the web's "Full Amount" checkbox: withhold the interest upfront
-  // (default) or disburse the full principal now.
   const [disburse, setDisburse] = useState<"Withhold interest" | "Full amount">("Withhold interest");
-  // Late payment (optional) and how the disbursement leaves the till — same as web.
   const [penalRate, setPenalRate] = useState("");
   const [graceDays, setGraceDays] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
@@ -223,9 +204,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
   const interestValueNum = +interestValue || 0;
   const tenureNum = +tenureCount || 0;
   const interestAmount = principalNum > 0 ? computeInterest(principalNum, interestType, interestValueNum) : 0;
-  // Mirrors backend personalloan CreateLoan: withheld → disburse
-  // Principal-Interest, owe Principal; full → disburse Principal, owe
-  // Principal+Interest.
+  // Withheld: disburse Principal-Interest, owe Principal. Full: disburse Principal, owe Principal+Interest.
   const fullDisbursement = disburse === "Full amount";
   const disbursedAmount = fullDisbursement ? principalNum : Math.round((principalNum - interestAmount) * 100) / 100;
   const obligation = fullDisbursement ? Math.round((principalNum + interestAmount) * 100) / 100 : principalNum;
@@ -330,10 +309,6 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
   );
 }
 
-// ---------------------------------------------------------------------------
-// Detail (prototype #pl-detail-modal): Schedule / Payment History /
-// Schedule History, each paged from the server inside the sheet.
-// ---------------------------------------------------------------------------
 const DETAIL_TABS = ["schedule", "payments", "history"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
@@ -368,8 +343,6 @@ function PersonalLoanDetailSheet({
   const qc = useQueryClient();
   const wf = useApprovalWorkflow();
   const loan = useQuery({ queryKey: ["personalLoan", String(id)], queryFn: () => getPersonalLoan(id), enabled: visible });
-  // Approval chain (tenant's "personal_loan" flow) — only for a loan that
-  // went through it (approvalStage set).
   const inChain = !!loan.data?.approvalStage;
   const approvals = useQuery({
     queryKey: ["personalLoanApprovals", String(id)],
@@ -387,7 +360,6 @@ function PersonalLoanDetailSheet({
     enabled: visible && tab === "payments",
   });
 
-  // Renewal chain: one hop each way (renewedFromLoanId / renewedToLoanId).
   const olderId = loan.data?.renewedFromLoanId ?? null;
   const newerId = loan.data?.renewedToLoanId ?? null;
   const older = useQuery({ queryKey: ["personalLoan", String(olderId)], queryFn: () => getPersonalLoan(olderId!), enabled: visible && tab === "history" && !!olderId });
@@ -584,9 +556,6 @@ function PersonalLoanDetailSheet({
 
 type CollectSheetProps = { loan: PersonalLoan | null; onClose: () => void };
 
-// ---------------------------------------------------------------------------
-// Collect Payment (prototype #pl-collect-modal)
-// ---------------------------------------------------------------------------
 function CollectSheet({ loan, onClose }: CollectSheetProps) {
   const canCreateBank = useAuth().can("Bank_Management", "can_create_bank");
   const qc = useQueryClient();
@@ -671,9 +640,6 @@ function CollectSheet({ loan, onClose }: CollectSheetProps) {
 
 type RenewSheetProps = { loan: PersonalLoan | null; onClose: () => void; onRenewed: (newId: number) => void };
 
-// ---------------------------------------------------------------------------
-// Renew Loan (prototype #pl-renew-modal) with the server renewal preview.
-// ---------------------------------------------------------------------------
 function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
   const qc = useQueryClient();
   const [principal, setPrincipal] = useState("");

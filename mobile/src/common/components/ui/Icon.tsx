@@ -1,13 +1,7 @@
 import React from "react";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 
-// Direct port of frontend/lib/icons.tsx (itself ported from legacy/app.js's
-// icon(n)) — same names, same `d` strings, same viewBox/stroke settings, so
-// the mobile app draws the exact glyphs the web admin UI draws. Keep the two
-// files in sync; do not add glyphs here that the web set doesn't have.
-//
-// The web version leans on `stroke="currentColor"` and CSS sizing; RN has
-// neither, so stroke/size come in as props instead.
+// Direct port of frontend/lib/icons.tsx — keep names/paths in sync, don't add glyphs the web set lacks.
 const PATHS: Record<string, React.ReactNode> = {
   coin: (
     <>
@@ -76,8 +70,7 @@ const PATHS: Record<string, React.ReactNode> = {
   ),
   home: <Path d="m3 11 9-7 9 7v9h-6v-6h-6v6H3z" />,
   list: <Path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />,
-  // Banknote — the Loans tab. `list` (its old glyph) says "a table of rows",
-  // which every other listing screen is too; this says money lent.
+  // Banknote for the Loans tab, to read as "money lent" rather than a generic list.
   note: (
     <>
       <Rect x="2.5" y="6" width="19" height="12" rx="2" />
@@ -123,9 +116,7 @@ const PATHS: Record<string, React.ReactNode> = {
       <Path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9c.2.4.6.8 1 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
     </>
   ),
-  // --- additions beyond the web set, same stroke conventions ---
-  // The web sidebar needs neither: it has no nested stacks (so no back
-  // affordance) and no overflow menu (the whole nav is always on screen).
+  // Mobile-only additions: the web sidebar has no nested stacks or overflow menu to need these.
   chevronLeft: <Path d="m15 5-7 7 7 7" />,
   dots: (
     <>

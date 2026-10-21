@@ -42,12 +42,7 @@ function toView(c: BackendCustomer): CustomerView {
   };
 }
 
-/* Three-way verification label for display (e.g. the new-loan customer
- * picker) — deliberately checks panStatus/aadhaarStatus directly rather
- * than the derived kycStatus, since kycStatus collapses "one of two
- * passed" and "neither passed" into the same "Pending" value (see
- * backend/internal/customer/service.go's deriveKYCStatus), but the UI
- * needs to tell those two apart. */
+// Checks panStatus/aadhaarStatus directly: the derived kycStatus collapses both into one "Pending" value.
 export function verificationLabel(c: { panStatus: string; aadhaarStatus: string }): "Verified" | "Part Verified" | "Unverified" {
   const panOK = c.panStatus === "Verified";
   const aadhaarOK = c.aadhaarStatus === "Verified";
@@ -93,12 +88,6 @@ export async function listCustomers(): Promise<CustomerView[]> {
 
 export const CUSTOMERS_TABLE_PAGE_SIZE = 10;
 
-/* Paginated variant of listCustomers for the Customers page's own table
- * (distinct from CUSTOMER_PAGE_SIZE below, which backs the SearchableSelect
- * picker's infinite scroll) — CustomersProvider still fetches the full,
- * unpaginated list for consumers that need every customer at once (global
- * search, New Loan's picker), so this is a separate call rather than a
- * change to listCustomers/CustomersProvider. */
 export async function listCustomersPage(
   q: string,
   page: number,
@@ -114,9 +103,6 @@ export async function listCustomersPage(
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
-/* Server-side search across name/code/phone — backs SearchableSelect
- * pickers (see NewLoan.tsx) instead of filtering the full listCustomers()
- * result client-side. */
 export async function searchCustomers(q: string): Promise<CustomerView[]> {
   const rec = await apiFetch<BackendCustomer[]>(`/customers?q=${encodeURIComponent(q)}`);
   return (rec || []).map(toView);
@@ -124,19 +110,13 @@ export async function searchCustomers(q: string): Promise<CustomerView[]> {
 
 const CUSTOMER_PAGE_SIZE = 5;
 
-/* Paginated variant of searchCustomers — backs SearchableSelect's infinite
- * scroll (see SearchableSelect.tsx). `page` is 0-based; the backend
- * responds with an {items, hasMore} envelope whenever `limit` is passed
- * (see backend/internal/customer/handler.go's List). */
+// `page` is 0-based.
 export async function searchCustomersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE) });
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }
 
-/* Same as searchCustomersPage, narrowed to Investor customers only — backs
- * the investor picker in the New Investment flow
- * (modules/investments/components/NewInvestmentModalContent.tsx). */
 export async function searchInvestorsPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE), customerType: "Investor" });
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
@@ -156,10 +136,7 @@ export async function verifyCustomerPan(id: string): Promise<PanVerificationResu
   return { customer: toView(res.customer), message: res.message, matchedName: res.matchedName, traceId: res.traceId };
 }
 
-/* Full, decrypted Aadhaar number (GET /customers/:id/aadhaar-full) — the
- * one endpoint that ever returns more than AadhaarLast4. Used solely to
- * prefill the printable pledge agreement (modules/loans/utils/
- * indemnityBond.ts); every other customer read stays last-4-only. */
+// The one endpoint that ever returns more than AadhaarLast4; every other customer read stays last-4-only.
 export async function getCustomerAadhaarFull(id: string): Promise<string> {
   const res = await apiFetch<{ aadhaar: string }>(`/customers/${id}/aadhaar-full`);
   return res.aadhaar;
@@ -200,19 +177,12 @@ export async function deleteCustomer(id: string): Promise<void> {
   await apiFetch<void>(`/customers/${id}`, { method: "DELETE" });
 }
 
-/* Permanently deletes the customer and every record tied to them (loans and
- * everything under each one, device/OTP login records, notifications,
- * standalone reminders) — see backend/internal/customer/harddelete.go.
- * Rejected (thrown) if any of the customer's loans aren't yet Closed/
- * Auctioned; the thrown error's message names the offending loan number(s). */
+// Rejected if any of the customer's loans aren't yet Closed/Auctioned; the error names the offending loans.
 export async function hardDeleteCustomer(id: string): Promise<void> {
   await apiFetch<void>(`/customers/${id}/hard-delete`, { method: "DELETE" });
 }
 
-/* `range` narrows the profile to loans opened within an inclusive
- * YYYY-MM-DD window — the filtering is done by the backend (which also
- * recomputes the totals over the narrowed set), so both bounds are passed
- * straight through as query params rather than filtered client-side. */
+// `range` narrows to loans opened within an inclusive date window; the backend filters and recomputes totals.
 export async function getCustomer360(
   id: string,
   range?: { from?: string; to?: string }
@@ -234,18 +204,7 @@ export async function getCustomer360(
   };
 }
 
-/* --- Customer 360 sub-table pagination ------------------------------------
- * The 5 sub-tables on CustomerDetail.tsx (Loan History, Pledged Ornaments,
- * Payment History, Bank Pledges, Auction History) used to be sliced
- * client-side out of getCustomer360's single big payload. They're now
- * fetched independently, one paginated call per page per table, following
- * this codebase's limit/offset + {items, hasMore} convention (see
- * loanService.ts's listLoansPage) — each backed by its own
- * GET /customers/:id/{loans,ornaments,payments,bank-pledges,
- * auction-history} endpoint (backend/internal/loan/handler.go). `range`
- * mirrors getCustomer360's from/to opened-date window. */
-/* 9 rows — the height the 360 view's table card is sized for, so a full
- * page fills it exactly without the card growing. */
+// --- Customer 360 sub-table pagination ---
 export const CUSTOMER_SUBTABLE_PAGE_SIZE = 10;
 
 function subTableParams(page: number, range?: { from?: string; to?: string }, limit?: number): URLSearchParams {
@@ -314,9 +273,6 @@ export async function listCustomerAuctionHistoryPage(
   return { items: (rec?.items || []).map(toCustomerAuctionRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
-/* Uploads one file (photo/identity proof/address proof/KYC document) to the
- * shared upload endpoint (backend/internal/upload) and returns the URL to
- * store on the customer record. */
 export async function uploadFile(file: File): Promise<string> {
   return uploadSharedFile(file);
 }

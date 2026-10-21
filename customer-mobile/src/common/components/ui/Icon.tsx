@@ -1,9 +1,6 @@
 import React from "react";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 
-// Trimmed port of mobile/src/common/components/ui/Icon.tsx (itself ported from
-// frontend/lib/icons.tsx) — only the glyphs this app's Batch 1 nav/screens
-// need. Keep `d` strings identical to the source files if adding more later.
 const PATHS: Record<string, React.ReactNode> = {
   home: <Path d="m3 11 9-7 9 7v9h-6v-6h-6v6H3z" />,
   note: (
@@ -51,15 +48,12 @@ const PATHS: Record<string, React.ReactNode> = {
       <Path d="M12 7.5V12l3 2.5" />
     </>
   ),
-  // Ornament/gold — a stylized bangle/coin glyph for Pledged Gold rows.
   ornament: (
     <>
       <Circle cx="12" cy="12" r="7.5" />
       <Circle cx="12" cy="12" r="3.2" />
     </>
   ),
-  // Extension/clock-forward — a clock with a forward arrow, for the Request
-  // Extension action.
   extension: (
     <>
       <Circle cx="11" cy="13" r="7.5" />
@@ -67,7 +61,6 @@ const PATHS: Record<string, React.ReactNode> = {
       <Path d="M16.5 3.5 19 6l-2.5 2.5M19 6h-5" />
     </>
   ),
-  // Release/unlock — an open shackle padlock, for the Request Release action.
   release: (
     <>
       <Rect x="5" y="11" width="12" height="9" rx="2" />
@@ -75,8 +68,6 @@ const PATHS: Record<string, React.ReactNode> = {
       <Circle cx="11" cy="15.5" r="1.4" />
     </>
   ),
-  // Logout/exit — a door with an arrow pointing out, for the Dashboard's
-  // logout action (Batch 3).
   logout: (
     <>
       <Path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
@@ -84,9 +75,6 @@ const PATHS: Record<string, React.ReactNode> = {
       <Path d="M19 12H9" />
     </>
   ),
-  // Shield/verified badge — for the KYC Verification card on the Profile
-  // screen (Batch 4), covers both the overall status and the Aadhaar row
-  // (PAN reuses the existing "doc" glyph).
   shield: (
     <>
       <Path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" />

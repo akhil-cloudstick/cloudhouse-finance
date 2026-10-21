@@ -1,9 +1,6 @@
-// Mobile port of frontend/common/utils/print.ts's slip/statement/label
-// bodies. The web versions open a new browser tab and drive window.print()
-// — there's no such thing on mobile, so this wraps the same HTML/CSS in
-// Print.printAsync, which raises the OS's own print/share sheet directly.
-// The pledge and release agreements are NOT built here: they come from the
-// backend's per-language templates (see printServerPdf below).
+// Wraps the slip/statement/label HTML in Print.printAsync, which raises the OS's print/share sheet
+// directly (no window.print() on mobile). Pledge/release agreements come from the backend's
+// per-language templates instead (see printServerPdf below).
 import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
 import { toQR } from "toqr";
@@ -17,11 +14,7 @@ import { getToken } from "@/common/services/tokenStorage";
 import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
 import { BRAND, printBrand, printColors, printPolicy } from "@/common/config/brand";
 
-// Same CSS as openPrintWindow (frontend/common/utils/print.ts) — kept
-// byte-for-byte so a printed slip/statement/bond looks the same whichever
-// app produced it.
-// A function, not a constant: the colours are the signed-in business's own
-// (printColors), which are only known at runtime and can change.
+// A function, not a constant: printColors() is the signed-in business's own, known only at runtime.
 function docStyle(): string {
   const C = printColors();
   return `
@@ -46,15 +39,12 @@ function docStyle(): string {
 `;
 }
 
-// Business particulars come from the backend, so escape them before they go
-// into the HTML (a legal name like "… Financiers & Investments" is common).
+// Business particulars come from the backend, so escape them before they go into the HTML.
 function esc(v: string): string {
   return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-/** Mirrors brandHeader() in frontend/common/utils/print.ts — the signed-in
- * business's own particulars, falling back to the platform brand field by
- * field (see printBrand). */
+// The signed-in business's own particulars, falling back to the platform brand field by field.
 function brandHeader(docTitle?: string): string {
   const B = printBrand();
   const meta = [B.kmlRegLabel, B.phones].filter(Boolean).map(esc).join(" &nbsp;·&nbsp; ");
@@ -77,8 +67,6 @@ function fmtDate(d?: string | null) {
   return dmy(d);
 }
 
-// Ported from frontend/modules/loans/pages/LoanDetailPage.tsx's
-// printPledgeSlip.
 export async function printPledgeSlip(l: Loan) {
   // TML businesses use the backend's TML slip (the endpoint picks the template).
   if (printPolicy() === "tml") return printServerPdf(`/loans/${l.id}/pledge-slip`, `pledge-slip-${l.loanNumber}.pdf`);
@@ -86,9 +74,7 @@ export async function printPledgeSlip(l: Loan) {
   await printDoc(`Pledge Slip — ${l.loanNumber}`, pledgeSlipBody(l, topUps));
 }
 
-// How the principal was advanced — the initial amount on the opening date,
-// then each later additional amount (paid-out top-ups), oldest first. Same
-// table as the web slip; empty when the loan was advanced in one go.
+// Initial amount on the opening date, then each later top-up, oldest first; empty if advanced in one go.
 function amountDistribution(l: Loan, topUps: LoanTopUp[]): string {
   const extra = topUps
     .filter((t) => t.status === "Active")
@@ -136,9 +122,7 @@ function pledgeSlipBody(l: Loan, topUps: LoanTopUp[]): string {
   );
 }
 
-/** Pledge slip and packet label on ONE A4 page, same arrangement as the web's
- * printSlipAndLabel: the slip first, then a dashed rule and the label at its
- * real size centred below it, with a caption — a single print job. */
+// Slip first, then a dashed rule and the label at its real size centred below it, with a caption.
 export async function printLabelAndSlipOnePage(l: Loan) {
   const C = printColors();
   const [label, topUps] = await Promise.all([
@@ -160,11 +144,6 @@ export async function printLabelAndSlipOnePage(l: Loan) {
   await Print.printAsync({ html });
 }
 
-// Ported from frontend/modules/loans/pages/LoanDetailPage.tsx's
-// printStatement — same Statement of Account particulars (true account of
-// the transaction, amount in words/figures, dates, security, interest
-// rate, debtor name/address), plus l.additionalInfo — whatever staff added
-// when the loan was created, just carried through here.
 export async function printStatement(l: Loan) {
   // TML businesses print the backend's payment receipt for the latest payment.
   if (printPolicy() === "tml") return printServerPdf(`/loans/${l.id}/statement-receipt`, `receipt-${l.loanNumber}.pdf`);
@@ -222,27 +201,20 @@ export async function printStatement(l: Loan) {
   );
 }
 
-// --- Server-rendered agreements -------------------------------------------
-// The pledge agreement (indemnity bond) and release agreement are rendered
-// by the backend from its own per-language templates (backend/internal/loan/
-// indemnitybond.go, releaseagreement.go) — same PDFs the web downloads.
-// Languages each endpoint accepts (?lang=); anything else is a 400.
+// Pledge agreement (indemnity bond) and release agreement are rendered server-side; ?lang= values
+// each endpoint accepts, anything else is a 400.
 export type DocLang = "en" | "ml" | "gu" | "ta";
 export const DOC_LANG_LABELS: Record<DocLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati", ta: "Tamil" };
-// The pledge-agreement languages on offer for the signed-in business: TML
-// businesses have English + Tamil, everyone else the existing set.
+// TML businesses have English + Tamil, everyone else the existing set.
 export function pledgeAgreementLangs(): DocLang[] {
   return printPolicy() === "tml" ? ["en", "ta"] : ["en", "ml", "gu"];
 }
 export const RELEASE_AGREEMENT_LANGS: DocLang[] = ["en", "ml"];
 
-// Downloads an authenticated PDF into the cache dir and opens the OS print
-// preview. A failed download leaves the JSON error envelope in the target
-// file, so its message is surfaced as an ApiError.
+// A failed download leaves the JSON error envelope in the target file, so its message is surfaced as an ApiError.
 async function printServerPdf(path: string, filename: string): Promise<void> {
   const token = await getToken();
   const targetUri = `${FileSystem.cacheDirectory}${filename.replace(/[^\w.-]+/g, "-")}`;
-  // The render takes a few seconds server-side — show the overlay for it.
   const result = await withPrintProgress(() =>
     FileSystem.downloadAsync(apiUrl(`${path}`), targetUri, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -264,18 +236,16 @@ async function printServerPdf(path: string, filename: string): Promise<void> {
   await Print.printAsync({ uri: result.uri });
 }
 
-// GET /loans/:id/indemnity-bond/pdf?lang=en|ml|gu
 export function printPledgeAgreementPdf(loanId: number, loanNumber: string, lang: DocLang) {
   return printServerPdf(`/loans/${loanId}/indemnity-bond/pdf?lang=${lang}`, `pledge-agreement-${lang}-${loanNumber}.pdf`);
 }
 
-// GET /loans/:id/release-agreement/pdf?lang=en|ml — full release (FORM 7).
+// Full release (FORM 7).
 export function printReleaseAgreementPdf(loanId: number, loanNumber: string, lang: DocLang) {
   return printServerPdf(`/loans/${loanId}/release-agreement/pdf?lang=${lang}`, `release-agreement-${lang}-${loanNumber}.pdf`);
 }
 
-// GET /loans/requests/:requestId/partial-release-receipt/pdf?lang=en|ml — the
-// partial release counterpart (same languages as the full release agreement).
+// Partial release counterpart (same languages as the full release agreement).
 export function printPartialReleaseReceiptPdf(requestId: number, lang: DocLang = "en") {
   return printServerPdf(`/loans/requests/${requestId}/partial-release-receipt/pdf?lang=${lang}`, `partial-release-receipt-${lang}-${requestId}.pdf`);
 }

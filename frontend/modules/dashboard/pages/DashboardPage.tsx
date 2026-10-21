@@ -86,42 +86,24 @@ function Donut({ parts }: DonutProps) {
   );
 }
 
-/* Categorical palette for the expense breakdown — identity, not magnitude,
- * so the hues are assigned in this fixed order and never re-sorted by value.
- * Checked against a light surface for the lightness band, chroma floor,
- * adjacent-pair separation under deuteranopia/tritanopia, and 3:1 contrast.
- * The ORDER is part of that result, since those checks run on adjacent pairs
- * — re-run the check before reordering or adding a hue. Deliberately avoids
- * --green/--red/--amber, which are reserved for status and must not double
- * as "series 4". */
-/* Only the FIRST series follows the business's brand colour. The other five
- * stay fixed: a categorical palette's job is to keep six slices tellable
- * apart, and re-deriving all of them from one hue would collapse the
- * spacing the contrast check above was done against. One branded lead
- * colour ties the chart to the rest of the app without costing legibility. */
+// Fixed hue order (colorblind-checked); only the first follows the brand color, the rest stay fixed
+// to keep six slices tellable apart. Avoids --green/--red/--amber, reserved for status.
 function expenseColors(): string[] {
   const brand = brandRampHex(readCachedBrandColor(activeBusinessSlug()) || DEFAULT_BRAND_COLOR);
   return [brand["--brand"], "#8267e2", "#f99603", "#20a04e", "#62626f", "#0e8ba0"];
 }
 
-/* Ported from legacy/app.js's `renderDashboard()`. All figures are now
- * derived from live DB state instead of hardcoded demo values. */
 export function DashboardPage() {
   const { schemes } = useSchemes();
   const { refresh: refreshCustomers } = useCustomers();
   const { loans } = useLoans();
   const { can } = useAuth();
   const { config: workflow } = useApprovalWorkflow();
-  // Gated on the real permission (not a hardcoded role check) — the backend
-  // already 403s a POST /loans without "can create loan", hide the button
-  // rather than let a user click into a form that can only ever fail.
   const canCreateLoans = can("Loan_Management", "can_create_loan");
   const canCreateRates = can("Gold_Rate_Management", "can_create_gold_rate");
   const canCreateCustomers = can("Customer_Management", "can_create_customer");
-  // Links, KPI tiles and buttons only to pages this role can open.
   const canOpen = useCanOpenRoute();
   const link = (r: string) => (canOpen(r) ? routeHref(r) : undefined);
-  // Each panel only loads what this role may view — the rest stay empty.
   const canViewLoans = can("Loan_Management", "can_view_loan_module");
   const canViewCash = can("Cash_Management", "can_view_cash_module");
   const canViewReminders = can("Reminder_Management", "can_view_reminder_module");
@@ -140,10 +122,7 @@ export function DashboardPage() {
       listExpenses().then(setExpenses).catch(() => setExpenses([]));
     }
     if (!canViewLoans) return;
-    // Real replacements for the old always-empty db.requests/db.ledger
-    // mock data — see documents/change_log.md. Kept as a full (unpaginated)
-    // fetch: the "Extension Requests"/"Gold Release Requests" KPI tiles
-    // below need the true counts by type, not one page of them.
+    // Full unpaginated fetch: the KPI tiles below need true counts by type, not one page.
     listLoanRequests({ status: "Pending" }).then(setPendingReq).catch(() => setPendingReq([]));
     getInterestCollected().then(setInterestCollected).catch(() => setInterestCollected(0));
   }, [canViewCash, canViewLoans]);
@@ -164,8 +143,7 @@ export function DashboardPage() {
     expenses.reduce<Record<string, number>>((acc, e) => { acc[e.cat] = (acc[e.cat] || 0) + e.amt; return acc; }, {})
   );
   const palette = expenseColors();
-  // Only the biggest categories get their own slice and legend row; the long
-  // tail is folded into one "Others" slice so the wheel stays readable.
+  // Long tail folded into one "Others" slice so the wheel stays readable.
   const EXPENSE_TOP = 5;
   const expenseSorted = [...expenseByCat].sort((a, b) => b[1] - a[1]);
   const expenseShown: [string, number][] = expenseSorted.slice(0, EXPENSE_TOP);
@@ -178,10 +156,7 @@ export function DashboardPage() {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     return [d.toLocaleDateString("en-IN", { month: "short" }), 0] as [string, number];
   });
-  // Only loans that cleared final sanction — money leaves the till at that
-  // point and not before (see loan.Service.Decide's `disbursing` flag), so
-  // counting loans still in the approval chain would chart cash that has not
-  // actually gone out.
+  // Only loans that cleared final sanction count: money leaves the till only at that point.
   loans.forEach((l) => {
     if (l.approvalStage !== "Approved") return;
     const opened = new Date(l.opened);
@@ -191,22 +166,9 @@ export function DashboardPage() {
     if (idx >= 0 && idx < 6) monthBuckets[idx][1] += l.principal / 100000;
   });
   const maxBar = Math.max(1, ...monthBuckets.map(([, v]) => v));
-  // KPI tiles below ("Pending Approvals"/"Auction Cases") deliberately keep
-  // deriving from LoansProvider's already-loaded full `loans` list rather
-  // than the new paginated /dashboard/needs-attention endpoint — the
-  // endpoint's own approvalsCount/auctionsCount would report the identical
-  // numbers, but switching these two tiles over gains nothing and would
-  // just make the KPI row depend on one more network round trip. Only the
-  // "Needs Attention" *list* below was ever actually slicing in memory, so
-  // only that widget's data source changes.
   const pendingApprovalLoans = loans.filter((l) => l.status === "Pending Approval");
   const auctionLoans = loans.filter((l) => l.status === "Auction Eligible" || l.status === "Defaulted");
 
-  // "Needs Attention" — real server-side pagination (see
-  // modules/dashboard/services/dashboardService.ts): the backend merges
-  // pending-approval loans, pending Extension/Release requests and
-  // auction-eligible/defaulted loans, orders them, and returns only the
-  // requested page plus the true total count.
   const NEEDS_ATTENTION_PAGE_SIZE = 15;
   const [needsAttentionPage, setNeedsAttentionPage] = useState(1);
   const [needsAttentionItems, setNeedsAttentionItems] = useState<NeedsAttentionItem[]>([]);
@@ -220,10 +182,6 @@ export function DashboardPage() {
   const needsAttentionPages = Math.max(1, Math.ceil(needsAttentionTotal / NEEDS_ATTENTION_PAGE_SIZE));
   const needsAttentionPageItems = needsAttentionItems;
 
-  // "Upcoming Reminders" — real server-side pagination over the merged,
-  // already-sorted (Overdue first, then by date — moved into
-  // backend/internal/reminder's GetCalendarEvents) event list for the fixed
-  // 14-day window.
   const REMINDERS_PAGE_SIZE = 5;
   const [reminderPage, setReminderPage] = useState(1);
   const [reminderPageItems, setReminderPageItems] = useState<CalendarEvent[]>([]);
@@ -243,14 +201,7 @@ export function DashboardPage() {
   const activeSchemes = schemes.filter((s) => s.active);
   const [calcS, setCalcS] = useState(activeSchemes[0]?.id || "");
 
-  // schemes load asynchronously (SchemesProvider fetches after mount), so
-  // the initial useState above almost always resolves to "" — nothing then
-  // re-synced it once the real list arrived, leaving calcS pointing at a
-  // scheme id absent from `activeSchemes.map(...)`'s <option> list. A
-  // <select> whose value doesn't match any option shows the browser's own
-  // first-item highlight without actually selecting it, which is what
-  // looked like a "selected but empty" row. Re-point calcS at the first
-  // active scheme whenever the current pick no longer exists among them.
+  // Schemes load async; re-point calcS at the first active scheme once the real list arrives.
   useEffect(() => {
     if (activeSchemes.length && !activeSchemes.some((s) => s.id === calcS)) {
       setCalcS(activeSchemes[0].id);
@@ -285,17 +236,7 @@ export function DashboardPage() {
 
       <div className="grid cols21 dash-grid">
         <div className="grid">
-          {/* dashboard-kpis scopes the 1280px-ish 3-column override
-           * (app.css) to just this Business Overview row — plain `.kpis`
-           * would otherwise hit every KPI row app-wide at that width,
-           * including Reports' totals, whose two cards would then lose
-           * their fixed 213px size and auto-size to their own text
-           * instead ("Total Amount"'s longer value rendering visibly
-           * wider than "Loans"' short one). */}
           <div className="kpis dashboard-kpis">
-            {/* Cash and Bank on two subline rows; the shared .kpi height was
-              * raised (app.css) so every tile fits them. nowrap + ellipsis guards
-              * a long amount from spilling past the 213px tile. */}
             <Kpi
               l="Cash in Hand"
               v={fmt(cashSummary ? cashSummary.cashInHand + cashSummary.bankBalance : cashInHand)}
@@ -341,9 +282,6 @@ export function DashboardPage() {
                 )}
                 {needsAttentionPageItems.map((item) => {
                   if (item.kind === "approval") {
-                    // The stage LABEL from this business's workflow config
-                    // (the row carries the raw stored pending value), and a
-                    // route per flow.
                     const stage = stageLabel(workflow, item.flow, item.approvalStage);
                     if (item.flow === "expense") {
                       return (
@@ -403,9 +341,6 @@ export function DashboardPage() {
             <div className="hd"><h3>Gold Loan Calculator</h3></div>
             <div className="bd">
               <div className="frow c2">
-                {/* No inline height/padding override — matches Select's
-                 * own default 40px height (app.css's .calc-card rules)
-                 * rather than the other way around. */}
                 <div><label className="f">Weight (grams)</label><input className="inp" type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
                 <div><label className="f">Purity</label>
                   <PurityPicker value={calcP} onChange={setCalcP} dropdownMinWidth={70} />
@@ -436,17 +371,6 @@ export function DashboardPage() {
             </div>
             <div className="ft">Set by {latest.setBy} · applies to all valuations today</div>
           </div>
-
-          {/* .calc-card opts this card into a container query (app.css) that
-           * collapses Weight/Purity to one column, and stacks the Purity
-           * field's own Karat/Fineness toggle above its value box, once the
-           * card's own rendered width gets narrow — which happens here even
-           * at a normal window size, since this card sits in the
-           * dashboard's sidebar column rather than the main content well.
-           * At a normal resolution, once that column is wide enough (or the
-           * dashboard grid drops to a single column and this card gets the
-           * full page width), both stay their usual side by side selves. */}
-         
 
           <div className="card">
             <div className="hd"><h3>Upcoming Reminders</h3><div className="sp" />{canOpen("calendar") ? <a href={routeHref("calendar")} style={{ fontSize: 12.5 }}>Calendar →</a> : null}</div>

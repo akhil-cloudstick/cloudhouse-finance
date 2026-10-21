@@ -15,9 +15,6 @@ type ExpenseRowProps = {
   onEdit?: () => void;
 };
 
-/* canApprove/onApprove/onReject drive the Approve/Reject pair shown on a
- * Pending row (the expense approval flow) — shown only to the role of the
- * step the expense waits at (or Administrator); awaiting names that role. */
 export function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, onApprove, onReject, onEdit }: ExpenseRowProps) {
   const showBranch = useShowBranch();
   return (

@@ -12,21 +12,8 @@ import type { GoldRate } from "@/modules/gold-rates/types/gold-rate-types";
 import { userMessage } from "@/common/services/apiErrors";
 import { s } from "./shellModalsShared";
 
-// ---------------------------------------------------------------------------
-// Gold Rate (prototype #gold-modal): Set Rate / History
-//
-// Same rules as the web RateModal and the pre-redesign mobile screen. Mode
-// is all-or-nothing across the three karats:
-// - Auto (default): 22K/18K derive live off 24K at an editable fineness %
-//   (prefilled with karat/24). 24K's fineness is fixed at 99.9% (999) and
-//   read-only — it labels the reference rate rather than scaling it.
-// - Manual: every karat is typed independently. Typing straight into the
-//   22K or 18K rate switches to Manual; typing 24K does not.
+// Auto: 22K/18K derive live off 24K at an editable fineness %; Manual: every karat typed independently.
 // Only karats whose rate actually changed are published, together as one history row.
-//
-// Set Rate lets staff set all three karats (Auto derives 22K/18K off 24K;
-// Manual types each independently); the History tab lists the 24K rate set on each day, with who published it.
-// ---------------------------------------------------------------------------
 type RateMode = "Auto" | "Manual";
 type Karat = 24 | 22 | 18;
 const KARAT_ROWS: { k: Karat; label: string }[] = [
@@ -41,7 +28,6 @@ const savedFineness = (k: Karat, k24: number, rate: number) => (k === 24 ? Strin
 const clampFineness = (v: string) => (v !== "" && +v > 100 ? "100" : v);
 type GoldRateModalProps = { visible: boolean; onClose: () => void };
 
-/* One day in the History tab: the 24K rate, with a chevron to reveal 22K and 18K. */
 function HistoryRate({ r, first }: { r: GoldRate; first: boolean }) {
   const [open, setOpen] = useState(false);
   return (
@@ -226,15 +212,13 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
             {hierarchyMsg ? <ReviewWarning>{`Price hierarchy looks wrong: ${hierarchyMsg} You can still save if this is intended.`}</ReviewWarning> : null}
             {error ? <WarningBanner>{error}</WarningBanner> : null}
           </ScrollView>
-          {/* Sticky footer — the fields scroll, the button stays put. */}
           <View style={s.modalFooter}>
             <PrimaryButton label="Save New Rate" onPress={() => save.mutate()} loading={save.isPending} disabled={!canPublish} />
           </View>
           </View>
         )
       ) : (
-        // Same height as the Set Rate tab, so switching tabs never resizes
-        // the pop-up (both stay within the card's 76% screen cap).
+        // Same height as Set Rate so switching tabs never resizes the pop-up.
         <View style={setTabH ? { height: setTabH } : { maxHeight: 420 }}>
           <ServerFlatList
             list={history}

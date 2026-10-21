@@ -12,14 +12,7 @@ import { Notification } from "@/common/services/notificationService";
 import { checkIndemnityBondEsign } from "@/modules/home/services/esignService";
 import { ApiError } from "@/common/services/httpClient";
 
-// URL_RE pulls the Setu signing link out of the notification's own body
-// text — see backend/internal/loan/service.go's deliverEsignLink, which
-// builds that body as "...Open this link on your own phone to complete
-// it: https://...". There is deliberately no separate "start" endpoint for
-// this app to call (see src/modules/home/services/esignService.ts's doc comment): the link a staff
-// member already sent IS the delivery, so this card's only job is
-// surfacing it and then polling status — same shape as ProfileContent.tsx's
-// verifyAadhaar()/DigiLocker flow.
+// Pulls the signing link out of the notification body text; there's no separate "start" endpoint to call.
 const URL_RE = /https?:\/\/\S+/;
 
 function langFromBody(body: string): string {
@@ -29,10 +22,7 @@ function langFromBody(body: string): string {
   return "English";
 }
 
-/** Renders nothing once there's no pending eSign notification to show — Home
- * screen just drops this in unconditionally rather than computing that
- * itself. Shows only the SINGLE most recent one: a customer with two loans
- * both awaiting signature still only needs to act on one at a time. */
+// Renders nothing when there's no pending eSign; shows only the single most recent one.
 export function EsignActionCard() {
   const { items, markRead } = useNotifications();
   const [dismissedIds, setDismissedIds] = useState<number[]>([]);
@@ -56,9 +46,7 @@ export function EsignActionCard() {
       pollCancelled.current = false;
       setPolling(true);
 
-      // Regardless of how the browser session resolves (success/cancel/
-      // dismiss) we poll status server-side — that's the real signal,
-      // not the browser's own resolution. Same pattern as Aadhaar KYC.
+      // Poll status server-side regardless of how the browser session resolves; that's the real signal.
       await WebBrowser.openAuthSessionAsync(url, redirectUrl);
 
       for (let attempt = 0; attempt < 10 && !pollCancelled.current; attempt++) {

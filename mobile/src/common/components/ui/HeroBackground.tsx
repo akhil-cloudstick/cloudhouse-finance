@@ -3,14 +3,8 @@ import { StyleSheet, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { C } from "./base";
 
-// ---------------------------------------------------------------------------
-// Headers
-// ---------------------------------------------------------------------------
-
 let heroGradId = 0;
-/** The Dashboard hero's gradient — linear-gradient(135deg, nav 0%, nav2
- * 55%, brand 100%) — used behind every page header (and the status bar
- * area above it) so the whole app wears the same colour on top. */
+/** The Dashboard hero's gradient, used behind every page header so the whole app matches on top. */
 export function HeroBackground() {
   const id = React.useMemo(() => `heroGrad${++heroGradId}`, []);
   return (

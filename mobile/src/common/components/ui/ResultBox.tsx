@@ -5,7 +5,6 @@ import { s } from "./formHelpers";
 
 type ResultBoxProps = { k: string; v: string; tone?: "brand" | "green" | "red"; style?: StyleProp<ViewStyle> };
 
-// ---- boxes & banners ------------------------------------------------------
 /** .result-box */
 export function ResultBox({ k, v, tone = "brand", style }: ResultBoxProps) {
   const bg = tone === "green" ? C.greenBg : tone === "red" ? C.redBg : C.brandPale;

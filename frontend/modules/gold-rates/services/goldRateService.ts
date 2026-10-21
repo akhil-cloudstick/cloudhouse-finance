@@ -20,10 +20,7 @@ export async function listGoldRates(): Promise<GoldRateView[]> {
 
 export const GOLD_RATES_HISTORY_PAGE_SIZE = 10;
 
-/* Paginated variant of listGoldRates — backs GoldRates.tsx's Rate History
- * table. `page` is 1-based; the backend responds with an {items, hasMore}
- * envelope whenever `limit` is passed (see backend/internal/goldrate/
- * handler.go's List), matching loansApi.listLoansPage's pattern. */
+// `page` is 1-based.
 export async function listGoldRatesPage(
   page: number,
   limit?: number

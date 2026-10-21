@@ -40,13 +40,7 @@ type BankPledgeFormProps = {
   submitting: boolean;
 };
 
-/** One re-pledge form, shared by the loan detail's Bank Pledge sheet
- * (BankPledgeSheet.tsx, loan fixed) and the standalone Bank Pledges
- * screen's Add to Bank Pledge sheet (BankPledgeSheets.tsx, loan picked
- * here) — same fields, same payload shape, previously duplicated across
- * both call sites. Pass `fixedLoan` to hide the loan picker (already on
- * that loan's own detail page); omit it to show one (AsyncSelect, excludes
- * already-pledged loans so a loan can't be double-pledged from here). */
+// Shared re-pledge form; pass fixedLoan to hide the loan picker, otherwise AsyncSelect excludes already-pledged loans.
 export function BankPledgeForm({
   value,
   onChange,
@@ -67,9 +61,6 @@ export function BankPledgeForm({
           label="Loan"
           placeholder="Search by customer or LN number"
           queryKey={["loans", "bank-pledge-picker"]}
-          // Already-pledged loans are excluded here — the same guard the
-          // loan detail sheet gets for free by only showing this form when
-          // there's no activePledge (see BankPledgeSheet.tsx).
           fetcher={async (q) => (await listLoansPage({ q: q || undefined, excludeBankPledged: true, limit: 20, offset: 0 })).items ?? []}
           selectedLabel={value.loan ? `${value.loan.loanNumber} · ${value.loan.customer?.name ?? ""}` : undefined}
           onClear={() => set("loan", null)}

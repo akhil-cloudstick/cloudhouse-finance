@@ -5,12 +5,7 @@ import { billDetail, expenseCategoryOf, modeLink, openLedger, openLoanByNumber }
 import { LedgerLink } from "./LedgerLink";
 import { EntrySub, useEntryActions } from "@/modules/cash/components/EntryActions";
 
-// loanRefFor pulls the loan number back out of `purpose` — every
-// loan-related movement's Purpose carries it as a "… — LN-00049" suffix
-// (see cash.MovementService.RecordLoanDisbursementCashOut/
-// RecordLoanPaymentCashIn/etc) — same regex web's Cash.tsx uses. "" for a
-// movement with no loan number (manual top-ups, expenses, gold sales, …) —
-// the internal transaction group id / movement id is never shown as a Ref No.
+// Loan-related movements carry the loan number as a "… — LN-00049" purpose suffix; same regex web's Cash.tsx uses.
 const LOAN_NUMBER_RE = /—\s*(LN-\S+)\s*$/;
 function loanRefFor(m: CashMovement): string {
   const match = m.purpose ? LOAN_NUMBER_RE.exec(m.purpose) : null;
@@ -36,19 +31,13 @@ export function MovementRow({
   defaultOpen,
 }: MovementRowProps) {
   const ref = loanRefFor(m);
-  // A cash-in / debit / self transfer a person keyed in: info icon + Edit.
   const entry = useEntryActions(m.id, m.editable);
   const bankName = m.bankRef?.name || m.bank || "Bank";
-  // Links on this row open the other ledgers on this same transaction.
   const focus = { date: m.occurredOn, amount: m.amount };
-  // A self transfer reads "Self transfer — <category>"; a loan category links
-  // to that loan's own ledger, same as web.
+  // A self transfer reads "Self transfer — <category>"; a loan category links to that loan's own ledger, like web.
   const isSelf = m.source === "Self Transfer";
   const category = isSelf ? selfTransferCategory(m.purpose) || null : expenseCategoryOf(m.purpose);
   const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
-  // Ref No: an expense (incl. a loan repayment) or a loan-sourced Add Cash
-  // shows its bank — blank when it has none; a gold-loan number links to the
-  // loan; everything else is blank.
   const bankBacked = m.expenseId != null || category !== null || (m.type === "in" && m.source?.trim().toLowerCase().startsWith("loan"));
   const refValue = isSelf
     ? categoryId

@@ -1,8 +1,6 @@
 import { getToken } from "./tokenStorage";
 import { ApiError, originFetch, resolveAssetUrl } from "./httpClient";
 
-// Mirrors backend/internal/branding's Public/Self — see that package's doc
-// for why /public/branding/:code is unauthenticated and always answers 200.
 export type PublicBranding = {
   name: string;
   legalName: string;
@@ -19,11 +17,7 @@ export type SelfBranding = PublicBranding & {
   languages: string[];
 };
 
-// Branding lives under /api/v1/... (not /api/v1/customer/...), unlike every
-// other endpoint this app calls — so it can't go through httpClient.ts's
-// apiRequest, which is hardwired to API_BASE_URL's /customer prefix. Same
-// {success,data} envelope as the rest of the API (see httpx.Success), just
-// resolved against ORIGIN_BASE_URL directly instead.
+// Branding lives under /api/v1/... not /api/v1/customer/..., so it can't go through httpClient's apiRequest.
 async function brandingFetch<T>(path: string, opts: { skipAuth?: boolean } = {}): Promise<T> {
   const headers: Record<string, string> = { "ngrok-skip-browser-warning": "true" };
   if (!opts.skipAuth) {
@@ -39,15 +33,11 @@ async function brandingFetch<T>(path: string, opts: { skipAuth?: boolean } = {})
   return envelope?.data as T;
 }
 
-// Pre-login: called with whatever lender code the login screen currently
-// holds (may be "" on a single-tenant deployment, which the backend resolves
-// itself).
 export function fetchPublicBranding(businessCode: string) {
   const code = businessCode || "default";
   return brandingFetch<PublicBranding>(`/public/branding/${encodeURIComponent(code)}`, { skipAuth: true });
 }
 
-// Post-login: the business comes from the token, so there is no code param.
 export function fetchMyBranding() {
   return brandingFetch<SelfBranding>("/branding");
 }

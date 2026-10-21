@@ -4,8 +4,7 @@ import { ThemedText } from "./ThemedText";
 
 type PasswordToggleProps = { visible: boolean; onToggle: () => void };
 
-// Convenience eye toggle for password fields — <GoldTextInput secureTextEntry
-// right={<PasswordToggle visible={show} onToggle={() => setShow(v => !v)} />} .../>
+// Convenience eye toggle for password fields.
 export function PasswordToggle({ visible, onToggle }: PasswordToggleProps) {
   return (
     <Pressable onPress={onToggle} hitSlop={10}>

@@ -1,23 +1,7 @@
 import React, { useSyncExternalStore } from "react";
 import { StyleSheet, View } from "react-native";
 
-// Why sheets aren't rendered in a native <Modal> any more
-// -------------------------------------------------------
-// Android draws this app edge-to-edge, and RN's Modal opens its own window
-// whose bounds don't reliably match the screen under edge-to-edge — the
-// bottom-anchored sheet ended up floating with a strip of the dimmed page
-// still showing beneath it, and no amount of flex/inset/translucent-flag
-// tweaking inside the modal could paint past that window's edge.
-//
-// So: BottomSheetModal renders nothing where it's used. It publishes its
-// content into this module-level store, and SheetHost — mounted once as a
-// SIBLING of <Slot/> in app/_layout.tsx, inside the app's own full-screen
-// root view — renders it. The overlay is therefore laid out against the real
-// screen, so `bottom: 0` really is the bottom edge.
-//
-// The store is deliberately outside React: a sheet re-publishing its content
-// re-renders only SheetHost, never the screen that owns the sheet, so
-// republishing on every render can't loop.
+// RN's Modal window didn't match the screen under Android edge-to-edge, so sheets publish here instead and SheetHost renders them against the real root view.
 
 type Entry = { id: string; node: React.ReactNode };
 
@@ -38,8 +22,7 @@ export const sheetStore = {
   getSnapshot() {
     return entries;
   },
-  // Keeps insertion order stable so a sheet opened on top of another
-  // (e.g. a picker over a form sheet) stays on top as it re-renders.
+  // Keeps insertion order stable so a sheet opened on top of another stays on top as it re-renders.
   set(id: string, node: React.ReactNode) {
     const existing = entries.findIndex((e) => e.id === id);
     if (existing >= 0) {

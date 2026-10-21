@@ -14,8 +14,7 @@ export function Stepper({ steps, current, allDone }: StepperProps) {
         const done = allDone || i < current;
         const cur = !allDone && i === current;
         return (
-          // Each step's connector reaches back into the previous step's cell;
-          // stacking earlier steps above later ones keeps it UNDER that dot.
+          // zIndex stacks earlier steps above later ones so each connector stays under the next step's dot.
           <View key={label} style={[s.step, { zIndex: steps.length - i }]}>
             {i > 0 ? <View style={[s.stepLine, done && { backgroundColor: C.brandDeep }]} /> : null}
             <View style={[s.stepDot, done && { backgroundColor: C.brandDeep }, cur && { backgroundColor: C.accent }]}>

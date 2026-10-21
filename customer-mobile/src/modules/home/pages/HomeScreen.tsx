@@ -19,18 +19,10 @@ function money(n: number | undefined | null): string {
   return `₹${(n ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
-// A loan still carries an active balance for KPI purposes unless it's
-// reached one of these terminal states — mirrors the same "not yet closed"
-// notion the backend's FindOpenForCalendar/loans list filters use.
 function isOpenLoan(l: Loan): boolean {
   return l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Auctioned";
 }
 
-// Dashboard/Home: a gold-rate widget (tap -> rise-up modal with history),
-// real My Loans/Reminders summary cards sourced from GET /customer/loans
-// (no separate summary endpoint needed — the loan list already carries
-// status/outstanding/isDueSoon/isOverdue/dueDate for every loan), and a
-// notification bell.
 export default function HomeScreen() {
   const { customer } = useAuth();
   const router = useRouter();
@@ -75,8 +67,6 @@ export default function HomeScreen() {
   const totalOutstanding = openLoans.reduce((sum, l) => sum + (l.totalOutstandingBalance ?? l.outstandingAmount ?? 0), 0);
   const dueSoonLoans = openLoans.filter((l) => l.isDueSoon);
   const overdueLoans = openLoans.filter((l) => l.isOverdue);
-  // Nearest upcoming due date across every open loan — the single most
-  // useful thing to surface on a summary card without listing every loan.
   const nextDue = openLoans
     .filter((l) => !l.isOverdue)
     .slice()

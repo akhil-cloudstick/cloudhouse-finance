@@ -39,10 +39,6 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import type { Packet } from "@/modules/packets/types/packet-types";
 import type { Locker } from "@/modules/lockers/types/locker-types";
 
-// Packets & Lockers — prototype #header-packets + #page-packets, packet /
-// locker filter sheets and detail sheets. One page, two tabs, each with its
-// own server search (`q`) and status filter.
-
 const TABS = ["packets", "lockers"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { packets: "Packets", lockers: "Lockers" };
@@ -83,10 +79,7 @@ export default function PacketsScreen() {
     openPage(`/loans/${loanId}`);
   };
 
-  // QR label → packet lookup (GET /packets/by-code), opens its sheet. A
-  // loan-only label (printed before the packet existed) resolves the loan by
-  // number, then opens its packet if one has since been created, else the
-  // loan itself.
+  // A loan-only label (printed before the packet existed) resolves the loan, then opens its packet or itself.
   async function onScanned(scanned: string) {
     setScannerOpen(false);
     const label = parseLabel(scanned);
@@ -174,17 +167,14 @@ export default function PacketsScreen() {
 type PacketsTabProps = { header: React.ReactNode; lockerIdParam?: number; onOpen: (id: number) => void };
 
 function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
-  // One grouped, multi-select filter — Status, Branch, Customer — same as web's Packets page.
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("packets:filters", emptyGroupedFilter());
   const showBranchFilter = useShowBranchFilter();
   const statuses = gfValues(fv, "status");
   const branchIds = showBranchFilter ? gfValues(fv, "branch") : [];
   const customerIds = gfValues(fv, "customer");
-  // Arriving with ?lockerId=… scopes the list to that locker until cleared.
   const [lockerId, setLockerId] = useState<number | undefined>(lockerIdParam);
   useEffect(() => setLockerId(lockerIdParam), [lockerIdParam]);
 
-  // A customer belongs to one branch, so picking branches narrows the Customer list (same as web).
   const sections: GFSection[] = [
     { kind: "static", key: "status", label: "Status", options: PKT_STATUSES.map((s) => ({ value: s, label: s })) },
     ...(showBranchFilter
@@ -222,8 +212,6 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
     fetchPage: (p) => listPacketsPage(p),
   });
 
-  // Packets carry only currentLockerId — resolve each distinct locker's code
-  // once (shared cache with the locker sheet).
   const lockerIds = Array.from(new Set(list.items.map((p) => p.currentLockerId).filter((v): v is number => typeof v === "number" && v > 0)));
   const lookups = useQueries({ queries: lockerIds.map((lid) => ({ queryKey: ["locker", String(lid)], queryFn: () => getLocker(lid), staleTime: 60_000 })) });
   const lockerCode = (lid?: number) => (lid ? lookups[lockerIds.indexOf(lid)]?.data?.code ?? "…" : undefined);
@@ -278,7 +266,6 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
 type LockersTabProps = { header: React.ReactNode; onOpen: (l: Locker) => void };
 
 function LockersTab({ header, onOpen }: LockersTabProps) {
-  // Branch and Status, both multi-select — same as web's Locker filter ("Has room" = active).
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("lockers:filters", emptyGroupedFilter());
   const showBranchFilter = useShowBranchFilter();
   const statuses = gfValues(fv, "status");

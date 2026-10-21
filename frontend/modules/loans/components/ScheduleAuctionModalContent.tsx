@@ -38,7 +38,7 @@ export function ScheduleAuctionModalContent({ loan, onSaved, onError }: Schedule
       const msg = e instanceof ApiError ? e.message : "Could not schedule the auction — try again.";
       const field = fieldForMessage(msg, { ref: /reference/i, date: /date/i });
       if (field) fail(field, msg); else { setFe({}); setErr(msg); }
-      onError?.(); // see IssueNoticeModalContent's onError comment above
+      onError?.();
     } finally {
       setSaving(false);
     }

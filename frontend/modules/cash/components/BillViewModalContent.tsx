@@ -7,12 +7,9 @@ import { fetchUploadFile } from "@/common/services/uploadService";
 
 type BillViewModalContentProps = { title: string; url: string };
 
-/* A bill image attached to any ledger entry (expense, cash-in, self transfer). */
 export function BillViewModalContent({ title, url }: BillViewModalContentProps) {
   const { closeModal } = useModal();
-  // Fetched with the session's own token and shown from a blob: a plain
-  // <img src="/uploads/…"> relies on a cookie shared across browser tabs,
-  // which another business's login in a second tab silently replaces.
+  // Fetched with the session's token and shown as a blob — a plain <img src> would rely on a shared cookie.
   const [src, setSrc] = useState<string>("");
   const [failed, setFailed] = useState(false);
   useEffect(() => {

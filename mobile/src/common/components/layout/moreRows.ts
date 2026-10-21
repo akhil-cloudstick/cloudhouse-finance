@@ -4,11 +4,7 @@ import { routeEnabled } from "@/common/config/tenantModules";
 import { routeAllowed } from "@/common/config/routePermissions";
 import { FEATURES } from "@/common/config/features";
 
-// ---------------------------------------------------------------------------
-// More (prototype #more-modal) + the modules the prototype doesn't list.
-// ---------------------------------------------------------------------------
-// A route row's permission is its page's ROUTE_PERMISSIONS entry; `perms` is only
-// for rows that open a sheet instead of a page.
+// A route row's permission is its page's ROUTE_PERMISSIONS entry; `perms` is only for rows that open a sheet.
 export type MoreRow = { key: string; route?: string; title: string; sub: string; icon: string; perms?: [string, string][]; action?: "gold" };
 const MORE_ROWS: MoreRow[] = [
   { key: "auctions", route: "auctions", title: "Auctions", sub: "Active cases & auction history", icon: "gavel" },

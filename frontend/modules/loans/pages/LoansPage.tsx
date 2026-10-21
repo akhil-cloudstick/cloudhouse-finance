@@ -23,36 +23,21 @@ const NO_BRANCHES: string[] = [];
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
 
-/* "Due Soon"/"Overdue"/"Defaulted" are read-time classifications (see
- * loan/accrual.go's enrichStatusFlags), not stored statuses, so they are not
- * sent as `status`. They go to GET /loans as `servicing`, and the server
- * applies the same rules and paginates (see loan/servicing_filter.go). The
- * three are mutually exclusive: Overdue leaves out defaulted loans, and
- * Defaulted leaves out loans already in the auction pipeline. */
+// Read-time classifications, not stored statuses — sent as `servicing`, not `status`; mutually exclusive.
 const SERVICING_CATS: Partial<Record<string, "due_soon" | "overdue" | "defaulted">> = {
   "Due Soon": "due_soon",
   "Overdue": "overdue",
   "Defaulted": "defaulted",
 };
 
-/* Ported from legacy/app.js's `renderLoans()`. Backed by the real loan API:
- * the initial list comes from LoansProvider, but once a status filter or
- * search term is applied, this re-queries `GET /loans` directly (via
- * listLoans's `q`/`status` params) so filtering happens server-side instead
- * of only scanning the client's already-loaded page. */
 export function LoansPage() {
   const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
   const { can } = useAuth();
   const basePageSize = useResponsivePageSize(15, 15);
   const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
-  // No branch filter in a single-branch business, or while the global
-  // branch selector already scopes the page (see useShowBranchFilter).
   const showBranchFilter = useShowBranchFilter();
-  // Hidden rather than shown as a form that can only fail with a 403.
   const canCreateLoans = can("Loan_Management", "can_create_loan");
-  // Dashboard KPI cards ("Active Loans", "Due Soon", etc.) link here as
-  // `#loans/<category>` so the tab they promise is the tab that's actually
-  // open on arrival, instead of always landing on "All".
+  // Dashboard KPI cards link here as `#loans/<category>` so the promised tab is actually open on arrival.
   const { arg: initialCatArg } = useAppRoute();
   const initialCat = initialCatArg ? decodeURIComponent(initialCatArg) : undefined;
   const [cats, setCats] = usePersistedState<string[]>("loans:cats", initialCat && CATS.includes(initialCat) && initialCat !== "All" ? [initialCat] : []);
@@ -62,8 +47,7 @@ export function LoansPage() {
   const [fromDate, setFromDate] = usePersistedState("loans:from", "");
   const [toDate, setToDate] = usePersistedState("loans:to", "");
   const [savedBranchIds, setBranchIds] = usePersistedState<string[]>("loans:branches", []);
-  // A hidden Branch filter must not keep narrowing rows with a stale saved
-  // selection (it would intersect the global branch to an empty page).
+  // A hidden Branch filter must not keep narrowing rows with a stale saved selection.
   const branchIds = showBranchFilter ? savedBranchIds : NO_BRANCHES;
   const [customerIds, setCustomerIds] = usePersistedState<string[]>("loans:customers", []);
   const [branches, setBranches] = useState<BranchView[]>([]);
@@ -81,18 +65,9 @@ export function LoansPage() {
   const branchKey = branchIds.join(",");
   const customerKey = customerIds.join(",");
 
-  // Any filter change resets back to page 1 rather than leaving the user
-  // stranded on a page number the new filter may not have.
   useEffect(() => { setPage(1); }, [catsKey, q, fromDate, toDate, branchKey, customerKey, pageSize]);
 
-  // LoansProvider fetches once when the app shell mounts and is only
-  // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,
-  // NewLoan). Anything else that moves a loan — an auction sale, a bank
-  // re-pledge, or plain server-side interest accrual — left this page
-  // rendering the app-mount snapshot until a full browser reload. <Loans/> is
-  // remounted on every route change (see app/(product)/app/page.tsx's View), so
-  // refreshing here gives the list the same on-demand round trip opening a
-  // loan already gets.
+  // Refetches on every mount so this page doesn't render a stale app-mount snapshot after a loan changes elsewhere.
   useEffect(() => { refreshLoans(); }, [refreshLoans]);
 
   useEffect(() => {
@@ -115,20 +90,10 @@ export function LoansPage() {
         .finally(() => { if (!cancelled) setSearching(false); });
     }, 300);
     return () => { cancelled = true; clearTimeout(handle); };
-    // `allLoans` is a dependency for its identity, not its value: this branch
-    // renders `filtered` (a server-side listLoansPage snapshot) rather than
-    // the provider list, and nothing was re-running this query when a loan
-    // changed. Recording a payment or clearing an approval called
-    // refreshLoans(), which swapped in a fresh provider array but left
-    // `filtered` pinned to the pre-change rows — so the table only caught up on a browser reload.
-    // Keying off the new array identity re-issues the filtered query in step
-    // with every provider refresh.
+    // `allLoans` is a dependency for its identity only — keys this query to re-run on every provider refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catsKey, q, fromDate, toDate, branchKey, customerKey, page, allLoans, pageSize]);
 
-  // One grouped filter (same FilterPanel the ledger pages use) replacing the
-  // old status tab row + standalone date pickers. Every section is
-  // multi-select: a loan matches any selected value within a section.
   const filterCategories: FilterCategory[] = [
     {
       key: "status", label: "Status", kind: "static", searchHint: "Searches: loan status",
@@ -160,8 +125,7 @@ export function LoansPage() {
   const error = searchError || providerError;
   const rows: LoanView[] = filtered ?? [];
   const totalPages = Math.max(1, Math.ceil(serverTotal / pageSize));
-  // `filtered` is null only until the first server response lands, so a
-  // legitimately empty result (total 0) still counts as a known total.
+  // `filtered` is null only until the first server response lands, so an empty result (total 0) still counts as known.
   const knownTotal = filtered !== null;
   const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 

@@ -1,9 +1,6 @@
 import { WS_BASE_URL } from "./httpClient";
 import { getToken } from "./tokenStorage";
 
-// Wire shape pushed down the socket by backend/internal/notification's
-// Service — see documents/api_documentation.md's "Customer App
-// Notifications API" section.
 export type NotificationMessage = {
   type: "notification";
   id: number;
@@ -18,16 +15,7 @@ export type NotificationMessage = {
 const MAX_BACKOFF_MS = 30000;
 const INITIAL_BACKOFF_MS = 2000;
 
-// connectNotificationSocket opens a persistent WebSocket to
-// GET /customer/ws, authenticated via the same Bearer token every REST call
-// uses (React Native's WebSocket, unlike a browser's, accepts custom
-// headers at connect time). On every {"type":"notification",...} message it
-// immediately acks receipt back over the socket — this IS the "client
-// received" signal the backend's Delivered flag is keyed on (not "seen" —
-// there is no separate seen/opened signal in this batch) — then hands the
-// message to onNotification. Reconnects with exponential backoff on any
-// close/error; call the returned function to stop reconnecting and close
-// the connection (e.g. on sign-out).
+// Acks each message (keys the backend's Delivered flag); reconnects with exponential backoff.
 export function connectNotificationSocket(onNotification: (msg: NotificationMessage) => void): () => void {
   let ws: WebSocket | null = null;
   let closed = false;
@@ -37,7 +25,7 @@ export function connectNotificationSocket(onNotification: (msg: NotificationMess
   async function connect() {
     if (closed) return;
     const token = await getToken();
-    if (!token) return; // signed out mid-connect-attempt — do not retry
+    if (!token) return;
     if (closed) return;
 
     // @ts-expect-error — React Native's WebSocket accepts a third `options`
@@ -45,7 +33,7 @@ export function connectNotificationSocket(onNotification: (msg: NotificationMess
     ws = new WebSocket(WS_BASE_URL, undefined, { headers: { Authorization: `Bearer ${token}` } });
 
     ws.onopen = () => {
-      backoff = INITIAL_BACKOFF_MS; // reset on a successful connect
+      backoff = INITIAL_BACKOFF_MS;
     };
 
     ws.onmessage = (event: any) => {
@@ -59,8 +47,7 @@ export function connectNotificationSocket(onNotification: (msg: NotificationMess
       try {
         ws?.send(JSON.stringify({ type: "ack", notificationId: msg.id }));
       } catch {
-        // Best-effort — a failed ack just means the server's resend ticker
-        // will retry this notification later, same as any other drop.
+        // Best-effort: a failed ack just means the server's resend ticker retries later.
       }
       onNotification(msg);
     };

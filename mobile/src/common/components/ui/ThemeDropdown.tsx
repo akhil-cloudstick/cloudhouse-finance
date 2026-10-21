@@ -17,11 +17,6 @@ type ThemeDropdownProps<T> = {
   style?: StyleProp<ViewStyle>;
 };
 
-// ---- .theme-dropdown ------------------------------------------------------
-// A normal dropdown: the field keeps its place in the form (same height as
-// an input), the list opens right under it — or above when there's no room
-// — over everything else (Popover.tsx), and closes on a pick or any tap
-// outside. Opening it never changes the height of the card around it.
 export function ThemeDropdown<T>({
   value,
   options,

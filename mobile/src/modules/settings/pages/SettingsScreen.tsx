@@ -23,20 +23,12 @@ import { ApiError } from "@/common/services/httpClient";
 import { dmy } from "@/common/utils/format";
 import { useAuth } from "@/common/providers/AuthProvider";
 
-// Settings (API keys) — not drawn in the prototype; built from its list
-// language (FlatHeader back, SearchInput, server-paged AccRows, Sheets).
-// Administrator-only: the route is hidden from More for everyone else and
-// the backend's RBAC 403s regardless. Raw key values are never returned —
-// only whether a category is configured.
-
 const label = (c: string) => c.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 
 type ApiKeySheetProps = { visible: boolean; onClose: () => void; item: ApiKeyView | null };
 
-/** Whether a category has a key stored — the server's `is_set`. */
 const isConfigured = (k?: ApiKeyView | null) => !!(k?.isSet ?? k?.configured);
 
-/** Add / replace a category's key. `category` null = pick one (FAB). */
 function ApiKeySheet({ visible, onClose, item }: ApiKeySheetProps) {
   const queryClient = useQueryClient();
   const [category, setCategory] = useState<ApiKeyCategory>(API_KEY_CATEGORIES[0]);
@@ -49,7 +41,6 @@ function ApiKeySheet({ visible, onClose, item }: ApiKeySheetProps) {
     if (!visible) return;
     setCategory(item?.category ?? API_KEY_CATEGORIES[0]);
     setName(item?.name ?? "");
-    // The stored key is pre-filled (masked until revealed), so it can be reviewed or changed.
     setValue(item?.value ?? "");
     setReveal(false);
     setError(null);
@@ -81,7 +72,6 @@ function ApiKeySheet({ visible, onClose, item }: ApiKeySheetProps) {
 
 type DeleteKeySheetProps = { item: ApiKeyView | null; onClose: () => void };
 
-/** Clear a category's stored key. */
 function DeleteKeySheet({ item, onClose }: DeleteKeySheetProps) {
   const queryClient = useQueryClient();
   const del = useMutation({
@@ -110,7 +100,6 @@ export default function SettingsScreen() {
   const [editing, setEditing] = useState<ApiKeyView | null>(null);
   const [deleting, setDeleting] = useState<ApiKeyView | null>(null);
   const { can } = useAuth();
-  // Adding a key is a PUT too, so it rides on "can update setting".
   const canUpdate = can("Settings_Management", "can_update_setting");
   const canDelete = can("Settings_Management", "can_delete_setting");
 

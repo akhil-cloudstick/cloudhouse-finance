@@ -8,19 +8,9 @@ import { fetchApprovalCategories, updateApprovalCategory } from "@/common/servic
 import { type CategoryView, type ChainRole, type UpdateCategoryInput } from "@/common/types/approval-workflow-types";
 import { loadErrorText, userMessage } from "@/common/services/apiErrors";
 
-// Roles & Permissions → "Approval Workflow" tab — the mobile counterpart of
-// the web's ApprovalWorkflowSettings. Flows are grouped into categories
-// (Gold Loan, Personal Loan, Auction, Expense), switched from the corner
-// button with the one on screen highlighted. Each flow's approvers are an
-// ordered chain of the business's own roles; a category with several
-// actions can share one chain or keep one per action. The last approver of
-// a chain is highlighted — their approval performs the action. Only a
-// step's role (or Administrator) can approve it. Viewing needs "can view
-// role and permission", editing "can update role".
+// Mobile counterpart of the web's ApprovalWorkflowSettings.
 
-/* A category's editable state: its mode, the shared chain, and each flow's
- * own chain. Both kinds are kept so switching mode back and forth never
- * loses what was set up in the other. */
+// Both shared and per-flow chains are kept so switching mode never loses the other's setup.
 type Draft = { shared: boolean; steps: ChainRole[]; flows: Record<string, ChainRole[]> };
 
 function draftOf(c: CategoryView): Draft {
@@ -54,8 +44,7 @@ export function ApprovalWorkflowTab({ header, tabs }: ApprovalWorkflowTabProps) 
   const canEdit = can("Role_Management", "can_update_role");
 
   const categories = useQuery({ queryKey: ["approvalWorkflow", "categories"], queryFn: fetchApprovalCategories });
-  // Administrator can always approve every step, so it is never offered as
-  // a chain member (same as the web).
+  // Administrator can always approve, so it's excluded from the chain picker.
   const roles = useQuery({ queryKey: ["roles", "chain"], queryFn: fetchRoles });
   const chainRoles: ChainRole[] = useMemo(
     () => (roles.data ?? []).filter((r) => r.isActive && !r.isSystem).map((r) => ({ roleId: r.id, name: r.name, active: true })),
@@ -100,8 +89,6 @@ export function ApprovalWorkflowTab({ header, tabs }: ApprovalWorkflowTabProps) 
   function remove(ch: ChainSpec, i: number) {
     setChain(ch.id, ch.steps.filter((_, j) => j !== i));
   }
-  // Tapping a role already in the chain takes it out; a one-approver chain
-  // swaps its role instead.
   function pick(ch: ChainSpec, r: ChainRole) {
     const inChain = ch.steps.some((s) => s.roleId === r.roleId);
     if (inChain) setChain(ch.id, ch.steps.filter((s) => s.roleId !== r.roleId));

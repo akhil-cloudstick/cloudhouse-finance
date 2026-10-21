@@ -26,8 +26,7 @@ import { useLoanBalance } from "@/modules/cash/hooks/use-loan-balance";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { singleFlight } from "@/common/utils/singleFlight";
 
-// A focused number input steps its value on mouse-wheel; blurring first
-// lets the wheel scroll the modal instead of changing the amount.
+// Blur on wheel so scrolling the modal doesn't step the number input.
 const noWheelStep = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
 
 const MODE_OPTIONS = [
@@ -36,9 +35,7 @@ const MODE_OPTIONS = [
   { value: "Bank Transfer", label: "Bank Transfer" },
 ];
 
-// "Gold Sale" is a built-in source, not a cash.CashSource row — picking it
-// turns this modal into the gold-sale form and posts to /gold-sales instead
-// (the backend refuses to create a real source with this name).
+// Built-in source name, not a real cash.CashSource row; picking it switches this modal to the gold-sale form.
 const GOLD_SALE = "Gold Sale";
 
 // Which field a server message is about, by its words (first match wins).
@@ -46,47 +43,20 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   payments: /bank|payment/i, remarks: /remarks/i, branch: /branch/i, date: /date/i, category: /categor|source|loan/i, amount: /amount/i,
 };
 
-// "Gold Sale" is now a real (built-in) row of the category list, so the plain
-// source search already returns it.
 const searchSourcesWithGoldSale = searchCashSourcesPage;
 
-// `edit` opens the form on an existing cash-in (from the ledger's Edit button).
 type AddCashModalContentProps = { onSaved?: () => void; defaultBranchId?: number; tabs?: ReactNode; edit?: EntryInfo };
 
-/* Ported from legacy/app.js's `openAddCashModal()` / `acSourceChanged()` /
- * `saveAddCash()` — now posts to the real POST /cash-movements endpoint.
- * The bank picker used to come from db.banks (a hardcoded list); banks are
- * now a real backend resource (see internal/bank), so this uses the same
- * SearchableSelect + allowCreate pattern as RepledgeModal.tsx.
- *
- * Source of Cash used to be a fixed Savings/Loan <Select> — it's now a
- * SearchableSelect backed by cash.CashSource (find-or-create, same pattern
- * as the Bank picker), so staff can add a new source on the fly instead of
- * being limited to the two defaults. A source whose name starts with
- * "Loan" (isLoanSource — e.g. "Loan HDFC 4471") is one loan, but it is entered
- * like any other cash-in: no loan number or principal is asked for. Repayments
- * are expenses in that category and show as credits in the loan's ledger.
- *
- * Mode of Cash (Cash/UPI/Bank Transfer) records how the money physically
- * arrived — a non-cash Mode asks for the one bank account it landed in (see
- * `bankRequired` below and backend/internal/cash/service.go's Record).
- *
- * The built-in "Gold Sale" source (see GOLD_SALE) swaps in the gold-sale
- * fields — ornament type, cost, branch, remarks — and records a gold sale. */
+// A source starting with "Loan" is a loan: entered like any cash-in (no loan number/principal asked),
+// and repayments in that category show as credits in the loan's ledger.
 export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: AddCashModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
-  // The whole picked row, not just its name — a loan source carries its
-  // already-captured details (principalAmount etc.). Editing starts from the
-  // entry's category name only (a loan-drawn cash-in is not editable).
   const [sourceRec, setSourceRec] = useState<BackendCashSource | null>(edit ? ({ id: 0, name: edit.category } as BackendCashSource) : null);
   const source = sourceRec?.name ?? "";
-  // Gold Sale keeps its own single Mode / Bank; every other category uses the
-  // payment breakdown below.
   const [mode, setMode] = useState(edit?.kind === "gold_sale" ? edit.lines[0]?.mode ?? "" : "");
-  // The branch's own account the UPI/transfer landed in.
   const [bank, setBank] = useState(edit?.kind === "gold_sale" ? edit.lines[0]?.bankName ?? "" : "");
   const [bankId, setBankId] = useState(edit?.kind === "gold_sale" && edit.lines[0]?.bankId ? String(edit.lines[0].bankId) : "");
   const [payRows, setPayRows] = useState<PaymentRow[]>(() =>
@@ -98,12 +68,10 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
   const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
   const [err, setErr] = useState("");
-  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
   const [fe, setFe] = useState<Record<string, string>>({});
   const [payIssue, setPayIssue] = useState<PaymentIssue | null>(null);
   const changePayRows: Dispatch<SetStateAction<PaymentRow[]>> = useCallback((a) => { setPayIssue(null); setPayRows(a); }, []);
   const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
-  // A server message goes under the field its words name.
   const failFromServer = (e: unknown) => {
     const msg = e instanceof ApiError ? e.message : "Could not save — try again.";
     const field = fieldForMessage(msg, SERVER_FIELDS);
@@ -115,21 +83,12 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   const isLoan = isLoanSource(source);
   const isGoldSale = source === GOLD_SALE;
 
-  // Gold Sale fields — only shown/required when source is GOLD_SALE.
   const [ornamentType, setOrnamentType] = useState(edit?.ornamentType ?? "");
   const [costAmount, setCostAmount] = useState(edit?.costAmount ? String(edit.costAmount) : "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
-  // Every cash-in lands in one branch's till — without a branch it never
-  // reaches any branch's Balance in Hand (cash.SummaryService only sums a
-  // branch's own movements), so Branch is required for every source.
-  // Defaults to the branch the Cash page is currently showing.
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
-  // Single-branch plan: no branch is ever shown — the field is not rendered.
   const showBranch = useShowBranch();
-  // Locked (and defaulted) to the global branch selection when one is
-  // active, the same way a single-branch business locks it.
   const lockedBranchId = useLockedBranchId();
   const branchLocked = singleBranch || lockedBranchId != null;
   const [branchId, setBranchId] = useState<number | "">(edit?.branchId || defaultBranchId || lockedBranchId || "");
@@ -142,9 +101,6 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   const sold = +amt || 0;
   const profit = sold > 0 ? sold - (+costAmount || 0) : 0;
 
-  // A loan is just a category: no loan number or principal is asked for. A
-  // loan that already has a principal on record (opened earlier) is still
-  // limited to what is left to draw — the backend refuses it past that.
   const loanBal = useLoanBalance(sourceRec);
   const drawAmount = +amt || 0;
   // Editing a draw: its own amount is already counted as drawn, so it is available again to the edit.
@@ -155,8 +111,6 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
     : "";
 
 
-  // Bank is required for a non-cash Mode — the branch account the
-  // UPI/transfer landed in (see backend/internal/cash/service.go's Record).
   const bankRequired = mode === "UPI" || mode === "Bank Transfer";
 
   async function saveGoldSale() { return singleFlight("modal:addcash:saveGoldSale", async () => {
@@ -232,8 +186,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         amount, branchId, occurredOn: date,
         remarks: remarks.trim() || undefined, payments,
       });
-      // A loan's first entry also makes it a repayment category server
-      // side — reload the category links so its ledger link appears.
+      // A loan's first entry makes it a repayment category server-side; reload category links for the ledger link.
       if (isLoan) window.dispatchEvent(new Event(EXPENSE_CATEGORIES_CHANGED));
       onSaved?.();
       closeModal();
@@ -249,7 +202,6 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
     <div className={fe.category ? "has-err" : undefined}><label className="f">Category *</label>
       <SearchableSelect<BackendCashSource>
         portal
-        // A gold sale's category stays Gold Sale.
         disabled={edit?.kind === "gold_sale"}
         value={source}
         onChange={(_id, item) => {
@@ -306,10 +258,6 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
       /><FieldError msg={fe.branch} /></div>
   );
 
-  // Credit and Debit follow one order: Category → Amount → Date → Mode (with
-  // its payment breakdown) → Branch → Bill → Remarks. Category-specific fields
-  // (a new loan's details) sit right after the Category. A Gold Sale keeps the
-  // older single-mode layout: Category → Date → Mode → Bank → Amount → Branch.
   return (
     <>
       <div className="hd"><h3>{edit ? (edit.kind === "gold_sale" ? "Edit Gold Sale" : "Edit Cash-In") : "Add Cash"}</h3><button className="x" onClick={closeModal}>×</button></div>

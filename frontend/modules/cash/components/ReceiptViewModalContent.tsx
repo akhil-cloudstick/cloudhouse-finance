@@ -7,7 +7,6 @@ import { type ExpenseView } from "@/modules/cash/types/cash-types";
 
 type ReceiptViewModalContentProps = { e: ExpenseView };
 
-/* Ported from legacy/app.js's `viewExpenseReceipt()`. */
 export function ReceiptViewModalContent({ e }: ReceiptViewModalContentProps) {
   const { closeModal } = useModal();
   return (

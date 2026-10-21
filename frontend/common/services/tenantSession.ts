@@ -1,45 +1,13 @@
-/* Per-business sessions and links.
- *
- * The app is sold to many independent businesses from one deployment, so a
- * username is only unique WITHIN a business and the backend needs to know
- * which one a login is for. It learns that from a `businessCode`, and the
- * business reaches its staff through a per-business link, with the code at
- * the front of the path: /<slug>/login, /<slug>/dashboard.
- *
- * Three rules this module exists to enforce:
- *
- * 1. THE SLUG SELECTS, IT NEVER GRANTS. It decides which business to
- *    authenticate against and nothing more. After login the business comes
- *    from the token — never re-read from the URL — so editing the slug in the
- *    address bar cannot change whose data you see. The backend ignores it
- *    entirely once a session exists.
- *
- * 2. SESSIONS ARE KEYED BY SLUG. Every business shares one browser origin, so
- *    a single "cloudhouse_token" key meant two businesses open in two tabs
- *    silently clobbered each other's session — you would be signed in as the
- *    wrong business, or logged out at random. Keys are per-slug instead.
- *
- * 3. A BARE /login MUST NOT DEAD-END. Anyone who bookmarks the plain URL, or
- *    whose link is truncated, needs a way through — otherwise "the link
- *    stopped working" becomes the commonest support call. Bare paths fall back
- *    to the last business used on this browser, and the login form offers a
- *    business-code field when even that is missing.
- *
- * The slug is part of a business's identity and is treated as IMMUTABLE:
- * changing it breaks every saved bookmark.
- */
+// Per-business sessions and links: one deployment serves many businesses, so a username is only unique WITHIN a business, selected via businessCode / the /<slug>/... path prefix.
+// Three rules: (1) the slug only SELECTS which business to authenticate against — after login the business comes from the token, never re-read from the URL; (2) sessions are KEYED BY SLUG since one shared origin would let two tabs on two businesses clobber each other's "cloudhouse_token"; (3) a bare /login must not dead-end — it falls back to the last business used on this browser.
+// The slug is immutable identity: changing it breaks every saved bookmark.
 
 import { isBusinessSegment, isValidBusinessSlug as isValidSlug } from "@/common/config/routes";
 
-/* Where the last-used business is remembered, so bare /login and /app resolve
- * to something instead of dead-ending. A pointer only — never a source of
- * authority. */
+// Last-used business, so bare /login and /app resolve to something instead of dead-ending. A pointer only, never a source of authority.
 const ACTIVE_BUSINESS_KEY = "cloudhouse_active_business";
 
-/* Storage keys from before the rebrand, kept ONLY so purgeStaleSession() can
- * delete them. These are historical localStorage strings, not brand surface:
- * they are never read for a value and never displayed. Every key this app
- * writes today is prefixed `cloudhouse_`. */
+// Storage keys from before the rebrand, kept only so purgeStaleSession() can delete them.
 const STALE_KEYS = [
   "ambikagold_token",
   "ambikagold_employee",
@@ -48,26 +16,13 @@ const STALE_KEYS = [
   "ambikagold_superadmin_user",
 ] as const;
 
-/* The bucket used when no slug is known — the single-business installation,
- * which is every installation today. Named rather than empty so the storage
- * keys stay readable in devtools. */
+// Bucket for when no slug is known (the single-business install). Named rather than empty so storage keys stay readable in devtools.
 const DEFAULT_BUCKET = "default";
 
-/* The slug rules themselves live in common/config/routes.ts, which has no
- * imports: both this module and appRoutes.ts need them, and each of those
- * two already needs the other. Re-exported here so the many callers that
- * reach for it through this module keep working. */
+// Slug rules live in routes.ts (no imports, needed by both this module and appRoutes.ts); re-exported so existing callers keep working.
 export { isValidBusinessSlug } from "@/common/config/routes";
 
-/* businessSlugFromPath reads the business out of the FIRST path segment:
- * /ctfi/login, /ctfi/dashboard, /ctfi/loan/GL-1001.
- *
- * The business code leads the path so that everything belonging to one
- * customer sits under one prefix that is theirs. The cost is that the first
- * segment is ambiguous — "/loans" could be a business called "loans" — which
- * is settled by routes.ts's reserved list, not by guessing. Returns null for
- * a bare path (/login, /dashboard), which is the single-business install.
- */
+// Reads the business from the first path segment (/ctfi/login, ...). Ambiguity ("/loans" could be a business) is settled by routes.ts's reserved list. Null for a bare path.
 export function businessSlugFromPath(pathname?: string): string | null {
   const path = pathname ?? (typeof window === "undefined" ? "" : window.location.pathname);
   const parts = path.split("/").filter(Boolean);
@@ -76,21 +31,10 @@ export function businessSlugFromPath(pathname?: string): string | null {
   return isBusinessSegment(candidate) ? candidate : null;
 }
 
-/* Host labels that never name a business — the platform's own bare/marketing
- * subdomains, which a production deployment may put in front of the same
- * origin. Extend this list rather than assuming every non-apex hostname is a
- * tenant.
- *
- * "demo" is NOT reserved: it is an ordinary tenant code like any other,
- * reachable at demo.cloudhousefinance.com same as any other business's
- * subdomain. */
+// Host labels that never name a business (platform's own bare/marketing subdomains). "demo" is NOT reserved — it's an ordinary tenant code.
 const RESERVED_HOST_LABELS = new Set(["www", "app", "admin", "api", "superadmin"]);
 
-/* Local-dev suffixes that carry a subdomain without a real DNS entry:
- * "ambika.localhost" resolves to 127.0.0.1 in every modern browser with no
- * hosts-file edit, and lvh.me/nip.io are the equivalent for tools that need
- * a real DNS answer (e.g. some HTTPS/dev-proxy setups). See
- * documents/local_multitenant_testing.md. */
+// Local-dev suffixes carrying a subdomain without a real DNS entry (see documents/local_multitenant_testing.md).
 const LOCAL_HOST_SUFFIXES = ["localhost", "lvh.me", "nip.io"];
 
 const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
@@ -98,12 +42,7 @@ const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
 // The desktop app's own origin (Wails); it names no business.
 const DESKTOP_HOST = "wails.localhost";
 
-/* subdomainLabel is the shared rule both businessSlugFromHost() below and the
- * desktop fallback use: given a lowercased host, the first label names a
- * business only when there is something real in front of a qualifying
- * domain. Returns null for a bare apex domain (no subdomain to read),
- * "localhost" alone, a raw IP, or a reserved label — see the two lists
- * above. */
+// Shared rule for businessSlugFromHost() and the desktop fallback: null for a bare apex domain, "localhost" alone, a raw IP, or a reserved label.
 function subdomainLabel(host: string): string | null {
   if (!host || IPV4_PATTERN.test(host)) return null;
   const labels = host.split(".");
@@ -112,22 +51,11 @@ function subdomainLabel(host: string): string | null {
   if (!isValidSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
   const rest = labels.slice(1).join(".");
   if (LOCAL_HOST_SUFFIXES.includes(rest)) return candidate;
-  // A bare two-label apex ("cloudhousefinance.com") has no subdomain to
-  // read at all — only three-or-more labels put something in front of it.
+  // A bare two-label apex ("cloudhousefinance.com") has no subdomain; only 3+ labels do.
   return labels.length >= 3 ? candidate : null;
 }
 
-/* The desktop app is never served from a tenant subdomain — Wails always
- * serves it from wails.localhost, regardless of which backend it talks to.
- * So there is no Host to read a slug from the way the browser case does.
- * Each desktop build already points at exactly one tenant's backend via
- * NEXT_PUBLIC_API_BASE (see common/services/httpClient.ts), so that URL's
- * own hostname is used instead: the same build that calls
- * https://aj.cloudhousefinance.com/api/v1 also signs in as "aj".
- *
- * Returns null when NEXT_PUBLIC_API_BASE is unset or relative (the ordinary
- * same-origin web/production setup), which is a no-op for every build that
- * isn't desktop-with-a-tenant-URL. */
+// Wails always serves the desktop app from wails.localhost regardless of tenant, so there's no Host to read a slug from — use NEXT_PUBLIC_API_BASE's own hostname instead. Null (no-op) when it's unset or relative.
 function desktopSlugFromApiBase(): string | null {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE;
   if (!apiBase) return null;
@@ -138,38 +66,14 @@ function desktopSlugFromApiBase(): string | null {
   }
 }
 
-/* businessSlugFromHost reads a subdomain the way production will resolve a
- * tenant on a real domain: https://ambika.cloudhousefinance.com/... names
- * "ambika" without any /login/<slug> path segment at all. Mirrors (on the
- * frontend, before any session exists) the same one-directional trust
- * backend/internal/tenant/host.go already documents for the Host header:
- * this only ever NAMES a candidate business for the login screen to show
- * branding for — it is never treated as authorization, and
- * businessCodeForRequest still sends it as an ordinary business code that
- * auth.Service validates like any other.
- *
- * Returns null for a bare apex domain (no subdomain to read), "localhost"
- * alone, a raw IP, or a reserved label — see the two lists above. On the
- * desktop app's own host, falls back to desktopSlugFromApiBase() instead,
- * since wails.localhost never names a business itself. */
+// Reads a subdomain the way production resolves a tenant (https://ambika.cloudhousefinance.com/...). Only ever NAMES a candidate business for branding — never authorization; businessCodeForRequest still sends it as an ordinary code auth.Service validates. Falls back to desktopSlugFromApiBase() on the desktop app's own host.
 export function businessSlugFromHost(hostname?: string): string | null {
   const host = (hostname ?? (typeof window === "undefined" ? "" : window.location.hostname)).toLowerCase();
   if (host === DESKTOP_HOST) return desktopSlugFromApiBase();
   return subdomainLabel(host);
 }
 
-/* activeBusinessSlug is the business this browser tab is operating as, in
- * order of authority: the URL PATH if it names one (/login/<slug>), then the
- * URL's HOST if it names one (a production subdomain), then the last one
- * used on this browser.
- *
- * The URL wins deliberately, path before host: a path segment is an explicit,
- * unambiguous choice (and the one manual-override/testing route that keeps
- * working on a single shared hostname), while the host is what production
- * subdomains resolve by when there is no path override. Either way, each tab
- * reads its own slug from its own address bar, so two tabs on two businesses
- * never depend on a shared "current business" value the other could
- * overwrite. */
+// Order of authority: URL path, then URL host, then the last business used on this browser. Path wins over host (an explicit choice beats a subdomain default); each tab reads its own slug from its own address bar.
 export function activeBusinessSlug(): string | null {
   const fromPath = businessSlugFromPath();
   if (fromPath) return fromPath;
@@ -180,24 +84,8 @@ export function activeBusinessSlug(): string | null {
   return remembered && isValidSlug(remembered) ? remembered : null;
 }
 
-/* resolveActiveSlug names the active business AND reports which of the two
- * URL signals actually matched: the PATH (an explicit /<slug> segment) or
- * the HOST (a production subdomain).
- *
- * activeBusinessSlug() alone cannot answer that — it collapses path, host and
- * the remembered pointer into one value, so a caller building a link had no
- * way to tell "this came from an explicit /ctfi/... URL, keep showing it" from
- * "this came from the Host header, the address bar never had it". Getting
- * that wrong is exactly how a host-resolved tenant
- * (https://demo.cloudhousefinance.com/) ends up redirected to
- * .../demo/login — a slug the visitor never typed, printed into the URL
- * anyway.
- *
- * Deliberately built only on businessSlugFromPath()/businessSlugFromHost(),
- * not the remembered-business fallback: a caller that wants that third tier
- * too (as the historical `activeBusinessSlug()` callers do) asks for it
- * itself when this returns a null slug, and decides on its own whether that
- * bare-fallback case should still show a slug in the URL. */
+// Names the active business AND reports which URL signal matched (path vs. host) — activeBusinessSlug() alone collapses that, which is how a host-resolved tenant could wrongly get a slug printed into a redirect URL it never typed.
+// Deliberately excludes the remembered-business fallback; callers that want that tier ask for it themselves when this returns null.
 export function resolveActiveSlug(): { slug: string | null; fromPath: boolean } {
   const fromPath = businessSlugFromPath();
   if (fromPath) return { slug: fromPath, fromPath: true };
@@ -218,7 +106,7 @@ function bucket(slug?: string | null): string {
   return s && isValidSlug(s) ? s : DEFAULT_BUCKET;
 }
 
-/* The storage keys for one business's session. */
+// The storage keys for one business's session.
 export function sessionKeys(slug?: string | null) {
   const b = bucket(slug);
   return {
@@ -254,30 +142,11 @@ export function clearSession(slug?: string | null): void {
   window.sessionStorage.removeItem(keys.permissions);
 }
 
-/* clearSessionsForToken removes every bucket holding THIS EXACT token, and
- * returns how many it cleared.
- *
- * Sign-out clears the bucket that activeBusinessSlug() resolves to at the
- * moment of the click. That answer is derived from the current URL (path,
- * then host, then the remembered pointer), and it is not guaranteed to be
- * the answer that was current when writeSession chose a bucket — a login
- * that named a business explicitly and a later bare-path URL resolve
- * differently. When they disagree the token SURVIVES the sign-out, the login
- * page reads it back as a live session, and its "already signed in" effect
- * bounces the user straight to the dashboard: signing out appears to work
- * for an instant and then undoes itself.
- *
- * Matching on the token VALUE rather than widening the slug guess is what
- * keeps this safe for the multi-tenant case. Two businesses signed in in two
- * tabs hold two different tokens, so clearing by value can only ever remove
- * the session actually being signed out of — never the other tab's, which is
- * the whole reason sessions are keyed per business in the first place.
- */
+// Removes every bucket holding THIS EXACT token and returns how many. Sign-out's own activeBusinessSlug() at click-time isn't guaranteed to match the bucket writeSession chose, so clearing by slug alone could leave the token alive (an "already signed in" bounce-back). Matching on token VALUE instead is also what keeps two tabs on two businesses from clearing each other's session.
 export function clearSessionsForToken(token: string | null): number {
   if (typeof window === "undefined" || !token) return 0;
   const prefix = "cloudhouse_token::";
-  // Collected before mutating: removeItem reindexes localStorage, so removing
-  // inside a key(i) walk skips entries.
+  // Collected before mutating: removeItem reindexes localStorage, so removing mid-walk would skip entries.
   const buckets: string[] = [];
   for (let i = 0; i < window.localStorage.length; i++) {
     const key = window.localStorage.key(i);
@@ -288,9 +157,7 @@ export function clearSessionsForToken(token: string | null): number {
   return buckets.length;
 }
 
-/* readPermissions/writePermissions mirror the permission map per business.
- * sessionStorage, so it dies with the tab (the map is a cache, never an
- * authority — see the role-permission standard). */
+// Mirrors the permission map per business in sessionStorage (dies with the tab — it's a cache, never an authority).
 export function readPermissionsRaw(slug?: string | null): string | null {
   if (typeof window === "undefined") return null;
   return window.sessionStorage.getItem(sessionKeys(slug).permissions);
@@ -301,35 +168,16 @@ export function writePermissionsRaw(slug: string | null, json: string): void {
   window.sessionStorage.setItem(sessionKeys(slug).permissions, json);
 }
 
-/* purgeStaleSession deletes the storage keys this app wrote under its previous
- * name. It replaces a migrateLegacySession() that carried a pre-multi-tenancy
- * token into the keyed layout: the rebrand renamed the keyed layout too, so
- * there is no longer any value worth carrying over — every session predating
- * it is unreadable and its holder signs in again once. What is left to do is
- * housekeeping, so that a token from the old deployment does not sit in
- * localStorage indefinitely after it has stopped being usable.
- *
- * Unconditional and idempotent: removeItem on an absent key is a no-op. */
+// Deletes storage keys from the app's previous name (pre-rebrand); no value left to migrate, just housekeeping. Unconditional and idempotent.
 export function purgeStaleSession(): void {
   if (typeof window === "undefined") return;
   for (const key of STALE_KEYS) window.localStorage.removeItem(key);
 }
 
-/* The link builders moved to common/services/appRoutes.ts, which owns the
- * whole URL shape — routes as well as the two standalone pages. Re-exported
- * here because this is where every caller already imports them from, and a
- * link built against the old shape would resolve to a page that no longer
- * exists. */
+// Link builders moved to appRoutes.ts; re-exported since every caller already imports them from here.
 export { appPath, loginPath, resetPath } from "@/common/services/appRoutes";
 
-/* The business code sent to the backend with a login, password-reset request
- * or OTP verification.
- *
- * Empty when unknown, which is correct rather than a fallback: with a single
- * business the backend resolves it on its own, and with several it answers
- * "please use your organisation's sign-in link, or enter your business code"
- * — a prompt, not a guess. Guessing here would mean authenticating someone
- * against a business they never named. */
+// Business code sent with login/reset/OTP requests. Empty when unknown is correct, not a fallback: guessing would authenticate someone against a business they never named.
 export function businessCodeForRequest(slug?: string | null): string {
   const s = slug === undefined ? activeBusinessSlug() : slug;
   return s && isValidSlug(s) ? s : "";

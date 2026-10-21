@@ -8,16 +8,10 @@ import { SettingsSheet } from "@/modules/integrations/components/SettingsSheet";
 
 type ProfileSheetProps = { visible: boolean; onClose: () => void };
 
-// ---------------------------------------------------------------------------
-// Profile (tap on the dashboard avatar) — sign out lives here.
-// ---------------------------------------------------------------------------
 export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const { employee, signOut, exitBusiness } = useAuth();
   const { businessName, hasModule } = useTheme();
-  // Unlike Sign out (which keeps the business, so the next sign-in goes
-  // straight to its login page), this also forgets the business and sends
-  // the app back to the "enter a business" screen (app/(auth)/connect.tsx).
-  // Confirmed in the app's own sheet, not a native Alert.
+  // Unlike Sign out, this also forgets the business and returns to the "enter a business" screen.
   const [confirmExit, setConfirmExit] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   return (

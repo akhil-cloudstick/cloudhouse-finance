@@ -45,11 +45,7 @@ import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import type { Locker } from "@/modules/lockers/types/locker-types";
 import { OrnamentTypeField } from "./OrnamentTypeField";
 
-// Create New Loan (prototype #loan-modal) — rise-up sheet opened from the
-// Loans page "+" and the dashboard's Create Loan quick action. Same business
-// rules as the web NewLoan form: blocked until today's gold rate is
-// published, ornament value = net wt × rate for its purity (quantity is not multiplied in), principal
-// capped at the scheme's LTV-eligible amount.
+// Same rules as web NewLoan: blocked until today's gold rate is published, ornament value = net wt × purity rate, principal capped at LTV-eligible amount.
 type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; lessWeight: string; quantity: string; img: string };
 const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "22", grossWeight: "", lessWeight: "", quantity: "1", img: "" };
 const KARATS = ["24", "23", "22", "21", "20", "18", "16", "14", "12", "10"];
@@ -102,8 +98,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
   const qc = useQueryClient();
   const { employee, can } = useAuth();
   const canCreate = can("Loan_Management", "can_create_loan");
-  // Only a cross-branch user picks another branch — everyone else books into
-  // their own (the backend enforces this too, overriding branchId).
+  // Only a cross-branch user picks another branch — backend also enforces this, overriding branchId.
   const canPickBranch = can("Branch_Management", "can_view_all_branches");
   const ownBranch = employee ? { id: employee.branchId, name: employee.branch?.name ?? "Your branch" } : null;
 
@@ -112,9 +107,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
   const [branch, setBranch] = useState<{ id: number; name: string } | null>(ownBranch);
   const [locker, setLocker] = useState<Locker | null>(null);
   const [rows, setRows] = useState<OrnRow[]>([{ ...emptyRow }]);
-  // A manually typed principal, and the eligible amount it was typed against (`at`; null = restored from a
-  // draft). It is dropped whenever the eligible amount changes (ornaments, scheme or rate edited), so the
-  // field never keeps an amount computed against different gold — it falls back to the eligible amount.
+  // Manually typed principal + the eligible amount it was typed against; dropped when the eligible amount changes.
   const [pEdit, setPEdit] = useState<{ v: string; at: number | null } | null>(null);
   const [exceeds, setExceeds] = useState(false);
   // How the scheme's service charge is applied — Deduct from loan / Add to loan (web's Charge method).
@@ -122,14 +115,10 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
   // The saved draft being edited, if any — saving again updates it, creating the loan discards it.
   const [draftId, setDraftId] = useState<number | null>(null);
   const [info, setInfo] = useState("");
-  // One photo of the whole pledge — optional, but TML businesses must attach it
-  // (it prints on their pledge book).
+  // Optional, but TML businesses must attach it (prints on their pledge book).
   const [overallPhoto, setOverallPhoto] = useState("");
   const overallPhotoRequired = printPolicy() === "tml";
-  // Loan (opened) date — same rule as the web NewLoan form: defaults to
-  // today, may be backdated but never set in the future (the DateField's max
-  // blocks it; the backend re-checks). Interest accrues from this date and
-  // the due date is derived from it.
+  // May be backdated but never future-dated (DateField's max blocks it; backend re-checks); due date derives from it.
   const [openedDate, setOpenedDate] = useState(todayISO());
   const [error, setError] = useState<string | null>(null);
 
@@ -143,13 +132,11 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
 
   const today = todayISO();
   const isTodaySet = !!goldRate.data?.date && goldRate.data.date.slice(0, 10) === today;
-  // Rates for the valuation: 22K / 18K ornaments use their own published rates (the backend values them
-  // that way and refuses a principal above ITS eligible amount); everything else derives off K24.
+  // 22K / 18K ornaments use their own published rates (backend values and caps eligible amount that way); else off K24.
   const rates = { k24: goldRate.data?.k24 ?? 0, k22: goldRate.data?.k22 ?? 0, k18: goldRate.data?.k18 ?? 0 };
 
   const update = (i: number, patch: Partial<OrnRow>) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  // Ornament value = net weight × the purity's rate. Quantity is a record-only field — it does NOT
-  // multiply into weight or value (the backend prices GoldValue = NetWeight × rate; same as web).
+  // Quantity is record-only — it does NOT multiply into weight or value (backend prices GoldValue = NetWeight × rate).
   const valueOf = (r: OrnRow) => {
     const p = rowPurity(r);
     const rate = p ? rateForPurityFull(rates, p) : null;
@@ -213,9 +200,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
       });
     },
     onSuccess: async (loan) => {
-      // Link each photographed row to the ornament created for it (returned
-      // in submission order). The loan already exists, so a failed photo is
-      // reported rather than blocking — it can be re-added from Edit Loan.
+      // Loan already exists, so a failed photo upload is reported rather than blocking (re-add from Edit Loan).
       const created = loan.ornaments ?? [];
       const photoResults = await Promise.all(
         valid.map((r, i) => (r.img && created[i] ? addOrnamentImage(created[i].id, r.img).then(() => true, () => false) : Promise.resolve(true)))
@@ -233,19 +218,17 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
 
   const schemeLabel = (sc: Scheme) => `${sc.name} — ${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%`;
 
-  // ---- Saved drafts — a half-entered loan kept per employee, like web's "Saved drafts" card ----
+  // Saved drafts — a half-entered loan kept per employee, like web's "Saved drafts" card.
   const drafts = useQuery({ queryKey: ["loan-drafts"], queryFn: listDrafts, enabled: visible && canCreate });
 
-  // Saves whatever is on screen with no validation beyond a branch: the point is to keep an incomplete form.
-  // The real rules still apply when the loan is created.
+  // Saves whatever is on screen with no validation beyond a branch; the real rules apply when the loan is created.
   function buildDraftInput(): SaveDraftInput {
     return {
       branchId: branch!.id,
       ...(customer ? { customerId: customer.id } : {}),
       ...(scheme ? { schemeId: scheme.id } : {}),
       ...(locker ? { lockerId: locker.id } : {}),
-      // Only a genuine manual override is stored — an empty field means "use the eligible amount", which must
-      // stay computed (a draft reopened next week has to use next week's gold rate).
+      // Only a genuine manual override is stored — a draft reopened later must recompute off that day's gold rate.
       ...(pActive && pActive.v !== "" ? { principalOverride: +principal } : {}),
       ...(overallPhoto ? { overallPhotoUrl: overallPhoto } : {}),
       ornaments: rows.map((r) => ({
@@ -277,8 +260,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
     },
   });
 
-  // Reopens a saved draft into the form. The customer / scheme / branch labels come from the draft's preloaded
-  // objects; the scheme (needed for the LTV) is looked up in the active schemes, the locker by id.
+  // Reopens a saved draft into the form; scheme (needed for LTV) is looked up in active schemes, locker by id.
   async function applyDraft(d: LoanDraft) {
     setError(null);
     setDraftId(d.id);
@@ -487,8 +469,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
       </Field>
       {showExceeds ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>Amount can&apos;t exceed {inr(eligible)}.</Txt> : null}
       {(() => {
-        // Same summary as web: the charge, then Principal and the amount actually paid out. A withheld charge
-        // comes off the amount; an added charge rides on top of it (the entered amount is the cap, not the total).
+        // A withheld charge comes off the amount; an added charge rides on top (entered amount is the cap, not total).
         const amount = +principal || 0;
         const charge = !hasCharge || !scheme ? 0 : scheme.serviceChargeType === "Flat" ? scheme.serviceChargeValue ?? 0 : (amount * (scheme.serviceChargeValue ?? 0)) / 100;
         const withheld = chargeMode === "WithheldFromPayout";

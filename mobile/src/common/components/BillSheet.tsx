@@ -7,13 +7,7 @@ import { API_ORIGIN } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 
-// Uploaded bills / receipts live at /uploads/<key>, which the server only
-// serves to a signed-in caller (Authorization: Bearer on GET /uploads/:key) —
-// so an <Image> pointing at one must carry the session token, and a link
-// handed to the system browser (no header) would 401. Mobile counterpart of
-// the web's BillViewModalContent.
-
-// Absolute URLs pass through; a stored path may be "/uploads/x", "uploads/x" or just the bare file key.
+// /uploads/<key> requires Authorization: Bearer, so Image sources must carry the session token or they 401.
 export const uploadUrl = (path: string) => {
   const p = path.trim().replace(/ /g, "%20");
   if (/^https?:\/\//i.test(p)) return p;
@@ -59,21 +53,17 @@ async function shareUpload(path: string) {
   await Sharing.shareAsync(res.uri, { dialogTitle: "Bill" });
 }
 
-type BillSheetProps = { path: string | null; onClose: () => void; /** What is being viewed (e.g. "Identity proof"); shown as the sheet title. */ title?: string };
+type BillSheetProps = { path: string | null; onClose: () => void; title?: string };
 
-/** A bill image in a sheet, authenticated, with a clear fallback if it won't
- * load (and Share/Open for PDFs, which an Image can't draw). */
+/** A bill image in a sheet, authenticated, with Share/Open fallback for PDFs. */
 export function BillSheet({ path, onClose, title = "Bill" }: BillSheetProps) {
   const [localUri, setLocalUri] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  // Bumped by Retry so the <Image> remounts and fetches again.
   const [attempt, setAttempt] = useState(0);
   const pdf = !!path && isPdf(path);
-  // The file is downloaded with the session token first and the Image then
-  // draws the local copy: an <Image> given remote headers fails silently on
-  // some Android builds, and a download reports the real HTTP status.
+  // Downloaded first then drawn as a local file: Image with remote headers fails silently on some Android builds.
   useEffect(() => {
     setFailed(false);
     setLoading(true);

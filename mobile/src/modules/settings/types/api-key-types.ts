@@ -1,5 +1,3 @@
-// Mirrors backend/internal/settings's API key view — raw values are never
-// serialized (encrypted at rest), only whether a category is configured.
 export const API_KEY_CATEGORIES = [
   "notification",
   "sms",

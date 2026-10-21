@@ -4,7 +4,7 @@ import { s } from "./chipTones";
 
 type GrmTabsProps<T extends string> = { tabs: readonly T[]; value: T; onChange: (v: T) => void; labels?: Partial<Record<T, string>> };
 
-// ---- .grm-tabs (equal-width tabs inside a modal) --------------------------
+/** .grm-tabs — equal-width tabs inside a modal. */
 export function GrmTabs<T extends string>({ tabs, value, onChange, labels }: GrmTabsProps<T>) {
   return (
     <View style={s.grmTabs}>

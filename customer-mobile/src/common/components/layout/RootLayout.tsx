@@ -24,8 +24,7 @@ import { ApiError } from "@/common/services/httpClient";
 
 SplashScreen.preventAutoHideAsync();
 
-// Same "paint the status-bar strip explicitly" fix as mobile/src/common/components/layout/RootLayout.tsx
-// — see that file's doc comment (Android edge-to-edge, SDK 57+).
+// Paints the status-bar strip explicitly for Android edge-to-edge (SDK 57+).
 function StatusBarBackdrop() {
   const insets = useSafeAreaInsets();
   return (
@@ -36,16 +35,7 @@ function StatusBarBackdrop() {
   );
 }
 
-// Cold-start sign-in bootstrap, per the plan's app/_layout.tsx root logic:
-//   1. A registered device token exists -> prompt biometric -> on success,
-//      exchange it for a fresh session JWT via device-login (server-side
-//      validated, not just a local unlock). Any failure here (biometric
-//      cancel/fail, or the server rejects the device token as
-//      revoked/expired) falls back to the OTP login screen — never a dead
-//      end.
-//   2. No device token, but a stored session token exists -> try refresh to
-//      confirm it's still valid; on success go straight to (tabs).
-//   3. Neither -> OTP login screen.
+// Cold-start: try device token + biometric, else refresh a stored session token, else fall back to OTP login.
 async function bootstrapSession(
   completeLogin: (s: authApi.SessionResponse) => Promise<void>,
   markAuthenticated: () => void,
@@ -65,31 +55,19 @@ async function bootstrapSession(
           try {
             const session = await authApi.deviceLogin(deviceToken);
             await completeLogin(session);
-            // Refresh in the background for freshness — completeLogin
-            // already has a customer object from the device-login response,
-            // so this isn't load-bearing, just keeps KYC/profile fields
-            // current.
             refreshProfile().catch(() => {});
             return;
           } catch {
-            // The SERVER rejected this token (revoked/expired) — it's
-            // genuinely dead, so clear it. This is the only case that
-            // clears the token; a cancelled/failed biometric prompt below
-            // leaves it intact so the login screen's "Login with biometric"
-            // button can retry without forcing a full OTP re-verification.
+            // Only cleared when the server itself rejects the token as revoked/expired.
             await clearDeviceToken();
             return;
           }
         }
-        // Biometric prompt was shown but cancelled/failed — the token
-        // itself is still fine, just leave it for the login screen to
-        // offer a retry via its own "Login with biometric" button.
+        // Biometric cancelled/failed: leave the token for the login screen's retry button.
         return;
       }
     } catch {
-      // hasHardwareAsync/isEnrolledAsync itself threw — fall through to
-      // OTP below without touching the token (a transient platform hiccup
-      // shouldn't discard a working credential).
+      // Platform hiccup checking hardware/enrollment: fall through to OTP without touching the token.
     }
   }
 
@@ -99,11 +77,7 @@ async function bootstrapSession(
       const { token } = await authApi.refresh();
       await saveToken(token);
       markAuthenticated();
-      // Unlike the device-login path above, a session-token refresh has no
-      // customer object of its own — this is the one bootstrap path that
-      // actually needs GET /customer/profile to populate `customer` at all.
-      // Non-blocking: a transient failure here shouldn't fail the whole
-      // bootstrap, just leave `customer` null until the next successful call.
+      // Session-token refresh has no customer object of its own, so this path needs the profile fetch.
       await refreshProfile().catch(() => {});
       return;
     } catch (err) {
@@ -126,9 +100,7 @@ function RootNavigation() {
       setLoading(false);
       setBootstrapped(true);
     })();
-    // Intentionally runs once on mount only — re-running this on every
-    // segments/router change would re-trigger a biometric prompt whenever
-    // navigation state changes.
+    // Runs once on mount; re-running on nav changes would re-trigger the biometric prompt.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -154,12 +126,7 @@ function RootNavigation() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style="dark" />
-      {/* A real Stack, not <Slot/> — (tabs) needs to stay mounted underneath
-          pushed top-level siblings so its tab state (which tab was active)
-          survives the round trip. With a bare Slot, pushing into a sibling
-          top-level route unmounted (tabs) entirely; popping back then
-          remounted it fresh, always landing on the first tab (Home)
-          regardless of which tab the user had open. */}
+      {/* Real Stack, not <Slot/>: keeps (tabs) mounted underneath pushed siblings so its active tab survives. */}
       <Stack screenOptions={{ headerShown: false }} />
       <SheetHost />
       <StatusBarBackdrop />
@@ -175,12 +142,7 @@ export default function RootLayout() {
     Montserrat_700Bold,
     NunitoSans_800ExtraBold,
   });
-  // The login screen's logo <Image> was popping in a frame after its
-  // surrounding card/inputs — fonts were the only thing gating the splash
-  // screen, so it hid as soon as they resolved while the logo asset was
-  // still being read/decoded off-thread. Preloading it here means it's
-  // already in the image cache by the time the login screen mounts, so it
-  // paints in the same frame as everything else.
+  // Preloaded so the login logo is cached before mount, avoiding a pop-in frame after the splash hides.
   const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   useEffect(() => {

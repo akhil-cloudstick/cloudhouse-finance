@@ -35,8 +35,6 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
       {loading ? (
         <ActivityIndicator color={isPrimary ? colors.bg : colors.brandDeep} />
       ) : (
-        // One step up from typeScale.label (13) — buttons read a little
-        // more confident at this size without jumping all the way to body.
         <View style={styles.row}>
           {icon ? <Icon name={icon} size={18} color={isPrimary ? colors.bg : colors.brandDeep} /> : null}
           <ThemedText variant="label" color={isPrimary ? colors.bg : colors.brandDeep} style={styles.title} numberOfLines={1}>
@@ -60,8 +58,7 @@ const makeStyles = (c: Colors) => StyleSheet.create({
   },
   primary: {
     backgroundColor: c.brandDeep,
-    // A soft gold-tinted lift under the primary button only — the outline
-    // variant stays flat, matching the approved modern/minimal mockups.
+    // Soft gold-tinted shadow on the primary variant only; outline stays flat.
     ...Platform.select({
       ios: {
         shadowColor: c.brandDeep,
