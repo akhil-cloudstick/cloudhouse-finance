@@ -1005,7 +1005,7 @@ func PreviewIndemnityBondPDF(c echo.Context) error {
 	age := 0
 	if req.DOB != "" {
 		if dob, err := time.Parse("2006-01-02", req.DOB); err == nil {
-			age = int(time.Since(dob).Hours() / 24 / 365.25)
+			age = common.AgeFromDOB(dob, time.Now())
 		}
 	}
 	var dueDate time.Time
