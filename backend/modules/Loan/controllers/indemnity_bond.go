@@ -281,7 +281,7 @@ type bondTemplateData struct {
 	Items              []tmlBondItem
 	GrossTotal         string
 	NetTotal           string
-	ReceiptAmount      string // principal to 2 decimals, for the gold loan receipt
+	ReceiptAmount      string // principal to 2 decimals, for the sheet's amount boxes and the gold loan receipt
 	TotalQty           int
 	PacketQR           template.URL
 	PrintClock         string
