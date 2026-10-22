@@ -36,12 +36,12 @@ body{margin:0;padding:0;width:100%;font-family:Arial,'Noto Sans Tamil','Nirmala 
 table{border-collapse:collapse}
 td,th{overflow-wrap:anywhere}
 .serif{font-family:'Times New Roman',Times,serif}
-.hdr{position:relative;height:140px;border:3px solid #000;text-align:center;padding:10px 190px 0;overflow:hidden}
+.hdr{position:relative;height:140px;border:3px solid #000;text-align:center;padding:5px 190px 0;overflow:hidden}
 .hdr .logo{position:absolute;left:20px;top:22px;width:110px;height:90px;object-fit:contain}
 .hdr h1{margin:0;color:var(--brand,#423591);font-family:'Times New Roman',Georgia,serif;font-size:34px;line-height:40px;letter-spacing:2px;text-transform:uppercase}
 .hdr b{display:block;font-size:13px;line-height:16px}
 .hdr b.ad{font-family:'Times New Roman',serif;font-size:19px;line-height:22px}
-.hdr .tag{display:inline-block;width:162px;height:26px;line-height:24px;border:1px solid #000;margin-top:4px;font-family:'Times New Roman',serif;font-size:19px}
+.hdr .tag{display:inline-block;width:162px;height:26px;line-height:24px;border:1px solid #000;margin-top:3px;font-family:'Times New Roman',serif;font-size:19px}
 .hdr .by{position:absolute;right:12px;top:62px;width:168px}
 .hdr .by span{display:block;text-align:center;font-family:'Times New Roman',serif;font-size:15px;margin-bottom:5px}
 .hdr .by div{height:41px;line-height:39px;border:1px solid #000;padding:0 9px;font-size:15px;white-space:nowrap}
@@ -68,7 +68,7 @@ td,th{overflow-wrap:anywhere}
  * between them. */
 .mid{display:flex;margin-top:12px;min-height:262px;align-items:stretch}
 .decl{display:flex;flex-direction:column;width:418px;line-height:21px;font-size:12.5px;text-align:left;overflow-wrap:anywhere}
-.decl .tx{margin:0}
+.decl .tx{margin:0;word-spacing:4px}
 .decl .words{margin:6px 0 4px;font-family:'Times New Roman',serif;font-size:14px;line-height:18px}
 .sig{margin-top:4px;width:229px;height:38px;flex-shrink:0;border:1px solid #000;padding:0 8px;display:flex;align-items:center;font-family:'Times New Roman',serif;font-size:15px;line-height:17px}
 .esign-slot{display:inline-block;width:150px}
@@ -82,9 +82,9 @@ td,th{overflow-wrap:anywhere}
 .items.tot{border:2px solid #000;margin-top:0}
 .items.tot th{font-size:13px;height:19px;padding:1px 6px}
 .items.tot td{font-family:Arial,sans-serif;font-weight:700;font-size:14px;height:33px}
-.pay{display:grid;grid-template-columns:213px 230px 1fr auto;border-bottom:1.5px solid #000;margin-top:14px;padding:0 40px 3px 4px;font-family:'Times New Roman',serif;font-size:14px;line-height:16px}
+.pay{display:grid;grid-template-columns:213px 230px 1fr auto;border-bottom:1.5px solid #000;margin-top:30px;padding:0 40px 3px 4px;font-family:'Times New Roman',serif;font-size:14px;line-height:16px}
 .pay span:last-child{text-align:right}
-.recv{margin:9px 0 0;font-size:12.5px;line-height:21px;word-spacing:2px;overflow-wrap:anywhere}
+.recv{margin:6px 0 0;font-size:12.5px;line-height:21px;word-spacing:2px;overflow-wrap:anywhere}
 .foot{display:flex;margin-top:12px;padding-left:28px;font-size:14px;line-height:18px}
 .foot span:nth-child(1){width:264px}
 .foot span:nth-child(2){width:219px}
@@ -97,21 +97,21 @@ td,th{overflow-wrap:anywhere}
 .rcpt .hd .ad{font-family:'Times New Roman',serif;font-size:15px;font-weight:700;line-height:16px}
 .rcpt .hd .ct{font-size:11.5px;font-weight:700;line-height:14px}
 .rcpt .hd .gl{font-family:'Times New Roman',serif;font-size:14px;font-weight:700;line-height:17px}
-.rcpt .l .rule{position:absolute;left:6px;right:6px;top:114px;border-top:1px solid #000}
-/* Body band between the header rule and the terms (122px–288px): the table's
+.rcpt .l .rule{position:absolute;left:6px;right:6px;top:100px;border-top:1px solid #000}
+/* Body band between the header rule and the terms (106px–278px): the table's
  * fixed height spreads its six rows evenly over it. Labels hold one line in a
  * fixed column; a long value (the customer name) wraps under itself, after the
  * colon, and takes its extra line from the spare row height. */
-.rg{position:absolute;left:5px;top:122px;width:206px;height:156px;font-size:13px;table-layout:fixed}
+.rg{position:absolute;left:5px;top:106px;width:206px;height:172px;font-size:13px;table-layout:fixed}
 .rg td{padding:0 4px 0 0;font-family:'Times New Roman',serif;font-size:13px;line-height:15px;vertical-align:middle}
 .rg td:first-child{width:68px;white-space:nowrap}
 .rg td+td{font-weight:700;padding-left:18px;text-indent:-8px;overflow-wrap:anywhere}
 .rg tr:first-child td+td{white-space:nowrap}
-.orn{position:absolute;left:214px;top:122px;width:124px;font-family:'Times New Roman',serif;font-size:14px;line-height:19px}
+.orn{position:absolute;left:214px;top:106px;width:124px;font-family:'Times New Roman',serif;font-size:14px;line-height:19px}
 .orn u{font-weight:700;white-space:nowrap}
 .orn .oi{display:block;white-space:nowrap}
 /* Jewel photo at the top of the band, the authorised signature at its foot. */
-.jw{position:absolute;left:335px;top:122px;width:112px;height:156px;display:flex;flex-direction:column;align-items:center;text-align:center;font-family:'Times New Roman',serif;font-size:14px;line-height:17px}
+.jw{position:absolute;left:335px;top:106px;width:112px;height:172px;display:flex;flex-direction:column;align-items:center;text-align:center;font-family:'Times New Roman',serif;font-size:14px;line-height:17px}
 .jw u{font-weight:700}
 .sm{width:92px;height:64px;margin:4px auto 0;border:1px solid #000;font-size:10px;color:#888;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .sm img{width:100%;height:100%;object-fit:cover}
@@ -494,7 +494,7 @@ func tmlZoomCSS(items int, policy string) string {
 	}
 	css := ""
 	if items > 5 {
-		css += "\n.items.main td,.items.main th{padding-top:1px;padding-bottom:1px}.items.main td{font-size:12.5px;line-height:16px}.mid{margin-top:12px}.pay{margin-top:12px}.foot{margin-top:10px}.cut{margin:4px 0 5px}"
+		css += "\n.items.main td,.items.main th{padding-top:1px;padding-bottom:1px}.items.main td{font-size:12.5px;line-height:16px}.mid{margin-top:12px}.pay{margin-top:18px}.recv{margin-top:6px}.foot{margin-top:10px}.cut{margin:4px 0 5px}"
 	}
 	switch {
 	case items <= 7:
