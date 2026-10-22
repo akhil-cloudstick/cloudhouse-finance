@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ageFromDob } from "@/common/utils/format";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Select } from "@/common/components/ui/Select";
@@ -68,7 +69,6 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
   // file (blank for a customer registered before this section existed).
   const [showAdditional, setShowAdditional] = useState(false);
   const [fatherName, setFatherName] = useState(customer.fatherName || "");
-  const [age, setAge] = useState(customer.age ? String(customer.age) : "");
   const [district, setDistrict] = useState(customer.district || "");
   const [taluk, setTaluk] = useState(customer.taluk || "");
   const [village, setVillage] = useState(customer.village || "");
@@ -132,7 +132,7 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
         village: village.trim(),
         place: place.trim(),
         pinCode: pinCode.trim(),
-        ...(age.trim() ? { age: Number(age) } : {}),
+        ...(ageFromDob(dob) != null ? { age: ageFromDob(dob)! } : {}),
       });
 
       onSaved?.();
@@ -167,6 +167,7 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
             </div>
           )}
           <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
+          <div><label className="f">Age</label><input className="inp" readOnly tabIndex={-1} placeholder="Auto from date of birth" value={ageFromDob(dob) ?? ""} style={{ background: "var(--bg-soft, #f6f6f8)" }} /></div>
           <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
           <div className={fe.pan ? "has-err" : undefined}><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value)} /><FieldError msg={fe.pan} /></div>
           <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number</label><input className="inp" placeholder="Leave blank to keep on-file Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
@@ -203,7 +204,6 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
           <>
             <div className="frow c3" style={{ marginTop: 14 }}>
               <div><label className="f">Father&apos;s Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(e.target.value)} /></div>
-              <div><label className="f">Age</label><input className="inp" type="number" min={1} placeholder="e.g. 35" value={age} onChange={(e) => setAge(e.target.value)} /></div>
               <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
             </div>
             <div className="frow c3">
