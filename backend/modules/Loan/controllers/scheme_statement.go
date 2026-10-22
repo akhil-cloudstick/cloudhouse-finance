@@ -76,6 +76,15 @@ func SchemeStatement(c echo.Context) error {
 			f.LoanIDs = append(f.LoanIDs, uint(id))
 		}
 	}
+	// The statement is built whole in memory: refuse a range that covers more
+	// loans than one document should hold instead of loading a whole history.
+	n, err := countFiltered(ctx, f)
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	if n > statementMaxLoans {
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": fmt.Sprintf("this scheme has %d loans in the chosen period — choose a shorter date range (at most %d loans per statement)", n, statementMaxLoans)})
+	}
 	loans, _, err := listLoans(ctx, f)
 	if err != nil {
 		return common.FailErr(c, err)
@@ -104,3 +113,5 @@ func SchemeStatement(c echo.Context) error {
 	}
 	return nil
 }
+
+const statementMaxLoans = 5000

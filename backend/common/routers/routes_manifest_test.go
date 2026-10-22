@@ -230,6 +230,7 @@ var routeManifest = map[string]routeSpec{
 	"GET /api/v1/users/:user_id/personal-loans/:id/bond":                                  probe("id=personal_loans"),
 	"GET /api/v1/users/:user_id/dashboard/needs-attention":                                list(),
 	"GET /api/v1/users/:user_id/dashboard/summary":                                        list(),
+	"GET /api/v1/users/:user_id/dashboard/loan-stats":                                     list(),
 	"GET /api/v1/users/:user_id/dashboard/activity":                                       list(),
 	"GET /api/v1/users/:user_id/dashboard/snapshots":                                      list(),
 	"GET /api/v1/users/:user_id/dashboard/snapshots/latest":                               list(),

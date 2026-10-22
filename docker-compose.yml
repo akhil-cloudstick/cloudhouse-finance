@@ -59,8 +59,14 @@ services:
       dockerfile: Dockerfile
     container_name: cloudhousewild_backend
     restart: always
+    # Hard memory cap: a runaway request can only restart this container, never
+    # starve the other apps on this shared server. GOMEMLIMIT keeps Go's heap
+    # under the cap; DB_STATEMENT_TIMEOUT stops any query running away.
+    mem_limit: 1g
     environment:
       PORT: "6789"
+      GOMEMLIMIT: 700MiB
+      DB_STATEMENT_TIMEOUT: 60s
       DB_HOST: cloudhousewild_db
       DB_PORT: "5432"
       DB_NAME: cloudhouse_demo_db

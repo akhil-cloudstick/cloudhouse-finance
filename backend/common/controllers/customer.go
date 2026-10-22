@@ -765,6 +765,9 @@ func ListCustomers(c echo.Context) error {
 		CustomerType:  c.QueryParam("customer_type"),
 	}
 	if limit == 0 {
+		// Never the whole customer book in one response: a business can hold
+		// tens of thousands of customers. Pickers and tables page instead.
+		f.Limit = unpagedCustomerCap
 		rec, _, err := listCustomers(ctx, f)
 		if err != nil {
 			return FailErr(c, err)
@@ -776,7 +779,46 @@ func ListCustomers(c echo.Context) error {
 	if err != nil {
 		return FailErr(c, err)
 	}
-	return SuccessPage(c, page, limit, total, ToResponseList(rec))
+	out := ToResponseList(rec)
+	if err := attachLoanCounts(ctx, out); err != nil {
+		return FailErr(c, err)
+	}
+	return SuccessPage(c, page, limit, total, out)
+}
+
+const unpagedCustomerCap = 500
+
+// attachLoanCounts sets each listed customer's number of loans (one grouped
+// query for the page) for the Customers table's Loans column.
+func attachLoanCounts(ctx context.Context, out []commonModels.CustomerResponse) error {
+	if len(out) == 0 {
+		return nil
+	}
+	ids := make([]uint, len(out))
+	for i := range out {
+		ids[i] = out[i].ID
+	}
+	var rows []struct {
+		CustomerID uint
+		N          int64
+	}
+	if err := config.DB.
+		WithContext(ctx).Table("loans").
+		Select("customer_id, COUNT(*) AS n").
+		Where("customer_id IN ? AND deleted_at IS NULL", ids).
+		Group("customer_id").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	counts := make(map[uint]int64, len(rows))
+	for _, r := range rows {
+		counts[r.CustomerID] = r.N
+	}
+	for i := range out {
+		n := counts[out[i].ID]
+		out[i].LoanCount = &n
+	}
+	return nil
 }
 
 func GetCustomerById(c echo.Context) error {

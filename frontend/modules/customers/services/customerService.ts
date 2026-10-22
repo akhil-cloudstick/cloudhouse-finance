@@ -39,6 +39,7 @@ function toView(c: BackendCustomer): CustomerView {
     bankAccountName: c.bankAccountName,
     bankAccountNumber: c.bankAccountNumber,
     bankIfsc: c.bankIfsc,
+    loanCount: c.loanCount,
   };
 }
 

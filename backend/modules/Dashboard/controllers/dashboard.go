@@ -116,21 +116,23 @@ func CaptureDailySnapshot(ctx context.Context) error {
 	if _, err := findByDate(ctx, now); err == nil {
 		return nil
 	}
-	active, _, err := loan.FindLoans(ctx, loan.LoanFilter{Status: loanModels.StatusActive})
+	// Counts only (in SQL): loading the loans themselves would pull a whole
+	// long loan history into memory every hour.
+	active, err := loan.CountLoans(ctx, loan.LoanFilter{Status: loanModels.StatusActive})
 	if err != nil {
 		return err
 	}
-	overdue, _, err := loan.FindLoans(ctx, loan.LoanFilter{Status: loanModels.StatusOverdue})
+	overdue, err := loan.CountLoans(ctx, loan.LoanFilter{Status: loanModels.StatusOverdue})
 	if err != nil {
 		return err
 	}
-	pending, _, err := loan.FindLoans(ctx, loan.LoanFilter{Status: loanModels.StatusPendingApproval})
+	pending, err := loan.CountLoans(ctx, loan.LoanFilter{Status: loanModels.StatusPendingApproval})
 	if err != nil {
 		return err
 	}
 	openedFrom := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	openedTo := openedFrom
-	openedToday, _, err := loan.FindLoans(ctx, loan.LoanFilter{OpenedFrom: &openedFrom, OpenedTo: &openedTo})
+	openedToday, err := loan.CountLoans(ctx, loan.LoanFilter{OpenedFrom: &openedFrom, OpenedTo: &openedTo})
 	if err != nil {
 		return err
 	}
@@ -146,10 +148,10 @@ func CaptureDailySnapshot(ctx context.Context) error {
 	}
 	return insertSnapshot(ctx, &models.Snapshot{
 		Date:                 openedFrom,
-		ActiveCount:          len(active),
-		OverdueCount:         len(overdue),
-		PendingApprovalCount: len(pending),
-		OpenedTodayCount:     len(openedToday),
+		ActiveCount:          int(active),
+		OverdueCount:         int(overdue),
+		PendingApprovalCount: int(pending),
+		OpenedTodayCount:     int(openedToday),
 		DueTodayCount:        dueToday,
 	})
 }
@@ -237,4 +239,12 @@ func ListSnapshots(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessAll(c, rec)
+}
+
+func GetLoanStats(c echo.Context) error {
+	rec, err := getLoanStats(auth.RequestContext(c), auth.GetBranchScope(c))
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, rec)
 }

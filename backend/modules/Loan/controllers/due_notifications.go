@@ -33,7 +33,7 @@ func currentInterestCycle(openedDate, now time.Time) time.Time {
 }
 
 func CheckDueAndOverdueLoans(ctx context.Context) {
-	loans, err := FindOpenForCalendar(ctx)
+	loans, err := findOpenForNotifications(ctx)
 	if err != nil {
 		log.Printf("due/overdue notification check: failed to list open loans: %v", err)
 		return
@@ -75,7 +75,7 @@ func CheckDueAndOverdueLoans(ctx context.Context) {
 			), "loan_interest_reminder", "loan", l.ID)
 		}
 		if dirty {
-			if err := persistLoan(ctx, l); err != nil {
+			if err := persistNotificationStamps(ctx, l); err != nil {
 				log.Printf("due/overdue notification check: failed to persist notified-at for loan %d: %v", l.ID, err)
 			}
 		}

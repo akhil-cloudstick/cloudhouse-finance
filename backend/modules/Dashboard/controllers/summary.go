@@ -287,3 +287,53 @@ func getActivity(ctx context.Context, branchScope *uint, limit, offset int) (*Ac
 		Total:   total,
 	}, nil
 }
+
+type MonthAmount struct {
+	Month  string  `json:"month"` // "YYYY-MM"
+	Amount float64 `json:"amount"`
+}
+
+// LoanStats is the part of the dashboard that needs the whole loan book (not
+// just the open loans the app shell keeps in memory): today's new loans and
+// the last six months of sanctioned principal, aggregated in SQL.
+type LoanStats struct {
+	OpenedToday     int64         `json:"opened_today"`
+	DisbursedMonths []MonthAmount `json:"disbursed_months"`
+}
+
+func getLoanStats(ctx context.Context, branchScope *uint) (*LoanStats, error) {
+	now := time.Now()
+	today := dayStart(now)
+	out := &LoanStats{}
+	tq := config.DB.
+		WithContext(ctx).Model(&loanModels.Loan{}).
+		Where("opened_date >= ? AND opened_date < ?", today, today.AddDate(0, 0, 1))
+	if branchScope != nil {
+		tq = tq.Where("branch_id = ?", *branchScope)
+	}
+	if err := tq.Count(&out.OpenedToday).Error; err != nil {
+		return nil, err
+	}
+	from := time.Date(now.Year(), now.Month()-5, 1, 0, 0, 0, 0, now.Location())
+	var rows []MonthAmount
+	mq := config.DB.
+		WithContext(ctx).Model(&loanModels.Loan{}).
+		Select("to_char(opened_date, 'YYYY-MM') AS month, COALESCE(SUM(principal_amount), 0) AS amount").
+		Where("opened_date >= ? AND approval_stage = ?", from, "Approved")
+	if branchScope != nil {
+		mq = mq.Where("branch_id = ?", *branchScope)
+	}
+	if err := mq.Group("month").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	byMonth := make(map[string]float64, len(rows))
+	for _, r := range rows {
+		byMonth[r.Month] = r.Amount
+	}
+	out.DisbursedMonths = make([]MonthAmount, 0, 6)
+	for i := 0; i < 6; i++ {
+		key := from.AddDate(0, i, 0).Format("2006-01")
+		out.DisbursedMonths = append(out.DisbursedMonths, MonthAmount{Month: key, Amount: common.RoundMoney(byMonth[key])})
+	}
+	return out, nil
+}

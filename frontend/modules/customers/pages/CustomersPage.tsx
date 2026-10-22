@@ -4,7 +4,6 @@ import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
-import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
@@ -26,17 +25,20 @@ const VERIFICATION_STATUS_OPTIONS = [
 
 /* Ported from legacy/app.js's `renderCustomers()`. Loads real data from the
  * Go backend (`GET /api/v1/customers`) instead of the localStorage mock
- * store — see the Customer Module stage-1 plan. Loan counts come from the
- * real backend-backed `useLoans()`.
+ * store — see the Customer Module stage-1 plan. Loan counts come with each
+ * page (`loanCount`, one grouped server query).
  *
- * The table below is paginated (10/page, one API call per page) via
- * listCustomersPage — kept separate from CustomersProvider's `customers`,
- * which other pages (GlobalSearch, New Loan's picker) still rely on as a
- * single fetch-once-and-refresh full list. `customers.length` from the
- * provider is only used for the header's overview count. */
+ * The table below is paginated (one API call per page) via listCustomersPage;
+ * the header's overview count is the server total of an unfiltered query. */
 export function CustomersPage() {
-  const { loans } = useLoans();
-  const { customers, refresh: refreshAll } = useCustomers();
+  const { version, refresh: refreshAll } = useCustomers();
+  // Header count: all customers, independent of the search/filters below.
+  const [allCount, setAllCount] = useState(0);
+  useEffect(() => {
+    listCustomersPage("", 1, undefined, 1)
+      .then((res) => setAllCount(res.total))
+      .catch(() => setAllCount(0));
+  }, [version]);
   const { openModal } = useModal();
   const basePageSize = useResponsivePageSize(15, 15);
   const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
@@ -91,7 +93,7 @@ export function CustomersPage() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Customers &amp; KYC</h1><p>{customers.length} customers · PAN &amp; Aadhaar verification status</p></div>
+        <div><h1>Customers &amp; KYC</h1><p>{allCount} customers · PAN &amp; Aadhaar verification status</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" title="Searches: customer name, customer code, phone" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateCustomers && (
@@ -134,7 +136,7 @@ export function CustomersPage() {
               <td data-label="PAN"><StatusChip status={c.panStatus} /></td>
               <td data-label="Aadhaar"><StatusChip status={c.aadhaarStatus} /></td>
               <td data-label="KYC Status"><StatusChip status={c.kycStatus} /></td>
-              <td className="num" data-label="Loans">{loans.filter((l) => String(l.customerId) === String(c.id)).length}</td>
+              <td className="num" data-label="Loans">{c.loanCount ?? 0}</td>
               <td className="td-chev" style={{ textAlign: "right", color: "var(--brand-deep)" }}>›</td>
             </tr>
           ))}

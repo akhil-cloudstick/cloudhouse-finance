@@ -43,6 +43,10 @@ func packetsReport(ctx context.Context, f models.Filter) ([]models.PacketRow, mo
 		Joins("LEFT JOIN loans l ON l.id = p.loan_id").
 		Joins("LEFT JOIN lockers lk ON lk.id = p.current_locker_id").
 		Order("p.updated_at desc")
+	// Every packet still held (in a locker, pledged, …) plus the ones released
+	// within the chosen period — not every packet ever released.
+	from, to := dateRange(f)
+	q = q.Where("p.status <> ? OR (p.updated_at >= ? AND p.updated_at < ?)", "Released", from, to)
 	if f.BranchID != nil {
 		q = q.Where("l.branch_id = ?", *f.BranchID)
 	}
