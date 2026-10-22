@@ -284,6 +284,7 @@ function goldSaleToView(g: BackendGoldSale): GoldSaleView {
     soldAmount: g.soldAmount,
     costAmount: g.costAmount,
     profit: g.profit,
+    costMode: g.costMode || undefined,
     branch: g.branch?.name || "",
     branchId: g.branchId,
     mode: g.mode || "Cash",

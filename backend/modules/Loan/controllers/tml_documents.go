@@ -36,37 +36,43 @@ body{margin:0;padding:0;width:100%;font-family:Arial,'Noto Sans Tamil','Nirmala 
 table{border-collapse:collapse}
 td,th{overflow-wrap:anywhere}
 .serif{font-family:'Times New Roman',Times,serif}
-.hdr{position:relative;height:140px;border:3px solid #000;text-align:center;padding:10px 190px 0;overflow:hidden}
-.hdr .logo{position:absolute;left:12px;top:4px;width:164px;height:126px;object-fit:contain}
+.hdr{position:relative;height:140px;border:3px solid #000;text-align:center;padding:5px 190px 0;overflow:hidden}
+.hdr .logo{position:absolute;left:20px;top:22px;width:110px;height:90px;object-fit:contain}
 .hdr h1{margin:0;color:var(--brand,#423591);font-family:'Times New Roman',Georgia,serif;font-size:34px;line-height:40px;letter-spacing:2px;text-transform:uppercase}
 .hdr b{display:block;font-size:13px;line-height:16px}
 .hdr b.ad{font-family:'Times New Roman',serif;font-size:19px;line-height:22px}
-.hdr .tag{display:inline-block;width:162px;height:26px;line-height:24px;border:1px solid #000;margin-top:4px;font-family:'Times New Roman',serif;font-size:19px}
+.hdr .tag{display:inline-block;width:162px;height:26px;line-height:24px;border:1px solid #000;margin-top:3px;font-family:'Times New Roman',serif;font-size:19px}
 .hdr .by{position:absolute;right:12px;top:62px;width:168px}
 .hdr .by span{display:block;text-align:center;font-family:'Times New Roman',serif;font-size:15px;margin-bottom:5px}
 .hdr .by div{height:41px;line-height:39px;border:1px solid #000;padding:0 9px;font-size:15px;white-space:nowrap}
-.top{display:flex;margin-top:12px;min-height:142px;align-items:flex-start}
+.top{display:flex;margin-top:10px;min-height:142px;align-items:flex-start}
 .cust{width:213px;height:142px;table-layout:fixed}
 .cust td{border:2px solid #000;padding:2px 7px;font-weight:700;font-size:13px;vertical-align:top}
 .cust tr:first-child td,.cust tr:last-child td{height:25px;vertical-align:middle}
 .cust td:first-child{width:84px;white-space:nowrap;font-size:12.5px}
 .pbox{margin-left:9px;width:281px;height:142px;position:relative}
-.pbox .lbl{position:absolute;top:0;width:125px;text-align:center;font-family:'Times New Roman',serif;font-weight:700;font-size:14px;text-decoration:underline}
+.pbox .lbl{position:absolute;top:0;width:134px;text-align:center;font-family:'Times New Roman',serif;font-weight:700;font-size:14px;text-decoration:underline}
 .pbox .frame{position:absolute;left:0;right:0;bottom:0;height:120px;border:1px solid #000}
-.photo{position:absolute;top:3px;width:125px;height:112px;display:flex;align-items:center;justify-content:center;text-align:center;color:#888;font-size:11px;overflow:hidden}
+.photo{position:absolute;top:3px;width:134px;height:112px;display:flex;align-items:center;justify-content:center;text-align:center;color:#888;font-size:11px;overflow:hidden}
 .photo img{width:100%;height:100%;object-fit:cover}
-.p1{left:14px}
-.p2{left:142px}
+.p1{left:3px}
+.p2{left:144px}
 .loan{margin-left:13px;width:210px;height:116px;table-layout:fixed}
 .loan td{border:1px solid #000;padding:2px 6px;font-family:'Times New Roman',serif;font-size:13px;line-height:14px}
 .loan td:first-child{width:66px}
 .loan td:last-child{font-family:Arial,sans-serif;font-weight:700;font-size:13px}
-.mid{display:flex;margin-top:14px;height:238px;align-items:flex-start}
-.decl{position:relative;width:395px;height:238px;line-height:19px;font-size:12.5px;text-align:justify;overflow-wrap:anywhere}
-.decl .words{margin:4px 0 0;font-family:'Times New Roman',serif;font-size:14px;line-height:18px}
-.sig{position:absolute;left:0;top:192px;width:229px;height:46px;border:1px solid #000;padding:4px 8px;font-family:'Times New Roman',serif;font-size:15px;line-height:17px}
+/* The declaration, amount in words and signature box stack in flow (the box sits
+ * right under the words, leaving the rest of the block free for signing), so a
+ * long name or a two-line amount moves the box down instead of running under
+ * it. Left-aligned: justifying long Tamil words in this column left wide gaps
+ * between them. */
+.mid{display:flex;margin-top:12px;min-height:262px;align-items:stretch}
+.decl{display:flex;flex-direction:column;width:418px;line-height:21px;font-size:12.5px;text-align:left;overflow-wrap:anywhere}
+.decl .tx{margin:0;word-spacing:4px}
+.decl .words{margin:6px 0 4px;font-family:'Times New Roman',serif;font-size:14px;line-height:18px}
+.sig{margin-top:4px;width:229px;height:38px;flex-shrink:0;border:1px solid #000;padding:0 8px;display:flex;align-items:center;font-family:'Times New Roman',serif;font-size:15px;line-height:17px}
 .esign-slot{display:inline-block;width:150px}
-.right{margin-left:19px;width:314px}
+.right{margin-left:16px;width:302px}
 .items{width:100%;table-layout:fixed;font-size:13px}
 .items th,.items td{border:1px solid #000;padding:3px 6px;text-align:left}
 .items th{font-family:'Times New Roman',serif;font-size:14px;line-height:15px}
@@ -76,35 +82,40 @@ td,th{overflow-wrap:anywhere}
 .items.tot{border:2px solid #000;margin-top:0}
 .items.tot th{font-size:13px;height:19px;padding:1px 6px}
 .items.tot td{font-family:Arial,sans-serif;font-weight:700;font-size:14px;height:33px}
-.pay{display:grid;grid-template-columns:213px 230px 1fr auto;border-bottom:1.5px solid #000;margin-top:20px;padding:0 40px 3px 4px;font-family:'Times New Roman',serif;font-size:14px;line-height:16px}
+.pay{display:grid;grid-template-columns:213px 230px 1fr auto;border-bottom:1.5px solid #000;margin-top:30px;padding:0 40px 3px 4px;font-family:'Times New Roman',serif;font-size:14px;line-height:16px}
 .pay span:last-child{text-align:right}
-.recv{margin:7px 0 0;font-size:12.5px;line-height:15.5px;overflow-wrap:anywhere}
-.foot{display:flex;margin-top:16px;padding-left:28px;font-size:14px;line-height:18px}
+.recv{margin:6px 0 0;font-size:12.5px;line-height:21px;word-spacing:2px;overflow-wrap:anywhere}
+.foot{display:flex;margin-top:12px;padding-left:28px;font-size:14px;line-height:18px}
 .foot span:nth-child(1){width:264px}
 .foot span:nth-child(2){width:219px}
-.cut{border-top:1.5px dashed #000;margin:6px 0 8px}
-.rcpt{display:flex;height:362px;break-inside:avoid;page-break-inside:avoid}
-.rcpt .l{position:relative;margin-left:16px;width:454px;height:362px;border:1px solid #000;overflow:hidden}
-.rcpt .l .lg{position:absolute;left:6px;top:6px;width:134px;height:104px;object-fit:contain}
-.rcpt .l .hd{position:absolute;left:144px;right:4px;top:4px;text-align:center;line-height:15px}
+.cut{border-top:1.5px dashed #000;margin:4px 0 6px}
+.rcpt{display:flex;height:352px;break-inside:avoid;page-break-inside:avoid}
+.rcpt .l{position:relative;margin-left:16px;width:454px;height:352px;border:1px solid #000;overflow:hidden}
+.rcpt .l .lg{position:absolute;left:12px;top:24px;width:80px;height:60px;object-fit:contain}
+.rcpt .l .hd{position:absolute;left:0;right:0;top:4px;text-align:center;line-height:15px}
 .rcpt h2{margin:0;color:var(--brand,#423591);font-family:'Times New Roman',Georgia,serif;font-size:27px;line-height:29px;letter-spacing:1px;text-transform:uppercase}
 .rcpt .hd .ad{font-family:'Times New Roman',serif;font-size:15px;font-weight:700;line-height:16px}
 .rcpt .hd .ct{font-size:11.5px;font-weight:700;line-height:14px}
 .rcpt .hd .gl{font-family:'Times New Roman',serif;font-size:14px;font-weight:700;line-height:17px}
-/* Labels hold one line in a fixed column; a long value (the customer name)
- * wraps under itself, after the colon, and pushes the rows below it down. */
-.rg{position:absolute;left:5px;top:114px;width:200px;font-size:13px;table-layout:fixed}
-.rg td{padding:2px 4px 0 0;height:20px;font-family:'Times New Roman',serif;font-size:13px;line-height:15px;vertical-align:top}
-.rg td:first-child{width:72px;white-space:nowrap}
+.rcpt .l .rule{position:absolute;left:6px;right:6px;top:100px;border-top:1px solid #000}
+/* Body band between the header rule and the terms (106px–278px): the table's
+ * fixed height spreads its six rows evenly over it. Labels hold one line in a
+ * fixed column; a long value (the customer name) wraps under itself, after the
+ * colon, and takes its extra line from the spare row height. */
+.rg{position:absolute;left:5px;top:106px;width:206px;height:172px;font-size:13px;table-layout:fixed}
+.rg td{padding:0 4px 0 0;font-family:'Times New Roman',serif;font-size:13px;line-height:15px;vertical-align:middle}
+.rg td:first-child{width:68px;white-space:nowrap}
 .rg td+td{font-weight:700;padding-left:18px;text-indent:-8px;overflow-wrap:anywhere}
 .rg tr:first-child td+td{white-space:nowrap}
-.orn{position:absolute;left:206px;top:112px;width:124px;font-family:'Times New Roman',serif;font-size:14px;line-height:17px}
-.orn u{font-weight:700}
-.jw{position:absolute;left:335px;top:112px;width:112px;text-align:center;font-family:'Times New Roman',serif;font-size:14px;line-height:17px}
+.orn{position:absolute;left:214px;top:106px;width:124px;font-family:'Times New Roman',serif;font-size:14px;line-height:19px}
+.orn u{font-weight:700;white-space:nowrap}
+.orn .oi{display:block;white-space:nowrap}
+/* Jewel photo at the top of the band, the authorised signature at its foot. */
+.jw{position:absolute;left:335px;top:106px;width:112px;height:172px;display:flex;flex-direction:column;align-items:center;text-align:center;font-family:'Times New Roman',serif;font-size:14px;line-height:17px}
 .jw u{font-weight:700}
-.sm{width:79px;height:54px;margin:3px auto 0;border:1px solid #000;font-size:10px;color:#888;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.sm{width:92px;height:64px;margin:4px auto 0;border:1px solid #000;font-size:10px;color:#888;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .sm img{width:100%;height:100%;object-fit:cover}
-.jw .ls{height:20px;display:flex;align-items:flex-end;justify-content:center}
+.jw .ls{margin-top:auto;height:24px;display:flex;align-items:flex-end;justify-content:center}
 .jw .ls .sig-img{max-height:20px;max-width:90px;display:block}
 .jw small{display:block;font-size:11px;line-height:13px;white-space:nowrap}
 .terms{position:absolute;left:6px;right:6px;bottom:4px;text-align:center;font-family:'Times New Roman','Noto Sans Tamil',serif;font-size:10.5px;line-height:14px;border-top:1px solid #000;padding-top:3px}
@@ -473,25 +484,33 @@ func tenantBrand(ctx context.Context) string {
 	return ""
 }
 
-// tmlZoomCSS shrinks the TML sheet only when many items would otherwise push the receipt to a second page.
+// tmlZoomCSS adapts the TML sheet to many items without shrinking its width:
+// table rows and the gaps between blocks tighten as items are added, the
+// receipt's ornament list gets smaller (two columns past 12) so it never runs
+// into the terms box, and only a very long list also scales the sheet down.
 func tmlZoomCSS(items int, policy string) string {
 	if commonModels.PolicyOrDefault(policy) != commonModels.PolicyTML {
 		return ""
 	}
-	z := ""
+	css := ""
+	if items > 5 {
+		css += "\n.items.main td,.items.main th{padding-top:1px;padding-bottom:1px}.items.main td{font-size:12.5px;line-height:16px}.mid{margin-top:12px}.pay{margin-top:18px}.recv{margin-top:6px}.foot{margin-top:10px}.cut{margin:4px 0 5px}"
+	}
 	switch {
-	case items <= 5:
-	case items == 6:
-		z = "0.96"
-	case items == 7:
-		z = "0.93"
-	case items == 8:
-		z = "0.9"
+	case items <= 7:
+	case items <= 10:
+		css += "\n.orn{font-size:11.5px;line-height:14px}.orn u{font-size:13px}"
+	case items <= 12:
+		css += "\n.orn{left:210px;width:124px;font-size:10px;line-height:12.5px}.orn u{font-size:12px}"
 	default:
-		z = "0.85"
+		css += "\n.orn{left:210px;width:122px;font-size:9px;line-height:11.5px;column-count:2;column-gap:4px}.orn u{font-size:11px;display:block;column-span:all}.orn .oi{break-inside:avoid}"
 	}
-	if z == "" {
-		return ""
+	if items >= tmlZoomFrom {
+		z := max(0.85, 1-0.02*float64(items-tmlZoomFrom+1))
+		css += fmt.Sprintf("\nbody{zoom:%.2f}", z)
 	}
-	return "\nbody{zoom:" + z + "}"
+	return css
 }
+
+// tmlZoomFrom is the item count from which the whole sheet is scaled down.
+const tmlZoomFrom = 11

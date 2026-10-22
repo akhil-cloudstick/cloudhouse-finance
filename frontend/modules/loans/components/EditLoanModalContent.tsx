@@ -133,7 +133,11 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     if (!(+principal > 0)) { fail("principal", "Please enter a valid principal amount."); return; }
     if (!activeRows.length) { fail("ornaments", "A loan must have at least one ornament."); return; }
     const incomplete = activeRows.find((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0));
-    if (incomplete) { failRow(incomplete, "Every ornament needs a name, gross weight and net weight."); return; }
+    if (incomplete) {
+      const missing = [!incomplete.name.trim() && "name", !(+incomplete.gross > 0) && "gross weight", !(+incomplete.net > 0) && "net weight"].filter(Boolean).join(", ");
+      failRow(incomplete, `Ornament ${rows.indexOf(incomplete) + 1} is missing: ${missing}.`);
+      return;
+    }
     const heavier = activeRows.find((r) => +r.net > +r.gross);
     if (heavier) { failRow(heavier, "Net Wt cannot be greater than Gross Wt for any ornament."); return; }
     // Checked against the SAME live estimate shown in the Eligible Loan
@@ -266,9 +270,9 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                   every other `.frow.c3` row already gets for free. */}
               <div className="frow c3">
                 <div><label className="f">Gross (g)</label>
-                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.gross} onChange={(e) => { if (/^d*.?d{0,3}$/.test(e.target.value)) updRow(i, { gross: e.target.value }); }} /></div>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.gross} onChange={(e) => { if (/^\d*\.?\d{0,3}$/.test(e.target.value)) updRow(i, { gross: e.target.value }); }} /></div>
                 <div><label className="f">Net (g)</label>
-                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.net} onChange={(e) => { if (/^d*.?d{0,3}$/.test(e.target.value)) updRow(i, { net: e.target.value }); }} /></div>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.net} onChange={(e) => { if (/^\d*\.?\d{0,3}$/.test(e.target.value)) updRow(i, { net: e.target.value }); }} /></div>
                 <div><label className="f">Qty</label>
                   <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
               </div>

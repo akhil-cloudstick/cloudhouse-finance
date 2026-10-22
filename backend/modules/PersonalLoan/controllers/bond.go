@@ -274,11 +274,9 @@ Page <span class="pageNumber"></span> of <span class="totalPages"></span>
 }
 
 func bondDataForLoan(loan *models.PersonalLoan, cust *commonModels.Customer, aadhaar string) BondData {
-	age := 0
-	if cust.Age != nil && *cust.Age > 0 {
-		age = *cust.Age
-	} else if !cust.DOB.IsZero() {
-		age = int(time.Since(cust.DOB).Hours() / 24 / 365.25)
+	age := common.AgeFromDOB(cust.DOB, time.Now())
+	if age == 0 && cust.Age != nil && *cust.Age > 0 {
+		age = *cust.Age // no date of birth on file: the stored age stands in
 	}
 	var ratePercent float64
 	if loan.InterestType == models.InterestTypePercentage {

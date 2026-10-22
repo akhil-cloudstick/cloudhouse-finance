@@ -907,9 +907,9 @@ func listLoansForCustomer(ctx context.Context, customerID uint, from, to *time.T
 
 func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 	now := time.Now()
-	age := 0
-	if !l.Customer.DOB.IsZero() {
-		age = int(now.Sub(l.Customer.DOB).Hours() / 24 / 365.25)
+	age := common.AgeFromDOB(l.Customer.DOB, now)
+	if age == 0 && l.Customer.Age != nil && *l.Customer.Age > 0 {
+		age = *l.Customer.Age // no date of birth on file: the entered age stands in
 	}
 	ornaments := make([]BondOrnament, 0, len(l.Ornaments))
 	for _, o := range l.Ornaments {

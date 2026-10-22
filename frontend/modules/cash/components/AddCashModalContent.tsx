@@ -85,7 +85,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   const source = sourceRec?.name ?? "";
   // Gold Sale keeps its own single Mode / Bank; every other category uses the
   // payment breakdown below.
-  const [mode, setMode] = useState(edit?.kind === "gold_sale" ? edit.lines[0]?.mode ?? "" : "");
+  const [mode, setMode] = useState(edit?.kind === "gold_sale" ? edit.lines[0]?.mode ?? "Cash" : "Cash");
   // The branch's own account the UPI/transfer landed in.
   const [bank, setBank] = useState(edit?.kind === "gold_sale" ? edit.lines[0]?.bankName ?? "" : "");
   const [bankId, setBankId] = useState(edit?.kind === "gold_sale" && edit.lines[0]?.bankId ? String(edit.lines[0].bankId) : "");
@@ -118,6 +118,11 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   // Gold Sale fields — only shown/required when source is GOLD_SALE.
   const [ornamentType, setOrnamentType] = useState(edit?.ornamentType ?? "");
   const [costAmount, setCostAmount] = useState(edit?.costAmount ? String(edit.costAmount) : "");
+  // How the cost to acquire was paid — recorded in the ledger only; it never leaves a balance.
+  const [costMode, setCostMode] = useState(edit?.costMode || "Cash");
+  const [costBank, setCostBank] = useState(edit?.costBank ?? "");
+  const [costBankId, setCostBankId] = useState(edit?.costBankId ? String(edit.costBankId) : "");
+  const costBankRequired = (costMode === "UPI" || costMode === "Bank Transfer");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
   // Every cash-in lands in one branch's till — without a branch it never
   // reaches any branch's Balance in Hand (cash.SummaryService only sums a
@@ -167,6 +172,8 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
     if (cost < 0) { fail("cost", "Cost amount cannot be negative."); return; }
     if (!date) { fail("date", "Please select the date."); return; }
     if (!branchId) { fail("branch", "Please select a branch."); return; }
+    if (cost > 0 && costBankRequired && !costBankId) { fail("costBank", "Please select the bank the cost was paid from."); return; }
+    const costPaid = cost > 0 ? { costMode, costBankId: costBankRequired ? +costBankId : undefined } : {};
 
     setSaving(true);
     try {
@@ -174,7 +181,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
       if (edit) {
         await updateMovementEntry(edit.movementId, {
           category: GOLD_SALE, ornamentType: type, costAmount: cost, amount: sold, occurredOn: date, remarks: remarks.trim(), branchId,
-          mode, bankId: bankRequired ? +bankId : undefined, receiptImage,
+          mode, bankId: bankRequired ? +bankId : undefined, receiptImage, ...costPaid,
         });
         onSaved?.();
         closeModal();
@@ -182,7 +189,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         return;
       }
       await createGoldSale({
-        ornamentType: type, soldAmount: sold, costAmount: cost, branchId,
+        ornamentType: type, soldAmount: sold, costAmount: cost, branchId, ...costPaid,
         mode, bankId: bankRequired ? +bankId : undefined,
         soldOn: date, remarks: remarks.trim() || undefined, receiptImage,
       });
@@ -220,7 +227,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
       const payments = paymentRowsToInput(payRows);
       if (edit) {
         await updateMovementEntry(edit.movementId, {
-          category: source, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
+          kind: "cash_in", category: source, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
         });
         onSaved?.();
         closeModal();
@@ -291,6 +298,30 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         onCreate={createBank}
       /><FieldError msg={fe.bank} /></div>
   );
+  const costModeField = (
+    <div className={fe.costMode ? "has-err" : undefined}><label className="f">Cost Paid By *</label>
+      <Select
+        options={MODE_OPTIONS}
+        value={costMode}
+        onChange={(v) => { setCostMode(v); if (v !== "UPI" && v !== "Bank Transfer") { setCostBankId(""); setCostBank(""); } }}
+        placeholder="Select mode…"
+      /><FieldError msg={fe.costMode} /></div>
+  );
+  const costBankField = (
+    <div className={fe.costBank ? "has-err" : undefined}><label className="f">Cost Bank * <span style={{ fontWeight: 400, color: "var(--muted)" }}>(your account)</span></label>
+      <SearchableSelect<BackendBank>
+        portal
+        value={costBank}
+        onChange={(id, item) => { setCostBankId(id); setCostBank(item.name); }}
+        fetchFn={searchBanksPage}
+        searchHint="Searches: bank name"
+        getLabel={(b) => b.name}
+        getId={(b) => String(b.id)}
+        placeholder="Search or add a bank…"
+        allowCreate
+        onCreate={createBank}
+      /><FieldError msg={fe.costBank} /></div>
+  );
   const amountField = (
     <div className={fe.amount ? "has-err" : undefined}><label className="f">{isGoldSale ? "Sold For (₹) *" : "Amount (₹) *"}</label>
       <input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} onWheel={noWheelStep} /><FieldError msg={fe.amount} /></div>
@@ -309,7 +340,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   // Credit and Debit follow one order: Category → Amount → Date → Mode (with
   // its payment breakdown) → Branch → Bill → Remarks. Category-specific fields
   // (a new loan's details) sit right after the Category. A Gold Sale keeps the
-  // older single-mode layout: Category → Date → Mode → Bank → Amount → Branch.
+  // older single-mode layout: Category → Date → Branch → Amount → Mode → Bank.
   return (
     <>
       <div className="hd"><h3>{edit ? (edit.kind === "gold_sale" ? "Edit Gold Sale" : "Edit Cash-In") : "Add Cash"}</h3><button className="x" onClick={closeModal}>×</button></div>
@@ -324,15 +355,18 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
             <div className={fe.cost ? "has-err" : undefined}><label className="f">Cost to Acquire (₹) *</label><input className="inp" type="number" min={0} value={costAmount} onChange={(e) => setCostAmount(e.target.value)} onWheel={noWheelStep} /><FieldError msg={fe.cost} /></div>
           </div>
         )}
+        {isGoldSale && (
+          <div className={costBankRequired ? "frow c2" : "frow"}>{costModeField}{costBankRequired && costBankField}</div>
+        )}
 
         {isGoldSale ? (
           <>
             <div className="frow c2">
               <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /><FieldError msg={fe.date} /></div>
-              {modeField}
+              {showBranch ? branchField : <div />}
             </div>
+            <div className="frow c2">{amountField}{modeField}</div>
             {bankRequired && <div className="frow">{bankField}</div>}
-            <div className={showBranch ? "frow c2" : "frow"}>{amountField}{showBranch && branchField}</div>
           </>
         ) : (
           <>

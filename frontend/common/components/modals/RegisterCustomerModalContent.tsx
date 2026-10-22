@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ageFromDob } from "@/common/utils/format";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Select } from "@/common/components/ui/Select";
@@ -84,7 +85,6 @@ export function RegisterCustomerModalContent({
   // from the now-retired CreateCustomerModal.tsx (personal-loan-only form).
   const [showAdditional, setShowAdditional] = useState(false);
   const [fatherName, setFatherName] = useState("");
-  const [age, setAge] = useState("");
   const [dob, setDob] = useState("");
   const [district, setDistrict] = useState("");
   const [taluk, setTaluk] = useState("");
@@ -147,7 +147,7 @@ export function RegisterCustomerModalContent({
         ...(village.trim() ? { village: village.trim() } : {}),
         ...(place.trim() ? { place: place.trim() } : {}),
         ...(pinCode.trim() ? { pinCode: pinCode.trim() } : {}),
-        ...(age.trim() ? { age: Number(age) } : {}),
+        ...(ageFromDob(dob) != null ? { age: ageFromDob(dob)! } : {}),
       }, { branchName: branches.find((b) => b.id === Number(branchId))?.name });
 
       if (onCreated) {
@@ -195,6 +195,7 @@ export function RegisterCustomerModalContent({
             </div>
           )}
           <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
+          <div><label className="f">Age</label><input className="inp" readOnly tabIndex={-1} placeholder="Auto from date of birth" value={ageFromDob(dob) ?? ""} style={{ background: "var(--bg-soft, #f6f6f8)" }} /></div>
           <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
           <div className={fe.pan ? "has-err" : undefined}><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => { setPan(e.target.value); clearFe("pan"); }} /><FieldError msg={fe.pan} /></div>
           <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number</label><input className="inp" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => { setAadhaar(e.target.value.replace(/\D/g, "")); clearFe("aadhaar"); }} /><FieldError msg={fe.aadhaar} /></div>
@@ -234,7 +235,6 @@ export function RegisterCustomerModalContent({
           <>
             <div className="frow c3" style={{ marginTop: 14 }}>
               <div><label className="f">Father&apos;s Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(e.target.value)} /></div>
-              <div><label className="f">Age</label><input className="inp" type="number" min={1} placeholder="e.g. 35" value={age} onChange={(e) => setAge(e.target.value)} /></div>
             </div>
             <div className="frow c3">
               <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>

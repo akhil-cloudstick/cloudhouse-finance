@@ -239,14 +239,22 @@ export type EntryInfo = {
   // A gold sale's ornament and what it cost.
   ornamentType?: string;
   costAmount?: number;
+  // How the cost to acquire was paid (it is booked as a cash-out in that mode).
+  costMode?: string;
+  costBankId?: number | null;
+  costBank?: string;
   // A draw on a loan: the loan's number and its principal.
   loanNumber?: string;
   principalAmount?: number;
 };
 export type EntryUpdateInput = {
+  // The type the entry should have after saving; when it differs from the entry's own, it is converted.
+  kind?: "cash_in" | "debit" | "self_transfer";
   // A gold sale edit.
   ornamentType?: string;
   costAmount?: number;
+  costMode?: string;
+  costBankId?: number;
   bankId?: number;
   category?: string;
   amount: number;
@@ -313,6 +321,7 @@ export type BackendGoldSale = {
   mode?: string;
   bankId?: number | null;
   bankRef?: { id: number; name: string } | null;
+  costMode?: string;
   cashMovementId?: number | null;
   costCashMovementId?: number | null;
   remarks?: string;
@@ -325,6 +334,7 @@ export type GoldSaleView = {
   soldAmount: number;
   costAmount: number;
   profit: number;
+  costMode?: string;
   branch: string;
   branchId: number;
   mode: string;
@@ -336,6 +346,9 @@ export type GoldSaleInput = {
   ornamentType: string;
   soldAmount: number;
   costAmount: number;
+  // How the cost to acquire was paid; costBankId is required when costMode is UPI or Bank Transfer.
+  costMode?: string;
+  costBankId?: number;
   branchId: number;
   // Mode is how the sale proceeds were received — "Cash" | "UPI" | "Bank
   // Transfer" (see backend GoldSale.Mode's doc comment). Omit for Cash.

@@ -129,7 +129,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
       const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
       if (edit) {
         await updateMovementEntry(edit.movementId, {
-          category, amount, fromBankId: +fromBankId, fromBank, mode, receiptImage,
+          kind: "self_transfer", category, amount, fromBankId: +fromBankId, fromBank, mode, receiptImage,
           toBankId: loan ? undefined : +toBankId, toBank: loan ? undefined : toBank,
           branchId, occurredOn: date, remarks: remarks.trim(),
         });

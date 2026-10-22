@@ -5810,6 +5810,14 @@ table.tbl {
   font-size: 21px;
   box-shadow: 0 0 0 3px #fff, 0 0 0 4px color-mix(in oklab, var(--brand) 40%, transparent);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.dhead .big-av img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .kv {
