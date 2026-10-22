@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -97,7 +98,28 @@ func tenantSessionID(tenantID uint) string {
 	return sessionID
 }
 
+// AgeFromDOB is the whole years from a date of birth to now (0 when the date is unset or in the future).
+// Every age the app shows or prints comes from the date of birth through this one function.
+func AgeFromDOB(dob time.Time, now time.Time) int {
+	if dob.IsZero() || dob.Year() <= 1 {
+		return 0
+	}
+	age := now.Year() - dob.Year()
+	if now.Month() < dob.Month() || (now.Month() == dob.Month() && now.Day() < dob.Day()) {
+		age--
+	}
+	if age < 0 {
+		return 0
+	}
+	return age
+}
+
 func CustomerToResponse(c *commonModels.Customer) commonModels.CustomerResponse {
+	// the age is derived from the date of birth; a stored age only stands in for a customer with no date of birth
+	age := c.Age
+	if derived := AgeFromDOB(c.DOB, time.Now()); derived > 0 {
+		age = &derived
+	}
 	return commonModels.CustomerResponse{
 		ID:                c.ID,
 		Code:              c.Code,
@@ -125,7 +147,7 @@ func CustomerToResponse(c *commonModels.Customer) commonModels.CustomerResponse 
 		Village:           c.Village,
 		Place:             c.Place,
 		PinCode:           c.PinCode,
-		Age:               c.Age,
+		Age:               age,
 		CustomerType:      c.CustomerType,
 		BankAccountName:   c.BankAccountName,
 		BankAccountNumber: c.BankAccountNumber,
