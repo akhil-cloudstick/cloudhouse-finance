@@ -25,6 +25,8 @@ type RecordGoldSaleInput struct {
 	BranchID     uint
 	Mode         string
 	BankID       *uint
+	CostMode     string
+	CostBankID   *uint
 	Remarks      string
 	ReceiptImage string
 }
@@ -37,8 +39,31 @@ type goldSaleRequest struct {
 	BranchID     uint    `json:"branch_id" binding:"required"`
 	Mode         string  `json:"mode"`
 	BankID       *uint   `json:"bank_id"`
+	CostMode     string  `json:"cost_mode"`
+	CostBankID   *uint   `json:"cost_bank_id"`
 	Remarks      string  `json:"remarks"`
 	ReceiptImage string  `json:"receipt_image"`
+}
+
+// costPayment checks how a gold sale's cost to acquire was paid. With no cost there is nothing to pay, so the mode
+// and bank are dropped; otherwise the mode defaults to Cash and a UPI / Bank Transfer cost names its bank.
+func costPayment(cost float64, mode string, bankID *uint) (string, *uint, error) {
+	if cost <= 0 {
+		return "", nil, nil
+	}
+	if mode == "" {
+		mode = models.CashModeCash
+	}
+	if !modeVocabulary[mode] {
+		return "", nil, common.NewBadRequest("cost mode must be Cash, UPI or Bank Transfer")
+	}
+	if mode == models.CashModeCash {
+		return mode, nil, nil
+	}
+	if bankID == nil || *bankID == 0 {
+		return "", nil, common.NewBadRequest("cost bank is required when the cost mode is UPI or Bank Transfer")
+	}
+	return mode, bankID, nil
 }
 
 type GoldSaleTotals struct {
@@ -71,6 +96,32 @@ func recordGoldSaleCashIn(ctx context.Context, ornamentType string, amount float
 	return rec.ID, nil
 }
 
+// recordGoldSaleCostOut books a gold sale's cost to acquire as an ordinary cash-out in the mode (and bank) it was paid.
+func recordGoldSaleCostOut(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint) (uint, error) {
+	rec := goldSaleCostMovement(ornamentType, amount, branchID, occurredOn, mode, bankID)
+	if err := insertMovement(ctx, &rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+func goldSaleCostMovement(ornamentType string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint) models.CashMovement {
+	rec := models.CashMovement{
+		Type:     "out",
+		Purpose:  "Gold purchase cost — " + ornamentType,
+		Mode:     mode,
+		BankID:   bankID,
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	return rec
+}
+
 func createGoldSale(ctx context.Context, in RecordGoldSaleInput) (*models.GoldSale, error) {
 	if in.OrnamentType == "" {
 		return nil, common.NewBadRequest("ornament type is required")
@@ -99,18 +150,31 @@ func createGoldSale(ctx context.Context, in RecordGoldSaleInput) (*models.GoldSa
 	if (mode == models.CashModeUPI || mode == models.CashModeBankTransfer) && in.BankID == nil {
 		return nil, common.NewBadRequest("bank is required when mode is UPI or Bank Transfer")
 	}
+	costMode, costBankID, err := costPayment(in.CostAmount, in.CostMode, in.CostBankID)
+	if err != nil {
+		return nil, err
+	}
 	soldOn := in.SoldOn
 	if soldOn.IsZero() {
 		soldOn = time.Now()
 	}
+	// The cost to acquire is a cash-out in the mode it was paid, like any other debit, and the profit is what is left.
+	// It is booked first so the ledgers list the debit before the sale's credit.
+	var costMovementID *uint
+	if in.CostAmount > 0 {
+		id, err := recordGoldSaleCostOut(ctx, in.OrnamentType, in.CostAmount, in.BranchID, soldOn, costMode, costBankID)
+		if err != nil {
+			return nil, err
+		}
+		costMovementID = &id
+	}
 	movementID, err := recordGoldSaleCashIn(ctx, in.OrnamentType, in.SoldAmount, in.BranchID, soldOn, mode, in.BankID, in.Remarks, in.ReceiptImage)
 	if err != nil {
+		if costMovementID != nil {
+			_ = removeMovement(ctx, *costMovementID)
+		}
 		return nil, err
 	}
-	// The cost is kept on the sale for profit reporting only. It is not booked as a cash-out: the sale
-	// proceeds are the only money that moved, and a purchase cost paid earlier (the loan disbursement,
-	// say) must not be counted a second time.
-	var costMovementID *uint
 	rec := &models.GoldSale{
 		OrnamentType:       in.OrnamentType,
 		SoldAmount:         in.SoldAmount,
@@ -120,6 +184,8 @@ func createGoldSale(ctx context.Context, in RecordGoldSaleInput) (*models.GoldSa
 		BranchID:           in.BranchID,
 		Mode:               mode,
 		BankID:             in.BankID,
+		CostMode:           costMode,
+		CostBankID:         costBankID,
 		CashMovementID:     &movementID,
 		CostCashMovementID: costMovementID,
 		Remarks:            in.Remarks,
@@ -157,7 +223,7 @@ func (req goldSaleRequest) toInput() (RecordGoldSaleInput, error) {
 	}
 	return RecordGoldSaleInput{
 		OrnamentType: req.OrnamentType, SoldAmount: req.SoldAmount, CostAmount: req.CostAmount,
-		SoldOn: soldOn, BranchID: req.BranchID, Mode: req.Mode, BankID: req.BankID, Remarks: req.Remarks, ReceiptImage: req.ReceiptImage,
+		SoldOn: soldOn, BranchID: req.BranchID, Mode: req.Mode, BankID: req.BankID, CostMode: req.CostMode, CostBankID: req.CostBankID, Remarks: req.Remarks, ReceiptImage: req.ReceiptImage,
 	}, nil
 }
 

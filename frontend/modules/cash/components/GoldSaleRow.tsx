@@ -15,7 +15,7 @@ export function GoldSaleRow({ g }: GoldSaleRowProps) {
       <td>{fmtDate(g.d)}</td>
       <td>{g.ornamentType}</td>
       <td className="num">{fmt(g.soldAmount)}</td>
-      <td className="num">{fmt(g.costAmount)}</td>
+      <td className="num">{fmt(g.costAmount)}{g.costMode && g.costAmount > 0 && <div style={{ fontSize: 11, color: "var(--muted)" }}>paid by {g.costMode}</div>}</td>
       <td className="num" style={{ color: g.profit >= 0 ? "var(--green)" : "var(--red)" }}>
         {g.profit >= 0 ? "+" : "−"}{fmt(Math.abs(g.profit))}
       </td>

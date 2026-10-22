@@ -120,6 +120,9 @@ func UpdateExpense(c echo.Context) error {
 		}
 		return applyEntryUpdate(c, ctx, m, req)
 	}
+	if k := strings.TrimSpace(req.Kind); k != "" && k != entryDebit {
+		return common.FailErr(c, common.NewConflict("approve this expense before changing its type"))
+	}
 	newID, err := editPendingExpense(c, ctx, e, req)
 	if err != nil {
 		return common.FailErr(c, err)
