@@ -296,7 +296,7 @@ func findPreserved(ctx context.Context, db *gorm.DB, tenantID, keepEmployeeID ui
 		return nil, fmt.Errorf("locate admin login: %w", err)
 	}
 	if row.ID == 0 {
-		return nil, fmt.Errorf("refusing to reset: the signed-in administrator was not found in business %d", tenantID)
+		return nil, fmt.Errorf("administrator was not found in business %d", tenantID)
 	}
 	var logoKeys []string
 	if err := db.WithContext(ctx).

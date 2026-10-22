@@ -273,7 +273,7 @@ func BuildPDF(businessName, title string, headers []string, data [][]string) ([]
 	tr := pdf.UnicodeTranslatorFromDescriptor("")
 	pdf.AddPage()
 	pdf.SetFont("Arial", "B", 14)
-	pdf.CellFormat(0, 10, businessName+" — "+title, "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 10, tr(businessName+" — "+title), "", 1, "L", false, 0, "")
 	pdf.SetFont("Arial", "", 8)
 	pageWidth, _ := pdf.GetPageSize()
 	marginL, _, marginR, _ := pdf.GetMargins()

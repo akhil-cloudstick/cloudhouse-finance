@@ -9,23 +9,52 @@ import (
 )
 
 type App struct {
-	ctx     context.Context
-	version string
-	updater *update.Updater
+	ctx            context.Context
+	version        string
+	updater        *update.Updater
+	contentUpdater *update.ContentUpdater
 }
 
-func NewApp(version, updateURL string) *App {
+func NewApp(version, updateURL, contentUpdateURL string) *App {
 	a := &App{version: version}
-	a.updater = update.New(version, updateURL, func(event string, data any) {
+	emit := func(event string, data any) {
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "update:"+event, data)
+			runtime.EventsEmit(a.ctx, event, data)
 		}
-	})
+	}
+	a.updater = update.New(version, updateURL, func(event string, data any) { emit("update:"+event, data) })
+	contentDir, err := update.ContentDir()
+	if err != nil {
+		contentDir = "content"
+	}
+	a.contentUpdater = update.NewContent(contentUpdateURL, contentDir, emit)
 	return a
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+}
+
+// ActiveContentVersion is "" when still on the embedded (built-in) web content.
+func (a *App) ActiveContentVersion() string {
+	return a.contentUpdater.ActiveVersion()
+}
+
+func (a *App) CheckContentUpdate() error {
+	return a.contentUpdater.Check(a.ctx)
+}
+
+func (a *App) DownloadContentUpdate() error {
+	return a.contentUpdater.Download(a.ctx)
+}
+
+// ApplyContentUpdate activates the downloaded content; Apply already relaunches before this quits.
+func (a *App) ApplyContentUpdate() error {
+	if err := a.contentUpdater.Apply(); err != nil {
+		return err
+	}
+	runtime.Quit(a.ctx)
+	return nil
 }
 
 func (a *App) Version() string {

@@ -123,9 +123,12 @@ type GoldSale struct {
 	Mode               string              `json:"mode" gorm:"not null;size:20;default:Cash"`
 	BankID             *uint               `json:"bank_id"`
 	BankRef            *commonModels.Bank  `json:"bank_ref,omitempty" gorm:"foreignKey:BankID"`
-	Remarks            string              `json:"remarks" gorm:"size:500"`
-	ReceiptImage       string              `json:"receipt_image,omitempty" gorm:"type:text"`
-	CreatedAt          time.Time           `json:"created_at"`
+	// CostMode / CostBankID say how the cost to acquire was paid; the cost itself is the cash-out CostCashMovementID.
+	CostMode     string    `json:"cost_mode" gorm:"size:20"`
+	CostBankID   *uint     `json:"cost_bank_id"`
+	Remarks      string    `json:"remarks" gorm:"size:500"`
+	ReceiptImage string    `json:"receipt_image,omitempty" gorm:"type:text"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Category struct {

@@ -91,10 +91,13 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const from = openedDateFilter.__dateFrom || "";
   const to = openedDateFilter.__dateTo || "";
   const [reloading, setReloading] = useState(false);
+  // Header avatar falls back to initials when the photo URL fails to load.
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     setError("");
+    setAvatarFailed(false);
     setReloading(true);
     getCustomer360(id, { from, to })
       .then(setProfile)
@@ -309,7 +312,11 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
     <div className="page-fade-in page-fill">
       <div className="page-h">
         <div className="dhead">
-          <div className="big-av">{initials(c.name)}</div>
+          <div className="big-av">
+            {c.photoUrl && !avatarFailed
+              ? <img src={c.photoUrl} alt={c.name} onError={() => setAvatarFailed(true)} />
+              : initials(c.name)}
+          </div>
           <div><h1 style={{ fontSize: 26 }}>{c.name}</h1><p>{c.code}{showBranch && <> · {c.branchName} branch</>}</p></div>
         </div>
         <div className="sp" />

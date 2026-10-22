@@ -7,6 +7,7 @@ import { type EntryInfo } from "@/modules/cash/types/cash-types";
 import { AddCashModalContent } from "@/modules/cash/components/AddCashModalContent";
 import { ExpenseModalContent } from "@/modules/cash/components/ExpenseModalContent";
 import { SelfTransferModalContent } from "@/modules/cash/components/SelfTransferModalContent";
+import { EntryTypeTabs, type EntryType } from "@/modules/cash/components/AddEntryModalContent";
 
 // viaExpense: entryId is an expense id (the Expense Register's Edit button), not a cash movement.
 type EditEntryModalContentProps = { entryId: number; onSaved?: () => void; info?: EntryInfo; viaExpense?: boolean };
@@ -37,7 +38,26 @@ export function EditEntryModalContent({ entryId, onSaved, info: given, viaExpens
       </>
     );
   }
-  if (info.kind === "debit") return <ExpenseModalContent edit={info} onSaved={onSaved} />;
-  if (info.kind === "self_transfer") return <SelfTransferModalContent edit={info} onSaved={onSaved} />;
-  return <AddCashModalContent edit={info} onSaved={onSaved} />;
+  return <EditEntryForm info={info} onSaved={onSaved} />;
+}
+
+const KIND_TO_TYPE: Partial<Record<EntryInfo["kind"], EntryType>> = { debit: "debit", cash_in: "credit", gold_sale: "credit", self_transfer: "self" };
+
+/* The loaded entry's form, with the Debit / Credit / Self Transfer switch on top
+ * so the entry's type can be changed: the form shown is the one the entry is saved as. A
+ * still-pending expense keeps its own form — it cannot change type. */
+function EditEntryForm({ info, onSaved }: { info: EntryInfo; onSaved?: () => void }) {
+  const [type, setType] = useState<EntryType>(KIND_TO_TYPE[info.kind] ?? "credit");
+  // a pending expense is not yet booked, so it cannot change type
+  const canSwitch = !(info.viaExpense && info.status === "Pending");
+  const tabs = canSwitch ? <EntryTypeTabs type={type} onChange={setType} /> : undefined;
+
+  if (!canSwitch) {
+    if (info.kind === "debit") return <ExpenseModalContent edit={info} onSaved={onSaved} />;
+    return <AddCashModalContent edit={info} onSaved={onSaved} />;
+  }
+  // key per type so each tab starts from the entry's values.
+  if (type === "debit") return <ExpenseModalContent key="debit" edit={info} onSaved={onSaved} tabs={tabs} />;
+  if (type === "self") return <SelfTransferModalContent key="self" edit={info} onSaved={onSaved} tabs={tabs} />;
+  return <AddCashModalContent key="credit" edit={info} onSaved={onSaved} tabs={tabs} />;
 }

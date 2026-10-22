@@ -1,6 +1,27 @@
 const path = require("node:path");
 const fs = require("node:fs");
 
+function bucketBase() {
+  const { S3_ENDPOINT, S3_BUCKET, S3_FOLDER } = process.env;
+  if (!S3_ENDPOINT || !S3_BUCKET) return "";
+  return [S3_ENDPOINT.replace(/\/+$/, ""), S3_BUCKET, (S3_FOLDER || "").replace(/^\/+|\/+$/g, "")]
+    .filter(Boolean)
+    .join("/");
+}
+
+// This tenant's own subfolder in B2, so its update check never sees another tenant's version.
+function updateUrl(tenantSlug) {
+  const base = bucketBase();
+  if (!base) return "";
+  return `${base}/${process.env.RELEASE_TENANT || tenantSlug || "common"}`;
+}
+
+// The shared "common" folder every tenant's app also checks, for a content-only release.
+function contentUrl() {
+  const base = bucketBase();
+  return base ? `${base}/common` : "";
+}
+
 // Tenant subdomain from NEXT_PUBLIC_API_BASE's host; falls back to "default"
 // (e.g. localhost) so local testing still refreshes the icon.
 function slugFromApiBase(apiBase) {
@@ -123,4 +144,6 @@ module.exports = {
   generateIconFromInitials,
   regenerateWindowsResource,
   writeWindowTitleOverride,
+  updateUrl,
+  contentUrl,
 };

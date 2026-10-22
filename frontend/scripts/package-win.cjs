@@ -9,10 +9,13 @@ const {
   generateIconFromInitials,
   regenerateWindowsResource,
   writeWindowTitleOverride,
+  updateUrl,
+  contentUrl,
 } = require("./tenant-icon.cjs");
 
 const root = path.join(__dirname, "..");
-const { version } = require(path.join(root, "package.json"));
+const { version: pkgVersion } = require(path.join(root, "package.json"));
+const version = process.env.RELEASE_VERSION || pkgVersion;
 
 loadEnvConfig(root, false);
 
@@ -57,14 +60,6 @@ async function applyTenantBranding() {
   return branding;
 }
 
-function updateUrl() {
-  const { S3_ENDPOINT, S3_BUCKET, S3_FOLDER } = process.env;
-  if (!S3_ENDPOINT || !S3_BUCKET) return "";
-  return [S3_ENDPOINT.replace(/\/+$/, ""), S3_BUCKET, (S3_FOLDER || "").replace(/^\/+|\/+$/g, "")]
-    .filter(Boolean)
-    .join("/");
-}
-
 function stageAssets() {
   const assets = path.join(root, "desktop", "assets");
   for (const entry of fs.readdirSync(assets)) {
@@ -88,7 +83,7 @@ async function main() {
   const file = branding ? `${branding.slug}-finance-${version}-win.exe` : `cloudhouse-finance-${version}-win.exe`;
   const target = path.join(dist, file);
 
-  const ldflags = `-H windowsgui -s -w -X main.version=${version} -X main.updateURL=${updateUrl()}`;
+  const ldflags = `-H windowsgui -s -w -X main.version=${version} -X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()}`;
   run("go", ["build", "-tags", "desktop,production", "-ldflags", `"${ldflags}"`, "-o", `"${target}"`, "."], {
     cwd: path.join(root, "desktop"),
     env: { ...process.env, GOOS: "windows", GOARCH: "amd64", CGO_ENABLED: "0" },

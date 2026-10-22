@@ -119,7 +119,7 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
 
       if (edit) {
         await saveEntryEdit(edit, {
-          category: cat, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
+          kind: "debit", category: cat, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
         });
         onSaved?.();
         closeModal();

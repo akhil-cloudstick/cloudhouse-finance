@@ -5,30 +5,22 @@ import { AddCashModalContent } from "@/modules/cash/components/AddCashModalConte
 import { ExpenseModalContent } from "@/modules/cash/components/ExpenseModalContent";
 import { SelfTransferModalContent } from "@/modules/cash/components/SelfTransferModalContent";
 
-type EntryType = "credit" | "debit" | "self";
+export type EntryType = "credit" | "debit" | "self";
 
-const TABS: { type: EntryType; label: string }[] = [
-  { type: "credit", label: "Credit (Cash In)" },
+export const ENTRY_TABS: { type: EntryType; label: string }[] = [
   { type: "debit", label: "Debit (Expense)" },
+  { type: "credit", label: "Credit (Cash In)" },
   { type: "self", label: "Self Transfer" },
 ];
 
-type AddEntryModalContentProps = { onSaved?: () => void; defaultBranchId?: number };
-
-/* The Ledger's single "Add Entry" modal. The Credit / Debit / Self Transfer
- * switch lives at the top of the modal; each tab is the existing Add Cash /
- * Record Expense form, or the Self Transfer form, so every one of them keeps
- * its own fields, categories and "search or add" pickers unchanged. */
-export function AddEntryModalContent({ onSaved, defaultBranchId }: AddEntryModalContentProps) {
-  const [type, setType] = useState<EntryType>("credit");
-
-  const tabs = (
+export function EntryTypeTabs({ type, onChange }: { type: EntryType; onChange: (t: EntryType) => void }) {
+  return (
     <div className="frow" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0, border: "1.5px solid var(--line)", borderRadius: 10, overflow: "hidden", padding: 0 }}>
-      {TABS.map((t, i) => (
+      {ENTRY_TABS.map((t, i) => (
         <button
           key={t.type}
           type="button"
-          onClick={() => setType(t.type)}
+          onClick={() => onChange(t.type)}
           style={{
             border: 0, borderLeft: i ? "1.5px solid var(--line)" : 0, padding: "10px 6px", cursor: "pointer",
             fontWeight: type === t.type ? 700 : 600, fontSize: 12.5,
@@ -39,6 +31,18 @@ export function AddEntryModalContent({ onSaved, defaultBranchId }: AddEntryModal
       ))}
     </div>
   );
+}
+
+type AddEntryModalContentProps = { onSaved?: () => void; defaultBranchId?: number };
+
+/* The Ledger's single "Add Entry" modal. The Credit / Debit / Self Transfer
+ * switch lives at the top of the modal; each tab is the existing Add Cash /
+ * Record Expense form, or the Self Transfer form, so every one of them keeps
+ * its own fields, categories and "search or add" pickers unchanged. */
+export function AddEntryModalContent({ onSaved, defaultBranchId }: AddEntryModalContentProps) {
+  const [type, setType] = useState<EntryType>("debit");
+
+  const tabs = <EntryTypeTabs type={type} onChange={setType} />;
 
   // key per type so each tab starts from a clean form.
   if (type === "debit") return <ExpenseModalContent key="debit" onSaved={onSaved} tabs={tabs} />;

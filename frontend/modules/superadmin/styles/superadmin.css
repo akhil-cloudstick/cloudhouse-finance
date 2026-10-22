@@ -1135,6 +1135,56 @@ body {
   font-weight: 600;
 }
 
+/* A two-way (or more) segmented toggle, e.g. the rebuild modal's Update type. */
+.sa-seg {
+  display: inline-flex;
+  background: var(--sa-bg);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+.sa-seg button {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--sa-muted);
+  cursor: pointer;
+}
+.sa-seg button:hover { color: var(--sa-ink); }
+.sa-seg button[aria-pressed="true"] {
+  background: var(--sa-card);
+  color: var(--sa-ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px oklch(0.2 0.02 285 / 12%);
+}
+
+/* A row of independently toggleable pills, e.g. the rebuild modal's "Build for" OS picker. */
+.sa-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sa-toggle-group button {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border: 1px solid var(--sa-line);
+  border-radius: 999px;
+  background: var(--sa-card);
+  color: var(--sa-ink);
+  cursor: pointer;
+}
+.sa-toggle-group button:hover { background: var(--sa-bg); }
+.sa-toggle-group button[aria-pressed="true"] {
+  background: var(--sa-brand-pale);
+  border-color: var(--sa-brand);
+  color: var(--sa-brand-deep);
+  font-weight: 600;
+}
+
 /* The label colour here was the console's one real bug: it read
    oklch(0.95 ...) — near-white — against the white modal, so every field
    label was invisible. It now takes the same muted ink the rest of the light
