@@ -11,11 +11,24 @@ const LoansContext = createContext<LoansState | null>(null);
 
 type LoansProviderProps = { children: React.ReactNode };
 
+/* Loans that are still being serviced. Closed, Rejected and Auctioned loans are
+ * never needed in this shared list (they only appear in paged/server queries),
+ * and a business with a long history can hold hundreds of thousands of them —
+ * loading those on every page would exhaust the backend's memory. */
+export const OPEN_LOAN_STATUSES = [
+  "Pending Approval",
+  "Active",
+  "Due Soon",
+  "Overdue",
+  "Closure Requested",
+  "Auction Eligible",
+  "Auctioned - Balance Due",
+];
+
 /**
- * Shared, real (backend-backed) loan list — mirrors CustomersProvider.tsx's
- * pattern exactly. Holds the full unfiltered list; pages (Loans.tsx,
- * Dashboard.tsx, CustomerDetail.tsx, GlobalSearch.tsx, Auctions.tsx,
- * BankPledge.tsx) filter client-side, matching the old mock db.loans usage.
+ * Shared, real (backend-backed) list of the open loan book (OPEN_LOAN_STATUSES).
+ * Pages (Dashboard.tsx, Auctions.tsx) filter it client-side for KPIs and the
+ * auction pipeline; anything that needs closed loans queries the server paged.
  */
 export function LoansProvider({ children }: LoansProviderProps) {
   // Loaded for every page, so only fetched when this role can view the
@@ -32,7 +45,7 @@ export function LoansProvider({ children }: LoansProviderProps) {
       return;
     }
     setLoading(true);
-    listLoans()
+    listLoans({ status: OPEN_LOAN_STATUSES })
       .then((list) => { setLoans(list); setError(""); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load loans."))
       .finally(() => setLoading(false));

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useCustomers } from "@/modules/customers/store/CustomersProvider";
+import { useEffect, useState } from "react";
+import { getCustomer } from "@/modules/customers/services/customerService";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { fmt } from "@/common/utils/format";
 import { TITLES, PARENT_ROUTE } from "@/common/utils/routes";
@@ -22,7 +22,14 @@ type TopbarProps = { route: string; arg?: string; onBurger: () => void };
  * `refreshRateChip()` / breadcrumb logic in `router()`. */
 export function Topbar({ route, arg, onBurger }: TopbarProps) {
   const { latest, isTodaySet } = useGoldRates();
-  const { customers } = useCustomers();
+  // A customer page's crumb shows that customer's name (fetched by id).
+  const [customerName, setCustomerName] = useState("");
+  useEffect(() => {
+    if (route !== "customer" || !arg) { setCustomerName(""); return; }
+    let cancelled = false;
+    getCustomer(arg).then((c) => { if (!cancelled) setCustomerName(c.name); }).catch(() => { if (!cancelled) setCustomerName(""); });
+    return () => { cancelled = true; };
+  }, [route, arg]);
   const { openModal } = useModal();
   const { can } = useAuth();
   const canPublishRate = can("Gold_Rate_Management", "can_create_gold_rate");
@@ -35,7 +42,7 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
 
   const crumb =
     route === "customer"
-      ? customers.find((c) => c.id === arg)?.name || TITLES.customer
+      ? customerName || TITLES.customer
       : TITLES[route] || "Dashboard";
   // The crumb links back to the section it drills down from (e.g. a
   // personal loan's detail page links to the Personal Loans list) — routes

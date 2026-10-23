@@ -4,6 +4,7 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Cash/models"
 	"context"
+	"fmt"
 	"math"
 	"regexp"
 	"sort"
@@ -645,15 +646,7 @@ func listCombinedLedgerByBank(ctx context.Context, bankID uint, modes []string, 
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
 		return combinedLedgerByBank(ctx, bankID, from, to)
 	}
-	rows, err := fetch(fromDate, toDate)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	opening, err := ledgerOpening(fromDate, fetch, keep)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	return paginateLedgerRowsFrom(ctx, keep(rows), opening, limit, offset)
+	return paginateLedgerWindowed(ctx, fetch, keep, fromDate, toDate, limit, offset)
 }
 
 func listCombinedLedgerByCustomer(ctx context.Context, customerID uint, loanNumbers []string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
@@ -675,46 +668,11 @@ func listCombinedLedgerByCustomer(ctx context.Context, customerID uint, loanNumb
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
 		return combinedLedgerByCustomer(ctx, customerID, from, to)
 	}
-	rows, err := fetch(fromDate, toDate)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	opening, err := ledgerOpening(fromDate, fetch, keep)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	return paginateLedgerRowsFrom(ctx, keep(rows), opening, limit, offset)
+	return paginateLedgerWindowed(ctx, fetch, keep, fromDate, toDate, limit, offset)
 }
 
 func paginateLedgerRows(ctx context.Context, rows []ledgerSourceRow, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	return paginateLedgerRowsFrom(ctx, rows, 0, limit, offset)
-}
-
-// ledgerOpening is the balance carried into a date-filtered ledger: the net of every row (same filters, via
-// keep) dated before fromDate, so the running balance reads as it does unfiltered. Zero with no from date.
-func ledgerOpening(fromDate time.Time, fetch func(from, to time.Time) ([]ledgerSourceRow, error), keep func([]ledgerSourceRow) []ledgerSourceRow) (float64, error) {
-	if fromDate.IsZero() {
-		return 0, nil
-	}
-	prior, err := fetch(time.Time{}, fromDate.AddDate(0, 0, -1))
-	if err != nil {
-		return 0, err
-	}
-	if keep != nil {
-		prior = keep(prior)
-	}
-	opening := 0.0
-	for _, r := range prior {
-		if r.Memo {
-			continue
-		}
-		if toLedgerRow(r).DebitOrCredit == "debit" {
-			opening -= r.Amount
-		} else {
-			opening += r.Amount
-		}
-	}
-	return opening, nil
 }
 
 // paginateLedgerRowsFrom is paginateLedgerRows with the running balance starting at opening.
@@ -900,15 +858,10 @@ func listModeLedger(ctx context.Context, mode string, bankID *uint, branchID *ui
 		return modeLedger(ctx, mode, bankID, branchID, branchIDs, from, to)
 	}
 	keep := func(rows []ledgerSourceRow) []ledgerSourceRow { return filterLedgerRowsByType(rows, types) }
-	rows, err := fetch(fromDate, toDate)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	opening, err := ledgerOpening(fromDate, fetch, keep)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	return paginateLedgerRowsFrom(ctx, keep(rows), opening, limit, offset)
+	// The mode ledgers span the whole cash book: cache their closed years' totals.
+	tenantID, _ := config.TenantFromContext(ctx)
+	key := fmt.Sprintf("mode|%d|%s|%s|%s|%v|%v", tenantID, mode, uintKey(bankID), uintKey(branchID), branchIDs, types)
+	return paginateLedgerWindowedCached(ctx, key, modeLedgerFingerprint, fetch, keep, fromDate, toDate, limit, offset)
 }
 
 func modeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
@@ -1224,15 +1177,7 @@ func listLedgerByCategory(ctx context.Context, categoryName string, branchID *ui
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
 		return expenseLedgerByCategory(ctx, categoryName, branchID, from, to)
 	}
-	rows, err := fetch(fromDate, toDate)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	opening, err := ledgerOpening(fromDate, fetch, nil)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	return paginateLedgerRowsFrom(ctx, rows, opening, limit, offset)
+	return paginateLedgerWindowed(ctx, fetch, nil, fromDate, toDate, limit, offset)
 }
 
 func expenseLedgerByCategory(ctx context.Context, categoryName string, branchID *uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
@@ -1453,15 +1398,7 @@ func listLedgerByCashInCategory(ctx context.Context, name string, branchID *uint
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
 		return cashInLedgerByCategory(ctx, name, branchID, from, to)
 	}
-	rows, err := fetch(fromDate, toDate)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	opening, err := ledgerOpening(fromDate, fetch, nil)
-	if err != nil {
-		return nil, 0, LedgerTotals{}, err
-	}
-	return paginateLedgerRowsFrom(ctx, rows, opening, limit, offset)
+	return paginateLedgerWindowed(ctx, fetch, nil, fromDate, toDate, limit, offset)
 }
 
 func cashInLedgerByCategory(ctx context.Context, name string, branchID *uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {

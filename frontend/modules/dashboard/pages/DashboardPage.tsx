@@ -17,13 +17,13 @@ import { RegisterCustomerModalContent } from "@/common/components/modals/Registe
 import { PurityPicker } from "@/common/components/PurityPicker";
 import { Select } from "@/common/components/ui/Select";
 import { rateForPurityString } from "@/common/utils/purity";
-import { listCashMovements, listExpenses, getCashSummary } from "@/modules/cash/services/cashService";
-import { type CashMovementView, type ExpenseView, type CashSummary } from "@/modules/cash/types/cash-types";
+import { listExpenses, getCashSummary } from "@/modules/cash/services/cashService";
+import { type ExpenseView, type CashSummary } from "@/modules/cash/types/cash-types";
 import { getCalendarEventsPage } from "@/modules/reminders/services/reminderService";
 import { type CalendarEvent } from "@/modules/reminders/types/reminder-types";
 import { listLoanRequests, getInterestCollected } from "@/modules/loans/services/loanService";
 import { type RequestView } from "@/modules/loans/types/loan-types";
-import { getNeedsAttentionPage } from "@/modules/dashboard/services/dashboardService";
+import { getNeedsAttentionPage, getDashboardLoanStats, type DashboardLoanStats } from "@/modules/dashboard/services/dashboardService";
 import { type NeedsAttentionItem } from "@/modules/dashboard/types/dashboard-types";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
@@ -128,7 +128,7 @@ export function DashboardPage() {
   const { latest } = useGoldRates();
   const { openModal } = useModal();
 
-  const [cashMovements, setCashMovements] = useState<CashMovementView[]>([]);
+  const [loanStats, setLoanStats] = useState<DashboardLoanStats | null>(null);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
   const [pendingReq, setPendingReq] = useState<RequestView[]>([]);
   const [interestCollected, setInterestCollected] = useState(0);
@@ -136,7 +136,6 @@ export function DashboardPage() {
   useEffect(() => {
     if (canViewCash) {
       getCashSummary().then(setCashSummary).catch(() => setCashSummary(null));
-      listCashMovements().then(setCashMovements).catch(() => setCashMovements([]));
       listExpenses().then(setExpenses).catch(() => setExpenses([]));
     }
     if (!canViewLoans) return;
@@ -145,6 +144,7 @@ export function DashboardPage() {
     // fetch: the "Extension Requests"/"Gold Release Requests" KPI tiles
     // below need the true counts by type, not one page of them.
     listLoanRequests({ status: "Pending" }).then(setPendingReq).catch(() => setPendingReq([]));
+    getDashboardLoanStats().then(setLoanStats).catch(() => setLoanStats(null));
     getInterestCollected().then(setInterestCollected).catch(() => setInterestCollected(0));
   }, [canViewCash, canViewLoans]);
 
@@ -157,9 +157,9 @@ export function DashboardPage() {
   const pledged = loans.filter((l) => l.bankPledgeStatus === "Bank Pledged");
   const outstanding = active.reduce((s, l) => s + l.outstanding, 0);
   const expToday = expenses.filter((e) => e.d === today).reduce((s, e) => s + e.amt, 0);
-  const openedToday = loans.filter((l) => l.opened === today).length;
-  const cashInHand = cashMovements.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0)
-    - cashMovements.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
+  // Whole-book figures come from the server (the shell only holds open loans).
+  const openedToday = loanStats?.openedToday ?? 0;
+  const cashInHand = cashSummary ? cashSummary.cashInHand : 0;
   const expenseByCat = Object.entries(
     expenses.reduce<Record<string, number>>((acc, e) => { acc[e.cat] = (acc[e.cat] || 0) + e.amt; return acc; }, {})
   );
@@ -182,13 +182,10 @@ export function DashboardPage() {
   // point and not before (see loan.Service.Decide's `disbursing` flag), so
   // counting loans still in the approval chain would chart cash that has not
   // actually gone out.
-  loans.forEach((l) => {
-    if (l.approvalStage !== "Approved") return;
-    const opened = new Date(l.opened);
-    const idx = 5 - (
-      (now.getFullYear() - opened.getFullYear()) * 12 + (now.getMonth() - opened.getMonth())
-    );
-    if (idx >= 0 && idx < 6) monthBuckets[idx][1] += l.principal / 100000;
+  (loanStats?.disbursedMonths ?? []).forEach(({ month, amount }) => {
+    const [y, m] = month.split("-").map(Number);
+    const idx = 5 - ((now.getFullYear() - y) * 12 + (now.getMonth() + 1 - m));
+    if (idx >= 0 && idx < 6) monthBuckets[idx][1] += amount / 100000;
   });
   const maxBar = Math.max(1, ...monthBuckets.map(([, v]) => v));
   // KPI tiles below ("Pending Approvals"/"Auction Cases") deliberately keep

@@ -50,3 +50,13 @@ export async function getNeedsAttentionPage(page: number): Promise<NeedsAttentio
     auctionsCount: rec.auctionsCount,
   };
 }
+
+/* Whole-loan-book figures for the dashboard (today's new loans, last six
+ * months of sanctioned principal), aggregated server-side — the app shell
+ * only keeps the open loans in memory. */
+export type DashboardLoanStats = { openedToday: number; disbursedMonths: { month: string; amount: number }[] };
+
+export async function getDashboardLoanStats(): Promise<DashboardLoanStats> {
+  const rec = await apiFetch<DashboardLoanStats>("/dashboard/loan-stats");
+  return { openedToday: rec?.openedToday ?? 0, disbursedMonths: rec?.disbursedMonths ?? [] };
+}

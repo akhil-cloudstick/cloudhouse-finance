@@ -435,12 +435,23 @@ func ListPackets(c echo.Context) error {
 		}
 		return common.SuccessPage(c, page, limit, total, rec)
 	}
+	// Unpaged: a loan's or a locker's packets are bounded; anything wider is
+	// capped instead of loading every packet a long-running business ever made.
+	f.Limit = unpagedPacketCap
+	if f.LoanID != 0 || f.LockerID != 0 {
+		f.Limit = unpagedScopedPacketCap
+	}
 	recs, _, err := listPackets(ctx, f)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessAll(c, recs)
 }
+
+const (
+	unpagedPacketCap       = 500
+	unpagedScopedPacketCap = 5000
+)
 
 func GetPacketById(c echo.Context) error {
 	ctx := auth.RequestContext(c)

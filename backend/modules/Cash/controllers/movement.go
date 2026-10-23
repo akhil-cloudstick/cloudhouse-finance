@@ -72,11 +72,11 @@ func listCashMovementsByBank(ctx context.Context, bankID uint, fromDate, toDate 
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	all, _, err := listByBank(ctx, bankID, fromDate, toDate, 0, 0)
+	totals, err := partyTotalsWhere(ctx, "bank_id = ?", bankID, fromDate, toDate)
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	return rows, total, sumPartyTotals(all), nil
+	return rows, total, totals, nil
 }
 
 func listCashMovementsByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, loanNumbers []string, limit, offset int) ([]models.CashMovement, int64, PartyTotals, error) {
@@ -96,11 +96,46 @@ func listCashMovementsByBranch(ctx context.Context, branchID uint, fromDate, toD
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	all, _, err := listByBranch(ctx, branchID, fromDate, toDate, 0, 0)
+	totals, err := partyTotalsWhere(ctx, "branch_id = ?", branchID, fromDate, toDate)
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	return rows, total, sumPartyTotals(all), nil
+	return rows, total, totals, nil
+}
+
+// partyTotalsWhere is sumPartyTotals computed in SQL over the same rows as
+// listByBank / listByBranch, instead of loading every one of them to add up.
+func partyTotalsWhere(ctx context.Context, where string, id uint, fromDate, toDate time.Time) (PartyTotals, error) {
+	q := config.DB.
+		WithContext(ctx).Model(&models.CashMovement{}).
+		Select("type, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS total").
+		Where(where, id)
+	if !fromDate.IsZero() {
+		q = q.Where("occurred_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("occurred_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	var rows []struct {
+		Type  string
+		N     int
+		Total float64
+	}
+	if err := q.Group("type").Scan(&rows).Error; err != nil {
+		return PartyTotals{}, err
+	}
+	var t PartyTotals
+	for _, r := range rows {
+		if r.Type == "in" {
+			t.TotalIn += r.Total
+			t.InCount += r.N
+		} else {
+			t.TotalOut += r.Total
+			t.OutCount += r.N
+		}
+	}
+	t.Net = t.TotalIn - t.TotalOut
+	return t, nil
 }
 
 func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amount float64, components []splitComponent) (uint, string, error) {
@@ -1564,11 +1599,24 @@ func ListMovements(c echo.Context) error {
 		}
 		return common.SuccessPage(c, page, limit, total, withLoanSources(ctx, rec), extra)
 	}
-	rec, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, search, 0, 0)
+	// Unpaged callers get at most unpagedMovementCap rows: the full cash book of
+	// a long-running business is far too large for one response.
+	rec, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, search, unpagedMovementCap, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessAll(c, withLoanSources(ctx, rec))
+}
+
+const (
+	unpagedMovementCap = 500
+	// exportMaxRows caps a PDF/XLSX export, built whole in memory.
+	exportMaxRows = 20000
+)
+
+// errExportTooLarge asks for a shorter date range instead of building a huge document.
+func errExportTooLarge() error {
+	return common.NewBadRequest(fmt.Sprintf("too many entries to export at once — choose a shorter date range (at most %d entries per export)", exportMaxRows))
 }
 
 func GetCashLedger(c echo.Context) error {
@@ -1752,9 +1800,12 @@ func ExportMovementsByBank(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
-	rows, _, err := listByBank(ctx, bankID, fromDate, toDate, 0, 0)
+	rows, _, err := listByBank(ctx, bankID, fromDate, toDate, exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	if len(rows) > exportMaxRows {
+		return common.FailErr(c, errExportTooLarge())
 	}
 	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
@@ -1787,9 +1838,12 @@ func ExportMovementsByBranch(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
-	rows, _, err := listByBranch(ctx, branchID, fromDate, toDate, 0, 0)
+	rows, _, err := listByBranch(ctx, branchID, fromDate, toDate, exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	if len(rows) > exportMaxRows {
+		return common.FailErr(c, errExportTooLarge())
 	}
 	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
@@ -1822,9 +1876,12 @@ func ExportMovementsByCustomer(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
-	rows, _, err := listByCustomer(ctx, customerID, fromDate, toDate, loanNumbersFromQuery(c), 0, 0)
+	rows, _, err := listByCustomer(ctx, customerID, fromDate, toDate, loanNumbersFromQuery(c), exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	if len(rows) > exportMaxRows {
+		return common.FailErr(c, errExportTooLarge())
 	}
 	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
@@ -1852,9 +1909,12 @@ func ExportMovements(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	filter := movementQueryFilter(c)
-	rows, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, "", 0, 0)
+	rows, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, "", exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	if len(rows) > exportMaxRows {
+		return common.FailErr(c, errExportTooLarge())
 	}
 	var noteParts []string
 	if !fromDate.IsZero() || !toDate.IsZero() {

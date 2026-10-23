@@ -413,6 +413,12 @@ func ExportReport(c echo.Context) error {
 		badRequest(c, err)
 		return nil
 	}
+	// The file is built whole in memory: refuse a range with more rows than one
+	// export should hold instead of building it.
+	if v := reflect.ValueOf(rows); v.Kind() == reflect.Slice && v.Len() > reportExportMaxRows {
+		badRequest(c, fmt.Errorf("this report has %d rows in the chosen period — choose a shorter date range (at most %d rows per export)", v.Len(), reportExportMaxRows))
+		return nil
+	}
 	headers, data := toTable(rows)
 	if _, single := auth.SingleBranchPin(c); single {
 		headers, data = dropColumn(headers, data, "branchName")
@@ -440,3 +446,5 @@ func ExportReport(c echo.Context) error {
 	}
 	return nil
 }
+
+const reportExportMaxRows = 20000

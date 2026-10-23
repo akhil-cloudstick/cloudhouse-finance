@@ -1043,6 +1043,38 @@ func startOfDay(t time.Time) time.Time {
 
 func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if len(f.ServicingIn) > 0 {
+		// Several tabs at once: keep only rows that can match any of them (the
+		// listed statuses, or each servicing class's SQL candidates) so the
+		// read-time servicing check in listLoans sees the open book, never the
+		// whole loan history.
+		now := time.Now()
+		var clauses []string
+		var args []any
+		if len(f.StatusIn) > 0 {
+			clauses = append(clauses, "loans.status IN ?")
+			args = append(args, f.StatusIn)
+		}
+		for _, sv := range f.ServicingIn {
+			notIn, dueBefore, dueFrom := servicingCandidates(sv, now)
+			parts := []string{}
+			if len(notIn) > 0 {
+				parts = append(parts, "loans.status NOT IN ?")
+				args = append(args, notIn)
+			}
+			if dueFrom != nil {
+				parts = append(parts, "loans.due_date >= ?")
+				args = append(args, *dueFrom)
+			}
+			if dueBefore != nil {
+				parts = append(parts, "loans.due_date < ?")
+				args = append(args, *dueBefore)
+			}
+			if len(parts) == 0 {
+				parts = append(parts, "TRUE")
+			}
+			clauses = append(clauses, "("+strings.Join(parts, " AND ")+")")
+		}
+		q = q.Where("("+strings.Join(clauses, " OR ")+")", args...)
 	} else if len(f.StatusIn) > 0 {
 		q = q.Where("loans.status IN ?", f.StatusIn)
 	} else if f.Status != "" {
@@ -1143,6 +1175,11 @@ func FindLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) 
 	return loans, total, err
 }
 
+// CountLoans counts the loans matching f in SQL, without loading them.
+func CountLoans(ctx context.Context, f LoanFilter) (int64, error) {
+	return countFiltered(ctx, f)
+}
+
 func countFiltered(ctx context.Context, f LoanFilter) (int64, error) {
 	var count int64
 	err := applyFilters(config.DB.
@@ -1164,6 +1201,34 @@ func maxLoanNumberSuffix(ctx context.Context) (int, error) {
 		Select("COALESCE(MAX(CAST(SUBSTRING(loan_number FROM 'LN-(\\d+)') AS INTEGER)), 0)").
 		Scan(&maxSuffix).Error
 	return maxSuffix, err
+}
+
+// findOpenForNotifications loads every open loan with all of its own columns
+// (accrual and the notified-at stamps need them) and the customer's phone.
+// FindOpenForCalendar's narrow column list is not enough for that job: a
+// partly-loaded loan never sees its notified-at stamps, so it re-notified every
+// hour, and saving it back would write zeros over the columns it never read.
+func findOpenForNotifications(ctx context.Context) ([]models.Loan, error) {
+	var loans []models.Loan
+	err := config.DB.
+		WithContext(ctx).
+		Preload("Customer", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id", "name", "code", "phone")
+		}).
+		Where("status IN ?", []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue}).
+		Find(&loans).Error
+	return loans, err
+}
+
+// persistNotificationStamps saves only the three notified-at columns.
+func persistNotificationStamps(ctx context.Context, l *models.Loan) error {
+	return config.DB.
+		WithContext(ctx).Model(&models.Loan{}).Where("id = ?", l.ID).
+		Updates(map[string]any{
+			"due_soon_notified_at": l.DueSoonNotifiedAt,
+			"overdue_notified_at":  l.OverdueNotifiedAt,
+			"interest_reminded_at": l.InterestRemindedAt,
+		}).Error
 }
 
 func FindOpenForCalendar(ctx context.Context) ([]models.Loan, error) {
@@ -1265,12 +1330,17 @@ func ListLoans(c echo.Context) error {
 		}
 		return common.SuccessPage(c, page, limit, total, rec)
 	}
+	// Unpaged: callers ask for a narrowed set (e.g. the open loan book); the
+	// cap stops an unfiltered request from loading a whole long history.
+	f.Limit = unpagedLoanCap
 	rec, _, err := listLoans(ctx, f)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessAll(c, rec)
 }
+
+const unpagedLoanCap = 5000
 
 func GetLoanById(c echo.Context) error {
 	ctx := auth.RequestContext(c)

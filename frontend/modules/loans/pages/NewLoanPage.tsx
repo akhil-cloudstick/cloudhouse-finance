@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useData } from "@/common/providers/DataProvider";
-import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
@@ -140,7 +139,6 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
       : `${k.code} (${k.occupied}/${k.capacity} packets)`;
   const { config: workflow } = useApprovalWorkflow();
   const { refresh } = useData();
-  const { customers } = useCustomers();
   const { schemes } = useSchemes();
   const { loans, refresh: refreshLoans } = useLoans();
   const { latest: rates, isTodaySet, refresh: refreshGoldRates } = useGoldRates();

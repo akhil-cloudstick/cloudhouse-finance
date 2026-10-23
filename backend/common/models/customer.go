@@ -81,6 +81,7 @@ type CustomerResponse struct {
 	BankAccountName   string    `json:"bank_account_name,omitempty"`
 	BankAccountNumber string    `json:"bank_account_number,omitempty"`
 	BankIFSC          string    `json:"bank_ifsc,omitempty"`
+	LoanCount         *int64    `json:"loan_count,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }

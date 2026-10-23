@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useData } from "@/common/providers/DataProvider";
-import { useCustomers } from "@/modules/customers/store/CustomersProvider";
+import { searchCustomersPage } from "@/modules/customers/services/customerService";
+import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
-import { useLoans } from "@/modules/loans/store/LoansProvider";
+import { searchLoansPage } from "@/modules/loans/services/loanService";
+import { type LoanView } from "@/modules/loans/types/loan-types";
 import { Icon } from "@/common/components/Icon";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { fmt } from "@/common/utils/format";
@@ -27,10 +29,12 @@ export default function GlobalSearch({
   onToggle,
 }: GlobalSearchProps = {}) {
   const { db } = useData();
-  const { customers } = useCustomers();
   const { schemes } = useSchemes();
-  const { loans } = useLoans();
   const [query, setQuery] = useState("");
+  // Loans and customers are searched on the server (a business can hold far
+  // too many to load into the browser); schemes/packets/employees stay local.
+  const [loans, setLoans] = useState<LoanView[]>([]);
+  const [customers, setCustomers] = useState<CustomerView[]>([]);
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState(-1);
   const [internalOpen, setInternalOpen] = useState(false);
@@ -45,13 +49,33 @@ export default function GlobalSearch({
   // Single-branch plan: result subtitles never name the branch.
   const showBranch = useShowBranch();
 
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setLoans([]); setCustomers([]); return; }
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      if (canOpen("loan")) {
+        searchLoansPage(q, 0)
+          .then((r) => { if (!cancelled) setLoans(r.items); })
+          .catch(() => { if (!cancelled) setLoans([]); });
+      }
+      if (canOpen("customer")) {
+        searchCustomersPage(q, 0)
+          .then((r) => { if (!cancelled) setCustomers(r.items); })
+          .catch(() => { if (!cancelled) setCustomers([]); });
+      }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(handle); };
+    // canOpen is a fresh function each render; the role doesn't change mid-search.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
   function searchAll(q: string): ResultGroup[] {
     const needle = q.toLowerCase();
     const hit = (s?: string) => (s || "").toLowerCase().includes(needle);
     const groups: ResultGroup[] = [];
 
     const loanHits = !canOpen("loan") ? [] : loans
-      .filter((l) => hit(l.id) || hit(l.customerName) || hit(l.customerCode) || hit(l.status))
       .slice(0, 5)
       .map((l) => ({
         href: routeHref("loan/" + l.id),
@@ -63,7 +87,6 @@ export default function GlobalSearch({
     if (loanHits.length) groups.push(["Loans", loanHits]);
 
     const custs = !canOpen("customer") ? [] : customers
-      .filter((c) => hit(c.name) || hit(c.code) || hit(c.phone) || hit(c.address))
       .slice(0, 5)
       .map((c) => ({
         href: routeHref("customer/" + c.id),
@@ -194,7 +217,7 @@ export default function GlobalSearch({
           id="gsInput"
           type="text"
           placeholder="Search loans, customers, schemes…"
-          title="Searches: loans (loan number, customer name, customer code, status), customers (name, code, phone, address), schemes (name, code) · type at least 2 characters"
+          title="Searches: loans (loan number, customer name, customer code), customers (name, code, phone), schemes (name, code) · type at least 2 characters"
           autoComplete="off"
           value={query}
           onChange={(e) => handleChange(e.target.value)}

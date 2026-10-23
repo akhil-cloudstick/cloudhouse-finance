@@ -45,6 +45,8 @@ export type BackendCustomer = {
   bankAccountName?: string;
   bankAccountNumber?: string;
   bankIfsc?: string;
+  // Number of loans, sent only on paged customer lists (Customers table).
+  loanCount?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -84,6 +86,7 @@ export type CustomerView = {
   bankAccountName?: string;
   bankAccountNumber?: string;
   bankIfsc?: string;
+  loanCount?: number;
 };
 /* What RegisterCustomerModal.tsx collects. `aadhaar` is the plaintext
  * number, sent once at submit time — the backend encrypts it immediately
