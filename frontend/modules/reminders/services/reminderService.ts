@@ -1,4 +1,6 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
 import type { BackendReminder, ReminderView, CreateReminderInput, UpdateReminderInput, ReminderFilters, CalendarEvent } from "@/modules/reminders/types/reminder-types";
 
 function toView(r: BackendReminder): ReminderView {
@@ -15,6 +17,22 @@ function toView(r: BackendReminder): ReminderView {
 }
 
 export async function createReminder(input: CreateReminderInput): Promise<ReminderView> {
+  // Desktop: the reminder goes into the outbox first and shows in the calendar and the list at once (see
+  // common/offline/reminderAdjust.ts); the sender posts it. The call returns at once.
+  if (offlineReady()) {
+    const entry = newEntry("POST", "/reminders", input, currentActor());
+    await enqueueAndWait(entry, () => undefined, () => undefined);
+    return {
+      id: 0,
+      customerId: input.customerId,
+      customerName: "—",
+      loanId: input.loanId ?? null,
+      type: input.type,
+      dueDate: input.dueDate,
+      note: input.note ?? "",
+      status: "Pending",
+    };
+  }
   const rec = await apiFetch<BackendReminder>("/reminders", {
     method: "POST",
     body: JSON.stringify(input),

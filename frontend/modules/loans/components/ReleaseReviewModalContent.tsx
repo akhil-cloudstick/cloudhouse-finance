@@ -144,7 +144,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     setSaving(true);
     setErr("");
     try {
-      const updated = await verifyReleaseChecklist(req.id, { customerSawGold: value });
+      const updated = await verifyReleaseChecklist(req.id, { customerSawGold: value }, req);
       setReq(updated);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not update the checklist — try again.");
@@ -157,7 +157,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     setSaving(true);
     setErr(""); setNotesErr("");
     try {
-      const updated = await verifyReleaseChecklist(req.id, { verificationNotes: notes });
+      const updated = await verifyReleaseChecklist(req.id, { verificationNotes: notes }, req);
       setReq(updated);
       toast("Saved");
     } catch (e) {
@@ -174,7 +174,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     try {
       // The acting employee is derived server-side from the logged-in
       // user's JWT — no employeeId sent from here.
-      const updated = await approveReleaseRequest(req.id, { stage, action });
+      const updated = await approveReleaseRequest(req.id, { stage, action }, req);
       setReq(updated);
       onSaved();
       if (action !== "Approved" || updated.status !== "Approved") {

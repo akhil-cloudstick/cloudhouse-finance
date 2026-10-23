@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
 import { ledgerRowToView } from "./cashService";
@@ -38,20 +38,17 @@ function notifyExpenseCategoriesChanged() {
 }
 
 export async function createExpenseCategory(name: string): Promise<BackendExpenseCategory> {
-  let rec: BackendExpenseCategory;
-  try {
-    rec = await apiFetch<BackendExpenseCategory>("/expense-categories", {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    });
-  } catch (e) {
-    // Desktop with no answer from the server: kept on this PC, listed at once, sent later.
-    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+  // Desktop: the category goes into the outbox first, is listed at once, and is sent from there.
+  if (offlineReady()) {
     const entry = newEntry("POST", "/expense-categories", { name }, currentActor());
     const draft = { id: -Math.floor(Math.random() * 1_000_000) - 1, name, type: "expense", uuid: entry.id, createdAt: new Date().toISOString() } as unknown as BackendExpenseCategory;
     await enqueueAndWait(entry, () => upsertLocal("categories", draft as unknown as LocalRecord), () => removeLocal("categories", entry.id));
     return draft;
   }
+  const rec = await apiFetch<BackendExpenseCategory>("/expense-categories", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
   // Lets every category-ledger link resolve the new category straight away.
   notifyExpenseCategoriesChanged();
   return rec;

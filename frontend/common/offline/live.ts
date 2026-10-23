@@ -5,6 +5,10 @@
 
 export const ENTRY_REFUSED_EVENT = "app:entry-refused";
 
+/* Fired after the sender has posted one or more entries and the local copy has caught up with the server, so a screen
+ * that read its list a moment earlier (before the server had the entry) reads it again. */
+export const ENTRIES_SENT_EVENT = "app:entries-sent";
+
 export type Refusal = { status: number; message: string };
 
 type Waiting = { undo: () => Promise<void> | void };

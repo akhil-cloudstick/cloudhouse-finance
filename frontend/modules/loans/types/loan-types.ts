@@ -889,6 +889,8 @@ export type RequestView = {
   // Ornament IDs selected for release on this request — empty for a plain
   // full release (or an Extension request).
   ornamentIds: number[];
+  /** A decision on this request is saved on this PC and not sent to the server yet. */
+  syncPending?: boolean;
 };
 export type LoanRequestFilters = {
   status?: string;

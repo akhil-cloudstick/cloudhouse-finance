@@ -5,9 +5,9 @@ import {
   readToken,
   resolveActiveSlug,
 } from "@/common/services/tenantSession";
-import { branchHeader } from "@/common/services/branchSelection";
+import { branchHeader, SELECTED_BRANCH_HEADER } from "@/common/services/branchSelection";
 import { fromApi, toApi } from "@/common/services/apiContract";
-import { cacheable, recall, remember } from "@/common/offline/readCache";
+import { branchScoped, cacheable, recall, remember } from "@/common/offline/readCache";
 import { offlineReady } from "@/common/offline/state";
 import { signHeaders } from "@/common/offline/device";
 
@@ -89,7 +89,9 @@ async function contractFetch(path: string, init?: RequestInit, signed = false): 
     init = { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers).entries()), ...proof } };
   }
   const keep = cacheable(req.method, req.path);
-  const view = keep ? JSON.stringify(branchHeader()) : "";
+  // the branch the request is for is the one it actually carries (the warm-up asks for each branch in turn)
+  const sentBranch = new Headers(init?.headers).get(SELECTED_BRANCH_HEADER);
+  const view = keep ? JSON.stringify(sentBranch && branchScoped(req.path) ? { [SELECTED_BRANCH_HEADER]: sentBranch } : {}) : "";
   let res: Response;
   try {
     res = await networkFetch(`${API_BASE}${req.path}`, { ...init, method: req.method, body: req.body as BodyInit | undefined });
@@ -99,11 +101,16 @@ async function contractFetch(path: string, init?: RequestInit, signed = false): 
       const hit = await recall(req.path, view);
       if (hit !== null) return new Response(hit, { status: 200, headers: { "content-type": "application/json", "X-From-Cache": "true" } });
     }
+    // A read with nothing kept for it while offline mode is running fails without the "couldn't reach" wording, so
+    // no page shows that warning: the PC is expected to be offline and the page simply has nothing to list.
+    if (e instanceof ApiError && e.status === 0 && offlineReady() && req.method === "GET" && !signed) throw new ApiError("", 0);
     // Nothing to show instead: a pop-up as well as the text in the page, except for reads while offline mode is running (the
     // PC is expected to be offline then, so the page's own text is enough; a save that cannot be queued still warns). Background work (the sync, the warm-up)
     // never raises it, and a screen answered from the PC's own copy never reaches here.
     if (e instanceof ApiError && e.status === 0 && !signed && quietDepth === 0 && !(offlineReady() && req.method === "GET") && !QUIET_PATH.test(req.path) && typeof window !== "undefined") {
       window.dispatchEvent(new Event(UNREACHABLE_EVENT));
+      // The toast carries the wording; an empty message keeps forms from printing the same text inline as well.
+      throw new ApiError("", 0);
     }
     throw e;
   }
@@ -291,18 +298,28 @@ export async function apiFetchEnvelope<T extends { success: boolean; error?: str
 /* Fetches a path only so its answer is kept for offline use (see common/offline/readCache.ts). It never
  * reports a failure and never triggers the sign-in or "forbidden" handling: a role that may not see a list
  * just has nothing to keep. */
-export async function warmGet(path: string): Promise<void> {
+export async function warmGet(path: string, branch?: number | null): Promise<void> {
   try {
-    await contractFetch(path, { headers: jsonHeaders() });
+    await contractFetch(path, { headers: warmHeaders(branch) });
   } catch {
     /* nothing to keep */
   }
 }
 
+/* The headers for a warm-up request: the current branch view, or, when `branch` is given, that branch (null = all
+ * branches), so each branch gets its own copy without touching what the person is looking at. */
+function warmHeaders(branch?: number | null): Record<string, string> {
+  const h = jsonHeaders();
+  if (branch === undefined) return h;
+  delete h[SELECTED_BRANCH_HEADER];
+  if (branch) h[SELECTED_BRANCH_HEADER] = String(branch);
+  return h;
+}
+
 /* Like warmGet, but hands back the parsed answer (null when there is none). */
-export async function warmJson(path: string): Promise<unknown | null> {
+export async function warmJson(path: string, branch?: number | null): Promise<unknown | null> {
   try {
-    const res = await contractFetch(path, { headers: jsonHeaders() });
+    const res = await contractFetch(path, { headers: warmHeaders(branch) });
     return res.ok ? await res.json() : null;
   } catch {
     return null;

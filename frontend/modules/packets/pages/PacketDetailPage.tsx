@@ -13,6 +13,7 @@ import { listLockers, searchLockersPage } from "@/modules/lockers/services/locke
 import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { getLoanByNumber, canAcceptBankPledge } from "@/modules/loans/services/loanService";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModalContent";
+import { ENTRIES_SENT_EVENT } from "@/common/offline/live";
 import { getPacketByCode, listMovements, recordMovement, PACKET_STAGES, PACKET_STATUS } from "@/modules/packets/services/packetService";
 import { type PacketView, type MovementView } from "@/modules/packets/types/packet-types";
 import { routeHref } from "@/common/services/appRoutes";
@@ -95,6 +96,15 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
       setError(e instanceof ApiError ? e.message : "Failed to load packet.");
     }
   }
+
+  // a movement that was queued may not have been on the server when the packet was read: when the sender has posted it,
+  // read the packet again so the new stage shows without a manual refresh
+  useEffect(() => {
+    const again = () => void load();
+    window.addEventListener(ENTRIES_SENT_EVENT, again);
+    return () => window.removeEventListener(ENTRIES_SENT_EVENT, again);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [code]);
 

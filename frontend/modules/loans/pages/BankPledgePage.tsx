@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -14,6 +14,7 @@ import { SelectLoanForRepledgeModalContent } from "@/common/components/modals/Se
 import { BanksModalContent } from "@/modules/banks/components/BanksModalContent";
 import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { ApiError } from "@/common/services/httpClient";
+import { ENTRIES_SENT_EVENT } from "@/common/offline/live";
 import { useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { routeHref } from "@/common/services/appRoutes";
@@ -139,6 +140,18 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
     void loadPledged(pledgedPage, trimmedQ);
     void loadHistory(historyPage, trimmedQ);
   }
+
+  // The release or the new pledge was queued, and the server may not have had it yet when the tables were read: when
+  // the sender has posted it, read the tables again so the change shows without a manual refresh.
+  const refreshRef = useRef(refreshAll);
+  useEffect(() => {
+    refreshRef.current = refreshAll;
+  });
+  useEffect(() => {
+    const again = () => refreshRef.current();
+    window.addEventListener(ENTRIES_SENT_EVENT, again);
+    return () => window.removeEventListener(ENTRIES_SENT_EVENT, again);
+  }, []);
 
   function startNewRepledge() {
     openModal(

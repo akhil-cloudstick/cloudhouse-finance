@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
 import { uploadFile } from "@/common/services/uploadService";
@@ -118,16 +118,9 @@ export async function exportExpenses(): Promise<void> {
 }
 
 export async function createCashMovement(input: CashMovementInput): Promise<CashMovementView> {
-  try {
-    const rec = await apiFetch<BackendCashMovement>("/cash-movements", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    return movementToView(rec);
-  } catch (e) {
-    // Desktop with no answer from the server: kept on this PC and sent later. Cash in hand, the bank balances and
-    // the ledger already include it (see common/offline/cashAdjust.ts) until the server has it.
-    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+  // Desktop: the save goes into the outbox first and the sender posts it from there (cash in hand, the bank
+  // balances and the ledger include it at once, see common/offline/cashAdjust.ts). The call returns at once.
+  if (offlineReady()) {
     const entry = newEntry("POST", "/cash-movements", input, currentActor());
     await enqueueAndWait(entry, () => undefined, () => undefined);
     return movementToView({
@@ -136,6 +129,11 @@ export async function createCashMovement(input: CashMovementInput): Promise<Cash
       remarks: input.remarks,
     } as BackendCashMovement);
   }
+  const rec = await apiFetch<BackendCashMovement>("/cash-movements", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return movementToView(rec);
 }
 
 export async function createSelfTransfer(input: SelfTransferInput): Promise<void> {
@@ -222,16 +220,9 @@ export async function listExpensesPage(page: number, limit?: number): Promise<{ 
 }
 
 export async function createExpense(input: ExpenseFormInput): Promise<ExpenseView> {
-  try {
-    const rec = await apiFetch<BackendExpense>("/expenses", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    return expenseToView(rec);
-  } catch (e) {
-    // Desktop with no answer from the server: kept on this PC and sent later. Cash in hand, the bank balances and the
-    // ledger already include it (see common/offline/cashAdjust.ts) until the server has it.
-    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+  // Desktop: outbox first, as createCashMovement above. The call returns at once; an expense that the approval flow
+  // makes Pending shows as such after the sender has posted it.
+  if (offlineReady()) {
     const entry = newEntry("POST", "/expenses", input, currentActor());
     await enqueueAndWait(entry, () => undefined, () => undefined);
     return expenseToView({
@@ -240,6 +231,11 @@ export async function createExpense(input: ExpenseFormInput): Promise<ExpenseVie
       remarks: input.remarks, receiptImage: input.receiptImage, status: "",
     } as unknown as BackendExpense);
   }
+  const rec = await apiFetch<BackendExpense>("/expenses", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return expenseToView(rec);
 }
 
 /* Approve/reject a Pending expense (only raised while the business has the

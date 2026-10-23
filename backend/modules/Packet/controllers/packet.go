@@ -503,7 +503,7 @@ func RecordPacketMovement(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	if loanNoLongerMovableStatuses[p.Loan.Status] {
-		return common.FailErr(c, common.NewConflict("this loan's gold has already left custody — no further packet movement is possible"))
+		return common.FailErr(c, common.NewConflict("gold has left custody — no more movements"))
 	}
 	rec, err := SavePacketMovement(ctx, id, req.ToStatus, req.LockerID, req.EmployeeID, req.Remarks)
 	if err != nil {

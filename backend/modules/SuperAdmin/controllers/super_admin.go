@@ -158,7 +158,7 @@ func createBusiness(ctx context.Context, actor *models.SuperAdminUser, in Create
 		return nil, common.NewBadRequest("business code is required")
 	}
 	if !businessCodePattern.MatchString(code) || len(code) > 32 {
-		return nil, common.NewBadRequest("business code must be lowercase letters, numbers and dashes only")
+		return nil, common.NewBadRequest("code: lowercase letters, numbers, dashes")
 	}
 	if common.ReservedHostLabels[code] {
 		return nil, common.NewBadRequest("this business code is reserved, please choose another")
@@ -171,7 +171,7 @@ func createBusiness(ctx context.Context, actor *models.SuperAdminUser, in Create
 		return nil, common.NewBadRequest("an initial administrator username is required")
 	}
 	if len(in.AdminPassword) < 8 {
-		return nil, common.NewBadRequest("the initial administrator password must be at least 8 characters")
+		return nil, common.NewBadRequest("password must be 8+ characters")
 	}
 	var created commonModels.Tenant
 	var adminRoleName string

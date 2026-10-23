@@ -147,7 +147,7 @@ func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amou
 			continue
 		}
 		if c.mode == models.CashModeCheque {
-			return 0, "", common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+			return 0, "", common.NewBadRequest("Cheque is not a supported payment mode")
 		}
 		rec := base
 		rec.Mode = c.mode
@@ -442,7 +442,7 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 			return nil, err
 		}
 		if !hasLoanDetails(src) {
-			return nil, common.NewBadRequest("this loan has no details recorded yet — add cash from it first")
+			return nil, common.NewBadRequest("no loan details yet — add cash first")
 		}
 		toBankID = 0
 		category = src.Name
@@ -465,7 +465,7 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 		mode = models.CashModeBankTransfer
 	case models.CashModeBankTransfer, models.CashModeUPI:
 	default:
-		return nil, common.NewBadRequest("mode must be Bank Transfer or UPI for a transfer between banks")
+		return nil, common.NewBadRequest("mode must be Bank Transfer or UPI")
 	}
 	occurred := in.OccurredOn
 	if occurred.IsZero() {
@@ -602,7 +602,7 @@ type SplitPart struct {
 // cheque amount is rejected: the application has no Cheque mode.
 func SplitParts(cash, upi, bankTransfer, cheque float64, bankID *uint) ([]SplitPart, error) {
 	if cheque > 0 {
-		return nil, common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+		return nil, common.NewBadRequest("Cheque is not a supported payment mode")
 	}
 	var out []SplitPart
 	if cash > 0 {

@@ -2,10 +2,12 @@ import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } fr
 import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
 import { offlineStore } from "@/common/services/desktopBridge";
+import { localPledgeId } from "@/common/offline/pledgeRef";
 import { enqueueAndWait, getLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { enabledStages, fetchApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import {
   applyActionLocally,
+  applyEditLocally,
   applyPaymentLocally,
   buildOptimisticLoan,
   currentActor,
@@ -283,19 +285,31 @@ const hasValue = (v?: string | number | (string | number)[]) => (Array.isArray(v
 /* On the desktop, a read the server did not answer at all is answered from the local copy, which also
  * holds loans made on this PC that the server has not numbered yet. An answer from the server, even an
  * error, is never replaced. */
-/* A save that has no local picture to update (a request, a bank re-pledge): sent as usual, and only when the server
- * does not answer at all it is kept in the outbox, addressed by the loan's UUID, and sent later. Returns the local
- * loan so the screen can carry on; what the entry changes appears once it has been sent. Returns null when this is
- * not the desktop, or the loan is not known on this PC, so the caller reports the failure as before. */
-async function queueIfUnreachable(e: unknown, loanId: number, suffix: string, method: "POST" | "PUT", body: unknown): Promise<BackendLoan | null> {
-  if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) return null;
+/* A save that has no local picture to update (a request, a bank re-pledge): with offline mode on it goes into the outbox
+ * first, addressed by the loan's UUID, and the sender posts it from there. Returns the local loan so the screen can
+ * carry on; what the entry changes appears once it has been sent. Returns null when this is not the desktop, or the
+ * loan is not known on this PC, so the caller makes the request as usual. */
+async function queueFirst(
+  loanId: number,
+  suffix: string,
+  method: "POST" | "PUT",
+  body: unknown,
+  effect?: (loan: BackendLoan, entryId: string) => BackendLoan,
+): Promise<BackendLoan | null> {
+  if (!offlineReady()) return null;
+  // a loan made on this PC that the server has not numbered yet has no id for the server's own records (requests, pledges)
+  // to point at, so this has to wait for the send instead of failing as "couldn't connect"
+  if (!loanId) throw new ApiError(NOT_SENT, 409);
   const rec = localLoanByNumericId(loanId);
   if (!rec?.uuid) return null;
   const entry = newEntry(method, `/loans/uuid:${rec.uuid}${suffix}`, body, currentActor(), [rec.uuid]);
-  await enqueueAndWait(entry, () => undefined, () => undefined);
-  return rec as unknown as BackendLoan;
+  // an optional change to the loan's own local copy, so the screens show the result before the server has it
+  const after = effect ? ({ ...effect(rec as unknown as BackendLoan, entry.id), uuid: rec.uuid } as BackendLoan & { uuid: string }) : null;
+  await enqueueAndWait(entry, () => (after ? upsertLocal("loans", after as unknown as LocalRecord) : undefined), () => undefined);
+  return (after ?? rec) as unknown as BackendLoan;
 }
 
+const NOT_SENT = "This loan has not been sent to the server yet. Try again once it has (it is sent automatically when the connection is back).";
 const NOT_SYNCED = "This loan has not reached the server yet. Its ornaments can be changed once it has.";
 
 /* A change that has no local picture to update beyond the loan itself: sent as usual, and only when the server does
@@ -428,7 +442,28 @@ async function searchLoansPageLive(
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }
 
+/* True when a change made on this PC to the loan is still waiting in the outbox. While it is, the server's own copy
+ * is older than what this PC shows, so a reload must not replace the screen with it (a release that was just saved would
+ * look undone until the send finished). */
+async function hasWaitingChange(uuid: string | undefined): Promise<boolean> {
+  if (!uuid || !offlineReady()) return false;
+  try {
+    for (const line of await offlineStore.readAllOutbox()) {
+      try {
+        if ((JSON.parse(line) as { targets?: string[] }).targets?.includes(uuid)) return true;
+      } catch {
+        /* a line that cannot be read waits for nothing */
+      }
+    }
+  } catch {
+    /* the store is not readable: fall back to asking the server */
+  }
+  return false;
+}
+
 export async function getLoan(id: number): Promise<LoanView> {
+  const waiting = offlineReady() ? localLoanByNumericId(id) : undefined;
+  if (waiting && (await hasWaitingChange(waiting.uuid))) return toView(waiting);
   return orLocal(
     async () => toView(await apiFetch<BackendLoan>(`/loans/${id}`)),
     () => {
@@ -445,6 +480,8 @@ export async function getLoan(id: number): Promise<LoanView> {
  * needed two round trips and could show a transient "Loan not found" if
  * the list call raced against another in-flight /loans request. */
 export async function getLoanByNumber(loanNumber: string): Promise<LoanView> {
+  const waiting = offlineReady() ? localLoanByKey(loanNumber) : undefined;
+  if (waiting && (await hasWaitingChange(waiting.uuid))) return toView(waiting);
   const local = () => {
     const rec = localLoanByKey(loanNumber);
     if (!rec) throw new ApiError("Loan not found", 404);
@@ -574,23 +611,12 @@ export async function approveLoan(loanId: number, input: ApprovalInput, uuid?: s
 
 export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: string): Promise<LoanView> {
   const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
-  try {
-    const rec = await apiFetch<BackendLoan>(`/loans/${loanId || `uuid:${uuid}`}`, {
-      method: "PATCH",
-      body: JSON.stringify(input),
-    });
-    return toView(rec);
-  } catch (e) {
-    // Desktop with no answer from the server: the change shows on this loan at once and is sent later.
-    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0 || !local || !uuid) throw e;
+  // Desktop: the change goes into the outbox first and shows on this loan at once; the sender posts it.
+  if (offlineReady() && local && uuid) {
     const entry = newEntry("PATCH", `/loans/uuid:${uuid}`, input, currentActor(), [uuid]);
-    const after = {
-      ...local,
-      ...(input.principalAmount !== undefined ? { principalAmount: input.principalAmount, outstandingAmount: input.principalAmount } : {}),
-      ...(input.schemeId !== undefined ? { schemeId: typeof input.schemeId === "number" ? input.schemeId : local.schemeId } : {}),
-      ...(input.overallPhotoUrl !== undefined ? { overallPhotoUrl: input.overallPhotoUrl } : {}),
-      updatedAt: new Date().toISOString(),
-    };
+    const chain = enabledStages(await fetchApprovalWorkflow().catch(() => []), "loan_sanction");
+    const firstStage = chain[0]?.pending ?? local.approvalStage ?? "LoanOperator";
+    const after = applyEditLocally(local, input, firstStage, currentActor());
     await enqueueAndWait(
       entry,
       () => upsertLocal("loans", after as unknown as LocalRecord),
@@ -598,6 +624,11 @@ export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: 
     );
     return toView(after);
   }
+  const rec = await apiFetch<BackendLoan>(`/loans/${loanId || `uuid:${uuid}`}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  return toView(rec);
 }
 
 /* Permanently deletes a loan and every record tied to it — a real DELETE,
@@ -657,6 +688,43 @@ export async function recordPayment(loanId: number, input: PaymentInput, uuid?: 
  * instead (see listTopUps/approveTopUp below) — nothing is paid out until its
  * final stage approves it. Only one pending top-up per loan (409 otherwise). */
 export async function topUpLoan(loanId: number, input: TopUpInput): Promise<LoanView> {
+  const local = offlineReady() ? localLoanByNumericId(loanId) : undefined;
+  if (local?.uuid) {
+    const round = (n: number) => Math.round(n * 100) / 100;
+    // the refusals the server gives, raised here before anything is queued
+    if (!(input.amount > 0)) throw new ApiError("amount must be greater than zero", 400);
+    if (!["Active", "Due Soon", "Overdue"].includes(local.status)) throw new ApiError("loan must be Active to top up", 409);
+    if (round(input.amount) > round((local.eligibleLoanAmount ?? 0) - (local.outstandingAmount ?? 0)) + 0.01) {
+      throw new ApiError("amount is above the loan limit", 400);
+    }
+    const penalOwed = Math.max(0, (local.accruedPenalInterest ?? 0) > 0 ? (local.accruedPenalInterest ?? 0) - (local.penalInterestPaid ?? 0) : (local.outstandingPenalInterest ?? 0));
+    const interestOwed = Math.max(0, (local.accruedInterest ?? 0) > 0 ? (local.accruedInterest ?? 0) - (local.interestPaid ?? 0) : (local.outstandingInterest ?? 0));
+    const arrears = round(penalOwed + interestOwed);
+    const deduct = input.settleInterest === "deduct";
+    if (arrears > 0.01 && !deduct) throw new ApiError("pay the outstanding interest first", 400);
+    const needsApproval = enabledStages(await fetchApprovalWorkflow().catch(() => []), "loan_topup").length > 0;
+    const taken = deduct ? Math.min(arrears, input.amount) : 0;
+    const penalTaken = Math.min(taken, penalOwed);
+    const interestTaken = taken - penalTaken;
+    // with the approval flow on, the loan is unchanged until a top-up is approved; otherwise it is paid out at once
+    const queued = await queueFirst(loanId, "/topup", "POST", input, (loan) =>
+      needsApproval
+        ? loan
+        : {
+            ...loan,
+            principalAmount: round(loan.principalAmount + input.amount),
+            outstandingAmount: round(loan.outstandingAmount + input.amount),
+            totalOutstandingBalance: round((loan.totalOutstandingBalance ?? 0) + input.amount - taken),
+            settlementAmount: round((loan.settlementAmount ?? 0) + input.amount - taken),
+            interestPaid: round((loan.interestPaid ?? 0) + interestTaken),
+            penalInterestPaid: round((loan.penalInterestPaid ?? 0) + penalTaken),
+            outstandingInterest: round(Math.max(0, interestOwed - interestTaken)),
+            outstandingPenalInterest: round(Math.max(0, penalOwed - penalTaken)),
+            updatedAt: new Date().toISOString(),
+          },
+    );
+    if (queued) return toView(queued);
+  }
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/topup`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -676,17 +744,39 @@ export async function approveTopUp(topUpId: number, input: TopUpApprovalInput): 
 }
 
 export async function recordBankPledge(loanId: number, input: BankPledgeInput): Promise<LoanView> {
-  try {
-    const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    return toView(rec);
-  } catch (e) {
-    const queued = await queueIfUnreachable(e, loanId, "/bank-pledge", "POST", input);
-    if (queued) return toView(queued);
-    throw e;
-  }
+  // the loan shows as pledged at once, with the new pledge listed (id 0 until the server numbers it)
+  const queued = await queueFirst(loanId, "/bank-pledge", "POST", input, (loan, entryId) => ({
+    ...loan,
+    bankPledgeStatus: "Bank Pledged",
+    bankPledges: [
+      ...(loan.bankPledges ?? []),
+      {
+        // no server id yet: a negative one that is only ever used on this PC, plus the entry that will create it
+        id: localPledgeId(entryId),
+        clientRef: entryId,
+        loanId,
+        bankName: input.bankName,
+        pledgedAmount: input.pledgedAmount,
+        pledgeDate: input.pledgeDate,
+        releaseDate: null,
+        bankPledgeDueDate: input.bankPledgeDueDate ?? null,
+        bankInterestRate: input.bankInterestRate ?? 0,
+        referenceNumber: input.referenceNumber ?? "",
+        cashTreatment: input.cashTreatment ?? "RecordOnly",
+        status: "Active",
+        voidedAt: null,
+        voidReason: "",
+        events: [],
+      } as unknown as BackendBankPledgeRecord,
+    ],
+    updatedAt: new Date().toISOString(),
+  }));
+  if (queued) return toView(queued);
+  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return toView(rec);
 }
 
 /* `payment` is how the pledged amount is paid back to the bank (only used for
@@ -697,6 +787,28 @@ export async function releaseBankPledge(
   pledgeId: number,
   payment?: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }
 ): Promise<LoanView> {
+  // Desktop: the release goes into the outbox first, the pledge shows as released at once, and the sender posts it.
+  // It needs the pledge to be on the server already (its id is the server's), so a pledge recorded offline waits.
+  const local = offlineReady() ? localLoanByNumericId(loanId) : undefined;
+  const pledge = pledgeId !== 0 ? local?.bankPledges?.find((p) => p.id === pledgeId && (p.status || "Active") === "Active") : undefined;
+  if (local?.uuid && pledge) {
+    // a pledge recorded on this PC is addressed by the entry that creates it until the server has numbered it
+    const ref = pledgeId < 0 ? `ref:${(pledge as { clientRef?: string }).clientRef}` : String(pledgeId);
+    const entry = newEntry("PUT", `/loans/uuid:${local.uuid}/bank-pledge/${ref}/release`, payment, currentActor(), [local.uuid]);
+    const now = new Date().toISOString();
+    const after = {
+      ...local,
+      bankPledgeStatus: "Released",
+      bankPledges: (local.bankPledges ?? []).map((p) => (p.id === pledgeId ? { ...p, status: "Released", releaseDate: now } : p)),
+      updatedAt: now,
+    } as BackendLoan & { uuid: string };
+    await enqueueAndWait(
+      entry,
+      () => upsertLocal("loans", after as unknown as LocalRecord),
+      () => upsertLocal("loans", local as unknown as LocalRecord),
+    );
+    return toView(after);
+  }
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge/${pledgeId}/release`, {
     method: "PUT",
     ...(payment ? { body: JSON.stringify(payment) } : {}),
@@ -709,6 +821,49 @@ export async function releaseBankPledge(
  * Management/Administrator. Books a compensating cash-out only if the original
  * actually moved cash; the voided record stays visible in history. */
 export async function voidBankPledge(loanId: number, pledgeId: number, reason: string): Promise<LoanView> {
+  const local = offlineReady() ? localLoanByNumericId(loanId) : undefined;
+  const pledge = local?.bankPledges?.find((p) => p.id === pledgeId && (p.status || "Active") === "Active");
+  if (local?.uuid && pledge) {
+    if (!reason.trim()) throw new ApiError("a reason is required when voiding a bank pledge", 400);
+    const clientRef = (pledge as { clientRef?: string }).clientRef;
+    const now = new Date().toISOString();
+    const settle = (pledges: BackendBankPledgeRecord[]) =>
+      pledges.some((p) => (p.status || "Active") === "Active") ? "Bank Pledged" : "Not Pledged";
+    // Still waiting in the outbox: nothing has reached the server, so voiding it just cancels what was waiting to be sent
+    // (the pledge, and anything queued against it).
+    let cancelled = false;
+    if (pledgeId < 0 && clientRef) {
+      for (const line of await offlineStore.readAllOutbox()) {
+        try {
+          const e = JSON.parse(line) as { id: string; path?: string };
+          if (e.id === clientRef || (e.path ?? "").includes(`/bank-pledge/ref:${clientRef}/`)) {
+            await offlineStore.deleteOutboxEntry(e.id);
+            if (e.id === clientRef) cancelled = true;
+          }
+        } catch {
+          /* a line that cannot be read touches nothing */
+        }
+      }
+    }
+    if (cancelled) {
+      const kept = (local.bankPledges ?? []).filter((p) => p.id !== pledgeId);
+      const after = { ...local, bankPledges: kept, bankPledgeStatus: settle(kept), updatedAt: now } as BackendLoan & { uuid: string };
+      await upsertLocal("loans", after as unknown as LocalRecord);
+      return toView(after);
+    }
+    const ref = pledgeId < 0 && clientRef ? `ref:${clientRef}` : String(pledgeId);
+    const entry = newEntry("PUT", `/loans/uuid:${local.uuid}/bank-pledge/${ref}/void`, { reason }, currentActor(), [local.uuid]);
+    const marked: BackendBankPledgeRecord[] = (local.bankPledges ?? []).map((p) =>
+      p.id === pledgeId ? { ...p, status: "Voided" as const, voidedAt: now, voidReason: reason } : p,
+    );
+    const after = { ...local, bankPledges: marked, bankPledgeStatus: settle(marked), updatedAt: now } as BackendLoan & { uuid: string };
+    await enqueueAndWait(
+      entry,
+      () => upsertLocal("loans", after as unknown as LocalRecord),
+      () => upsertLocal("loans", local as unknown as LocalRecord),
+    );
+    return toView(after);
+  }
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge/${pledgeId}/void`, {
     method: "PUT",
     body: JSON.stringify({ reason }),
@@ -746,14 +901,61 @@ function toBankPledgeRecordView(r: BackendBankPledgeRecord & { loanNumber?: stri
   };
 }
 
+/* Releases made on this PC that the server has not been sent yet: the history shows those pledges as released, the
+ * same as the loan's own page does, so the same pledge cannot be released twice. */
+async function withPendingReleases(rows: BankPledgeRecordView[]): Promise<BankPledgeRecordView[]> {
+  if (!offlineReady() || !rows.some((r) => r.status === "Active")) return rows;
+  const released = new Map<number, string>();
+  const voided = new Set<number>();
+  for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
+    try {
+      const e = JSON.parse(line) as { method?: string; path?: string; occurredAt?: string };
+      const m = /\/bank-pledge\/(\d+)\/release$/.exec(e.path ?? "");
+      if (e.method === "PUT" && m) released.set(Number(m[1]), (e.occurredAt ?? new Date().toISOString()).slice(0, 10));
+      const v = /\/bank-pledge\/(\d+)\/void$/.exec(e.path ?? "");
+      if (e.method === "PUT" && v) voided.add(Number(v[1]));
+    } catch {
+      /* a line that cannot be read releases nothing */
+    }
+  }
+  if (!released.size && !voided.size) return rows;
+  return rows.map((r) =>
+    r.status !== "Active"
+      ? r
+      : voided.has(r.id)
+        ? { ...r, status: "Voided" }
+        : released.has(r.id)
+          ? { ...r, status: "Released", releaseDate: released.get(r.id) ?? null }
+          : r,
+  );
+}
+
+/* Re-pledges recorded on this PC that the server has not numbered yet: the history lists them (Active, with a local
+ * negative id) so they can be released or voided before they are sent. */
+function unsentPledges(loanId?: number, query?: string): BankPledgeRecordView[] {
+  if (!offlineReady()) return [];
+  const q = (query ?? "").trim().toLowerCase();
+  const out: BankPledgeRecordView[] = [];
+  for (const l of localLoans()) {
+    if (loanId !== undefined && l.id !== loanId) continue;
+    for (const p of l.bankPledges ?? []) {
+      if (p.id >= 0) continue;
+      const row = toBankPledgeRecordView({ ...p, loanId: l.id, loanNumber: l.loanNumber || (l.uuid ? pendingKey(l.uuid) : ""), customerName: l.customer?.name } as BackendBankPledgeRecord & { loanNumber?: string; customerName?: string });
+      if (q && !JSON.stringify(row).toLowerCase().includes(q)) continue;
+      out.push(row);
+    }
+  }
+  return out;
+}
+
 export async function getBankPledgeHistory(loanId: number): Promise<BankPledgeRecordView[]> {
   const recs = await apiFetch<BackendBankPledgeRecord[] | null>(`/loans/${loanId}/bank-pledge/history`);
-  return (recs || []).map(toBankPledgeRecordView);
+  return withPendingReleases([...unsentPledges(loanId), ...(recs || []).map(toBankPledgeRecordView)]);
 }
 
 export async function listBankPledgeHistory(): Promise<BankPledgeRecordView[]> {
   const recs = await apiFetch<BackendBankPledgeRecord[] | null>(`/loans/bank-pledges/history`);
-  return (recs || []).map(toBankPledgeRecordView);
+  return withPendingReleases([...unsentPledges(), ...(recs || []).map(toBankPledgeRecordView)]);
 }
 
 export const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
@@ -773,7 +975,8 @@ export async function listBankPledgeHistoryPage(
   const res = await apiFetch<{ items: (BackendBankPledgeRecord & { loanNumber?: string; customerName?: string })[] | null; hasMore: boolean; total?: number }>(
     `/loans/bank-pledges/history?${params.toString()}`
   );
-  return { items: (res.items || []).map(toBankPledgeRecordView), hasMore: res.hasMore, total: res.total ?? 0 };
+  const unsent = page === 1 ? unsentPledges(undefined, query) : [];
+  return { items: await withPendingReleases([...unsent, ...(res.items || []).map(toBankPledgeRecordView)]), hasMore: res.hasMore, total: (res.total ?? 0) + unsent.length };
 }
 
 export const CASH_TREATMENT_LABELS: Record<BankPledgeCashTreatment, string> = {
@@ -976,7 +1179,11 @@ function toLedgerEntry(e: BackendLoanLedgerEntry): LoanLedgerEntry {
  * server's own dated interest rows, top-ups and auction rows come back when the server answers again. */
 export function buildLocalLedger(rec: BackendLoan, q: LoanLedgerQuery): LoanLedgerPage {
   const rows: LoanLedgerEntry[] = [];
-  const payments = [...(rec.payments ?? [])].sort((a, b) => (a.paidOn ?? "").localeCompare(b.paidOn ?? "") || a.id - b.id);
+  // a payment taken on this PC has no server id (0), so ids alone put it before older ones from the same day; the moment
+  // each was saved (createdAt) orders them, and the id only breaks a tie
+  const payments = [...(rec.payments ?? [])].sort(
+    (a, b) => (a.paidOn ?? "").slice(0, 10).localeCompare((b.paidOn ?? "").slice(0, 10)) || (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id - b.id,
+  );
   const disbursement = payments.find((p) => p.type === "Disbursement") ?? null;
   const opened = (rec.disbursementDate || rec.openedDate || "").slice(0, 10);
   let balance = 0;
@@ -1016,6 +1223,8 @@ export async function getLoanLedger(loanId: number, q: LoanLedgerQuery, uuid?: s
     const rec = localRec();
     if (rec) return buildLocalLedger(rec, q);
   }
+  const waiting = offlineReady() ? localRec() : undefined;
+  if (waiting && (await hasWaitingChange(waiting.uuid))) return buildLocalLedger(waiting, q);
   return orLocal(
     () => getLoanLedgerLive(loanId, q),
     () => {
@@ -1138,7 +1347,32 @@ function toRequestView(r: BackendLoanRequest): RequestView {
     recordedPayment: r.recordedPayment ?? 0,
     paymentDueDate: r.paymentDueDate ? r.paymentDueDate.slice(0, 10) : null,
     ornamentIds: (r.ornamentSelections || []).map((s) => s.ornamentId),
+    syncPending: (r as { syncPending?: boolean }).syncPending,
   };
+}
+
+/* A decision on an existing request (verify, approve, reject, record payment) goes into the outbox first and the sender
+ * posts it. Requests are addressed by their server id, so one made offline (id 0) has to be sent before it can be
+ * decided. The screen gets the request back with what it can know locally (a rejection is final) and "syncPending",
+ * which the list shows as "Sending". Returns null when this is not the desktop app, so the caller makes the request. */
+async function queueRequestAction(
+  requestId: number,
+  method: "POST" | "PUT",
+  path: string,
+  body: unknown,
+  current: RequestView | undefined,
+  patch: Partial<RequestView>,
+): Promise<RequestView | null> {
+  if (!offlineReady() || !(requestId > 0)) return null;
+  const entry = newEntry(method, path, body, currentActor(), [`request:${requestId}`]);
+  await enqueueAndWait(entry, () => undefined, () => undefined);
+  const base: RequestView = current ?? {
+    id: requestId, loanId: "", loanNumericId: 0, loanNumber: "", customerName: "—", type: "Extension", status: "Pending", detail: "",
+    requestedAt: "", remarks: "", requestedExtensionMonths: null, approvalStage: "", isPartial: false, customerSawGold: false,
+    paymentRecorded: false, locked: false, verificationNotes: "", charges: 0, chargesApplied: 0, settlementAmount: 0,
+    recordedDiscount: 0, recordedPayment: 0, paymentDueDate: null, ornamentIds: [],
+  };
+  return { ...base, ...patch, syncPending: true };
 }
 
 export async function listLoanRequests(filters?: LoanRequestFilters): Promise<RequestView[]> {
@@ -1218,17 +1452,13 @@ export async function listLoanRiskAssessmentPage(
 }
 
 export async function createExtensionRequest(loanId: number, months: number, detail?: string): Promise<RequestView> {
-  try {
-    const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/extension-request`, {
-      method: "POST",
-      body: JSON.stringify({ months, detail }),
-    });
-    return toRequestView(rec);
-  } catch (e) {
-    const queued = await queueIfUnreachable(e, loanId, "/extension-request", "POST", { months, detail });
-    if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Extension", status: "Pending", requestedBy: "Staff", detail: detail ?? "", requestedExtensionMonths: months } as unknown as BackendLoanRequest);
-    throw e;
-  }
+  const queued = await queueFirst(loanId, "/extension-request", "POST", { months, detail });
+  if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Extension", status: "Pending", requestedBy: "Staff", detail: detail ?? "", requestedExtensionMonths: months } as unknown as BackendLoanRequest);
+  const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/extension-request`, {
+    method: "POST",
+    body: JSON.stringify({ months, detail }),
+  });
+  return toRequestView(rec);
 }
 
 /* ornamentIds selects a Partial Ornament Release's subset of the loan's
@@ -1239,17 +1469,13 @@ export async function createExtensionRequest(loanId: number, months: number, det
  * doesn't need to special-case "select all" as anything but a normal call. */
 export async function createReleaseRequest(loanId: number, detail?: string, ornamentIds?: number[]): Promise<RequestView> {
   const body = { detail, ornamentIds: ornamentIds && ornamentIds.length ? ornamentIds : undefined };
-  try {
-    const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/release-request`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    return toRequestView(rec);
-  } catch (e) {
-    const queued = await queueIfUnreachable(e, loanId, "/release-request", "POST", body);
-    if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Release", status: "Pending", requestedBy: "Staff", detail: detail ?? "" } as unknown as BackendLoanRequest);
-    throw e;
-  }
+  const queued = await queueFirst(loanId, "/release-request", "POST", body);
+  if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Release", status: "Pending", requestedBy: "Staff", detail: detail ?? "" } as unknown as BackendLoanRequest);
+  const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/release-request`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return toRequestView(rec);
 }
 
 /* Extension-only decision — one step, mirrors DecideRequest on the backend.
@@ -1258,7 +1484,9 @@ export async function createReleaseRequest(loanId: number, detail?: string, orna
  * ErrNotExtensionRequest). */
 // employeeId is NOT sent — the backend derives the deciding employee's
 // identity from the authenticated JWT (see platform.ActorFromContext).
-export async function decideRequest(requestId: number, action: "Approved" | "Rejected", remarks?: string): Promise<RequestView> {
+export async function decideRequest(requestId: number, action: "Approved" | "Rejected", remarks?: string, current?: RequestView): Promise<RequestView> {
+  const queued = await queueRequestAction(requestId, "PUT", `/loans/requests/${requestId}/decide`, { action, remarks }, current, action === "Rejected" ? { status: "Rejected" } : {});
+  if (queued) return queued;
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/decide`, {
     method: "PUT",
     body: JSON.stringify({ action, remarks }),
@@ -1266,7 +1494,12 @@ export async function decideRequest(requestId: number, action: "Approved" | "Rej
   return toRequestView(rec);
 }
 
-export async function verifyReleaseChecklist(requestId: number, input: ChecklistInput): Promise<RequestView> {
+export async function verifyReleaseChecklist(requestId: number, input: ChecklistInput, current?: RequestView): Promise<RequestView> {
+  const queued = await queueRequestAction(requestId, "PUT", `/loans/requests/${requestId}/verify`, input, current, {
+    ...(input.customerSawGold !== undefined ? { customerSawGold: input.customerSawGold } : {}),
+    ...(input.verificationNotes !== undefined ? { verificationNotes: input.verificationNotes } : {}),
+  });
+  if (queued) return queued;
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/verify`, {
     method: "PUT",
     body: JSON.stringify(input),
@@ -1274,7 +1507,9 @@ export async function verifyReleaseChecklist(requestId: number, input: Checklist
   return toRequestView(rec);
 }
 
-export async function recordReleasePayment(requestId: number, input: ReleasePaymentInput): Promise<RequestView> {
+export async function recordReleasePayment(requestId: number, input: ReleasePaymentInput, current?: RequestView): Promise<RequestView> {
+  const queued = await queueRequestAction(requestId, "POST", `/loans/requests/${requestId}/release-payment`, input, current, { paymentRecorded: true });
+  if (queued) return queued;
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/release-payment`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -1282,7 +1517,9 @@ export async function recordReleasePayment(requestId: number, input: ReleasePaym
   return toRequestView(rec);
 }
 
-export async function approveReleaseRequest(requestId: number, input: ReleaseApprovalInput): Promise<RequestView> {
+export async function approveReleaseRequest(requestId: number, input: ReleaseApprovalInput, current?: RequestView): Promise<RequestView> {
+  const queued = await queueRequestAction(requestId, "POST", `/loans/requests/${requestId}/approve`, input, current, input.action === "Rejected" ? { status: "Rejected" } : {});
+  if (queued) return queued;
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -1290,7 +1527,9 @@ export async function approveReleaseRequest(requestId: number, input: ReleaseApp
   return toRequestView(rec);
 }
 
-export async function approveExtensionRequest(requestId: number, input: ExtensionApprovalInput): Promise<RequestView> {
+export async function approveExtensionRequest(requestId: number, input: ExtensionApprovalInput, current?: RequestView): Promise<RequestView> {
+  const queued = await queueRequestAction(requestId, "POST", `/loans/requests/${requestId}/approve`, input, current, input.action === "Rejected" ? { status: "Rejected" } : {});
+  if (queued) return queued;
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -1304,6 +1543,17 @@ export async function approveExtensionRequest(requestId: number, input: Extensio
 // No employeeId needed — the backend derives it from the authenticated JWT
 // (see platform.ActorFromContext).
 export async function completeRelease(loanId: number): Promise<LoanView> {
+  // Desktop: a loan already paid in full is closed here at once and the release is sent later. One that still needs the
+  // server's approved release request goes to the server as before.
+  if (offlineReady() && !loanId) throw new ApiError(NOT_SENT, 409);
+  const local = offlineReady() ? localLoanByNumericId(loanId) : undefined;
+  if (local?.uuid && (local.totalOutstandingBalance ?? 0) <= 0.01) {
+    if (local.bankPledgeStatus === "Bank Pledged" || (local.bankPledges ?? []).some((p) => (p.status || "Active") === "Active")) {
+      throw new ApiError("release the bank pledge first", 400);
+    }
+    const queued = await queueFirst(loanId, "/complete-release", "POST", undefined, (loan) => ({ ...loan, status: "Closed", updatedAt: new Date().toISOString() }));
+    if (queued) return toView(queued);
+  }
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/complete-release`, {
     method: "POST",
   });

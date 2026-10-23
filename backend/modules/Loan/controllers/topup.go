@@ -71,10 +71,10 @@ func validateTopUpSplit(in TopUpInput) error {
 		return err
 	}
 	if in.ChequeAmount > 0 {
-		return common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+		return common.NewBadRequest("Cheque is not a supported payment mode")
 	}
 	if in.UpiAmount+in.BankTransferAmount > 0 && in.BankID == nil {
-		return common.NewBadRequest("bank is required when the payment breakdown includes UPI or Bank Transfer")
+		return common.NewBadRequest("bank is required for the payment split")
 	}
 	return nil
 }
@@ -118,7 +118,7 @@ func requestTopUp(ctx context.Context, loanID uint, in TopUpInput, first common.
 	recalculateTotals(l, ornaments)
 	amount := common.RoundMoney(in.Amount)
 	if amount > common.RoundMoney(l.EligibleLoanAmount-l.OutstandingAmount)+0.01 {
-		return nil, common.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
+		return nil, common.NewBadRequest("amount is above the loan limit")
 	}
 	occurredOn := in.OccurredOn
 	if occurredOn.IsZero() {
@@ -169,10 +169,10 @@ func approveTopUp(ctx context.Context, topUpID uint, branchID *uint, in TopUpApp
 	}
 	step, ok := chain.ByPending(t.ApprovalStage)
 	if !ok || in.Stage != step.Key {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if !common.CanAct(ctx, in.ActorRoleID, common.FlowLoanTopUp, step.Key) {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	switch next, hasNext := chain.Next(step.Key); {
 	case in.Action == models.ApprovalStageRejected:
@@ -259,7 +259,7 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 		headroom := common.RoundMoney(l.EligibleLoanAmount - l.OutstandingAmount)
 		amount := common.RoundMoney(in.Amount)
 		if amount > headroom+0.01 {
-			return common.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
+			return common.NewBadRequest("amount is above the loan limit")
 		}
 		eligibleAtTopUp = l.EligibleLoanAmount
 		now := time.Now()
@@ -298,7 +298,7 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 				if interestDelta > 0 || penalDelta > 0 {
 					_ = updateLoanTx(ctx, tx, l)
 				}
-				return common.NewBadRequest("outstanding interest and penal interest must be paid before a top-up can proceed, or set the top-up to deduct it from the payout instead")
+				return common.NewBadRequest("pay the outstanding interest first")
 			}
 		}
 		// The interest taken from the payout comes back in the top-up's own mode, so what has to be

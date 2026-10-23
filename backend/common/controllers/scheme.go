@@ -259,7 +259,7 @@ func schemeValidate(in SchemeCreateInput) error {
 	case "", commonModels.ServiceChargeTypeNone:
 	case commonModels.ServiceChargeTypeFlat, commonModels.ServiceChargeTypePercent:
 		if in.ServiceChargeValue < 0 || (in.ServiceChargeType == commonModels.ServiceChargeTypePercent && in.ServiceChargeValue > 100) {
-			return NewBadRequest("service charge value must be non-negative, and no more than 100 for a Percent charge")
+			return NewBadRequest("service charge value is not valid")
 		}
 	default:
 		return NewBadRequest("service charge type must be None, Flat, or Percent")

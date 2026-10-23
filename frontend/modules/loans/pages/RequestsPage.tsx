@@ -174,7 +174,11 @@ export function RequestsPage() {
                     )}
                   </td>
                   <td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
-                  <td data-label="Customer">{r.customerName}</td>
+                  <td data-label="Customer">
+                    {r.customerName}
+                    {/* a partial release hands back only some ornaments: say so right after the customer */}
+                    {r.type === "Release" && r.isPartial && <span style={{ color: "var(--muted)" }}> · Partial release</span>}
+                  </td>
                   <td data-label="Detail">{r.detail}</td>
                   <td data-label="Date">{fmtDate(r.requestedAt)}</td>
                   <td data-label="Status">

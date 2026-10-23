@@ -93,7 +93,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
     try {
       // The acting employee/role is derived server-side from the logged-in
       // user's JWT — no employeeId/role sent from here.
-      const updated = await approveExtensionRequest(req.id, { stage: stageKey, action, remarks });
+      const updated = await approveExtensionRequest(req.id, { stage: stageKey, action, remarks }, req);
       setReq(updated);
       onSaved();
       if (updated.status !== "Pending") closeModal();

@@ -142,7 +142,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
       .catch((e) => {
         if (reqId !== requestIdRef.current) return;
         setItems([]);
-        setError(e instanceof ApiError ? e.message : `Could not load the ${mode} ledger.`);
+        setError(e instanceof ApiError ? e.message || "This ledger has not been saved on this PC yet. Open it once while the server is reachable and it will be available offline." : `Could not load the ${mode} ledger.`);
       })
       .finally(() => { if (reqId === requestIdRef.current) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps

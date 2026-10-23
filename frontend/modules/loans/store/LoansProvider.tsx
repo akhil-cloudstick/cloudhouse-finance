@@ -1,7 +1,10 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { ApiError } from "@/common/services/httpClient";
+import { subscribeLocal } from "@/common/offline";
+import { ENTRIES_SENT_EVENT } from "@/common/offline/live";
 import { listLoans } from "@/modules/loans/services/loanService";
 import { type LoanView } from "@/modules/loans/types/loan-types";
 
@@ -38,6 +41,9 @@ export function LoansProvider({ children }: LoansProviderProps) {
   const [loans, setLoans] = useState<LoanView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // set when the server could not be reached before this PC's own copy was ready: the list is read again from the
+  // copy as soon as it is loaded, and nothing is shown to the user meanwhile
+  const retryOnLocal = useRef(false);
 
   const refresh = useCallback(() => {
     if (!allowed) {
@@ -47,13 +53,35 @@ export function LoansProvider({ children }: LoansProviderProps) {
     setLoading(true);
     listLoans({ status: OPEN_LOAN_STATUSES })
       .then((list) => { setLoans(list); setError(""); })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load loans."))
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 0) {
+          retryOnLocal.current = true;
+          setError("");
+        } else setError(e instanceof Error ? e.message : "Failed to load loans.");
+      })
       .finally(() => setLoading(false));
   }, [allowed, permissionsLoaded]);
 
   // Refetch when the global branch selector changes — the list is scoped
   // server-side by the X-Branch-Id header.
   useEffect(() => { refresh(); }, [refresh, selectedBranchId]);
+
+  useEffect(
+    () =>
+      subscribeLocal(() => {
+        if (!retryOnLocal.current) return;
+        retryOnLocal.current = false;
+        refresh();
+      }),
+    [refresh],
+  );
+
+  // entries this PC sent have changed the server's loans: read the list again
+  useEffect(() => {
+    const again = () => refresh();
+    window.addEventListener(ENTRIES_SENT_EVENT, again);
+    return () => window.removeEventListener(ENTRIES_SENT_EVENT, again);
+  }, [refresh]);
 
   return (
     <LoansContext.Provider value={{ loans, loading, error, refresh }}>

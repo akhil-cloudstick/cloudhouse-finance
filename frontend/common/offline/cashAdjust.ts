@@ -4,14 +4,15 @@
  * payment mode used, the same as it will once the entry is sent. When an entry has been sent the server's own
  * figures and rows include it and it is no longer in the outbox, so nothing is counted twice.
  *
- * Only entries that move money count: the final approval of a loan (its payout amounts) and a payment. Creating a
+ * Only entries that move money count: the final approval of a loan (its payout amounts), a payment, and a bank pledge
+ * release (what is paid back to the bank). Creating a
  * loan, or an approval stage that is not the last one, does not touch cash. */
 
 import { offlineStore } from "@/common/services/desktopBridge";
 import { getLocal } from "./localCopy";
 import type { OutboxEntry } from "./types";
 
-const MOVES_MONEY = /^\/loans\/uuid:([0-9a-f-]+)\/(approve|payments)$/i;
+const MOVES_MONEY = /^\/loans\/uuid:([0-9a-f-]+)\/(approve|payments|topup|bank-pledge\/(\d+|ref:[0-9a-f-]+)\/release)$/i;
 const CASH_ENTRY = /^\/(cash-movements|expenses)$/;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -69,7 +70,7 @@ async function pendingMoney(branch: number): Promise<Pending[]> {
       { mode: "Cheque", amount: Number(b.chequeAmount) || 0, bankId },
     ].filter((p) => p.amount > 0);
     if (!parts.length) continue; // an approval stage that is not the payout, or a payment with no amounts
-    const out = m[2].toLowerCase() === "approve";
+    const out = m[2].toLowerCase() !== "payments"; // a disbursal or a bank pledge release pays money out
     if (out && b.action === "Rejected") continue;
     const loan = getLocal("loans", m[1]) as { branchId?: number; customerId?: number; loanNumber?: string } | undefined;
     if (branch && loan && Number(loan.branchId) !== branch) continue;

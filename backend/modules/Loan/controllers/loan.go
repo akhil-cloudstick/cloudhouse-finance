@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	ErrAuctionNotFound = common.NewNotFound("this loan has no auction case yet — mark it auction-eligible first")
+	ErrAuctionNotFound = common.NewNotFound("no auction case — mark it eligible first")
 )
 
 const (
@@ -330,7 +330,7 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	}
 	now := time.Now()
 	if rate.Date.Year() != now.Year() || rate.Date.YearDay() != now.YearDay() {
-		return nil, common.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
+		return nil, common.NewBadRequest("publish today's gold rate first")
 	}
 	ornaments := make([]models.Ornament, 0, len(in.Ornaments))
 	for _, oi := range in.Ornaments {
@@ -551,7 +551,7 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 	}
 	switch l.Status {
 	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusAuctionedBalanceDue:
-		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+		return nil, common.NewBadRequest("loan is closed — nothing to extend")
 	}
 	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
 		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount))
@@ -830,7 +830,7 @@ func requireNoPendingDecision(ctx context.Context, recID uint) error {
 		return err
 	}
 	if pending {
-		return common.NewConflict("a repayment decision is pending on this auction — it must be resolved before the auction can proceed")
+		return common.NewConflict("resolve the repayment decision first")
 	}
 	return nil
 }

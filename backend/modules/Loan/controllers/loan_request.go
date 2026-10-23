@@ -87,7 +87,7 @@ func decideRequest(ctx context.Context, requestID uint, branchID *uint, approve 
 	if req.Type != models.RequestTypeExtension {
 		return nil, common.NewBadRequest("this request is not an Extension request")
 	}
-	return nil, common.NewBadRequest("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
+	return nil, common.NewBadRequest("decide this through the approval chain")
 }
 
 func findByRequestID(ctx context.Context, requestID uint) ([]models.RequestApproval, error) {

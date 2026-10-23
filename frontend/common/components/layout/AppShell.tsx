@@ -227,11 +227,12 @@ function AppShellInner() {
     return () => setNavigationGuard(null);
   }, [permissionsLoaded, brandingLoaded, can, hasModule, singleBranch, toast]);
 
-  // The server cannot be reached: a pop-up, at most once every few seconds however many requests fail together.
+  // The server cannot be reached: a pop-up, at most once every 1.5s however many requests fail together
+  // (short enough that retrying a save always shows it again).
   useEffect(() => {
     let last = 0;
     const show = () => {
-      if (Date.now() - last < 6000) return;
+      if (Date.now() - last < 1500) return;
       last = Date.now();
       toast("Couldn't reach the server. Check your connection and try again.");
     };

@@ -8,7 +8,7 @@ import { fmt } from "@/common/utils/format";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
-import { searchCustomersPage } from "@/modules/customers/services/customerService";
+import { getCustomer, searchCustomersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModalContent";
@@ -37,6 +37,21 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   customer: /customer/i,
 };
 
+/* A customer made on this PC is known as "uuid:..." until the sender has posted it and the server has numbered it; a personal
+ * loan is created on the server, so it needs that number. Waits a few seconds for it, returns null if it has not come. */
+async function serverNumber(ref: string): Promise<{ id: number; branchId: number } | null> {
+  for (let i = 0; i < 12; i++) {
+    try {
+      const c = await getCustomer(ref);
+      if (/^d+$/.test(c.id) && Number(c.id) > 0) return { id: Number(c.id), branchId: c.branchId };
+    } catch {
+      /* not readable yet; try again */
+    }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  return null;
+}
+
 type NewPersonalLoanModalContentProps = { onSaved: () => void };
 
 /* "New Personal Loan" — a modal (not a page) launched from PersonalLoans.tsx's
@@ -53,6 +68,15 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
   const [customerId, setCustomerId] = useState<number | undefined>(undefined);
   const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(undefined);
   const [customerLabel, setCustomerLabel] = useState("");
+  // the picker's own id; not a number while the customer has not reached the server
+  const [customerRef, setCustomerRef] = useState("");
+  const pick = (id: string, branchId: number | undefined, label: string) => {
+    const n = /^d+$/.test(id) ? Number(id) : 0;
+    setCustomerRef(id);
+    setCustomerId(n > 0 ? n : undefined);
+    setCustomerBranchId(branchId);
+    setCustomerLabel(label);
+  };
   const [principal, setPrincipal] = useState("");
   const [interestType, setInterestType] = useState<InterestType>("Flat");
   const [interestValue, setInterestValue] = useState("");
@@ -112,7 +136,19 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
   async function save() {
     // Collect every missing/invalid section so all warnings show at once.
     const errs: Record<string, string> = {};
-    if (!customerId || !customerBranchId) errs.customer = "Please select a customer.";
+    let cid = customerId;
+    let bid = customerBranchId;
+    if (!cid && customerRef.startsWith("uuid:")) {
+      setSaving(true);
+      const got = await serverNumber(customerRef);
+      setSaving(false);
+      if (got) {
+        cid = got.id;
+        bid = got.branchId;
+        setCustomerId(got.id);
+        setCustomerBranchId(got.branchId);
+      } else errs.customer = "This customer has not reached the server yet. Try again in a moment, once the PC is online.";
+    } else if (!cid || !bid) errs.customer = "Please select a customer.";
     if (!principalNum || principalNum <= 0) errs.principal = "Please enter the principal amount.";
     if (!tenureNum || tenureNum <= 0) errs.tenure = "Please enter the number of installments.";
     if (interestValue.trim() === "") errs.interest = "Please enter the interest value.";
@@ -121,15 +157,15 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
     if (insufficient) errs.split = "Insufficient balance in hand to disburse this loan.";
     else if (Math.abs(remaining) >= 0.01) errs.split = "The disbursement breakdown must add up to the amount the customer gets.";
     if (Object.keys(errs).length) { setErr(""); setFe(errs); return; }
-    if (!customerId || !customerBranchId) return;
+    if (!cid || !bid) return;
 
     setSaving(true);
     setErr("");
     setFe({});
     try {
       const created = await createPersonalLoan({
-        branchId: customerBranchId,
-        customerId,
+        branchId: bid,
+        customerId: cid,
         principalAmount: principalNum,
         interestType,
         interestValue: interestValueNum,
@@ -161,9 +197,7 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
     return (
       <RegisterCustomerModalContent
         onCreated={(c) => {
-          setCustomerId(+c.id);
-          setCustomerBranchId(c.branchId);
-          setCustomerLabel(`${c.name} (${c.code})`);
+          pick(String(c.id), c.branchId, `${c.name} (${c.code})`);
           setCreatingCustomer(false);
         }}
       />
@@ -177,7 +211,7 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
         <div className="frow"><div className={fe.customer ? "has-err" : undefined}><label className="f">Customer *</label>
           <SearchableSelect<CustomerView>
             value={customerLabel}
-            onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); clearFe("customer"); }}
+            onChange={(id, item) => { pick(String(id), item.branchId, `${item.name} (${item.code})`); clearFe("customer"); }}
             fetchFn={searchCustomersPage}
             searchHint="Searches: customer name, customer code, phone"
             getLabel={(c) => `${c.name} (${c.code})`}

@@ -110,15 +110,8 @@ export async function searchActiveSchemesPage(q: string, page: number): Promise<
 }
 
 export async function createScheme(input: SchemeFormInput): Promise<SchemeView> {
-  try {
-    const rec = await apiFetch<BackendScheme>("/schemes", {
-      method: "POST",
-      body: JSON.stringify(toRequestBody(input)),
-    });
-    return toView(rec);
-  } catch (e) {
-    // Desktop with no answer from the server: keep the scheme on this PC, list it at once, and send it later.
-    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+  // Desktop: the scheme goes into the outbox first, is listed at once from this PC, and is sent from there.
+  if (offlineReady()) {
     const entry = newEntry("POST", "/schemes", toRequestBody(input), currentActor());
     entry.targets = [entry.id];
     const draft = {
@@ -134,6 +127,11 @@ export async function createScheme(input: SchemeFormInput): Promise<SchemeView> 
     );
     return toView(draft);
   }
+  const rec = await apiFetch<BackendScheme>("/schemes", {
+    method: "POST",
+    body: JSON.stringify(toRequestBody(input)),
+  });
+  return toView(rec);
 }
 
 export async function updateScheme(id: string, input: SchemeFormInput): Promise<SchemeView> {

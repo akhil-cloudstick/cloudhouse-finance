@@ -293,7 +293,7 @@ func customerValidate(in CustomerCreateInput) error {
 	case "", "Borrower":
 	case "Investor":
 		if in.BankAccountName == "" || in.BankAccountNumber == "" || in.BankIFSC == "" {
-			return NewBadRequest("bank account name, number and IFSC are required for an investor")
+			return NewBadRequest("bank account name, number and IFSC are required")
 		}
 		if in.PAN == "" || in.Aadhaar == "" {
 			return NewBadRequest("PAN and Aadhaar are required for an investor")
@@ -669,7 +669,7 @@ func startAadhaarVerify(ctx context.Context, id uint, branchID *uint, redirectUR
 		return nil, NewUnavailable("Aadhaar verification is not configured")
 	}
 	if rec.AadhaarLast4 == "" {
-		return nil, NewBadRequest("add the customer's Aadhaar number before verifying via DigiLocker")
+		return nil, NewBadRequest("add the Aadhaar number first")
 	}
 	if tenantID, ok := config.TenantFromContext(ctx); ok {
 		if err := CheckAndRecordUsage(config.BaseDB,

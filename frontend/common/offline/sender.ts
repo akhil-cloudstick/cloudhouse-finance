@@ -7,7 +7,7 @@
 
 import { offlineStore } from "@/common/services/desktopBridge";
 import { replayRequest } from "@/common/services/httpClient";
-import { ENTRY_REFUSED_EVENT, isRefusal, isWatched, refuse } from "./live";
+import { ENTRIES_SENT_EVENT, ENTRY_REFUSED_EVENT, isRefusal, isWatched, refuse } from "./live";
 import { getLocal, removeLocal, upsertLocal } from "./localCopy";
 import { pull } from "./pull";
 import { sendToReview } from "./review";
@@ -16,6 +16,7 @@ import { uploadFileOnline } from "@/common/services/uploadService";
 import { forgetRegistration } from "./device";
 import { withUploadedPhotos } from "./photos";
 import { ensureRegistered } from "./register";
+import { rememberPledge, resolvePledgePath } from "./pledgeRef";
 import type { EntityName, OutboxEntry } from "./types";
 
 let running = false;
@@ -73,9 +74,18 @@ export async function drain(why: string): Promise<boolean> {
         stopped = true;
         break;
       }
+      // a release or void of a pledge made on this PC addresses it by the entry that created it
+      const path = await resolvePledgePath(entry.path);
+      if (path === null) {
+        const message = "The re-pledge this refers to was not saved by the server.";
+        offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${message}`);
+        await sendToReview(entry, message);
+        window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
+        continue;
+      }
       const r = await replayRequest({
         method: entry.method,
-        path: entry.path,
+        path,
         body,
         clientUuid: entry.id,
         occurredAt: entry.occurredAt,
@@ -105,6 +115,7 @@ export async function drain(why: string): Promise<boolean> {
         if (r.status !== 0) offlineStore.log("error", `entry ${entry.id} ${entry.method} ${entry.path}: ${r.status} ${r.message ?? ""}`);
         break;
       }
+      if (entry.method === "POST" && /\/bank-pledge$/.test(entry.path)) await rememberPledge(entry.id, r.body);
       await applyReply(entry, r.body);
       await offlineStore.deleteOutboxEntry(entry.id);
       sent++;
@@ -123,6 +134,7 @@ export async function drain(why: string): Promise<boolean> {
   // the list is empty: one pull brings this branch's changes (including other PCs') into the local copy
   const pulled = await pull(sent > 0 ? "outbox empty" : why);
   // what was just sent changes lists the PC keeps for offline use (a new scheme); fetch them again
-  if (sent > 0) void warmReadCache();
+  if (sent > 0) void warmReadCache(true);
+  if (sent > 0) window.dispatchEvent(new Event(ENTRIES_SENT_EVENT));
   return sent > 0 || pulled;
 }

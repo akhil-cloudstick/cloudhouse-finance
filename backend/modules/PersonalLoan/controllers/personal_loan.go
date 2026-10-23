@@ -622,7 +622,7 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 			return err
 		}
 		if (in.UpiAmount > 0 || in.BankTransferAmount > 0 || in.ChequeAmount > 0) && in.BankID == nil {
-			return common.NewBadRequest("bank is required when the payment breakdown includes UPI, Bank Transfer, or Cheque")
+			return common.NewBadRequest("bank is required for UPI, transfer or cheque")
 		}
 		newOutstanding := common.RoundMoney(rec.OutstandingAmount - amount)
 		if newOutstanding < 0 {
@@ -800,7 +800,7 @@ func renewLoan(ctx context.Context, loanID uint, branchID *uint, in RenewInput) 
 		rollover := old.OutstandingAmount
 		disbursed := common.RoundMoney(principal - rollover - interestAmount)
 		if disbursed < 0 {
-			return common.NewBadRequest("new principal is not enough to cover the outstanding balance and interest")
+			return common.NewBadRequest("new principal is below the amount owed")
 		}
 		if interestAmount >= principal {
 			return common.NewBadRequest("interest amount must be less than the principal amount")

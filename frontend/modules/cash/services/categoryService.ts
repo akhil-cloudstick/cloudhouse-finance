@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
 import { EXPENSE_CATEGORIES_CHANGED } from "./expenseCategoryService";
@@ -30,20 +30,17 @@ export function searchCategoriesPage(type: CategoryType) {
  * backend's find-or-create rule). */
 export function createCategory(type: CategoryType) {
   return async (name: string): Promise<BackendCategory> => {
-    let rec: BackendCategory;
-    try {
-      rec = await apiFetch<BackendCategory>("/categories", {
-        method: "POST",
-        body: JSON.stringify({ name, type }),
-      });
-    } catch (e) {
-      // Desktop with no answer from the server: kept on this PC, listed at once, sent later.
-      if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+    // Desktop: the category goes into the outbox first, is listed at once, and is sent from there.
+    if (offlineReady()) {
       const entry = newEntry("POST", "/categories", { name, type }, currentActor());
       const draft = { id: -Math.floor(Math.random() * 1_000_000) - 1, name, type, uuid: entry.id } as unknown as BackendCategory;
       await enqueueAndWait(entry, () => upsertLocal("categories", draft as unknown as LocalRecord), () => removeLocal("categories", entry.id));
       return draft;
     }
+    const rec = await apiFetch<BackendCategory>("/categories", {
+      method: "POST",
+      body: JSON.stringify({ name, type }),
+    });
     if (typeof window !== "undefined") window.dispatchEvent(new Event(EXPENSE_CATEGORIES_CHANGED));
     return rec;
   };

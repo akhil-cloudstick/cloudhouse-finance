@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
 import type { BackendLoanCashSource } from "@/modules/cash/types/cash-types";
@@ -51,17 +51,15 @@ export async function searchLoanSourcesPage(q: string, page: number): Promise<{ 
  * insensitive) already exists — returns the existing row instead (the
  * backend's find-or-create behaviour). */
 export async function createCashSource(name: string): Promise<BackendCashSource> {
-  try {
-    return await createCashSourceLive(name);
-  } catch (e) {
-    // Desktop with no answer from the server: the category is kept on this PC, listed at once, and sent later.
-    if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) throw e;
+  // Desktop: the category goes into the outbox first, is listed at once, and is sent from there.
+  if (offlineReady()) {
     const entry = newEntry("POST", "/cash-sources", { name }, currentActor());
     // a temporary negative id keeps it distinct in the picker; the server's own list replaces it once sent
     const draft = { id: -Math.floor(Math.random() * 1_000_000) - 1, name, type: "cash_in", uuid: entry.id } as unknown as BackendCashSource;
     await enqueueAndWait(entry, () => upsertLocal("categories", draft as unknown as LocalRecord), () => removeLocal("categories", entry.id));
     return draft;
   }
+  return createCashSourceLive(name);
 }
 
 async function createCashSourceLive(name: string): Promise<BackendCashSource> {

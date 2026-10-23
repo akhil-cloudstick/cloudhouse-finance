@@ -1,4 +1,6 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
 import { isSmallScreen } from "@/common/utils/responsive";
 import type { BackendPacket, BackendPacketMovement, PacketView, MovementView, PacketFilters, RecordMovementInput } from "@/modules/packets/types/packet-types";
 
@@ -126,7 +128,14 @@ export async function listMovements(packetId: number): Promise<MovementView[]> {
   return (rec || []).map(toMovementView);
 }
 
-export async function recordMovement(packetId: number, input: RecordMovementInput): Promise<PacketView> {
+export async function recordMovement(packetId: number, input: RecordMovementInput): Promise<PacketView | null> {
+  // Desktop: the movement goes into the outbox first and the packet shows its new stage at once (see
+  // common/offline/statusAdjust.ts); the sender posts it. A packet with no server id yet cannot be moved.
+  if (offlineReady() && packetId > 0) {
+    const entry = newEntry("POST", `/packets/${packetId}/movements`, input, currentActor(), [`packet:${packetId}`]);
+    await enqueueAndWait(entry, () => undefined, () => undefined);
+    return getPacket(packetId).catch(() => null);
+  }
   const rec = await apiFetch<BackendPacket>(`/packets/${packetId}/movements`, {
     method: "POST",
     body: JSON.stringify(input),

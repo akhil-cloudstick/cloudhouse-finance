@@ -803,7 +803,7 @@ func addCash(ctx context.Context, investmentID uint, branchID *uint, in AddCashI
 			return err
 		}
 		if inv.Engine != models.EngineLive {
-			return common.NewBadRequest("this action is only available for investments using the live accrual engine")
+			return common.NewBadRequest("needs a live-accrual investment")
 		}
 		if inv.Status != models.StatusActive {
 			return common.NewConflict("investment is not active")
@@ -889,7 +889,7 @@ func withdrawInvestment(ctx context.Context, investmentID uint, branchID *uint, 
 			return err
 		}
 		if inv.Engine != models.EngineLive {
-			return common.NewBadRequest("this action is only available for investments using the live accrual engine")
+			return common.NewBadRequest("needs a live-accrual investment")
 		}
 		if inv.Status != models.StatusActive && inv.Status != models.StatusMatured {
 			return common.NewConflict("investment is not active")
@@ -970,7 +970,7 @@ func getTransactions(ctx context.Context, investmentID uint, branchID *uint, lim
 		return nil, false, err
 	}
 	if inv.Engine != models.EngineLive {
-		return nil, false, common.NewBadRequest("this action is only available for investments using the live accrual engine")
+		return nil, false, common.NewBadRequest("needs a live-accrual investment")
 	}
 	if limit <= 0 {
 		limit = 20
@@ -1652,7 +1652,7 @@ func closeLiveInvestment(ctx context.Context, investmentID uint, branchID *uint,
 			return err
 		}
 		if locked.Engine != models.EngineLive {
-			return common.NewBadRequest("this action is only available for investments using the live accrual engine")
+			return common.NewBadRequest("needs a live-accrual investment")
 		}
 		if locked.Status != models.StatusMatured {
 			return common.NewConflict("investment has not matured yet")
@@ -1790,7 +1790,7 @@ func SaveInterestPayments(ctx context.Context, investmentID uint, branchID *uint
 		return nil, err
 	}
 	if inv.Engine == models.EngineLive {
-		return nil, common.NewBadRequest("this investment pays interest through withdrawals, not a payout schedule")
+		return nil, common.NewBadRequest("no payout schedule for this investment")
 	}
 	if inv.Status != models.StatusActive && inv.Status != models.StatusMatured && inv.Status != "Closed" && inv.Status != "Renewed" {
 		return nil, common.NewConflict("investment is not active")

@@ -102,16 +102,16 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 	stored := normalizeSanctionStage(l.ApprovalStage)
 	step, ok := chain.ByKey(stored)
 	if !ok {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if sent := normalizeSanctionStage(in.Stage); sent != stored && sent != step.Key {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	stage := step.Key
 	final := chain.IsFinal(stage)
 	next, _ := chain.Next(stage)
 	if !common.CanAct(ctx, in.ActorRoleID, common.FlowLoanSanction, stage) {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if final && in.Action != models.ApprovalStageRejected {
 		if err := ensurePayoutFunds(ctx, l.BranchID, in.CashAmount, in.BankID, in.UpiAmount+in.BankTransferAmount); err != nil {

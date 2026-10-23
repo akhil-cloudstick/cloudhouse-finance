@@ -114,7 +114,7 @@ func deleteOrnament(ctx context.Context, ornamentID uint) (*models.Loan, error) 
 	}
 	switch l.Status {
 	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusAuctionedBalanceDue:
-		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+		return nil, common.NewBadRequest("loan is closed — nothing to extend")
 	}
 	existing, err := FindByLoanID(ctx, l.ID)
 	if err != nil {

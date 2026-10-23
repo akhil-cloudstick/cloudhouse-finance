@@ -5,14 +5,13 @@
 import { offlineStore } from "@/common/services/desktopBridge";
 import { currentDevice, forgetDevice, loadDevice } from "./device";
 import { uuid7 } from "./ids";
+import { installImageGuard } from "./imageCache";
 import { loadLocalCopy, saveWithEntry } from "./localCopy";
 import { flushRememberedLogin } from "./loginCache";
 import { offlineBusiness } from "./session";
 import { askStorageChoice } from "./storageChoice";
 import { setReadCacheEnabled } from "./readCache";
 import { pull } from "./pull";
-import { ApiError } from "@/common/services/httpClient";
-import { refusalOf, unwatch, watch } from "./live";
 import { drain } from "./sender";
 import { warmReadCache } from "./warm";
 import { offlineReady, setOfflineReady } from "./state";
@@ -61,14 +60,15 @@ async function doStartOffline(): Promise<void> {
     return;
   }
   setReadCacheEnabled(true);
+  installImageGuard();
   void flushRememberedLogin();
   offlineStore.log("info", `offline mode started for ${business} on ${deviceLabel()}`);
   void drain("start").then(() => warmReadCache());
   let ticks = 0;
   timer = setInterval(() => {
     void drain("cron");
-    // every 10 minutes, refresh what is kept for offline use
-    if (++ticks % 10 === 0) void warmReadCache();
+    // every 3 minutes, refresh what is kept for offline use (changes other people made reach this PC's copy)
+    if (++ticks % 3 === 0) void warmReadCache();
   }, CRON_MS);
   window.addEventListener("online", onOnline);
 }
@@ -109,28 +109,20 @@ export async function enqueue(entry: OutboxEntry, applyLocal: () => Promise<void
   void drain("after save");
 }
 
-const SEND_WAIT_MS = 4000;
-
-/* Like enqueue, then gives the sender a few seconds to reach the server. Returns "sent" when the server
- * answered and the outbox is empty (the caller can read the real record), or "pending" when it did not (the
- * entry stays queued and the caller shows the local copy). */
+/* The save every screen uses: the entry and the local change are committed together, the sender is started, and the
+ * call returns AT ONCE. The screen already has the result (the local copy, marked Pending); the sender posts the entry
+ * from the outbox in the background, the server's number or status replaces the local one when it answers, and a
+ * refusal goes to the admin's review list with a pop-up. Nothing waits for the server, so a save never lags.
+ * (The name is kept from when it waited a few seconds; `undoLocal` is no longer needed because a refused entry is
+ * kept for review rather than rolled back.) */
 export async function enqueueAndWait(
   entry: OutboxEntry,
   applyLocal: () => Promise<void> | void,
-  undoLocal: () => Promise<void> | void,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _undoLocal?: () => Promise<void> | void,
 ): Promise<"sent" | "pending"> {
   if (!offlineReady()) throw new Error("offline mode is not running");
-  watch(entry.id, undoLocal);
-  try {
-    await saveWithEntry(JSON.stringify(entry), applyLocal);
-    const settled = drain("after save");
-    const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), SEND_WAIT_MS));
-    const answered = await Promise.race([settled, timeout]);
-    const no = refusalOf(entry.id);
-    if (no) throw new ApiError(no.message, no.status);
-    return answered ? "sent" : "pending";
-  } finally {
-    // past the wait, nobody is watching: a later refusal stays in the outbox and in the log
-    setTimeout(() => unwatch(entry.id), 60_000);
-  }
+  await saveWithEntry(JSON.stringify(entry), applyLocal);
+  void drain("after save");
+  return "pending";
 }

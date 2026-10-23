@@ -131,8 +131,9 @@ func (s *Store) conn() (*sql.DB, error) {
 }
 
 func openDB(path string) (*sql.DB, error) {
-	// one connection: a save, a pull and the sender can never interleave inside each other
-	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(ON)&_txlock=immediate"
+	// one connection: a save, a pull and the sender can never interleave inside each other. The write-ahead log is
+	// folded into offline.db every ~400 KB (SQLite's default is 4 MB), so the .db file itself is close to current.
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&_pragma=wal_autocheckpoint(100)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(ON)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -300,7 +301,7 @@ func (s *Store) SaveEntry(line string, files map[string]string) error {
 	if err != nil {
 		return err
 	}
-	return inTx(db, func(tx *sql.Tx) error {
+	err = inTx(db, func(tx *sql.Tx) error {
 		if err := insertEntry(tx, line); err != nil {
 			return err
 		}
@@ -311,6 +312,12 @@ func (s *Store) SaveEntry(line string, files map[string]string) error {
 		}
 		return nil
 	})
+	if err == nil {
+		// fold the new rows into offline.db now, so the one file is current after every save (a viewer that opens only
+		// offline.db, without its -wal, then still sees the entry). PASSIVE never waits and never blocks a reader.
+		_, _ = db.Exec(`PRAGMA wal_checkpoint(PASSIVE)`)
+	}
+	return err
 }
 
 func inTx(db *sql.DB, fn func(tx *sql.Tx) error) error {

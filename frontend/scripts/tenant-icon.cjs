@@ -42,13 +42,24 @@ async function fetchTenantBranding(apiBase) {
   const slug = slugFromApiBase(apiBase);
   if (!slug) return null;
   try {
-    const res = await fetch(`${apiBase.replace(/\/+$/, "")}/public/branding/${encodeURIComponent(slug)}`);
-    if (!res.ok) return null;
-    const body = await res.json();
-    const data = body && body.data;
+    const base = apiBase.replace(/\/+$/, "");
+    // The host-resolved lookup is what the sign-in page uses (the subdomain is matched to the business); the by-code
+    // one only matches when the subdomain equals the business code. An unknown code answers with the platform default
+    // (no logo), which is why the exe got the plain "C" icon, so ask by host first and take the first answer with a logo.
+    let data = null;
+    for (const url of [`${base}/public/branding`, `${base}/public/branding/${encodeURIComponent(slug)}`]) {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const body = await res.json();
+      const found = body && body.data;
+      if (!found) continue;
+      data = data && !found.logo_url ? data : found;
+      if (found.logo_url) break;
+    }
     if (!data) return null;
     const origin = new URL(apiBase).origin;
     const logoUrl = data.logo_url ? new URL(data.logo_url, origin).toString() : "";
+    if (!logoUrl) console.warn(`Branding for "${slug}" has no logo (logo_url empty) — the exe gets an initials icon. Upload a logo for this business, or check that "${slug}" is its code/subdomain.`);
     const name = data.name || data.legal_name || data.short_name || slug;
     const brandColor = /^#[0-9a-f]{6}$/i.test(data.brand_color || "") ? data.brand_color : "#6054bf";
     return { slug, name, logoUrl, brandColor };

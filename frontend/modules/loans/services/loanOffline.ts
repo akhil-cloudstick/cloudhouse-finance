@@ -5,6 +5,7 @@
 import { getLocal, listLocal, offlineReady, upsertLocal, type Actor, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
 import { getSelectedBranchId } from "@/common/services/branchSelection";
+import { ApiError } from "@/common/services/httpClient";
 import type { StageView } from "@/common/types/approval-workflow-types";
 import type {
   ApprovalInput,
@@ -182,24 +183,142 @@ export function applyActionLocally(
   return next;
 }
 
+/* A loan edited on this PC, applied the way the server applies it (Loan updateLoan): a changed scheme or principal sends
+ * the loan back to the first sanction stage as Pending Approval, undoes an earlier disbursement and records an "Edited"
+ * approval row, so the approval flow shows at once and the ledger follows the new amount once it is approved again. The
+ * same refusals the server gives are raised here, before anything is queued. */
+export function applyEditLocally(
+  rec: BackendLoan,
+  input: { schemeId?: number | string; principalAmount?: number; overallPhotoUrl?: string },
+  firstStage: string,
+  actor: Actor,
+): BackendLoan {
+  if (["Closed", "Rejected", "Auctioned", "Auctioned (Balance Due)"].includes(rec.status)) {
+    throw new ApiError("loan is closed — nothing to extend", 400);
+  }
+  const newScheme = typeof input.schemeId === "number" && input.schemeId !== rec.schemeId ? input.schemeId : undefined;
+  const newPrincipal = input.principalAmount !== undefined ? round2(input.principalAmount) : undefined;
+  if (newPrincipal !== undefined && newPrincipal <= 0) throw new ApiError("principal amount must be greater than zero", 400);
+  const principalChanged = newPrincipal !== undefined && newPrincipal !== round2(rec.principalAmount);
+  const material = newScheme !== undefined || principalChanged;
+  const now = new Date().toISOString();
+  const next = { ...rec, updatedAt: now } as BackendLoan;
+  if (newScheme !== undefined) next.schemeId = newScheme;
+  if (input.overallPhotoUrl !== undefined) next.overallPhotoUrl = input.overallPhotoUrl.trim();
+  if (newPrincipal !== undefined) {
+    const delta = newPrincipal - rec.principalAmount;
+    // a service charge that is added to the principal is not part of what the gold can back
+    const charge = rec.serviceChargeAmount ?? 0;
+    const share = rec.serviceChargeMode === "AddedToPrincipal" && rec.principalAmount > 0 ? charge / rec.principalAmount : 0;
+    const capped = newPrincipal * (1 - share);
+    if (round2(capped) > round2(rec.eligibleLoanAmount ?? 0)) {
+      throw new ApiError(`principal amount ₹${round2(capped).toFixed(2)} cannot exceed the eligible loan amount ₹${round2(rec.eligibleLoanAmount ?? 0).toFixed(2)} (based on scheme LTV)`, 400);
+    }
+    next.principalAmount = newPrincipal;
+    next.outstandingAmount = round2(Math.max(0, (rec.outstandingAmount ?? 0) + delta));
+    next.totalOutstandingBalance = round2(Math.max(0, (rec.totalOutstandingBalance ?? 0) + delta));
+    next.settlementAmount = round2(Math.max(0, (rec.settlementAmount ?? 0) + delta));
+    if (rec.serviceChargeAmount && rec.principalAmount > 0) next.serviceChargeAmount = round2((rec.serviceChargeAmount * newPrincipal) / rec.principalAmount);
+  }
+  if (material) {
+    const wasDisbursed = !!rec.disbursementDate;
+    next.approvalStage = firstStage;
+    next.status = "Pending Approval";
+    if (wasDisbursed) {
+      next.sanctionedAmount = 0;
+      next.disbursedAmount = 0;
+      next.disbursementDate = undefined as unknown as BackendLoan["disbursementDate"];
+    }
+    next.approvals = [
+      ...(rec.approvals ?? []),
+      { id: 0, loanId: rec.id, stage: firstStage, action: "Edited", actorEmployeeId: actor.id, remarks: "Loan edited (scheme/principal changed) — resubmitted for approval", createdAt: now },
+    ];
+  }
+  return next;
+}
+
 /* A payment taken while the server does not answer: it shows on the loan at once. How the amount splits
  * between fee, penal interest, interest and principal (and the new balances) is worked out by the server
  * when the entry is sent; the local copy is then replaced with those figures. */
+/* A payment taken on this PC, applied to the loan the way the server applies it (processing fee, then penal interest,
+ * then interest, then principal, each capped by what is owed), so the balances, the status and the payment's own split
+ * move at once. It uses the interest the PC last knew; the server accrues up to the payment date and its numbers replace
+ * these when the entry is sent. */
 export function applyPaymentLocally(rec: BackendLoan, input: PaymentInput, actor: Actor): BackendLoan {
   const now = new Date().toISOString();
+  const round = (n: number) => Math.round(n * 100) / 100;
   const cash = input.cashAmount ?? 0;
   const upi = input.upiAmount ?? 0;
   const bank = input.bankTransferAmount ?? 0;
   const cheque = input.chequeAmount ?? 0;
   const modes = [cash, upi, bank, cheque].filter((v) => v > 0).length;
   const method = modes > 1 ? "Split" : upi > 0 ? "UPI" : bank > 0 ? "Bank Transfer" : cheque > 0 ? "Cheque" : "Cash";
+
+  const feeOwed = (rec.outstandingProcessingFee ?? 0) + (input.processingFee ?? 0);
+  const penalOwed = Math.max(0, (rec.accruedPenalInterest ?? 0) > 0 ? (rec.accruedPenalInterest ?? 0) - (rec.penalInterestPaid ?? 0) : (rec.outstandingPenalInterest ?? 0));
+  const interestOwed = Math.max(0, input.interestOverride ?? ((rec.accruedInterest ?? 0) > 0 ? (rec.accruedInterest ?? 0) - (rec.interestPaid ?? 0) : (rec.outstandingInterest ?? 0)));
+  const principalOwed = Math.max(0, rec.outstandingAmount ?? 0);
+
+  let fee = 0, penal = 0, interest = 0, principal = 0;
+  let left = input.amount;
+  const take = (owed: number) => {
+    const part = Math.min(left, owed);
+    left -= part;
+    return part;
+  };
+  switch (input.type) {
+    case "Principal":
+      fee = take(feeOwed);
+      principal = take(principalOwed);
+      break;
+    case "Interest":
+      fee = take(feeOwed);
+      penal = take(penalOwed);
+      interest = take(interestOwed);
+      break;
+    case "Penal Interest":
+      fee = take(feeOwed);
+      penal = take(penalOwed);
+      break;
+    case "Full Settlement":
+      fee = feeOwed;
+      penal = penalOwed;
+      interest = interestOwed;
+      principal = principalOwed;
+      break;
+    default: // Partial and anything else: everything it can pay, in order
+      fee = take(feeOwed);
+      penal = take(penalOwed);
+      interest = take(interestOwed);
+      principal = take(principalOwed);
+  }
+
+  // The same refusal the server gives online: a payment cannot be more than the buckets its mode reaches hold.
+  // This runs on the freshest local balance, so payments already taken on this PC (even unsent) count.
+  const ceiling = input.type === "Full Settlement" ? feeOwed + penalOwed + interestOwed + principalOwed : input.amount - left;
+  if (input.type === "Full Settlement" && input.amount < ceiling - 0.01) {
+    throw new ApiError(`Full settlement needs the full ${round(ceiling)}. The amount is ${round(ceiling - input.amount)} short.`, 400);
+  }
+  if (input.amount > ceiling + 0.01) {
+    throw new ApiError(`Amount exceeds what is owed on this loan (${round(ceiling)} for this payment type). Reduce the amount.`, 400);
+  }
+
+  const outstandingAmount = round(Math.max(0, principalOwed - principal));
+  const outstandingInterest = round(Math.max(0, interestOwed - interest));
+  const outstandingPenalInterest = round(Math.max(0, penalOwed - penal));
+  const outstandingProcessingFee = round(Math.max(0, feeOwed - fee));
+  const owedNow = round(outstandingAmount + outstandingInterest + outstandingPenalInterest + outstandingProcessingFee);
+  const applied = round(fee + penal + interest + principal);
+  const clearedAll = outstandingAmount <= 0 && outstandingInterest <= 0.01 && outstandingPenalInterest <= 0.01 && outstandingProcessingFee <= 0.01;
+  const status = clearedAll && ["Active", "Due Soon", "Overdue"].includes(rec.status) ? "Closure Requested" : rec.status;
+
   const payment: BackendLoanPayment = {
     id: 0,
     loanId: rec.id,
     amount: input.amount,
     type: input.type,
     processingFee: input.processingFee ?? 0,
-    processingFeeApplied: 0,
+    processingFeeApplied: round(fee),
     paidOn: input.paidOn,
     receivedByEmployeeId: actor.id,
     description: input.description ?? "",
@@ -209,14 +328,28 @@ export function applyPaymentLocally(rec: BackendLoan, input: PaymentInput, actor
     bankTransferAmount: bank,
     chequeAmount: cheque,
     reference: input.reference ?? "",
-    penalInterestApplied: 0,
-    interestApplied: 0,
-    principalApplied: 0,
-    runningBalance: rec.outstandingAmount,
+    penalInterestApplied: round(penal),
+    interestApplied: round(interest),
+    principalApplied: round(principal),
+    runningBalance: owedNow,
     bankId: input.bankId ?? null,
     createdAt: now,
   };
-  return { ...rec, payments: [...(rec.payments ?? []), payment], totalPaid: (rec.totalPaid ?? 0) + input.amount, updatedAt: now };
+  return {
+    ...rec,
+    payments: [...(rec.payments ?? []), payment],
+    totalPaid: round((rec.totalPaid ?? 0) + input.amount),
+    outstandingAmount,
+    outstandingInterest,
+    outstandingPenalInterest,
+    outstandingProcessingFee,
+    interestPaid: round((rec.interestPaid ?? 0) + interest),
+    penalInterestPaid: round((rec.penalInterestPaid ?? 0) + penal),
+    totalOutstandingBalance: owedNow,
+    settlementAmount: round(Math.max(0, (rec.settlementAmount ?? owedNow) - applied)),
+    status,
+    updatedAt: now,
+  };
 }
 
 /* The Loans page's own filters, applied to the local copy. */

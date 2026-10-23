@@ -9,6 +9,8 @@
 
 import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
 import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjust";
+import { adjustCalendar, adjustReminders } from "./reminderAdjust";
+import { adjustMovements, adjustPackets, adjustRequests } from "./statusAdjust";
 import { employeeId, offlineBusiness } from "./session";
 
 const VERSION = 2;
@@ -17,8 +19,16 @@ const SKIP = /(^|\/)(auth|sync|uploads)(\/|$)|pdf|statement|export|download|qr|e
 const LOCAL_LOANS = /\/users\/\d+\/(loans|customers)(\?.*)?$|\/users\/\d+\/loans\/by-number\/[^/?]+(\?.*)?$|\/users\/\d+\/(loans|customers)\/\d+(\?.*)?$|\/users\/\d+\/loans\/\d+\/ledger(\?.*)?$|\/users\/(\d+)\/customers\/[^/?]+\/(profile360|loans|ornaments|payments|bank-pledges|auction-history)(\?.*)?$/;
 const MAX_BODY = 3 * 1024 * 1024;
 const MAX_QUEUED = 300;
-// fields a cached list is narrowed by when a screen asks for a subset (the server's own filters are not repeated otherwise)
-const FILTER_KEYS = ["status", "type", "branchId", "customerId", "lockerId", "loanId", "frequency"];
+// what a cached list is narrowed by when a screen asks for a subset (the server's own filters are not repeated otherwise)
+const FILTERS: { params: string[]; fields: string[] }[] = [
+  { params: ["status"], fields: ["status"] },
+  { params: ["type"], fields: ["type"] },
+  { params: ["branchId", "branch_id"], fields: ["branchId"] },
+  { params: ["customerId", "customer_id"], fields: ["customerId"] },
+  { params: ["lockerId", "locker_id"], fields: ["currentLockerId", "lockerId"] },
+  { params: ["loanId", "loan_id"], fields: ["loanId"] },
+  { params: ["frequency"], fields: ["frequency"] },
+];
 
 let enabled = false;
 let opening: Promise<void> | null = null;
@@ -57,7 +67,7 @@ export function setReadCacheEnabled(on: boolean): void {
 }
 
 /* Two 32-bit FNV-1a hashes, joined: a short stable file name for any request. */
-function hashOf(text: string): string {
+export function hashOf(text: string): string {
   let a = 0x811c9dc5;
   let b = 0x01000193 ^ text.length;
   for (let i = 0; i < text.length; i++) {
@@ -75,23 +85,40 @@ function exactKey(emp: number, path: string, view: string): string {
 
 /* The same endpoint whatever the query: the newest answer for it. A full list (no page asked for) and a page
  * of one are kept apart, so a page never replaces the whole list a later page can be cut from. */
-function familyKey(emp: number, path: string, view: string, paged: boolean): string {
+function familyKey(emp: number, path: string, view: string, kind: Kind): string {
   // a list that is narrowed by "type" (the categories each form shows) is a different list per type
   const q = queryOf(path);
-  const narrow = ["type", "role_id", "hasSale"].filter((k) => q.get(k)).map((k) => `${k}=${q.get(k)}`).join("&");
-  return `${emp} ${view} ${path.split("?")[0]}${narrow ? `?${narrow}` : ""} ${paged ? "paged" : "*"}`;
+  const keys = ["role_id", "hasSale", "pageSize", "mode", ...(path.split("?")[0].endsWith("/categories") ? ["type"] : [])];
+  const narrow = keys.filter((k) => q.get(k)).map((k) => `${k}=${q.get(k)}`).join("&");
+  return `${emp} ${view} ${path.split("?")[0]}${narrow ? `?${narrow}` : ""} ${kind}`;
 }
 
 function queryOf(path: string): URLSearchParams {
   return new URLSearchParams(path.includes("?") ? path.slice(path.indexOf("?") + 1) : "");
 }
 
-function isPaged(path: string): boolean {
-  return /[?&]limit=/.test(path);
+/* Three kinds of copy of one endpoint are kept apart: the whole list (no page asked for), a BIG page (the warm-up asks
+ * for 200 rows so any smaller page or filter can be cut from it), and an ordinary small page. A small page a screen
+ * happens to open can therefore never replace the big one a later filter (a locker's packets) is cut from. */
+type Kind = "*" | "big" | "paged";
+
+function kindOf(path: string): Kind {
+  const limit = Number(queryOf(path).get("limit") ?? "0");
+  if (!(limit > 0)) return "*";
+  return limit >= 100 ? "big" : "paged";
 }
 
 function fileOf(key: string): string {
   return `data/rc_${hashOf(key)}.json`;
+}
+
+/* What the branch picked in the header does NOT change: the business's own identity and settings. Their copy is kept once,
+ * so whichever branch is picked offline still finds it (a copy per branch left a branch that was never opened online with
+ * no name or logo). */
+const BRANCH_FREE = /\/(branding|business-profile|public\/branding|branches|approval-workflow|roles|schemes|gold-rates|ornament-types|purity-standards|permissions|auth)(\/|\?|$)/;
+
+export function branchScoped(path: string): boolean {
+  return !BRANCH_FREE.test(path);
 }
 
 export function cacheable(method: string, path: string): boolean {
@@ -106,7 +133,7 @@ function put(key: string, path: string, body: string): void {
 
 function write(path: string, view: string, body: string, emp: number): void {
   put(exactKey(emp, path, view), path, body);
-  put(familyKey(emp, path, view, isPaged(path)), path, body);
+  put(familyKey(emp, path, view, kindOf(path)), path, body);
 }
 
 /* Fire and forget: a failed write only means this answer will not be there offline. */
@@ -136,12 +163,30 @@ async function read(key: string): Promise<{ p: string; body: string } | null> {
 
 type Envelope = { success?: boolean; data?: unknown; [k: string]: unknown };
 
+/* The calendar of another month is cut from the newest copy: only the events inside the asked-for dates stay, so a
+ * month that was never kept shows empty rather than another month's events. */
+function inRange(cachedBody: string, qs: URLSearchParams): string {
+  const from = qs.get("from") ?? "";
+  const to = qs.get("to") ?? "";
+  try {
+    const env = JSON.parse(cachedBody) as Envelope;
+    if (!Array.isArray(env.data) || !from || !to) return cachedBody;
+    const rows = env.data.filter((r) => {
+      const date = (r as { date?: unknown }).date;
+      return typeof date !== "string" || (date >= from && date <= to);
+    });
+    return JSON.stringify({ ...env, data: rows });
+  } catch {
+    return cachedBody;
+  }
+}
+
 /* Cuts a cached answer to the page and search the request asks for. The server's own filters (a status, a
  * branch) are not repeated here, so a filtered list may show more than the server would have. */
 function reshape(cachedBody: string, path: string): string {
   const qs = new URLSearchParams(path.includes("?") ? path.slice(path.indexOf("?") + 1) : "");
+  if (/\/reminders\/calendar(\?|$)/.test(path)) return inRange(cachedBody, qs);
   const limit = Number(qs.get("limit") ?? "0");
-  if (!(limit > 0)) return cachedBody;
   let env: Envelope;
   try {
     env = JSON.parse(cachedBody) as Envelope;
@@ -156,17 +201,24 @@ function reshape(cachedBody: string, path: string): string {
   const offset = qs.has("offset") ? Math.max(0, Number(qs.get("offset")) || 0) : (Math.max(1, Number(qs.get("page") ?? "1") || 1) - 1) * limit;
   const q = (qs.get("q") ?? "").trim().toLowerCase();
   // simple filters, applied when the rows carry the field (a value may be a comma-separated list, as a branch picker sends)
-  const active = FILTER_KEYS.filter((k) => qs.get(k));
+  const active = FILTERS.map((f) => ({ f, want: f.params.map((p) => qs.get(p)).find((v) => v) })).filter((x) => x.want);
   const filtered = all.filter((r) => {
     const row = r as Record<string, unknown>;
-    return active.every((k) => {
-      const have = row[k];
-      if (typeof have !== "string" && typeof have !== "number") return true;
-      return String(qs.get(k)).split(",").some((w) => w.trim().toLowerCase() === String(have).toLowerCase());
+    return active.every(({ f, want }) => {
+      const have = f.fields.map((k) => row[k]).find((v) => v !== undefined);
+      if (have === undefined) return true; // the rows do not carry this field, so it cannot be applied
+      if (typeof have !== "string" && typeof have !== "number") return false; // e.g. a packet that is in no locker
+      return String(want).split(",").some((w) => w.trim().toLowerCase() === String(have).toLowerCase());
     });
   });
   const rows = q ? filtered.filter((r) => JSON.stringify(r).toLowerCase().includes(q)) : filtered;
   const narrowed = q !== "" || rows.length !== all.length;
+  // no paging asked for: the whole list, narrowed by the filters (a loan's pending requests, say). Without this the
+  // newest copy of the endpoint was returned whole, so another loan's request looked like this loan's.
+  if (!(limit > 0)) {
+    if (!narrowed) return cachedBody;
+    return JSON.stringify({ ...env, data: holder ? { ...holder, items: rows, total: rows.length } : rows });
+  }
   // a paged copy is a window of the server's list that starts at its own offset; a bare array is the whole list
   const windowStart = holder && !narrowed ? Math.max(0, Number(holder.offset) || 0) : 0;
   const from = offset - windowStart;
@@ -184,6 +236,13 @@ export async function recall(path: string, view: string): Promise<string | null>
   if (/\/cash\/summary(\?|$)/.test(path)) return adjustCashSummary(path, body);
   if (/\/cash-movements(\?|$)/.test(path)) return adjustCashMovements(path, body);
   if (/\/banks(\?|$)/.test(path)) return adjustBanks(body);
+  // reminders added on this PC that have not been sent yet
+  if (/\/reminders\/calendar(\?|$)/.test(path)) return adjustCalendar(path, body);
+  if (/\/reminders(\?|$)/.test(path)) return adjustReminders(body);
+  // decisions on requests, and packet movements, made on this PC and not sent yet
+  if (/\/loans\/requests(\?|$)/.test(path)) return adjustRequests(path, body);
+  if (/\/packets\/\d+\/movements/.test(path)) return adjustMovements(path, body);
+  if (/\/packets(\/by-code\/[^/?]+|\/\d+)?(\?|$)/.test(path)) return adjustPackets(body);
   return body;
 }
 
@@ -192,8 +251,31 @@ async function recallCopy(path: string, view: string): Promise<string | null> {
   const emp = employeeId() ?? 0;
   const exact = await read(exactKey(emp, path, view));
   if (exact) return exact.body;
-  const full = await read(familyKey(emp, path, view, false));
+  const full = await read(familyKey(emp, path, view, "*"));
   if (full) return reshape(full.body, path);
-  const paged = await read(familyKey(emp, path, view, true));
-  return paged ? reshape(paged.body, path) : null;
+  const big = await read(familyKey(emp, path, view, "big"));
+  if (big) return reshape(big.body, path);
+  const paged = await read(familyKey(emp, path, view, "paged"));
+  if (paged) return reshape(paged.body, path);
+  return oneFromList(emp, path, view);
+}
+
+/* A single record (a bank's own page) that was never opened online is cut out of the list it belongs to. */
+async function oneFromList(emp: number, path: string, view: string): Promise<string | null> {
+  const m = /^(\/users\/\d+\/[a-z-]+)\/(\d+)(\?.*)?$/.exec(path);
+  if (!m) return null;
+  for (const kind of ["*", "big", "paged"] as Kind[]) {
+    const hit = await read(familyKey(emp, m[1], view, kind));
+    if (!hit) continue;
+    try {
+      const env = JSON.parse(hit.body) as Envelope;
+      const data = env.data as unknown;
+      const rows = Array.isArray(data) ? data : Array.isArray((data as { items?: unknown[] } | undefined)?.items) ? (data as { items: unknown[] }).items : [];
+      const row = rows.find((r) => (r as { id?: unknown }).id === Number(m[2]));
+      if (row) return JSON.stringify({ success: true, data: row });
+    } catch {
+      /* a copy that cannot be read has nothing to give */
+    }
+  }
+  return null;
 }

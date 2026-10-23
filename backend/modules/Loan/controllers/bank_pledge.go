@@ -96,7 +96,7 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 		return nil, err
 	}
 	if hasActivePledge {
-		return nil, common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+		return nil, common.NewBadRequest("release the bank pledge first")
 	}
 	var grossWeight float64
 	for _, o := range l.Ornaments {
@@ -178,7 +178,7 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 	}
 	// A pledge that is already released or voided must not pay out (or book its expense) a second time.
 	if p.Status != models.BankPledgeStatusRecordActive {
-		return nil, common.NewConflict("only an active bank pledge can be released — this one is already released or voided")
+		return nil, common.NewConflict("pledge is already released or voided")
 	}
 	var relCash, relUpi, relBankTransfer, relCheque float64
 	var relBankID *uint
@@ -246,7 +246,7 @@ func voidBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, 
 		return nil, common.NewNotFound("bank pledge record not found")
 	}
 	if p.Status != models.BankPledgeStatusRecordActive {
-		return nil, common.NewConflict("only an active bank pledge can be voided — this one is already released or voided")
+		return nil, common.NewConflict("pledge is already released or voided")
 	}
 	if strings.TrimSpace(reason) == "" {
 		return nil, common.NewBadRequest("a reason is required when voiding a bank pledge")
@@ -308,10 +308,10 @@ func CanAcceptBankPledge(status string) bool {
 
 func bankPledgeRefusal(status, bankPledgeStatus string) error {
 	if !CanAcceptBankPledge(status) {
-		return common.NewBadRequest("this loan's gold is no longer held by the branch (closed, released or auctioned), so it cannot be re-pledged to a bank")
+		return common.NewBadRequest("gold is no longer held — can't re-pledge")
 	}
 	if bankPledgeStatus == models.BankPledgeStatusPledged {
-		return common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+		return common.NewBadRequest("release the bank pledge first")
 	}
 	return nil
 }

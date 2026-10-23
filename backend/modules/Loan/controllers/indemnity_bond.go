@@ -638,7 +638,7 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 		return nil, common.NewBadRequest("lang must be \"en\", \"ml\", \"gu\" or \"ta\"")
 	}
 	if !tenantAllowsLanguage(ctx, lang) {
-		return nil, common.NewForbidden("this business is not set up to issue documents in that language")
+		return nil, common.NewForbidden("language is not enabled for this business")
 	}
 	if deliverBy == "" {
 		deliverBy = "open"

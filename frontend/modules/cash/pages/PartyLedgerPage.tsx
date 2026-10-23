@@ -162,7 +162,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
       .catch((e) => {
         if (reqId !== requestIdRef.current) return;
         setItems([]);
-        setError(e instanceof ApiError ? e.message : "Could not load this ledger.");
+        setError(e instanceof ApiError ? e.message || "This ledger has not been saved on this PC yet. Open it once while the server is reachable and it will be available offline." : "Could not load this ledger.");
       })
       .finally(() => { if (reqId === requestIdRef.current) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
