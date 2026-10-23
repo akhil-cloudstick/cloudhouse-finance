@@ -318,10 +318,27 @@ func projectAccrualDetail(l *models.Loan, asOf time.Time, firstMonthTopUps []mod
 // a month, 90 for a quarter). unpaid is the interest already owing, which a
 // compound scheme charges interest on.
 func partialPeriodInterest(l *models.Loan, days int, unpaid float64) float64 {
-	if periodDays := singleRatePeriodDays(l); days > periodDays {
-		days = periodDays
+	if isLegacyBasis(l) {
+		if periodDays := singleRatePeriodDays(l); days > periodDays {
+			days = periodDays
+		}
 	}
 	return singleRateInterestForDays(l, days, unpaid)
+}
+
+// isLegacyBasis is true for the one single-rate scheme still charged on flat
+// months and days ÷ 30: Compound monthly. Every other single-rate scheme is
+// charged on actual days over a 365-day year.
+func isLegacyBasis(l *models.Loan) bool {
+	return l.SchemeInterestMethod == "Compound monthly"
+}
+
+// singleRateBase is the amount a single-rate scheme charges interest on.
+func singleRateBase(l *models.Loan) float64 {
+	if l.SchemeInterestMethod == "Flat monthly" {
+		return l.PrincipalAmount
+	}
+	return l.OutstandingAmount
 }
 
 func singleRatePeriodDays(l *models.Loan) int {
@@ -332,30 +349,22 @@ func singleRatePeriodDays(l *models.Loan) int {
 }
 
 // singleRateInterestForDays is the interest on a single-rate scheme for any
-// number of days, on the same per-day footing as a part period: a period's
-// interest spread evenly over its days. Unlike partialPeriodInterest it is not
-// capped at one period, so a minimum longer than a month is charged in full.
+// number of days: the base × annual rate ÷ 365 × the actual days. Compound
+// monthly keeps its old footing (a month's interest spread evenly over 30 days,
+// on the base plus the interest unpaid). It is not capped at one period, so a
+// minimum longer than a month is charged in full.
 func singleRateInterestForDays(l *models.Loan, days int, unpaid float64) float64 {
-	periodDays := singleRatePeriodDays(l)
 	if days <= 0 {
 		return 0
 	}
-	annualRate := l.SchemeInterestRate / 100
-	monthlyRate := annualRate / 12
-	share := float64(days) / float64(periodDays)
-	switch l.SchemeInterestMethod {
-	case "Flat monthly":
-		return l.PrincipalAmount * monthlyRate * share
-	case "Quarterly simple":
-		return l.OutstandingAmount * (annualRate / 4) * share
-	case "Compound monthly":
-		if unpaid < 0 {
-			unpaid = 0
-		}
-		return (l.OutstandingAmount + unpaid) * monthlyRate * share
-	default:
-		return l.OutstandingAmount * monthlyRate * share
+	if !isLegacyBasis(l) {
+		return singleRateBase(l) * multipleDayRate(l.SchemeInterestRate) * float64(days)
 	}
+	monthlyRate := l.SchemeInterestRate / 100 / 12
+	if unpaid < 0 {
+		unpaid = 0
+	}
+	return (l.OutstandingAmount + unpaid) * monthlyRate * float64(days) / float64(singleRatePeriodDays(l))
 }
 
 // projectAccrualThrough is projectAccrualDetail that, when through is set,
@@ -380,8 +389,7 @@ func projectAccrualThrough(l *models.Loan, asOf time.Time, through bool, firstMo
 	if asOf.Before(from) || (asOf.Equal(from) && !onOpeningDay) || l.OutstandingAmount <= 0 {
 		return 0, 0, from, newLevel, nil
 	}
-	annualRate := l.SchemeInterestRate / 100
-	monthlyRate := annualRate / 12
+	monthlyRate := l.SchemeInterestRate / 100 / 12
 	var anchor time.Time
 	if l.SchemeInterestMethod == commonModels.InterestMethodMultiple && len(l.SchemeRateTiers) > 0 {
 		interestDelta, anchor, newLevel, parts = projectMultipleInterest(l, asOf, from, firstAccrual, through, firstMonthTopUps)
@@ -407,24 +415,21 @@ func projectAccrualThrough(l *models.Loan, asOf time.Time, through bool, firstMo
 		}
 		extended := !partial && anchor.After(monthEnd)
 		if segments := firstMonthTopUpSegments(l, firstMonthTopUps, anchor); segments != nil {
+			dayRate := monthlyRate / 30
+			if !isLegacyBasis(l) {
+				dayRate = multipleDayRate(l.SchemeInterestRate)
+			}
 			for _, seg := range segments {
 				days := seg.end.Sub(seg.start).Hours() / 24
 				if days <= 0 {
 					continue
 				}
-				interestDelta += seg.base * (monthlyRate / 30) * days
+				interestDelta += seg.base * dayRate * days
 			}
-		} else if partial || extended {
+		} else if !isLegacyBasis(l) || partial || extended {
 			interestDelta = singleRateInterestForDays(l, dayDiff(l.OpenedDate, anchor), 0)
 		} else {
-			switch l.SchemeInterestMethod {
-			case "Flat monthly":
-				interestDelta = l.PrincipalAmount * monthlyRate
-			case "Quarterly simple":
-				interestDelta = l.OutstandingAmount * (annualRate / 4)
-			default:
-				interestDelta = l.OutstandingAmount * monthlyRate
-			}
+			interestDelta = l.OutstandingAmount * monthlyRate
 		}
 	} else {
 		periodMonths := 1
@@ -432,12 +437,7 @@ func projectAccrualThrough(l *models.Loan, asOf time.Time, through bool, firstMo
 			periodMonths = 3
 		}
 		periods, boundary := completedPeriods(from, asOf, periodMonths)
-		switch l.SchemeInterestMethod {
-		case "Flat monthly":
-			interestDelta = l.PrincipalAmount * monthlyRate * float64(periods)
-		case "Quarterly simple":
-			interestDelta = l.OutstandingAmount * (annualRate / 4) * float64(periods)
-		case "Compound monthly":
+		if isLegacyBasis(l) {
 			unpaid := l.AccruedInterest - l.InterestPaid
 			if unpaid < 0 {
 				unpaid = 0
@@ -447,8 +447,9 @@ func projectAccrualThrough(l *models.Loan, asOf time.Time, through bool, firstMo
 				interestDelta += d
 				unpaid += d
 			}
-		default:
-			interestDelta = l.OutstandingAmount * monthlyRate * float64(periods)
+		} else {
+			// the completed periods are one run of actual days from the last charge date
+			interestDelta = singleRateInterestForDays(l, dayDiff(from, boundary), 0)
 		}
 		anchor = boundary
 		if through && asOf.After(boundary) {

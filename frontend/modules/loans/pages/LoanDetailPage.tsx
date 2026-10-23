@@ -1406,7 +1406,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                   read ₹0 here — show the monthly interest it will carry instead. */}
               {l.disbursementDate
                 ? <div className="i"><div className="k">Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
-                : <div className="i"><div className="k">Interest / Month</div><div className="v">{fmt((l.principal * l.schemeRate) / 100 / 12)}</div></div>}
+                : l.schemeMethod === "Compound monthly"
+                  ? <div className="i"><div className="k">Interest / Month</div><div className="v">{fmt((l.principal * l.schemeRate) / 100 / 12)}</div></div>
+                  : <div className="i"><div className="k">Interest / Day </div><div className="v">{fmt((l.principal * l.schemeRate) / 100 / 365)}</div></div>}
               <div className="i"><div className="k">Interest Paid</div><div className="v">{fmt(l.interestPaid)}</div></div>
               <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(l.outstandingInterest)}</div></div>
               {l.accruedPenalInterest > 0 && <>
