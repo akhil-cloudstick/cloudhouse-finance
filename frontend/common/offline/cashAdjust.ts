@@ -39,7 +39,7 @@ type Pending = {
 /* The waiting entries that move money, newest first. */
 async function pendingMoney(branch: number): Promise<Pending[]> {
   const found: Pending[] = [];
-  for (const line of await offlineStore.readOutbox().catch(() => [] as string[])) {
+  for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
     let entry: OutboxEntry;
     try {
       entry = JSON.parse(line) as OutboxEntry;

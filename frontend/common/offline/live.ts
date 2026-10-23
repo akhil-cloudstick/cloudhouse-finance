@@ -25,9 +25,11 @@ export function isWatched(id: string): boolean {
   return waiting.has(id);
 }
 
-/* Statuses that mean "the server read this and said no", as opposed to "try again". */
-export function isRefusal(status: number): boolean {
-  return status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 409 && status !== 429;
+/* Statuses that mean "the server read this and said no", as opposed to "try again". A 409 is a business refusal too
+ * (already approved, cannot be edited), except the server's "still being processed", which is only a wait. */
+export function isRefusal(status: number, message = ""): boolean {
+  if (status === 409) return !/still being processed/i.test(message);
+  return status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 429;
 }
 
 export async function refuse(id: string, r: Refusal): Promise<void> {

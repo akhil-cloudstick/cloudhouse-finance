@@ -1,4 +1,4 @@
-/* One line of outbox.jsonl: the exact request the app sends today (method, path, body), plus the little
+/* One entry of the outbox: the exact request the app sends today (method, path, body), plus the little
  * needed to replay it safely. */
 
 export type Actor = { id: number; name: string; role: string };

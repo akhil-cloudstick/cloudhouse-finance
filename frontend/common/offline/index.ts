@@ -5,7 +5,7 @@
 import { offlineStore } from "@/common/services/desktopBridge";
 import { currentDevice, forgetDevice, loadDevice } from "./device";
 import { uuid7 } from "./ids";
-import { loadLocalCopy } from "./localCopy";
+import { loadLocalCopy, saveWithEntry } from "./localCopy";
 import { flushRememberedLogin } from "./loginCache";
 import { offlineBusiness } from "./session";
 import { askStorageChoice } from "./storageChoice";
@@ -101,12 +101,11 @@ export function newEntry(
   return { id, method, path, body, occurredAt: new Date().toISOString(), actor, deviceId: deviceLabel(), targets };
 }
 
-/* Adds the entry to outbox.jsonl (flushed to disk before this returns), applies the same change to the local
- * copy, then starts the sender. The caller's screen can show the result as soon as this resolves. */
+/* Adds the entry to the outbox and applies the same change to the local copy in ONE database transaction (flushed
+ * to disk before this returns), then starts the sender. The screen can show the result as soon as this resolves. */
 export async function enqueue(entry: OutboxEntry, applyLocal: () => Promise<void> | void): Promise<void> {
   if (!offlineReady()) throw new Error("offline mode is not running");
-  await offlineStore.appendOutbox(JSON.stringify(entry));
-  await applyLocal();
+  await saveWithEntry(JSON.stringify(entry), applyLocal);
   void drain("after save");
 }
 
@@ -123,8 +122,7 @@ export async function enqueueAndWait(
   if (!offlineReady()) throw new Error("offline mode is not running");
   watch(entry.id, undoLocal);
   try {
-    await offlineStore.appendOutbox(JSON.stringify(entry));
-    await applyLocal();
+    await saveWithEntry(JSON.stringify(entry), applyLocal);
     const settled = drain("after save");
     const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), SEND_WAIT_MS));
     const answered = await Promise.race([settled, timeout]);

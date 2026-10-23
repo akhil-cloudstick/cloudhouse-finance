@@ -5,10 +5,10 @@ Written from the code as it stands, plus a scan of every write function in the f
 
 ## How offline mode works, in one paragraph
 
-A save goes into `outbox.jsonl` on the PC and the local copy is updated at the same moment. A sender sends the
+A save goes into the outbox of the PC's SQLite database (`offline.db`) and the local copy is updated in the same transaction. A sender sends the
 oldest line first, right after a save and every minute. The server saying "saved" or "already have it" deletes the
-line; no answer keeps it. A refusal (a rule the server enforces) drops that one line, restores the local copy and shows
-the server's message. Reads are answered from the PC when the server does not answer: loans, customers and the loan
+line; no answer keeps it. A refusal (a rule the server enforces) moves that entry to the admin review list (Settings > Offline Review) with the server's reason; if the screen is still waiting, it is dropped and the message is shown there instead.
+Reads are answered from the PC when the server does not answer: loans, customers and the loan
 ledger from the local copy, everything else from the last answer the PC saw.
 
 ## 1. Works offline (writes that are queued)
@@ -62,10 +62,12 @@ These are sent straight to the server and fail with no queue.
 
 ## 4. Limits that apply to what does work
 
-- **Sensitive data on disk.** Loans, customers and the cached lists are plain readable files in the Windows user's
-  profile. Only the device key, saved sign-ins and queued photos are protected (Windows DPAPI).
-- **Refusals.** A queued entry the server refuses (for example cash that is no longer enough) is dropped, the local copy
-  is restored and the message is shown once. Nothing is flagged for a manager.
+- **Sensitive data on disk.** Loans, customers and the cached lists are rows in `offline.db`, readable by anyone who can open the Windows user's
+  profile folder. Only the device key, saved sign-ins and queued photos are protected (Windows DPAPI).
+- **Refusals.** A queued entry the server refuses (for example cash that is no longer enough) goes to Settings > Offline
+  Review with the server's reason, and its record shows "needs review". An admin retries or discards it. Later entries on the
+  same record wait behind it; entries on other records are sent as normal. The existing files from the first build are
+  imported into the database on first start and kept beside it as `*.imported`.
 - **Gold rate.** A loan cannot be created offline if today's rate was not published before going offline.
 - **Sign-in.** The saved sign-in lasts as long as its token (7 days). A password changed or a user switched off on the
   server still works on that PC until its next online sign-in.

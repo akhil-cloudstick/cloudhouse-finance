@@ -10,11 +10,17 @@ interface DesktopApp {
   CheckContentUpdate(): Promise<void>;
   DownloadContentUpdate(): Promise<void>;
   ApplyContentUpdate(): Promise<void>;
-  // Offline store: plain files on this PC. See desktop/localstore.
+  // Offline store: one SQLite database on this PC. See desktop/localstore.
   StoreOpen(business: string, device: string): Promise<void>;
   StoreAppendOutbox(line: string): Promise<void>;
   StoreReadOutbox(): Promise<string[]>;
   StoreDeleteOutboxEntry(id: string): Promise<void>;
+  StoreSaveEntry(line: string, files: Record<string, string>): Promise<void>;
+  StoreReadAllOutbox(): Promise<string[]>;
+  StoreOutboxCounts(): Promise<Record<string, number>>;
+  StoreMarkReview(id: string, message: string): Promise<void>;
+  StoreReadReview(): Promise<string[]>;
+  StoreRetryReview(id: string): Promise<void>;
   StoreReadFile(name: string): Promise<string>;
   StoreWriteFile(name: string, content: string): Promise<void>;
   StoreLog(level: string, message: string): Promise<void>;

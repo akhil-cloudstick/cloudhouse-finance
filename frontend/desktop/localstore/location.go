@@ -86,6 +86,7 @@ func (s *Store) SetRoot(parent string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !sameFolder(next, s.root) {
+		s.closeLocked() // the database is folded into its one file and released before it is copied
 		if err := os.MkdirAll(next, 0o700); err != nil {
 			return err
 		}

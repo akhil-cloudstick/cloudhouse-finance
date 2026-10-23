@@ -152,3 +152,24 @@ func (a *App) StoreChooseFolder() (string, error) {
 
 // StoreUseDefaultFolder records that the default folder is fine.
 func (a *App) StoreUseDefaultFolder() error { return a.store.UseDefault() }
+
+// StoreSaveEntry adds one entry to the outbox and replaces the given data files in one transaction, so the local
+// copy and the queued entry always agree.
+func (a *App) StoreSaveEntry(line string, files map[string]string) error {
+	return a.store.SaveEntry(line, files)
+}
+
+// StoreReadAllOutbox returns every entry the server has not confirmed, including those in review.
+func (a *App) StoreReadAllOutbox() ([]string, error) { return a.store.ReadAllOutbox() }
+
+// StoreOutboxCounts is how many entries wait to be sent ("pending") and how many wait for an admin ("review").
+func (a *App) StoreOutboxCounts() (map[string]int, error) { return a.store.Counts() }
+
+// StoreMarkReview moves an entry the server refused to the admin's review list, with the server's reason.
+func (a *App) StoreMarkReview(id, message string) error { return a.store.MarkReview(id, message) }
+
+// StoreReadReview returns the entries waiting for an admin, each as one JSON object.
+func (a *App) StoreReadReview() ([]string, error) { return a.store.ReadReview() }
+
+// StoreRetryReview puts a reviewed entry back in the send queue.
+func (a *App) StoreRetryReview(id string) error { return a.store.RetryReview(id) }

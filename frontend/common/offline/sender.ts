@@ -1,6 +1,7 @@
-/* The sender. It takes the OLDEST line in outbox.jsonl and sends it:
+/* The sender. It takes the OLDEST sendable entry in the outbox and sends it:
  *   saved or duplicate  -> delete the line (the server has it)
- *   anything else       -> keep the line, stop, and let the next cron tick try again
+ *   refused by the server -> review list (or dropped, if the screen is still waiting for the answer)
+ *   anything else       -> keep the entry, stop, and let the next cron tick try again
  * When the outbox is empty after at least one line was sent, it does one pull. There is no health check:
  * the only signal is whether the real request got an answer. */
 
@@ -8,7 +9,8 @@ import { offlineStore } from "@/common/services/desktopBridge";
 import { replayRequest } from "@/common/services/httpClient";
 import { ENTRY_REFUSED_EVENT, isRefusal, isWatched, refuse } from "./live";
 import { getLocal, removeLocal, upsertLocal } from "./localCopy";
-import { pull, resetCursor } from "./pull";
+import { pull } from "./pull";
+import { sendToReview } from "./review";
 import { warmReadCache } from "./warm";
 import { uploadFileOnline } from "@/common/services/uploadService";
 import { forgetRegistration } from "./device";
@@ -45,7 +47,7 @@ async function applyReply(entry: OutboxEntry, body: unknown): Promise<void> {
 }
 
 export async function waitingCount(): Promise<number> {
-  return (await offlineStore.readOutbox()).length;
+  return (await offlineStore.readAllOutbox()).length;
 }
 
 /* True when the server answered and the outbox is now empty. */
@@ -78,18 +80,20 @@ export async function drain(why: string): Promise<boolean> {
         clientUuid: entry.id,
         occurredAt: entry.occurredAt,
       });
-      if (r.outcome === "retry" && isRefusal(r.status)) {
-        // The server read this save and said no, as it would online. It is dropped so the entries behind it are not
-        // held up for good, and the local copy goes back to what the server holds (the next pull replaces it).
+      if (r.outcome === "retry" && isRefusal(r.status, r.message)) {
+        // The server read this save and said no, as it would online.
         const message = r.message || "The server did not accept this.";
-        await offlineStore.deleteOutboxEntry(entry.id);
         offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${r.status} ${message}`);
         if (isWatched(entry.id)) {
-          // someone is still at the screen: they get the message there, the same as an online save
+          // someone is still at the screen: they get the message there, the same as an online save, so the entry
+          // is dropped and the local copy goes back to what the server holds
+          await offlineStore.deleteOutboxEntry(entry.id);
           await refuse(entry.id, { status: r.status, message });
         } else {
-          await resetCursor();
-          window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message } }));
+          // nobody is waiting for it: it goes to the admin's review list, still on this PC with the server's reason,
+          // and the entries behind it are not held up (only later ones on the same record wait with it)
+          await sendToReview(entry, message);
+          window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
         }
         continue;
       }

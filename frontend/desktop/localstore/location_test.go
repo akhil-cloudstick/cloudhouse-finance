@@ -12,7 +12,9 @@ func newConfigured(t *testing.T) (*Store, string, string) {
 	base := t.TempDir()
 	def := filepath.Join(base, "default", "offline")
 	cfg := filepath.Join(base, "cfg", "storage.json")
-	return NewWithConfig(def, cfg), def, cfg
+	s := NewWithConfig(def, cfg)
+	t.Cleanup(s.Close)
+	return s, def, cfg
 }
 
 func TestNothingChosenUntilTheUserChooses(t *testing.T) {
@@ -70,7 +72,7 @@ func TestSetRootCopiesTheDataAndKeepsTheOldFolder(t *testing.T) {
 	if got, _ := s.ReadFile("data/loans.json"); !strings.Contains(got, "u1") {
 		t.Errorf("loans.json after the move = %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(def, "acme", "pc", "outbox.jsonl")); err != nil {
+	if _, err := os.Stat(filepath.Join(def, "acme", "pc", "offline.db")); err != nil {
 		t.Errorf("the old folder was not left in place: %v", err)
 	}
 	// remembered across a restart
@@ -105,6 +107,7 @@ func TestSetRootSameFolderIsFine(t *testing.T) {
 	parent := filepath.Dir(filepath.Dir(def))
 	// def is <base>/default/offline, not <parent>/CloudhouseFinance/offline, so build one that is
 	s2 := NewWithConfig(filepath.Join(parent, "CloudhouseFinance", "offline"), "")
+	t.Cleanup(s2.Close)
 	if err := s2.SetRoot(parent); err != nil {
 		t.Fatalf("choosing the folder already in use: %v", err)
 	}

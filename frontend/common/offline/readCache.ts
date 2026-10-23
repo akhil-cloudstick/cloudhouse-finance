@@ -17,6 +17,8 @@ const SKIP = /(^|\/)(auth|sync|uploads)(\/|$)|pdf|statement|export|download|qr|e
 const LOCAL_LOANS = /\/users\/\d+\/(loans|customers)(\?.*)?$|\/users\/\d+\/loans\/by-number\/[^/?]+(\?.*)?$|\/users\/\d+\/(loans|customers)\/\d+(\?.*)?$|\/users\/\d+\/loans\/\d+\/ledger(\?.*)?$|\/users\/(\d+)\/customers\/[^/?]+\/(profile360|loans|ornaments|payments|bank-pledges|auction-history)(\?.*)?$/;
 const MAX_BODY = 3 * 1024 * 1024;
 const MAX_QUEUED = 300;
+// fields a cached list is narrowed by when a screen asks for a subset (the server's own filters are not repeated otherwise)
+const FILTER_KEYS = ["status", "type", "branchId", "customerId", "lockerId", "loanId", "frequency"];
 
 let enabled = false;
 let opening: Promise<void> | null = null;
@@ -76,7 +78,7 @@ function exactKey(emp: number, path: string, view: string): string {
 function familyKey(emp: number, path: string, view: string, paged: boolean): string {
   // a list that is narrowed by "type" (the categories each form shows) is a different list per type
   const q = queryOf(path);
-  const narrow = ["type", "role_id"].filter((k) => q.get(k)).map((k) => `${k}=${q.get(k)}`).join("&");
+  const narrow = ["type", "role_id", "hasSale"].filter((k) => q.get(k)).map((k) => `${k}=${q.get(k)}`).join("&");
   return `${emp} ${view} ${path.split("?")[0]}${narrow ? `?${narrow}` : ""} ${paged ? "paged" : "*"}`;
 }
 
@@ -147,31 +149,31 @@ function reshape(cachedBody: string, path: string): string {
     return cachedBody;
   }
   const data = env.data as unknown;
-  const all: unknown[] | null = Array.isArray(data)
-    ? data
-    : data && typeof data === "object" && Array.isArray((data as { items?: unknown[] }).items)
-      ? ((data as { items: unknown[] }).items)
-      : null;
+  const holder = !Array.isArray(data) && data && typeof data === "object" && Array.isArray((data as { items?: unknown[] }).items) ? (data as { items: unknown[]; offset?: number; total?: number }) : null;
+  const all: unknown[] | null = Array.isArray(data) ? data : holder ? holder.items : null;
   if (!all) return cachedBody;
-  const page = Math.max(1, Number(qs.get("page") ?? "1") || 1);
+  // the screens page with offset (or with page, 1-based)
+  const offset = qs.has("offset") ? Math.max(0, Number(qs.get("offset")) || 0) : (Math.max(1, Number(qs.get("page") ?? "1") || 1) - 1) * limit;
   const q = (qs.get("q") ?? "").trim().toLowerCase();
-  // simple "status" / "type" filters (the Extensions & Release page uses them), applied when the rows carry the field
-  const pick = (rowsIn: unknown[]) =>
-    rowsIn.filter((r) => {
-      const row = r as Record<string, unknown>;
-      return ["status", "type"].every((k) => {
-        const want = qs.get(k);
-        return !want || typeof row[k] !== "string" || String(row[k]).toLowerCase() === want.toLowerCase();
-      });
+  // simple filters, applied when the rows carry the field (a value may be a comma-separated list, as a branch picker sends)
+  const active = FILTER_KEYS.filter((k) => qs.get(k));
+  const filtered = all.filter((r) => {
+    const row = r as Record<string, unknown>;
+    return active.every((k) => {
+      const have = row[k];
+      if (typeof have !== "string" && typeof have !== "number") return true;
+      return String(qs.get(k)).split(",").some((w) => w.trim().toLowerCase() === String(have).toLowerCase());
     });
-  const wasPaged = !Array.isArray(data);
-  // a paged copy only holds the page that was cached, so only the first page can be answered from it
-  if (wasPaged && page > 1) return JSON.stringify({ ...env, data: { items: [], hasMore: false, limit, offset: (page - 1) * limit, total: all.length } });
-  const filtered = pick(all);
+  });
   const rows = q ? filtered.filter((r) => JSON.stringify(r).toLowerCase().includes(q)) : filtered;
-  const from = (page - 1) * limit;
-  const items = rows.slice(from, from + limit);
-  return JSON.stringify({ ...env, data: { items, hasMore: from + limit < rows.length, limit, offset: from, total: rows.length } });
+  const narrowed = q !== "" || rows.length !== all.length;
+  // a paged copy is a window of the server's list that starts at its own offset; a bare array is the whole list
+  const windowStart = holder && !narrowed ? Math.max(0, Number(holder.offset) || 0) : 0;
+  const from = offset - windowStart;
+  const items = from < 0 ? [] : rows.slice(from, from + limit);
+  const end = windowStart + rows.length;
+  const total = narrowed ? rows.length : typeof holder?.total === "number" ? holder.total : rows.length;
+  return JSON.stringify({ ...env, data: { ...(holder ?? {}), items, hasMore: offset + limit < end, limit, offset, total } });
 }
 
 export async function recall(path: string, view: string): Promise<string | null> {

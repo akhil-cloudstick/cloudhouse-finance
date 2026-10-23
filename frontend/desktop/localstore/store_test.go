@@ -1,6 +1,7 @@
 package localstore
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 func open(t *testing.T) *Store {
 	t.Helper()
 	s := New(t.TempDir())
+	t.Cleanup(s.Close)
 	if err := s.Open("acme", "dev_1"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,17 +56,135 @@ func TestOutboxRejectsBadLines(t *testing.T) {
 	}
 }
 
-func TestOutboxSkipsTornLastLine(t *testing.T) {
+func TestOutboxNeedsAnId(t *testing.T) {
+	if err := open(t).AppendOutbox(`{"n":1}`); err == nil {
+		t.Error("an entry with no id was accepted")
+	}
+}
+
+func TestSameEntryTwiceIsKeptOnce(t *testing.T) {
 	s := open(t)
-	if err := s.AppendOutbox(`{"id":"a"}`); err != nil {
+	for i := 0; i < 2; i++ {
+		if err := s.AppendOutbox(`{"id":"a"}`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, _ := s.ReadOutbox(); len(got) != 1 {
+		t.Fatalf("got %v, want one entry", got)
+	}
+}
+
+func TestSaveEntryIsAllOrNothing(t *testing.T) {
+	s := open(t)
+	if err := s.SaveEntry(`{"id":"a"}`, map[string]string{"data/loans.json": `[{"uuid":"u1"}]`}); err != nil {
 		t.Fatal(err)
 	}
-	f, _ := os.OpenFile(filepath.Join(s.dir, outboxFile), os.O_APPEND|os.O_WRONLY, 0o600)
-	f.WriteString(`{"id":"half`)
-	f.Close()
-	got, err := s.ReadOutbox()
-	if err != nil || len(got) != 1 {
-		t.Fatalf("got %v, %v; want the one complete line", got, err)
+	// one bad file name: neither the entry nor the other file may be kept
+	err := s.SaveEntry(`{"id":"b"}`, map[string]string{"data/loans.json": `[]`, "../x.json": `{}`})
+	if err == nil {
+		t.Fatal("a save with a bad file name succeeded")
+	}
+	if got, _ := s.ReadOutbox(); len(got) != 1 {
+		t.Errorf("outbox = %v, want only a", got)
+	}
+	if got, _ := s.ReadFile("data/loans.json"); !strings.Contains(got, "u1") {
+		t.Errorf("loans.json = %q, want the first save kept", got)
+	}
+}
+
+func TestReviewHoldsLaterEntriesOnTheSameRecord(t *testing.T) {
+	s := open(t)
+	for _, l := range []string{
+		`{"id":"a","targets":["loan1"]}`,
+		`{"id":"b","targets":["loan1"]}`,
+		`{"id":"c","targets":["loan2"]}`,
+	} {
+		if err := s.AppendOutbox(l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.MarkReview("a", "cash is no longer enough"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.ReadOutbox()
+	if len(got) != 1 || !strings.Contains(got[0], `"c"`) {
+		t.Fatalf("sendable = %v, want only c (a is in review, b waits behind it)", got)
+	}
+	if all, _ := s.ReadAllOutbox(); len(all) != 3 {
+		t.Errorf("all = %v, want all three kept on this PC", all)
+	}
+	rev, err := s.ReadReview()
+	if err != nil || len(rev) != 1 {
+		t.Fatalf("review = %v, %v", rev, err)
+	}
+	var it ReviewItem
+	if err := json.Unmarshal([]byte(rev[0]), &it); err != nil {
+		t.Fatal(err)
+	}
+	if it.ID != "a" || it.Message != "cash is no longer enough" || it.Held != 1 || it.Attempts != 1 {
+		t.Errorf("review item = %+v", it)
+	}
+	if c, _ := s.Counts(); c["pending"] != 2 || c["review"] != 1 {
+		t.Errorf("counts = %v", c)
+	}
+
+	// retry: back in the queue, in its original place
+	if err := s.RetryReview("a"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.ReadOutbox()
+	if len(got) != 3 || !strings.Contains(got[0], `"a"`) {
+		t.Errorf("after retry = %v, want a, b, c", got)
+	}
+
+	// discard: gone for good, and what waited behind it is released
+	s.MarkReview("a", "again")
+	if err := s.DeleteOutboxEntry("a"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.ReadOutbox()
+	if len(got) != 2 || !strings.Contains(got[0], `"b"`) {
+		t.Errorf("after discard = %v, want b, c", got)
+	}
+}
+
+func TestLegacyFilesAreImportedOnce(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "acme", "pc")
+	os.MkdirAll(filepath.Join(dir, "data"), 0o700)
+	os.WriteFile(filepath.Join(dir, "outbox.jsonl"), []byte("{\"id\":\"a\",\"targets\":[\"l1\"]}\n{\"id\":\"half"), 0o600)
+	os.WriteFile(filepath.Join(dir, "data", "loans.json"), []byte(`[{"uuid":"l1"}]`), 0o600)
+	os.WriteFile(filepath.Join(dir, "cursor.json"), []byte(`{"since":"x"}`), 0o600)
+
+	s := New(root)
+	t.Cleanup(s.Close)
+	if err := s.Open("acme", "pc"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ReadOutbox(); len(got) != 1 || !strings.Contains(got[0], `"a"`) {
+		t.Fatalf("outbox = %v, want the one whole line", got)
+	}
+	if got, _ := s.ReadFile("data/loans.json"); !strings.Contains(got, "l1") {
+		t.Errorf("loans.json = %q", got)
+	}
+	if got, _ := s.ReadFile("cursor.json"); !strings.Contains(got, "x") {
+		t.Errorf("cursor.json = %q", got)
+	}
+	for _, n := range []string{"outbox.jsonl", "cursor.json", filepath.Join("data", "loans.json")} {
+		if _, err := os.Stat(filepath.Join(dir, n)); !os.IsNotExist(err) {
+			t.Errorf("%s was not set aside", n)
+		}
+		if _, err := os.Stat(filepath.Join(dir, n+".imported")); err != nil {
+			t.Errorf("%s.imported is missing: %v", n, err)
+		}
+	}
+	// a second open must not import (or duplicate) anything
+	s.Close()
+	if err := s.Open("acme", "pc"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ReadOutbox(); len(got) != 1 {
+		t.Errorf("after reopening: %v, want still one entry", got)
 	}
 }
 

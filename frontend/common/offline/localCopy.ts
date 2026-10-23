@@ -20,9 +20,18 @@ function notify() {
   listeners.forEach((fn) => fn());
 }
 
+/* While a Save is applying its change, the files it touches are collected here instead of written, so the entry
+ * and the local copy can be committed in one transaction (see saveWithEntry). */
+let batch: Map<string, string> | null = null;
+let saving: Promise<unknown> = Promise.resolve();
+
 /* Writes are queued one after another so two quick changes never interleave on disk. */
 function persist(entity: EntityName): Promise<void> {
   const snapshot = JSON.stringify(Array.from(cache[entity].values()));
+  if (batch) {
+    batch.set(fileOf(entity), snapshot);
+    return Promise.resolve();
+  }
   writes = writes.then(() => offlineStore.writeFile(fileOf(entity), snapshot)).catch((e) => {
     offlineStore.log("error", `writing ${fileOf(entity)}: ${e instanceof Error ? e.message : String(e)}`);
   });
@@ -42,6 +51,35 @@ export async function loadLocalCopy(): Promise<void> {
   }
   loaded = true;
   notify();
+}
+
+/* Queues the entry and applies the same change to the local copy as ONE database transaction: either the screen
+ * and the outbox both have it, or neither does. If the commit fails the in-memory copy is put back from disk. */
+export function saveWithEntry(line: string, applyLocal: () => Promise<void> | void): Promise<void> {
+  const run = async () => {
+    const files = new Map<string, string>();
+    batch = files;
+    try {
+      await applyLocal();
+    } catch (e) {
+      batch = null;
+      await loadLocalCopy();
+      throw e;
+    }
+    batch = null;
+    // behind any write already queued, so an older snapshot can never land after this one
+    const commit = writes.then(() => offlineStore.saveEntry(line, Object.fromEntries(files)));
+    writes = commit.catch(() => {});
+    try {
+      await commit;
+    } catch (e) {
+      await loadLocalCopy();
+      throw e;
+    }
+  };
+  const next = saving.then(run, run);
+  saving = next.catch(() => {});
+  return next;
 }
 
 export function isLoaded(): boolean {

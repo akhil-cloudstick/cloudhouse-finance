@@ -18,10 +18,10 @@ async function readCursor(): Promise<string> {
   }
 }
 
-/* UUIDs of records that still have a waiting entry: a pull must not overwrite those. */
+/* UUIDs of records that still have a waiting entry (including one in review): a pull must not overwrite those. */
 async function pending(): Promise<Set<string>> {
   const keep = new Set<string>();
-  for (const line of await offlineStore.readOutbox()) {
+  for (const line of await offlineStore.readAllOutbox()) {
     try {
       for (const t of (JSON.parse(line) as OutboxEntry).targets ?? []) keep.add(t);
     } catch {

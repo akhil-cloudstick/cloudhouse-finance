@@ -8,6 +8,7 @@ import {
 import { branchHeader } from "@/common/services/branchSelection";
 import { fromApi, toApi } from "@/common/services/apiContract";
 import { cacheable, recall, remember } from "@/common/offline/readCache";
+import { offlineReady } from "@/common/offline/state";
 import { signHeaders } from "@/common/offline/device";
 
 // ===== ENVIRONMENT =====
@@ -98,9 +99,10 @@ async function contractFetch(path: string, init?: RequestInit, signed = false): 
       const hit = await recall(req.path, view);
       if (hit !== null) return new Response(hit, { status: 200, headers: { "content-type": "application/json", "X-From-Cache": "true" } });
     }
-    // Nothing to show instead: a pop-up as well as the text in the page. Background work (the sync, the warm-up)
+    // Nothing to show instead: a pop-up as well as the text in the page, except for reads while offline mode is running (the
+    // PC is expected to be offline then, so the page's own text is enough; a save that cannot be queued still warns). Background work (the sync, the warm-up)
     // never raises it, and a screen answered from the PC's own copy never reaches here.
-    if (e instanceof ApiError && e.status === 0 && !signed && quietDepth === 0 && !QUIET_PATH.test(req.path) && typeof window !== "undefined") {
+    if (e instanceof ApiError && e.status === 0 && !signed && quietDepth === 0 && !(offlineReady() && req.method === "GET") && !QUIET_PATH.test(req.path) && typeof window !== "undefined") {
       window.dispatchEvent(new Event(UNREACHABLE_EVENT));
     }
     throw e;

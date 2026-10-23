@@ -161,13 +161,22 @@ export function onContentUpdateEvent(
   return window.runtime.EventsOn(`content:${name}`, (data) => handler((data ?? {}) as UpdateEventPayload));
 }
 
-/* Offline store. Plain files on this PC, kept by the Go side (flushed appends, whole-file swaps, protected
+/* Offline store. One SQLite database on this PC, kept by the Go side (every save is one transaction, protected
  * secrets). In a browser there is no store, so offline mode is off and every call reports that. */
 export const offlineStore = {
   available: (): boolean => isDesktop(),
   open: (business: string, device: string) => app()!.StoreOpen(business, device),
   appendOutbox: (line: string) => app()!.StoreAppendOutbox(line),
+  /* What may be sent now, oldest first. Entries in review, and later ones on the same record, are left out. */
   readOutbox: () => app()!.StoreReadOutbox(),
+  /* Everything this PC still holds for the server, sendable or not. */
+  readAllOutbox: () => app()!.StoreReadAllOutbox(),
+  /* The entry and the changed local-copy files, kept together in one transaction. */
+  saveEntry: (line: string, files: Record<string, string>) => app()!.StoreSaveEntry(line, files),
+  counts: () => app()!.StoreOutboxCounts(),
+  markReview: (id: string, message: string) => app()!.StoreMarkReview(id, message),
+  readReview: () => app()!.StoreReadReview(),
+  retryReview: (id: string) => app()!.StoreRetryReview(id),
   deleteOutboxEntry: (id: string) => app()!.StoreDeleteOutboxEntry(id),
   readFile: (name: string) => app()!.StoreReadFile(name),
   writeFile: (name: string, content: string) => app()!.StoreWriteFile(name, content),

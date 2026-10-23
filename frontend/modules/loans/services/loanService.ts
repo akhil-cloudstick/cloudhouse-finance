@@ -607,7 +607,7 @@ export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: 
 export async function hardDeleteLoan(loanId: number, uuid?: string): Promise<void> {
   // A loan this PC made that the server has never seen: deleting it just cancels what was waiting to be sent.
   if (offlineReady() && !loanId && uuid) {
-    for (const line of await offlineStore.readOutbox()) {
+    for (const line of await offlineStore.readAllOutbox()) {
       try {
         const e = JSON.parse(line) as { id: string; targets?: string[] };
         if (e.targets?.includes(uuid)) await offlineStore.deleteOutboxEntry(e.id);
