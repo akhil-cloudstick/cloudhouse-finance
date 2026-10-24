@@ -245,6 +245,10 @@ export async function recall(path: string, view: string): Promise<string | null>
   // The ledgers (Cash, UPI / Bank Transfer / Cheque, a bank's, an expense category's) list what this PC has entered since the
   // last answer. A category made on this PC has no answer at all, so this runs before the "nothing kept" check below.
   if (LEDGER_PATH.test(path)) return adjustLedger(path, body);
+  // The packets of loans made on this PC exist only here until the loan is sent, so they are listed (and opened) even
+  // when no packet answer was ever kept; movements waiting to be sent are applied to the rest.
+  if (/\/packets\/-?\d+\/movements/.test(path)) return adjustMovements(path, body);
+  if (/\/packets(\/by-code\/[^/?]+|\/-?\d+)?(\?|$)/.test(path)) return adjustPackets(path, body);
   // The cash figures and the cash ledger are the server's last answer; what this PC has taken or paid out since
   // (entries still waiting to be sent) is added to them.
   if (body === null) return null;
@@ -256,10 +260,8 @@ export async function recall(path: string, view: string): Promise<string | null>
   // reminders added on this PC that have not been sent yet
   if (/\/reminders\/calendar(\?|$)/.test(path)) return adjustCalendar(path, body);
   if (/\/reminders(\?|$)/.test(path)) return adjustReminders(body);
-  // decisions on requests, and packet movements, made on this PC and not sent yet
+  // decisions on requests made on this PC and not sent yet
   if (/\/loans\/requests(\?|$)/.test(path)) return adjustRequests(path, body);
-  if (/\/packets\/\d+\/movements/.test(path)) return adjustMovements(path, body);
-  if (/\/packets(\/by-code\/[^/?]+|\/\d+)?(\?|$)/.test(path)) return adjustPackets(body);
   return body;
 }
 

@@ -6,7 +6,7 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { fmtW } from "@/common/utils/format";
 import { navigate } from "@/common/services/appRoutes";
-import { listPackets } from "@/modules/packets/services/packetService";
+import { listPackets, pendingLabel } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { LockerModalContent } from "@/modules/packets/components/LockerModalContent";
@@ -53,8 +53,8 @@ export function LockerDetailModalContent({ locker, canUpdate, onChanged }: Locke
               {packets !== null && packets.length === 0 && <tr><td colSpan={5} className="empty" style={{ color: "var(--muted)" }}>No packets in this locker.</td></tr>}
               {(packets || []).map((p) => (
                 <tr key={p.id} className="click" onClick={() => { closeModal(); navigate(`packet/${p.code}`); }}>
-                  <td data-label="Packet"><span className="id">{p.code}</span></td>
-                  <td data-label="Loan">{p.loanNumber}</td>
+                  <td data-label="Packet"><span className="id">{pendingLabel(p.code)}</span></td>
+                  <td data-label="Loan">{pendingLabel(p.loanNumber)}</td>
                   <td data-label="Customer">{p.customerName}</td>
                   <td className="num" data-label="Weight">{fmtW(p.totalWeight)}</td>
                   <td data-label="Status"><StatusChip status={p.status} /></td>

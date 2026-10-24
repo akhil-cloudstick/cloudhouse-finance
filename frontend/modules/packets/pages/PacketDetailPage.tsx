@@ -14,7 +14,7 @@ import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { getLoanByNumber, canAcceptBankPledge } from "@/modules/loans/services/loanService";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModalContent";
 import { ENTRIES_SENT_EVENT } from "@/common/offline/live";
-import { getPacketByCode, listMovements, recordMovement, PACKET_STAGES, PACKET_STATUS } from "@/modules/packets/services/packetService";
+import { getPacketByCode, listMovements, recordMovement, pendingLabel, PACKET_STAGES, PACKET_STATUS } from "@/modules/packets/services/packetService";
 import { type PacketView, type MovementView } from "@/modules/packets/types/packet-types";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
@@ -140,7 +140,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
     setBusy(true);
     try {
       await recordMovement(p.id, { toStatus, lockerId: extraLockerId, employeeId: ACTOR_EMPLOYEE_ID });
-      toast(`Packet ${p.code} moved to "${toStatus}"`);
+      toast(`Packet ${pendingLabel(p.code)} moved to "${toStatus}"`);
       setPickLocker(false);
       setLockerId("");
       await load();
@@ -173,7 +173,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
   return (
     <>
       <div className="page-h">
-        <div><h1>Packet {p.code}</h1><p>Loan {p.loanNumber} · {p.customerName}</p></div>
+        <div><h1>Packet {pendingLabel(p.code)}</h1><p>Loan {pendingLabel(p.loanNumber)} · {p.customerName}</p></div>
         <div className="sp" />
         <StatusChip status={displayStatus} />
       </div>
@@ -218,8 +218,8 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
             </table>
           </div>
           <div className="ft">
-            Sealed contents of packet {p.code}, taken from loan{" "}
-            {canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber} — ornament photos are on the loan page.
+            Sealed contents of packet {pendingLabel(p.code)}, taken from loan{" "}
+            {canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)}>{pendingLabel(p.loanNumber)}</a> : pendingLabel(p.loanNumber)} — ornament photos are on the loan page.
           </div>
         </div>
 

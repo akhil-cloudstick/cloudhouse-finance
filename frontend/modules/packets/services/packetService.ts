@@ -2,6 +2,7 @@ import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
 import { createsLocker, findLocalRequest, LOCKER_REF } from "@/common/offline/requestRef";
+import { loanUuidOfPacket } from "@/common/offline/statusAdjust";
 import { isSmallScreen } from "@/common/utils/responsive";
 import type { BackendPacket, BackendPacketMovement, PacketView, MovementView, PacketFilters, RecordMovementInput } from "@/modules/packets/types/packet-types";
 
@@ -30,6 +31,10 @@ export const PACKET_STAGES: string[] = [
   PACKET_STATUS.RETURNED,
   PACKET_STATUS.RELEASED,
 ];
+
+/* A packet or loan that only exists on this PC carries PENDING-xxxxxxxx (PKT-PENDING-xxxxxxxx) as its key; the
+ * screens print it as "Pending" until the server numbers it. The key itself stays in links. */
+export const pendingLabel = (v: string): string => (/PENDING-[0-9A-F]{8}$/.test(v) ? "Pending" : v);
 
 function toView(p: BackendPacket): PacketView {
   const ornaments = p.loan?.ornaments || [];
@@ -135,7 +140,10 @@ export async function listMovements(packetId: number): Promise<MovementView[]> {
 export async function recordMovement(packetId: number, input: RecordMovementInput): Promise<PacketView | null> {
   // Desktop: the movement goes into the outbox first and the packet shows its new stage at once (see
   // common/offline/statusAdjust.ts); the sender posts it. A packet with no server id yet cannot be moved.
-  if (offlineReady() && packetId > 0) {
+  // the packet of a loan made on this PC is addressed by the loan's entry until the server has made the packet
+  const loanUuid = offlineReady() && packetId < 0 ? loanUuidOfPacket(packetId) : undefined;
+  if (offlineReady() && packetId < 0 && !loanUuid) throw new Error("This packet is no longer on this PC — refresh and try again.");
+  if (offlineReady() && (packetId > 0 || loanUuid)) {
     let body: unknown = input;
     // a locker made on this PC has no server id yet: the movement names it by the entry that creates it, or by the
     // server's id when that entry has already been sent (see common/offline/requestRef.ts)
@@ -144,7 +152,8 @@ export async function recordMovement(packetId: number, input: RecordMovementInpu
       if (!found) throw new Error("This locker is no longer on this PC — refresh and pick it again.");
       body = { ...input, lockerId: "serverId" in found ? found.serverId : `${LOCKER_REF}${found.entryId}` };
     }
-    const entry = newEntry("POST", `/packets/${packetId}/movements`, body, currentActor(), [`packet:${packetId}`]);
+    const path = loanUuid ? `/packets/loan-ref:${loanUuid}/movements` : `/packets/${packetId}/movements`;
+    const entry = newEntry("POST", path, body, currentActor(), [loanUuid ?? `packet:${packetId}`]);
     await enqueueAndWait(entry, () => undefined, () => undefined);
     return getPacket(packetId).catch(() => null);
   }

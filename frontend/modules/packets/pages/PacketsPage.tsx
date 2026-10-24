@@ -13,7 +13,7 @@ import { listCustomersPage } from "@/modules/customers/services/customerService"
 import { useShowBranch, useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { listLockers } from "@/modules/lockers/services/lockerService";
 import { type LockerView } from "@/modules/lockers/types/locker-types";
-import { listPacketsPage, getPacketByCode } from "@/modules/packets/services/packetService";
+import { listPacketsPage, getPacketByCode, pendingLabel } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
@@ -262,8 +262,8 @@ export function PacketsPage() {
                   const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.loanStatus === "Closed" ? "Released" : p.status;
                   return (
                     <tr key={p.id} className="click" onClick={() => { navigate(`packet/${p.code}`); }}>
-                      <td data-label="Packet Code"><a href={routeHref(`packet/${p.code}`)} className="id" onClick={cellLink(`packet/${p.code}`)}>{p.code}</a></td>
-                      <td data-label="Loan">{canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)} onClick={cellLink(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber}</td>
+                      <td data-label="Packet Code"><a href={routeHref(`packet/${p.code}`)} className="id" onClick={cellLink(`packet/${p.code}`)}>{pendingLabel(p.code)}</a></td>
+                      <td data-label="Loan">{canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)} onClick={cellLink(`loan/${p.loanNumber}`)}>{pendingLabel(p.loanNumber)}</a> : pendingLabel(p.loanNumber)}</td>
                       <td data-label="Customer">{p.customerName}</td>
                       <td className="num" data-label="Items">{p.itemCount}</td>
                       <td className="num" data-label="Weight">{fmtW(p.totalWeight)}</td>

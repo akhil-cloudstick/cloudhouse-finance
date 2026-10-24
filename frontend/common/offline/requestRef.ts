@@ -37,6 +37,18 @@ export function createsLocker(entry: Pick<OutboxEntry, "method" | "path">): bool
   return entry.method === "POST" && entry.path === "/lockers";
 }
 
+/* A loan made on this PC: the server's id for it is kept the same way, so the packet the server makes for it can be found. */
+export function createsLoan(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+  return entry.method === "POST" && entry.path === "/loans";
+}
+
+/* The movement of a pending packet is addressed by the loan's creating entry: /packets/loan-ref:<entry id>/movements. */
+export const PACKET_REF = /^\/packets\/loan-ref:([0-9a-f-]+)\/movements$/i;
+
+export async function serverIdOf(entryId: string): Promise<number | undefined> {
+  return (await load())[entryId];
+}
+
 export function createsRequest(entry: Pick<OutboxEntry, "method" | "path">): boolean {
   return entry.method === "POST" && CREATES_REQUEST.test(entry.path);
 }

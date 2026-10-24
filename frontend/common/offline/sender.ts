@@ -17,7 +17,7 @@ import { forgetRegistration } from "./device";
 import { withUploadedPhotos } from "./photos";
 import { ensureRegistered } from "./register";
 import { rememberPledge, resolvePledgePath } from "./pledgeRef";
-import { createsLocker, createsPlan, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
+import { createsLoan, createsLocker, createsPlan, PACKET_REF, serverIdOf, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
 import type { EntityName, OutboxEntry } from "./types";
 
 let running = false;
@@ -89,6 +89,32 @@ export async function drain(why: string): Promise<boolean> {
         window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
         continue;
       }
+      // a movement on the packet of a loan made on this PC names the packet by the loan's entry: the server's packet is
+      // looked up from the loan it made (the packet does not exist on the server until the loan does)
+      let sendPath = path;
+      const packetRef = PACKET_REF.exec(path);
+      if (packetRef) {
+        const loanId = await serverIdOf(packetRef[1]);
+        let packetId = 0;
+        if (loanId) {
+          try {
+            const { apiFetchEnveloped } = await import("@/common/services/httpClient");
+            const found = await apiFetchEnveloped<{ id: number }[] | { items?: { id: number }[] }>(`/packets?loanId=${loanId}`);
+            packetId = (Array.isArray(found) ? found : found?.items ?? [])[0]?.id ?? 0;
+          } catch {
+            stopped = true; // no answer: try again with the next send
+            break;
+          }
+        }
+        if (!packetId) {
+          const message = "The packet this refers to was not saved by the server.";
+          offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${message}`);
+          await sendToReview(entry, message);
+          window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
+          continue;
+        }
+        sendPath = `/packets/${packetId}/movements`;
+      }
       // an investment made with a plan made on this PC names it by the entry that created the plan
       const resolvedBody = await resolvePlanRefs(body);
       if (resolvedBody === null && body !== null) {
@@ -100,7 +126,7 @@ export async function drain(why: string): Promise<boolean> {
       }
       const r = await replayRequest({
         method: entry.method,
-        path,
+        path: sendPath,
         body: resolvedBody,
         clientUuid: entry.id,
         occurredAt: entry.occurredAt,
@@ -131,7 +157,7 @@ export async function drain(why: string): Promise<boolean> {
         break;
       }
       if (entry.method === "POST" && /\/bank-pledge$/.test(entry.path)) await rememberPledge(entry.id, r.body);
-      if (createsRequest(entry) || createsPlan(entry) || createsLocker(entry)) await rememberRequest(entry.id, r.body);
+      if (createsRequest(entry) || createsPlan(entry) || createsLocker(entry) || createsLoan(entry)) await rememberRequest(entry.id, r.body);
       await applyReply(entry, r.body);
       await offlineStore.deleteOutboxEntry(entry.id);
       sent++;
