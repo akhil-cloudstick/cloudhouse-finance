@@ -161,7 +161,7 @@ export function RequestsPage() {
                 <tr><td colSpan={8} className="empty">No extension or release requests yet.</td></tr>
               ) : reqs.map((r) => (
                 <tr key={r.id}>
-                  <td data-label="Request"><span className="id">#{r.id}</span></td>
+                  <td data-label="Request"><span className="id">{r.id > 0 ? `#${r.id}` : "New"}</span></td>
                   <td data-label="Type">
                     <span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type}</span>
                     {/* Only meaningful for Release — flags at a glance which

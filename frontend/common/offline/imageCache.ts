@@ -8,6 +8,7 @@
  *  - warmImages keeps the pictures the local copy points at ahead of time, the same as the warm-up does for lists. */
 
 import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
+import { isPlaceholder, localPhotoSrc } from "./photos";
 import { hashOf } from "./readCache";
 
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -42,6 +43,8 @@ export async function rememberImage(url: string, blob: Blob): Promise<void> {
 /* The kept copy as a data: address, or null. */
 export async function recallImage(url: string): Promise<string | null> {
   if (!isDesktop()) return null;
+  // a photo picked on this PC that has not been sent yet: the file waiting in the outbox's photo folder
+  if (isPlaceholder(url)) return localPhotoSrc(url);
   try {
     const text = await offlineStore.readFile(fileOf(url));
     if (!text) return null;

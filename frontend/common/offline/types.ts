@@ -16,6 +16,9 @@ export type OutboxEntry = {
   deviceId: string;
   /** UUIDs of the records this entry touches, so a pull never overwrites a record that still has a waiting entry. */
   targets?: string[];
+  /** For a decision on a loan request: what the request looks like once this entry is applied (never sent to the server).
+   *  The request lists show it while the entry waits, so a closed request does not come back as open. */
+  view?: Record<string, unknown>;
 };
 
 /** "schemes" holds only schemes made on this PC that the server has not accepted yet. */

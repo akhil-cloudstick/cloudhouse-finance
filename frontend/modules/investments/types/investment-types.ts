@@ -125,7 +125,8 @@ export type BackendInvestmentPayout = {
 };
 export type CreateInvestmentInput = {
   branchId: number;
-  customerId: number;
+  // "uuid:<uuid>" for an investor this PC registered that the server has not numbered yet
+  customerId: number | string;
   planId: number;
   principalAmount: number;
   startDate?: string; // RFC3339, optional — defaults to now on the backend

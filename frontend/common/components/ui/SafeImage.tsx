@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { fetchUploadFile } from "@/common/services/uploadService";
+import { PLACEHOLDER, localPhotoSrc } from "@/common/offline/photos";
 
 type SafeImageProps = {
   src?: string; alt?: string; style?: CSSProperties; title?: string; onClick?: () => void;
@@ -21,10 +22,15 @@ export function SafeImage({ src, alt = "", style, title, onClick }: SafeImagePro
     setShown("");
     setFailed(!src);
     if (!src) return;
-    // data:/blob:/external URLs need no session — use them as they are.
-    if (!src.startsWith("/uploads/")) { setShown(src); return; }
     let objectUrl = "";
     let cancelled = false;
+    // a photo picked while the server was down and not sent yet is only a placeholder; its file is on this PC
+    if (src.startsWith(PLACEHOLDER)) {
+      localPhotoSrc(src).then((d) => { if (!cancelled) { if (d) setShown(d); else setFailed(true); } });
+      return () => { cancelled = true; };
+    }
+    // data:/blob:/external URLs need no session — use them as they are.
+    if (!src.startsWith("/uploads/")) { setShown(src); return; }
     fetchUploadFile(src)
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
       .then((b) => { if (!cancelled) { objectUrl = URL.createObjectURL(b); setShown(objectUrl); } })

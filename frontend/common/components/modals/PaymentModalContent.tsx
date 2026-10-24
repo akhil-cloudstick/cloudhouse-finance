@@ -10,7 +10,7 @@ import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/compo
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { fmt, fmtDate as fmtDisplayDate } from "@/common/utils/format";
 import { recordPayment, recordReleasePayment, getLoan } from "@/modules/loans/services/loanService";
-import { type LoanView } from "@/modules/loans/types/loan-types";
+import { type LoanView, type RequestView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
@@ -126,12 +126,13 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   discount: /discount/i, fee: /processing fee|additional charge/i, interest: /interest cannot|interest override/i, date: /date/i, split: /bank|breakdown|split|cheque|upi|cash/i, amount: /amount|exceed|outstanding/i,
 };
 
-type PaymentModalContentProps = { loan: LoanView; onSaved: () => void; releaseRequestId?: number; initialMode?: string };
+// releaseRequest is the request itself, so a payment taken while the server is down can be checked against it
+type PaymentModalContentProps = { loan: LoanView; onSaved: () => void; releaseRequestId?: number; releaseRequest?: RequestView; initialMode?: string };
 
 // Record Payment never posts straight away: it first pops a confirmation
 // summary (amount, where it lands, how it was paid) on top of the form, and
 // only that popup's Confirm Payment actually records it.
-export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId, initialMode }: PaymentModalContentProps) {
+export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId, releaseRequest, initialMode }: PaymentModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
@@ -356,7 +357,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
           chequeAmount: scaledSplit.chequeAmount,
           bankId,
           interestOverride: effectiveInterestOverride,
-        });
+        }, releaseRequest);
       } else {
         await recordPayment(loan.numericId, {
           amount, type: mode, processingFee: processingFee || undefined, paidOn: date,

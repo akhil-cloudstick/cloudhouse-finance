@@ -108,7 +108,13 @@ function localCustomers(): BackendCustomer[] {
   const picked = getSelectedBranchId();
   return (listLocal("customers") as unknown as BackendCustomer[])
     .filter((c) => !picked || c.branchId === picked)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    // the same order the server lists them in (oldest first, by id); a customer the server has not numbered yet follows, in the
+    // order it was registered
+    .sort((a, b) => {
+      const ai = a.id > 0 ? a.id : Number.MAX_SAFE_INTEGER;
+      const bi = b.id > 0 ? b.id : Number.MAX_SAFE_INTEGER;
+      return ai - bi || (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+    });
 }
 
 function matchesCustomer(c: BackendCustomer, q: string): boolean {
@@ -193,8 +199,18 @@ export async function searchCustomersPage(q: string, page: number): Promise<{ it
  * (modules/investments/components/NewInvestmentModalContent.tsx). */
 export async function searchInvestorsPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE), customerType: "Investor" });
-  const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
+      return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+    },
+    () => {
+      // the investors on this PC, including one registered here that the server has not numbered yet
+      const all = localCustomers().filter((c) => c.customerType === "Investor" && matchesCustomer(c, q));
+      const from = page * CUSTOMER_PAGE_SIZE;
+      return { items: all.slice(from, from + CUSTOMER_PAGE_SIZE).map(toView), hasMore: from + CUSTOMER_PAGE_SIZE < all.length };
+    },
+  );
 }
 
 export async function getCustomer(id: string): Promise<CustomerView> {

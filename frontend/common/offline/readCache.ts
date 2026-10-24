@@ -9,6 +9,9 @@
 
 import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
 import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjust";
+import { adjustLatestRate, adjustRateHistory } from "./goldRateAdjust";
+import { adjustPersonalLoans } from "./personalLoanAdjust";
+import { adjustInvestmentPlans, adjustInvestments } from "./investmentAdjust";
 import { adjustCalendar, adjustReminders } from "./reminderAdjust";
 import { adjustMovements, adjustPackets, adjustRequests } from "./statusAdjust";
 import { employeeId, offlineBusiness } from "./session";
@@ -230,6 +233,14 @@ function reshape(cachedBody: string, path: string): string {
 
 export async function recall(path: string, view: string): Promise<string | null> {
   const body = await recallCopy(path, view);
+  // A rate published on this PC and not sent yet is the latest rate, even when no rate was ever kept from the server.
+  if (/\/gold-rates\/latest(\?|$)/.test(path)) return adjustLatestRate(body);
+  if (/\/gold-rates(\?|$)/.test(path)) return adjustRateHistory(path, body);
+  // investment plans and investments made on this PC and not sent yet are listed too
+  if (/\/investment-plans(\?|$)/.test(path)) return adjustInvestmentPlans(path, body);
+  if (/\/users\/\d+\/investments(\?|$)/.test(path)) return adjustInvestments(path, body);
+  // personal loans made on this PC and not sent yet are listed as pending ones
+  if (/\/personal-loans(\?|$)/.test(path)) return adjustPersonalLoans(path, body);
   // The cash figures and the cash ledger are the server's last answer; what this PC has taken or paid out since
   // (entries still waiting to be sent) is added to them.
   if (body === null) return null;

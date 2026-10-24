@@ -1,4 +1,7 @@
-import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError, quietly } from "@/common/services/httpClient";
+import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
+import { localRequestId } from "@/common/offline/requestRef";
 import { branchHeader } from "@/common/services/branchSelection";
 import { printPdfJob } from "@/common/utils/print";
 import type { CreatePersonalLoanInput, BackendPersonalLoan, BackendPersonalLoanInstallment, BackendPersonalLoanPayment, PersonalLoanApprovalInput, PersonalLoanApprovalRecord, BackendPersonalLoanHistory, RenewInput, RenewalPreview, RenewResult, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
@@ -6,8 +9,64 @@ import type { CreatePersonalLoanInput, BackendPersonalLoan, BackendPersonalLoanI
 /* With the personal_loan approval flow switched on the loan comes back
  * "Pending Approval" (with approvalStage set) — no schedule or disbursement
  * until the final stage approves it (approvePersonalLoan below). */
-export function createPersonalLoan(input: CreatePersonalLoanInput): Promise<BackendPersonalLoan> {
-  return apiFetch<BackendPersonalLoan>("/personal-loans", { method: "POST", body: JSON.stringify(input) });
+/* What the form already knows that the server would otherwise work out, so the loan can be listed before it is sent. */
+export type CreatePersonalLoanHint = { customerName: string; customerCode: string; needsApproval: boolean };
+
+/* Desktop: a loan for a customer this PC registered (not numbered by the server yet) goes straight into the outbox, and so
+ * does one made while the server does not answer; it is listed at once as PENDING (see common/offline/personalLoanAdjust.ts)
+ * and sent when the connection is there, the customer first, as the entry points at the customer by its uuid. Otherwise the
+ * loan is created on the server exactly as before, so its real number comes back. */
+export async function createPersonalLoan(input: CreatePersonalLoanInput, hint?: CreatePersonalLoanHint): Promise<BackendPersonalLoan> {
+  if (offlineReady() && hint && typeof input.customerId === "string") return queuePersonalLoan(input, hint);
+  try {
+    // quiet: with no answer the loan is queued below, so no "couldn't reach" pop-up is wanted
+    return await quietly(() => apiFetch<BackendPersonalLoan>("/personal-loans", { method: "POST", body: JSON.stringify(input) }));
+  } catch (e) {
+    if (offlineReady() && hint && e instanceof ApiError && e.status === 0) return queuePersonalLoan(input, hint);
+    throw e;
+  }
+}
+
+async function queuePersonalLoan(input: CreatePersonalLoanInput, hint: CreatePersonalLoanHint): Promise<BackendPersonalLoan> {
+  // no targets: the sender copies a reply's id onto the record a target names, and the reply here is a personal loan, not the customer
+  const entry = newEntry("POST", "/personal-loans", input, currentActor());
+  const status = hint.needsApproval ? "Pending Approval" : "Active";
+  entry.view = { customerName: hint.customerName, customerCode: hint.customerCode, status };
+  await enqueueAndWait(entry, () => undefined, () => undefined);
+  const interest = Math.round((input.interestType === "Percentage" ? (input.principalAmount * input.interestValue) / 100 : input.interestValue) * 100) / 100;
+  const obligation = input.fullDisbursement ? Math.round((input.principalAmount + interest) * 100) / 100 : input.principalAmount;
+  return {
+    id: localRequestId(entry.id),
+    loanNumber: "Pending",
+    branchId: input.branchId,
+    customerId: 0,
+    customer: { id: 0, name: hint.customerName, code: hint.customerCode, phone: "" },
+    principalAmount: input.principalAmount,
+    interestType: input.interestType,
+    interestValue: input.interestValue,
+    interestAmount: interest,
+    disbursedAmount: input.fullDisbursement ? input.principalAmount : Math.round((input.principalAmount - interest) * 100) / 100,
+    fullDisbursement: !!input.fullDisbursement,
+    frequency: input.frequency,
+    tenureCount: input.tenureCount,
+    installmentAmount: input.tenureCount > 0 ? Math.round((obligation / input.tenureCount) * 100) / 100 : 0,
+    outstandingAmount: obligation,
+    totalPaid: 0,
+    status,
+    approvalStage: "",
+    openedDate: entry.occurredAt.slice(0, 10),
+    disbursedAt: entry.occurredAt,
+    closedAt: null,
+    renewedFromLoanId: null,
+    renewedToLoanId: null,
+    penalInterestRate: input.penalInterestRate ?? 0,
+    penalFlatAmount: 0,
+    gracePeriodDays: input.gracePeriodDays ?? 0,
+    penalCycleCount: 0,
+    totalPenalInterestCharged: 0,
+    lastPenalAppliedAt: null,
+    createdAt: entry.occurredAt,
+  } as BackendPersonalLoan;
 }
 
 export function approvePersonalLoan(id: number, input: PersonalLoanApprovalInput): Promise<BackendPersonalLoan> {

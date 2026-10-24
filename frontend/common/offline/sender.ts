@@ -17,6 +17,7 @@ import { forgetRegistration } from "./device";
 import { withUploadedPhotos } from "./photos";
 import { ensureRegistered } from "./register";
 import { rememberPledge, resolvePledgePath } from "./pledgeRef";
+import { createsPlan, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
 import type { EntityName, OutboxEntry } from "./types";
 
 let running = false;
@@ -75,9 +76,20 @@ export async function drain(why: string): Promise<boolean> {
         break;
       }
       // a release or void of a pledge made on this PC addresses it by the entry that created it
-      const path = await resolvePledgePath(entry.path);
+      // and so does a decision on a request made on this PC (see requestRef.ts)
+      const pledgePath = await resolvePledgePath(entry.path);
+      const path = pledgePath === null ? null : await resolveRequestPath(pledgePath);
       if (path === null) {
-        const message = "The re-pledge this refers to was not saved by the server.";
+        const message = pledgePath === null ? "The re-pledge this refers to was not saved by the server." : "The request this refers to was not saved by the server.";
+        offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${message}`);
+        await sendToReview(entry, message);
+        window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
+        continue;
+      }
+      // an investment made with a plan made on this PC names it by the entry that created the plan
+      const resolvedBody = await resolvePlanRefs(body);
+      if (resolvedBody === null && body !== null) {
+        const message = "The plan this refers to was not saved by the server.";
         offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${message}`);
         await sendToReview(entry, message);
         window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
@@ -86,7 +98,7 @@ export async function drain(why: string): Promise<boolean> {
       const r = await replayRequest({
         method: entry.method,
         path,
-        body,
+        body: resolvedBody,
         clientUuid: entry.id,
         occurredAt: entry.occurredAt,
       });
@@ -116,6 +128,7 @@ export async function drain(why: string): Promise<boolean> {
         break;
       }
       if (entry.method === "POST" && /\/bank-pledge$/.test(entry.path)) await rememberPledge(entry.id, r.body);
+      if (createsRequest(entry) || createsPlan(entry)) await rememberRequest(entry.id, r.body);
       await applyReply(entry, r.body);
       await offlineStore.deleteOutboxEntry(entry.id);
       sent++;

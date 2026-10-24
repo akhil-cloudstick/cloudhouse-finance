@@ -14,6 +14,8 @@ import type { OutboxEntry } from "./types";
 
 const MOVES_MONEY = /^\/loans\/uuid:([0-9a-f-]+)\/(approve|payments|topup|bank-pledge\/(\d+|ref:[0-9a-f-]+)\/release)$/i;
 const CASH_ENTRY = /^\/(cash-movements|expenses)$/;
+const RELEASE_PAYMENT = /^\/loans\/requests\/\d+\/release-payment$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -59,7 +61,45 @@ async function pendingMoney(branch: number): Promise<Pending[]> {
       found.push({ entry, out: isExpense || cb.type === "out", parts: cparts, loanNumber: label, branchId: cb.branchId ?? null, customerId: null, label });
       continue;
     }
-    const m = MOVES_MONEY.exec(entry.path);
+    // a personal loan made on this PC pays the customer out at once, unless it waits for approval first
+    if (entry.method === "POST" && entry.path === "/personal-loans") {
+      const pb = (entry.body ?? {}) as { branchId?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number };
+      const view = (entry.view ?? {}) as { status?: string; customerName?: string };
+      if (view.status === "Pending Approval" || (branch && pb.branchId && Number(pb.branchId) !== branch)) continue;
+      const pparts: Part[] = [
+        { mode: "Cash", amount: Number(pb.cashAmount) || 0 },
+        { mode: "UPI", amount: Number(pb.upiAmount) || 0, bankId: pb.bankId },
+        { mode: "Bank Transfer", amount: Number(pb.bankTransferAmount) || 0, bankId: pb.bankId },
+        { mode: "Cheque", amount: Number(pb.chequeAmount) || 0, bankId: pb.bankId },
+      ].filter((p) => p.amount > 0);
+      if (!pparts.length) continue;
+      const number = "Pending";
+      found.push({ entry, out: true, parts: pparts, loanNumber: number, branchId: pb.branchId ?? null, customerId: null, label: `Personal loan disbursement — ${number}` });
+      continue;
+    }
+    // an investment made on this PC takes the investor's deposit in at once
+    if (entry.method === "POST" && entry.path === "/investments") {
+      const ib = (entry.body ?? {}) as { branchId?: number; principalAmount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number };
+      if (branch && ib.branchId && Number(ib.branchId) !== branch) continue;
+      let iparts: Part[] = [
+        { mode: "Cash", amount: Number(ib.cashAmount) || 0 },
+        { mode: "UPI", amount: Number(ib.upiAmount) || 0, bankId: ib.bankId },
+        { mode: "Bank Transfer", amount: Number(ib.bankTransferAmount) || 0, bankId: ib.bankId },
+        { mode: "Cheque", amount: Number(ib.chequeAmount) || 0, bankId: ib.bankId },
+      ].filter((p) => p.amount > 0);
+      // no breakdown given means all cash, as the server reads it
+      if (!iparts.length && Number(ib.principalAmount) > 0) iparts = [{ mode: "Cash", amount: Number(ib.principalAmount) }];
+      if (!iparts.length) continue;
+      const inumber = "Pending";
+      found.push({ entry, out: false, parts: iparts, loanNumber: inumber, branchId: ib.branchId ?? null, customerId: null, label: `Investment deposit — ${inumber}` });
+      continue;
+    }
+    let m = MOVES_MONEY.exec(entry.path);
+    // a payment taken on a release request: it addresses the request, the loan is the other target of the entry
+    if (!m && entry.method === "POST" && RELEASE_PAYMENT.test(entry.path)) {
+      const loanUuid = entry.targets?.find((t) => UUID.test(t));
+      if (loanUuid) m = [entry.path, loanUuid, "payments"] as unknown as RegExpExecArray;
+    }
     if (!m) continue;
     const b = (entry.body ?? {}) as Record<string, unknown>;
     const bankId = Number(b.bankId) || undefined;
@@ -74,13 +114,15 @@ async function pendingMoney(branch: number): Promise<Pending[]> {
     if (out && b.action === "Rejected") continue;
     const loan = getLocal("loans", m[1]) as { branchId?: number; customerId?: number; loanNumber?: string } | undefined;
     if (branch && loan && Number(loan.branchId) !== branch) continue;
+    const loanNumber = loan?.loanNumber || `PENDING-${m[1].replace(/-/g, "").slice(-8).toUpperCase()}`;
     found.push({
       entry,
       out,
       parts,
-      loanNumber: loan?.loanNumber || `PENDING-${m[1].replace(/-/g, "").slice(-8).toUpperCase()}`,
+      loanNumber,
       branchId: loan?.branchId ?? null,
       customerId: loan?.customerId || null,
+      label: m[2].toLowerCase() === "topup" ? `Loan top-up — ${loanNumber}` : undefined,
     });
   }
   return found.reverse();
@@ -200,12 +242,18 @@ function movementRows(pending: Pending[]): Row[] {
  * view is shown as it was. */
 export async function adjustCashMovements(path: string, body: string): Promise<string> {
   const qs = queryOf(path);
-  for (const filter of ["types", "modes", "category", "customer_ids", "customerIds", "branch_ids", "branchIds", "from_date", "fromDate", "to_date", "toDate", "search"]) {
+  // filters on what a waiting row has: its type, mode and date are applied to the waiting rows themselves
+  for (const filter of ["category", "customer_ids", "customerIds", "branch_ids", "branchIds", "search"]) {
     if (qs.get(filter)) return body;
   }
   const page = Number(qs.get("page") ?? "1") || 1;
-  if (page > 1) return body;
+  if (page > 1 || (Number(qs.get("offset") ?? "0") || 0) > 0) return body;
   const branch = Number(qs.get("branch_id") ?? qs.get("branchId") ?? "0") || 0;
+  const csv = (...keys: string[]) => (keys.map((k) => qs.get(k)).find((v) => v) ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const types = csv("types");
+  const modes = csv("modes");
+  const from = qs.get("from_date") ?? qs.get("fromDate") ?? "";
+  const to = qs.get("to_date") ?? qs.get("toDate") ?? "";
 
   let env: { data?: unknown };
   try {
@@ -213,7 +261,12 @@ export async function adjustCashMovements(path: string, body: string): Promise<s
   } catch {
     return body;
   }
-  const rows = movementRows(await pendingMoney(branch));
+  const rows = movementRows(await pendingMoney(branch)).filter((r) => {
+    const day = String(r.occurredOn ?? "").slice(0, 10);
+    return (!types.length || types.includes(String(r.type).toLowerCase())) &&
+      (!modes.length || modes.includes(String(r.mode).toLowerCase())) &&
+      (!from || day >= from) && (!to || day <= to);
+  });
   if (!rows.length) return body;
 
   const data = env.data;

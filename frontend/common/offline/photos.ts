@@ -43,6 +43,20 @@ export function isPlaceholder(v: unknown): v is string {
   return typeof v === "string" && v.startsWith(PLACEHOLDER);
 }
 
+/* A photo that is still waiting to be sent, as a data: address a picture tag can show; null when it is not on this PC.
+ * Until its entry has been sent the placeholder is all a saved loan or customer carries, and it is no web address. */
+export async function localPhotoSrc(placeholder: string): Promise<string | null> {
+  if (!isPlaceholder(placeholder)) return null;
+  try {
+    const text = await offlineStore.readFile(fileOfId(placeholder.slice(PLACEHOLDER.length)));
+    if (!text) return null;
+    const stored = JSON.parse(text) as StoredPhoto;
+    return stored.data ? `data:${stored.type || "image/jpeg"};base64,${stored.data}` : null;
+  } catch {
+    return null;
+  }
+}
+
 /* Every placeholder inside a request body, however deep. */
 export function placeholdersIn(value: unknown, found: Set<string> = new Set()): Set<string> {
   if (isPlaceholder(value)) found.add(value);

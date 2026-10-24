@@ -1,5 +1,5 @@
 import { ApiError, apiUploadEnveloped, fetchWithSession } from "@/common/services/httpClient";
-import { keepPhoto } from "@/common/offline/photos";
+import { isPlaceholder, keepPhoto, localPhotoSrc } from "@/common/offline/photos";
 import { offlineReady } from "@/common/offline/state";
 import { recallImage, rememberImage } from "@/common/offline/imageCache";
 
@@ -7,6 +7,11 @@ import { recallImage, rememberImage } from "@/common/offline/imageCache";
  * relies on a cookie shared across browser tabs, which another business's login in a
  * second tab silently replaces — so the file is fetched with this tab's own session. */
 export async function fetchUploadFile(url: string): Promise<Response> {
+  // a photo picked while the server was down and not sent yet: its file is on this PC
+  if (isPlaceholder(url)) {
+    const local = await localPhotoSrc(url);
+    return local ? fetch(local) : new Response(null, { status: 404 });
+  }
   try {
     const res = await fetchWithSession(url);
     // a picture that loads is kept on this PC, so it can be shown when the server does not answer

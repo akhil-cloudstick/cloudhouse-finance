@@ -148,6 +148,8 @@ export type BackendLoan = {
   id: number;
   // The id the PC gave the loan, known before the server numbers it (see loanOffline.ts).
   uuid?: string;
+  // Top-ups taken on this PC that the server has not received yet, so the offline ledger can list them (loanService.topUpLoan).
+  localTopUps?: LoanTopUpView[];
   loanNumber: string;
   branchId: number;
   branch?: NestedBranch;
@@ -193,6 +195,9 @@ export type BackendLoan = {
   disbursedAmount?: number;
   serviceChargeMode?: string;
   serviceChargeAmount?: number;
+  // The scheme's charge terms the loan carries (None / Flat / Percent), needed to re-price an edited loan.
+  serviceChargeType?: string;
+  serviceChargeValue?: number;
   disbursementDate?: string | null;
   bankPledgeStatus: string;
   isDueSoon: boolean;

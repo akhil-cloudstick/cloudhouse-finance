@@ -280,7 +280,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         <button
           className="btn ghost sm"
           disabled={req.status !== "Pending" || !canDecide || !loan}
-          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
+          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} releaseRequest={req} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
         >
           <Icon name="coin" /> Record Payment
         </button>

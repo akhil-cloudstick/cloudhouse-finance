@@ -128,6 +128,8 @@ export function buildOptimisticLoan(uuid: string, input: CreateLoanInput, hint: 
     approvalStage: hint.firstStage,
     serviceChargeMode: mode,
     serviceChargeAmount: charge,
+    serviceChargeType: hint.scheme.serviceChargeType ?? "None",
+    serviceChargeValue: hint.scheme.serviceChargeValue ?? 0,
     bankPledgeStatus: "Not Pledged",
     isDueSoon: false,
     isOverdue: false,
@@ -183,15 +185,35 @@ export function applyActionLocally(
   return next;
 }
 
+/* The terms of the scheme an edit moves a loan to, as the server freezes them onto the loan (applySchemeSnapshot). */
+export type EditSchemeTerms = {
+  name: string;
+  rate: number;
+  ltv: number;
+  method: string;
+  penal: number;
+  serviceChargeType?: string;
+  serviceChargeValue?: number;
+  serviceChargeMode?: string;
+};
+
+/* What the server charges for a scheme's service charge on a principal (computeServiceChargeAmount). */
+function chargeFor(type: string | undefined, value: number, principal: number): number {
+  return type === "Flat" ? value : type === "Percent" ? (principal * value) / 100 : 0;
+}
+
 /* A loan edited on this PC, applied the way the server applies it (Loan updateLoan): a changed scheme or principal sends
  * the loan back to the first sanction stage as Pending Approval, undoes an earlier disbursement and records an "Edited"
  * approval row, so the approval flow shows at once and the ledger follows the new amount once it is approved again. The
- * same refusals the server gives are raised here, before anything is queued. */
+ * same refusals the server gives are raised here, before anything is queued. A new scheme brings its own terms (LTV,
+ * rates, service charge), and the eligible amount and the service charge are re-worked from them and from the principal,
+ * so the loan shows the figures the server will arrive at rather than the old scheme's. */
 export function applyEditLocally(
   rec: BackendLoan,
   input: { schemeId?: number | string; principalAmount?: number; overallPhotoUrl?: string },
   firstStage: string,
   actor: Actor,
+  scheme?: EditSchemeTerms,
 ): BackendLoan {
   if (["Closed", "Rejected", "Auctioned", "Auctioned (Balance Due)"].includes(rec.status)) {
     throw new ApiError("loan is closed — nothing to extend", 400);
@@ -203,22 +225,49 @@ export function applyEditLocally(
   const material = newScheme !== undefined || principalChanged;
   const now = new Date().toISOString();
   const next = { ...rec, updatedAt: now } as BackendLoan;
-  if (newScheme !== undefined) next.schemeId = newScheme;
+  if (newScheme !== undefined) {
+    next.schemeId = newScheme;
+    if (scheme) {
+      next.schemeLtvPercent = scheme.ltv;
+      next.schemeInterestRate = scheme.rate;
+      next.schemeInterestMethod = scheme.method;
+      next.schemePenalRate = scheme.penal;
+      next.serviceChargeType = scheme.serviceChargeType ?? "None";
+      next.serviceChargeValue = scheme.serviceChargeValue ?? 0;
+      if (scheme.serviceChargeMode) next.serviceChargeMode = scheme.serviceChargeMode;
+      next.scheme = { ...(rec.scheme ?? {}), id: newScheme, name: scheme.name, interestRate: scheme.rate, ltvPercent: scheme.ltv, interestMethod: scheme.method, penalRate: scheme.penal } as BackendLoan["scheme"];
+      // the gold is the same, the share of it the new scheme lends against is not
+      next.eligibleLoanAmount = round2(((rec.totalGoldValue ?? 0) * scheme.ltv) / 100);
+    }
+  }
   if (input.overallPhotoUrl !== undefined) next.overallPhotoUrl = input.overallPhotoUrl.trim();
   if (newPrincipal !== undefined) {
     const delta = newPrincipal - rec.principalAmount;
-    // a service charge that is added to the principal is not part of what the gold can back
-    const charge = rec.serviceChargeAmount ?? 0;
-    const share = rec.serviceChargeMode === "AddedToPrincipal" && rec.principalAmount > 0 ? charge / rec.principalAmount : 0;
-    const capped = newPrincipal * (1 - share);
-    if (round2(capped) > round2(rec.eligibleLoanAmount ?? 0)) {
-      throw new ApiError(`principal amount ₹${round2(capped).toFixed(2)} cannot exceed the eligible loan amount ₹${round2(rec.eligibleLoanAmount ?? 0).toFixed(2)} (based on scheme LTV)`, 400);
-    }
     next.principalAmount = newPrincipal;
     next.outstandingAmount = round2(Math.max(0, (rec.outstandingAmount ?? 0) + delta));
     next.totalOutstandingBalance = round2(Math.max(0, (rec.totalOutstandingBalance ?? 0) + delta));
     next.settlementAmount = round2(Math.max(0, (rec.settlementAmount ?? 0) + delta));
-    if (rec.serviceChargeAmount && rec.principalAmount > 0) next.serviceChargeAmount = round2((rec.serviceChargeAmount * newPrincipal) / rec.principalAmount);
+  }
+  const principal = next.principalAmount;
+  const type = next.serviceChargeType;
+  const value = next.serviceChargeValue ?? 0;
+  if (newScheme !== undefined || newPrincipal !== undefined) {
+    if (type !== undefined) next.serviceChargeAmount = round2(chargeFor(type, value, principal));
+    else if (rec.serviceChargeAmount && rec.principalAmount > 0) next.serviceChargeAmount = round2((rec.serviceChargeAmount * principal) / rec.principalAmount);
+  }
+  // a service charge that is added to the principal is not part of what the gold can back; the server checks this after every
+  // edit that touches the scheme or the principal, against the eligible amount under the (possibly new) scheme
+  let capped = principal;
+  if (next.serviceChargeMode === "AddedToPrincipal") {
+    if (type !== undefined && value > 0) {
+      capped = type === "Flat" ? principal - value : type === "Percent" ? principal / (1 + value / 100) : principal;
+    } else if (type === undefined && rec.serviceChargeAmount && rec.principalAmount > 0) {
+      capped = principal * (1 - rec.serviceChargeAmount / rec.principalAmount);
+    }
+  }
+  const eligible = next.eligibleLoanAmount ?? 0;
+  if ((newScheme !== undefined || newPrincipal !== undefined) && round2(capped) > round2(eligible)) {
+    throw new ApiError(`principal amount ₹${round2(capped).toFixed(2)} cannot exceed the eligible loan amount ₹${round2(eligible).toFixed(2)} (based on scheme LTV)`, 400);
   }
   if (material) {
     const wasDisbursed = !!rec.disbursementDate;
@@ -385,8 +434,16 @@ export function filterLocalLoans(list: BackendLoan[], f?: LoanFilters): BackendL
   });
 }
 
+/* The server's own order: opened date, newest first, then id, newest first. A loan the server has not numbered yet (id 0) is the
+ * newest of its day, so it comes first there; loans made the same moment keep the order they were saved in. */
 export function sortNewestFirst(list: BackendLoan[]): BackendLoan[] {
-  return [...list].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  const rank = (l: BackendLoan) => (l.id > 0 ? l.id : Number.MAX_SAFE_INTEGER);
+  return [...list].sort(
+    (a, b) =>
+      (b.openedDate ?? "").slice(0, 10).localeCompare((a.openedDate ?? "").slice(0, 10)) ||
+      rank(b) - rank(a) ||
+      (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
+  );
 }
 
 export { currentActor, getLocal, offlineReady };

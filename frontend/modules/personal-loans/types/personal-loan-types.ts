@@ -8,7 +8,8 @@ export type PersonalLoanStatus = "Active" | "Pending" | "Closed" | "Renewed" | "
 /* Mirrors backend/internal/personalloan/handler.go's createRequest exactly. */
 export type CreatePersonalLoanInput = {
   branchId: number;
-  customerId: number;
+  // "uuid:<uuid>" for a customer this PC registered that the server has not numbered yet
+  customerId: number | string;
   principalAmount: number;
   interestType: InterestType;
   interestValue: number;

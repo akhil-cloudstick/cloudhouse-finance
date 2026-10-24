@@ -1,4 +1,6 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, ApiError, quietly } from "@/common/services/httpClient";
+import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
 import { rateForKarat } from "@/common/utils/purity";
 import type { BackendGoldRate, GoldRateView, GoldRatePublishInput } from "@/modules/gold-rates/types/gold-rate-types";
 
@@ -43,18 +45,51 @@ export async function getLatestGoldRate(): Promise<GoldRateView | null> {
 }
 
 export async function publishGoldRate(input: GoldRatePublishInput): Promise<GoldRateView> {
-  const rec = await apiFetch<BackendGoldRate>("/gold-rates", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return toView(rec);
+  try {
+    // quiet: when the server does not answer the rate is queued below, so no "couldn't reach" pop-up is wanted
+    const rec = await quietly(() =>
+      apiFetch<BackendGoldRate>("/gold-rates", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    );
+    return toView(rec);
+  } catch (e) {
+    const queued = await queueIfUnreachable(e, { [input.karat]: input.rate }, input.setBy);
+    if (queued) return queued;
+    throw e;
+  }
 }
 
 /* Publishes every changed karat as ONE history row (keys 24/22/18). */
 export async function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string): Promise<GoldRateView> {
-  const rec = await apiFetch<BackendGoldRate>("/gold-rates", {
-    method: "POST",
-    body: JSON.stringify({ rates, setBy }),
-  });
-  return toView(rec);
+  try {
+    const rec = await quietly(() =>
+      apiFetch<BackendGoldRate>("/gold-rates", {
+        method: "POST",
+        body: JSON.stringify({ rates, setBy }),
+      }),
+    );
+    return toView(rec);
+  } catch (e) {
+    const queued = await queueIfUnreachable(e, rates, setBy);
+    if (queued) return queued;
+    throw e;
+  }
+}
+
+/* Desktop, server not answering: the rate goes into the outbox with today's date (so it is recorded for the day it was
+ * set, not the day it is sent) and shows as the latest rate at once (see common/offline/goldRateAdjust.ts). */
+async function queueIfUnreachable(e: unknown, rates: Partial<Record<number, number>>, setBy: string): Promise<GoldRateView | null> {
+  if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) return null;
+  const date = localToday();
+  const entry = newEntry("POST", "/gold-rates", { rates, setBy, date }, currentActor());
+  await enqueueAndWait(entry, () => undefined, () => undefined);
+  const view = await getLatestGoldRate().catch(() => null);
+  return view ?? { id: "", date, k24: rates[24] ?? 0, k22: rates[22] ?? 0, k18: rates[18] ?? 0, setBy };
+}
+
+export function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

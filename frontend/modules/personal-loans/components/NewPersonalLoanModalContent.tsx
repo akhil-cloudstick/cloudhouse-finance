@@ -8,7 +8,7 @@ import { fmt } from "@/common/utils/format";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
-import { getCustomer, searchCustomersPage } from "@/modules/customers/services/customerService";
+import { searchCustomersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModalContent";
@@ -37,21 +37,6 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   customer: /customer/i,
 };
 
-/* A customer made on this PC is known as "uuid:..." until the sender has posted it and the server has numbered it; a personal
- * loan is created on the server, so it needs that number. Waits a few seconds for it, returns null if it has not come. */
-async function serverNumber(ref: string): Promise<{ id: number; branchId: number } | null> {
-  for (let i = 0; i < 12; i++) {
-    try {
-      const c = await getCustomer(ref);
-      if (/^d+$/.test(c.id) && Number(c.id) > 0) return { id: Number(c.id), branchId: c.branchId };
-    } catch {
-      /* not readable yet; try again */
-    }
-    await new Promise((r) => setTimeout(r, 700));
-  }
-  return null;
-}
-
 type NewPersonalLoanModalContentProps = { onSaved: () => void };
 
 /* "New Personal Loan" — a modal (not a page) launched from PersonalLoans.tsx's
@@ -71,7 +56,7 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
   // the picker's own id; not a number while the customer has not reached the server
   const [customerRef, setCustomerRef] = useState("");
   const pick = (id: string, branchId: number | undefined, label: string) => {
-    const n = /^d+$/.test(id) ? Number(id) : 0;
+    const n = /^\d+$/.test(id) ? Number(id) : 0;
     setCustomerRef(id);
     setCustomerId(n > 0 ? n : undefined);
     setCustomerBranchId(branchId);
@@ -136,19 +121,11 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
   async function save() {
     // Collect every missing/invalid section so all warnings show at once.
     const errs: Record<string, string> = {};
-    let cid = customerId;
-    let bid = customerBranchId;
-    if (!cid && customerRef.startsWith("uuid:")) {
-      setSaving(true);
-      const got = await serverNumber(customerRef);
-      setSaving(false);
-      if (got) {
-        cid = got.id;
-        bid = got.branchId;
-        setCustomerId(got.id);
-        setCustomerBranchId(got.branchId);
-      } else errs.customer = "This customer has not reached the server yet. Try again in a moment, once the PC is online.";
-    } else if (!cid || !bid) errs.customer = "Please select a customer.";
+    // a customer this PC registered is known by its uuid until the server numbers it; the loan points at it by that, and the
+    // server resolves it when the loan is sent (after the customer), so nothing waits for a number here
+    const cid: number | string | undefined = customerId ?? (customerRef.startsWith("uuid:") ? customerRef : undefined);
+    const bid = customerBranchId;
+    if (!cid || !bid) errs.customer = "Please select a customer.";
     if (!principalNum || principalNum <= 0) errs.principal = "Please enter the principal amount.";
     if (!tenureNum || tenureNum <= 0) errs.tenure = "Please enter the number of installments.";
     if (interestValue.trim() === "") errs.interest = "Please enter the interest value.";
@@ -176,8 +153,12 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
         gracePeriodDays: gracePeriodDays ? +gracePeriodDays : undefined,
         ...split,
         bankId,
-      });
-      if (created.status === "Pending Approval") {
+      }, { customerName: customerLabel.replace(/\s*\([^)]*\)\s*$/, ""), customerCode: /\(([^)]*)\)\s*$/.exec(customerLabel)?.[1] ?? "", needsApproval });
+      if (created.loanNumber === "Pending") {
+        toast(needsApproval
+          ? "Personal loan saved on this PC and will be submitted for approval once the connection is back"
+          : `Personal loan saved on this PC — ${fmt(disbursedAmount)} to the customer; it is sent once the connection is back`);
+      } else if (created.status === "Pending Approval") {
         const first = firstStage(workflow, "personal_loan");
         toast(`Personal loan ${created.loanNumber} submitted for approval${first ? ` — awaiting ${first.label}` : ""}`);
       } else {

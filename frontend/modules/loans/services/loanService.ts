@@ -3,8 +3,9 @@ import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
 import { offlineStore } from "@/common/services/desktopBridge";
 import { localPledgeId } from "@/common/offline/pledgeRef";
+import { findLocalRequest } from "@/common/offline/requestRef";
 import { enqueueAndWait, getLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
-import { enabledStages, fetchApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import { enabledStages, fetchApprovalWorkflow, isFlowOff, nextStage, stageByPending } from "@/common/services/approvalWorkflowService";
 import {
   applyActionLocally,
   applyEditLocally,
@@ -19,7 +20,10 @@ import {
   saveOptimisticLoan,
   sortNewestFirst,
   type CreateLoanHint,
+  type EditSchemeTerms,
 } from "@/modules/loans/services/loanOffline";
+import { listSchemes } from "@/modules/schemes/services/schemeService";
+import type { SchemeView } from "@/modules/schemes/types/scheme-types";
 import { printPdfJob } from "@/common/utils/print";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import type { OrnamentRequestInput, CreateLoanInput, BackendOrnament, BackendLoanPayment, BackendBankPledgeRecord, BackendLoan, OrnamentView, PaymentView, BankPledgeView, LoanView, BackendCustomerOrnamentRow, CustomerOrnamentRowView, BackendCustomerPaymentRow, CustomerPaymentRowView, BackendCustomerBankPledgeRow, CustomerBankPledgeRowView, SaveDraftInput, BackendLoanDraft, IndemnityBondEsignStart, EsignWitnessInput, IndemnityBondDeliverBy, IndemnityBondEsignCheck, LoanFilters, PurityTestInput, SanctionStage, ApprovalStageRecord, ApprovalInput, UpdateLoanInput, PaymentInput, TopUpInput, LoanTopUpView, TopUpApprovalInput, BankPledgeInput, BankPledgeCashTreatment, BankPledgeRecordView, AuctionStage, AuctionSettlementStatus, AuctionSurplusDisposition, AuctionDecisionStatus, AuctionDecisionRequestView, AuctionRecordView, BackendAuctionDecisionRequest, BackendAuctionRecord, BackendCustomerAuctionRow, CustomerAuctionRowView, BackendConcludedAuctionRow, ConcludedAuctionRowView, LoanLedgerEntry, LoanLedgerPage, LoanLedgerQuery, BackendLoanLedgerEntry, BackendLoanRequest, RequestView, LoanRequestFilters, LoanRiskLevel, LoanRiskRow, LoanRiskCounts, ChecklistInput, ReleasePaymentInput, ReleaseApprovalInput, ExtensionApprovalInput, IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types";
@@ -295,6 +299,7 @@ async function queueFirst(
   method: "POST" | "PUT",
   body: unknown,
   effect?: (loan: BackendLoan, entryId: string) => BackendLoan,
+  view?: Record<string, unknown>,
 ): Promise<BackendLoan | null> {
   if (!offlineReady()) return null;
   // a loan made on this PC that the server has not numbered yet has no id for the server's own records (requests, pledges)
@@ -303,6 +308,7 @@ async function queueFirst(
   const rec = localLoanByNumericId(loanId);
   if (!rec?.uuid) return null;
   const entry = newEntry(method, `/loans/uuid:${rec.uuid}${suffix}`, body, currentActor(), [rec.uuid]);
+  if (view) entry.view = view;
   // an optional change to the loan's own local copy, so the screens show the result before the server has it
   const after = effect ? ({ ...effect(rec as unknown as BackendLoan, entry.id), uuid: rec.uuid } as BackendLoan & { uuid: string }) : null;
   await enqueueAndWait(entry, () => (after ? upsertLocal("loans", after as unknown as LocalRecord) : undefined), () => undefined);
@@ -616,7 +622,13 @@ export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: 
     const entry = newEntry("PATCH", `/loans/uuid:${uuid}`, input, currentActor(), [uuid]);
     const chain = enabledStages(await fetchApprovalWorkflow().catch(() => []), "loan_sanction");
     const firstStage = chain[0]?.pending ?? local.approvalStage ?? "LoanOperator";
-    const after = applyEditLocally(local, input, firstStage, currentActor());
+    // a new scheme brings its own LTV, rates and service charge; the loan's figures follow them, as they do on the server
+    let terms: EditSchemeTerms | undefined;
+    if (typeof input.schemeId === "number" && input.schemeId !== local.schemeId) {
+      const s = (await listSchemes().catch(() => [] as SchemeView[])).find((x) => x.id === String(input.schemeId));
+      if (s) terms = { name: s.name, rate: s.rate, ltv: s.ltv, method: s.method, penal: s.penal, serviceChargeType: s.serviceChargeType, serviceChargeValue: s.serviceChargeValue, serviceChargeMode: s.serviceChargeMode };
+    }
+    const after = applyEditLocally(local, input, firstStage, currentActor(), terms);
     await enqueueAndWait(
       entry,
       () => upsertLocal("loans", after as unknown as LocalRecord),
@@ -720,6 +732,24 @@ export async function topUpLoan(loanId: number, input: TopUpInput): Promise<Loan
             penalInterestPaid: round((loan.penalInterestPaid ?? 0) + penalTaken),
             outstandingInterest: round(Math.max(0, interestOwed - interestTaken)),
             outstandingPenalInterest: round(Math.max(0, penalOwed - penalTaken)),
+            localTopUps: [
+              ...(loan.localTopUps ?? []),
+              {
+                id: 0,
+                amount: input.amount,
+                eligibleAmountAtTopUp: round(loan.eligibleLoanAmount ?? 0),
+                cashAmount: input.cashAmount ?? 0,
+                upiAmount: input.upiAmount ?? 0,
+                bankTransferAmount: input.bankTransferAmount ?? 0,
+                chequeAmount: input.chequeAmount ?? 0,
+                occurredOn: input.occurredOn ?? new Date().toISOString().slice(0, 10),
+                reference: input.reference ?? "",
+                status: "Active" as const,
+                approvalStage: "",
+                settleInterest: input.settleInterest ?? "require",
+                createdAt: new Date().toISOString(),
+              },
+            ],
             updatedAt: new Date().toISOString(),
           },
     );
@@ -1188,9 +1218,16 @@ export function buildLocalLedger(rec: BackendLoan, q: LoanLedgerQuery): LoanLedg
   const opened = (rec.disbursementDate || rec.openedDate || "").slice(0, 10);
   let balance = 0;
   const sanctioned = rec.status !== "Pending Approval" && rec.status !== "Rejected";
+  const topUps = rec.localTopUps ?? [];
   if (sanctioned) {
-    balance += rec.principalAmount;
-    rows.push({ key: "sanction", date: opened, amount: rec.principalAmount, kind: "sanction", balance, payment: disbursement ? toPaymentView(disbursement) : null });
+    // the principal already includes any top-up taken here, which the ledger lists as its own row
+    const original = rec.principalAmount - topUps.reduce((s, t) => s + t.amount, 0);
+    balance += original;
+    rows.push({ key: "sanction", date: opened, amount: original, kind: "sanction", balance, payment: disbursement ? toPaymentView(disbursement) : null });
+    topUps.forEach((t, i) => {
+      balance += t.amount;
+      rows.push({ key: `topup-local-${i}`, date: t.occurredOn.slice(0, 10), amount: t.amount, kind: "topup", balance, row: t });
+    });
     const interest = Math.max(rec.accruedInterest ?? 0, (rec.outstandingInterest ?? 0) + (rec.interestPaid ?? 0));
     if (interest > 0.004) {
       balance += interest;
@@ -1211,7 +1248,7 @@ export function buildLocalLedger(rec: BackendLoan, q: LoanLedgerQuery): LoanLedg
   const kept = rows.filter((r) => (!q.from || r.date >= q.from) && (!q.to || r.date <= q.to) && wanted(r.kind));
   const limit = q.limit > 0 ? q.limit : 100;
   const offset = q.offset >= 0 && q.offset < kept.length ? q.offset : 0;
-  const keptDebit = kept.filter((r) => r.kind === "sanction" || r.kind === "interest" || r.kind === "penal").reduce((s, r) => s + r.amount, 0);
+  const keptDebit = kept.filter((r) => r.kind === "sanction" || r.kind === "topup" || r.kind === "interest" || r.kind === "penal").reduce((s, r) => s + r.amount, 0);
   const keptCredit = kept.filter((r) => r.kind === "payment").reduce((s, r) => s + r.amount, 0);
   return { items: kept.slice(offset, offset + limit), total: kept.length, limit, offset, totalDebit: keptDebit, totalCredit: keptCredit };
 }
@@ -1362,10 +1399,24 @@ async function queueRequestAction(
   body: unknown,
   current: RequestView | undefined,
   patch: Partial<RequestView>,
+  // the loan as it is once this decision is applied (a payment, a closure, a new due date), kept in the local copy
+  local?: { uuid: string; after: BackendLoan },
 ): Promise<RequestView | null> {
-  if (!offlineReady() || !(requestId > 0)) return null;
-  const entry = newEntry(method, path, body, currentActor(), [`request:${requestId}`]);
-  await enqueueAndWait(entry, () => undefined, () => undefined);
+  if (!offlineReady() || requestId === 0) return null;
+  // a request made on this PC and not sent yet is addressed by the entry that creates it (see requestRef.ts)
+  if (requestId < 0) {
+    const found = await findLocalRequest(requestId);
+    if (!found) return null;
+    path = path.replace(`/requests/${requestId}/`, `/requests/${"entryId" in found ? `ref:${found.entryId}` : found.serverId}/`);
+  }
+  const entry = newEntry(method, path, body, currentActor(), local ? [`request:${requestId}`, local.uuid] : [`request:${requestId}`]);
+  // what the request looks like meanwhile, so a reload of the list does not show it as it was
+  entry.view = patch as Record<string, unknown>;
+  await enqueueAndWait(
+    entry,
+    () => (local ? upsertLocal("loans", { ...local.after, uuid: local.uuid } as unknown as LocalRecord) : undefined),
+    () => undefined,
+  );
   const base: RequestView = current ?? {
     id: requestId, loanId: "", loanNumericId: 0, loanNumber: "", customerName: "—", type: "Extension", status: "Pending", detail: "",
     requestedAt: "", remarks: "", requestedExtensionMonths: null, approvalStage: "", isPartial: false, customerSawGold: false,
@@ -1373,6 +1424,151 @@ async function queueRequestAction(
     recordedDiscount: 0, recordedPayment: 0, paymentDueDate: null, ornamentIds: [],
   };
   return { ...base, ...patch, syncPending: true };
+}
+
+/* --- Release and extension decisions made while the server does not answer ----------------------------------------------
+ * Each one is checked here the way the server checks it and applied to the local loan and to the request, so a payment
+ * cannot be taken twice for the same release and an approved request shows as closed (with the loan closed, ornaments
+ * released or the due date moved) without waiting for the send. */
+
+const decided = (r: RequestView) => r.status !== "Pending" || r.approvalStage === "Approved" || r.approvalStage === "Rejected";
+const roundMoney = (n: number) => Math.round(n * 100) / 100;
+
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/* The loan once an approved release has been carried out: closed for a full release, the chosen ornaments handed back for a partial one. */
+function releasedLoan(loan: BackendLoan, req: RequestView): BackendLoan {
+  const now = new Date().toISOString();
+  if (!req.isPartial) return { ...loan, status: "Closed", updatedAt: now };
+  return {
+    ...loan,
+    ornaments: (loan.ornaments ?? []).map((o) => (req.ornamentIds.includes(o.id) && !(o as { releasedAt?: string }).releasedAt ? { ...o, releasedAt: now } : o)),
+    updatedAt: now,
+  };
+}
+
+/* A release request moved on by one stage of this business's chain; past the last stage (or with the chain off) it is approved and
+ * carried out. A full release that is not paid in full cannot be carried out: approving it is refused (strict), and a payment that
+ * leaves a balance simply leaves the request where it is. */
+async function releaseAdvance(req: RequestView, loan: BackendLoan, strict: boolean): Promise<{ patch: Partial<RequestView>; loan: BackendLoan }> {
+  const workflow = await fetchApprovalWorkflow().catch(() => []);
+  const cur = stageByPending(workflow, "loan_release", req.approvalStage);
+  const following = cur ? nextStage(workflow, "loan_release", cur.key) : null;
+  if (following) return { patch: { approvalStage: following.pending }, loan };
+  if (!req.isPartial && (loan.totalOutstandingBalance ?? 0) > 0.01) {
+    if (strict) throw new ApiError("settlement is not fully paid yet", 400);
+    return { patch: {}, loan };
+  }
+  return {
+    patch: { status: "Approved", approvalStage: "Approved", settlementAmount: roundMoney((loan.totalOutstandingBalance ?? 0) + req.charges) },
+    loan: releasedLoan(loan, req),
+  };
+}
+
+/* A loan with its due date moved on by an approved extension. */
+function extendedLoan(loan: BackendLoan, months: number): BackendLoan {
+  const due = loan.dueDate ?? "";
+  const [y, m, d] = due.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return loan;
+  const moved = new Date(Date.UTC(y, m - 1 + months, d)).toISOString().slice(0, 10);
+  const overdue = moved < localToday();
+  return {
+    ...loan,
+    dueDate: moved + due.slice(10),
+    isOverdue: overdue,
+    isDueSoon: false,
+    daysOverdue: overdue ? loan.daysOverdue : 0,
+    status: !overdue && ["Overdue", "Due Soon"].includes(loan.status) ? "Active" : loan.status,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/* What recording a release payment does here: the discount then the payment land on the loan (the same refusals the server
+ * gives, so a payment cannot be taken twice for the same release), and the request moves on a stage after its first payment. */
+async function planReleasePayment(req: RequestView, loan: BackendLoan, input: ReleasePaymentInput): Promise<{ patch: Partial<RequestView>; loan: BackendLoan }> {
+  if (req.type !== "Release") throw new ApiError("this request is not a Release request", 400);
+  if (decided(req)) throw new ApiError("loan request has already been decided", 400);
+  const pastManagerForDriftTopUp = req.isPartial && req.locked;
+  if (req.approvalStage !== "" && req.approvalStage !== "PendingManager" && !pastManagerForDriftTopUp) {
+    throw new ApiError("payment is only taken at manager review", 400);
+  }
+  const discount = input.discount ?? 0;
+  if (discount < 0 || input.amount < 0) throw new ApiError("amount must be greater than zero", 400);
+  const actor = currentActor();
+  const paidOn = localToday();
+  const chargeDelta = Math.max(0, roundMoney(req.charges - req.chargesApplied));
+  const paymentAmount = chargeDelta > 0.01 && input.amount <= 0 ? chargeDelta : input.amount;
+
+  let next = loan;
+  if (discount > 0) next = applyPaymentLocally(next, { amount: discount, type: "Discount", paidOn, description: "Release discount" }, actor);
+  if (paymentAmount > 0) {
+    next = applyPaymentLocally(next, {
+      amount: paymentAmount, type: input.type || "Partial", processingFee: chargeDelta || undefined, paidOn,
+      cashAmount: input.cashAmount, upiAmount: input.upiAmount, bankTransferAmount: input.bankTransferAmount, chequeAmount: input.chequeAmount,
+      bankId: input.bankId, reference: input.reference, interestOverride: input.interestOverride, description: "Release payment",
+    }, actor);
+  }
+  const settled = req.isPartial || (next.totalOutstandingBalance ?? 0) <= 0.01;
+  if (!settled && (discount > 0 || paymentAmount > 0) && !input.dueDate) throw new ApiError("due date is required", 400);
+  let patch: Partial<RequestView> = {
+    paymentRecorded: true,
+    locked: true,
+    recordedPayment: roundMoney(req.recordedPayment + input.amount),
+    recordedDiscount: roundMoney(req.recordedDiscount + discount),
+    chargesApplied: paymentAmount > 0 ? roundMoney(req.chargesApplied + chargeDelta) : req.chargesApplied,
+    paymentDueDate: settled ? null : input.dueDate ?? null,
+  };
+  // the first payment (or one taken while still at the payment stage) moves the request on, as the server does
+  if (!req.paymentRecorded || req.approvalStage === "" || req.approvalStage === "PendingManager") {
+    const adv = await releaseAdvance({ ...req, ...patch }, next, false);
+    patch = { ...patch, ...adv.patch };
+    next = adv.loan;
+  }
+  return { patch, loan: next };
+}
+
+/* What approving or rejecting a release request does here. */
+async function planReleaseDecision(req: RequestView, loan: BackendLoan | undefined, input: ReleaseApprovalInput): Promise<{ patch: Partial<RequestView>; loan?: BackendLoan }> {
+  if (req.type !== "Release") throw new ApiError("this request is not a Release request", 400);
+  if (decided(req)) throw new ApiError("loan request has already been decided", 400);
+  if (input.action === "Rejected") {
+    if (req.locked) throw new ApiError("release request is locked after payment", 409);
+    return { patch: { status: "Rejected", approvalStage: "Rejected" } };
+  }
+  const needsBoth = new ApiError('"Customer has seen the gold" must be ticked and a payment recorded before this can be approved', 400);
+  if (!req.customerSawGold) throw needsBoth;
+  if (!req.paymentRecorded) {
+    // a loan can already meet the release's condition without a payment on this request
+    let met = false;
+    if (loan) {
+      if (req.isPartial) {
+        const remaining = (loan.ornaments ?? []).filter((o) => !(o as { releasedAt?: string }).releasedAt && !req.ornamentIds.includes(o.id)).reduce((s, o) => s + o.goldValue, 0);
+        met = (loan.totalOutstandingBalance ?? 0) - (remaining * (loan.schemeLtvPercent ?? 0)) / 100 <= 0.01;
+      } else {
+        met = (loan.totalOutstandingBalance ?? 0) <= 0.01;
+      }
+    }
+    if (!met) throw needsBoth;
+  }
+  if (!loan) return { patch: { approvalStage: req.approvalStage } };
+  const adv = await releaseAdvance(req, loan, true);
+  return { patch: adv.patch, loan: adv.loan };
+}
+
+/* What approving or rejecting an extension request does here. */
+async function planExtensionDecision(req: RequestView, loan: BackendLoan | undefined, input: ExtensionApprovalInput): Promise<{ patch: Partial<RequestView>; loan?: BackendLoan }> {
+  if (req.type !== "Extension") throw new ApiError("this request is not an Extension request", 400);
+  if (decided(req)) throw new ApiError("loan request has already been decided", 400);
+  if (input.action === "Rejected") return { patch: { status: "Rejected", approvalStage: "Rejected" } };
+  if (loan && ((loan.outstandingInterest ?? 0) > 0.01 || (loan.outstandingPenalInterest ?? 0) > 0.01)) throw new ApiError("pay the outstanding interest first", 400);
+  const workflow = await fetchApprovalWorkflow().catch(() => []);
+  const following = nextStage(workflow, "loan_extension", input.stage);
+  if (following) return { patch: { approvalStage: following.pending } };
+  if (loan && ["Closed", "Rejected", "Auctioned", "Auctioned (Balance Due)"].includes(loan.status)) throw new ApiError("loan is closed — nothing to extend", 400);
+  return { patch: { status: "Approved", approvalStage: "Approved" }, loan: loan ? extendedLoan(loan, req.requestedExtensionMonths ?? 0) : undefined };
 }
 
 export async function listLoanRequests(filters?: LoanRequestFilters): Promise<RequestView[]> {
@@ -1452,8 +1648,18 @@ export async function listLoanRiskAssessmentPage(
 }
 
 export async function createExtensionRequest(loanId: number, months: number, detail?: string): Promise<RequestView> {
-  const queued = await queueFirst(loanId, "/extension-request", "POST", { months, detail });
-  if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Extension", status: "Pending", requestedBy: "Staff", detail: detail ?? "", requestedExtensionMonths: months } as unknown as BackendLoanRequest);
+  // With no extension approval stages the server approves it on the spot and moves the due date; the local copy does the same
+  const autoApproved = offlineReady() && !!localLoanByNumericId(loanId)?.uuid && isFlowOff(await fetchApprovalWorkflow().catch(() => []), "loan_extension");
+  if (autoApproved) {
+    const rec = localLoanByNumericId(loanId)!;
+    if (["Closed", "Rejected", "Auctioned", "Auctioned (Balance Due)"].includes(rec.status)) throw new ApiError("loan is closed — nothing to extend", 400);
+  }
+  const queued = await queueFirst(
+    loanId, "/extension-request", "POST", { months, detail },
+    autoApproved ? (loan) => extendedLoan(loan, months) : undefined,
+    autoApproved ? { status: "Approved", approvalStage: "Approved" } : undefined,
+  );
+  if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Extension", status: autoApproved ? "Approved" : "Pending", approvalStage: autoApproved ? "Approved" : "", requestedBy: "Staff", detail: detail ?? "", requestedExtensionMonths: months } as unknown as BackendLoanRequest);
   const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/extension-request`, {
     method: "POST",
     body: JSON.stringify({ months, detail }),
@@ -1508,7 +1714,12 @@ export async function verifyReleaseChecklist(requestId: number, input: Checklist
 }
 
 export async function recordReleasePayment(requestId: number, input: ReleasePaymentInput, current?: RequestView): Promise<RequestView> {
-  const queued = await queueRequestAction(requestId, "POST", `/loans/requests/${requestId}/release-payment`, input, current, { paymentRecorded: true });
+  const loan = offlineReady() && requestId !== 0 && current ? localLoanByNumericId(current.loanNumericId) : undefined;
+  const plan = current && loan?.uuid ? await planReleasePayment(current, loan, input) : null;
+  const queued = await queueRequestAction(
+    requestId, "POST", `/loans/requests/${requestId}/release-payment`, input, current, plan?.patch ?? { paymentRecorded: true },
+    plan && loan?.uuid ? { uuid: loan.uuid, after: plan.loan } : undefined,
+  );
   if (queued) return queued;
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/release-payment`, {
     method: "POST",
@@ -1518,7 +1729,12 @@ export async function recordReleasePayment(requestId: number, input: ReleasePaym
 }
 
 export async function approveReleaseRequest(requestId: number, input: ReleaseApprovalInput, current?: RequestView): Promise<RequestView> {
-  const queued = await queueRequestAction(requestId, "POST", `/loans/requests/${requestId}/approve`, input, current, input.action === "Rejected" ? { status: "Rejected" } : {});
+  const loan = offlineReady() && current ? localLoanByNumericId(current.loanNumericId) : undefined;
+  const plan = current && offlineReady() && requestId !== 0 ? await planReleaseDecision(current, loan, input) : null;
+  const queued = await queueRequestAction(
+    requestId, "POST", `/loans/requests/${requestId}/approve`, input, current, plan?.patch ?? (input.action === "Rejected" ? { status: "Rejected" } : {}),
+    plan?.loan && loan?.uuid ? { uuid: loan.uuid, after: plan.loan } : undefined,
+  );
   if (queued) return queued;
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
     method: "POST",
@@ -1528,7 +1744,12 @@ export async function approveReleaseRequest(requestId: number, input: ReleaseApp
 }
 
 export async function approveExtensionRequest(requestId: number, input: ExtensionApprovalInput, current?: RequestView): Promise<RequestView> {
-  const queued = await queueRequestAction(requestId, "POST", `/loans/requests/${requestId}/approve`, input, current, input.action === "Rejected" ? { status: "Rejected" } : {});
+  const loan = offlineReady() && current ? localLoanByNumericId(current.loanNumericId) : undefined;
+  const plan = current && offlineReady() && requestId !== 0 ? await planExtensionDecision(current, loan, input) : null;
+  const queued = await queueRequestAction(
+    requestId, "POST", `/loans/requests/${requestId}/approve`, input, current, plan?.patch ?? (input.action === "Rejected" ? { status: "Rejected" } : {}),
+    plan?.loan && loan?.uuid ? { uuid: loan.uuid, after: plan.loan } : undefined,
+  );
   if (queued) return queued;
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
     method: "POST",

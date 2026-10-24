@@ -35,9 +35,17 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
   const { closeModal } = useModal();
   const toast = useToast();
 
-  const [customerId, setCustomerId] = useState<number | undefined>(undefined);
+  // The picker's own id: a number, or "uuid:..." for an investor this PC registered that the server has not numbered yet
+  // (the investment points at them by that, and the server resolves it when the investment is sent, after the investor).
+  const [customerRef, setCustomerRef] = useState<number | string | undefined>(undefined);
   const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(undefined);
   const [customerLabel, setCustomerLabel] = useState("");
+  const pickInvestor = (id: string | number, branchId: number | undefined, label: string) => {
+    const s = String(id);
+    setCustomerRef(/^\d+$/.test(s) ? Number(s) : s.startsWith("uuid:") ? s : undefined);
+    setCustomerBranchId(branchId);
+    setCustomerLabel(label);
+  };
   const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
   const [planId, setPlanId] = useState<number | "">("");
   const [principal, setPrincipal] = useState("");
@@ -67,7 +75,7 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
   const principalNum = +principal || 0;
 
   async function save() {
-    if (!customerId || !customerBranchId) { fail("investor", "Please select an investor."); return; }
+    if (!customerRef || !customerBranchId) { fail("investor", "Please select an investor."); return; }
     if (!planId) { fail("plan", "Please select an investment plan."); return; }
     if (!principalNum || principalNum <= 0) { fail("principal", "Please enter the principal amount."); return; }
     if (plan && principalNum < plan.minPrincipal) { fail("principal", `Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`); return; }
@@ -77,15 +85,17 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
     setErr("");
     setFe({});
     try {
-      await createInvestment({
+      const created = await createInvestment({
         branchId: customerBranchId,
-        customerId,
+        customerId: customerRef,
         planId: Number(planId),
         principalAmount: principalNum,
         ...split,
         bankId,
-      });
-      toast(`Investment created — ${fmt(principalNum)} deposited`);
+      }, plan ? { customerName: customerLabel.replace(/\s*\([^)]*\)\s*$/, ""), customerCode: /\(([^)]*)\)\s*$/.exec(customerLabel)?.[1] ?? "", plan } : undefined);
+      toast(created.investmentNumber === "Pending"
+        ? `Investment saved on this PC — ${fmt(principalNum)} deposit; it is sent once the connection is back`
+        : `Investment created — ${fmt(principalNum)} deposited`);
       onSaved();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not create the investment — try again.";
@@ -100,9 +110,7 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
     return (
       <CreateInvestorModalContent
         onCreated={(c) => {
-          setCustomerId(+c.id);
-          setCustomerBranchId(c.branchId);
-          setCustomerLabel(`${c.name} (${c.code})`);
+          pickInvestor(c.id, c.branchId, `${c.name} (${c.code})`);
           setCreatingInvestor(false);
         }}
       />
@@ -116,7 +124,7 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
         <div className="frow"><div className={fe.investor ? "has-err" : undefined}><label className="f">Investor *</label>
           <SearchableSelect<CustomerView>
             value={customerLabel}
-            onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); }}
+            onChange={(id, item) => pickInvestor(id, item.branchId, `${item.name} (${item.code})`)}
             fetchFn={searchInvestorsPage}
             searchHint="Searches: investor name, investor code, phone"
             getLabel={(c) => `${c.name} (${c.code})`}

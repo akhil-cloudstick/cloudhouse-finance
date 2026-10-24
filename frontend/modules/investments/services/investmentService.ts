@@ -1,13 +1,29 @@
-import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError, quietly } from "@/common/services/httpClient";
+import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
+import { pendingInvestmentRow } from "@/common/offline/investmentAdjust";
+import { PLAN_REF, findLocalPlan, localRequestId } from "@/common/offline/requestRef";
 import { branchHeader } from "@/common/services/branchSelection";
 import { printPdfJob } from "@/common/utils/print";
 import type { InvestmentStatus, BackendInvestmentPlan, CreatePlanInput, BackendInvestment, BackendInvestmentTransaction, BackendInvestmentPayout, CreateInvestmentInput, InvestmentLedgerRow, MaturityAction, AddCashInput, WithdrawInput } from "@/modules/investments/types/investment-types";
 
-export function createInvestmentPlan(input: CreatePlanInput): Promise<BackendInvestmentPlan> {
-  return apiFetch<BackendInvestmentPlan>("/investment-plans", { method: "POST", body: JSON.stringify(input) });
+/* Desktop, server not answering: the plan goes into the outbox and is listed (and offered for a new investment) at once under
+ * a local id (see common/offline/investmentAdjust.ts); it is sent when the connection is back, before any investment made with
+ * it. Otherwise the plan is created on the server as before. */
+export async function createInvestmentPlan(input: CreatePlanInput): Promise<BackendInvestmentPlan> {
+  try {
+    // quiet: with no answer the plan is queued below, so no "couldn't reach" pop-up is wanted
+    return await quietly(() => apiFetch<BackendInvestmentPlan>("/investment-plans", { method: "POST", body: JSON.stringify(input) }));
+  } catch (e) {
+    if (!(offlineReady() && e instanceof ApiError && e.status === 0)) throw e;
+    const entry = newEntry("POST", "/investment-plans", input, currentActor());
+    await enqueueAndWait(entry, () => undefined, () => undefined);
+    return { id: localRequestId(entry.id), ...input } as BackendInvestmentPlan;
+  }
 }
 
 export function updateInvestmentPlan(id: number, input: CreatePlanInput): Promise<BackendInvestmentPlan> {
+  if (id < 0) throw new ApiError("This plan has not reached the server yet. Edit it once it has (it is sent as soon as the connection is back).", 409);
   return apiFetch<BackendInvestmentPlan>(`/investment-plans/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
@@ -19,8 +35,35 @@ export function listInvestmentPlans(activeOnly?: boolean): Promise<BackendInvest
   return apiFetch<BackendInvestmentPlan[]>(`/investment-plans${qs}`);
 }
 
-export function createInvestment(input: CreateInvestmentInput): Promise<BackendInvestment> {
-  return apiFetch<BackendInvestment>("/investments", { method: "POST", body: JSON.stringify(input) });
+/* What the form already knows that the server would otherwise work out, so the investment can be listed before it is sent. */
+export type CreateInvestmentHint = { customerName: string; customerCode: string; plan: BackendInvestmentPlan };
+
+/* Desktop: an investment for an investor this PC registered, or with a plan this PC made (neither numbered by the server yet),
+ * goes straight into the outbox, and so does one made while the server does not answer. It is listed at once as PENDING and sent
+ * when the connection is there, after the investor and the plan, which the entry points at by their uuid / plan ref. Otherwise
+ * the investment is created on the server exactly as before, so its real number comes back. */
+export async function createInvestment(input: CreateInvestmentInput, hint?: CreateInvestmentHint): Promise<BackendInvestment> {
+  if (offlineReady() && hint && (typeof input.customerId === "string" || input.planId < 0)) return queueInvestment(input, hint);
+  try {
+    return await quietly(() => apiFetch<BackendInvestment>("/investments", { method: "POST", body: JSON.stringify(input) }));
+  } catch (e) {
+    if (offlineReady() && hint && e instanceof ApiError && e.status === 0) return queueInvestment(input, hint);
+    throw e;
+  }
+}
+
+async function queueInvestment(input: CreateInvestmentInput, hint: CreateInvestmentHint): Promise<BackendInvestment> {
+  let planId: number | string = input.planId;
+  if (input.planId < 0) {
+    const found = await findLocalPlan(input.planId);
+    if (!found) throw new ApiError("This plan is no longer on this PC. Pick the plan again.", 409);
+    planId = "entryId" in found ? PLAN_REF + found.entryId : found.serverId;
+  }
+  // no targets: the sender copies a reply's id onto the record a target names, and the reply here is an investment
+  const entry = newEntry("POST", "/investments", { ...input, planId }, currentActor());
+  entry.view = { customerName: hint.customerName, customerCode: hint.customerCode, plan: hint.plan };
+  await enqueueAndWait(entry, () => undefined, () => undefined);
+  return pendingInvestmentRow(entry, input, entry.view as { customerName: string; customerCode: string; plan: BackendInvestmentPlan }) as unknown as BackendInvestment;
 }
 
 export const INVESTMENTS_TABLE_PAGE_SIZE = 10;

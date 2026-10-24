@@ -9,6 +9,7 @@
 
 import { offlineStore } from "@/common/services/desktopBridge";
 import { listLocal } from "./localCopy";
+import { localRequestId } from "./requestRef";
 import type { OutboxEntry } from "./types";
 
 type Env = { data?: unknown; [k: string]: unknown };
@@ -52,14 +53,16 @@ export async function adjustRequests(path: string, body: string): Promise<string
   const list = rowsOf(env);
   if (!list) return body;
   const qs = new URLSearchParams(path.includes("?") ? path.slice(path.indexOf("?") + 1) : "");
-  const marks = new Map<number, { rejected: boolean }>();
+  const marks = new Map<number, { rejected: boolean; view: Record<string, unknown> }>();
   const fresh: Record<string, unknown>[] = [];
   for (const e of await waiting()) {
-    const m = /^\/loans\/requests\/(\d+)\/(approve|decide|verify|release-payment)$/.exec(e.path);
+    const m = /^\/loans\/requests\/(\d+|ref:[0-9a-f-]+)\/(approve|decide|verify|release-payment)$/i.exec(e.path);
     if (m) {
-      const id = Number(m[1]);
+      // a request made on this PC is addressed by the entry that creates it, and listed under the local id made from it
+      const id = m[1].startsWith("ref:") ? localRequestId(m[1].slice(4)) : Number(m[1]);
       const rejected = (e.body as { action?: string } | undefined)?.action === "Rejected";
-      marks.set(id, { rejected: rejected || !!marks.get(id)?.rejected });
+      // each waiting decision is applied in the order it was made, so a payment then an approval ends as approved
+      marks.set(id, { rejected: rejected || !!marks.get(id)?.rejected, view: { ...marks.get(id)?.view, ...e.view } });
       continue;
     }
     const n = /^\/loans\/uuid:([0-9a-f-]+)\/(extension|release)-request$/i.exec(e.path);
@@ -73,7 +76,7 @@ export async function adjustRequests(path: string, body: string): Promise<string
     if (qs.get("type") && qs.get("type") !== type) continue;
     if (qs.get("status") && qs.get("status") !== "Pending") continue;
     fresh.push({
-      id: 0,
+      id: localRequestId(e.id),
       loanId: loan.id,
       loan: { loanNumber: loan.loanNumber, customer: loan.customer, status: loan.status },
       type,
@@ -85,16 +88,37 @@ export async function adjustRequests(path: string, body: string): Promise<string
       isPartial: type === "Release" && !!b.ornamentIds?.length,
       ornamentSelections: (b.ornamentIds ?? []).map((ornamentId) => ({ ornamentId })),
       approvalStage: "",
+      remarks: "",
+      verificationNotes: "",
+      customerSawGold: false,
+      paymentRecorded: false,
+      locked: false,
+      charges: 0,
+      chargesApplied: 0,
+      settlementAmount: 0,
+      recordedDiscount: 0,
+      recordedPayment: 0,
+      ...e.view,
       syncPending: true,
     });
   }
   if (!marks.size && !fresh.length) return body;
+  const wantStatus = qs.get("status");
   list.put([
-    ...fresh,
-    ...list.rows.map((r) => {
-      const mark = marks.get(Number(r.id));
-      return mark ? { ...r, syncPending: true, ...(mark.rejected ? { status: "Rejected" } : {}) } : r;
-    }),
+    // decisions made on a request that was itself made on this PC are applied to its row too
+    ...fresh
+      .map((r) => {
+        const mark = marks.get(Number(r.id));
+        return mark ? { ...r, ...mark.view, ...(mark.rejected ? { status: "Rejected" } : {}) } : r;
+      })
+      .filter((r) => !wantStatus || r.status === wantStatus),
+    ...list.rows
+      .map((r) => {
+        const mark = marks.get(Number(r.id));
+        return mark ? { ...r, ...mark.view, syncPending: true, ...(mark.rejected ? { status: "Rejected" } : {}) } : r;
+      })
+      // a request this PC has decided no longer belongs in the list of pending ones
+      .filter((r) => !wantStatus || r.status === wantStatus),
   ]);
   return JSON.stringify(env);
 }
