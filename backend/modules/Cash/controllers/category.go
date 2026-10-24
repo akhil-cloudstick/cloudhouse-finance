@@ -99,8 +99,10 @@ func listCategories(ctx context.Context, typ, query string, limit, offset int) (
 		}
 	}
 	if typ == "self_transfer" && offset == 0 {
-		if _, _, err := findOrCreateCategory(ctx, "Bank to Bank", "self_transfer"); err != nil {
-			return nil, 0, err
+		for _, name := range []string{"Bank to Bank", SelfTransferCashToBank, SelfTransferBankToCash} {
+			if _, _, err := findOrCreateCategory(ctx, name, "self_transfer"); err != nil {
+				return nil, 0, err
+			}
 		}
 	}
 	return findCategories(ctx, typ, query, limit, offset)

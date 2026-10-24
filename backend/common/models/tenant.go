@@ -41,6 +41,7 @@ type Tenant struct {
 	AddressLine            string         `json:"address_line" gorm:"size:300"`
 	KMLRegNo               string         `json:"kml_reg_no" gorm:"size:60"`
 	ContactPhone           string         `json:"contact_phone" gorm:"size:120"`
+	SupportEmail           string         `json:"support_email" gorm:"size:160"`
 	LenderAge              string         `json:"lender_age" gorm:"size:3"`
 	LenderPAN              string         `json:"lender_pan" gorm:"size:10"`
 	LenderAadhaar          string         `json:"lender_aadhaar" gorm:"size:12"`

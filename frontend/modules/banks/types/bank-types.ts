@@ -15,6 +15,9 @@ export type BackendBank = {
   phone: string;
   // Current net balance of this account (money in less money out).
   balance: number;
+  // Gold currently repledged to this bank: active pledge count and their total amount.
+  activePledgeCount?: number;
+  activePledgeAmount?: number;
   createdAt: string;
   updatedAt: string;
 };

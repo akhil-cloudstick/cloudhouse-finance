@@ -136,8 +136,9 @@ export type CashMovementFilters = {
 export type SelfTransferInput = {
   category: string;
   amount: number;
-  fromBankId: number;
-  fromBank: string;
+  // Absent on a Cash to Bank transfer (the From side is cash).
+  fromBankId?: number;
+  fromBank?: string;
   toBankId?: number;
   toBank?: string;
   // How the money moved — shown on both rows. "Bank Transfer" when omitted.

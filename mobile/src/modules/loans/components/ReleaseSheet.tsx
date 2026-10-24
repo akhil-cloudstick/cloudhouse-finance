@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { C, CheckItem, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
+import { C, CheckItem, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, WarningBanner, toast } from "@/common/components/ui";
 import { ReleaseReviewPanel } from "./ReleaseReviewPanel";
 import { completeRelease, createReleaseRequest } from "@/modules/loans/services/loanService";
 import { inr } from "@/common/utils/format";
@@ -46,8 +46,8 @@ export function ReleaseSheet({
   const ltv = l.schemeLtvPercent ?? l.scheme?.ltvPercent ?? 0;
   const outstandingBal = l.totalOutstandingBalance ?? l.outstandingAmount;
   const remainingGold = pledged.filter((o) => !selected.has(o.id)).reduce((s, o) => s + o.goldValue, 0);
-  // Web's partialReleaseRemaining: balance + 5% principal buffer − what the remaining gold covers.
-  const minPartial = outstandingBal + 0.05 * l.principalAmount - (remainingGold * ltv) / 100;
+  // Backend's partialReleaseDrift: balance − what the remaining gold covers.
+  const minPartial = outstandingBal - (remainingGold * ltv) / 100;
   const minAmount = allSelected ? l.settlementAmount ?? outstandingBal : Math.max(0, minPartial);
 
   function toggle(id: number) {
@@ -72,9 +72,11 @@ export function ReleaseSheet({
         submitting.current = false;
       }
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
       invalidateLoan(qc, l.id);
       onClose();
+      // The amount the backend worked out when it logged the request; it is checked again when the payment is recorded.
+      toast.success("Release request logged", `${inr(created.settlementAmount ?? minAmount)} needed to release the gold`);
     },
     onError: (e) => {
       if (e instanceof Error && e.message === "__duplicate_submit__") return;
