@@ -157,7 +157,8 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
   // meaningful status to show: the loan's own outcome overrides it.
   const isAuctioned = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due";
   const movementLocked = isAuctioned || p.loanStatus === "Closed" || p.loanStatus === "Rejected";
-  const displayStatus = isAuctioned ? "Auctioned" : p.status;
+  // A Closed loan's gold was handed back to the customer, whatever stage an older release left the packet at.
+  const displayStatus = isAuctioned ? "Auctioned" : p.loanStatus === "Closed" ? PACKET_STATUS.RELEASED : p.status;
 
   return (
     <>
@@ -186,15 +187,15 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
             to check the packet against this list, so it belongs here and not
             only on the loan page. */}
         <div className="card gtop">
-          <div className="hd"><h3>Contents of the Packet — {p.itemCount} item(s) · {fmtW(p.totalWeight)}</h3></div>
+          <div className="hd"><h3>Contents of the Packet — {p.itemCount} item(s) · {fmtW(p.totalWeight)}{p.items.some((it) => it.released) ? ` · ${p.items.filter((it) => it.released).length} released` : ""}</h3></div>
           <div className="tbl-wrap">
             <table className="tbl">
               <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Gross (g)</th><th className="num">Net (g)</th><th className="num">Qty</th><th className="num">Gold Value</th><th>Remarks</th></tr></thead>
               <tbody>
                 {p.items.length === 0 && <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No ornaments recorded on this loan.</td></tr>}
                 {p.items.map((it) => (
-                  <tr key={it.id}>
-                    <td>{it.name}</td>
+                  <tr key={it.id} style={it.released ? { opacity: 0.6 } : undefined}>
+                    <td>{it.name}{it.released && <span className="chip" style={{ marginLeft: 8 }} title={it.releasedAt ? `Released ${fmtDateTime(it.releasedAt)}` : "Released to the customer"}>Released</span>}</td>
                     <td><span className="chip brand">{it.purity}</span></td>
                     <td className="num">{it.grossWeight.toFixed(1)}</td>
                     <td className="num">{it.netWeight.toFixed(1)}</td>

@@ -41,7 +41,8 @@ function toView(p: BackendPacket): PacketView {
     customerName: p.loan?.customer?.name || "—",
     itemCount: ornaments.reduce((sum, o) => sum + (o.quantity || 1), 0),
     totalWeight: ornaments.reduce((sum, o) => sum + (o.netWeight || 0), 0),
-    items: ornaments.map((o) => ({
+    // Ornaments still in the packet first, then the ones already released (a partial release), marked as such.
+    items: [...ornaments.map((o) => ({ o, released: false })), ...(p.releasedOrnaments || []).map((o) => ({ o, released: true }))].map(({ o, released }) => ({
       id: o.id,
       name: o.name,
       purity: o.purity || "—",
@@ -51,6 +52,8 @@ function toView(p: BackendPacket): PacketView {
       quantity: o.quantity || 1,
       goldValue: o.goldValue || 0,
       remarks: o.remarks || "",
+      released,
+      releasedAt: o.releasedAt || null,
     })),
     status: p.status,
     currentLockerId: p.currentLockerId,

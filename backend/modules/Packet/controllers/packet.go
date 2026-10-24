@@ -25,7 +25,8 @@ var loanNoLongerMovableStatuses = map[string]bool{
 }
 
 var allowedTransitions = map[string][]string{
-	"Packet Generated":        {models.StatusLockerStored},
+	// Released too: a loan can be released before its packet was ever checked into a locker.
+	"Packet Generated":        {models.StatusLockerStored, models.StatusReleased},
 	models.StatusLockerStored: {models.StatusBankPledged, models.StatusReleased},
 	models.StatusBankPledged:  {models.StatusReturned},
 	models.StatusReturned:     {models.StatusLockerStored, models.StatusReleased},
@@ -88,6 +89,7 @@ func findPacketByID(ctx context.Context, id uint) (*models.Packet, error) {
 		WithContext(ctx)).First(&p, id).Error; err != nil {
 		return nil, err
 	}
+	attachReleasedOrnaments(ctx, &p)
 	return &p, nil
 }
 
@@ -97,7 +99,21 @@ func findByCode(ctx context.Context, code string) (*models.Packet, error) {
 		WithContext(ctx)).Where("code = ?", code).First(&p).Error; err != nil {
 		return nil, err
 	}
+	attachReleasedOrnaments(ctx, &p)
 	return &p, nil
+}
+
+// attachReleasedOrnaments lists the loan's ornaments already handed back to the customer (a partial release), so
+// the packet can show them as released. Loan.Ornaments itself keeps only the ones still in the packet.
+func attachReleasedOrnaments(ctx context.Context, p *models.Packet) {
+	var released []loanModels.Ornament
+	if err := config.DB.WithContext(ctx).
+		Where("loan_id = ? AND released_at IS NOT NULL", p.LoanID).Order("released_at, id").
+		Find(&released).Error; err != nil {
+		log.Printf("packet %d: could not load released ornaments: %v", p.ID, err)
+		return
+	}
+	p.ReleasedOrnaments = released
 }
 
 func FindActiveByLoanID(ctx context.Context, loanID uint) (*models.Packet, error) {
