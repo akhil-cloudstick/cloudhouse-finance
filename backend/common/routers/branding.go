@@ -13,6 +13,7 @@ var brandingPath = "/api/v1/users/:user_id/branding"
 
 func PublicRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(publicPath+"/branding", common.GetPublicBrandingByHost)
+	e.GET(publicPath+"/provider", common.GetPublicProvider)
 	e.GET(publicPath+"/branding/:code", common.GetPublicBranding)
 	e.GET(publicPath+"/branding/:code/logo", common.GetPublicLogo)
 	e.GET(publicPath+"/connect/:code", common.RedeemConnectCode)

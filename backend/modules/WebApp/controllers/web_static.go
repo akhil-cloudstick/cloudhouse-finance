@@ -131,7 +131,7 @@ func isReservedSegment(s string) bool {
 	switch s {
 	case "login", "reset", "api", "uploads", "assets", "static", "_next",
 		"favicon.ico", "index", "app", "superadmin", "forgot-password",
-		"reset-password", "digilocker-callback", "esign-callback":
+		"reset-password", "digilocker-callback", "esign-callback", "customer-app", "staff-app":
 		return true
 	}
 	return false

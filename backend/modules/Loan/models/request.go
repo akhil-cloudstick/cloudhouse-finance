@@ -34,6 +34,7 @@ type LoanRequest struct {
 	VerificationNotes        string                `json:"verification_notes" gorm:"size:255"`
 	CustomerSawGold          bool                  `json:"customer_saw_gold"`
 	PaymentRecorded          bool                  `json:"payment_recorded"`
+	QuoteMet                 bool                  `json:"quote_met" gorm:"not null;default:false"`
 	Locked                   bool                  `json:"locked"`
 	RecordedDiscount         float64               `json:"recorded_discount" gorm:"type:numeric(16,2);default:0"`
 	RecordedPayment          float64               `json:"recorded_payment" gorm:"type:numeric(16,2);default:0"`

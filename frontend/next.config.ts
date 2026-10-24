@@ -25,7 +25,7 @@ const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN || "http://localhost:8080";
  * isReservedSegment in backend/internal/webstatic. The app's own route names
  * are deliberately NOT excluded here: "/loans" has to reach the shell either
  * way, as the bare install's loans page. */
-const SLUG = "((?!_next|api|uploads|assets|static|favicon\.ico)[a-z0-9][a-z0-9-]*)";
+const SLUG = "((?!_next|api|uploads|assets|static|favicon\.ico|customer-app|staff-app)[a-z0-9][a-z0-9-]*)";
 
 const nextConfig: NextConfig = {
   output: "export",

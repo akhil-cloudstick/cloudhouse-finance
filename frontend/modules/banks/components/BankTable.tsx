@@ -15,6 +15,7 @@ import { BankModalContent } from "@/modules/banks/components/BankModalContent";
 import { MergeBankModalContent } from "@/modules/banks/components/MergeBankModalContent";
 import { listBanks, listBanksPage, deleteBank } from "@/modules/banks/services/bankService";
 import { type BackendBank } from "@/modules/banks/types/bank-types";
+import { fmt } from "@/common/utils/format";
 import { balanceColor, fmtBalance } from "@/modules/banks/utils/bankBalance";
 
 const PAGE_SIZE = 15;
@@ -98,7 +99,9 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
     );
   }
 
-  const cols = showBranch ? 7 : 6;
+  // The modal drops the IFSC and Account No. columns.
+  const cols = (showBranch ? 7 : 6) - (inModal ? 1 : 0);
+  // (modal: no IFSC/Account No., but Balance becomes two columns)
   // Loading, error and empty states render inside the table, like the other
   // lists, so the layout (headers, frame, pager) never disappears.
   const status = error
@@ -115,7 +118,9 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
       <div className="tbl-wrap" ref={wrapRef} onScroll={inModal ? onWrapScroll : undefined}>
         <table className={`tbl${inModal ? "" : " tbl-cards"}`}>
           <thead>
-            <tr><th>Bank</th>{showBranch && <th>Business branch</th>}<th>Bank branch</th><th>IFSC</th><th>Account No.</th><th className="num">Balance</th><th></th></tr>
+            <tr><th>Bank</th>{showBranch && <th>Business branch</th>}<th>Bank branch</th>{!inModal && <th>IFSC</th>}{!inModal && <th>Account No.</th>}{inModal
+              ? <><th className="num">Active pledges</th><th className="num">Pledged amount</th></>
+              : <th className="num">Balance</th>}<th></th></tr>
           </thead>
           <tbody>
             {status && <tr><td colSpan={cols} className="empty">{status}</td></tr>}
@@ -124,11 +129,18 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
                 <td data-label="Bank"><b>{b.name}</b></td>
                 {showBranch && <td data-label="Business branch">{b.branchName || "—"}</td>}
                 <td data-label="Bank branch">{b.branch || "—"}</td>
-                <td data-label="IFSC">{b.ifsc || "—"}</td>
-                <td data-label="Account No.">{b.accountNo || "—"}</td>
-                <td className="num" data-label="Balance" style={{ color: balanceColor(b.balance ?? 0) }}>{fmtBalance(b.balance ?? 0)}</td>
+                {!inModal && <td data-label="IFSC">{b.ifsc || "—"}</td>}
+                {!inModal && <td data-label="Account No.">{b.accountNo || "—"}</td>}
+                {inModal ? (
+                  <>
+                    <td className="num" data-label="Active pledges">{b.activePledgeCount ?? 0}</td>
+                    <td className="num" data-label="Pledged amount">{fmt(b.activePledgeAmount ?? 0)}</td>
+                  </>
+                ) : (
+                  <td className="num" data-label="Balance" style={{ color: balanceColor(b.balance ?? 0) }}>{fmtBalance(b.balance ?? 0)}</td>
+                )}
                 <td className="tbl-acts">
-                  {canOpenRoute("ledger-bank") && <a href={routeHref("ledger-bank", b.id)}>Ledger</a>}
+                  {!inModal && canOpenRoute("ledger-bank") && <a href={routeHref("ledger-bank", b.id)}>Ledger</a>}
                   {canUpdate && (
                     <button type="button" className="tbl-ibtn" title="Edit bank" aria-label={`Edit ${b.name}`}
                       onClick={() => openModal(<BankModalContent bank={b} onSaved={afterChange} />)}>
@@ -150,11 +162,6 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
           </tbody>
         </table>
       </div>
-      {inModal && (
-        <div className="ft ft-static" style={{ fontSize: 12.5, color: "var(--muted)" }}>
-          Showing {rows.length} of {total}{hasMore ? " — scroll for more" : ""}
-        </div>
-      )}
       {!inModal && <ScrollSentinel enabled={cards && hasMore} onVisible={more} watch={rows.length} />}
       {!inModal && (
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>

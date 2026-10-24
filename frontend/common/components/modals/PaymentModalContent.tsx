@@ -126,12 +126,14 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   discount: /discount/i, fee: /processing fee|additional charge/i, interest: /interest cannot|interest override/i, date: /date/i, split: /bank|breakdown|split|cheque|upi|cash/i, amount: /amount|exceed|outstanding/i,
 };
 
-type PaymentModalContentProps = { loan: LoanView; onSaved: () => void; releaseRequestId?: number; initialMode?: string };
+// releaseMinFor (release context only) gives the least that must be paid to release the gold, from the freshly fetched loan.
+// It prefills Amount, and Amount can't go below it (the backend checks the same figure).
+type PaymentModalContentProps = { loan: LoanView; onSaved: () => void; releaseRequestId?: number; initialMode?: string; releaseMinFor?: (loan: LoanView) => number };
 
 // Record Payment never posts straight away: it first pops a confirmation
 // summary (amount, where it lands, how it was paid) on top of the form, and
 // only that popup's Confirm Payment actually records it.
-export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId, initialMode }: PaymentModalContentProps) {
+export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId, initialMode, releaseMinFor }: PaymentModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
@@ -180,8 +182,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     }
   }
 
+  const releaseMin = releaseRequestId != null && releaseMinFor ? Math.round(releaseMinFor(loan) * 100) / 100 : null;
   const [amt, setAmt] = useState(() => {
-    const v = amountForMode(initialLoan, startMode);
+    const v = releaseRequestId != null && releaseMinFor ? Math.round(releaseMinFor(initialLoan) * 100) / 100 : amountForMode(initialLoan, startMode);
     return v > 0 ? prefill(v) : "";
   });
   // Set the instant a mode is picked, before the user has typed their own
@@ -273,7 +276,10 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // respected) plus the Additional Charges. "Both" keeps a hand-typed figure
   // since any amount is valid there.
   const interestForAmount = interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest;
-  const modeTotal = amountForMode({ ...loan, outstandingInterest: interestForAmount, settlementAmount: loan.settlementAmount - loan.outstandingInterest + interestForAmount }, mode) + charge;
+  // A release payment starts at what must be paid to release the gold, not at the whole settlement.
+  const modeTotal = mode === "Partial" && releaseMin != null
+    ? releaseMin
+    : amountForMode({ ...loan, outstandingInterest: interestForAmount, settlementAmount: loan.settlementAmount - loan.outstandingInterest + interestForAmount }, mode) + charge;
   useEffect(() => {
     if (mode === "Partial" && amountTouchedRef.current) return;
     setAmt(modeTotal > 0 ? prefill(modeTotal) : "");
@@ -286,6 +292,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     const processingFee = fee.trim() ? +fee : 0;
     if (processingFee < 0) { setErr("Processing fee cannot be negative.", "fee"); return; }
     const amount = typed;
+    if (releaseMin != null && amount < releaseMin - 0.005) { setErr(`Amount can't be less than ${fmt(releaseMin)}, the amount needed to release the gold — it can be more.`, "amount"); return; }
     if (processingFee > amount + 0.001) { setErr("Additional charges cannot exceed the amount.", "fee"); return; }
     const interestOverride = interest.trim() ? +interest : undefined;
     if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative.", "interest"); return; }

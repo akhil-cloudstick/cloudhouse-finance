@@ -40,7 +40,7 @@ const script = `
     // loading state, then the real branding a moment later), never another
     // business's brand: an unknown slug simply has nothing cached under it.
     var p = location.pathname.split("/").filter(Boolean);
-    var reserved = /^(login|reset|app|api|uploads|assets|static|_next|index|superadmin|forgot-password|reset-password|digilocker-callback|esign-callback|dashboard|customers?|loans?|newloan|schemes|goldrates|requests|loanrisk|personalloans?|investments?|cash|auctions|packets?|bankpledge|reports|employees|calendar|branches|roles-permissions|billing|settings)$/;
+    var reserved = /^(login|reset|app|api|uploads|assets|static|_next|index|superadmin|forgot-password|reset-password|digilocker-callback|esign-callback|customer-app|staff-app|dashboard|customers?|loans?|newloan|schemes|goldrates|requests|loanrisk|personalloans?|investments?|cash|auctions|packets?|bankpledge|reports|employees|calendar|branches|roles-permissions|billing|settings)$/;
     var first = p.length ? p[0].toLowerCase() : "";
     // The desktop shell has no tenant subdomain of its own (always
     // wails.localhost) — mirrors tenantSession.ts's desktopSlugFromApiBase,

@@ -145,7 +145,7 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
           {rows.length > 1 ? <span /> : null}
         </div>
         {/* The lines scroll inside a fixed height, so adding modes never grows the modal. */}
-        <div style={{ ...(scrollInternally ? { maxHeight: 132, overflowY: "auto", overflowX: "hidden" } : {}), marginBottom: 8, paddingBottom: 2 }}>
+        <div className="no-scrollbar" style={{ ...(scrollInternally ? { maxHeight: 132, overflowY: "auto", overflowX: "hidden" } : {}), marginBottom: 8, paddingBottom: 2 }}>
         {rows.map((r) => (
           <div key={r.key} className={error?.key === r.key ? "has-err" : undefined} style={{ marginBottom: 8 }}>
           <div style={grid}>
