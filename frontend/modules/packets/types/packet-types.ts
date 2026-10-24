@@ -12,6 +12,7 @@ type NestedOrnament = {
   quantity: number;
   goldValue: number;
   remarks?: string;
+  releasedAt?: string | null;
 };
 /* Minimal shape of the joined Loan the backend preloads onto every packet
  * response (see backend/internal/packet/repository.go's preload()) — only
@@ -33,6 +34,8 @@ export type BackendPacket = {
   code: string;
   loanId: number;
   loan?: NestedLoan;
+  // Ornaments of the loan already handed back (a partial release); sent on a single-packet read only.
+  releasedOrnaments?: NestedOrnament[];
   status: string;
   currentLockerId: number | null;
   createdAt: string;
@@ -67,6 +70,9 @@ export type PacketItemView = {
   quantity: number;
   goldValue: number;
   remarks: string;
+  // Handed back to the customer in a partial release — no longer in the packet.
+  released: boolean;
+  releasedAt: string | null;
 };
 export type PacketView = {
   id: number;

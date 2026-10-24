@@ -46,6 +46,8 @@ export type Packet = {
     status?: string;
     ornaments?: PacketOrnament[];
   };
+  // Ornaments already handed back in a partial release (sent on a single-packet read only).
+  releasedOrnaments?: PacketOrnament[];
   status: string;
   currentLockerId?: number;
   totalGrossWeight?: number;
