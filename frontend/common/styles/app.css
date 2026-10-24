@@ -5364,7 +5364,9 @@ table.tbl {
 /* Credit / Debit / Self Transfer entry modals: capped so a long payment breakdown scrolls inside
  * `.bd-scroll` instead of growing the modal. Short screens keep the tighter viewport cap above. */
 @media (min-height: 700px) {
-  .modal:has(> .bd-scroll.entry-form) {
+  /* Personal-loan New / Renew modals share the same cap. */
+  .modal:has(> .bd-scroll.entry-form),
+  .modal:has(> .bd-scroll.pl-modal) {
     max-height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
   }
 }

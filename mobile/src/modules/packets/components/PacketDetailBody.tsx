@@ -160,6 +160,18 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
           </Card>
         ))
       )}
+      {(p.releasedOrnaments ?? []).map((o) => (
+        <Card key={`released-${o.id}`} style={{ marginHorizontal: 0, marginBottom: 8, opacity: 0.6 }}>
+          <FieldGrid
+            items={[
+              { k: "Ornament", v: `${o.name}${o.quantity > 1 ? ` × ${o.quantity}` : ""}` },
+              { k: "Status", v: "Released to customer" },
+              { k: "Net weight", v: g(o.netWeight) },
+              { k: "Gold value", v: inr(o.goldValue) },
+            ]}
+          />
+        </Card>
+      ))}
 
       <SectionTitle flush style={{ marginTop: 16 }}>
         Actions

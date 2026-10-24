@@ -67,7 +67,7 @@ func cloneLoan(t *testing.T, method string, minimum, age int) uint {
 			sanctioned_amount = 1000, disbursed_amount = 1000, accrued_interest = 0, accrued_penal_interest = 0, interest_paid = 0,
 			penal_interest_paid = 0, outstanding_processing_fee = 0, service_charge_amount = 0, scheme_interest_method = ?, scheme_interest_rate = 12,
 			scheme_penal_rate = 0, scheme_minimum_days = ?, scheme_rate_tiers = NULLIF(?, ''), rate_tier_level = 0, arrears_since = NULL,
-			created_at = now(), updated_at = now()`,
+			uuid = gen_random_uuid(), created_at = now(), updated_at = now()`,
 			number, opened, opened, opened.AddDate(0, 3, 0), method, minimum, tiers).Error; err != nil {
 			return err
 		}

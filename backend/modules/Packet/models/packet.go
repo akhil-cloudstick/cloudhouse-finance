@@ -24,8 +24,10 @@ type Packet struct {
 	TotalGrossWeight float64          `json:"total_gross_weight" gorm:"type:numeric(16,3);default:0"`
 	TotalNetWeight   float64          `json:"total_net_weight" gorm:"type:numeric(16,3);default:0"`
 	Movements        []PacketMovement `json:"movements,omitempty" gorm:"foreignKey:PacketID"`
-	CreatedAt        time.Time        `json:"created_at"`
-	UpdatedAt        time.Time        `json:"updated_at"`
+	// ReleasedOrnaments are the loan's ornaments already handed back (partial release); filled on single-packet reads.
+	ReleasedOrnaments []loanModels.Ornament `json:"released_ornaments,omitempty" gorm:"-"`
+	CreatedAt         time.Time             `json:"created_at"`
+	UpdatedAt         time.Time             `json:"updated_at"`
 }
 
 type PacketMovement struct {
