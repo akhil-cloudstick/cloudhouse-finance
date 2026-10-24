@@ -42,7 +42,7 @@ const POLICY_FIELDS: Record<string, { title: string; hint: string; fields: Polic
   },
 };
 
-const EMPTY: BusinessProfileInput = { name: "", legalName: "", shortName: "", lockupTagline: "", kmlRegNo: "", contactPhone: "", addressLine: "", lenderAge: "", lenderPan: "", lenderAadhaar: "" };
+const EMPTY: BusinessProfileInput = { name: "", legalName: "", shortName: "", lockupTagline: "", kmlRegNo: "", contactPhone: "", supportEmail: "", addressLine: "", lenderAge: "", lenderPan: "", lenderAadhaar: "" };
 
 function inputOf(p: BusinessProfile): BusinessProfileInput {
   return {
@@ -52,6 +52,7 @@ function inputOf(p: BusinessProfile): BusinessProfileInput {
     lockupTagline: p.lockupTagline ?? "",
     kmlRegNo: p.kmlRegNo ?? "",
     contactPhone: p.contactPhone ?? "",
+    supportEmail: p.supportEmail ?? "",
     addressLine: p.addressLine ?? "",
     lenderAge: p.lenderAge ?? "",
     lenderPan: p.lenderPan ?? "",
@@ -176,6 +177,11 @@ export function BusinessProfilePanel() {
                 onChange={(e) => set("contactPhone", e.target.value.replace(/[^0-9+,\-() ]/g, ""))} autoComplete="off" />
               <span style={HINT}>Printed in the header of slips and statements. Separate several numbers with commas.</span></div>
           </div>
+          <div className="frow"><div><label className="f">Support email</label>
+            <input className="inp" type="email" value={form.supportEmail} disabled={!canUpdate} maxLength={160}
+              placeholder="support@yourbusiness.com"
+              onChange={(e) => set("supportEmail", e.target.value.trim())} autoComplete="off" />
+            <span style={HINT}>Shown on the public Privacy Policy, Terms and Contact pages when this is the default business.</span></div></div>
           <div className="frow"><div><label className="f">Registered address</label>
             <input className="inp" value={form.addressLine} disabled={!canUpdate} maxLength={300}
               onChange={(e) => set("addressLine", e.target.value)} autoComplete="off" />

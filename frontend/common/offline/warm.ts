@@ -60,8 +60,11 @@ const PATHS = [
   `/loans/auctions/concluded?${ALL}&hasSale=false`,
   "/loans/bank-pledges/history",
   `/loans/bank-pledges/history?${ALL}`,
-  // the cash ledger
+  // the cash ledger, and the three tables on the Cash page (cash entries, expenses, gold sales)
   `/cash-movements/cash-ledger?${ALL}`,
+  `/cash-movements?${ALL}`,
+  `/expenses?${ALL}`,
+  `/gold-sales?${ALL}`,
   `/loans/risk-assessment?limit=100&offset=0`,
 ];
 
@@ -198,6 +201,9 @@ const BRANCH_PATHS = [
   "/loans/interest-collected",
   "/banks",
   `/cash-movements/cash-ledger?${ALL}`,
+  `/cash-movements?${ALL}`,
+  `/expenses?${ALL}`,
+  `/gold-sales?${ALL}`,
   `/loans/requests?${ALL}`,
   `/packets?${ALL}`,
   `/personal-loans?${ALL}`,

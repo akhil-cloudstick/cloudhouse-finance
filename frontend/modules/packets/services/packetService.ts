@@ -1,6 +1,7 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { createsLocker, findLocalRequest, LOCKER_REF } from "@/common/offline/requestRef";
 import { isSmallScreen } from "@/common/utils/responsive";
 import type { BackendPacket, BackendPacketMovement, PacketView, MovementView, PacketFilters, RecordMovementInput } from "@/modules/packets/types/packet-types";
 
@@ -132,7 +133,15 @@ export async function recordMovement(packetId: number, input: RecordMovementInpu
   // Desktop: the movement goes into the outbox first and the packet shows its new stage at once (see
   // common/offline/statusAdjust.ts); the sender posts it. A packet with no server id yet cannot be moved.
   if (offlineReady() && packetId > 0) {
-    const entry = newEntry("POST", `/packets/${packetId}/movements`, input, currentActor(), [`packet:${packetId}`]);
+    let body: unknown = input;
+    // a locker made on this PC has no server id yet: the movement names it by the entry that creates it, or by the
+    // server's id when that entry has already been sent (see common/offline/requestRef.ts)
+    if (input.lockerId !== undefined && input.lockerId < 0) {
+      const found = await findLocalRequest(input.lockerId, createsLocker);
+      if (!found) throw new Error("This locker is no longer on this PC — refresh and pick it again.");
+      body = { ...input, lockerId: "serverId" in found ? found.serverId : `${LOCKER_REF}${found.entryId}` };
+    }
+    const entry = newEntry("POST", `/packets/${packetId}/movements`, body, currentActor(), [`packet:${packetId}`]);
     await enqueueAndWait(entry, () => undefined, () => undefined);
     return getPacket(packetId).catch(() => null);
   }

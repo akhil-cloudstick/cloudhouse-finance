@@ -74,9 +74,22 @@ type releaseApprovalRequest struct {
 	Remarks string `json:"remarks"`
 }
 
-func partialReleaseRemaining(outstandingBalance, principalAmount, remainingGoldValue, ltvPercent float64) float64 {
-	buffer := 0.05 * principalAmount
-	return (outstandingBalance + buffer) - (remainingGoldValue * ltvPercent / 100)
+// releaseAmountNeeded is what must be paid (payment plus discount) before this release request's gold can be
+// released, from the loan as it stands now: the whole outstanding balance for a full release, or — for a partial
+// one — what brings the balance down to what the remaining ornaments support (the same figure every release screen shows).
+func releaseAmountNeeded(ctx context.Context, req *models.LoanRequest, branchID *uint) (float64, error) {
+	l, err := GetLoan(ctx, req.LoanID, branchID)
+	if err != nil {
+		return 0, err
+	}
+	if !req.IsPartial {
+		return common.RoundMoney(max(l.TotalOutstandingBalance, 0)), nil
+	}
+	remainingGoldValue, err := partialReleaseRemainingGoldValue(ctx, req)
+	if err != nil {
+		return 0, err
+	}
+	return common.RoundMoney(max(partialReleaseDrift(l.TotalOutstandingBalance, remainingGoldValue, l.SchemeLTVPercent), 0)), nil
 }
 
 func partialReleaseDrift(outstandingBalance, remainingGoldValue, ltvPercent float64) float64 {
@@ -154,7 +167,21 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 			return nil, err
 		}
 	}
-	return findLoanRequestByID(ctx, req.ID)
+	created, err := findLoanRequestByID(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	// The amount needed to release is worked out here, when the request is first logged, so whoever raised it
+	// (staff or the customer) is shown it. It is checked again when the payment is recorded.
+	needed, err := releaseAmountNeeded(ctx, created, nil)
+	if err != nil {
+		return nil, err
+	}
+	created.SettlementAmount = needed + created.Charges
+	if err := persistLoanRequest(ctx, created); err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, in ChecklistInput) (*models.LoanRequest, error) {
@@ -225,6 +252,16 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 		chargeDelta = 0
 	}
 	wasAlreadyRecorded := req.PaymentRecorded
+	// The amount needed to release is checked here, at payment time, against the live balance the release
+	// page showed — before anything is posted. Later approval stages then trust this check instead of
+	// re-checking a balance that interest has moved on.
+	needed, err := releaseAmountNeeded(ctx, req, branchID)
+	if err != nil {
+		return nil, err
+	}
+	if short := common.RoundMoney(needed - (in.Amount + in.Discount)); short > 0.01 {
+		return nil, common.NewBadRequest(fmt.Sprintf("the payment is ₹%.2f short of the ₹%.2f needed to release the gold", short, needed))
+	}
 	if in.Discount > 0 {
 		if _, err := SaveLoanPayment(ctx, req.LoanID, PaymentInput{
 			Amount:               in.Discount,
@@ -271,9 +308,11 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	}
 	req.RecordedDiscount = common.RoundMoney(req.RecordedDiscount + in.Discount)
 	req.RecordedPayment = common.RoundMoney(req.RecordedPayment + in.Amount)
+	req.QuoteMet = true
+	req.SettlementAmount = common.RoundMoney(needed + req.Charges)
 	if req.IsPartial {
 		req.PaymentDueDate = nil
-	} else if l.TotalOutstandingBalance <= 0.01 {
+	} else if l.TotalOutstandingBalance <= 0.01 || req.QuoteMet {
 		req.PaymentDueDate = nil
 	} else if in.Discount <= 0 && paymentAmount <= 0 {
 	} else if in.DueDate == nil {
@@ -408,7 +447,8 @@ func advanceReleaseRequestStage(ctx context.Context, req *models.LoanRequest, ac
 		if err != nil {
 			return nil, err
 		}
-		if req.IsPartial {
+		// A request whose payment already covered the amount needed isn't re-checked against the live balance.
+		if req.IsPartial && !req.QuoteMet {
 			remainingGoldValue, err := partialReleaseRemainingGoldValue(ctx, req)
 			if err != nil {
 				return nil, err
@@ -420,7 +460,9 @@ func advanceReleaseRequestStage(ctx context.Context, req *models.LoanRequest, ac
 		}
 		req.ApprovalStage = models.ApprovalStageApproved
 		finalApproval = true
-		req.SettlementAmount = l.TotalOutstandingBalance + req.Charges
+		if !req.QuoteMet {
+			req.SettlementAmount = l.TotalOutstandingBalance + req.Charges
+		}
 		if !req.IsPartial {
 			l.Status = models.StatusClosureRequested
 			if err := persistLoan(ctx, l); err != nil {
@@ -514,8 +556,8 @@ func completeRelease(ctx context.Context, loanID uint, branchID *uint, employeeI
 	if approved != nil && approved.IsPartial {
 		return completePartialRelease(ctx, l, approved)
 	}
-	if l.TotalOutstandingBalance > 0.01 {
-		return nil, common.NewBadRequest("settlement is not fully paid yet")
+	if l.TotalOutstandingBalance > 0.01 && !(approved != nil && approved.QuoteMet) {
+		return nil, common.NewBadRequest("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
 	}
 	if err := packet.RecordGoldReleaseMovement(ctx, loanID, "Gold released to customer"); err != nil {
 		log.Printf("packet gold-release movement failed for loan %d: %v", loanID, err)

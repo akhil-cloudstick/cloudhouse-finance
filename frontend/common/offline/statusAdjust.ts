@@ -9,7 +9,7 @@
 
 import { offlineStore } from "@/common/services/desktopBridge";
 import { listLocal } from "./localCopy";
-import { localRequestId } from "./requestRef";
+import { LOCKER_REF, localRequestId } from "./requestRef";
 import type { OutboxEntry } from "./types";
 
 type Env = { data?: unknown; [k: string]: unknown };
@@ -130,8 +130,10 @@ async function movements(): Promise<Movement[]> {
   for (const e of await waiting()) {
     const m = /^\/packets\/(\d+)\/movements$/.exec(e.path);
     if (!m || e.method !== "POST") continue;
-    const b = (e.body ?? {}) as { toStatus?: string; lockerId?: number; remarks?: string };
-    if (b.toStatus) out.push({ packetId: Number(m[1]), toStatus: b.toStatus, lockerId: b.lockerId, remarks: b.remarks, at: e.occurredAt });
+    const b = (e.body ?? {}) as { toStatus?: string; lockerId?: number | string; remarks?: string };
+    // a locker made on this PC is named by its creating entry; the lists show it under the matching local id
+    const lockerId = typeof b.lockerId === "string" && b.lockerId.startsWith(LOCKER_REF) ? localRequestId(b.lockerId.slice(LOCKER_REF.length)) : (b.lockerId as number | undefined);
+    if (b.toStatus) out.push({ packetId: Number(m[1]), toStatus: b.toStatus, lockerId, remarks: b.remarks, at: e.occurredAt });
   }
   return out;
 }

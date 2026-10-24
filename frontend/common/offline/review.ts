@@ -9,7 +9,7 @@ import type { EntityName, OutboxEntry } from "./types";
 
 export const REVIEW_CHANGED_EVENT = "app:offline-review-changed";
 
-const ENTITIES: EntityName[] = ["loans", "customers", "schemes", "categories"];
+const ENTITIES: EntityName[] = ["loans", "customers", "schemes", "categories", "lockers"];
 
 export type ReviewRow = {
   id: string;
@@ -100,7 +100,7 @@ export async function discardReview(row: ReviewRow): Promise<void> {
     const entity = entityOf(uuid);
     if (!entity) continue;
     const rec = getLocal(entity, uuid);
-    if (rec && !rec.id) await removeLocal(entity, uuid);
+    if (rec && !(Number(rec.id) > 0)) await removeLocal(entity, uuid);
     else await upsertLocal(entity, { uuid, syncReview: undefined });
   }
   await resetCursor();
@@ -119,6 +119,8 @@ const ACTIONS: [RegExp, string][] = [
   [/\/ornaments/, "Ornament change"],
   [/^POST \/customers$/, "New customer"],
   [/^POST \/schemes$/, "New scheme"],
+  [/^POST \/lockers$/, "New locker"],
+  [/^(PUT|DELETE) \/lockers\//, "Locker change"],
   [/cash-movements|cash\/entries|\/cash/, "Cash entry"],
   [/categories|cash-sources/, "New category"],
   [/expenses/, "Expense"],

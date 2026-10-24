@@ -65,6 +65,35 @@ type BankView struct {
 	commonModels.Bank
 	BranchName string  `json:"branch_name"`
 	Balance    float64 `json:"balance"`
+	// Gold currently repledged to this bank (status Active): how many pledges and their total amount.
+	ActivePledgeCount  int64   `json:"active_pledge_count"`
+	ActivePledgeAmount float64 `json:"active_pledge_amount"`
+}
+
+type bankPledgeTotals struct {
+	BankID uint
+	Count  int64
+	Amount float64
+}
+
+// activePledgeTotals sums the Active bank pledges of the given banks, keyed by bank id.
+func activePledgeTotals(ctx context.Context, bankIDs []uint) (map[uint]bankPledgeTotals, error) {
+	out := map[uint]bankPledgeTotals{}
+	if len(bankIDs) == 0 {
+		return out, nil
+	}
+	var rows []bankPledgeTotals
+	err := config.DB.WithContext(ctx).Table("bank_pledge_records").
+		Select("bank_id, COUNT(*) AS count, COALESCE(SUM(pledged_amount), 0) AS amount").
+		Where("status = ? AND bank_id IN ?", "Active", bankIDs).
+		Group("bank_id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.BankID] = r
+	}
+	return out, nil
 }
 
 func insertBank(ctx context.Context, b *commonModels.Bank) error {
@@ -161,9 +190,17 @@ func listWithBalances(ctx context.Context, query string, branchID *uint, limit, 
 			return nil, 0, 0, 0, err
 		}
 	}
+	ids := make([]uint, len(rows))
+	for i, b := range rows {
+		ids[i] = b.ID
+	}
+	pledges, err := activePledgeTotals(ctx, ids)
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
 	views = make([]BankView, len(rows))
 	for i, b := range rows {
-		views[i] = BankView{Bank: b, Balance: balances[b.ID]}
+		views[i] = BankView{Bank: b, Balance: balances[b.ID], ActivePledgeCount: pledges[b.ID].Count, ActivePledgeAmount: pledges[b.ID].Amount}
 		if b.BusinessBranch != nil {
 			views[i].BranchName = b.BusinessBranch.Name
 		}

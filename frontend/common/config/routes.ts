@@ -103,6 +103,8 @@ export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set<string>([
   "reset-password",
   "digilocker-callback",
   "esign-callback",
+  "customer-app",
+  "staff-app",
 ]);
 
 /* isValidBusinessSlug is the rule for what may BE a business code, and it now

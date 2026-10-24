@@ -14,22 +14,23 @@ import type { OutboxEntry } from "./types";
 
 const MOVES_MONEY = /^\/loans\/uuid:([0-9a-f-]+)\/(approve|payments|topup|bank-pledge\/(\d+|ref:[0-9a-f-]+)\/release)$/i;
 const CASH_ENTRY = /^\/(cash-movements|expenses)$/;
+const SELF_TRANSFER = /^\/cash-movements\/self-transfer$/;
 const RELEASE_PAYMENT = /^\/loans\/requests\/\d+\/release-payment$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+export const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function today(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function queryOf(path: string): URLSearchParams {
+export function queryOf(path: string): URLSearchParams {
   return new URLSearchParams(path.includes("?") ? path.slice(path.indexOf("?") + 1) : "");
 }
 
-type Part = { mode: string; amount: number; bankId?: number };
-type Pending = {
+export type Part = { mode: string; amount: number; bankId?: number; bankName?: string };
+export type Pending = {
   entry: OutboxEntry;
   out: boolean; // a disbursal (money out) as opposed to a payment (money in)
   parts: Part[];
@@ -37,10 +38,25 @@ type Pending = {
   branchId: number | null;
   customerId: number | null;
   label?: string;
+  source?: string; // the cash movement's source (the cash-in category, "Self Transfer", "GoldSale")
+  category?: string; // an expense's category
+  expense?: boolean;
+  on?: string; // the date the person picked on the form, "YYYY-MM-DD"
+  remarks?: string;
 };
 
+/* When a waiting entry happened: the date picked on the form, at the time it was saved. */
+export function whenOf(p: Pending): string {
+  return p.on ? `${p.on.slice(0, 10)}T${p.entry.occurredAt.slice(11)}` : p.entry.occurredAt;
+}
+
+/* What the ledger and the cash list call the entry. */
+export function purposeOf(p: Pending): string {
+  return p.label ?? (p.out ? `Loan disbursement — ${p.loanNumber}` : `${(p.entry.body as { type?: string } | undefined)?.type ?? "Payment"} — ${p.loanNumber}`);
+}
+
 /* The waiting entries that move money, newest first. */
-async function pendingMoney(branch: number): Promise<Pending[]> {
+export async function pendingMoney(branch: number): Promise<Pending[]> {
   const found: Pending[] = [];
   for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
     let entry: OutboxEntry;
@@ -52,13 +68,44 @@ async function pendingMoney(branch: number): Promise<Pending[]> {
     // cash added or paid out by hand (Add Cash)
     if (entry.method === "POST" && CASH_ENTRY.test(entry.path)) {
       const isExpense = entry.path === "/expenses";
-      const cb = (entry.body ?? {}) as { type?: string; source?: string; purpose?: string; category?: string; amount?: number; mode?: string; bankId?: number; fromBankId?: number; branchId?: number; payments?: { mode: string; amount: number; bankId?: number }[] };
+      const cb = (entry.body ?? {}) as { type?: string; source?: string; purpose?: string; category?: string; amount?: number; mode?: string; bankId?: number; fromBankId?: number; branchId?: number; occurredOn?: string; remarks?: string; payments?: { mode: string; amount: number; bankId?: number }[] };
       const cparts: Part[] = (cb.payments?.length ? cb.payments : [{ mode: cb.mode ?? "Cash", amount: Number(cb.amount) || 0, bankId: cb.bankId ?? cb.fromBankId }])
         .map((p) => ({ mode: p.mode || "Cash", amount: Number(p.amount) || 0, bankId: p.bankId }))
         .filter((p) => p.amount > 0);
       if (!cparts.length || (branch && cb.branchId && Number(cb.branchId) !== branch)) continue;
       const label = isExpense ? `Expense — ${cb.category ?? ""}`.trim() : cb.source || cb.purpose || "Cash entry";
-      found.push({ entry, out: isExpense || cb.type === "out", parts: cparts, loanNumber: label, branchId: cb.branchId ?? null, customerId: null, label });
+      found.push({
+        entry, out: isExpense || cb.type === "out", parts: cparts, loanNumber: label, branchId: cb.branchId ?? null, customerId: null, label,
+        source: isExpense ? undefined : cb.source, category: isExpense ? cb.category : undefined, expense: isExpense, on: cb.occurredOn, remarks: cb.remarks,
+      });
+      continue;
+    }
+    // a self transfer moves money between cash and a bank, or between two banks: a debit and a credit, the same as the server books it.
+    // A repayment to a lender (no To bank) leaves the business, so only its debit is booked.
+    if (entry.method === "POST" && SELF_TRANSFER.test(entry.path)) {
+      const sb = (entry.body ?? {}) as { category?: string; amount?: number; fromBankId?: number; fromBank?: string; toBankId?: number; toBank?: string; mode?: string; branchId?: number; occurredOn?: string; remarks?: string };
+      const amount = Number(sb.amount) || 0;
+      if (amount <= 0 || (branch && sb.branchId && Number(sb.branchId) !== branch)) continue;
+      const category = (sb.category ?? "").trim();
+      const cashToBank = category.toLowerCase() === "cash to bank";
+      const bankToCash = category.toLowerCase() === "bank to cash";
+      const mode = sb.mode || "Bank Transfer";
+      const label = `Self transfer — ${category}`;
+      const base = { entry, loanNumber: label, branchId: sb.branchId ?? null, customerId: null, label, source: "Self Transfer", on: sb.occurredOn, remarks: sb.remarks };
+      found.push({ ...base, out: true, parts: [cashToBank ? { mode: "Cash", amount } : { mode, amount, bankId: sb.fromBankId, bankName: sb.fromBank }] });
+      if (bankToCash || sb.toBankId) found.push({ ...base, out: false, parts: [bankToCash ? { mode: "Cash", amount } : { mode, amount, bankId: sb.toBankId, bankName: sb.toBank }] });
+      continue;
+    }
+    // a gold sale takes the sale in (in the mode it was received) and pays the cost to acquire out (in the mode it was paid)
+    if (entry.method === "POST" && entry.path === "/gold-sales") {
+      const gb = (entry.body ?? {}) as { ornamentType?: string; soldAmount?: number; costAmount?: number; costMode?: string; costBankId?: number; branchId?: number; mode?: string; bankId?: number; soldOn?: string; remarks?: string };
+      if (branch && gb.branchId && Number(gb.branchId) !== branch) continue;
+      const sold = Number(gb.soldAmount) || 0;
+      const cost = Number(gb.costAmount) || 0;
+      const type = (gb.ornamentType ?? "").trim();
+      const base = { entry, branchId: gb.branchId ?? null, customerId: null, on: gb.soldOn, remarks: gb.remarks };
+      if (cost > 0) found.push({ ...base, out: true, parts: [{ mode: gb.costMode || "Cash", amount: cost, bankId: gb.costBankId }], loanNumber: `Gold purchase cost — ${type}`, label: `Gold purchase cost — ${type}` });
+      if (sold > 0) found.push({ ...base, out: false, parts: [{ mode: gb.mode || "Cash", amount: sold, bankId: gb.bankId }], loanNumber: `Gold sale — ${type}`, label: `Gold sale — ${type}`, source: "GoldSale" });
       continue;
     }
     // a personal loan made on this PC pays the customer out at once, unless it waits for approval first
@@ -220,14 +267,16 @@ function movementRows(pending: Pending[]): Row[] {
       rows.push({
         id: -n, // not on the server yet; never clashes with a real id
         type: p.out ? "out" : "in",
-        ...(p.out ? {} : { source: "Collection" }),
-        purpose: p.label ?? (p.out ? `Loan disbursement — ${p.loanNumber}` : `${(p.entry.body as { type?: string } | undefined)?.type ?? "Payment"} — ${p.loanNumber}`),
+        ...(p.source ? { source: p.source } : p.out ? {} : { source: "Collection" }),
+        purpose: purposeOf(p),
         mode: part.mode,
         bankId: part.bankId ?? null,
+        ...(part.bankName ? { bank: part.bankName } : {}),
         amount: part.amount,
+        remarks: p.remarks ?? "",
         status: "",
         branchId: p.branchId,
-        occurredOn: p.entry.occurredAt,
+        occurredOn: whenOf(p),
         createdAt: p.entry.occurredAt,
         transactionGroupId: `offline-${p.entry.id}`,
         partyCustomerId: p.customerId,

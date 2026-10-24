@@ -137,6 +137,13 @@ export async function createCashMovement(input: CashMovementInput): Promise<Cash
 }
 
 export async function createSelfTransfer(input: SelfTransferInput): Promise<void> {
+  // Desktop: outbox first, as createCashMovement above. Both sides of the transfer count in cash in hand, the bank
+  // balances and the ledgers at once (see common/offline/cashAdjust.ts and ledgerAdjust.ts).
+  if (offlineReady()) {
+    const entry = newEntry("POST", "/cash-movements/self-transfer", input, currentActor());
+    await enqueueAndWait(entry, () => undefined, () => undefined);
+    return;
+  }
   await apiFetch<BackendCashMovement[]>("/cash-movements/self-transfer", {
     method: "POST",
     body: JSON.stringify(input),
@@ -312,6 +319,17 @@ export async function listGoldSalesPage(
 }
 
 export async function createGoldSale(input: GoldSaleInput): Promise<GoldSaleView> {
+  // Desktop: outbox first, as createCashMovement above. The sale and its cost count in the cash figures, the ledgers and
+  // the Gold Sales table at once (see common/offline/cashAdjust.ts and ledgerAdjust.ts).
+  if (offlineReady()) {
+    const entry = newEntry("POST", "/gold-sales", input, currentActor());
+    await enqueueAndWait(entry, () => undefined, () => undefined);
+    return goldSaleToView({
+      id: 0, ornamentType: input.ornamentType, soldAmount: input.soldAmount, costAmount: input.costAmount,
+      profit: input.soldAmount - input.costAmount, soldOn: input.soldOn ?? new Date().toISOString(), branchId: input.branchId,
+      mode: input.mode, bankId: input.bankId ?? null, costMode: input.costMode, remarks: input.remarks, createdAt: new Date().toISOString(),
+    } as BackendGoldSale);
+  }
   const rec = await apiFetch<BackendGoldSale>("/gold-sales", {
     method: "POST",
     body: JSON.stringify(input),

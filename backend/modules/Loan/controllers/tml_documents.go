@@ -286,7 +286,7 @@ func tmlSlipData(ctx context.Context, l *models.Loan) tmlSlipTemplateData {
 		if o.ReleasedAt != nil {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%d %s - Net wt=%sgm (Approx.)", max(o.Quantity, 1), o.Name, fmtWeight(o.NetWeight)))
+		parts = append(parts, fmt.Sprintf("%d %s - Net wt=%sgm", max(o.Quantity, 1), o.Name, fmtWeight(o.NetWeight)))
 		gross += o.GrossWeight
 		net += o.NetWeight
 		stone += o.DeductionWeight

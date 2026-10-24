@@ -85,6 +85,7 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/webhooks/razorpay":                                                      public("Razorpay's own server; gated by webhook signature, not a JWT"),
 	"GET /api/v1/auth/me":                                                                 self("returns the caller's own claims; no identifier to substitute"),
 	"GET /api/v1/public/branding/:code":                                                   public("login-page branding; unknown codes return the platform default, never a 404"),
+	"GET /api/v1/public/provider":                                                         public("store-listing legal pages; always answers for the business coded \"default\" — takes no caller input, returns only name, address, phone, support email, website and logo"),
 	"GET /api/v1/public/branding/:code/logo":                                              public("a public logo, resolved from the tenant row's own key rather than a caller-supplied one"),
 	"GET /api/v1/public/connect/:code":                                                    public("staff-app connect code; a short-lived random code that only reveals a business code, which grants nothing"),
 	"POST /api/v1/public/devtools/unlock":                                                 public("desktop app only; checks a PIN against the one platform-wide hash, throttled per-IP — see common.UnlockDevTools"),

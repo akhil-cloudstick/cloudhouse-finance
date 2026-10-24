@@ -77,10 +77,10 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
     try {
       const input = { code: trimmedCode, branchId: Number(branchId), capacity, isActive };
       if (locker) {
-        await updateLocker(locker.id, input);
+        await updateLocker(locker.id, input, branches.find((b) => b.id === Number(branchId))?.name);
         toast(`Locker ${trimmedCode} updated`);
       } else {
-        await createLocker(input);
+        await createLocker(input, branches.find((b) => b.id === Number(branchId))?.name);
         toast(`Locker ${trimmedCode} added`);
       }
       onSaved?.();

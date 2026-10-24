@@ -3278,6 +3278,18 @@ button.fi-trigger {
  * (non-transparent) background + blur is needed here, unlike the plain
  * .card .ft above, so table rows scrolling underneath don't show through
  * the sticky bar. */
+/* Release modals' ornament lists: about five rows show at once, the rest scroll (header stays put). */
+.tbl-wrap.rel-orn-wrap {
+  max-height: 262px;
+  overflow-y: auto;
+}
+.tbl-wrap.rel-orn-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ivory);
+}
+
 .tbl-wrap + .ft {
   position: sticky;
   bottom: 0;
@@ -5342,7 +5354,7 @@ table.tbl {
 
 .modal:has(> .bd-scroll) {
   height: auto;
-  max-height: calc(100dvh - 32px);
+  max-height: calc(100dvh - var(--titlebar-h) - 32px);
   display: flex;
   flex-direction: column;
   margin: auto;
@@ -5355,7 +5367,7 @@ table.tbl {
  * the modal. Short screens keep the tighter cap from the ≤850px block below. */
 @media (min-height: 851px) {
   .modal:has(> .bd-scroll .scheme-frow) {
-    max-height: min(660px, calc(100dvh - 32px));
+    max-height: min(660px, calc(100dvh - var(--titlebar-h) - 32px));
   }
 }
 
@@ -5363,7 +5375,7 @@ table.tbl {
  * `.bd-scroll` instead of growing the modal. Short screens keep the tighter viewport cap above. */
 @media (min-height: 700px) {
   .modal:has(> .bd-scroll.entry-form) {
-    max-height: min(640px, calc(100dvh - 32px));
+    max-height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
   }
 }
 
@@ -5404,7 +5416,7 @@ table.tbl {
 .modal .bd.bd-scroll.bd-tbl > .tbl-card.tbl-scroll-paged > .tbl-wrap,
 .modal .tbl-wrap.tbl-scroll-paged {
   flex: 0 1 auto;
-  max-height: min(360px, calc(100dvh - 260px));
+  max-height: min(360px, calc(100dvh - var(--titlebar-h) - 260px));
   overflow-y: auto;
 }
 
@@ -6919,7 +6931,7 @@ table.tbl {
   }
   .modal:has(> .bd-scroll) {
     height: auto;
-    max-height: min(500px, calc(100dvh - 32px));
+    max-height: min(500px, calc(100dvh - var(--titlebar-h) - 32px));
     display: flex;
     flex-direction: column;
     margin: auto;
@@ -7017,8 +7029,8 @@ table.tbl {
  * body scrolls instead of the modal growing. The extra class outranks the
  * auto-height `.modal:has(> .bd-scroll)` rules (including the short-screen cap). */
 .modal:has(> .bd-scroll.edit-loan-bd) {
-  height: min(720px, calc(100dvh - 32px));
-  max-height: min(720px, calc(100dvh - 32px));
+  height: min(720px, calc(100dvh - var(--titlebar-h) - 32px));
+  max-height: min(720px, calc(100dvh - var(--titlebar-h) - 32px));
 }
 
 /* Vertical gap between ornament cards (EditLoanModal.tsx) — wider on small
@@ -8334,6 +8346,11 @@ html.has-titlebar {
 html.has-titlebar body {
   padding-top: var(--titlebar-h);
 }
+/* Modals centre in the area below the title bar — `inset:0` otherwise centres them in the whole window
+ * and the bar covers the top of the modal (its header). The modal height caps subtract --titlebar-h too. */
+html.has-titlebar .modal-bg {
+  top: var(--titlebar-h);
+}
 .dtb {
   position: fixed;
   top: 0;
@@ -9202,7 +9219,7 @@ table.tbl.lockers-tbl {
  * many fit (the inline 3 x 180px minimum overflowed the modal), and the
  * ornament table tightens so the Value column is never cut off. ── */
 .modal .repledge-modal-bd .frow.rp-compact {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }
 .repledge-modal-bd .rp-tbl {
   overflow-x: auto;

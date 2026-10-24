@@ -22,6 +22,12 @@ var modeVocabulary = map[string]bool{
 
 const SelfTransferSource = "Self Transfer"
 
+// Built-in self-transfer categories that move money between the cash drawer and a bank.
+const (
+	SelfTransferCashToBank = "Cash to Bank"
+	SelfTransferBankToCash = "Bank to Cash"
+)
+
 var bankModes = []string{models.CashModeUPI, models.CashModeBankTransfer}
 
 // bankModeSQL is bankModes as a SQL list, for the ledger scans that build their WHERE clause as text.

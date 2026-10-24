@@ -27,6 +27,7 @@ export type BusinessProfile = {
   policy: string;
   kmlRegNo: string;
   contactPhone: string;
+  supportEmail: string;
   addressLine: string;
   lenderAge: string;
   lenderPan: string;
@@ -34,5 +35,5 @@ export type BusinessProfile = {
 };
 export type BusinessProfileInput = Pick<
   BusinessProfile,
-  "name" | "legalName" | "shortName" | "lockupTagline" | "kmlRegNo" | "contactPhone" | "addressLine" | "lenderAge" | "lenderPan" | "lenderAadhaar"
+  "name" | "legalName" | "shortName" | "lockupTagline" | "kmlRegNo" | "contactPhone" | "supportEmail" | "addressLine" | "lenderAge" | "lenderPan" | "lenderAadhaar"
 >;

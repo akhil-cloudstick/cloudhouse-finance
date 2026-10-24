@@ -450,14 +450,29 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 			return nil, err
 		}
 	}
-	if in.FromBankID == 0 {
-		return nil, common.NewBadRequest("from bank is required")
-	}
-	if !toLender && toBankID == 0 {
-		return nil, common.NewBadRequest("to bank is required")
-	}
-	if in.FromBankID == toBankID {
-		return nil, common.NewBadRequest("from bank and to bank must be different")
+	cashToBank := strings.EqualFold(category, SelfTransferCashToBank)
+	bankToCash := strings.EqualFold(category, SelfTransferBankToCash)
+	switch {
+	case cashToBank:
+		category = SelfTransferCashToBank
+		if toBankID == 0 {
+			return nil, common.NewBadRequest("to bank is required")
+		}
+	case bankToCash:
+		category = SelfTransferBankToCash
+		if in.FromBankID == 0 {
+			return nil, common.NewBadRequest("from bank is required")
+		}
+	default:
+		if in.FromBankID == 0 {
+			return nil, common.NewBadRequest("from bank is required")
+		}
+		if !toLender && toBankID == 0 {
+			return nil, common.NewBadRequest("to bank is required")
+		}
+		if in.FromBankID == toBankID {
+			return nil, common.NewBadRequest("from bank and to bank must be different")
+		}
 	}
 	mode := in.Mode
 	switch mode {
@@ -488,6 +503,16 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 		Type: "in", Source: SelfTransferSource, Purpose: purpose, Mode: mode, ReceiptImage: in.ReceiptImage,
 		Bank: toBank, BankID: &toID, CounterBankID: &fromID, Amount: in.Amount, BranchID: in.BranchID,
 		OccurredOn: occurred, TransactionGroupID: groupID, Remarks: remarks, IsManual: true,
+	}
+	// Cash to Bank / Bank to Cash: the cash side is a Cash-mode line with no bank (it lands in the cash
+	// ledger), the bank side keeps the chosen bank mode and shows in that bank's ledger. Both are in the main ledger.
+	if cashToBank {
+		debit.Mode, debit.Bank, debit.BankID, debit.CounterBankID = models.CashModeCash, "", nil, &toID
+		credit.CounterBankID = nil
+	}
+	if bankToCash {
+		debit.CounterBankID = nil
+		credit.Mode, credit.Bank, credit.BankID, credit.CounterBankID = models.CashModeCash, "", nil, &fromID
 	}
 	if err := insertMovement(ctx, debit); err != nil {
 		return nil, err

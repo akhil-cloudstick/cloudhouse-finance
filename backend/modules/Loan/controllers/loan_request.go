@@ -146,7 +146,7 @@ func findLoanRequestByID(ctx context.Context, id uint) (*models.LoanRequest, err
 
 func FindLoanRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRequest, int64, error) {
 	q := config.DB.
-		WithContext(ctx).Preload("Loan.Customer").Model(&models.LoanRequest{}).Order("loan_requests.id desc")
+		WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").Model(&models.LoanRequest{}).Order("loan_requests.id desc")
 	if f.BranchID != nil || f.Query != "" {
 		q = q.Joins("JOIN loans ON loans.id = loan_requests.loan_id")
 	}

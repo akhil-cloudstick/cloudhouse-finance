@@ -10,6 +10,7 @@
 import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
 import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjust";
 import { adjustLatestRate, adjustRateHistory } from "./goldRateAdjust";
+import { adjustExpenses, adjustGoldSales, adjustLedger, LEDGER_PATH } from "./ledgerAdjust";
 import { adjustPersonalLoans } from "./personalLoanAdjust";
 import { adjustInvestmentPlans, adjustInvestments } from "./investmentAdjust";
 import { adjustCalendar, adjustReminders } from "./reminderAdjust";
@@ -241,9 +242,14 @@ export async function recall(path: string, view: string): Promise<string | null>
   if (/\/users\/\d+\/investments(\?|$)/.test(path)) return adjustInvestments(path, body);
   // personal loans made on this PC and not sent yet are listed as pending ones
   if (/\/personal-loans(\?|$)/.test(path)) return adjustPersonalLoans(path, body);
+  // The ledgers (Cash, UPI / Bank Transfer / Cheque, a bank's, an expense category's) list what this PC has entered since the
+  // last answer. A category made on this PC has no answer at all, so this runs before the "nothing kept" check below.
+  if (LEDGER_PATH.test(path)) return adjustLedger(path, body);
   // The cash figures and the cash ledger are the server's last answer; what this PC has taken or paid out since
   // (entries still waiting to be sent) is added to them.
   if (body === null) return null;
+  if (/\/expenses(\?|$)/.test(path)) return adjustExpenses(path, body);
+  if (/\/gold-sales(\?|$)/.test(path)) return adjustGoldSales(path, body);
   if (/\/cash\/summary(\?|$)/.test(path)) return adjustCashSummary(path, body);
   if (/\/cash-movements(\?|$)/.test(path)) return adjustCashMovements(path, body);
   if (/\/banks(\?|$)/.test(path)) return adjustBanks(body);

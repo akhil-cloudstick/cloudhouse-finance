@@ -28,6 +28,15 @@ export function localRequestId(entryId: string): number {
   return -(parseInt(entryId.replace(/-/g, "").slice(-7), 16) + 1);
 }
 
+/* A locker made on this PC works the same way: it is listed under a local id, a packet checked into it carries
+ * "locker-ref:<entry id>" as its locker, and an edit or delete addresses it as /lockers/ref:<entry id>. */
+export const LOCKER_REF = "locker-ref:";
+const LOCKER_PATH_REF = /\/lockers\/ref:([0-9a-f-]+)(\/|$)/i;
+
+export function createsLocker(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+  return entry.method === "POST" && entry.path === "/lockers";
+}
+
 export function createsRequest(entry: Pick<OutboxEntry, "method" | "path">): boolean {
   return entry.method === "POST" && CREATES_REQUEST.test(entry.path);
 }
@@ -44,7 +53,7 @@ export async function rememberRequest(entryId: string, body: unknown): Promise<v
 
 /* The entry's path with a ref swapped for the server's request id; null when that request never reached the server. */
 export async function resolveRequestPath(path: string): Promise<string | null> {
-  const m = REQUEST_REF.exec(path);
+  const m = REQUEST_REF.exec(path) ?? LOCKER_PATH_REF.exec(path);
   if (!m) return path;
   const id = (await load())[m[1]];
   return id ? path.replace(`ref:${m[1]}`, String(id)) : null;
@@ -65,8 +74,9 @@ export function findLocalPlan(localId: number): Promise<{ entryId: string } | { 
 /* The body with every plan ref swapped for the server's plan id; null when that plan never reached the server. */
 export async function resolvePlanRefs(body: unknown): Promise<unknown | null> {
   if (typeof body === "string") {
-    if (!body.startsWith(PLAN_REF)) return body;
-    const id = (await load())[body.slice(PLAN_REF.length)];
+    const prefix = [PLAN_REF, LOCKER_REF].find((p) => body.startsWith(p));
+    if (!prefix) return body;
+    const id = (await load())[body.slice(prefix.length)];
     return id ? id : null;
   }
   if (Array.isArray(body)) {

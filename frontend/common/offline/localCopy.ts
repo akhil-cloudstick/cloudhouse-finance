@@ -5,9 +5,9 @@
 import { offlineStore } from "@/common/services/desktopBridge";
 import type { EntityName, LocalRecord } from "./types";
 
-const ENTITIES: EntityName[] = ["loans", "customers", "schemes", "categories"];
+const ENTITIES: EntityName[] = ["loans", "customers", "schemes", "categories", "lockers"];
 
-const cache: Record<EntityName, Map<string, LocalRecord>> = { loans: new Map(), customers: new Map(), schemes: new Map(), categories: new Map() };
+const cache: Record<EntityName, Map<string, LocalRecord>> = { loans: new Map(), customers: new Map(), schemes: new Map(), categories: new Map(), lockers: new Map() };
 const listeners = new Set<() => void>();
 let writes: Promise<void> = Promise.resolve();
 let loaded = false;

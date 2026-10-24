@@ -38,7 +38,14 @@ const MODE_OPTIONS = [
   { value: "Cash", label: "Cash" },
 ];
 
-const noWheelStep = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
+// Built-in categories that move money between the cash drawer and a bank. The cash side has no bank
+// and is always Cash mode; the bank side takes Bank Transfer or UPI.
+const CASH_TO_BANK = "Cash to Bank";
+const BANK_TO_CASH = "Bank to Cash";
+const BANK_MODE_OPTIONS = MODE_OPTIONS.filter((o) => o.value !== "Cash");
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.toLowerCase();
+
+const noWheelStep =(e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
 
 const searchTransferCategories = searchCategoriesPage("self_transfer");
 
@@ -68,12 +75,16 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
   // A loan category (name starts with "Loan") makes this a repayment on that loan.
   const loan = catRec && isLoanSource(catRec.name) ? catRec : null;
   const loanReady = !!loan;
+  const cashToBank = sameName(category, CASH_TO_BANK);
+  const bankToCash = sameName(category, BANK_TO_CASH);
+  const cashSide = cashToBank || bankToCash;
 
   const [fromBank, setFromBank] = useState(edit?.fromBank ?? "");
   const [fromBankId, setFromBankId] = useState(edit?.fromBankId ? String(edit.fromBankId) : "");
   const [toBank, setToBank] = useState(edit?.toBank ?? "");
   const [toBankId, setToBankId] = useState(edit?.toBankId ? String(edit.toBankId) : "");
-  const [mode, setMode] = useState(edit?.lines[0]?.mode || "Bank Transfer");
+  // A Cash to Bank entry's first line is the cash debit, so its bank-side mode is not on the form.
+  const [mode, setMode] = useState(edit?.lines[0]?.mode && edit.lines[0].mode !== "Cash" ? edit.lines[0].mode : "Bank Transfer");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
@@ -118,19 +129,23 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
     if (!category) { fail("category", "Please select a category."); return; }
     if (!(amount > 0)) { fail("amount", "Please enter a valid amount."); return; }
     if (!date) { fail("date", "Please select the date."); return; }
-    if (!fromBankId) { fail("fromBank", "Please select the From Bank."); return; }
+    if (!cashToBank && !fromBankId) { fail("fromBank", "Please select the From Bank."); return; }
     if (loan && !loanReady) { fail("category", "This loan has no details recorded yet — add cash from it first."); return; }
-    if (!loan && !toBankId) { fail("toBank", "Please select the To Bank."); return; }
-    if (!loan && toBankId === fromBankId) { fail("toBank", "From Bank and To Bank must be different."); return; }
+    if (!loan && !bankToCash && !toBankId) { fail("toBank", "Please select the To Bank."); return; }
+    if (!loan && !cashSide && toBankId === fromBankId) { fail("toBank", "From Bank and To Bank must be different."); return; }
     if (!branchId) { fail("branch", "Please select a branch."); return; }
 
     setSaving(true);
     try {
       const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
+      // The cash side of Cash to Bank / Bank to Cash carries no bank.
+      const noTo = !!loan || bankToCash;
+      const sendMode = cashSide && mode === "Cash" ? "Bank Transfer" : mode;
+      const fromPart = cashToBank ? { fromBankId: undefined, fromBank: undefined } : { fromBankId: +fromBankId, fromBank };
+      const toPart = noTo ? { toBankId: undefined, toBank: undefined } : { toBankId: +toBankId, toBank };
       if (edit) {
         await updateMovementEntry(edit.movementId, {
-          kind: "self_transfer", category, amount, fromBankId: +fromBankId, fromBank, mode, receiptImage,
-          toBankId: loan ? undefined : +toBankId, toBank: loan ? undefined : toBank,
+          kind: "self_transfer", category, amount, ...fromPart, mode: sendMode, receiptImage, ...toPart,
           branchId, occurredOn: date, remarks: remarks.trim(),
         });
         onSaved?.();
@@ -139,13 +154,14 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
         return;
       }
       await createSelfTransfer({
-        category, amount, fromBankId: +fromBankId, fromBank, mode, receiptImage,
-        toBankId: loan ? undefined : +toBankId, toBank: loan ? undefined : toBank,
+        category, amount, ...fromPart, mode: sendMode, receiptImage, ...toPart,
         branchId, occurredOn: date, remarks: remarks.trim() || undefined,
       });
       onSaved?.();
       closeModal();
-      toast(loan ? `${fmt(amount)} repaid on ${category} from ${fromBank}` : `${fmt(amount)} transferred ${fromBank} → ${toBank}`);
+      const fromLabel = cashToBank ? "Cash" : fromBank;
+      const toLabel = bankToCash ? "Cash" : toBank;
+      toast(loan ? `${fmt(amount)} repaid on ${category} from ${fromBank}` : `${fmt(amount)} transferred ${fromLabel} → ${toLabel}`);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not save — try again.";
       const field = fieldForMessage(msg, SERVER_FIELDS);
@@ -199,11 +215,17 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
         </div>
         <div className="frow c2">
           <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
-          <div><label className="f">Mode *</label><Select options={MODE_OPTIONS} value={mode} onChange={setMode} /></div>
+          <div><label className="f">Mode *</label><Select options={cashSide ? BANK_MODE_OPTIONS : MODE_OPTIONS} value={cashSide && mode === "Cash" ? "Bank Transfer" : mode} onChange={setMode} /></div>
         </div>
         <div className={loan ? "frow" : "frow c2"}>
-          <div className={fe.fromBank ? "has-err" : undefined}><label className="f">From Bank *</label>{bankPicker(fromBank, (id, name) => { setFromBankId(id); setFromBank(name); clearFe("fromBank"); })}<FieldError msg={fe.fromBank} /></div>
-          {!loan && (
+          {cashToBank ? (
+            <div><label className="f">From</label><input className="inp" value="Cash" disabled readOnly /></div>
+          ) : (
+            <div className={fe.fromBank ? "has-err" : undefined}><label className="f">From Bank *</label>{bankPicker(fromBank, (id, name) => { setFromBankId(id); setFromBank(name); clearFe("fromBank"); })}<FieldError msg={fe.fromBank} /></div>
+          )}
+          {bankToCash ? (
+            <div><label className="f">To</label><input className="inp" value="Cash" disabled readOnly /></div>
+          ) : !loan && (
             <div className={fe.toBank ? "has-err" : undefined}><label className="f">To Bank *</label>{bankPicker(toBank, (id, name) => { setToBankId(id); setToBank(name); clearFe("toBank"); })}<FieldError msg={fe.toBank} /></div>
           )}
         </div>

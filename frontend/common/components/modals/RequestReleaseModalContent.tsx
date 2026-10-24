@@ -10,19 +10,12 @@ import { type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+// The same formula the server checks, computed here so staff get live feedback as they tick ornaments.
+import { partialReleaseRemaining } from "@/modules/loans/utils/releaseAmount";
 
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = { ornaments: /ornament|collateral|remaining/i };
 
-// Mirrors backend/internal/loan/service.go's partialReleaseRemaining — the
-// same buffered formula the server re-checks on submit, computed here too
-// so staff get live feedback as they check/uncheck ornaments instead of a
-// round trip per click. buffer = 5% of principal, absorbing ordinary drift
-// between selection and Manager/Management approval.
-function partialReleaseRemaining(outstandingBalance: number, principalAmount: number, remainingGoldValue: number, ltvPercent: number): number {
-  const buffer = 0.05 * principalAmount;
-  return (outstandingBalance + buffer) - (remainingGoldValue * ltvPercent) / 100;
-}
 type RequestReleaseModalContentProps = { loan: LoanView; onSaved: () => void };
 
 /* Request Release — pick which pledged ornaments come out this time (all
@@ -114,7 +107,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
   const allSelected = selected.size === pledged.length;
   const remainingOrnaments = pledged.filter((o) => !selected.has(o.id));
   const remainingCollateral = remainingOrnaments.reduce((sum, o) => sum + o.goldValue, 0);
-  const remaining = allSelected ? 0 : partialReleaseRemaining(loan.totalOutstandingBalance, loan.principal, remainingCollateral, loan.schemeLtv);
+  const remaining = allSelected ? 0 : partialReleaseRemaining(loan.totalOutstandingBalance, remainingCollateral, loan.schemeLtv);
   const conditionMet = allSelected || remaining <= 0.01;
 
   async function save() { return singleFlight("modal:requestextension:save:2", async () => {
@@ -128,10 +121,11 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
       // Passing every pledged ornament's id behaves identically to omitting
       // ornamentIds entirely — see createReleaseRequest's own doc comment —
       // so there is no separate "full release" branch to keep in sync here.
-      await createReleaseRequest(loan.numericId, detail.trim() || (allSelected ? "Full settlement requested" : "Partial release requested"), ornamentIds);
+      const created = await createReleaseRequest(loan.numericId, detail.trim() || (allSelected ? "Full settlement requested" : "Partial release requested"), ornamentIds);
       onSaved();
       closeModal();
-      toast(`Release request logged for ${loan.id}`);
+      // The amount the backend worked out when it logged the request; it is checked again when the payment is recorded.
+      toast(`Release request logged for ${loan.id} — ${fmt(created.settlementAmount)} needed to release the gold`);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not log the request — try again.";
       if (fieldForMessage(msg, SERVER_FIELDS)) setOrnamentsErr(msg); else setErr(msg);
@@ -155,14 +149,15 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
           <div className="i"><div className="k">Scheme LTV</div><div className="v">{loan.schemeLtv}%</div></div>
         </div>
         <div className={ornamentsErr ? "has-err" : undefined}>
-        <div className="tbl-wrap"><table className="tbl">
+        <div className="tbl-wrap rel-orn-wrap"><table className="tbl">
           <thead><tr><th style={{ width: 36 }}></th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th><th></th></tr></thead>
           <tbody>
             {pledged.map((o) => {
               const isPending = !!pendingOrnamentIds?.has(o.id);
               return (
                 <tr key={o.id}>
-                  <td><input type="checkbox" checked={selected.has(o.id)} onChange={() => toggle(o.id)} /></td>
+                  {/* The trailing empty span keeps `.ccheck>span:last-child` off the mark; gap 0 so it adds no width. */}
+                  <td><label className="ccheck" style={{ gap: 0, alignItems: "center" }}><input type="checkbox" aria-label={`Release ${o.name}`} checked={selected.has(o.id)} onChange={() => toggle(o.id)} /><span className="mark" style={{ marginTop: 0 }} /><span /></label></td>
                   <td>{o.name}</td>
                   <td><span className="chip brand">{o.purity}</span></td>
                   <td className="num">{o.netWeight.toFixed(1)}</td>

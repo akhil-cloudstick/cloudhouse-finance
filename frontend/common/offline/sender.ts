@@ -17,7 +17,7 @@ import { forgetRegistration } from "./device";
 import { withUploadedPhotos } from "./photos";
 import { ensureRegistered } from "./register";
 import { rememberPledge, resolvePledgePath } from "./pledgeRef";
-import { createsPlan, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
+import { createsLocker, createsPlan, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
 import type { EntityName, OutboxEntry } from "./types";
 
 let running = false;
@@ -34,6 +34,9 @@ function parse(line: string): OutboxEntry | null {
 
 /* A saved reply puts the server's number on the record the screens show (#7F3A becomes LN-00235). */
 async function applyReply(entry: OutboxEntry, body: unknown): Promise<void> {
+  // a locker made on this PC is now on the server: drop the pending copy, the server's own list has it
+  // (so is a locker edit or delete shown from this PC's overlay)
+  if (/^\/lockers(\/|$)/.test(entry.path) && getLocal("lockers", entry.id)) await removeLocal("lockers", entry.id);
   const rec = ((body as { data?: unknown } | undefined)?.data ?? body) as Record<string, unknown> | undefined;
   const uuid = rec && typeof rec.uuid === "string" ? rec.uuid : entry.targets?.[0];
   if (!rec || !uuid) return;
@@ -128,7 +131,7 @@ export async function drain(why: string): Promise<boolean> {
         break;
       }
       if (entry.method === "POST" && /\/bank-pledge$/.test(entry.path)) await rememberPledge(entry.id, r.body);
-      if (createsRequest(entry) || createsPlan(entry)) await rememberRequest(entry.id, r.body);
+      if (createsRequest(entry) || createsPlan(entry) || createsLocker(entry)) await rememberRequest(entry.id, r.body);
       await applyReply(entry, r.body);
       await offlineStore.deleteOutboxEntry(entry.id);
       sent++;

@@ -18,6 +18,7 @@ import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError } from "@/common/components/ui/FieldError";
+import { releaseAmountNeeded } from "@/modules/loans/utils/releaseAmount";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
 // no-buffer check ApproveReleaseRequest re-runs at Manager/Management
@@ -138,7 +139,10 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // Approve anyway, so the button/messaging here must not block on
   // paymentRecorded alone or it would show a stale "must record payment"
   // warning for a release that's actually ready to go.
-  const paymentConditionMet = req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
+  const neededText = loan
+    ? fmt(releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null))
+    : "the minimum amount";
+  const paymentConditionMet =req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
   async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
     setSaving(true);
@@ -232,7 +236,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         {req.isPartial && loan && (
           <div style={{ marginBottom: 14 }}>
             <label className="f">Selected Ornaments — {req.ornamentIds.length} of {loan.ornaments.filter((o) => !o.releasedAt).length}</label>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap rel-orn-wrap"><table className="tbl">
               <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
               <tbody>
                 {loan.ornaments.filter((o) => req.ornamentIds.includes(o.id)).map((o) => (
@@ -280,18 +284,13 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         <button
           className="btn ghost sm"
           disabled={req.status !== "Pending" || !canDecide || !loan}
-          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} releaseRequest={req} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
+          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} releaseRequest={req} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
         >
           <Icon name="coin" /> Record Payment
         </button>
 
         <div className="frow" style={{ marginTop: 14 }}><div className={notesErr ? "has-err" : undefined}><label className="f">Verification Notes</label><input className="inp" value={notes} disabled={!canDecide || req.locked} onChange={(e) => { setNotes(e.target.value); setNotesErr(""); }} onBlur={saveNotes} placeholder="optional" /><FieldError msg={notesErr} /></div></div>
 
-        {driftLikely && !showTopUp && (
-          <p className="notice" style={{ marginTop: 12, color: "var(--red)" }}>
-            <Icon name="shield" /> Outstanding balance may have drifted above what the remaining collateral supports — approval may require a top-up payment.
-          </p>
-        )}
         {showTopUp && loan && (
           <div style={{ marginTop: 12 }}>
             <label className="f">Top-Up Payment</label>
@@ -312,10 +311,10 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           <p className="notice" style={{ marginTop: 12 }}>
             <Icon name="shield" />{" "}
             {!req.customerSawGold && !paymentConditionMet
-              ? '"Customer has seen the gold" must be ticked and the minimum amount paid before this can be approved.'
+              ? `"Customer has seen the gold" must be ticked and at least ${neededText} paid before this can be approved.`
               : !req.customerSawGold
                 ? '"Customer has seen the gold" must be ticked before this can be approved.'
-                : "The minimum amount must be paid (via Record Payment above, or an earlier payment on the loan) before this can be approved."}
+                : `At least ${neededText} must be paid (via Record Payment above) before this can be approved.`}
           </p>
         )}
         {chain.length > 0 && (

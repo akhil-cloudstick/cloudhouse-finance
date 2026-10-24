@@ -22,7 +22,7 @@ export type OutboxEntry = {
 };
 
 /** "schemes" holds only schemes made on this PC that the server has not accepted yet. */
-export type EntityName = "loans" | "customers" | "schemes" | "categories";
+export type EntityName = "loans" | "customers" | "schemes" | "categories" | "lockers";
 
 /** A record in the local copy. Always carries the UUID the PC knows it by. */
 export type LocalRecord = { uuid: string } & Record<string, unknown>;

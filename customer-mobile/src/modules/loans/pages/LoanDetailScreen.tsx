@@ -449,20 +449,26 @@ function ReleaseSheet({
   const [detail, setDetail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  // What must be paid to release the gold, as the backend works it out now.
+  const [needed, setNeeded] = useState(outstanding);
 
   useEffect(() => {
     if (visible) {
       setDetail("");
       setMessage(null);
+      setNeeded(outstanding);
+      loansApi.getLoan(loanId)
+        .then((l) => setNeeded(l.settlementAmount ?? l.totalOutstandingBalance ?? outstanding))
+        .catch(() => {});
     }
-  }, [visible]);
+  }, [visible, loanId, outstanding]);
 
   async function submit() {
     setSubmitting(true);
     setMessage(null);
     try {
-      await loansApi.requestRelease(loanId, { detail: detail || undefined });
-      setMessage({ text: "Release request submitted." });
+      const req = await loansApi.requestRelease(loanId, { detail: detail || undefined });
+      setMessage({ text: `Release request submitted. Amount to pay to release your gold: ${money(req.settlementAmount ?? needed)}.` });
       setTimeout(() => {
         onClose();
         onSubmitted();
@@ -480,8 +486,8 @@ function ReleaseSheet({
         Request Gold Release
       </ThemedText>
       <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
-        You're requesting closure of this loan and release of your pledged gold. Outstanding balance of{" "}
-        {money(outstanding)} must be settled first.
+        You're requesting closure of this loan and release of your pledged gold. {money(needed)} must be paid
+        to release it. The amount is checked again when your payment is recorded.
       </ThemedText>
       <GoldTextInput
         label="Notes (optional)"
