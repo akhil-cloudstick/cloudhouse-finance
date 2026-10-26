@@ -670,6 +670,18 @@ h3,
   display: block
 }
 
+/* New Loan: dropdown lists and the Saved drafts list still scroll (wheel/touch),
+ * but without a visible scrollbar. */
+.newloan-root .gs-results,
+.newloan-drafts > .bd {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.newloan-root .gs-results::-webkit-scrollbar,
+.newloan-drafts > .bd::-webkit-scrollbar {
+  display: none;
+}
+
 /* FilterPanel.tsx's own popover — a small, capped-width card (never the
    full-bleed .gs-results search-result panel above, which this component
    used to reuse: styled for a text-search dropdown filling its trigger's
@@ -887,7 +899,9 @@ h3,
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  width: 169px;
+  width: max-content;
+  min-width: 169px;
+  max-width: min(360px, calc(100vw - 24px));
   box-sizing: border-box;
   background: var(--card);
   border: 1px solid var(--line);
@@ -925,17 +939,14 @@ h3,
   flex-shrink: 0
 }
 
-/* A label that overflows the 169px-wide menu (e.g. "Send Indemnity Bond
- * for eSign") fades out at its own right edge — via a mask, not
- * text-overflow:ellipsis's "…" — rather than wrapping to a second line or
- * silently clipping mid-letter. */
+/* The menu sizes to its longest label (max-content, capped to the viewport),
+ * so labels such as "Partial Receipt — Malayalam" show in full. A label only
+ * wraps if it exceeds the capped width. */
 .docs-dd-menu a .tx {
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent 100%);
-  mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Side picker under a Documents item (Print Slip → Normal print / eSign): a small
@@ -3552,6 +3563,14 @@ button.fi-trigger {
 .kpi-link:focus-visible {
   outline: 2px solid var(--brand-deep);
   outline-offset: 2px
+}
+
+.kpi.amber::after {
+  background: linear-gradient(180deg, oklch(0.78 0.13 75), var(--amber))
+}
+
+.kpi.info::after {
+  background: linear-gradient(180deg, oklch(0.72 0.1 245), var(--info))
 }
 
 .kpi.ok::after {
@@ -7032,6 +7051,57 @@ table.tbl {
  * distinct blocks rather than running together. */
 .eln-card {
   margin-bottom: 10px;
+}
+
+/* Edit Loan ornament card: name | purity | qty, then gross | less | net | photos.
+ * Every input here is the standard 38px (the shared 31px ornament-row pins don't apply). */
+.eln-top,
+.eln-wt {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.eln-top {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(70px, .5fr);
+}
+
+.eln-wt {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+}
+
+.eln-card .orn-type-td .inp {
+  height: 38px;
+  padding: 9px 12px;
+}
+
+.eln-card .pur-row {
+  height: 38px;
+}
+
+@media (max-width: 700px) {
+  .eln-top {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .eln-top > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .eln-wt {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .eln-photos {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 420px) {
+  .eln-wt {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 900px) {

@@ -24,10 +24,10 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 // `photos` are the ornament's saved photos; `newPhotos` were uploaded in this
 // edit and are attached on Save (so Cancel leaves the loan untouched).
-type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean; photos: string[]; newPhotos: string[] };
+type OrnRow = { id?: number; name: string; purity: string; gross: string; less: string; net: string; qty: string; removed?: boolean; photos: string[]; newPhotos: string[] };
 
 function toRow(o: OrnamentView): OrnRow {
-  return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), net: String(o.netWeight), qty: String(o.quantity), photos: o.photoUrls ?? [], newPhotos: [] };
+  return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), less: String(Math.round(Math.max(0, o.grossWeight - o.netWeight) * 1000) / 1000), net: String(o.netWeight), qty: String(o.quantity), photos: o.photoUrls ?? [], newPhotos: [] };
 }
 
 type EditLoanModalContentProps = { loan: LoanView; onSaved: () => void };
@@ -65,8 +65,26 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     setRowErr((cur) => (cur?.idx === i ? null : cur));
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
+  // Gross/Less drive Net (gross − less); typing Net directly back-fills Less — same as New Loan.
+  const w3 = (n: number) => String(Math.round(Math.max(0, n) * 1000) / 1000);
+  const wOk = (v: string) => /^d*.?d{0,3}$/.test(v);
+  function setGross(i: number, v: string) {
+    if (!wOk(v)) return;
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, gross: v, net: v === "" ? "" : w3(+v - (+r.less || 0)) } : r)));
+    setRowErr((cur) => (cur?.idx === i ? null : cur));
+  }
+  function setLess(i: number, v: string) {
+    if (!wOk(v)) return;
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, less: v, net: r.gross === "" ? r.net : w3(+r.gross - (+v || 0)) } : r)));
+    setRowErr((cur) => (cur?.idx === i ? null : cur));
+  }
+  function setNet(i: number, v: string) {
+    if (!wOk(v)) return;
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, net: v, less: r.gross === "" || v === "" ? r.less : w3(+r.gross - +v) } : r)));
+    setRowErr((cur) => (cur?.idx === i ? null : cur));
+  }
   function addRow() {
-    setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", net: "", qty: "1", photos: [], newPhotos: [] }]);
+    setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", less: "", net: "", qty: "1", photos: [], newPhotos: [] }]);
   }
   async function ornPhotoPicked(i: number, f: File) {
     if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
@@ -105,7 +123,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   // stored K22/K18 the backend's own rateForPurity does. NewLoan.tsx
   // itself is untouched — this fix is scoped to this modal only.
   const totalGoldValue = activeRows.reduce(
-    (s, r) => s + (+r.net || 0) * (+r.qty || 1) * (rateForPurityFull(goldRate, r.purity) ?? 0),
+    (s, r) => s + (+r.net || 0) * (rateForPurityFull(goldRate, r.purity) ?? 0),
     0
   );
   // Rounded to paise like the backend's common.RoundMoney — the raw float can
@@ -242,7 +260,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
               {/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —
                   these rows need the modifier or every field stacks onto its
                   own line instead of sitting side by side. */}
-              <div className="frow c2">
+              <div className="eln-top">
                 <div className="orn-type-td"><label className="f">Name</label>
                   {/* Same ornament-type catalog picker NewLoan.tsx uses; the
                       `orn-type-td` wrapper pins it to the 31px row height the
@@ -260,6 +278,8 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                   /></div>
                 <div><label className="f">Purity</label>
                   <PurityPicker value={r.purity} onChange={(v) => updRow(i, { purity: v })} /></div>
+                <div><label className="f">Qty</label>
+                  <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
               </div>
               {/* Plain `.frow.c3` — this modal now opens `wide` (820px,
                   see LoanDetail.tsx's openModal calls) instead of the
@@ -267,17 +287,16 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                   other dense form in the app) has enough room without a
                   local override, and gets the same small-screen collapse
                   every other `.frow.c3` row already gets for free. */}
-              <div className="frow c3">
+              <div className="eln-wt">
                 <div><label className="f">Gross (g)</label>
-                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.gross} onChange={(e) => { if (/^\d*\.?\d{0,3}$/.test(e.target.value)) updRow(i, { gross: e.target.value }); }} /></div>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.gross} onChange={(e) => setGross(i, e.target.value)} /></div>
+                <div><label className="f">Less (g)</label>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.less} onChange={(e) => setLess(i, e.target.value)} /></div>
                 <div><label className="f">Net (g)</label>
-                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.net} onChange={(e) => { if (/^\d*\.?\d{0,3}$/.test(e.target.value)) updRow(i, { net: e.target.value }); }} /></div>
-                <div><label className="f">Qty</label>
-                  <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
-              </div>
-              {rowErr?.idx === i && <FieldError msg={rowErr.msg} />}
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "10px 0" }}>
-                <label className="f" style={{ margin: "0 4px 0 0" }}>Photos</label>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.net} onChange={(e) => setNet(i, e.target.value)} /></div>
+                <div className="eln-photos">
+                <label className="f">Photos</label>
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
                 {r.photos.map((u) => (
                   <SafeImage key={u} src={u} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
                 ))}
@@ -297,8 +316,11 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                     <button ref={t.ref} type="button" className="btn plain sm" style={{ height: 34 }} aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}><Icon name="camera" /> Add photo</button>
                   )}
                 />
+                </div>
+                </div>
               </div>
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              {rowErr?.idx === i && <FieldError msg={rowErr.msg} />}
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
                 <button className="btn danger sm" onClick={() => removeRow(i)} title="Remove ornament">✕ Remove</button>
               </div>
             </div>

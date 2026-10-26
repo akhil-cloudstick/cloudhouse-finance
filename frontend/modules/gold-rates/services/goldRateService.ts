@@ -10,6 +10,9 @@ function toView(r: BackendGoldRate): GoldRateView {
     k22: r.k22 > 0 ? r.k22 : rateForKarat(r.k24, 22),
     k18: r.k18 > 0 ? r.k18 : rateForKarat(r.k24, 18),
     setBy: r.setBy,
+    setByDesignation: r.setByDesignation || "",
+    createdAt: r.createdAt || "",
+    entries: r.entries?.map(toView),
   };
 }
 
@@ -33,6 +36,23 @@ export async function listGoldRatesPage(
     limit: String(pageSize),
     offset: String((page - 1) * pageSize),
   });
+  const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean; total?: number }>(`/gold-rates?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+}
+
+/* Rate History table: one item per calendar day — the day's newest rate, with
+ * every change of that day in `entries`. `date` ("YYYY-MM-DD") narrows to one day. */
+export async function listGoldRateDaysPage(
+  page: number,
+  limit: number,
+  date?: string
+): Promise<{ items: GoldRateView[]; hasMore: boolean; total: number }> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String((page - 1) * limit),
+    group: "day",
+  });
+  if (date) params.set("date", date);
   const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean; total?: number }>(`/gold-rates?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }

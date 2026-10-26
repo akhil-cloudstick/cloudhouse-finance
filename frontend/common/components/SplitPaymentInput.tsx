@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PaymentBreakdownFields, newPaymentRow, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
+import { PaymentBreakdownFields, effectiveRows, newPaymentRow, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
 
 // Cheque is not a payment mode in the application: Cash, UPI and Bank Transfer only.
 export const SPLIT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
@@ -109,7 +109,7 @@ export function SplitPaymentInput({
     newPaymentRow({ mode: "Cash", amount: totalAmount > 0 ? String(totalAmount) : "" }),
   ]);
 
-  const lines: SplitPaymentLine[] = rows.map((r) => ({
+  const lines: SplitPaymentLine[] = effectiveRows(rows, totalAmount).map((r) => ({
     mode: r.mode as SplitPaymentMode,
     amount: r.amount,
     bankId: r.bankId ? +r.bankId : undefined,

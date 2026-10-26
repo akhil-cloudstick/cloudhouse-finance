@@ -22,11 +22,23 @@ type publishRequest struct {
 }
 
 type PublishInput struct {
-	Date  time.Time
-	Karat int
-	Rate  float64
-	SetBy string
-	Rates map[int]float64
+	Date        time.Time
+	Karat       int
+	Rate        float64
+	SetBy       string
+	Designation string
+	Rates       map[int]float64
+}
+
+// GoldRateDay is one calendar day of rate history: the day's newest rate, plus every change made that day (newest first).
+type GoldRateDay struct {
+	commonModels.GoldRate
+	Entries []commonModels.GoldRate `json:"entries"`
+}
+
+type goldRateDayRow struct {
+	commonModels.GoldRate
+	DayKey time.Time `gorm:"column:day_key"`
 }
 
 func (req publishRequest) toInput() (PublishInput, error) {
@@ -126,8 +138,9 @@ func SaveGoldRate(ctx context.Context, in PublishInput) (*commonModels.GoldRate,
 		date = time.Now()
 	}
 	rec := &commonModels.GoldRate{
-		Date:  date,
-		SetBy: in.SetBy,
+		Date:             date,
+		SetBy:            in.SetBy,
+		SetByDesignation: in.Designation,
 	}
 	if prev, err := FindLatest(ctx); err == nil {
 		rec.K24, rec.K22, rec.K18 = prev.K24, prev.K22, prev.K18
@@ -162,6 +175,55 @@ func listGoldRates(ctx context.Context, limit, offset int) ([]commonModels.GoldR
 	return FindGoldRates(ctx, limit, offset)
 }
 
+// findGoldRateDays pages over calendar days (not rows), optionally narrowed to one day, newest day first.
+func findGoldRateDays(ctx context.Context, day string, limit, offset int) ([]GoldRateDay, int64, error) {
+	base := func() *gorm.DB {
+		q := config.DB.WithContext(ctx).Model(&commonModels.GoldRate{})
+		if day != "" {
+			q = q.Where("CAST(date AS DATE) = ?", day)
+		}
+		return q
+	}
+	var total int64
+	if err := base().Distinct("CAST(date AS DATE)").Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var days []time.Time
+	dq := base().Select("DISTINCT CAST(date AS DATE) AS d").Order("d desc")
+	if limit > 0 {
+		dq = dq.Limit(limit).Offset(offset)
+	}
+	if err := dq.Scan(&days).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(days) == 0 {
+		return []GoldRateDay{}, total, nil
+	}
+	var rows []goldRateDayRow
+	err := config.DB.WithContext(ctx).Model(&commonModels.GoldRate{}).
+		Select("gold_rates.*, CAST(date AS DATE) AS day_key").
+		Where("CAST(date AS DATE) IN ?", days).
+		Order("CAST(date AS DATE) desc, id desc").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]GoldRateDay, 0, len(days))
+	idx := map[string]int{}
+	for _, r := range rows {
+		k := r.DayKey.Format("2006-01-02")
+		i, ok := idx[k]
+		if !ok {
+			// rows are newest-first, so a day's first row is its newest rate
+			out = append(out, GoldRateDay{GoldRate: r.GoldRate})
+			i = len(out) - 1
+			idx[k] = i
+		}
+		out[i].Entries = append(out[i].Entries, r.GoldRate)
+	}
+	return out, total, nil
+}
+
 func LatestGoldRate(ctx context.Context) (*commonModels.GoldRate, error) {
 	rec, err := FindLatest(ctx)
 	if err != nil {
@@ -188,6 +250,8 @@ func PublishGoldRate(c echo.Context) error {
 	if err != nil {
 		return FailErr(c, err)
 	}
+	// the setter's designation is their role from the token, never a client-sent value
+	_, input.Designation, _ = auth.ActorFromContext(c)
 	rec, err := SaveGoldRate(ctx, input)
 	if err != nil {
 		return FailErr(c, err)
@@ -198,6 +262,19 @@ func PublishGoldRate(c echo.Context) error {
 func ListGoldRates(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := PageParams(c)
+	if c.QueryParam("group") == "day" {
+		day := c.QueryParam("date")
+		if day != "" {
+			if _, err := time.Parse("2006-01-02", day); err != nil {
+				return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid date: expected YYYY-MM-DD"})
+			}
+		}
+		rec, total, err := findGoldRateDays(ctx, day, limit, offset)
+		if err != nil {
+			return FailErr(c, err)
+		}
+		return SuccessPage(c, page, limit, total, rec)
+	}
 	if limit > 0 {
 		rec, total, err := listGoldRates(ctx, limit, offset)
 		if err != nil {

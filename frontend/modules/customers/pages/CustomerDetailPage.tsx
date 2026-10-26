@@ -10,7 +10,7 @@ import { fmt, fmtW, initials, fmtDate, ageFromDob } from "@/common/utils/format"
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
-import { getCustomer360, verifyCustomerPan, startAadhaarVerify, checkAadhaarVerify, hardDeleteCustomer, listCustomerLoansPage, listCustomerOrnamentsPage, listCustomerPaymentsPage, listCustomerBankPledgesPage, listCustomerAuctionHistoryPage } from "@/modules/customers/services/customerService";
+import { getCustomer360, getCustomerByRef, isNumericCustomerRef,verifyCustomerPan, startAadhaarVerify, checkAadhaarVerify, hardDeleteCustomer, listCustomerLoansPage, listCustomerOrnamentsPage, listCustomerPaymentsPage, listCustomerBankPledgesPage, listCustomerAuctionHistoryPage } from "@/modules/customers/services/customerService";
 import { type Customer360View } from "@/modules/customers/types/customer-types";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 import type { LoanView, CustomerOrnamentRowView, CustomerPaymentRowView, CustomerBankPledgeRowView, CustomerAuctionRowView } from "@/modules/loans/types/loan-types";
@@ -42,7 +42,12 @@ type CustomerDetailPageProps = { id?: string };
  * table, with no ornament/payment/bank-pledge/auction history in one
  * place. SMS reminder / follow-up history is still omitted — no data
  * source exists anywhere yet. */
-export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
+export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
+  /* The URL names the customer by code (/customer/CUST-04); every call below
+   * wants the numeric id, so the code is resolved to it first. Older numeric
+   * links skip the lookup and get the code written into the address bar once
+   * the profile loads. */
+  const [id, setId] = useState<string | undefined>(routeRef && isNumericCustomerRef(routeRef) ? routeRef : undefined);
   const { openModal } = useModal();
   const showBranch = useShowBranch();
   const toast = useToast();
@@ -95,12 +100,28 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const [avatarFailed, setAvatarFailed] = useState(false);
 
   useEffect(() => {
+    if (!routeRef) { setId(undefined); return; }
+    if (isNumericCustomerRef(routeRef)) { setId(routeRef); return; }
+    let cancelled = false;
+    setError("");
+    getCustomerByRef(routeRef)
+      .then((c) => { if (!cancelled) setId(c.id); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load customer."); });
+    return () => { cancelled = true; };
+  }, [routeRef]);
+
+  useEffect(() => {
     if (!id) return;
     setError("");
     setAvatarFailed(false);
     setReloading(true);
     getCustomer360(id, { from, to })
-      .then(setProfile)
+      .then((p) => {
+        setProfile(p);
+        if (routeRef && isNumericCustomerRef(routeRef) && p.customer.code) {
+          window.history.replaceState(window.history.state, "", routeHref("customer", p.customer.code) + window.location.search);
+        }
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customer."))
       .finally(() => setReloading(false));
   }, [id, from, to]);

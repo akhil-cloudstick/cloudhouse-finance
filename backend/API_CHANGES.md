@@ -742,6 +742,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/customer/ws` | = |
 | `GET /api/v1/customers` | `GET /api/v1/users/:user_id/customers` |
 | `POST /api/v1/customers` | `POST /api/v1/users/:user_id/customers` |
+| `GET /api/v1/customers/by-code/:code` | `GET /api/v1/users/:user_id/customers/by-code/:code` |
 | `GET /api/v1/customers/:id` | `GET /api/v1/users/:user_id/customers/:id` |
 | `PUT /api/v1/customers/:id` | `PATCH /api/v1/users/:user_id/customers/:id/update` |
 | `GET /api/v1/customers/:id/aadhaar-full` | `GET /api/v1/users/:user_id/customers/:id/aadhaar-full` |

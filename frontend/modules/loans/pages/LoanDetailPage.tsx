@@ -31,7 +31,7 @@ import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type Auc
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
-import { openPrintWindow, brandHeader, canPrintInline, downloadBlob } from "@/common/utils/print";
+import { openPrintWindow, openPrintableTab, brandHeader, canPrintInline, downloadBlob } from "@/common/utils/print";
 import { printColors, tenantLenderProfile } from "@/common/config/brand";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/StageTracker";
@@ -847,12 +847,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         downloadBlob(new Blob([html], { type: "text/html" }), `packet-label-${l.id}.html`);
         return;
       }
-      const w = window.open("", "_blank");
-      if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
-      w.document.write(html);
-      w.document.close();
-      w.addEventListener("afterprint", () => w.close());
-      setTimeout(() => { try { w.focus(); w.print(); } catch { /* ignore */ } }, 400);
+      openPrintableTab(html);
     } catch {
       toast("Could not load customer details — try again");
     } finally {
@@ -1425,7 +1420,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 
         <div className="card gtop"><div className="hd"><h3>Loan Details</h3></div>
             <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-              <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Customer</div><div className="v">{canOpen("customer") ? <a href={routeHref(`customer/${l.customerId}`)} style={{ fontWeight: 600 }}>{l.customerName}</a> : l.customerName}</div></div>
+              <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Customer</div><div className="v">{canOpen("customer") ? <a href={routeHref(`customer/${l.customerCode || l.customerId}`)} style={{ fontWeight: 600 }}>{l.customerName}</a> : l.customerName}</div></div>
               <div className="i" style={showBranch ? undefined : { gridColumn: "1 / -1" }}><div className="k">Gold Scheme</div><div className="v">{l.schemeName}</div></div>
               {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>}
               <div className="i"><div className="k">Opening Date</div><div className="v">{fmtDate(l.opened)}</div></div>
@@ -1664,7 +1659,12 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                         <span style={{ color: "var(--muted)" }}>—</span>
                       )}
                     </td>
-                    <td>{o.releasedAt ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title={`Released on ${fmtDateTime(o.releasedAt)}`}>Released {fmtDate(o.releasedAt)}</span> : <span className="chip">Held</span>}</td>
+                    <td>{o.releasedAt ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title={`Released on ${fmtDateTime(o.releasedAt)}`}>Released {fmtDate(o.releasedAt)}</span>
+                      /* Only a partial release stamps releasedAt on an ornament — a full release closes the loan and an auction
+                       * marks it Auctioned without touching the ornaments — so for those the loan's status is the truth. */
+                      : l.status === "Closed" ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title="Gold handed back to the customer when the loan closed">Released</span>
+                      : l.status === "Auctioned" || l.status === "Auctioned - Balance Due" ? <span className="chip" style={{ color: "var(--red)" }} title="Sold in the auction">Auctioned</span>
+                      : <span className="chip">Held</span>}</td>
                   </tr>
                 ))}
               </tbody>

@@ -271,15 +271,21 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     outstandingProcessingFee: loan.outstandingProcessingFee + (+fee || 0),
     outstandingInterest: interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest,
   };
-  const alloc = previewAllocation(previewLoan, mode, previewAmount);
+  // Release context: Amount is what the customer pays after the discount, so the allocation preview (and the
+  // over/short checks) run against payment + discount, which together clear the loan.
+  const discountNum = releaseRequestId != null && +discount > 0 ? +discount : 0;
+  const settledAmount = previewAmount + discountNum;
+  const alloc = previewAllocation(previewLoan, mode, settledAmount);
   // Prefill Amount with what the picked option owes (interest override
   // respected) plus the Additional Charges. "Both" keeps a hand-typed figure
   // since any amount is valid there.
   const interestForAmount = interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest;
   // A release payment starts at what must be paid to release the gold, not at the whole settlement.
-  const modeTotal = mode === "Partial" && releaseMin != null
+  // With a discount the Amount is what the customer actually pays: the figure minus the discount.
+  const modeBase = mode === "Partial" && releaseMin != null
     ? releaseMin
     : amountForMode({ ...loan, outstandingInterest: interestForAmount, settlementAmount: loan.settlementAmount - loan.outstandingInterest + interestForAmount }, mode) + charge;
+  const modeTotal = Math.max(0, Math.round((modeBase - discountNum) * 100) / 100);
   useEffect(() => {
     if (mode === "Partial" && amountTouchedRef.current) return;
     setAmt(modeTotal > 0 ? prefill(modeTotal) : "");
@@ -292,7 +298,8 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     const processingFee = fee.trim() ? +fee : 0;
     if (processingFee < 0) { setErr("Processing fee cannot be negative.", "fee"); return; }
     const amount = typed;
-    if (releaseMin != null && amount < releaseMin - 0.005) { setErr(`Amount can't be less than ${fmt(releaseMin)}, the amount needed to release the gold — it can be more.`, "amount"); return; }
+    const discountForMin = discount.trim() && +discount > 0 ? +discount : 0;
+    if (releaseMin != null && amount + discountForMin < releaseMin - 0.005) { setErr(`Amount can't be less than ${fmt(Math.max(0, releaseMin - discountForMin))}${discountForMin > 0 ? " after the discount" : ""}, the amount needed to release the gold — it can be more.`, "amount"); return; }
     if (processingFee > amount + 0.001) { setErr("Additional charges cannot exceed the amount.", "fee"); return; }
     const interestOverride = interest.trim() ? +interest : undefined;
     if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative.", "interest"); return; }
@@ -302,7 +309,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     if (allocWarning) { setErr(allocWarning, "amount"); return; }
     const discountAmount = discount.trim() ? +discount : 0;
     if (discountAmount < 0) { setErr("Discount cannot be negative.", "discount"); return; }
-    if (discountAmount > amount) { setErr("Discount cannot exceed the amount.", "discount"); return; }
+    if (releaseMin != null ? discountAmount > releaseMin + 0.005 : discountAmount > amount) { setErr(releaseMin != null ? `Discount cannot exceed ${fmt(releaseMin)}, the amount needed to release the gold.` : "Discount cannot exceed the amount.", "discount"); return; }
     if (!confirming) { setErr(""); setConfirming(true); return; }
     if (postRef.current !== "idle") return;
     postRef.current = "posting";
@@ -312,55 +319,17 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       // user's JWT — no employeeId sent from here (see loansApi.ts's
       // PaymentInput doc comment).
       if (releaseRequestId != null) {
-        // Amount here is what's typed as the full settlement figure — the
-        // discount is a negotiated reduction covering part of it with no
-        // cash movement, so the actual cash payment sent alongside it is
-        // the remainder. RecordReleaseRequestPayment applies the discount
-        // as its own ledger entry FIRST, which reduces the loan's
-        // outstanding balance before the payment call runs — sending the
-        // undiscounted amount here would then overshoot what's left owed
-        // and get rejected as ErrExceedsOutstanding, even though the
-        // discount had already gone through (see that function's own
-        // sequencing). Netting it out here keeps the two in sync.
-        const cashAmount = Math.round((amount - discountAmount) * 100) / 100;
-        // interestOverride is prefilled from outstandingInterest at MODAL-
-        // OPEN time (see the `interest` state's own doc comment) — a fixed
-        // snapshot, not live. The discount posted just above (inside
-        // RecordReleaseRequestPayment) reduces outstanding interest FIRST
-        // in its own penal->interest->principal waterfall before this
-        // payment call ever runs, so that stale prefilled figure no longer
-        // matches what's actually still owed once a discount is in play —
-        // sending it anyway made Full Settlement's amount-vs-total check
-        // compare against the wrong total and reject a correct payment.
-        // Only suppressed when the user hasn't hand-edited the field
-        // (interestTouchedRef): an explicit override is still respected,
-        // same as with no discount at all.
+        // Amount is what the customer actually pays (settlement minus discount), sent as typed with the discount
+        // alongside; the backend checks payment + discount covers what is needed. The discount is posted first and
+        // lowers the balance, so the interest override prefilled at modal-open is only sent if hand-edited. The
+        // payment breakdown was entered against this same Amount, so it is sent unscaled.
         const effectiveInterestOverride = discountAmount > 0 && !interestTouchedRef.current ? undefined : interestOverride;
-        // The split breakdown (cash/UPI/bank transfer/cheque) was entered
-        // against the full pre-discount Amount, so it no longer sums to
-        // cashAmount once the discount is netted out above — scaled down
-        // by the same ratio so it still adds up to what's actually being
-        // sent (ValidateSplit on the backend requires the parts to sum to
-        // the whole). Discount-only settlements (nothing left to pay in
-        // cash) skip the split entirely.
-        const splitRatio = amount > 0 ? cashAmount / amount : 0;
-        const scaledSplit = cashAmount <= 0.01 ? ZERO_SPLIT : {
-          cashAmount: Math.round(split.cashAmount * splitRatio * 100) / 100,
-          upiAmount: Math.round(split.upiAmount * splitRatio * 100) / 100,
-          bankTransferAmount: Math.round(split.bankTransferAmount * splitRatio * 100) / 100,
-          chequeAmount: Math.round(split.chequeAmount * splitRatio * 100) / 100,
-        };
-        // Rounding across four components can leave a fraction of a rupee
-        // unaccounted for — folded into cash (the default/most common mode)
-        // rather than left as drift the backend's own sum check would reject.
-        const scaledTotal = scaledSplit.cashAmount + scaledSplit.upiAmount + scaledSplit.bankTransferAmount + scaledSplit.chequeAmount;
-        scaledSplit.cashAmount = Math.round((scaledSplit.cashAmount + (cashAmount - scaledTotal)) * 100) / 100;
         await recordReleasePayment(releaseRequestId, {
-          amount: cashAmount, type: mode, discount: discountAmount || undefined,
-          cashAmount: scaledSplit.cashAmount,
-          upiAmount: scaledSplit.upiAmount,
-          bankTransferAmount: scaledSplit.bankTransferAmount,
-          chequeAmount: scaledSplit.chequeAmount,
+          amount, type: mode, discount: discountAmount || undefined,
+          cashAmount: split.cashAmount,
+          upiAmount: split.upiAmount,
+          bankTransferAmount: split.bankTransferAmount,
+          chequeAmount: split.chequeAmount,
           bankId,
           interestOverride: effectiveInterestOverride,
         });
@@ -453,7 +422,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                 )}
                 <div className={fe.amount ? "has-err" : undefined}>
                   <label className="f">Amount (₹) *</label>
-                  <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} /><FieldError msg={fe.amount} />
+                  <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} />
+                  {releaseMin != null && !fe.amount && <div className="ccheck-hint" style={{ marginTop: 4 }}>Minimum payable: {fmt(Math.max(0, releaseMin - discountNum))}{discountNum > 0 ? ` (after ${fmt(discountNum)} discount)` : ""}</div>}
+                  <FieldError msg={fe.amount} />
                 </div>
               </div>
             </div>
@@ -477,7 +448,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
             {allocRows.length > 0 ? (
               <>
                 <div className="pay-bar">
-                  {allocRows.map(([label, v, color]) => <i key={label} style={{ width: `${(v / Math.max(previewAmount, 1)) * 100}%`, background: color }} />)}
+                  {allocRows.map(([label, v, color]) => <i key={label} style={{ width: `${(v / Math.max(settledAmount, 1)) * 100}%`, background: color }} />)}
                 </div>
                 {allocRows.map(([label, v, color]) => (
                   <div className="pay-r-row" key={label}>

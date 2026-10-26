@@ -118,7 +118,7 @@ func findCategoryOrCreate(ctx context.Context, name, typ string) (*models.Catego
 	return findOrCreateCategory(ctx, name, typ)
 }
 
-func listExpenseCategories(ctx context.Context, query string, limit, offset int) ([]models.ExpenseCategory, int64, error) {
+func listExpenseCategories(ctx context.Context, query string, selectable bool, limit, offset int) ([]models.ExpenseCategory, int64, error) {
 	// Every bank loan's repayment category must be pickable — create any that a loan opened earlier never got.
 	if offset == 0 {
 		if err := ensureBuiltInCategories(ctx); err != nil {
@@ -134,7 +134,7 @@ func listExpenseCategories(ctx context.Context, query string, limit, offset int)
 			}
 		}
 	}
-	return findExpenseCategories(ctx, query, limit, offset)
+	return findExpenseCategories(ctx, query, selectable, limit, offset)
 }
 
 func findByID(ctx context.Context, id uint) (*models.ExpenseCategory, error) {
@@ -153,7 +153,7 @@ func insertCategory(ctx context.Context, c *models.Category) error {
 		WithContext(ctx).Create(c).Error
 }
 
-func findCategories(ctx context.Context, typ, query string, limit, offset int) ([]models.Category, int64, error) {
+func findCategories(ctx context.Context, typ, query string, limit, offset int, exclude ...string) ([]models.Category, int64, error) {
 	var cats []models.Category
 	q := config.DB.
 		WithContext(ctx).
@@ -162,6 +162,9 @@ func findCategories(ctx context.Context, typ, query string, limit, offset int) (
 		q = q.Where("LOWER(REPLACE(name, ' ', '')) LIKE ?", "%"+strings.ToLower(strings.ReplaceAll(query, " ", ""))+"%")
 	} else {
 		q = q.Where("(type = ? OR is_common = ?)", typ, true)
+	}
+	if len(exclude) > 0 {
+		q = q.Where("name NOT IN ?", exclude)
 	}
 	var total int64
 	if limit > 0 {
@@ -210,21 +213,26 @@ func insertExpenseCategory(ctx context.Context, c *models.ExpenseCategory) error
 	return insertCategory(ctx, c)
 }
 
-func findExpenseCategories(ctx context.Context, query string, limit, offset int) ([]models.ExpenseCategory, int64, error) {
+func findExpenseCategories(ctx context.Context, query string, selectable bool, limit, offset int) ([]models.ExpenseCategory, int64, error) {
+	if selectable {
+		return findCategories(ctx, models.CategoryExpense, query, limit, offset, auctionExpenseCategory, bankPledgeReleaseCategory)
+	}
 	return findCategories(ctx, models.CategoryExpense, query, limit, offset)
 }
 
 func ListExpenseCategories(c echo.Context) error {
+	// selectable=1 is the expense form dropdown: system categories (Auction, Bank Pledge Release) are auto-filed, never picked.
+	selectable := c.QueryParam("selectable") == "1"
 	ctx := auth.RequestContext(c)
 	page, limit, offset := common.PageParams(c)
 	if limit == 0 {
-		rec, _, err := listExpenseCategories(ctx, c.QueryParam("search"), 0, 0)
+		rec, _, err := listExpenseCategories(ctx, c.QueryParam("search"), selectable, 0, 0)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessAll(c, rec)
 	}
-	rec, total, err := listExpenseCategories(ctx, c.QueryParam("search"), limit, offset)
+	rec, total, err := listExpenseCategories(ctx, c.QueryParam("search"), selectable, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

@@ -133,7 +133,7 @@ function View({ route, arg }: ViewProps) {
     case "goldrates":
       return <GoldRatesPage />;
     case "requests":
-      return <RequestsPage />;
+      return <RequestsPage focusLoanNumber={arg} />;
     case "loanrisk":
       return <LoanRiskPage />;
     case "personalloans":
@@ -147,7 +147,7 @@ function View({ route, arg }: ViewProps) {
     case "ledger":
       return <CashPage />;
     case "auctions":
-      return <AuctionsPage />;
+      return <AuctionsPage focusLoanNumber={arg} />;
     case "packets":
       return <PacketsPage />;
     case "packet":
@@ -155,7 +155,7 @@ function View({ route, arg }: ViewProps) {
     case "bankpledge":
       return <BankPledgePage focusLoanNumber={arg} />;
     case "reports":
-      return <ReportsPage />;
+      return <ReportsPage reportSlug={arg} />;
     case "employees":
       return <EmployeesPage />;
     case "calendar":

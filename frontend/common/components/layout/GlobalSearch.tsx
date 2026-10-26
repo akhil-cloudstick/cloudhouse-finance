@@ -89,7 +89,7 @@ export default function GlobalSearch({
     const custs = !canOpen("customer") ? [] : customers
       .slice(0, 5)
       .map((c) => ({
-        href: routeHref("customer/" + c.id),
+        href: routeHref("customer/" + (c.code || c.id)),
         ic: "user",
         t: c.name,
         s: c.code + " · " + c.phone + (showBranch ? " · " + c.branchName : ""),

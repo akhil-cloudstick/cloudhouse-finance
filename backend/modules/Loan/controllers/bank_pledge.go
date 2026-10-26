@@ -33,6 +33,7 @@ type BankPledgeInput struct {
 	BankTransferAmount float64
 	ChequeAmount       float64
 	ReceivedBankID     *uint
+	OrnamentIDs        []uint
 	ActorEmployeeID    *uint
 	ActorRole          string
 }
@@ -59,6 +60,7 @@ type bankPledgeRequest struct {
 	BankTransferAmount float64 `json:"bank_transfer_amount"`
 	ChequeAmount       float64 `json:"cheque_amount"`
 	ReceivedBankID     *uint   `json:"received_bank_id"`
+	OrnamentIDs        []uint  `json:"ornament_ids"`
 }
 
 type voidBankPledgeRequest struct {
@@ -88,22 +90,60 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 		return nil, common.NewBadRequest("amount must be greater than zero")
 	}
 	// The gold must still be in the branch's custody to hand to a bank.
-	if err := bankPledgeRefusal(l.Status, l.BankPledgeStatus); err != nil {
-		return nil, err
+	if !CanAcceptBankPledge(l.Status) {
+		return nil, bankPledgeRefusal(l.Status, "")
 	}
-	hasActivePledge, err := hasActive(ctx, loanID)
+	active, err := findActivePledges(ctx, loanID)
 	if err != nil {
 		return nil, err
 	}
-	if hasActivePledge {
-		return nil, common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
-	}
-	var grossWeight float64
-	for _, o := range l.Ornaments {
-		if o.ReleasedAt != nil {
-			continue
+	pledgedAlready := map[uint]bool{}
+	for _, a := range active {
+		if len(a.OrnamentIDs) == 0 {
+			return nil, common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
 		}
-		grossWeight += o.GrossWeight
+		for _, id := range a.OrnamentIDs {
+			pledgedAlready[id] = true
+		}
+	}
+	var grossWeight, netWeight float64
+	var selected []uint
+	if len(in.OrnamentIDs) == 0 {
+		if len(active) > 0 {
+			return nil, common.NewBadRequest("some of this loan's ornaments are already pledged to a bank — select the remaining ornaments to pledge")
+		}
+		for _, o := range l.Ornaments {
+			if o.ReleasedAt != nil {
+				continue
+			}
+			grossWeight += o.GrossWeight
+		}
+		netWeight = l.TotalNetWeight
+	} else {
+		byID := map[uint]models.Ornament{}
+		for _, o := range l.Ornaments {
+			byID[o.ID] = o
+		}
+		seen := map[uint]bool{}
+		for _, id := range in.OrnamentIDs {
+			o, ok := byID[id]
+			if !ok {
+				return nil, common.NewBadRequest("ornament does not belong to this loan")
+			}
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			if o.ReleasedAt != nil {
+				return nil, common.NewBadRequest(fmt.Sprintf("ornament %q has already been released", o.Name))
+			}
+			if pledgedAlready[id] {
+				return nil, common.NewBadRequest(fmt.Sprintf("ornament %q is already pledged to a bank", o.Name))
+			}
+			selected = append(selected, id)
+			grossWeight += o.GrossWeight
+			netWeight += o.NetWeight
+		}
 	}
 	switch in.CashTreatment {
 	case models.BankPledgeCashTreatmentCashIn, models.BankPledgeCashTreatmentRecordOnly:
@@ -131,7 +171,8 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 		ReferenceNumber:    in.ReferenceNumber,
 		BankPledgeDueDate:  in.BankPledgeDueDate,
 		PledgedGrossWeight: grossWeight,
-		PledgedNetWeight:   l.TotalNetWeight,
+		PledgedNetWeight:   netWeight,
+		OrnamentIDs:        selected,
 		CashTreatment:      in.CashTreatment,
 		CashAmount:         recvCash,
 		UpiAmount:          recvUpi,
@@ -157,8 +198,10 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 	}); err != nil {
 		return nil, err
 	}
-	if err := packet.RecordBankPledgeMovement(ctx, loanID, "Bank pledge: "+in.BankName); err != nil {
-		log.Printf("packet movement (bank pledge) failed for loan %d: %v", loanID, err)
+	if len(active) == 0 {
+		if err := packet.RecordBankPledgeMovement(ctx, loanID, "Bank pledge: "+in.BankName); err != nil {
+			log.Printf("packet movement (bank pledge) failed for loan %d: %v", loanID, err)
+		}
 	}
 	recordPledgeEvent(ctx, p, "Pledged", in.ActorEmployeeID, in.ActorRole, pledgeTreatmentRemark(in.CashTreatment))
 	return GetLoan(ctx, l.ID, nil)
@@ -201,6 +244,7 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 		}
 	}
 	now := time.Now()
+	stillPledged := false
 	p.ReleaseDate = &now
 	p.Status = "Released"
 	// The release's cash lines, its expense row, the pledge record and the loan status are saved together.
@@ -221,13 +265,23 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 		if err := tx.Save(p).Error; err != nil {
 			return err
 		}
-		l.BankPledgeStatus = "Released"
+		// other ornaments of this loan may still be with a bank
+		others, err := countActivePledgesTx(tx, loanID)
+		if err != nil {
+			return err
+		}
+		stillPledged = others > 0
+		if !stillPledged {
+			l.BankPledgeStatus = "Released"
+		}
 		return updateLoanTx(ctx, tx, l)
 	}); err != nil {
 		return nil, err
 	}
-	if err := packet.RecordBankReleaseMovement(ctx, loanID, "Gold returned from bank: "+p.BankName); err != nil {
-		log.Printf("packet bank-release movement failed for loan %d: %v", loanID, err)
+	if !stillPledged {
+		if err := packet.RecordBankReleaseMovement(ctx, loanID, "Gold returned from bank: "+p.BankName); err != nil {
+			log.Printf("packet bank-release movement failed for loan %d: %v", loanID, err)
+		}
 	}
 	recordPledgeEvent(ctx, p, "Released", actorID, actorRole, pledgeReleaseRemark(p.CashTreatment))
 	return GetLoan(ctx, l.ID, nil)
@@ -252,6 +306,7 @@ func voidBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, 
 		return nil, common.NewBadRequest("a reason is required when voiding a bank pledge")
 	}
 	now := time.Now()
+	stillPledged := false
 	p.Status = "Voided"
 	p.VoidedAt = &now
 	p.VoidReason = reason
@@ -267,13 +322,22 @@ func voidBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, 
 		if err := tx.Save(p).Error; err != nil {
 			return err
 		}
-		l.BankPledgeStatus = "Not Pledged"
+		others, err := countActivePledgesTx(tx, loanID)
+		if err != nil {
+			return err
+		}
+		stillPledged = others > 0
+		if !stillPledged {
+			l.BankPledgeStatus = "Not Pledged"
+		}
 		return updateLoanTx(ctx, tx, l)
 	}); err != nil {
 		return nil, err
 	}
-	if err := packet.RecordBankReleaseMovement(ctx, loanID, "Bank pledge voided: "+reason); err != nil {
-		log.Printf("packet movement (pledge void) failed for loan %d: %v", loanID, err)
+	if !stillPledged {
+		if err := packet.RecordBankReleaseMovement(ctx, loanID, "Bank pledge voided: "+reason); err != nil {
+			log.Printf("packet movement (pledge void) failed for loan %d: %v", loanID, err)
+		}
 	}
 	recordPledgeEvent(ctx, p, "Voided", actorID, actorRole, reason)
 	return GetLoan(ctx, l.ID, nil)
@@ -355,6 +419,46 @@ func findBankPledgeByID(ctx context.Context, id uint) (*models.BankPledgeRecord,
 	return &p, nil
 }
 
+func findActivePledges(ctx context.Context, loanID uint) ([]models.BankPledgeRecord, error) {
+	var recs []models.BankPledgeRecord
+	err := config.DB.WithContext(ctx).
+		Where("loan_id = ? AND status = ?", loanID, models.BankPledgeStatusRecordActive).Find(&recs).Error
+	return recs, err
+}
+
+func countActivePledgesTx(tx *gorm.DB, loanID uint) (int64, error) {
+	var n int64
+	err := tx.Model(&models.BankPledgeRecord{}).
+		Where("loan_id = ? AND status = ?", loanID, models.BankPledgeStatusRecordActive).Count(&n).Error
+	return n, err
+}
+
+// fillOrnamentNames sets the display names of the ornaments each pledge covers.
+func fillOrnamentNames(ctx context.Context, recs []*models.BankPledgeRecord) {
+	var ids []uint
+	for _, r := range recs {
+		ids = append(ids, r.OrnamentIDs...)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	var orns []models.Ornament
+	if err := config.DB.WithContext(ctx).Select("id, name").Where("id IN ?", ids).Find(&orns).Error; err != nil {
+		return
+	}
+	names := map[uint]string{}
+	for _, o := range orns {
+		names[o.ID] = o.Name
+	}
+	for _, r := range recs {
+		for _, id := range r.OrnamentIDs {
+			if n, ok := names[id]; ok {
+				r.OrnamentNames = append(r.OrnamentNames, n)
+			}
+		}
+	}
+}
+
 func hasActive(ctx context.Context, loanID uint) (bool, error) {
 	var count int64
 	err := config.DB.
@@ -379,6 +483,11 @@ func findBankPledgeHistoryByLoanID(ctx context.Context, loanID uint) ([]models.B
 		Where("loan_id = ?", loanID).
 		Order("id desc").
 		Find(&pledges).Error
+	ptrs := make([]*models.BankPledgeRecord, len(pledges))
+	for i := range pledges {
+		ptrs[i] = &pledges[i]
+	}
+	fillOrnamentNames(ctx, ptrs)
 	return pledges, err
 }
 
@@ -389,7 +498,9 @@ func findAllHistory(ctx context.Context, branchID *uint, query string, limit, of
 		Select("bank_pledge_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
 		Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
 		Joins("JOIN customers ON customers.id = loans.customer_id").
-		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") })
+		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") }).
+		// Active pledges live on the Active tab; history is closed ones only.
+		Where("bank_pledge_records.status <> ?", models.BankPledgeStatusRecordActive)
 	if branchID != nil {
 		q = q.Where("loans.branch_id = ?", *branchID)
 	}
@@ -409,6 +520,11 @@ func findAllHistory(ctx context.Context, branchID *uint, query string, limit, of
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&pledges).Error
+	ptrs := make([]*models.BankPledgeRecord, len(pledges))
+	for i := range pledges {
+		ptrs[i] = &pledges[i].BankPledgeRecord
+	}
+	fillOrnamentNames(ctx, ptrs)
 	return pledges, total, err
 }
 
@@ -508,6 +624,7 @@ func RecordBankPledge(c echo.Context) error {
 		BankTransferAmount: req.BankTransferAmount,
 		ChequeAmount:       req.ChequeAmount,
 		ReceivedBankID:     req.ReceivedBankID,
+		OrnamentIDs:        req.OrnamentIDs,
 		ActorEmployeeID:    actorID,
 		ActorRole:          actorRole,
 	})

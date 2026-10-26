@@ -13,10 +13,11 @@ function toView(l: BackendLocker): LockerView {
   };
 }
 
-export async function listLockers(filters?: { branchId?: number[]; status?: string[] }): Promise<LockerView[]> {
+export async function listLockers(filters?: { branchId?: number[]; status?: string[]; q?: string }): Promise<LockerView[]> {
   const params = new URLSearchParams();
   if (filters?.branchId?.length) params.set("branchId", filters.branchId.join(","));
   if (filters?.status?.length) params.set("status", filters.status.join(","));
+  if (filters?.q) params.set("q", filters.q);
   const qs = params.toString();
   const rec = await apiFetch<BackendLocker[]>(`/lockers${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toView);

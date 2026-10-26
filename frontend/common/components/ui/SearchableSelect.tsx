@@ -33,6 +33,10 @@ type SearchableSelectProps<T> = {
   searchHint?: string;
   allowCreate?: boolean;
   onCreate?: (query: string) => Promise<T>;
+  // Text of the create row, in place of + Create "<query>".
+  createLabel?: string;
+  // Returns a warning for a query that must not be created; the row then shows it, unclickable.
+  createGuard?: (query: string) => string | null;
   // Opt-in, separate mechanism from allowCreate/onCreate above (which
   // create from the typed text alone — see PurityPicker/ornament-type
   // usage in NewLoan.tsx). onCreateNew instead renders one persistent row
@@ -110,6 +114,8 @@ export function SearchableSelect<T>({
   searchHint,
   allowCreate = false,
   onCreate,
+  createLabel,
+  createGuard,
   onCreateNew,
   createNewLabel = "+ Add new",
   disabled,
@@ -418,7 +424,7 @@ export function SearchableSelect<T>({
   }
 
   async function pickCreate() {
-    if (!onCreate || !query.trim() || creating) return;
+    if (!onCreate || !query.trim() || creating || createGuard?.(query.trim())) return;
     setCreating(true);
     try {
       const created = await onCreate(query.trim());
@@ -428,6 +434,8 @@ export function SearchableSelect<T>({
       onChange(getId(created), created);
       setQuery(getLabel(created));
       setOpen(false);
+    } catch {
+      // a refused create (e.g. out-of-range value) leaves the query as typed
     } finally {
       setCreating(false);
     }
@@ -493,8 +501,9 @@ export function SearchableSelect<T>({
           className={highlightedIndex === items.length ? "sel" : undefined}
           onMouseEnter={() => setHighlightedIndex(items.length)}
           onClick={(e) => { e.preventDefault(); pickCreate(); }}
+          style={createGuard?.(query.trim()) ? { color: "var(--red)", cursor: "not-allowed" } : undefined}
         >
-          <span className="tx"><b>{creating ? "Creating…" : `+ Create "${query.trim()}"`}</b></span>
+          <span className="tx"><b>{createGuard?.(query.trim()) ?? (creating ? "Creating…" : createLabel ?? `+ Create "${query.trim()}"`)}</b></span>
         </a>
       )}
     </>

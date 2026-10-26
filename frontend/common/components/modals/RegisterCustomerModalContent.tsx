@@ -159,7 +159,7 @@ export function RegisterCustomerModalContent({
       toast(`${n} registered — ${c.code} · KYC auto-verified (stage 1 — no live verification yet)`);
       // Open the new record only for a role that may view customers (a
       // create-only role stays put rather than hitting the refusal toast).
-      if (canOpen("customer")) navigate("customer/" + c.id);
+      if (canOpen("customer")) navigate("customer/" + (c.code || c.id));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to register customer.";
       const field = fieldForMessage(msg, SERVER_FIELDS);
@@ -235,13 +235,11 @@ export function RegisterCustomerModalContent({
           <>
             <div className="frow c3" style={{ marginTop: 14 }}>
               <div><label className="f">Father&apos;s Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(e.target.value)} /></div>
-            </div>
-            <div className="frow c3">
               <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
               <div><label className="f">Taluk</label><input className="inp" placeholder="e.g. Kozhikode" value={taluk} onChange={(e) => setTaluk(e.target.value)} /></div>
-              <div><label className="f">Village</label><input className="inp" placeholder="e.g. Feroke" value={village} onChange={(e) => setVillage(e.target.value)} /></div>
             </div>
             <div className="frow c3">
+              <div><label className="f">Village</label><input className="inp" placeholder="e.g. Feroke" value={village} onChange={(e) => setVillage(e.target.value)} /></div>
               <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
               <div><label className="f">Pin Code</label><input className="inp" inputMode="numeric" placeholder="6-digit pin code" maxLength={6} value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ""))} /></div>
             </div>

@@ -14,6 +14,16 @@ export async function searchExpenseCategoriesPage(q: string, page: number): Prom
   return { items: res.items || [], hasMore: !!res.hasMore };
 }
 
+/* Expense-form dropdown: same as above minus the system categories (Auction,
+ * Bank Pledge Release) that are filed automatically. They stay in the plain
+ * list so their category ledgers keep resolving. */
+export async function searchSelectableExpenseCategoriesPage(q: string, page: number): Promise<{ items: BackendExpenseCategory[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ limit: String(EXPENSE_CATEGORIES_PAGE_SIZE), offset: String(page * EXPENSE_CATEGORIES_PAGE_SIZE), selectable: "1" });
+  if (q) params.set("q", q);
+  const res = await apiFetch<{ items: BackendExpenseCategory[] | null; hasMore: boolean }>(`/expense-categories?${params}`);
+  return { items: res.items || [], hasMore: !!res.hasMore };
+}
+
 /* Creates a new expense category, or — if one with the same name (case
  * insensitive) already exists — returns the existing row instead (the
  * backend's find-or-create behaviour). */

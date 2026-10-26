@@ -13,6 +13,7 @@ import { getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollectio
 import { type StatementStyle } from "@/modules/reports/types/reports-types";
 import { useIsSmallScreen } from "@/common/utils/responsive";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { navigate } from "@/common/services/appRoutes";
 
 /* Shared row renderer for the two "printed statement" reports (Balance
  * Sheet, Statement of P&L) — one row per line exactly as a real Ind AS
@@ -511,7 +512,12 @@ const LEDGER_EXPORT_TILE = {
  * real backend/internal/reports endpoints. Clicking a tile swaps the grid
  * for that report's ReportView (filter bar + paginated table + totals +
  * export) in place, rather than firing a stub toast. */
-export function ReportsPage() {
+/* "Daily Loan Disbursement" → "daily-loan-disbursement": the report's segment in /reports/<slug>. */
+function reportSlug(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }) {
   const toast = useToast();
   const smallScreen = useIsSmallScreen();
   const { hasModule, singleBranch } = useBranding();
@@ -523,7 +529,12 @@ export function ReportsPage() {
   // the module doesn't see the report tile exist, matching the backend
   // refusing the underlying API call too (see internal/reports/routes.go).
   const visibleConfigs = REPORT_CONFIGS.filter((r) => !r.tenantModule || hasModule(r.tenantModule));
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // Which report is open lives in the URL, so a refresh or a pasted link lands on it.
+  const activeId = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE].find((r) => reportSlug(r.title) === slugFromUrl)?.id ?? null;
+  const setActiveId = (id: string | null) => {
+    const tile = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE].find((r) => r.id === id);
+    navigate("reports", tile ? reportSlug(tile.title) : undefined);
+  };
   const [printingId, setPrintingId] = useState<string | null>(null);
   const active = visibleConfigs.find((r) => r.id === activeId) || null;
 

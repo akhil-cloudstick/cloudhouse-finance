@@ -84,7 +84,6 @@ export function RateModalContent() {
   const [rate18, setRate18] = useState(String(latest.k18 || ""));
   const [fineness18, setFineness18] = useState(String(finenessFromRate(latest.k24, latest.k18, 18)));
 
-  const [remarks, setRemarks] = useState("");
   const [err, setErr] = useState("");
   // Validation messages, each shown under the rate it is about; `err` keeps the ones that fit no field.
   const [fe, setFe] = useState<Record<string, string>>({});
@@ -310,9 +309,6 @@ export function RateModalContent() {
           </div>
         </div>
 
-        <div className="frow" style={{ marginTop: 10 }}>
-          <div><label className="f">Remarks (optional)</label><input className="inp" placeholder="e.g. MCX morning reference" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
-        </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

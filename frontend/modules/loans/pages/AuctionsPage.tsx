@@ -15,7 +15,8 @@ import { SettleAuctionModalContent } from "@/modules/loans/components/SettleAuct
 import { RecordSaleModalContent } from "@/modules/loans/components/RecordSaleModalContent";
 import { ScheduleAuctionModalContent } from "@/modules/loans/components/ScheduleAuctionModalContent";
 import { IssueNoticeModalContent } from "@/modules/loans/components/IssueNoticeModalContent";
-import { getAuctionRecord, markAuctionEligible, listConcludedAuctionsPage, pendingDecision, hasUndisposedSurplus, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
+import { FilterPanel, type FilterCategory } from "@/common/components/ui/FilterPanel";
+import { getAuctionRecord, markAuctionEligible, listConcludedAuctionsPage, listLoans, pendingDecision, hasUndisposedSurplus, isActiveAuctionCase, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type ConcludedAuctionRowView, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { useScrollPageSize } from "@/common/utils/responsive";
@@ -266,7 +267,7 @@ function AuctionCard({ l, onLoanChanged }: AuctionCardProps) {
  * (isDefaulted, computed read-time — see loan/accrual.go) plus any loan
  * already in the real auction pipeline, instead of the old always-empty
  * mock `db.auctions` list. */
-export function AuctionsPage() {
+export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } = {}) {
   const { loans, loading, error, refresh } = useLoans();
   const canOpenRoute = useCanOpenRoute();
   const [tab, setTab] = useState<"active" | "history">("active");
@@ -275,7 +276,25 @@ export function AuctionsPage() {
   // client-side, see the comment on `allCases` below); History re-queries
   // the server on each edit (debounced), since its two sub-tables are real
   // paginated backend queries.
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(focusLoanNumber || "");
+  // Auction status (stage) filter, applied by the backend on both tabs.
+  const [stages, setStages] = useState<string[]>([]);
+  const stagesKey = stages.join(",");
+  const ACTIVE_STAGE_VALUES = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"];
+  const activeStages = stages.filter((s) => ACTIVE_STAGE_VALUES.includes(s));
+  const activeStagesKey = activeStages.join(",");
+  const [stageLoans, setStageLoans] = useState<LoanView[] | null>(null);
+  useEffect(() => {
+    if (activeStages.length === 0) { setStageLoans(null); return; }
+    let cancelled = false;
+    listLoans({ auctionStage: activeStages }).then((r) => { if (!cancelled) setStageLoans(r); }).catch(() => { if (!cancelled) setStageLoans([]); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStagesKey]);
+  const stageFilterCategories: FilterCategory[] = [{
+    key: "stage", label: "Auction Status", kind: "static",
+    options: (["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned", "Settled", "Withdrawn"] as const).map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] })),
+  }];
 
   /* The two History sub-tables ("Auctions Conducted" / "Closed Without
    * Auction") are now independently paginated, real server queries — each
@@ -311,12 +330,10 @@ export function AuctionsPage() {
   /* "Auctioned - Balance Due" is included so a loan whose sale fell short stays
    * visible here while its shortfall decision is outstanding — otherwise the
    * case needing the most attention would drop off the page. */
-  const auctionEligibleCases = loans.filter((l) =>
-    l.isDefaulted ||
-    l.status === "Auction Eligible" ||
-    l.status === "Auctioned" ||
-    l.status === "Auctioned - Balance Due"
-  );
+  // With a status filter the server decides which cases match; only in-flight stages apply here.
+  const auctionEligibleCases = stages.length
+    ? (activeStages.length ? (stageLoans ?? []) : [])
+    : loans.filter(isActiveAuctionCase);
   const trimmedQ = q.trim().toLowerCase();
   const allCases = trimmedQ
     ? auctionEligibleCases.filter((l) => l.id.toLowerCase().includes(trimmedQ) || l.customerName.toLowerCase().includes(trimmedQ) || l.customerCode.toLowerCase().includes(trimmedQ))
@@ -348,7 +365,7 @@ export function AuctionsPage() {
     setConductedLoading(true);
     setConductedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize, query);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize, query, stages);
       setConducted(items);
       setConductedHasMore(hasMore);
       setConductedTotal(total);
@@ -357,13 +374,13 @@ export function AuctionsPage() {
     } finally {
       setConductedLoading(false);
     }
-  }, [pageSize]);
+  }, [pageSize, stagesKey]);
 
   const loadClosed = useCallback(async (page: number, query: string) => {
     setClosedLoading(true);
     setClosedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize, query);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize, query, stages);
       setClosedWithoutSale(items);
       setClosedHasMore(hasMore);
       setClosedTotal(total);
@@ -372,7 +389,7 @@ export function AuctionsPage() {
     } finally {
       setClosedLoading(false);
     }
-  }, [pageSize]);
+  }, [pageSize, stagesKey]);
 
   function changeConductedPage(page: number) {
     setConductedPage(page);
@@ -404,7 +421,7 @@ export function AuctionsPage() {
     // pageSize/cards: card mode grows pageSize on scroll, which must refetch
     // page 1 with the larger size (rows stay on screen meanwhile).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, pageSize, cards]);
+  }, [q, pageSize, cards, stagesKey]);
 
   return (
     <>
@@ -414,6 +431,15 @@ export function AuctionsPage() {
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, reference…" title="Searches: loan number, customer name, customer code · auction reference on the History tab only" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <FilterPanel
+          categories={stageFilterCategories}
+          value={{ stage: stages }}
+          onChange={(next) => { setStages(Array.isArray(next.stage) ? next.stage : []); setActivePage(1); }}
+          hideChips
+          hideClearAll
+        />
+      </div>
 
       {/* .tabs's own overflow-x:auto (app.css) clips the last pill's right
           edge/shadow the instant its content is even 1-2px wider than the

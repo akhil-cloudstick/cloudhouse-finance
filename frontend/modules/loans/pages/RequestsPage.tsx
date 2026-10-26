@@ -1,7 +1,7 @@
 "use client";
 
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
@@ -39,7 +39,7 @@ import { singleFlight } from "@/common/utils/singleFlight";
  * date out (Extension) or moves it to "Closure Requested" (Release).
  * Which stages each chain has is per-business configuration (Roles &
  * Permissions → Approval Workflow). */
-export function RequestsPage() {
+export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } = {}) {
   const { openModal } = useModal();
   const { refresh: refreshLoans } = useLoans();
   // Without "can update loan" the review modal opens read-only (its
@@ -59,8 +59,8 @@ export function RequestsPage() {
   const [type, setType] = usePersistedState("requests:type", "");
   // `qInput` is what's typed; `q` is the debounced value that drives the
   // server query, so each keystroke doesn't fire a request.
-  const [qInput, setQInput] = useState("");
-  const [q, setQ] = useState("");
+  const [qInput, setQInput] = useState(focusLoanNumber || "");
+  const [q, setQ] = useState(focusLoanNumber || "");
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [downloadMenuId, setDownloadMenuId] = useState<number | null>(null);
 
@@ -107,6 +107,32 @@ export function RequestsPage() {
   }, [page, status, type, q, pageSize]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Arrived from the dashboard's Needs Attention list (/requests/<loanNumber>):
+  // narrow to that loan's pending requests (a remembered Approved/Rejected or
+  // type filter would hide them), and open the review straight away when
+  // there is exactly one.
+  const focusHandled = useRef(false);
+  useEffect(() => {
+    if (!focusLoanNumber) return;
+    setStatus("Pending");
+    setType("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusLoanNumber]);
+  useEffect(() => {
+    if (!focusLoanNumber || focusHandled.current || loading || status !== "Pending" || q !== focusLoanNumber) return;
+    const mine = reqs.filter((r) => r.loanNumber === focusLoanNumber && r.status === "Pending");
+    focusHandled.current = true;
+    if (mine.length !== 1) return;
+    const r = mine[0];
+    openModal(
+      r.type === "Extension"
+        ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
+        : <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
+      true
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqs, loading, status, q, focusLoanNumber]);
 
   useEffect(() => {
     const t = qInput.trim();
