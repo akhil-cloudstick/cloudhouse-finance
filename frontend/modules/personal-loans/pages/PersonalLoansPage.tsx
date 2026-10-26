@@ -12,6 +12,8 @@ import { listPersonalLoansPage } from "@/modules/personal-loans/services/persona
 import { type BackendPersonalLoan, type Frequency } from "@/modules/personal-loans/types/personal-loan-types";
 import { PersonalLoanRow } from "@/modules/personal-loans/components/PersonalLoanRow";
 import { NewPersonalLoanModalContent } from "@/modules/personal-loans/components/NewPersonalLoanModalContent";
+import { useApprovalWorkflow } from "@/common/providers/AuthProvider";
+import { chainFor } from "@/common/services/approvalWorkflowService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 
 const FREQS: ("All" | Frequency)[] = ["All", "Daily", "Weekly", "Monthly"];
@@ -19,11 +21,13 @@ const FREQS: ("All" | Frequency)[] = ["All", "Daily", "Weekly", "Monthly"];
 // business has the personal_loan approval flow switched on.
 const STATUS_OPTIONS = [
   { value: "Active", label: "Active" },
-  { value: "Pending Approval", label: "Pending Approval" },
-  { value: "Rejected", label: "Rejected" },
   { value: "Closed", label: "Closed" },
   { value: "Renewed", label: "Renewed" },
   { value: "Defaulted", label: "Defaulted" },
+];
+const APPROVAL_STATUS_OPTIONS = [
+  { value: "Pending Approval", label: "Pending Approval" },
+  { value: "Rejected", label: "Rejected" },
 ];
 
 /* Personal Loans list — an unsecured, no-KYC loan product separate from the
@@ -37,6 +41,9 @@ const STATUS_OPTIONS = [
 export function PersonalLoansPage() {
   const { can } = useAuth();
   const { openModal, closeModal } = useModal();
+  // Loans are disbursed directly unless the business turned the personal_loan approval chain on.
+  const { config: workflow } = useApprovalWorkflow();
+  const approvalOn = chainFor(workflow, "personal_loan").length > 0;
   const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
   const smallScreen = useIsSmallScreen();
   const basePageSize = useResponsivePageSize(15, 15);
@@ -52,7 +59,7 @@ export function PersonalLoansPage() {
   // the panel, not as chips.
   const filterCategories: FilterCategory[] = [
     { key: "freq", label: "Frequency", kind: "static", options: FREQS.filter((f) => f !== "All").map((f) => ({ value: f, label: f })) },
-    { key: "status", label: "Status", kind: "static", options: STATUS_OPTIONS },
+    { key: "status", label: "Status", kind: "static", options: approvalOn ? [STATUS_OPTIONS[0], ...APPROVAL_STATUS_OPTIONS, ...STATUS_OPTIONS.slice(1)] : STATUS_OPTIONS },
   ];
   const filterValue: FilterValue = { freq: freq ? freq.split(",") : [], status: status ? status.split(",") : [] };
   const [loans, setLoans] = useState<BackendPersonalLoan[]>([]);

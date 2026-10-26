@@ -21,7 +21,7 @@ import { listExpenses, getCashSummary } from "@/modules/cash/services/cashServic
 import { type ExpenseView, type CashSummary } from "@/modules/cash/types/cash-types";
 import { getCalendarEventsPage } from "@/modules/reminders/services/reminderService";
 import { type CalendarEvent } from "@/modules/reminders/types/reminder-types";
-import { listLoanRequests, getInterestCollected } from "@/modules/loans/services/loanService";
+import { listLoanRequests, getInterestCollected, isActiveAuctionCase } from "@/modules/loans/services/loanService";
 import { type RequestView } from "@/modules/loans/types/loan-types";
 import { getNeedsAttentionPage, getDashboardLoanStats, type DashboardLoanStats } from "@/modules/dashboard/services/dashboardService";
 import { type NeedsAttentionItem } from "@/modules/dashboard/types/dashboard-types";
@@ -151,9 +151,12 @@ export function DashboardPage() {
   const today = new Date().toISOString().slice(0, 10);
   const todayLabel = `${new Date().toLocaleDateString("en-IN", { weekday: "long" })}, ${fmtToday()}`;
 
-  const active = loans.filter((l) => ["Active", "Due Soon", "Overdue"].includes(l.status));
-  const overdue = loans.filter((l) => l.status === "Overdue");
-  const dueSoon = loans.filter((l) => l.status === "Due Soon");
+  // Each tile uses the same rule as the page it links to (Loans' Active /
+  // Due Soon / Overdue filters, see loan/servicing_filter.go), so the number on
+  // the tile is the number of rows on arrival. The three are disjoint.
+  const active = loans.filter((l) => l.status === "Active");
+  const overdue = loans.filter((l) => l.isOverdue && !l.isDefaulted && l.status !== "Active" && l.status !== "Auction Eligible" && l.status !== "Auctioned - Balance Due");
+  const dueSoon = loans.filter((l) => l.isDueSoon);
   const pledged = loans.filter((l) => l.bankPledgeStatus === "Bank Pledged");
   const outstanding = active.reduce((s, l) => s + l.outstanding, 0);
   const expToday = expenses.filter((e) => e.d === today).reduce((s, e) => s + e.amt, 0);
@@ -197,7 +200,7 @@ export function DashboardPage() {
   // "Needs Attention" *list* below was ever actually slicing in memory, so
   // only that widget's data source changes.
   const pendingApprovalLoans = loans.filter((l) => l.status === "Pending Approval");
-  const auctionLoans = loans.filter((l) => l.status === "Auction Eligible" || l.status === "Defaulted");
+  const auctionLoans = loans.filter(isActiveAuctionCase);
 
   // "Needs Attention" — real server-side pagination (see
   // modules/dashboard/services/dashboardService.ts): the backend merges
@@ -306,16 +309,16 @@ export function DashboardPage() {
               href={link("ledger")}
             />
             <Kpi l="Loans Opened Today" v={openedToday} href={link("loans")} />
-            <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} href={link("loans/Active")} />
-            <Kpi l="Due Soon" v={dueSoon.length} s="within 14 days" cls={dueSoon.length ? "warn" : ""} href={link(`loans/${encodeURIComponent("Due Soon")}`)} />
+            <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} cls="ok" href={link("loans/Active")} />
+            <Kpi l="Due Soon" v={dueSoon.length} s="within 7 days" cls={dueSoon.length ? "amber" : ""} href={link(`loans/${encodeURIComponent("Due Soon")}`)} />
             <Kpi l="Overdue Loans" v={overdue.length} s={fmt(overdue.reduce((s, l) => s + l.outstanding, 0)) + " at risk"} cls={overdue.length ? "warn" : ""} href={link("loans/Overdue")} />
-            <Kpi l="Pending Approvals" v={pendingApprovalLoans.length} s="awaiting sanction" cls={pendingApprovalLoans.length ? "warn" : ""} href={link(`loans/${encodeURIComponent("Pending Approval")}`)} />
-            <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="from mobile app" href={link("requests")} />
-            <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" href={link("requests")} />
-            <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} href={link("bankpledge")} />
+            <Kpi l="Pending Approvals" v={pendingApprovalLoans.length} s="awaiting sanction" cls={pendingApprovalLoans.length ? "info" : ""} href={link(`loans/${encodeURIComponent("Pending Approval")}`)} />
+            <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="pending review" cls={pendingReq.some((r) => r.type === "Extension") ? "amber" : ""} href={link("requests")} />
+            <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" cls={pendingReq.some((r) => r.type === "Release") ? "amber" : ""} href={link("requests")} />
+            <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} cls="info" href={link("bankpledge")} />
             <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href={link("auctions")} />
             <Kpi l="Today's Expenses" v={fmt(expToday)} href={link("ledger")} />
-            <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={link("reports")} />
+            <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={link("reports/interest-penal-collection")} />
           </div>
 
           <div className="card gtop">
@@ -330,7 +333,7 @@ export function DashboardPage() {
           </div>
 
           <div className="card">
-            <div className="hd"><h3>Needs Attention</h3><div className="sp" />{canOpen("requests") ? <a href={routeHref("requests")} style={{ fontSize: 12.5 }}>View all →</a> : null}</div>
+            <div className="hd"><h3>Needs Attention</h3></div>
             <div className="bd" style={{ paddingTop: 6 }}>
               <ul className="mini-list">
                 {needsAttentionPageItems.length === 0 && (
@@ -356,7 +359,7 @@ export function DashboardPage() {
                         <li key={"appr-pl-" + item.entityId}>
                           <span className="ic"><Icon name="stamp" /></span>
                           <span className="tx"><b>Personal loan approval — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.principal)} · at {stage} stage</small></span>
-                          {canOpen(`personalloan/${item.entityId}`) ? <span className="rt"><a className="btn sm" href={routeHref(`personalloan/${item.entityId}`)}>Review</a></span> : null}
+                          {canOpen(`personalloan/${item.loanNumber || item.entityId}`) ? <span className="rt"><a className="btn sm" href={routeHref(`personalloan/${item.loanNumber || item.entityId}`)}>Review</a></span> : null}
                         </li>
                       );
                     }
@@ -373,7 +376,7 @@ export function DashboardPage() {
                       <li key={"req-" + item.requestId}>
                         <span className="ic"><Icon name={item.requestType === "Extension" ? "clock" : item.requestType === "Release" ? "unlock" : "edit"} /></span>
                         <span className="tx"><b>{item.requestType} request — {item.loanNumber}</b><small>{item.customerName} · {item.detail}</small></span>
-                        {canOpen("requests") ? <span className="rt"><a className="btn sm ghost" href={routeHref("requests")}>Open</a></span> : null}
+                        {canOpen("requests") ? <span className="rt"><a className="btn sm ghost" href={routeHref("requests", item.loanNumber)}>Open</a></span> : null}
                       </li>
                     );
                   }
@@ -381,7 +384,7 @@ export function DashboardPage() {
                     <li key={"auc-" + item.loanId}>
                       <span className="ic" style={{ background: "var(--red-bg)", color: "var(--red)" }}><Icon name="gavel" /></span>
                       <span className="tx"><b>Auction case — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.outstanding)} outstanding · {item.status}</small></span>
-                      {canOpen("auctions") ? <span className="rt"><a className="btn sm ghost" href={routeHref("auctions")}>Open</a></span> : null}
+                      {canOpen("auctions") ? <span className="rt"><a className="btn sm ghost" href={routeHref("auctions", item.loanNumber)}>Open</a></span> : null}
                     </li>
                   );
                 })}

@@ -35,6 +35,15 @@ export const isBankMode = (mode: string) => mode === "UPI" || mode === "Bank Tra
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/* A lone untouched row follows the total, but only via the effect below — one render late. Anything that
+ * reads the rows during render (the "still to allocate" line, the parent's balanced check) must use this
+ * instead, or it sees a stale amount for a frame and flips red then green on every change of the total. */
+export function effectiveRows(rows: PaymentRow[], total: number): PaymentRow[] {
+  if (rows.length !== 1 || !rows[0].auto) return rows;
+  const v = total > 0 ? String(total) : "";
+  return rows[0].amount === v ? rows : [{ ...rows[0], amount: v }];
+}
+
 /* The rows as the backend's payment lines — rows with no amount are dropped. */
 export function paymentRowsToInput(rows: PaymentRow[]): PaymentPartInput[] {
   return rows
@@ -106,7 +115,8 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
     if (rows[0].amount !== v) onChange((cur) => (cur.length === 1 && cur[0].auto ? [{ ...cur[0], amount: v }] : cur));
   }, [total, rows, onChange]);
 
-  const allocated = round2(rows.reduce((s, r) => s + (+r.amount || 0), 0));
+  const shownRows = effectiveRows(rows, total);
+  const allocated = round2(shownRows.reduce((s, r) => s + (+r.amount || 0), 0));
   const remaining = round2(total - allocated);
   const patch = (key: number, p: Partial<PaymentRow>) =>
     onChange((cur) => cur.map((r) => (r.key === key ? { ...r, auto: false, ...p } : r)));
@@ -146,7 +156,7 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
         </div>
         {/* The lines scroll inside a fixed height, so adding modes never grows the modal. */}
         <div className="no-scrollbar" style={{ ...(scrollInternally ? { maxHeight: 132, overflowY: "auto", overflowX: "hidden" } : {}), marginBottom: 8, paddingBottom: 2 }}>
-        {rows.map((r) => (
+        {shownRows.map((r) => (
           <div key={r.key} className={error?.key === r.key ? "has-err" : undefined} style={{ marginBottom: 8 }}>
           <div style={grid}>
             <Select

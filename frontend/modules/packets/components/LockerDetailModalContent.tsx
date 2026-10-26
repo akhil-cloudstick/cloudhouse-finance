@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
+import { useToast } from "@/common/components/ToastProvider";
+import { ApiError } from "@/common/services/httpClient";
+import { deleteLocker } from "@/modules/lockers/services/lockerService";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { fmtW } from "@/common/utils/format";
@@ -11,15 +14,35 @@ import { type PacketView } from "@/modules/packets/types/packet-types";
 import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { LockerModalContent } from "@/modules/packets/components/LockerModalContent";
 
-type LockerDetailModalContentProps = { locker: LockerView; canUpdate: boolean; onChanged: () => void };
+type LockerDetailModalContentProps = { locker: LockerView; canUpdate: boolean; canDelete?: boolean; onChanged: () => void };
 
 /* Opened from a row of the Lockers table on the Packets & Lockers page:
  * the locker's own details plus the packets currently stored in it. Packets
  * are loaded per locker (GET /packets?lockerId=) rather than filtered out of
  * the packets table's current page, which is paginated. */
-export function LockerDetailModalContent({ locker, canUpdate, onChanged }: LockerDetailModalContentProps) {
+export function LockerDetailModalContent({ locker, canUpdate, canDelete, onChanged }: LockerDetailModalContentProps) {
   const { openModal, closeModal } = useModal();
   const showBranch = useShowBranch();
+  const toast = useToast();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [delErr, setDelErr] = useState("");
+
+  async function remove() {
+    setDeleting(true);
+    setDelErr("");
+    try {
+      await deleteLocker(locker.id);
+      toast(`Locker "${locker.code}" deleted`);
+      closeModal();
+      onChanged();
+    } catch (e) {
+      setDelErr(e instanceof ApiError ? e.message : "Failed to delete locker.");
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
   const [packets, setPackets] = useState<PacketView[] | null>(null);
 
   useEffect(() => {
@@ -64,9 +87,17 @@ export function LockerDetailModalContent({ locker, canUpdate, onChanged }: Locke
           </table>
         </div>
       </div>
+      {(confirmDelete || delErr) && (
+        <div className="notice" style={{ margin: "0 20px 10px", color: delErr ? "var(--red)" : undefined }}>
+          {delErr || `Delete locker "${locker.code}"? This cannot be undone. A locker that still holds packets cannot be deleted.`}
+        </div>
+      )}
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
         {canUpdate && <button className="btn" onClick={() => openModal(<LockerModalContent key={locker.id} locker={locker} onSaved={onChanged} />)}>Edit</button>}
+        {canDelete && (confirmDelete
+          ? <button className="btn danger" onClick={remove} disabled={deleting}>{deleting ? "Deleting…" : "Confirm Delete"}</button>
+          : <button className="btn danger" onClick={() => { setDelErr(""); setConfirmDelete(true); }}>Delete</button>)}
       </div>
     </>
   );

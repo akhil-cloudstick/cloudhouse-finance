@@ -1,16 +1,32 @@
 "use client";
 
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { RateModalContent } from "@/common/components/modals/RateModalContent";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtDate } from "@/common/utils/format";
-import { listGoldRatesPage } from "@/modules/gold-rates/services/goldRateService";
+import { listGoldRateDaysPage } from "@/modules/gold-rates/services/goldRateService";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { type GoldRateView } from "@/modules/gold-rates/types/gold-rate-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useResponsivePageSize, useScrollPageSize, useIsSmallScreen } from "@/common/utils/responsive";
+
+const timeOf = (iso: string) => {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "—";
+};
+
+/* Name, with the setter's designation (role) under it when known. */
+function PublishedBy({ r }: { r: GoldRateView }) {
+  return (
+    <>
+      {r.setBy}
+      {r.setByDesignation && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.setByDesignation}</div>}
+    </>
+  );
+}
 
 type RateTileProps = { k: string; r: number; small?: boolean };
 
@@ -43,12 +59,17 @@ export function GoldRatesPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // "YYYY-MM-DD", or "" for every day.
+  const [day, setDay] = useState("");
+  // Days whose list of changes is open.
+  const [openDays, setOpenDays] = useState<Set<string>>(new Set());
+  const toggleDay = (d: string) => setOpenDays((cur) => { const next = new Set(cur); if (next.has(d)) next.delete(d); else next.add(d); return next; });
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listGoldRatesPage(page, pageSize)
+    listGoldRateDaysPage(page, pageSize, day || undefined)
       .then((res) => {
         if (cancelled) return;
         setRows(res.items);
@@ -58,7 +79,7 @@ export function GoldRatesPage() {
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, pageSize, version]);
+  }, [page, pageSize, version, day]);
 
   return (
     <>
@@ -79,7 +100,16 @@ export function GoldRatesPage() {
       </div>
       
       <div className="card tbl-card tbl-card-fill">
-        <div className="hd"><h3>Rate History</h3></div>
+        <div className="hd">
+          <h3>Rate History</h3>
+          <div className="sp" />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 170 }}>
+              <DatePicker value={day} onChange={(v) => { setDay(v); setPage(1); }} placeholder="Filter by date…" max={new Date().toISOString().slice(0, 10)} />
+            </div>
+            {day && <button className="btn plain sm" onClick={() => { setDay(""); setPage(1); }}>Clear</button>}
+          </div>
+        </div>
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-cards">
@@ -90,16 +120,43 @@ export function GoldRatesPage() {
               {loading && !(cards && rows.length > 0) ? (
                 <tr><td colSpan={5} className="empty">Loading rate history…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={5} className="empty">No rates published yet.</td></tr>
-              ) : rows.map((r) => (
-                <tr key={r.id}>
-                  <td data-label="Date">{fmtDate(r.date)}</td>
-                  <td className="num" data-label="24K ₹/g">{fmt(r.k24)}</td>
-                  <td className="num" data-label="22K ₹/g">{fmt(r.k22)}</td>
-                  <td className="num" data-label="18K ₹/g">{fmt(r.k18)}</td>
-                  <td data-label="Published By">{r.setBy}</td>
-                </tr>
-              ))}
+                <tr><td colSpan={5} className="empty">{day ? "No rates were published on this date." : "No rates published yet."}</td></tr>
+              ) : rows.map((r) => {
+                // One row per day showing its newest rate; the day's changes sit behind it.
+                const entries = r.entries && r.entries.length ? r.entries : [r];
+                const expandable = entries.length > 1;
+                const open = expandable && openDays.has(r.date);
+                return (
+                  <Fragment key={r.id}>
+                    <tr
+                      onClick={expandable ? () => toggleDay(r.date) : undefined}
+                      style={expandable ? { cursor: "pointer" } : undefined}
+                      aria-expanded={expandable ? open : undefined}
+                    >
+                      <td data-label="Date">
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          {expandable && <Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : "rotate(-90deg)", transition: "transform .15s" }} />}
+                          {fmtDate(r.date)}
+                          {expandable && <span className="chip">{entries.length} changes</span>}
+                        </span>
+                      </td>
+                      <td className="num" data-label="24K ₹/g">{fmt(r.k24)}</td>
+                      <td className="num" data-label="22K ₹/g">{fmt(r.k22)}</td>
+                      <td className="num" data-label="18K ₹/g">{fmt(r.k18)}</td>
+                      <td data-label="Published By"><PublishedBy r={r} /></td>
+                    </tr>
+                    {open && entries.map((e, i) => (
+                      <tr key={e.id} style={{ background: "var(--bg-soft, #f6f6f8)" }}>
+                        <td data-label="Time" style={{ paddingLeft: 36 }}>{timeOf(e.createdAt)}{i === 0 && <span className="chip" style={{ marginLeft: 6 }}>Latest</span>}</td>
+                        <td className="num" data-label="24K ₹/g">{fmt(e.k24)}</td>
+                        <td className="num" data-label="22K ₹/g">{fmt(e.k22)}</td>
+                        <td className="num" data-label="18K ₹/g">{fmt(e.k18)}</td>
+                        <td data-label="Published By"><PublishedBy r={e} /></td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -36,6 +36,18 @@ const BOND_LANG_OPTIONS: { value: PersonalLoanBondLang; label: string; native: s
   { value: "ml", label: "Malayalam", native: "വാഗ്ദത്ത പത്രം" },
 ];
 
+/* Due date of the last installment — the schedule is paged, so it is derived the
+ * same way the backend builds it (generateScheduleFrom: one step per installment from the opened date). */
+function finalDueDate(loan: BackendPersonalLoan): string {
+  const m = /^(d{4})-(d{2})-(d{2})/.exec(loan.openedDate || "");
+  if (!m || !(loan.tenureCount > 0)) return "—";
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  if (loan.frequency === "Monthly") d.setMonth(d.getMonth() + loan.tenureCount);
+  else d.setDate(d.getDate() + loan.tenureCount * (loan.frequency === "Weekly" ? 7 : 1));
+  const p = (n: number) => String(n).padStart(2, "0");
+  return fmtDate(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
+}
+
 function usePagedTable<T>(fetchPage: (page: number, size: number) => Promise<{ items: T[]; hasMore: boolean; total: number; totalDebit?: number; totalCredit?: number }>, resetKey: unknown) {
   const [items, setItems] = useState<T[]>([]);
   const [page, setPage] = useState(1);
@@ -149,13 +161,16 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
     setLoading(true);
     setError("");
     try {
-      setLoan(await getPersonalLoan(numericId));
+      const rec = await getPersonalLoan(numericId);
+      setLoan(rec);
+      // An id link gets the loan number (PL-00003) written into the address bar.
+      if (id && Number(id) && rec.loanNumber) window.history.replaceState(window.history.state, "", routeHref("personalloan", rec.loanNumber) + window.location.search);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load this loan.");
     } finally {
       setLoading(false);
     }
-  }, [numericId]);
+  }, [numericId, id]);
 
   useEffect(() => { void refreshLoan(); }, [refreshLoan]);
 
@@ -265,7 +280,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
     <>
       <div className="page-h">
         <div>
-          <h1>{loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
+          <h1>{loan.loanNumber}</h1>
         </div>
         <div className="sp" />
         {pendingApproval && approvalStageView && (canActOnApproval ? (
@@ -368,11 +383,16 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
         <div className="kpis-strip-item"><span className="l">Outstanding</span><span className="v">{fmt(loan.outstandingAmount)}</span></div>
         <div className="kpis-strip-item"><span className="l">Status</span><StatusChip status={loan.status} /></div>
         <div className="kpis-strip-item"><span className="l">Frequency</span><span className="v">{loan.frequency}</span></div>
+        <div className="kpis-strip-item"><span className="l">Installment</span><span className="v">{fmt(loan.installmentAmount)}</span><span className="s">× {loan.tenureCount}</span></div>
+        <div className="kpis-strip-item"><span className="l">Due Date</span><span className="v">{finalDueDate(loan)}</span><span className="s">last installment</span></div>
+        <div className="kpis-strip-item"><span className="l">Grace Period</span><span className="v">{loan.gracePeriodDays > 0 ? `${loan.gracePeriodDays} days` : "None"}</span></div>
+        <div className="kpis-strip-item"><span className="l">Penal Interest Rate</span><span className="v">{loan.penalInterestRate}%</span>{loan.penalFlatAmount > 0 && <span className="s">+ {fmt(loan.penalFlatAmount)} flat</span>}</div>
+        <div className="kpis-strip-item"><span className="l">Total Paid</span><span className="v">{fmt(loan.totalPaid)}</span></div>
         {loan.renewedFromLoanId && (
-          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={routeHref(`personalloan/${loan.renewedFromLoanId}`)}>{linkedNumbers[loan.renewedFromLoanId] || "…"}</a></div>
+          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={routeHref(`personalloan/${linkedNumbers[loan.renewedFromLoanId] || loan.renewedFromLoanId}`)}>{linkedNumbers[loan.renewedFromLoanId] || "…"}</a></div>
         )}
         {loan.renewedToLoanId && (
-          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={routeHref(`personalloan/${loan.renewedToLoanId}`)}>{linkedNumbers[loan.renewedToLoanId] || "…"}</a></div>
+          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={routeHref(`personalloan/${linkedNumbers[loan.renewedToLoanId] || loan.renewedToLoanId}`)}>{linkedNumbers[loan.renewedToLoanId] || "…"}</a></div>
         )}
         {loan.penalCycleCount > 0 && (
           <div className="kpis-strip-item"><span className="l">Penal Interest</span><span className="v">{fmt(loan.totalPenalInterestCharged)}</span><span className="s">(cycle {loan.penalCycleCount})</span></div>

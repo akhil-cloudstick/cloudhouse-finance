@@ -13,7 +13,6 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -133,6 +132,8 @@ type LoanFilter struct {
 	CustomerIDs        []uint
 	ServicingIn        []string
 	SchemeID           uint
+	SchemeIDs          []uint
+	AuctionStages      []string
 	LoanIDs            []uint
 	Query              string
 	BranchScope        *uint
@@ -388,7 +389,8 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	if rec.ServiceChargeMode == commonModels.ServiceChargeModeAddedToPrincipal && rec.ServiceChargeAmount > 0 {
 		finalPrincipal = common.RoundMoney(in.PrincipalAmount + rec.ServiceChargeAmount)
 	}
-	if common.RoundMoney(in.PrincipalAmount) > common.RoundMoney(rec.EligibleLoanAmount) {
+	// a paisa of slack: the screen rounds the eligible amount to 2 decimals from its own float sum
+	if common.RoundMoney(in.PrincipalAmount) > common.RoundMoney(rec.EligibleLoanAmount)+0.01 {
 		return nil, common.NewBadRequest("principal amount cannot exceed the eligible loan amount")
 	}
 	rec.EligibleLoanAmount = common.RoundMoney(rec.EligibleLoanAmount)
@@ -589,7 +591,7 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 			capped = l.PrincipalAmount / (1 + l.ServiceChargeValue/100)
 		}
 	}
-	if common.RoundMoney(capped) > common.RoundMoney(l.EligibleLoanAmount) {
+	if common.RoundMoney(capped) > common.RoundMoney(l.EligibleLoanAmount)+0.01 {
 		return nil, common.NewBadRequest(fmt.Sprintf("principal amount ₹%.2f cannot exceed the eligible loan amount ₹%.2f (based on scheme LTV)", capped, l.EligibleLoanAmount))
 	}
 	if in.SchemeID != nil || in.PrincipalAmount != nil {
@@ -1091,13 +1093,25 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if f.SchemeID != 0 {
 		q = q.Where("loans.scheme_id = ?", f.SchemeID)
 	}
+	if len(f.SchemeIDs) > 0 {
+		q = q.Where("loans.scheme_id IN ?", f.SchemeIDs)
+	}
+	if len(f.AuctionStages) > 0 {
+		// the loan's latest auction record is at one of these stages
+		q = q.Where("EXISTS (SELECT 1 FROM auction_records ar WHERE ar.loan_id = loans.id AND ar.stage IN ? AND ar.id = (SELECT MAX(id) FROM auction_records WHERE loan_id = loans.id))", f.AuctionStages)
+	}
 	if len(f.LoanIDs) > 0 {
 		q = q.Where("loans.id IN ?", f.LoanIDs)
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
-		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
-			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
+		q = q.Joins("JOIN customers ON customers.id = loans.customer_id")
+		if f.ExcludeBankPledged {
+			// the bank re-pledge picker also finds a loan by its packet number
+			q = q.Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR EXISTS (SELECT 1 FROM packets pk WHERE pk.loan_id = loans.id AND pk.code ILIKE ?)", like, like, like, like)
+		} else {
+			q = q.Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
+		}
 	}
 	if f.BranchScope != nil {
 		q = q.Where("loans.branch_id = ?", *f.BranchScope)
@@ -1109,7 +1123,8 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		q = q.Where("loans.opened_date < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
 	}
 	if f.ExcludeBankPledged {
-		q = q.Where("loans.bank_pledge_status <> ?", models.BankPledgeStatusPledged)
+		// a loan with only some ornaments pledged can still take another pledge; only a whole-loan pledge excludes it
+		q = q.Where("(loans.bank_pledge_status <> ? OR NOT EXISTS (SELECT 1 FROM bank_pledge_records bp WHERE bp.loan_id = loans.id AND bp.status = ? AND bp.ornament_ids = 'null'))", models.BankPledgeStatusPledged, models.BankPledgeStatusRecordActive)
 		q = q.Where("loans.status NOT IN ?", models.BankPledgeIneligibleStatuses)
 	}
 	if f.BankPledgeStatus != "" {
@@ -1307,10 +1322,11 @@ func ListLoans(c echo.Context) error {
 	} else {
 		f.CustomerIDs = ids
 	}
-	if v := c.QueryParam("scheme_id"); v != "" {
-		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
-			f.SchemeID = uint(id)
-		}
+	f.AuctionStages = splitCSV(c.QueryParam("auction_stage"))
+	if ids := parseUintCSV(c.QueryParam("scheme_id")); len(ids) == 1 {
+		f.SchemeID = ids[0]
+	} else {
+		f.SchemeIDs = ids
 	}
 	from, to, ok := parseOpenedRange(c)
 	if !ok {

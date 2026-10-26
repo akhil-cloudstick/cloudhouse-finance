@@ -59,6 +59,7 @@ function toBankPledgeView(p: BackendBankPledgeRecord): BankPledgeView {
     pledgedGrossWeight: p.pledgedGrossWeight,
     pledgedNetWeight: p.pledgedNetWeight,
     isReleased: !!p.releaseDate,
+    ornamentIds: p.ornamentIds || [],
     bankInterestRate: p.bankInterestRate,
     referenceNumber: p.referenceNumber,
     // Rows predating the cash-treatment field default to CashIn, which is what
@@ -245,7 +246,8 @@ export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
   if (filters && hasValue(filters.status)) params.set("status", csv(filters.status!));
   if (filters && hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
   if (filters && hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
-  if (filters?.schemeId) params.set("schemeId", String(filters.schemeId));
+  if (hasValue(filters?.schemeId)) params.set("schemeId", csv(filters!.schemeId!));
+  if (filters && hasValue(filters.auctionStage)) params.set("auctionStage", csv(filters.auctionStage!));
   if (filters?.from) params.set("from", filters.from);
   if (filters?.to) params.set("to", filters.to);
   const qs = params.toString();
@@ -277,7 +279,7 @@ export async function listLoansPage(
   if (hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
   if (hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
   if (filters.bankPledgeStatus) params.set("bankPledgeStatus", filters.bankPledgeStatus);
-  if (filters.schemeId) params.set("schemeId", String(filters.schemeId));
+  if (hasValue(filters.schemeId)) params.set("schemeId", csv(filters.schemeId!));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean; total?: number }>(`/loans?${params}`);
@@ -500,6 +502,7 @@ function toBankPledgeRecordView(r: BackendBankPledgeRecord & { loanNumber?: stri
     status: r.status || "Active",
     voidedAt: r.voidedAt ? r.voidedAt.slice(0, 10) : null,
     voidReason: r.voidReason || "",
+    ornamentNames: r.ornamentNames || [],
     events: (r.events || []).map((e) => ({
       id: e.id,
       action: e.action,
@@ -555,6 +558,13 @@ export const CASH_TREATMENT_LABELS: Record<BankPledgeCashTreatment, string> = {
  * "Withdrawn" is a second terminal stage — reached when management pulls a case
  * out after the customer paid — and is deliberately excluded here because it is
  * an exit, not a step along the way. */
+/* The Auctions page's Active Cases rule — the dashboard's "Auction Cases" tile
+ * counts with it too, so the tile and the page agree. "Auctioned - Balance Due"
+ * stays in so a short-sale case keeps showing while its shortfall is open. */
+export function isActiveAuctionCase(l: LoanView): boolean {
+  return l.isDefaulted || l.status === "Auction Eligible" || l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
+}
+
 export const AUCTION_STAGES = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned", "Settled"] as const;
 export const AUCTION_STAGE_LABELS: Record<AuctionStage, string> = {
   AuctionEligible: "Auction Eligible",
@@ -771,7 +781,8 @@ export async function listConcludedAuctionsPage(
   page: number,
   hasSale: boolean,
   limit?: number,
-  q?: string
+  q?: string,
+  stages?: string[]
 ): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
@@ -780,6 +791,7 @@ export async function listConcludedAuctionsPage(
     hasSale: String(hasSale),
   });
   if (q && q.trim()) params.set("q", q.trim());
+  if (stages && stages.length) params.set("stage", stages.join(","));
   const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean; total?: number }>(
     `/loans/auctions/concluded?${params}`
   );

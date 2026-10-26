@@ -129,7 +129,7 @@ export function CustomersPage() {
           ) : rows.length === 0 ? (
             <tr><td colSpan={showBranch ? 8 : 7} className="empty">{error ? "—" : "No customers match your search."}</td></tr>
           ) : rows.map((c) => (
-            <tr className="click" key={c.id} onClick={() => { navigate("customer/" + c.id); }}>
+            <tr className="click" key={c.id} onClick={() => { navigate("customer/" + (c.code || c.id)); }}>
               <td data-label="Customer"><span className="id">{c.code}</span><span className="sub" style={{ fontSize: 13.5, color: "var(--nav)", fontWeight: 500 }}>{c.name}</span></td>
               <td data-label="Contact">{c.phone || "—"}<span className="sub">{c.address}</span></td>
               {showBranch && <td data-label="Branch">{c.branchName}</td>}

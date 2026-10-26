@@ -259,6 +259,9 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if err != nil {
 		return nil, err
 	}
+	if in.Discount > needed+0.01 {
+		return nil, common.NewBadRequest(fmt.Sprintf("the discount cannot exceed the ₹%.2f needed to release the gold", needed))
+	}
 	if short := common.RoundMoney(needed - (in.Amount + in.Discount)); short > 0.01 {
 		return nil, common.NewBadRequest(fmt.Sprintf("the payment is ₹%.2f short of the ₹%.2f needed to release the gold", short, needed))
 	}

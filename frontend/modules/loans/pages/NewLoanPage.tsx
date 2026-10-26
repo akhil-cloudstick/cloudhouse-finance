@@ -21,7 +21,7 @@ import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
 import { createLoan, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber } from "@/modules/loans/services/loanService";
 import { type BackendLoanDraft, type SaveDraftInput } from "@/modules/loans/types/loan-types";
-import { publishGoldRate } from "@/modules/gold-rates/services/goldRateService";
+import { publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { getLocker, searchLockersPage } from "@/modules/lockers/services/lockerService";
@@ -33,7 +33,7 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/PurityPicker";
 import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
 import { OrnamentPhotoSlider } from "@/modules/loans/components/OrnamentPhotoSlider";
-import { rateForPurityFull } from "@/common/utils/purity";
+import { rateForPurityFull, rateForFineness, finenessFromRate } from "@/common/utils/purity";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import { ApiError } from "@/common/services/httpClient";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
@@ -118,7 +118,7 @@ type NewLoanPageProps = { customerId?: string };
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
 export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
-  const { isCrossBranch, can, selectedBranchId } = useAuth();
+  const { isCrossBranch, can, selectedBranchId, employee } = useAuth();
   const canPublishRate = can("Gold_Rate_Management", "can_create_gold_rate");
   // Locker is optional on a new loan ("Assign later") — without locker view
   // the picker is hidden rather than left to 403 on every search.
@@ -172,7 +172,13 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     setRateErr("");
     setRateSaving(true);
     try {
-      await publishGoldRate({ karat: 24, rate: k24, setBy: rates.setBy && rates.setBy !== "—" ? rates.setBy : "Admin" });
+      // 22K/18K follow the new 24K at the fineness the last published rates imply
+      // (the standard ratio when none), the same Auto rule the Set Gold Rate modal uses.
+      await publishGoldRates({
+        24: k24,
+        22: rateForFineness(k24, finenessFromRate(rates.k24, rates.k22, 22)),
+        18: rateForFineness(k24, finenessFromRate(rates.k24, rates.k18, 18)),
+      }, employee?.name || employee?.username || "Admin");
       refreshGoldRates();
       setRateR24("");
       toast("Gold rate published for today");
@@ -300,6 +306,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   const [draftId, setDraftId] = useState<number | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
   const [drafts, setDrafts] = useState<BackendLoanDraft[]>([]);
+  // Search box over the Saved drafts card (customer name / scheme).
+  const [draftQ, setDraftQ] = useState("");
   useEffect(() => {
     listActiveBranches()
       .then((list) => {
@@ -344,6 +352,11 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
       hasMore: res.hasMore,
     }));
   }
+
+  const draftNeedle = draftQ.trim().toLowerCase();
+  const visibleDrafts = draftNeedle
+    ? drafts.filter((d) => (d.customer?.name || "").toLowerCase().includes(draftNeedle) || (d.customer?.code || "").toLowerCase().includes(draftNeedle) || (d.scheme?.name || "").toLowerCase().includes(draftNeedle))
+    : drafts;
 
   const sch = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((s) => s.id === schemeId);
 
@@ -773,7 +786,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
      * every child in one extra box here, unlike every other page whose
      * .page-h/.gold-rule/etc. sit directly under .page, was pushing this
      * page's title row out of alignment with the rest. */
-    <div onKeyDown={onEnterSubmit} style={{ display: "contents" }}>
+    <div className="newloan-root" onKeyDown={onEnterSubmit} style={{ display: "contents" }}>
       <div className="page-h"><div><h1>New Gold Loan</h1><p>Select a verified customer, choose a scheme, and record pledged ornaments</p></div></div>
       <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
       {!isTodaySet && (
@@ -1283,7 +1296,12 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
           {drafts.length > 0 && (
             <div className="card gtop newloan-drafts"><div className="hd"><h3>Saved drafts</h3></div>
               <div className="bd" style={{ fontSize: 13 }}>
-                {drafts.map((d) => (
+                <div className="search" style={{ marginBottom: 6 }}>
+                  <Icon name="search" />
+                  <input className="inp" placeholder="Search by customer or scheme…" value={draftQ} onChange={(e) => setDraftQ(e.target.value)} />
+                </div>
+                {visibleDrafts.length === 0 && <div style={{ color: "var(--muted)", padding: "10px 0" }}>No drafts match your search.</div>}
+                {visibleDrafts.map((d) => (
                   <div
                     key={d.id}
                     style={{

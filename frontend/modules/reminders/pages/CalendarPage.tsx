@@ -37,6 +37,18 @@ function evClass(type: CalendarEvent["type"]): string {
   }
 }
 
+/* The day panel groups a day's events into these segments, each shown as a
+ * coloured count circle (colours match the .ev chips on the grid). */
+const GROUPS: { key: string; label: string; tone: "red" | "amber" | "green" | "info"; types: string[] }[] = [
+  { key: "overdue", label: "Overdue", tone: "red", types: ["Overdue", "PersonalLoanOverdue"] },
+  { key: "due", label: "Loan due", tone: "amber", types: ["LoanDue", "PersonalLoanDue"] },
+  { key: "auction", label: "Auction", tone: "amber", types: ["AuctionScheduled"] },
+  { key: "interest", label: "Interest", tone: "green", types: ["InterestDue"] },
+  { key: "followup", label: "Follow-up", tone: "info", types: ["FollowUp"] },
+  { key: "promise", label: "Promise to pay", tone: "info", types: ["PromiseToPay"] },
+];
+const GROUPED_TYPES = GROUPS.flatMap((g) => g.types);
+
 function fmtMonthYear(year: number, month: number): string {
   return new Date(year, month, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 }
@@ -74,9 +86,12 @@ export function CalendarPage() {
   const [err, setErr] = useState("");
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [dayVisible, setDayVisible] = useState(DAY_PAGE_SIZE);
+  // Which segment's events are expanded in the day panel (null = just the circles).
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   // A different day (or month) starts again from the first page.
-  useEffect(() => { setDayVisible(DAY_PAGE_SIZE); }, [selectedDay, year, month]);
+  useEffect(() => { setDayVisible(DAY_PAGE_SIZE); setOpenGroup(null); }, [selectedDay, year, month]);
+  useEffect(() => { setDayVisible(DAY_PAGE_SIZE); }, [openGroup]);
 
   const todayISO = today.toISOString().slice(0, 10);
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
@@ -150,7 +165,12 @@ export function CalendarPage() {
     }
   }
 
-  const dayEvents = selectedDay != null ? eventsByDay.get(selectedDay) || [] : [];
+  const allDayEvents = selectedDay != null ? eventsByDay.get(selectedDay) || [] : [];
+  const groupsOfDay = [
+    ...GROUPS.map((g) => ({ ...g, items: allDayEvents.filter((e) => g.types.includes(e.type)) })),
+    { key: "other", label: "Other", tone: "info" as const, types: [], items: allDayEvents.filter((e) => !GROUPED_TYPES.includes(e.type)) },
+  ].filter((g) => g.items.length > 0);
+  const dayEvents = groupsOfDay.find((g) => g.key === openGroup)?.items ?? [];
   function onDayScroll(e: UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     if (dayVisible < dayEvents.length && el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
@@ -172,9 +192,6 @@ export function CalendarPage() {
          * visibly room for it. */}
         <div className="page-h-title"><h1>EMI / Interest Reminder Calendar</h1><p>{fmtMonthYear(year, month)} · due dates, overdue loans, follow-ups &amp; promise-to-pay</p></div>
         <div className="page-h-actions">
-          <button className="btn ghost" onClick={goToday}>Today</button>
-          <button className="btn ghost" onClick={() => goMonth(-1)}>‹ Prev</button>
-          <button className="btn ghost" onClick={() => goMonth(1)}>Next ›</button>
           {canCreateReminders && (
             <button className="btn" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
               <Icon name="plus" /> Add Reminder
@@ -197,8 +214,16 @@ export function CalendarPage() {
         <span className="chip green">Payment</span>
       </div>
       {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
-      <div className="grid cols21">
+      <div className="grid cols21" style={{ alignItems: "start" }}>
+        <div className="grid">
         <div className="card">
+          {/* Month label with its small prev/next buttons right beside it, directly above the grid. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px 0" }}>
+            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0 }} onClick={() => goMonth(-1)} aria-label="Previous month">‹</button>
+            <b style={{ fontSize: 14, minWidth: 120, textAlign: "center" }}>{fmtMonthYear(year, month)}</b>
+            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0 }} onClick={() => goMonth(1)} aria-label="Next month">›</button>
+            <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={goToday}>Today</button>
+          </div>
           <div className="bd" style={{ padding: 10, overflowX: "auto" }}>
             {loading ? (
               <p style={{ color: "var(--muted)", fontSize: 13 }}>Loading calendar…</p>
@@ -233,16 +258,52 @@ export function CalendarPage() {
           </div>
           <div className="ft">Click a day to see its full list of events and log a follow-up, promise-to-pay date, or custom reminder.</div>
         </div>
+          <div className="card">
+            <div className="hd"><h3>This Month at a Glance</h3></div>
+            <div className="bd" style={{ paddingTop: 6 }}>
+              <ul className="mini-list">
+                <li><span className="tx"><b>Loan due dates</b><small>{events.filter((e) => e.type === "LoanDue").length} loans due this month</small></span></li>
+                <li><span className="tx"><b>Overdue loans</b><small>{events.filter((e) => e.type === "Overdue").length} loans overdue</small></span></li>
+                <li><span className="tx"><b>Interest reminders</b><small>{events.filter((e) => e.type === "InterestDue").length} scheduled</small></span></li>
+                <li><span className="tx"><b>Scheduled auctions</b><small>{events.filter((e) => e.type === "AuctionScheduled").length} loans scheduled for auction</small></span></li>
+                <li><span className="tx"><b>Customer follow-ups</b><small>{events.filter((e) => e.type === "FollowUp").length} logged</small></span></li>
+                <li><span className="tx"><b>Promise-to-pay dates</b><small>{events.filter((e) => e.type === "PromiseToPay").length} logged</small></span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
 
         <div className="grid">
           <div className="card">
             <div className="hd"><h3>{selectedDay != null ? fmtDate(toISODate(year, month, selectedDay)) : "Select a day"}</h3></div>
             <div className="bd no-scrollbar" style={{ paddingTop: 6, maxHeight: 420, overflowY: "auto" }} onScroll={onDayScroll}>
+              {groupsOfDay.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "8px 0 12px" }}>
+                  {groupsOfDay.map((g) => {
+                    const on = openGroup === g.key;
+                    return (
+                      <button
+                        key={g.key}
+                        type="button"
+                        onClick={() => setOpenGroup(on ? null : g.key)}
+                        aria-pressed={on}
+                        title={`${g.label}: ${g.items.length}`}
+                        style={{ background: "none", border: 0, padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 64 }}
+                      >
+                        <span style={{ width: 40, height: 40, borderRadius: "50%", display: "grid", placeContent: "center", fontWeight: 700, fontSize: 14, background: `var(--${g.tone}-bg)`, color: `var(--${g.tone})`, border: `2px solid ${on ? `var(--${g.tone})` : "transparent"}` }}>{g.items.length}</span>
+                        <span style={{ fontSize: 10.5, color: on ? "var(--charcoal)" : "var(--muted)", textAlign: "center", lineHeight: 1.2 }}>{g.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <ul className="mini-list">
                 {selectedDay == null ? (
                   <li><span className="tx"><small>Click a day on the calendar to see its events.</small></span></li>
-                ) : dayEvents.length === 0 ? (
+                ) : allDayEvents.length === 0 ? (
                   <li><span className="tx"><small>No events on this day.</small></span></li>
+                ) : openGroup == null ? (
+                  <li><span className="tx"><small>Select a circle to see its events.</small></span></li>
                 ) : dayEvents.slice(0, dayVisible).map((e, i) => (
                   <li key={i}>
                     <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
@@ -278,19 +339,6 @@ export function CalendarPage() {
             )}
           </div>
 
-          <div className="card">
-            <div className="hd"><h3>This Month at a Glance</h3></div>
-            <div className="bd" style={{ paddingTop: 6 }}>
-              <ul className="mini-list">
-                <li><span className="tx"><b>Loan due dates</b><small>{events.filter((e) => e.type === "LoanDue").length} loans due this month</small></span></li>
-                <li><span className="tx"><b>Overdue loans</b><small>{events.filter((e) => e.type === "Overdue").length} loans overdue</small></span></li>
-                <li><span className="tx"><b>Interest reminders</b><small>{events.filter((e) => e.type === "InterestDue").length} scheduled</small></span></li>
-                <li><span className="tx"><b>Scheduled auctions</b><small>{events.filter((e) => e.type === "AuctionScheduled").length} loans scheduled for auction</small></span></li>
-                <li><span className="tx"><b>Customer follow-ups</b><small>{events.filter((e) => e.type === "FollowUp").length} logged</small></span></li>
-                <li><span className="tx"><b>Promise-to-pay dates</b><small>{events.filter((e) => e.type === "PromiseToPay").length} logged</small></span></li>
-              </ul>
-            </div>
-          </div>
         </div>
       </div>
     </>

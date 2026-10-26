@@ -256,8 +256,8 @@ func getAuctionHistory(ctx context.Context, loanID uint, branchID *uint) ([]mode
 	return findAuctionHistoryByLoanID(ctx, loanID)
 }
 
-func listConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
-	return findAllConcluded(ctx, branchID, hasSale, query, limit, offset)
+func listConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, stages []string, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+	return findAllConcluded(ctx, branchID, hasSale, stages, query, limit, offset)
 }
 
 func listPendingAuctionDecisions(ctx context.Context, branchID *uint) ([]models.AuctionDecisionRequest, error) {
@@ -942,7 +942,7 @@ func findAuctionHistoryByLoanID(ctx context.Context, loanID uint) ([]models.Auct
 	return records, err
 }
 
-func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, stages []string, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
 	var rows []ConcludedAuctionRow
 	q := preloadAuctionDetail(config.DB.
 		WithContext(ctx)).Model(&models.AuctionRecord{}).
@@ -952,6 +952,9 @@ func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, query 
 		Where("auction_records.stage IN (?, ?)", models.AuctionStageSettled, models.AuctionStageWithdrawn)
 	if branchID != nil {
 		q = q.Where("loans.branch_id = ?", *branchID)
+	}
+	if len(stages) > 0 {
+		q = q.Where("auction_records.stage IN ?", stages)
 	}
 	if hasSale != nil {
 		if *hasSale {
@@ -1163,14 +1166,15 @@ func ListConcludedAuctions(c echo.Context) error {
 		b := v == "true"
 		hasSale = &b
 	}
+	stages := splitCSV(c.QueryParam("stage"))
 	if limit > 0 {
-		rec, total, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, query, limit, offset)
+		rec, total, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, stages, query, limit, offset)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessPage(c, page, limit, total, rec)
 	}
-	recs, _, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, query, 0, 0)
+	recs, _, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, stages, query, 0, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

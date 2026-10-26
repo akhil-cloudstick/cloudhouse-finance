@@ -134,10 +134,32 @@ func findPackets(ctx context.Context, f Filter) ([]models.Packet, int64, error) 
 	if f.LoanID != 0 {
 		q = q.Where("packets.loan_id = ?", f.LoanID)
 	}
-	if len(f.StatusIn) > 0 {
-		q = q.Where("packets.status IN ?", f.StatusIn)
-	} else if f.Status != "" {
-		q = q.Where("packets.status = ?", f.Status)
+	statuses := f.StatusIn
+	if len(statuses) == 0 && f.Status != "" {
+		statuses = []string{f.Status}
+	}
+	if len(statuses) > 0 {
+		// "Auctioned" is a loan status, not a packet status: a packet keeps its own status after the loan is auctioned,
+		// so match it through the loan instead.
+		var plain []string
+		auctioned := false
+		for _, s := range statuses {
+			if s == "Auctioned" {
+				auctioned = true
+			} else {
+				plain = append(plain, s)
+			}
+		}
+		auctionedCond := "packets.loan_id IN (SELECT id FROM loans WHERE status IN ?)"
+		auctionedStatuses := []string{loanModels.StatusAuctioned, loanModels.StatusAuctionedBalanceDue}
+		switch {
+		case auctioned && len(plain) > 0:
+			q = q.Where("(packets.status IN ? OR "+auctionedCond+")", plain, auctionedStatuses)
+		case auctioned:
+			q = q.Where(auctionedCond, auctionedStatuses)
+		default:
+			q = q.Where("packets.status IN ?", plain)
+		}
 	}
 	if f.LockerID != 0 {
 		q = q.Where("packets.current_locker_id = ?", f.LockerID)

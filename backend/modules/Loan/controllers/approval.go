@@ -6,8 +6,10 @@ import (
 	"cloudhouse/backend/config"
 	cashbook "cloudhouse/backend/modules/Cash/controllers"
 	"cloudhouse/backend/modules/Loan/models"
+	packet "cloudhouse/backend/modules/Packet/controllers"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -203,6 +205,12 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 		})
 	}); err != nil {
 		return nil, err
+	}
+	if rejected {
+		// A rejected loan's gold goes back to the customer: release its packet and free the locker slot.
+		if err := packet.RecordGoldReleaseMovement(ctx, loanID, "Loan rejected - packet released"); err != nil {
+			log.Printf("packet release on rejection failed for loan %d: %v", loanID, err)
+		}
 	}
 	switch {
 	case disbursing:

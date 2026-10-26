@@ -149,6 +149,18 @@ export async function getCustomer(id: string): Promise<CustomerView> {
   return toView(rec);
 }
 
+/* A customer page's URL carries the customer's code (CUST-04), older links the
+ * numeric id — both resolve here. */
+export function isNumericCustomerRef(ref: string): boolean {
+  return /^\d+$/.test(ref);
+}
+
+export async function getCustomerByRef(ref: string): Promise<CustomerView> {
+  if (isNumericCustomerRef(ref)) return getCustomer(ref);
+  const rec = await apiFetch<BackendCustomer>(`/customers/by-code/${encodeURIComponent(ref)}`);
+  return toView(rec);
+}
+
 export async function verifyCustomerPan(id: string): Promise<PanVerificationResult> {
   const res = await apiFetch<{ customer: BackendCustomer; message: string; matchedName: string; traceId: string }>(
     `/customers/${id}/verify-pan`,

@@ -6,7 +6,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { listGoldRates, getLatestGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { type GoldRateView } from "@/modules/gold-rates/types/gold-rate-types";
 
-const EMPTY_RATE: GoldRateView = { id: "", date: "", k24: 0, k22: 0, k18: 0, setBy: "—" };
+const EMPTY_RATE: GoldRateView = { id: "", date: "", k24: 0, k22: 0, k18: 0, setBy: "—", setByDesignation: "", createdAt: "" };
 
 type GoldRatesState = {
   latest: GoldRateView;

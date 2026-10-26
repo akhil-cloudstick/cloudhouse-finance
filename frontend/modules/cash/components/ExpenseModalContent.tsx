@@ -11,7 +11,7 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { createExpense, saveEntryEdit, uploadReceipt } from "@/modules/cash/services/cashService";
-import { searchExpenseCategoriesPage, createExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
+import { searchSelectableExpenseCategoriesPage, createExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
 import { type BackendExpenseCategory } from "@/modules/cash/types/expense-category-types";
 import { type EntryInfo } from "@/modules/cash/types/cash-types";
 import { PaymentBreakdownFields, newPaymentRow, paymentRowIssue, paymentRowsToInput, isBankMode, type PaymentIssue, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
@@ -159,7 +159,7 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
               // A category from another form: choosing it flips it to common.
               if (item.type && item.type !== "expense" && !item.isCommon) createExpenseCategory(item.name).catch(() => {});
             }}
-            fetchFn={searchExpenseCategoriesPage}
+            fetchFn={searchSelectableExpenseCategoriesPage}
             searchHint="Searches: category name"
             getLabel={(c) => c.name}
             getId={(c) => String(c.id)}

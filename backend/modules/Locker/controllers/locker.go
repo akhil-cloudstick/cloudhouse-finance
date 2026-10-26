@@ -105,7 +105,10 @@ func findLockersFiltered(ctx context.Context, f LockerFilter) ([]models.Locker, 
 		}
 	}
 	if f.Q != "" {
-		q = q.Where("lockers.code ILIKE ?", "%"+f.Q+"%")
+		needle := "%" + f.Q + "%"
+		q = q.Where("(lockers.code ILIKE ? OR EXISTS (SELECT 1 FROM packets JOIN loans ON loans.id = packets.loan_id "+
+			"WHERE packets.current_locker_id = lockers.id AND packets.status = 'Locker Stored' "+
+			"AND (packets.code ILIKE ? OR loans.loan_number ILIKE ?)))", needle, needle, needle)
 	}
 	if f.ActiveOnly {
 		q = q.Where("lockers.is_active = ?", true)

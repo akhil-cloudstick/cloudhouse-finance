@@ -16,10 +16,13 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/com
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
+import { listSchemesPage } from "@/modules/schemes/services/schemeService";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 
 // Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
 const NO_BRANCHES: string[] = [];
+
+const PLEDGE_STATUSES = ["Not Pledged", "Bank Pledged", "Released"];
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
 
@@ -66,6 +69,8 @@ export function LoansPage() {
   // selection (it would intersect the global branch to an empty page).
   const branchIds = showBranchFilter ? savedBranchIds : NO_BRANCHES;
   const [customerIds, setCustomerIds] = usePersistedState<string[]>("loans:customers", []);
+  const [schemeIds, setSchemeIds] = usePersistedState<string[]>("loans:schemes", []);
+  const [pledgeStatuses, setPledgeStatuses] = usePersistedState<string[]>("loans:pledge", []);
   const [branches, setBranches] = useState<BranchView[]>([]);
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
   const [page, setPage] = useState(1);
@@ -80,10 +85,12 @@ export function LoansPage() {
   const catsKey = cats.join("|");
   const branchKey = branchIds.join(",");
   const customerKey = customerIds.join(",");
+  const schemeKey = schemeIds.join(",");
+  const pledgeKey = pledgeStatuses.join(",");
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [catsKey, q, fromDate, toDate, branchKey, customerKey, pageSize]);
+  useEffect(() => { setPage(1); }, [catsKey, q, fromDate, toDate, branchKey, customerKey, schemeKey, pledgeKey, pageSize]);
 
   // LoansProvider fetches once when the app shell mounts and is only
   // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,
@@ -105,6 +112,8 @@ export function LoansPage() {
         q: q.trim() || undefined,
         branchId: branchIds.map(Number),
         customerId: customerIds.map(Number),
+        schemeId: schemeIds.map(Number),
+        bankPledgeStatus: pledgeStatuses[0],
         from: fromDate || undefined,
         to: toDate || undefined,
         page,
@@ -124,7 +133,7 @@ export function LoansPage() {
     // Keying off the new array identity re-issues the filtered query in step
     // with every provider refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catsKey, q, fromDate, toDate, branchKey, customerKey, page, allLoans, pageSize]);
+  }, [catsKey, q, fromDate, toDate, branchKey, customerKey, schemeKey, pledgeKey, page, allLoans, pageSize]);
 
   // One grouped filter (same FilterPanel the ledger pages use) replacing the
   // old status tab row + standalone date pickers. Every section is
@@ -146,12 +155,27 @@ export function LoansPage() {
           hasMore: res.hasMore,
         })),
     },
+    {
+      key: "scheme", label: "Scheme", kind: "async" as const, searchHint: "Searches: scheme name, code",
+      fetchOptions: (search: string, p: number) =>
+        // FilterPanel pages are 1-based, listSchemesPage is 0-based; passing p raw skipped the first 20 schemes.
+        listSchemesPage({ q: search || undefined }, p - 1, 20).then((res) => ({
+          items: res.items.map((s) => ({ value: String(s.id), label: s.name })),
+          hasMore: res.hasMore,
+        })),
+    },
+    {
+      key: "pledge", label: "Pledge Status", kind: "static" as const, singleSelect: true, searchHint: "Filters by bank pledge status",
+      options: PLEDGE_STATUSES.map((v) => ({ value: v, label: v })),
+    },
     { key: "__date", label: "Date", kind: "date" as const },
   ];
   const filterValue: FilterValue = {
     status: cats,
     branch: branchIds,
     customer: customerIds,
+    scheme: schemeIds,
+    pledge: pledgeStatuses,
     __dateFrom: fromDate || undefined,
     __dateTo: toDate || undefined,
   };
@@ -183,6 +207,8 @@ export function LoansPage() {
             setCats(Array.isArray(next.status) ? next.status.filter((st) => CATS.includes(st)) : []);
             setBranchIds(Array.isArray(next.branch) ? next.branch : []);
             setCustomerIds(Array.isArray(next.customer) ? next.customer : []);
+            setSchemeIds(Array.isArray(next.scheme) ? next.scheme : []);
+            setPledgeStatuses(Array.isArray(next.pledge) ? next.pledge.filter((v) => PLEDGE_STATUSES.includes(v)) : []);
             setFromDate(next.__dateFrom || "");
             setToDate(next.__dateTo || "");
           }}

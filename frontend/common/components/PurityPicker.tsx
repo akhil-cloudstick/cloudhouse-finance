@@ -170,6 +170,14 @@ export function PurityPicker({
             placeholder={unit === "karat" ? `22 (${MIN_KARAT}-${MAX_KARAT})` : "91.6"}
             allowCreate
             onCreate={onCreate}
+            createLabel="+ XX number"
+            createGuard={(q) => {
+              const n = Number(q);
+              if (!Number.isFinite(n)) return "Enter a number";
+              if (unit === "karat" && !isKaratInRange(n)) return `Karat must be ${MIN_KARAT}–${MAX_KARAT}`;
+              if (unit === "fineness" && !isFinenessInRange(n)) return `Fineness must be above 0 and at most ${MAX_FINENESS_PERCENT}`;
+              return null;
+            }}
             disabled={disabled}
             compact
             compactMinWidth={dropdownMinWidth}

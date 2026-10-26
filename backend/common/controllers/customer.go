@@ -219,6 +219,15 @@ func FindCustomerByID(ctx context.Context, id uint) (*commonModels.Customer, err
 	return &c, nil
 }
 
+func findCustomerByCode(ctx context.Context, code string) (*commonModels.Customer, error) {
+	var c commonModels.Customer
+	if err := config.DB.
+		WithContext(ctx).Preload("Branch").Where("code = ?", code).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 func FindByPhone(ctx context.Context, phone string) (*commonModels.Customer, error) {
 	var c commonModels.Customer
 	if err := config.DB.
@@ -830,6 +839,20 @@ func GetCustomerById(c echo.Context) error {
 	rec, err := getCustomer(ctx, id, auth.GetBranchScope(c))
 	if err != nil {
 		return FailErr(c, err)
+	}
+	return Success(c, http.StatusOK, CustomerToResponse(rec))
+}
+
+// GetCustomerByCode backs the console's /customer/CUST-04 links: the address bar shows the
+// customer's code, and the page resolves it to the record (and its numeric id) here.
+func GetCustomerByCode(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	rec, err := findCustomerByCode(ctx, c.Param("code"))
+	if err != nil {
+		return FailErr(c, NewNotFound("customer not found"))
+	}
+	if branchID := auth.GetBranchScope(c); branchID != nil && rec.BranchID != *branchID {
+		return FailErr(c, NewNotFound("customer not found"))
 	}
 	return Success(c, http.StatusOK, CustomerToResponse(rec))
 }

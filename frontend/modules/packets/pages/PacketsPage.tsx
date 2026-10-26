@@ -33,6 +33,7 @@ const PACKET_STATUS_OPTIONS = [
   { value: "Bank Pledged", label: "Bank Pledged" },
   { value: "Released", label: "Released" },
   { value: "Returned", label: "Returned" },
+  { value: "Auctioned", label: "Auctioned" },
 ];
 
 /* Ported from legacy/app.js's `renderPackets()`. Now reads real data from
@@ -60,6 +61,7 @@ export function PacketsPage() {
   const canViewLockers = can("Locker_Management", "can_view_locker_module");
   const canCreateLockers = can("Locker_Management", "can_create_locker");
   const canUpdateLockers = can("Locker_Management", "can_update_locker");
+  const canDeleteLockers = can("Locker_Management", "can_delete_locker");
 
   const basePageSize = useResponsivePageSize(15, 15);
   // Card mode (<=1100px): scroll-to-load replaces Prev/Next on both tables.
@@ -87,6 +89,12 @@ export function PacketsPage() {
   const [savedLockerBranchIds, setLockerBranchIds] = usePersistedState<string[]>("lockers:branches", []);
   const lockerBranchIds = showBranchFilter ? savedLockerBranchIds : NO_BRANCHES;
   const [lockerStatuses, setLockerStatuses] = usePersistedState<string[]>("lockers:statuses", []);
+  const [lockerLookup, setLockerLookup] = useState("");
+  const [lockerQ, setLockerQ] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setLockerQ(lockerLookup.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [lockerLookup]);
   const [branches, setBranches] = useState<BranchView[]>([]);
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
   const branchOptions = branches.map((b) => ({ value: String(b.id), label: b.name }));
@@ -118,7 +126,7 @@ export function PacketsPage() {
   const statusKey = statuses.join(",");
   const branchKey = branchIds.join(",");
   const customerKey = customerIds.join(",");
-  const lockerFilterKey = lockerBranchIds.join(",") + "|" + lockerStatuses.join(",");
+  const lockerFilterKey = lockerBranchIds.join(",") + "|" + lockerStatuses.join(",") + "|" + lockerQ;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const lockerTotalPages = Math.max(1, Math.ceil(lockers.length / basePageSize));
   const lockerPageClamped = Math.min(lockerPage, lockerTotalPages);
@@ -146,7 +154,7 @@ export function PacketsPage() {
   async function loadLockers() {
     if (!canViewLockers) return;
     try {
-      setLockers(await listLockers({ branchId: lockerBranchIds.map(Number), status: lockerStatuses }));
+      setLockers(await listLockers({ branchId: lockerBranchIds.map(Number), status: lockerStatuses, q: lockerQ || undefined }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load lockers.");
     }
@@ -286,6 +294,14 @@ export function PacketsPage() {
           <div className="hd">
             <h3>Lockers</h3>
             <div className="sp" />
+            <div className="search" style={{ maxWidth: 240 }}><Icon name="search" /><input
+              className="inp"
+              style={{ height: 31, paddingTop: 0, paddingBottom: 0, fontSize: 13 }}
+              value={lockerLookup}
+              onChange={(e) => setLockerLookup(e.target.value)}
+              placeholder="Search loan, packet or locker no."
+              title="Searches: locker code, packet code, loan number of packets stored in the locker"
+            /></div>
             <FilterPanel
               categories={lockerFilterCategories}
               value={lockerFilterValue}
@@ -305,11 +321,11 @@ export function PacketsPage() {
               <tbody>
                 {lockers.length === 0 && (
                   <tr><td colSpan={showBranch ? 4 : 3} style={{ color: "var(--muted)" }}>
-                    {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}
+                    {packets === null && !error ? "Loading lockers…" : (lockerQ ? "No lockers match your search." : "No lockers added yet.")}
                   </td></tr>
                 )}
                 {pagedLockers.map((l) => (
-                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} onChanged={load} />, true)}>
+                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} canDelete={canDeleteLockers} onChanged={load} />, true)}>
                     <td data-label="Locker"><span className="id">{l.code}</span></td>
                     {showBranch && <td data-label="Branch">{l.branchName}</td>}
                     <td className="num" data-label="Packets">{l.occupied} / {l.capacity}</td>

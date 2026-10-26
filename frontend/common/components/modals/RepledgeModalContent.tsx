@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
@@ -69,12 +69,25 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
   const [remaining, setRemaining] = useState(0);
   const [receivedBankId, setReceivedBankId] = useState<number | undefined>(undefined);
 
+  // Ornaments that can still go to a bank: not handed back to the customer and not already with a bank.
+  const pledgedIds = useMemo(() => new Set(loan.bankPledges.filter((p) => p.status === "Active").flatMap((p) => p.ornamentIds)), [loan]);
+  const wholeLoanPledged = loan.bankPledges.some((p) => p.status === "Active" && p.ornamentIds.length === 0);
+  const available = loan.ornaments.filter((o) => !o.releasedAt && !wholeLoanPledged && !pledgedIds.has(o.id));
+  const [picked, setPicked] = useState<Set<number>>(() => new Set(available.map((o) => o.id)));
+  const togglePicked = (id: number) => setPicked((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const pickedOrnaments = available.filter((o) => picked.has(o.id));
+  const pickedNet = pickedOrnaments.reduce((s, o) => s + o.netWeight, 0);
+  const pickedValue = pickedOrnaments.reduce((s, o) => s + o.goldValue, 0);
+
   async function save() { return singleFlight("modal:repledge:save", async () => {
     setErr(""); setFe({});
     if (!bank.trim()) { fail("bank", "Please enter the bank to repledge with."); return; }
     if (!date) { fail("date", "Please select the pledge date."); return; }
     const amount = +amt;
     if (!amount || amount <= 0) { fail("amount", "Please enter the pledged amount."); return; }
+    if (pickedOrnaments.length === 0) { setErr("Select at least one ornament to pledge."); return; }
+    // Everything still free and nothing pledged yet = the usual whole-loan pledge.
+    const wholeLoan = pledgedIds.size === 0 && pickedOrnaments.length === available.length;
     if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the pledged amount."); return; }
     setSaving(true);
     try {
@@ -88,6 +101,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
         bankPledgeDueDate: dueDate || undefined,
         cashTreatment,
         ...(cashTreatment === "CashIn" ? { ...split, receivedBankId } : {}),
+        ...(wholeLoan ? {} : { ornamentIds: pickedOrnaments.map((o) => o.id) }),
       });
       onSaved();
       closeModal();
@@ -113,15 +127,29 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
           <section className="rp-sec">
             <div className="rp-sec-h">
               <span>Gold being pledged</span>
-              <span className="rp-sec-meta">{loan.ornaments.length} item{loan.ornaments.length > 1 ? "s" : ""} · {fmtW(loan.totalNetWeight)} net</span>
+              <span className="rp-sec-meta">{pickedOrnaments.length} of {loan.ornaments.length} item{loan.ornaments.length > 1 ? "s" : ""} selected · {fmtW(pickedNet)} net</span>
             </div>
             <div className="tbl-wrap rp-tbl"><table className="tbl tbl-tight">
-              <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Net Wt</th><th className="num">Value</th></tr></thead>
+              <thead><tr><th></th><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Net Wt</th><th className="num">Value</th></tr></thead>
               <tbody>
                 {loan.ornaments.map((o, i) => (
                   <tr key={o.id ?? i}>
-                    <td className="rp-idx">{i + 1}</td>
-                    <td style={{ fontWeight: 500 }}>{o.name}</td>
+                    <td className="rp-idx">
+                      <label className="ccheck" style={{ padding: 0, margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Pledge ${o.name}`}
+                          disabled={!available.some((a) => a.id === o.id)}
+                          checked={picked.has(o.id)}
+                          onChange={() => togglePicked(o.id)}
+                        />
+                        <span className="mark" />
+                      </label>
+                    </td>
+                    <td style={{ fontWeight: 500 }}>
+                      {o.name}
+                      {!available.some((a) => a.id === o.id) && <span className="chip" style={{ marginLeft: 6 }}>{o.releasedAt ? "Released" : "Already pledged"}</span>}
+                    </td>
                     <td><span className="chip brand">{o.purity}</span></td>
                     <td className="num">{o.quantity}</td>
                     <td className="num">{fmtW(o.netWeight)}</td>
@@ -131,9 +159,9 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
               </tbody>
               {loan.ornaments.length > 1 && (
                 <tfoot><tr>
-                  <td colSpan={4}>Total</td>
-                  <td className="num">{fmtW(loan.totalNetWeight)}</td>
-                  <td className="num">{fmt(loan.totalGoldValue)}</td>
+                  <td colSpan={4}>Selected total</td>
+                  <td className="num">{fmtW(pickedNet)}</td>
+                  <td className="num">{fmt(pickedValue)}</td>
                 </tr></tfoot>
               )}
             </table></div>

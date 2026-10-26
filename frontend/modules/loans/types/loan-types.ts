@@ -120,6 +120,9 @@ export type BackendBankPledgeRecord = {
   bankInterestRate: number;
   referenceNumber: string;
   createdAt: string;
+  /* Ornaments this pledge covers; empty/absent = the loan's whole gold. */
+  ornamentIds?: number[] | null;
+  ornamentNames?: string[] | null;
 
   /* Added with the cash-treatment toggle. Optional here because this same type
    * is used for pledges embedded in a loan response, where older serialized
@@ -274,6 +277,8 @@ export type BankPledgeView = {
   pledgedGrossWeight: number;
   pledgedNetWeight: number;
   isReleased: boolean;
+  /* Ornaments this pledge covers; empty = the loan's whole gold. */
+  ornamentIds: number[];
   bankInterestRate: number;
   referenceNumber: string;
   /* Whether this pledge put the bank's advance into Cash-in-Hand. Determines
@@ -448,7 +453,8 @@ export type LoanFilters = {
   branchId?: number | number[];
   customerId?: number | number[];
   bankPledgeStatus?: string;
-  schemeId?: number;
+  schemeId?: number | number[];
+  auctionStage?: string | string[]; // latest auction record at any of these stages
   from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
   to?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
 };
@@ -603,6 +609,8 @@ export type BankPledgeInput = {
   bankTransferAmount?: number;
   chequeAmount?: number;
   receivedBankId?: number;
+  /* Pledge only these ornaments; omit to pledge the whole loan's gold. */
+  ornamentIds?: number[];
 };
 export type BankPledgeCashTreatment = "CashIn" | "RecordOnly";
 /* --- Bank re-pledge history ---------------------------------------------
@@ -639,6 +647,8 @@ export type BankPledgeRecordView = {
   voidedAt: string | null;
   voidReason: string;
   events: BankPledgeEventView[];
+  /* Pledged ornaments' names; empty = the whole loan's gold. */
+  ornamentNames?: string[];
 };
 export type AuctionStage = (typeof AUCTION_STAGES)[number] | "Withdrawn";
 export type AuctionSettlementStatus =

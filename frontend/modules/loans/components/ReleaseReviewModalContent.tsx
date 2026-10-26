@@ -139,9 +139,10 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // Approve anyway, so the button/messaging here must not block on
   // paymentRecorded alone or it would show a stale "must record payment"
   // warning for a release that's actually ready to go.
-  const neededText = loan
-    ? fmt(releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null))
-    : "the minimum amount";
+  const neededNum = loan
+    ? releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)
+    : 0;
+  const neededText = loan ? fmt(neededNum) : "the minimum amount";
   const paymentConditionMet =req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
   async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
@@ -228,6 +229,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
             <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(loan.outstandingInterest)}</div></div>
             <div className="i"><div className="k">Outstanding Penal Interest</div><div className="v" style={{ color: loan.outstandingPenalInterest > 0 ? "var(--red)" : undefined }}>{fmt(loan.outstandingPenalInterest)}</div></div>
             <div className="i"><div className="k">Total Paid So Far</div><div className="v">{fmt(loan.totalPaid)}</div></div>
+            <div className="i"><div className="k">Minimum Payable to Release</div><div className="v" style={{ color: req.paymentRecorded || neededNum <= 0.01 ? "var(--green, #1a7f37)" : "var(--red)" }}>{req.paymentRecorded ? `${fmt(req.recordedPayment + req.recordedDiscount)} recorded` : fmt(neededNum)}</div></div>
           </div>
         ) : (
           <p className="notice">Loading loan financials…</p>

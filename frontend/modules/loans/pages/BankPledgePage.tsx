@@ -8,11 +8,12 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW, fmtDate } from "@/common/utils/format";
 import { releaseBankPledge, voidBankPledge, listBankPledgeHistoryPage, listLoansPage, CASH_TREATMENT_LABELS } from "@/modules/loans/services/loanService";
-import { type BankPledgeRecordView, type LoanView } from "@/modules/loans/types/loan-types";
+import { type BankPledgeRecordView, type BankPledgeView, type LoanView } from "@/modules/loans/types/loan-types";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModalContent";
 import { SelectLoanForRepledgeModalContent } from "@/common/components/modals/SelectLoanForRepledgeModalContent";
 import { BanksModalContent } from "@/modules/banks/components/BanksModalContent";
 import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
+import { PledgeDetailsModalContent } from "@/modules/loans/components/PledgeDetailsModalContent";
 import { ApiError } from "@/common/services/httpClient";
 import { useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
@@ -154,12 +155,24 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   /* Release now asks first. It moves cash (for a CashIn pledge) and changes
    * where the gold physically is, which is too consequential for a single
    * unconfirmed click — the old version fired immediately. */
-  function confirmRelease(loanId: number, pledgeId: number, bankName: string, amount: number, treatment: string) {
+  function detailsFor(l: LoanView, pledge: BankPledgeView) {
+    const names = pledge.ornamentIds.length ? l.ornaments.filter((o) => pledge.ornamentIds.includes(o.id)).map((o) => o.name) : [];
+    return { loanNumber: l.id, customerName: l.customerName, pledge, ornamentNames: names };
+  }
+
+  function viewDetails(l: LoanView, pledge: BankPledgeView, treatment: string) {
+    openModal(<PledgeDetailsModalContent {...detailsFor(l, pledge)} onRelease={canUpdatePledges ? () => { closeModal(); confirmRelease(l, pledge, treatment); } : undefined} />);
+  }
+
+  function confirmRelease(l: LoanView, pledge: BankPledgeView, treatment: string) {
+    const loanId = l.numericId;
+    const pledgeId = pledge.id;
     openModal(
       <ReleasePledgeModalContent
-        bankName={bankName}
-        amount={amount}
+        bankName={pledge.bankName}
+        amount={pledge.pledgedAmount}
         cashTreatment={treatment}
+        details={detailsFor(l, pledge)}
         onConfirm={async (payment) => {
           setReleasingId(pledgeId);
           try {
@@ -202,32 +215,38 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           <div className="tbl-wrap">
             <table className="tbl tbl-cards">
               <thead>
-                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th className="col-act"></th></tr>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th>Due</th><th className="col-act"></th></tr>
               </thead>
               <tbody>
                 {pledgedLoading && !(cards && pledged.length > 0) ? (
-                  <tr><td colSpan={8} className="empty">Loading…</td></tr>
+                  <tr><td colSpan={9} className="empty">Loading…</td></tr>
                 ) : pledged.length === 0 ? (
-                  <tr><td colSpan={8} className="empty">No loans currently bank-pledged.</td></tr>
-                ) : pledged.map((l) => {
-                  const active = l.bankPledges.find((p) => !p.isReleased);
-                  const treatment = active?.cashTreatment ?? "CashIn";
+                  <tr><td colSpan={9} className="empty">No loans currently bank-pledged.</td></tr>
+                ) : pledged.flatMap((l) => l.bankPledges.filter((p) => p.status === "Active").map((p) => ({ l, p }))).map(({ l, p: active }) => {
+                  const treatment = active.cashTreatment ?? "CashIn";
+                  // A pledge with no ornament list covers the whole loan.
+                  const covered = active.ornamentIds.length ? l.ornaments.filter((o) => active.ornamentIds.includes(o.id)).map((o) => o.name) : [];
                   return (
-                    <tr key={l.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
+                    <tr key={l.id + "-" + active.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
                       <td data-label="Loan">{canOpen("loan") ? <a href={routeHref(`loan/${l.id}`)}>{l.id}</a> : l.id}</td>
                       <td data-label="Customer">{l.customerName}</td>
                       <td data-label="Bank">{active?.bankName || "—"}</td>
-                      <td className="num" data-label="Weight">{fmtW(l.totalNetWeight)}</td>
+                      <td className="num" data-label="Weight">
+                        {fmtW(active.ornamentIds.length ? active.pledgedNetWeight : l.totalNetWeight)}
+                        <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{covered.length ? covered.join(", ") : "All ornaments"}</div>
+                      </td>
                       <td className="num" data-label="Pledged Amount">{active ? fmt(active.pledgedAmount) : "—"}</td>
                       <td data-label="Cash"><CashTreatmentBadge treatment={treatment} /></td>
                       <td data-label="Pledged On">{fmtDate(active?.pledgeDate)}</td>
+                      <td data-label="Due">{active.bankPledgeDueDate ? fmtDate(active.bankPledgeDueDate) : "—"}</td>
                       <td className="col-act" style={{ whiteSpace: "nowrap" }}>
                         {active && (
                           <>
+                            <button className="btn ghost sm" style={{ marginRight: 6 }} onClick={() => viewDetails(l, active, treatment)}>View</button>
                             {canUpdatePledges && <button
                               className="btn ghost sm"
                               disabled={releasingId === active.id}
-                              onClick={() => confirmRelease(l.numericId, active.id, active.bankName, active.pledgedAmount, treatment)}
+                              onClick={() => confirmRelease(l, active, treatment)}
                             >
                               {releasingId === active.id ? "Releasing…" : "Release"}
                             </button>}
@@ -291,7 +310,10 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                   <tr key={r.id}>
                     <td data-label="Loan">{r.loanNumber ? (canOpen("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber) : `#${r.loanId}`}</td>
                     <td data-label="Customer">{r.customerName || "—"}</td>
-                    <td data-label="Bank">{r.bankName}</td>
+                    <td data-label="Bank">
+                      {r.bankName}
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.ornamentNames && r.ornamentNames.length ? r.ornamentNames.join(", ") : "All ornaments"}</div>
+                    </td>
                     <td className="num" data-label="Amount">{fmt(r.pledgedAmount)}</td>
                     <td data-label="Cash"><CashTreatmentBadge treatment={r.cashTreatment} /></td>
                     <td data-label="Pledged">{fmtDate(r.pledgeDate)}</td>

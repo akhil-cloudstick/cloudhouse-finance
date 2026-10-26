@@ -10,6 +10,7 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVESTMENT_LEDGER_PAGE_SIZE, INVESTMENT_PAGE_SIZE, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
+import { InvestorProfileModalContent } from "@/modules/investments/components/InvestorProfileModalContent";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModalContent";
 import { PayInterestModalContent } from "@/modules/investments/components/PayInterestModalContent";
 import { MarkPayoutPaidModalContent } from "@/modules/investments/components/MarkPayoutPaidModalContent";
@@ -132,13 +133,16 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
     setLoading(true);
     setError("");
     try {
-      setInvestment(await getInvestment(numericId));
+      const rec = await getInvestment(numericId);
+      setInvestment(rec);
+      // An id link gets the investment number (INV-00003) written into the address bar.
+      if (id && Number(id) && rec.investmentNumber) window.history.replaceState(window.history.state, "", routeHref("investment", rec.investmentNumber) + window.location.search);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load this investment.");
     } finally {
       setLoading(false);
     }
-  }, [numericId]);
+  }, [numericId, id]);
 
   useEffect(() => { void refreshInvestment(); }, [refreshInvestment]);
 
@@ -237,9 +241,17 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
     <>
       <div className="page-h">
         <div>
-          <h1>Investment {investment.investmentNumber}</h1>
+          <h1>{investment.investmentNumber}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 13.5, color: "var(--muted)", display: "flex", alignItems: "center", gap: 8 }}>
-            {investorName}{investment.plan?.name ? ` · ${investment.plan.name}` : ""}
+            <button
+              type="button"
+              title="View investor profile"
+              onClick={() => openModal(<InvestorProfileModalContent customerId={investment.customerId} />)}
+              style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", textDecoration: "underline dotted" }}
+            >
+              {investorName}
+            </button>
+            {investment.plan?.name ? ` · ${investment.plan.name}` : ""}
             <StatusChip status={investment.status} />
           </p>
         </div>
