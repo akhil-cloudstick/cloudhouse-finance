@@ -99,7 +99,12 @@ func ledgerColumnTotals(rows []LoanLedgerEntry) (debit, credit float64) {
 		case "sanction", "topup", "interest", "penal", "service-charge":
 			debit += r.Amount
 		case "payment":
-			credit += r.Amount
+			// a Discount is the company giving an amount up: a debit entry, like it is on the main ledger
+			if r.Payment != nil && r.Payment.Type == models.PaymentTypeDiscount {
+				debit += r.Amount
+			} else {
+				credit += r.Amount
+			}
 		case "auction-surplus":
 			if r.Auction != nil && r.Auction.SurplusDisposition == "RefundedToCustomer" {
 				debit += r.Amount

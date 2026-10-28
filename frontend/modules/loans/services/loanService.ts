@@ -31,6 +31,7 @@ function toPaymentView(p: BackendLoanPayment): PaymentView {
     paidOn: p.paidOn.slice(0, 10),
     receivedByEmployeeId: p.receivedByEmployeeId,
     description: p.description,
+    discountKind: p.discountKind,
     method: p.method,
     cashAmount: p.cashAmount,
     upiAmount: p.upiAmount,
@@ -69,6 +70,14 @@ function toBankPledgeView(p: BackendBankPledgeRecord): BankPledgeView {
     cashTreatment: p.cashTreatment || "CashIn",
     status: p.status || (p.releaseDate ? "Released" : "Active"),
     voidReason: p.voidReason || "",
+    cashAmount: p.cashAmount ?? 0,
+    upiAmount: p.upiAmount ?? 0,
+    bankTransferAmount: p.bankTransferAmount ?? 0,
+    receivedBankId: p.receivedBankId ?? null,
+    releaseCashAmount: p.releaseCashAmount ?? 0,
+    releaseUpiAmount: p.releaseUpiAmount ?? 0,
+    releaseBankTransferAmount: p.releaseBankTransferAmount ?? 0,
+    releaseBankId: p.releaseBankId ?? null,
   };
 }
 export function toCustomerOrnamentRowView(o: BackendCustomerOrnamentRow): CustomerOrnamentRowView {
@@ -502,6 +511,15 @@ function toBankPledgeRecordView(r: BackendBankPledgeRecord & { loanNumber?: stri
     status: r.status || "Active",
     voidedAt: r.voidedAt ? r.voidedAt.slice(0, 10) : null,
     voidReason: r.voidReason || "",
+    bankId: r.bankId ?? null,
+    cashAmount: r.cashAmount ?? 0,
+    upiAmount: r.upiAmount ?? 0,
+    bankTransferAmount: r.bankTransferAmount ?? 0,
+    receivedBankId: r.receivedBankId ?? null,
+    releaseCashAmount: r.releaseCashAmount ?? 0,
+    releaseUpiAmount: r.releaseUpiAmount ?? 0,
+    releaseBankTransferAmount: r.releaseBankTransferAmount ?? 0,
+    releaseBankId: r.releaseBankId ?? null,
     ornamentNames: r.ornamentNames || [],
     events: (r.events || []).map((e) => ({
       id: e.id,
@@ -952,10 +970,10 @@ export async function createExtensionRequest(loanId: number, months: number, det
  * backend forces IsPartial back to false itself when every ornament is
  * selected (see CreateReleaseRequest's own doc comment), so the caller
  * doesn't need to special-case "select all" as anything but a normal call. */
-export async function createReleaseRequest(loanId: number, detail?: string, ornamentIds?: number[]): Promise<RequestView> {
+export async function createReleaseRequest(loanId: number, detail?: string, ornamentIds?: number[], requestedAt?: string): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/release-request`, {
     method: "POST",
-    body: JSON.stringify({ detail, ornamentIds: ornamentIds && ornamentIds.length ? ornamentIds : undefined }),
+    body: JSON.stringify({ detail, ornamentIds: ornamentIds && ornamentIds.length ? ornamentIds : undefined, requestedAt }),
   });
   return toRequestView(rec);
 }
@@ -1016,6 +1034,93 @@ export async function completeRelease(loanId: number): Promise<LoanView> {
     method: "POST",
   });
   return toView(rec);
+}
+
+/* --- Ledger edit / delete -------------------------------------------------
+ * Editing or deleting a payment or discount recalculates the whole loan on the
+ * server (interest, every later payment's split, balances, status, cash lines)
+ * in one transaction. dryRun asks for the before/after figures without saving. */
+export type LedgerLoanSummary = { principal: number; interest: number; penalInterest: number; fee: number; total: number; status: string };
+/* Offered when a repayment edit reopens a closed loan: the packet can go back to the status it had before. */
+export type PacketReversalOffer = { packetId: number; code: string; currentStatus: string; previousStatus: string; lockerId?: number };
+export type LedgerEditPreview = {
+  before: LedgerLoanSummary; after: LedgerLoanSummary; dryRun: boolean;
+  packet?: PacketReversalOffer; packetReversed?: boolean; packetError?: string;
+};
+export type EditLedgerPaymentInput = {
+  reversePacket?: boolean; // also put the packet back to its previous status (see PacketReversalOffer)
+  paidOn?: string;
+  amount?: number;
+  type?: string;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number; // the bank for the UPI / Bank Transfer part
+  reference?: string;
+  description?: string;
+  discountReason?: string; // Discount rows only
+  discountMode?: string; // Discount rows only
+  discountKind?: string; // Discount rows only: customer / interest / penal_interest
+  reason?: string;
+};
+
+export async function editLedgerPayment(loanId: number, paymentId: number, input: EditLedgerPaymentInput, dryRun = false): Promise<LedgerEditPreview> {
+  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+/* Top-up edit / delete — the loan is recalculated from its first day with every top-up applied on its date. */
+export type EditTopUpInput = {
+  occurredOn?: string;
+  amount?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  bankId?: number;
+  reference?: string;
+  reason?: string;
+};
+
+export async function editLoanTopUp(loanId: number, topUpId: number, input: EditTopUpInput, dryRun = false): Promise<LedgerEditPreview> {
+  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/top-ups/${topUpId}${dryRun ? "?dry_run=true" : ""}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+/* Sanction (disbursement) edit — applied at once; the loan is recalculated from its first day. */
+export type EditLoanDisbursementInput = {
+  disbursedOn?: string;
+  dueDate?: string;
+  sanctionedAmount?: number;
+  serviceCharge?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  bankId?: number;
+  reason?: string;
+};
+
+export async function editLoanDisbursement(loanId: number, input: EditLoanDisbursementInput, dryRun = false): Promise<LedgerEditPreview> {
+  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteLoanTopUp(loanId: number, topUpId: number, dryRun = false, reason?: string): Promise<LedgerEditPreview> {
+  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/top-ups/${topUpId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, {
+    method: "DELETE",
+  });
+}
+
+export async function deleteLedgerPayment(loanId: number, paymentId: number, dryRun = false, reason?: string, reversePacket = false): Promise<LedgerEditPreview> {
+  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/payments/${paymentId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}), ...(reversePacket ? { reverse_packet: "true" } : {}) })}`, {
+    method: "DELETE",
+  });
 }
 
 /* Mirrors backend/internal/loan's bankPledgeIneligibleStatuses /
@@ -1273,4 +1378,111 @@ export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, l
 
     return res.blob();
   }, undefined, "pledge-agreement-preview.pdf");
+}
+
+/* Bank pledge edit / delete — rewrites the pledge's cash lines (and, once released, the release cash-out and the
+ * "Bank Pledge Release" expense). Preview first with dryRun, then save. */
+export type EditBankPledgeInput = {
+  bankId?: number;
+  bankName?: string;
+  pledgedAmount?: number;
+  pledgeDate?: string;
+  bankPledgeDueDate?: string; // "" clears it
+  bankInterestRate?: number;
+  referenceNumber?: string;
+  cashTreatment?: BankPledgeCashTreatment;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number;
+  // released pledges only
+  releaseDate?: string;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number;
+};
+export type BankPledgeEditPreview = { before: BackendBankPledgeRecord; after: BackendBankPledgeRecord | null; dryRun: boolean };
+
+export async function editBankPledge(loanId: number, pledgeId: number, input: EditBankPledgeInput, dryRun = false): Promise<BankPledgeEditPreview> {
+  return apiFetch<BankPledgeEditPreview>(`/loans/${loanId}/bank-pledge/${pledgeId}${dryRun ? "?dry_run=true" : ""}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteBankPledge(loanId: number, pledgeId: number, dryRun = false): Promise<BankPledgeEditPreview> {
+  return apiFetch<BankPledgeEditPreview>(`/loans/${loanId}/bank-pledge/${pledgeId}${dryRun ? "?dry_run=true" : ""}`, { method: "DELETE" });
+}
+
+/* Gold-release request record: its date and notes. The money a release took is edited as ordinary loan payments. */
+export async function editReleaseRecord(requestId: number, input: { requestedAt?: string; remarks?: string; verificationNotes?: string }): Promise<void> {
+  await apiFetch(`/loans/requests/${requestId}/release-record`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function deleteReleaseRecord(requestId: number): Promise<void> {
+  await apiFetch(`/loans/requests/${requestId}/release-record`, { method: "DELETE" });
+}
+
+/* Auction edit — the recorded sale, its surplus settlement and its write-off. Every call can be a dry run (nothing
+ * saved); the answer lists the `dependents`: entries booked because of the sale (a settled surplus, a shortfall
+ * decision, a write-off) that the change leaves stale. The ones the user ticks are sent back as applyDependents and
+ * updated with it; a change that leaves a required one out is refused (409). */
+export type AuctionDependent = {
+  kind: "surplus_settlement" | "shortfall_decision" | "write_off";
+  id: number;
+  description: string;
+  current: string;
+  suggested: string;
+  required: boolean;
+};
+export type AppliedAuctionDependent = { kind: AuctionDependent["kind"]; id: number };
+export type AuctionSaleCurrent = {
+  saleAmount: number; auctionExpenses: number; saleDate: string;
+  cashAmount: number; upiAmount: number; bankTransferAmount: number; bankId?: number | null;
+};
+export type AuctionSaleOutcome = {
+  saleAmount: number; auctionExpenses: number; netProceeds: number; totalDebt: number; appliedToLoan: number;
+  surplusShortfall: number; surplus: number; shortfall: number; fullyCovered: boolean;
+};
+export type AuctionEditPreview = LedgerEditPreview & { dependents: AuctionDependent[]; current?: AuctionSaleCurrent; outcome?: AuctionSaleOutcome };
+export type EditAuctionSaleInput = {
+  saleAmount?: number; auctionExpenses?: number; saleDate?: string;
+  cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; bankId?: number;
+  applyDependents?: AppliedAuctionDependent[];
+};
+
+const auctionQs = (dryRun: boolean) => (dryRun ? "?dry_run=true" : "");
+
+/* The contract adapter only renames the keys it knows, so these calls spell their own: snake_case out, camelCase in. */
+const toSnakeKeys = (v: unknown): unknown => Array.isArray(v) ? v.map(toSnakeKeys)
+  : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase()), toSnakeKeys(x)])) : v;
+const toCamelKeys = <T,>(v: unknown): T => (Array.isArray(v) ? v.map((x) => toCamelKeys(x))
+  : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase()), toCamelKeys(x)]))
+  : v) as T;
+async function auctionCall<T>(path: string, method: "GET" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
+  const res = await apiFetch<unknown>(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(toSnakeKeys(body)) }) });
+  return toCamelKeys<T>(res);
+}
+
+export async function getAuctionSaleCurrent(loanId: number): Promise<AuctionSaleCurrent> {
+  return auctionCall<AuctionSaleCurrent>(`/loans/${loanId}/auction/sale`, "GET");
+}
+export async function editAuctionSale(loanId: number, input: EditAuctionSaleInput, dryRun = false): Promise<AuctionEditPreview> {
+  return auctionCall<AuctionEditPreview>(`/loans/${loanId}/auction/sale${auctionQs(dryRun)}`, "PATCH", input);
+}
+export async function deleteAuctionSale(loanId: number, applyDependents: AppliedAuctionDependent[] = [], dryRun = false): Promise<AuctionEditPreview> {
+  return auctionCall<AuctionEditPreview>(`/loans/${loanId}/auction/sale${auctionQs(dryRun)}`, "DELETE", { applyDependents });
+}
+export async function editAuctionSurplus(loanId: number, input: { disposition?: string; mode?: string; bankId?: number; settledOn?: string }, dryRun = false): Promise<AuctionEditPreview> {
+  return auctionCall<AuctionEditPreview>(`/loans/${loanId}/auction/surplus${auctionQs(dryRun)}`, "PATCH", input);
+}
+export async function deleteAuctionSurplus(loanId: number, dryRun = false): Promise<AuctionEditPreview> {
+  return auctionCall<AuctionEditPreview>(`/loans/${loanId}/auction/surplus${auctionQs(dryRun)}`, "DELETE");
+}
+export async function editAuctionWriteOff(loanId: number, paidOn: string, dryRun = false): Promise<AuctionEditPreview> {
+  return auctionCall<AuctionEditPreview>(`/loans/${loanId}/auction/write-off${auctionQs(dryRun)}`, "PATCH", { paidOn });
+}
+export async function deleteAuctionWriteOff(loanId: number, applyDependents: AppliedAuctionDependent[] = [], dryRun = false): Promise<AuctionEditPreview> {
+  return auctionCall<AuctionEditPreview>(`/loans/${loanId}/auction/write-off${auctionQs(dryRun)}`, "DELETE", { applyDependents });
 }

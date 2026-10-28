@@ -5,9 +5,9 @@ import { getToken } from "./tokenStorage";
 // Flip this before building. false = production.
 const isDevelopment = false;
 // development API — the Android emulator reaches the host machine at 10.0.2.2
-const DEV_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://10.0.2.2:8080/api/v1/customer";
+const DEV_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://10.0.2.2:8090/api/v1/customer";
 // production API — supplied per build through EXPO_PUBLIC_API_BASE_URL (eas.json / .env)
-const PROD_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://10.0.2.2:8080/api/v1/customer";
+const PROD_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://10.0.2.2:8090/api/v1/customer";
 
 // Razorpay's hosted checkout script — the one third-party host the app loads.
 export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.js";
@@ -16,7 +16,7 @@ export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.
 // as mobile/src/common/services/httpClient.ts, pointed at the customer-scoped API base path
 // instead of the staff one. Point this at your machine's LAN IP (not
 // localhost — the Android emulator/device is a separate host) while
-// developing, e.g. "http://192.168.1.23:8080/api/v1/customer".
+// developing, e.g. "http://192.168.1.23:8090/api/v1/customer".
 export const API_BASE_URL = isDevelopment ? DEV_URL : PROD_URL;
 // 10.0.2.2 is the Android emulator's alias for the host machine's localhost —
 // works out of the box in the emulator; a physical device needs the LAN IP

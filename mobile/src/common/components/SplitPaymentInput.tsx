@@ -13,14 +13,29 @@ type SplitPaymentInputProps = {
   total: number;
   onChange: (value: SplitPayment) => void;
   bankLabel?: string;
+  /** Opens the breakdown pre-filled (editing a saved payment): one line per non-zero mode, UPI / Bank Transfer lines carrying the saved bank. */
+  initial?: { split: SplitAmounts; bankId?: number | null; bankName?: string };
 };
+
+/** The saved split as breakdown lines. */
+function rowsFromSplit(i: NonNullable<SplitPaymentInputProps["initial"]>): PaymentRow[] {
+  const bank = i.bankId ? { id: i.bankId, name: i.bankName || "Bank", createdAt: "", updatedAt: "" } : null;
+  const lines: { mode: "Cash" | "UPI" | "Bank Transfer"; amount: number }[] = [
+    { mode: "Cash", amount: i.split.cashAmount },
+    { mode: "UPI", amount: i.split.upiAmount },
+    { mode: "Bank Transfer", amount: i.split.bankTransferAmount },
+  ];
+  const used = lines.filter((l) => l.amount > 0);
+  if (!used.length) return [newPaymentRow()];
+  return used.map((l) => newPaymentRow({ mode: l.mode, amount: String(l.amount), bank: isBankMode(l.mode) ? bank : null, auto: used.length === 1 }));
+}
 
 /** Mobile counterpart of web's SplitPaymentInput: the Cash module's payment breakdown (mode,
  * amount and, for UPI / Bank Transfer, the bank) mapped to the backend's four split columns.
  * One payment event stores exactly one bank, so the first bank picked across the non-cash
  * lines is the one sent (web's firstSelectedBankId). */
-export function SplitPaymentInput({ total, onChange, bankLabel = "Bank (your account)" }: SplitPaymentInputProps) {
-  const [rows, setRows] = useState<PaymentRow[]>(() => [newPaymentRow()]);
+export function SplitPaymentInput({ total, onChange, bankLabel = "Bank (your account)", initial }: SplitPaymentInputProps) {
+  const [rows, setRows] = useState<PaymentRow[]>(() => (initial ? rowsFromSplit(initial) : [newPaymentRow()]));
 
   const split: SplitAmounts = { ...ZERO_SPLIT };
   let bankId: number | undefined;

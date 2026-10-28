@@ -16,6 +16,7 @@ import { PayInterestModalContent } from "@/modules/investments/components/PayInt
 import { MarkPayoutPaidModalContent } from "@/modules/investments/components/MarkPayoutPaidModalContent";
 import { AddInvestmentCashModalContent } from "@/modules/investments/components/AddInvestmentCashModalContent";
 import { WithdrawInvestmentModalContent } from "@/modules/investments/components/WithdrawInvestmentModalContent";
+import { InvestmentLedgerEditModalContent } from "@/modules/investments/components/InvestmentLedgerEditModalContent";
 import { useModal } from "@/common/components/ModalProvider";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { Icon } from "@/common/components/Icon";
@@ -83,6 +84,9 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
   const { openModal, closeModal } = useModal();
   const toast = useToast();
   const canUpdate = can("Investment_Management", "can_update_investment");
+  // Editing/deleting a ledger entry recalculates the investment, so each has its own grant (shared with the gold-loan ledger).
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
 
   const [investment, setInvestment] = useState<BackendInvestment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -151,6 +155,9 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
     numericId,
     INVESTMENT_PAGE_SIZE
   );
+
+  // A ledger edit/delete can change the totals, the schedule and the ledger's running balances.
+  const onLedgerChanged = () => { void refreshInvestment(); schedule.reload(); void refreshLedger(); };
 
   if (loading) return <div className="notice">Loading investment…</div>;
   if (error || !investment) return <div className="notice">{error || "Investment not found."}</div>;
@@ -366,7 +373,25 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
                   </td>
                   <td data-label="Debit" className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                   <td data-label="Credit" className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                  <td data-label="Balance" className="num">{fmt(r.runningBalance)}</td>
+                  <td data-label="Balance" className="num">
+                    {fmt(r.runningBalance)}
+                    {((r.editable && canEditLedger) || (r.deletable && canDeleteLedger)) && (
+                      <span style={{ display: "inline-flex", gap: 8, marginLeft: 8, verticalAlign: "middle" }}>
+                        {r.editable && canEditLedger && (
+                          <button type="button" title="Edit this entry" aria-label="Edit this entry" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)" }}
+                            onClick={() => openModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="edit" live={investment.engine === "Live"} minDate={investment.startDate?.slice(0, 10) || undefined} onSaved={onLedgerChanged} />, true)}>
+                            <Icon name="edit" />
+                          </button>
+                        )}
+                        {r.deletable && canDeleteLedger && (
+                          <button type="button" title="Delete this entry" aria-label="Delete this entry" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--red)" }}
+                            onClick={() => openModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="delete" live={investment.engine === "Live"} onSaved={onLedgerChanged} />, true)}>
+                            <Icon name="trash" />
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </td>
                 </tr>
               );
             })}

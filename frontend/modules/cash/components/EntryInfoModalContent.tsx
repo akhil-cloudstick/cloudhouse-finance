@@ -8,6 +8,11 @@ import { getMovementEntry } from "@/modules/cash/services/cashService";
 import { type EntryInfo, type EntryKind } from "@/modules/cash/types/cash-types";
 import { BillLink } from "@/modules/cash/components/BillLink";
 import { EditEntryModalContent } from "@/modules/cash/components/EditEntryModalContent";
+import { DeleteEntryModalContent } from "@/modules/cash/components/DeleteEntryModalContent";
+import { useLoanEntryActions } from "@/modules/cash/components/useLoanEntryActions";
+import { useAuctionEntryActions } from "@/modules/loans/components/useAuctionEntryActions";
+import { useBankPledgeEntryActions } from "@/modules/loans/components/useBankPledgeEntryActions";
+import { useAuth } from "@/common/providers/AuthProvider";
 
 const KIND_LABEL: Record<EntryKind, string> = {
   cash_in: "Credit (Cash In)",
@@ -24,7 +29,13 @@ type EntryInfoModalContentProps = { entryId: number; onChanged?: () => void; ini
  * remarks and everything recorded about it — category, amount, date, the
  * payment breakdown (or the From / To banks of a transfer), branch, bill. */
 export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfoModalContentProps) {
-  const { closeModal, openModal } = useModal();
+  const { closeModal, openChildModal, closeAllModals } = useModal();
+  const { can } = useAuth();
+  const loanActions = useLoanEntryActions(onChanged);
+  const auctionActions = useAuctionEntryActions(onChanged);
+  const pledgeActions = useBankPledgeEntryActions(onChanged);
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
   const [info, setInfo] = useState<EntryInfo | null>(initial ?? null);
   const [err, setErr] = useState("");
 
@@ -92,6 +103,12 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
           {info.remarks || "No remarks were added to this entry."}
         </div>
 
+        {info.loanEntry === "service_charge" && (
+          <p style={{ margin: "14px 0 0", fontSize: 12.5, color: "var(--muted)" }}>This charge is calculated from the loan&apos;s sanction and rate — change it by editing the sanction.</p>
+        )}
+        {info.loanEntry === "disbursement_reversal" && (
+          <p style={{ margin: "14px 0 0", fontSize: 12.5, color: "var(--muted)" }}>This reversal is calculated from the loan&apos;s sanction and cannot be edited on its own — open the loan&apos;s sanction to change it.</p>
+        )}
         {isTransfer ? (
           <>
             <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Transfer</h4>
@@ -124,10 +141,73 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
+        {info.editable && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => openChildModal(<DeleteEntryModalContent entryId={entryId} label={info.category} onDeleted={() => { onChanged?.(); closeAllModals(); }} />)}>
+            <Icon name="trash" /> Delete
+          </button>
+        )}
         {info.editable && (
-          <button className="btn" onClick={() => openModal(<EditEntryModalContent entryId={entryId} info={info} onSaved={onChanged} />)}>
+          <button className="btn" onClick={() => openChildModal(<EditEntryModalContent entryId={entryId} info={info} onSaved={() => { onChanged?.(); closeAllModals(); }} />)}>
             <Icon name="edit" /> Edit
           </button>
+        )}
+        {/* a gold loan's payout or top-up is edited from the loan's own record, recalculating the loan */}
+        {info.loanEntry === "top_up" && info.loanId && info.loanTopUpId && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => void loanActions.topUp(info.loanId!, info.loanTopUpId!, "delete")}><Icon name="trash" /> Delete</button>
+        )}
+        {info.loanEntry === "top_up" && info.loanId && info.loanTopUpId && canEditLedger && (
+          <button className="btn" onClick={() => void loanActions.topUp(info.loanId!, info.loanTopUpId!, "edit")}><Icon name="edit" /> Edit</button>
+        )}
+        {info.loanEntry === "payment" && info.loanId && info.loanPaymentId && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => void loanActions.payment(info.loanId!, info.loanPaymentId!, "delete")}><Icon name="trash" /> Delete</button>
+        )}
+        {info.loanEntry === "payment" && info.loanId && info.loanPaymentId && canEditLedger && (
+          <button className="btn" onClick={() => void loanActions.payment(info.loanId!, info.loanPaymentId!, "edit")}><Icon name="edit" /> Edit</button>
+        )}
+        {(info.loanEntry === "bank_pledge" || info.loanEntry === "bank_pledge_release") && info.loanId && info.bankPledgeId && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => void pledgeActions.pledge(info.loanId!, info.bankPledgeId!, "delete")}><Icon name="trash" /> Delete</button>
+        )}
+        {(info.loanEntry === "bank_pledge" || info.loanEntry === "bank_pledge_release") && info.loanId && info.bankPledgeId && canEditLedger && (
+          <button className="btn" onClick={() => void pledgeActions.pledge(info.loanId!, info.bankPledgeId!, "edit")}><Icon name="edit" /> Edit</button>
+        )}
+        {info.loanEntry === "disbursement" && info.loanId && canEditLedger && (
+          <button className="btn" onClick={() => void loanActions.sanction(info.loanId!)}><Icon name="edit" /> Edit</button>
+        )}
+        {info.loanEntry === "personal_payment" && info.loanId && info.loanPaymentId && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => void loanActions.personalPayment(info.loanId!, info.loanPaymentId!, "delete")}><Icon name="trash" /> Delete</button>
+        )}
+        {info.loanEntry === "personal_payment" && info.loanId && info.loanPaymentId && canEditLedger && (
+          <button className="btn" onClick={() => void loanActions.personalPayment(info.loanId!, info.loanPaymentId!, "edit")}><Icon name="edit" /> Edit</button>
+        )}
+        {/* a personal loan's disbursement cannot be deleted: it is the loan's start */}
+        {info.loanEntry === "personal_disbursement" && info.loanId && canEditLedger && (
+          <button className="btn" onClick={() => void loanActions.personalDisbursement(info.loanId!)}><Icon name="edit" /> Edit</button>
+        )}
+        {info.loanEntry === "investment_entry" && info.loanId && info.investmentEntryId && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => void loanActions.investment(info.loanId!, info.investmentEntryId!, "delete")}><Icon name="trash" /> Delete</button>
+        )}
+        {info.loanEntry === "investment_entry" && info.loanId && info.investmentEntryId && canEditLedger && (
+          <button className="btn" onClick={() => void loanActions.investment(info.loanId!, info.investmentEntryId!, "edit")}><Icon name="edit" /> Edit</button>
+        )}
+        {/* an auction's sale (and its expense line) or surplus settlement is edited from the auction, recalculating the loan */}
+        {(info.loanEntry === "auction_sale" || info.loanEntry === "auction_expense") && info.loanId && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => void auctionActions.open(info.loanId!, "sale", "delete")}><Icon name="trash" /> Delete</button>
+        )}
+        {(info.loanEntry === "auction_sale" || info.loanEntry === "auction_expense") && info.loanId && canEditLedger && (
+          <button className="btn" onClick={() => void auctionActions.open(info.loanId!, "sale", "edit")}><Icon name="edit" /> Edit</button>
+        )}
+        {info.loanEntry === "auction_surplus" && info.loanId && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => void auctionActions.open(info.loanId!, "surplus", "delete")}><Icon name="trash" /> Delete</button>
+        )}
+        {info.loanEntry === "auction_surplus" && info.loanId && canEditLedger && (
+          <button className="btn" onClick={() => void auctionActions.open(info.loanId!, "surplus", "edit")}><Icon name="edit" /> Edit</button>
+        )}
+        {/* derived from the loan's sanction: edited there */}
+        {info.loanEntry === "service_charge" && info.loanId && canEditLedger && (
+          <button className="btn" onClick={() => void loanActions.sanction(info.loanId!)}><Icon name="edit" /> Edit sanction</button>
+        )}
+        {info.loanEntry === "disbursement_reversal" && info.loanId && canEditLedger && (
+          <button className="btn" onClick={() => void loanActions.sanction(info.loanId!)}><Icon name="edit" /> Open loan</button>
         )}
       </div>
     </>

@@ -38,6 +38,15 @@ type BankPledgeRecord struct {
 	BankTransferAmount    float64    `json:"bank_transfer_amount" gorm:"not null;type:numeric(16,2);default:0"`
 	ChequeAmount          float64    `json:"cheque_amount" gorm:"not null;type:numeric(16,2);default:0"`
 	ReceivedBankID        *uint      `json:"received_bank_id,omitempty"`
+	// CashTransactionGroupID / ReleaseCashTransactionGroupID are the cash-book groups the pledge and its release
+	// booked, so an edit or delete rewrites exactly those lines.
+	CashTransactionGroupID        string  `json:"cash_transaction_group_id,omitempty" gorm:"size:40"`
+	ReleaseCashTransactionGroupID string  `json:"release_cash_transaction_group_id,omitempty" gorm:"size:40"`
+	ReleaseCashAmount             float64 `json:"release_cash_amount" gorm:"not null;type:numeric(16,2);default:0"`
+	ReleaseUpiAmount              float64 `json:"release_upi_amount" gorm:"not null;type:numeric(16,2);default:0"`
+	ReleaseBankTransferAmount     float64 `json:"release_bank_transfer_amount" gorm:"not null;type:numeric(16,2);default:0"`
+	ReleaseChequeAmount           float64 `json:"release_cheque_amount" gorm:"not null;type:numeric(16,2);default:0"`
+	ReleaseBankID                 *uint   `json:"release_bank_id,omitempty"`
 	// OrnamentIDs lists the ornaments this pledge covers; empty means the whole loan's gold.
 	OrnamentIDs []uint `json:"ornament_ids" gorm:"serializer:json;type:text;not null;default:'null'"`
 	// OrnamentNames is filled for display only.

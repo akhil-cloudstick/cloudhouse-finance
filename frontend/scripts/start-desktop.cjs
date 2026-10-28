@@ -17,9 +17,9 @@ loadEnvConfig(root, true);
 // The real S3_* values live only in backend/.env now — fills in whatever frontend's own env didn't set.
 loadEnvConfig(path.join(root, "..", "backend"), true);
 
-const port = 3001;
+const port = 3011;
 const devURL = `http://localhost:${port}`;
-const backend = (process.env.BACKEND_ORIGIN || "http://localhost:8080").replace(/\/+$/, "");
+const backend = (process.env.BACKEND_ORIGIN || "http://localhost:8090").replace(/\/+$/, "");
 const apiBase = process.env.DESKTOP_API_BASE || process.env.NEXT_PUBLIC_API_BASE || `${backend}/api/v1`;
 
 function isUp() {

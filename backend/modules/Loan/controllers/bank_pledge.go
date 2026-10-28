@@ -189,6 +189,7 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 				return fmt.Errorf("could not record the pledge in Cash-in-Hand, pledge not saved: %w", err)
 			}
 			p.CashMovementID = &id
+			p.CashTransactionGroupID = cashbook.MovementGroupOf(cashbook.WithTx(ctx, tx), id)
 		}
 		if err := tx.Create(p).Error; err != nil {
 			return err
@@ -260,6 +261,8 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 				return fmt.Errorf("could not record the pledge release expense, release not saved: %w", err)
 			}
 			p.ReleaseCashMovementID = &movementID
+			p.ReleaseCashTransactionGroupID = cashbook.MovementGroupOf(txCtx, movementID)
+			p.ReleaseCashAmount, p.ReleaseUpiAmount, p.ReleaseBankTransferAmount, p.ReleaseChequeAmount, p.ReleaseBankID = relCash, relUpi, relBankTransfer, relCheque, relBankID
 			p.ReleaseExpenseID = &expenseID
 		}
 		if err := tx.Save(p).Error; err != nil {

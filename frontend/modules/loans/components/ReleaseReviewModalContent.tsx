@@ -18,6 +18,12 @@ import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError } from "@/common/components/ui/FieldError";
+import { DatePicker } from "@/common/components/ui/DatePicker";
+
+function localToday(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+}
 import { releaseAmountNeeded } from "@/modules/loans/utils/releaseAmount";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
@@ -69,6 +75,12 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // Reveals the Top-Up Payment prompt only after ApproveReleaseRequest
   // actually refuses with the drift error — hidden otherwise, per the plan.
   const [showTopUp, setShowTopUp] = useState(false);
+  // The day the customer saw the gold / the release happened. Staff can backdate it; it becomes the default
+  // Payment Date in the Record Payment form, which they can still change each time.
+  const [releaseDate, setReleaseDate] = useState(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+  });
 
   useEffect(() => {
     getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
@@ -283,10 +295,17 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           )}
         </div>
 
+        <div className="frow" style={{ marginBottom: 10 }}>
+          <div>
+            <label className="f">Release Date</label>
+            <DatePicker value={releaseDate} min={loan?.disbursementDate?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status !== "Pending" || !canDecide} />
+          </div>
+        </div>
+
         <button
           className="btn ghost sm"
           disabled={req.status !== "Pending" || !canDecide || !loan}
-          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
+          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
         >
           <Icon name="coin" /> Record Payment
         </button>

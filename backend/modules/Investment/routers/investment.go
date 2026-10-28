@@ -27,6 +27,8 @@ func InvestmentRoutes(e *echo.Echo) *echo.Echo {
 	e.POST(investmentPath+"/:id/add-cash", investment.AddInvestmentCash, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.POST(investmentPath+"/:id/withdraw", investment.WithdrawInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.GET(investmentPath+"/:id/transactions", investment.ListInvestmentTransactions, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
+	e.PATCH(investmentPath+"/:id/ledger/:entry_id", investment.EditInvestmentLedgerEntry, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read, auth.RequirePermission("can edit ledger entry"))...)
+	e.DELETE(investmentPath+"/:id/ledger/:entry_id", investment.DeleteInvestmentLedgerEntry, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read, auth.RequirePermission("can delete ledger entry"))...)
 	return e
 }
 

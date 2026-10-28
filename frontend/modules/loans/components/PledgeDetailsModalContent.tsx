@@ -1,6 +1,7 @@
 "use client";
 
 import { useModal } from "@/common/components/ModalProvider";
+import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW, fmtDate } from "@/common/utils/format";
 import { CASH_TREATMENT_LABELS } from "@/modules/loans/services/loanService";
 import { type BankPledgeView } from "@/modules/loans/types/loan-types";
@@ -38,9 +39,13 @@ export function PledgeDetailsGrid({ loanNumber, customerName, pledge, ornamentNa
   );
 }
 
-type PledgeDetailsModalContentProps = PledgeDetailsGridProps & { onRelease?: () => void };
+export type PledgeDetailsAction = { label: string; icon?: "edit" | "trash"; danger?: boolean; run: () => void };
 
-export function PledgeDetailsModalContent({ onRelease, ...grid }: PledgeDetailsModalContentProps) {
+type PledgeDetailsModalContentProps = PledgeDetailsGridProps & { actions?: PledgeDetailsAction[] };
+
+/* The re-pledge's View popup. Release, Edit and Delete live here, not in the table: each opens on top of this
+ * popup, and closing it brings the popup back. */
+export function PledgeDetailsModalContent({ actions = [], ...grid }: PledgeDetailsModalContentProps) {
   const { closeModal } = useModal();
   return (
     <>
@@ -48,7 +53,11 @@ export function PledgeDetailsModalContent({ onRelease, ...grid }: PledgeDetailsM
       <div className="bd bd-scroll"><PledgeDetailsGrid {...grid} /></div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
-        {onRelease && <button className="btn" onClick={onRelease}>Release…</button>}
+        {actions.map((a) => (
+          <button key={a.label} className={a.danger ? "btn ghost" : "btn"} style={a.danger ? { color: "var(--red)" } : undefined} onClick={a.run}>
+            {a.icon && <Icon name={a.icon} />} {a.label}
+          </button>
+        ))}
       </div>
     </>
   );

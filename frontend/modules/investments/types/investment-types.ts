@@ -152,6 +152,16 @@ export type InvestmentLedgerRow = {
   principalAmount: number;
   interestAmount: number;
   runningBalance: number;
+  /* Edit/Delete support: which kind of entry the row is and its whole breakdown (see backend ledger.go). */
+  entryKind?: "opening" | "deposit" | "withdrawal" | "payout";
+  entryAmount?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number | null;
+  editable?: boolean;
+  deletable?: boolean;
 };
 export type MaturityAction = "Close" | "Renew";
 /* --- Live engine: Add Cash / Withdraw / Transactions --- */

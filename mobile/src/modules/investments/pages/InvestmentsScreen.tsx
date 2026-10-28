@@ -19,6 +19,7 @@ import {
   FlatHeader,
   Input,
   NoticeBanner,
+  PillTabs,
   PrimaryButton,
   Screen,
   SearchInput,
@@ -36,8 +37,9 @@ import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listCustomers } from "@/modules/customers/services/customerService";
 import { ApiError } from "@/common/services/httpClient";
-import { addCashToInvestment, createInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentTransactionsPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
-import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InvestmentStatus, type InvestmentTransaction, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
+import { addCashToInvestment, createInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
+import { InvestmentLedgerEditSheet } from "@/modules/investments/components/InvestmentLedgerEditSheet";
+import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InvestmentStatus, type InvestmentLedgerRow, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { previewInvestmentBondPdf, previewInvestmentStatementPdf } from "@/modules/investments/utils/investmentBond";
 import { dmy, inr } from "@/common/utils/format";
@@ -477,11 +479,20 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
     fetchPage: (p) => getInvestmentSchedulePage(id, p.limit, p.offset),
     enabled: visible && !!inv && !isLive,
   });
-  const transactions = useServerList<InvestmentTransaction>({
-    key: ["investmentTransactions", id],
-    fetchPage: (p) => getInvestmentTransactionsPage(id, p.limit, p.offset),
-    enabled: visible && !!inv && isLive,
+  // The ledger (every deposit, withdrawal and payout with its running balance) — the Live engine's only list, and a
+  // second tab on a scheduled investment. Rows carry what Edit / Delete need.
+  const [view, setView] = useState<"schedule" | "ledger">("schedule");
+  const showLedger = isLive || view === "ledger";
+  const ledger = useServerList<InvestmentLedgerRow>({
+    key: ["investmentLedger", id],
+    fetchPage: (p) => getInvestmentLedgerPage(id, p.limit, p.offset).then((r) => ({ ...r, items: r.items ?? [] })),
+    enabled: visible && !!inv && showLedger,
   });
+  const auth = useAuth();
+  // Editing / deleting a ledger entry recalculates the investment, so each has its own grant (shared with the gold-loan ledger).
+  const canEditLedger = auth.can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = auth.can("Loan_Management", "can_delete_ledger_entry");
+  const [editing, setEditing] = useState<{ row: InvestmentLedgerRow; mode: "edit" | "delete" } | null>(null);
 
   useEffect(() => {
     setAction(null);
@@ -490,7 +501,7 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["investment", String(id)] });
-    qc.invalidateQueries({ queryKey: ["investmentTransactions", id] });
+    qc.invalidateQueries({ queryKey: ["investmentLedger", id] });
     qc.invalidateQueries({ queryKey: ["investmentSchedule", id] });
     qc.invalidateQueries({ queryKey: ["investments"] });
   };
@@ -572,9 +583,13 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
         <PrimaryButton label="Pay Interest" variant="outline" onPress={() => setAction("payInterest")} style={{ marginBottom: 10 }} />
       ) : null}
       {canUpdate && inv.status === "Matured" ? <PrimaryButton label="Close / Renew" onPress={() => setAction("mature")} style={{ marginBottom: 10 }} /> : null}
-      <SectionTitle flush style={{ marginTop: 8 }}>
-        {isLive ? "Transactions" : "Interest payout schedule"}
-      </SectionTitle>
+      {isLive ? (
+        <SectionTitle flush style={{ marginTop: 8 }}>
+          Ledger
+        </SectionTitle>
+      ) : (
+        <PillTabs inSheet tabs={["schedule", "ledger"] as const} value={view} onChange={setView} labels={{ schedule: "Payout schedule", ledger: "Ledger" }} />
+      )}
     </View>
   ) : null;
 
@@ -582,32 +597,45 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
   if (!visible) body = null;
   else if (investment.isLoading) body = <Buffering block />;
   else if (investment.isError || !inv) body = <EmptyText>{loadErrorText(investment.error) ?? "This investment no longer exists."}</EmptyText>;
-  else if (isLive)
+  else if (showLedger)
     body = (
       <ServerFlatList
-        list={transactions}
-        items={transactions.items}
+        list={ledger}
+        items={ledger.items}
         inSheet
         gutter={16}
         header={header}
-        emptyText="No transactions yet."
-        keyOf={(t) => String(t.id)}
-        renderItem={(t) => (
-          <AccRow
-            id={t.type}
-            idColor={t.type === "Withdrawal" ? C.red : C.green}
-            name={dmy(t.occurredOn)}
-            sub={t.reference || undefined}
-            amount={`${t.type === "Withdrawal" ? "−" : "+"}${inr(t.amount)}`}
-            amountColor={t.type === "Withdrawal" ? C.red : C.green}
-            details={[
-              { k: "Principal", v: inr(t.principalAmount) },
-              { k: "Interest", v: inr(t.interestAmount) },
-              { k: "Principal after", v: inr(t.principalAfter) },
-              { k: "Interest after", v: inr(t.interestAfter) },
-            ]}
-          />
-        )}
+        emptyText="No ledger entries yet."
+        keyOf={(r) => r.id}
+        renderItem={(r) => {
+          const isDebit = r.debitOrCredit === "debit";
+          const canE = !!r.editable && canEditLedger;
+          const canD = !!r.deletable && canDeleteLedger;
+          return (
+            <AccRow
+              id={r.type}
+              idColor={isDebit ? C.red : C.green}
+              name={dmy(r.date)}
+              sub={[r.method, r.reference].filter(Boolean).join(" · ") || r.description || undefined}
+              amount={`${isDebit ? "−" : "+"}${inr(r.amount)}`}
+              amountColor={isDebit ? C.red : C.green}
+              details={[
+                { k: "Description", v: r.description || "—" },
+                { k: "Principal", v: inr(r.principalAmount) },
+                { k: "Interest", v: inr(r.interestAmount) },
+                { k: "Balance", v: inr(r.runningBalance), color: C.brandDeep },
+              ]}
+              actions={
+                canE || canD
+                  ? [
+                      ...(canE ? [{ label: "Edit", onPress: () => setEditing({ row: r, mode: "edit" as const }) }] : []),
+                      ...(canD ? [{ label: "Delete", danger: true, onPress: () => setEditing({ row: r, mode: "delete" as const }) }] : []),
+                    ]
+                  : undefined
+              }
+            />
+          );
+        }}
       />
     );
   else
@@ -649,6 +677,14 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
           <CloseRenewSheet inv={inv} visible={action === "mature"} onClose={() => setAction(null)} onDone={invalidate} />
           <PayInterestSheet inv={inv} visible={action === "payInterest"} onClose={() => setAction(null)} onDone={invalidate} />
           <MarkPaidSheet inv={inv} payout={payout} onClose={() => setPayout(null)} onDone={invalidate} />
+          <InvestmentLedgerEditSheet
+            investmentId={inv.id}
+            row={editing?.row ?? null}
+            mode={editing?.mode ?? "edit"}
+            live={isLive}
+            minDate={inv.startDate?.slice(0, 10) || undefined}
+            onClose={() => setEditing(null)}
+          />
         </>
       ) : null}
     </>

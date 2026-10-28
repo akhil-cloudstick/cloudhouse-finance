@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -20,6 +21,7 @@ type ReleaseRequestInput struct {
 	Detail      string
 	RequestedBy string
 	OrnamentIDs []uint
+	RequestedAt *time.Time // the day the release was asked for; nil means now
 }
 
 type ReleasePaymentInput struct {
@@ -35,6 +37,10 @@ type ReleasePaymentInput struct {
 	Reference          string
 	InterestOverride   *float64
 	DueDate            *time.Time
+	DiscountReason     string
+	DiscountMode       string
+	DiscountKind       string     // what the discount is given against: customer / interest / penal_interest
+	PaidOn             *time.Time // nil means today
 	ActorEmployeeID    uint
 	ActorRoleID        uint
 }
@@ -51,6 +57,7 @@ type releaseRequestRequest struct {
 	Detail      string `json:"detail"`
 	RequestedBy string `json:"requested_by"`
 	OrnamentIDs []uint `json:"ornament_ids"`
+	RequestedAt string `json:"requested_at"` // YYYY-MM-DD, optional
 }
 
 type releasePaymentRequest struct {
@@ -66,6 +73,10 @@ type releasePaymentRequest struct {
 	Reference          string   `json:"reference"`
 	InterestOverride   *float64 `json:"interest_override"`
 	DueDate            string   `json:"due_date"`
+	DiscountReason     string   `json:"discount_reason"`
+	DiscountMode       string   `json:"discount_mode"`
+	DiscountKind       string   `json:"discount_kind"`
+	PaidOn             string   `json:"paid_on"`
 }
 
 type releaseApprovalRequest struct {
@@ -150,6 +161,13 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 			}
 		}
 	}
+	requestedAt := time.Now()
+	if in.RequestedAt != nil {
+		if err := validatePaymentDateWindow(l, *in.RequestedAt); err != nil {
+			return nil, err
+		}
+		requestedAt = *in.RequestedAt
+	}
 	req := &models.LoanRequest{
 		LoanID:      loanID,
 		Type:        models.RequestTypeRelease,
@@ -157,7 +175,7 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 		RequestedBy: requestedBy,
 		Detail:      in.Detail,
 		IsPartial:   isPartial,
-		RequestedAt: time.Now(),
+		RequestedAt: requestedAt,
 	}
 	if err := insertLoanRequest(ctx, req); err != nil {
 		return nil, err
@@ -259,19 +277,40 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if err != nil {
 		return nil, err
 	}
+	if in.Discount > 0 {
+		if strings.TrimSpace(in.DiscountReason) == "" {
+			return nil, common.NewBadRequest("a reason is required for a discount")
+		}
+		if !discountModes[in.DiscountMode] {
+			return nil, common.NewBadRequest("discount mode must be Cash, UPI, Bank Transfer or Cheque")
+		}
+		if !validDiscountKind(in.DiscountKind) {
+			return nil, common.NewBadRequest("discount type must be Custom discount, Interest or Penal interest")
+		}
+		if !checkStagePermission(ctx, in.ActorRoleID, "can give discount") {
+			return nil, common.NewPermissionDenied("Access denied", "can give discount")
+		}
+	}
 	if in.Discount > needed+0.01 {
 		return nil, common.NewBadRequest(fmt.Sprintf("the discount cannot exceed the ₹%.2f needed to release the gold", needed))
 	}
 	if short := common.RoundMoney(needed - (in.Amount + in.Discount)); short > 0.01 {
 		return nil, common.NewBadRequest(fmt.Sprintf("the payment is ₹%.2f short of the ₹%.2f needed to release the gold", short, needed))
 	}
+	paidOn := time.Now()
+	if in.PaidOn != nil {
+		paidOn = *in.PaidOn
+	}
 	if in.Discount > 0 {
 		if _, err := SaveLoanPayment(ctx, req.LoanID, PaymentInput{
 			Amount:               in.Discount,
 			Type:                 models.PaymentTypeDiscount,
-			PaidOn:               time.Now(),
+			PaidOn:               paidOn,
+			CheckDateWindow:      true,
 			ReceivedByEmployeeID: &in.ActorEmployeeID,
-			Description:          "Release discount",
+			Method:               in.DiscountMode,
+			DiscountKind:         in.DiscountKind,
+			Description:          "Discount: " + in.DiscountReason,
 		}); err != nil {
 			return nil, err
 		}
@@ -289,7 +328,8 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 			Amount:               paymentAmount,
 			Type:                 paymentType,
 			ProcessingFee:        chargeDelta,
-			PaidOn:               time.Now(),
+			PaidOn:               paidOn,
+			CheckDateWindow:      true,
 			ReceivedByEmployeeID: &in.ActorEmployeeID,
 			CashAmount:           in.CashAmount,
 			UpiAmount:            in.UpiAmount,
@@ -667,11 +707,19 @@ func CreateReleaseRequest(c echo.Context) error {
 	if err := common.BindJSON(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
-	rec, err := SaveReleaseRequest(ctx, loanID, ReleaseRequestInput{
+	in := ReleaseRequestInput{
 		Detail:      req.Detail,
 		RequestedBy: req.RequestedBy,
 		OrnamentIDs: req.OrnamentIDs,
-	})
+	}
+	if req.RequestedAt != "" {
+		d, err := parsePaidOn(req.RequestedAt)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid requested_at: expected YYYY-MM-DD"})
+		}
+		in.RequestedAt = &d
+	}
+	rec, err := SaveReleaseRequest(ctx, loanID, in)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -734,6 +782,14 @@ func RecordReleasePayment(c echo.Context) error {
 		}
 		dueDate = &d
 	}
+	var paidOn *time.Time
+	if req.PaidOn != "" {
+		d, err := parsePaidOn(req.PaidOn)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid paid_on: expected YYYY-MM-DD"})
+		}
+		paidOn = &d
+	}
 	actorEmployeeID, _, actorRoleID := auth.ActorFromContext(c)
 	rec, err := recordReleaseRequestPayment(ctx, requestID, auth.GetBranchScope(c), ReleasePaymentInput{
 		Type:               req.Type,
@@ -748,6 +804,10 @@ func RecordReleasePayment(c echo.Context) error {
 		Reference:          req.Reference,
 		InterestOverride:   req.InterestOverride,
 		DueDate:            dueDate,
+		DiscountReason:     req.DiscountReason,
+		DiscountMode:       req.DiscountMode,
+		DiscountKind:       req.DiscountKind,
+		PaidOn:             paidOn,
 		ActorEmployeeID:    actorEmployeeID,
 		ActorRoleID:        actorRoleID,
 	})

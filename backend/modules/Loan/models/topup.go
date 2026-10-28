@@ -28,5 +28,7 @@ type LoanTopUp struct {
 	SettleInterest        string    `json:"settle_interest" gorm:"size:10;default:''"`
 	BankID                *uint     `json:"bank_id"`
 	ReversalOfMovementID  *uint     `json:"reversal_of_movement_id"`
-	CreatedAt             time.Time `json:"created_at"`
+	// CashTransactionGroupID is the cash-book lines this top-up booked (empty on a top-up from before they were linked).
+	CashTransactionGroupID string    `json:"-" gorm:"size:40"`
+	CreatedAt              time.Time `json:"created_at"`
 }

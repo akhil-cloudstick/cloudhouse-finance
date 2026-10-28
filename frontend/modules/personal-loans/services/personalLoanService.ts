@@ -132,3 +132,52 @@ export async function downloadPersonalLoanBond(loanId: number, lang: PersonalLoa
     return res.blob();
   }, undefined, `personal-loan-bond-${loanId}.pdf`);
 }
+
+/* --- Ledger edit / delete -------------------------------------------------
+ * Editing or deleting a payment recalculates the loan balances, instalments and
+ * status on the server in one transaction. dryRun asks for the before/after figures
+ * without saving. The disbursement can be edited (date, payment breakdown) but not
+ * deleted or re-amounted. */
+export type PersonalLedgerSummary = { outstanding: number; totalPaid: number; status: string };
+export type PersonalLedgerEditPreview = { before: PersonalLedgerSummary; after: PersonalLedgerSummary; dryRun: boolean };
+export type EditPersonalPaymentInput = {
+  paidOn?: string;
+  amount?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
+  reference?: string;
+  description?: string;
+  reason?: string;
+};
+export type EditPersonalDisbursementInput = {
+  disbursedAt?: string;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
+  reason?: string;
+};
+
+export function editPersonalLoanPayment(loanId: number, paymentId: number, input: EditPersonalPaymentInput, dryRun = false): Promise<PersonalLedgerEditPreview> {
+  return apiFetch<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deletePersonalLoanPayment(loanId: number, paymentId: number, dryRun = false, reason?: string): Promise<PersonalLedgerEditPreview> {
+  return apiFetch<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/payments/${paymentId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, {
+    method: "DELETE",
+  });
+}
+
+export function editPersonalLoanDisbursement(loanId: number, input: EditPersonalDisbursementInput, dryRun = false): Promise<PersonalLedgerEditPreview> {
+  return apiFetch<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}

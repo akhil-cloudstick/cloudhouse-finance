@@ -5,11 +5,11 @@ import type { NextConfig } from "next";
 // rewrites at all. `next dev` ignores `output: "export"` for dev-only
 // features, so rewrites still work there — this proxies /api/v1 and
 // /uploads through the Next dev server (port 3000) to the Go backend
-// (port 8080), so the browser only ever talks to one port in dev too,
+// (port 8090), so the browser only ever talks to one port in dev too,
 // matching production's single-origin setup. apiFetch/apiUpload keep using
 // the relative "/api/v1" default (see common/services/httpClient.ts) — no NEXT_PUBLIC_API_BASE
 // needed.
-const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN || "http://localhost:8080";
+const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN || "http://localhost:8090";
 
 /* What may appear where a business code is expected, as a path-to-regexp
  * constraint on the :slug parameter.

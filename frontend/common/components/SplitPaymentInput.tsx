@@ -83,6 +83,8 @@ type SplitPaymentInputProps = {
   scrollInternally?: boolean;
   /** Heading above the lines; null drops it (PaymentModal's section title already names it). */
   label?: string | null;
+  /** Lines to start from (editing an existing payment); omit for a single Cash line that follows totalAmount. */
+  initialLines?: SplitPaymentLine[];
 };
 
 /**
@@ -104,10 +106,12 @@ export function SplitPaymentInput({
   onChange,
   scrollInternally = true,
   label,
+  initialLines,
 }: SplitPaymentInputProps) {
-  const [rows, setRows] = useState<PaymentRow[]>(() => [
-    newPaymentRow({ mode: "Cash", amount: totalAmount > 0 ? String(totalAmount) : "" }),
-  ]);
+  const [rows, setRows] = useState<PaymentRow[]>(() =>
+    initialLines?.length
+      ? initialLines.map((l) => newPaymentRow({ mode: l.mode, amount: l.amount, bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName ?? "", auto: initialLines.length === 1 }))
+      : [newPaymentRow({ mode: "Cash", amount: totalAmount > 0 ? String(totalAmount) : "" })]);
 
   const lines: SplitPaymentLine[] = effectiveRows(rows, totalAmount).map((r) => ({
     mode: r.mode as SplitPaymentMode,

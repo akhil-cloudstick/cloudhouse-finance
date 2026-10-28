@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { C, CheckItem, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, WarningBanner, toast } from "@/common/components/ui";
+import { C, CheckItem, DateField, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, WarningBanner, toast } from "@/common/components/ui";
 import { ReleaseReviewPanel } from "./ReleaseReviewPanel";
 import { completeRelease, createReleaseRequest } from "@/modules/loans/services/loanService";
-import { inr } from "@/common/utils/format";
+import { inr, todayISO } from "@/common/utils/format";
 import type { Loan, LoanRequest } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { ErrorText } from "@/common/components/ErrorText";
@@ -29,6 +29,7 @@ export function ReleaseSheet({
   // Ornaments picked for release; null = all still-pledged ones (full release).
   const [selectedIds, setSelectedIds] = useState<number[] | null>(null);
   const [detail, setDetail] = useState("");
+  const [requestedOn, setRequestedOn] = useState(todayISO());
   const [error, setError] = useState<string | null>(null);
   const submitting = useRef(false);
 
@@ -36,6 +37,7 @@ export function ReleaseSheet({
     if (visible) {
       setSelectedIds(null);
       setDetail("");
+      setRequestedOn(todayISO());
       setError(null);
     }
   }, [visible]);
@@ -67,6 +69,7 @@ export function ReleaseSheet({
           detail: detail.trim() || (allSelected ? "Full settlement requested" : "Partial release requested"),
           requestedBy: "Staff",
           ornamentIds,
+          requestedAt: requestedOn,
         });
       } finally {
         submitting.current = false;
@@ -161,6 +164,7 @@ export function ReleaseSheet({
         v={inr(minAmount)}
         tone={allSelected || minAmount > 0.01 ? "brand" : "green"}
       />
+      <DateField label="Request date" value={requestedOn} onChange={setRequestedOn} min={l.disbursementDate?.slice(0, 10) || undefined} max={todayISO()} />
       <TextField label="Note (optional)" placeholder="Add a note" value={detail} onChangeText={setDetail} />
       <ErrorText>{error}</ErrorText>
       <PrimaryButton

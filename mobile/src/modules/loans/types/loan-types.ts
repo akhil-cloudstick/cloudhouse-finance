@@ -60,6 +60,7 @@ export type LoanPayment = {
   paidOn: string;
   receivedByEmployeeId: number;
   description?: string;
+  discountKind?: string; // Discount rows: customer / interest / penal_interest
   method?: string;
   // How amount was split across modes — mirrors web loanService.ts's
   // PaymentView. method above is derived from these (the single mode's
@@ -68,6 +69,9 @@ export type LoanPayment = {
   upiAmount?: number;
   bankTransferAmount?: number;
   chequeAmount?: number;
+  // Which bank the UPI / Bank Transfer part landed in (nil for a Cash-only payment).
+  bankId?: number | null;
+  bankName?: string;
   reference?: string;
   processingFeeApplied: number;
   penalInterestApplied: number;
@@ -268,6 +272,8 @@ export type LoanTopUp = {
   upiAmount: number;
   bankTransferAmount: number;
   chequeAmount: number;
+  // Which bank the UPI / Bank Transfer part left from.
+  bankId?: number | null;
   occurredOn: string;
   reference: string;
   // Pending/Rejected only when the tenant's "loan_topup" approval flow is on.

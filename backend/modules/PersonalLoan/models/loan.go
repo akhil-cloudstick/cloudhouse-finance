@@ -44,6 +44,7 @@ type PersonalLoan struct {
 	DisbursementBankTransferAmount float64                   `json:"disbursement_bank_transfer_amount" gorm:"not null;type:numeric(16,2);default:0"`
 	DisbursementChequeAmount       float64                   `json:"disbursement_cheque_amount" gorm:"not null;type:numeric(16,2);default:0"`
 	DisbursementBankID             *uint                     `json:"disbursement_bank_id,omitempty"`
+	DisbursementCashGroupID        string                    `json:"-" gorm:"size:40"`
 	FullDisbursement               bool                      `json:"full_disbursement" gorm:"not null;default:false"`
 	Frequency                      string                    `json:"frequency" gorm:"not null;size:10"`
 	TenureCount                    int                       `json:"tenure_count" gorm:"not null"`

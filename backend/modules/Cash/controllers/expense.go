@@ -509,7 +509,41 @@ func findExpenses(ctx context.Context, branchID *uint, search string, limit, off
 		q = q.Offset(offset)
 	}
 	err := q.Find(&expenses).Error
+	if err == nil {
+		attachBankPledgeLinks(ctx, expenses)
+	}
 	return expenses, total, err
+}
+
+// attachBankPledgeLinks tells each "Bank Pledge Release" entry which bank pledge it belongs to.
+func attachBankPledgeLinks(ctx context.Context, expenses []models.Expense) {
+	var ids []uint
+	for _, e := range expenses {
+		if e.Category == bankPledgeReleaseCategory {
+			ids = append(ids, e.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	var links []struct {
+		ID               uint
+		LoanID           uint
+		ReleaseExpenseID uint
+	}
+	if err := config.DB.WithContext(ctx).Table("bank_pledge_records").Select("id, loan_id, release_expense_id").
+		Where("release_expense_id IN ? AND status = ?", ids, "Released").Scan(&links).Error; err != nil {
+		return
+	}
+	byExpense := map[uint]int{}
+	for i, l := range links {
+		byExpense[l.ReleaseExpenseID] = i
+	}
+	for i := range expenses {
+		if li, ok := byExpense[expenses[i].ID]; ok {
+			expenses[i].BankPledgeID, expenses[i].BankPledgeLoanID = links[li].ID, links[li].LoanID
+		}
+	}
 }
 
 func sumExpenseFiltered(ctx context.Context, branchID *uint, search string) (float64, error) {

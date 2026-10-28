@@ -84,6 +84,7 @@ export type BackendLoanPayment = {
   paidOn: string;
   receivedByEmployeeId: number;
   description: string;
+  discountKind?: string; // Discount rows: customer / interest / penal_interest
   /* Derived/display-only — the single mode's name when exactly one split
    * amount below is non-zero, "Split" when more than one is. */
   method: string;
@@ -128,6 +129,14 @@ export type BackendBankPledgeRecord = {
    * is used for pledges embedded in a loan response, where older serialized
    * payloads may not carry them — see toBankPledgeView for the defaults. */
   cashTreatment?: BankPledgeCashTreatment;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number | null;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number | null;
   status?: "Active" | "Released" | "Voided";
   voidedAt?: string | null;
   voidReason?: string;
@@ -250,6 +259,7 @@ export type PaymentView = {
   paidOn: string; // "YYYY-MM-DD"
   receivedByEmployeeId: number;
   description: string;
+  discountKind?: string; // Discount rows: customer / interest / penal_interest
   method: string;
   cashAmount: number;
   upiAmount: number;
@@ -287,6 +297,15 @@ export type BankPledgeView = {
   cashTreatment: BankPledgeCashTreatment;
   status: "Active" | "Released" | "Voided";
   voidReason: string;
+  /* How the pledge was received / its release paid (for the edit form). */
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  receivedBankId: number | null;
+  releaseCashAmount: number;
+  releaseUpiAmount: number;
+  releaseBankTransferAmount: number;
+  releaseBankId: number | null;
 };
 export type LoanView = {
   id: string; // loanNumber
@@ -525,6 +544,12 @@ export type PaymentInput = {
   type: "Interest" | "Penal Interest" | "Principal" | "Partial" | "Full Settlement" | string;
   processingFee?: number; // extra charge collected alongside amount — never applied to penal/interest/principal
   paidOn: string;
+  // A write-off taken off the loan on the same date. amount stays what the customer actually pays.
+  discount?: number;
+  // What the discount is given against: a customer discount (the default), or interest / penal interest only.
+  discountKind?: DiscountKind;
+  discountReason?: string;
+  discountMode?: string;
   cashAmount?: number;
   upiAmount?: number;
   bankTransferAmount?: number;
@@ -561,6 +586,13 @@ export type TopUpInput = {
   // against the loan, but gets less cash out).
   settleInterest?: "require" | "deduct";
 };
+export type DiscountKind = "customer" | "interest" | "penal_interest";
+export const DISCOUNT_KIND_LABELS: Record<DiscountKind, string> = {
+  customer: "Custom discount",
+  interest: "Interest",
+  penal_interest: "Penal interest",
+};
+
 export type LoanTopUpView = {
   id: number;
   amount: number;
@@ -579,6 +611,7 @@ export type LoanTopUpView = {
   // "Approved"/"Rejected" once decided, "" when paid out with no chain.
   approvalStage: string;
   settleInterest: string;
+  bankId?: number | null;
   createdAt: string;
 };
 /* One decision on a pending top-up — stage is the stage KEY
@@ -647,6 +680,15 @@ export type BankPledgeRecordView = {
   voidedAt: string | null;
   voidReason: string;
   events: BankPledgeEventView[];
+  bankId?: number | null;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number | null;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number | null;
   /* Pledged ornaments' names; empty = the whole loan's gold. */
   ornamentNames?: string[];
 };
@@ -960,6 +1002,10 @@ export type ReleasePaymentInput = {
   reference?: string;
   interestOverride?: number;
   dueDate?: string;
+  paidOn?: string; // YYYY-MM-DD; omitted = today
+  discountReason?: string; // required by the API when discount > 0
+  discountMode?: string; // Cash / UPI / Bank Transfer / Cheque
+  discountKind?: DiscountKind; // what the discount is given against
 };
 // employeeId is NOT sent — see platform.ActorFromContext's doc comment.
 // stage is the release flow's stage KEY ("Manager"/"Management") — which of

@@ -77,3 +77,30 @@ export function listPersonalLoanApprovals(id: number) {
 export function personalLoanBondUrl(loanId: number | string, lang: PersonalLoanBondLang): string {
   return apiUrl(`/personal-loans/${loanId}/bond?lang=${lang}`);
 }
+
+/* --- Ledger edit / delete: the loan's balances, instalments and status are recalculated server-side.
+ * dryRun previews the before / after figures without saving. The disbursement can be edited (date, payment
+ * breakdown) but not deleted or re-amounted. */
+export type PersonalLedgerSummary = { outstanding: number; totalPaid: number; status: string };
+export type PersonalLedgerEditPreview = { before: PersonalLedgerSummary; after: PersonalLedgerSummary; dryRun: boolean };
+
+export function editPersonalLoanPayment(
+  loanId: number,
+  paymentId: number,
+  input: { paidOn?: string; amount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number; reference?: string; description?: string; reason?: string },
+  dryRun = false
+) {
+  return apiRequest<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+}
+
+export function deletePersonalLoanPayment(loanId: number, paymentId: number, dryRun = false, reason?: string) {
+  return apiRequest<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/payments/${paymentId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, { method: "DELETE" });
+}
+
+export function editPersonalLoanDisbursement(
+  loanId: number,
+  input: { disbursedAt?: string; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number; reason?: string },
+  dryRun = false
+) {
+  return apiRequest<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+}

@@ -2195,3 +2195,12 @@ func RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string
 	}
 	return firstID, groupID, nil
 }
+
+// DeleteCollectionByGroup removes the Collection cash lines a loan payment booked under groupID, so a corrected
+// payment can book its own (or none, when the payment is deleted).
+func DeleteCollectionByGroup(ctx context.Context, groupID string) error {
+	if groupID == "" {
+		return nil
+	}
+	return cashDB(ctx).Where("transaction_group_id = ? AND source = ?", groupID, "Collection").Delete(&models.CashMovement{}).Error
+}
