@@ -26,6 +26,7 @@ import {
   isBalanced,
   type SplitAmounts,
   SheetFooter,
+  ThemeDropdown,
   Stepper,
   ConfirmSheet,
   toast,
@@ -89,6 +90,12 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const [charges, setCharges] = useState(String(request.charges || 0));
   const [notes, setNotes] = useState(request.verificationNotes || "");
   const [discount, setDiscount] = useState("0");
+  // A discount is its own ledger entry: it needs a reason and the mode it is shown under, and the right to give one.
+  const [discountReason, setDiscountReason] = useState("");
+  const [discountMode, setDiscountMode] = useState("Cash");
+  const canDiscount = can("Loan_Management", "can_give_discount");
+  // The day of the release payment — staff can backdate it to the day the customer saw the gold.
+  const [releaseDate, setReleaseDate] = useState(todayISO());
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
@@ -188,7 +195,9 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     mutationFn: () =>
       recordReleasePayment(request.id, {
         amount: amt,
-        discount: +discount || 0,
+        discount: canDiscount ? +discount || 0 : 0,
+        ...(canDiscount && +discount > 0 ? { discountReason: discountReason.trim(), discountMode } : {}),
+        paidOn: releaseDate,
         ...(amt > 0 ? split : ZERO_SPLIT),
         bankId: amt > 0 ? pay?.bankId : undefined,
         reference: reference.trim() || undefined,
@@ -196,6 +205,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
       }),
     onSuccess: () => {
       setDiscount("0");
+      setDiscountReason("");
       setReference("");
       setPrefilledFor(null);
       onSaved();
@@ -352,20 +362,33 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
       {canDecide && canRecordPayment && isPending ? (
         <View style={{ marginBottom: 6 }}>
           <FieldRow>
-            <Field label="Discount (₹)">
-              <Input
-                keyboardType="numeric"
-                value={discount}
-                onChangeText={(v) => {
-                  setDiscount(v);
-                  setAmountAndSplit(String(Math.max(0, +(required - (+v || 0)).toFixed(2))));
-                }}
-              />
-            </Field>
+            {canDiscount ? (
+              <Field label="Discount (₹)">
+                <Input
+                  keyboardType="numeric"
+                  value={discount}
+                  onChangeText={(v) => {
+                    setDiscount(v);
+                    setAmountAndSplit(String(Math.max(0, +(required - (+v || 0)).toFixed(2))));
+                  }}
+                />
+              </Field>
+            ) : null}
             <Field label="Amount (₹)">
               <Input keyboardType="numeric" value={amount} onChangeText={setAmountAndSplit} />
             </Field>
           </FieldRow>
+          {canDiscount && +discount > 0 ? (
+            <FieldRow>
+              <Field label="Discount reason *">
+                <Input value={discountReason} onChangeText={setDiscountReason} placeholder="e.g. loyal customer, hardship" maxLength={200} />
+              </Field>
+              <Field label="Discount mode">
+                <ThemeDropdown value={discountMode} options={["Cash", "UPI", "Bank Transfer", "Cheque"]} labelOf={(m) => m} onChange={setDiscountMode} />
+              </Field>
+            </FieldRow>
+          ) : null}
+          <DateField label="Release / payment date" value={releaseDate} onChange={setReleaseDate} max={todayISO()} />
           {amt > 0 ? <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it was received in)" /> : null}
           {split.cashAmount !== amt ? <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} /> : null}
           {needsDueDate ? <DateField label="Due date for remaining balance" value={dueDate} onChange={setDueDate} min={todayISO()} /> : null}
@@ -373,7 +396,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
             label={savePayment.isPending ? "Recording…" : request.paymentRecorded ? "Record Additional Payment" : "Record Payment"}
             primary
             onPress={() => savePayment.mutate()}
-            disabled={savePayment.isPending || amt + (+discount || 0) <= 0 || !splitOk || (needsDueDate && !dueDate)}
+            disabled={savePayment.isPending || amt + (canDiscount ? +discount || 0 : 0) <= 0 || !splitOk || (needsDueDate && !dueDate) || (canDiscount && +discount > 0 && !discountReason.trim())}
             style={{ marginBottom: 14 }}
           />
         </View>

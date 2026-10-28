@@ -118,6 +118,8 @@ export type BackendPersonalLoanPayment = {
   debit: number;
   credit: number;
   balance: number;
+  // a payment made in several modes comes as one row per mode; index 0 is the first
+  part?: { mode: string; amount: number; index: number; count: number };
 };
 /* One decision in the personal_loan approval chain — stage is the stage KEY
  * ("BranchManager"/"Management"); the final enabled stage disburses. The

@@ -325,7 +325,7 @@ func SavePersonalLoan(ctx context.Context, in CreateInput) (*models.PersonalLoan
 		if err := activateTx(ctx, tx, rec, now); err != nil {
 			return err
 		}
-		return recordDisbursement(cashbook.WithTx(ctx, tx), rec, now)
+		return recordDisbursement(ctx, tx, rec, now)
 	})
 	if err != nil {
 		return nil, err
@@ -349,11 +349,13 @@ func activateTx(ctx context.Context, tx *gorm.DB, rec *models.PersonalLoan, now 
 
 // recordDisbursement books the loan's disbursement in the cash book. It runs inside the transaction that
 // saves the loan (the context carries it), so a failed cash line means the loan is not created either.
-func recordDisbursement(ctx context.Context, rec *models.PersonalLoan, now time.Time) error {
-	if _, _, err := cashbook.RecordLoanDisbursementCashOut(ctx, rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.DisbursementCashAmount, rec.DisbursementUpiAmount, rec.DisbursementBankTransferAmount, rec.DisbursementChequeAmount, rec.BranchID, now, rec.CustomerID, rec.DisbursementBankID); err != nil {
+func recordDisbursement(ctx context.Context, tx *gorm.DB, rec *models.PersonalLoan, now time.Time) error {
+	_, groupID, err := cashbook.RecordLoanDisbursementCashOut(cashbook.WithTx(ctx, tx), rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.DisbursementCashAmount, rec.DisbursementUpiAmount, rec.DisbursementBankTransferAmount, rec.DisbursementChequeAmount, rec.BranchID, now, rec.CustomerID, rec.DisbursementBankID)
+	if err != nil {
 		return fmt.Errorf("could not record the disbursement in Cash-in-Hand, loan not saved: %w", err)
 	}
-	return nil
+	rec.DisbursementCashGroupID = groupID
+	return tx.WithContext(ctx).Model(&models.PersonalLoan{}).Where("id = ?", rec.ID).Update("disbursement_cash_group_id", groupID).Error
 }
 
 func approveLoan(ctx context.Context, id uint, branchID *uint, in ApprovalInput) (*models.PersonalLoan, error) {
@@ -405,7 +407,7 @@ func approveLoan(ctx context.Context, id uint, branchID *uint, in ApprovalInput)
 			if err := activateTx(ctx, tx, rec, now); err != nil {
 				return err
 			}
-			return recordDisbursement(cashbook.WithTx(ctx, tx), rec, now)
+			return recordDisbursement(ctx, tx, rec, now)
 		}
 		return nil
 	})
@@ -670,8 +672,12 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 		if err := allocatePaymentToInstallments(ctx, tx, rec.ID, amount); err != nil {
 			return err
 		}
-		if _, _, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), rec.ID, rec.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, rec.BranchID, paidOn, "Personal Loan Payment", rec.CustomerID, in.BankID); err != nil {
+		_, groupID, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), rec.ID, rec.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, rec.BranchID, paidOn, "Personal Loan Payment", rec.CustomerID, in.BankID)
+		if err != nil {
 			return fmt.Errorf("could not record the payment in Cash-in-Hand, payment not saved: %w", err)
+		}
+		if err := tx.WithContext(ctx).Model(&models.PersonalLoanPayment{}).Where("id = ?", payment.ID).Update("cash_transaction_group_id", groupID).Error; err != nil {
+			return err
 		}
 		result = rec
 		return nil

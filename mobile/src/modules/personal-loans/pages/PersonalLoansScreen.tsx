@@ -54,6 +54,7 @@ import { approvePersonalLoan, createPersonalLoan, getPersonalLoan, getPersonalLo
 import { type Frequency, type InterestType, type PersonalLoan, type PersonalLoanInstallment, type PersonalLoanPayment, type PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
+import { PersonalLedgerEditSheet } from "@/modules/personal-loans/components/PersonalLedgerEditSheet";
 import { loadErrorText, userMessage } from "@/common/services/apiErrors";
 
 // Personal Loans — prototype #header-personalloans + #page-personalloans and
@@ -359,6 +360,11 @@ function PersonalLoanDetailSheet({
   const [tab, setTab] = useState<DetailTab>("schedule");
   const [bondBusy, setBondBusy] = useState<PersonalLoanBondLang | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { can } = useAuth();
+  // Editing / deleting a ledger entry recalculates the loan, so each has its own grant (shared with the gold-loan ledger).
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
+  const [editing, setEditing] = useState<{ entry: PersonalLoanPayment; bankId: number | null; mode: "edit" | "delete" } | null>(null);
 
   useEffect(() => {
     setTab("schedule");
@@ -539,8 +545,43 @@ function PersonalLoanDetailSheet({
         gutter={16}
         header={header}
         emptyText="No payments yet."
-        keyOf={(p) => String(p.id)}
-        renderItem={(p, i) => <RepayItem first={i === 0} label={`${dmy(p.paidOn)} · ${p.method}${p.reference ? ` · ${p.reference}` : ""}`} value={`+${inr(p.amount)}`} />}
+        keyOf={(p) => p.key ?? String(p.id)}
+        renderItem={(p) => {
+          // Ledger rows: one per disbursement / charge / payment mode-share. Only the first row of a payment (and the
+          // disbursement) can be corrected; a split payment's amount is the sum of its rows.
+          const kind = p.kind ?? "payment";
+          const isPayment = kind === "payment" && p.id > 0 && (!p.part || p.part.index === 0);
+          const isDisbursement = kind === "disbursement";
+          const showEdit = canEditLedger && (isPayment || isDisbursement);
+          const showDelete = canDeleteLedger && isPayment; // the disbursement is the loan's start and cannot be deleted
+          const sameId = (x: PersonalLoanPayment) => x.kind === p.kind && x.id === p.id;
+          const bankId = p.bankId ?? payments.items.find((x) => sameId(x) && x.bankId)?.bankId ?? null;
+          const entry = isPayment ? { ...p, amount: payments.items.filter((x) => x.kind === "payment" && x.id === p.id).reduce((s, x) => s + x.amount, 0) || p.amount } : p;
+          const isDebit = (p.debit ?? 0) > 0;
+          const shown = isDebit ? (p.debit ?? 0) : p.credit ?? p.amount;
+          return (
+            <AccRow
+              id={dmy(p.date ?? p.paidOn)}
+              name={p.particulars || `Payment${p.reference ? ` · ${p.reference}` : ""}`}
+              sub={[p.mode ?? p.method, p.bankName, p.refNo || p.reference].filter(Boolean).join(" · ") || undefined}
+              amount={`${isDebit ? "−" : "+"}${inr(shown)}`}
+              amountColor={isDebit ? C.red : C.green}
+              details={[
+                { k: "Debit", v: isDebit ? inr(p.debit) : "—", color: isDebit ? C.red : C.muted },
+                { k: "Credit", v: !isDebit ? inr(shown) : "—", color: !isDebit ? C.green : C.muted },
+                { k: "Balance", v: inr(p.balance ?? p.runningBalance), color: C.brandDeep },
+              ]}
+              actions={
+                showEdit || showDelete
+                  ? [
+                      ...(showEdit ? [{ label: "Edit", onPress: () => setEditing({ entry, bankId, mode: "edit" as const }) }] : []),
+                      ...(showDelete ? [{ label: "Delete", danger: true, onPress: () => setEditing({ entry, bankId, mode: "delete" as const }) }] : []),
+                    ]
+                  : undefined
+              }
+            />
+          );
+        }}
       />
     );
   else
@@ -570,6 +611,7 @@ function PersonalLoanDetailSheet({
 
   const active = l?.status === "Active";
   return (
+    <>
     <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={90} scroll={false}>
       <View style={{ flexShrink: 1 }}>{body}</View>
       {l && canUpdate && active ? (
@@ -579,6 +621,15 @@ function PersonalLoanDetailSheet({
         </BtnRow2>
       ) : null}
     </Sheet>
+    <PersonalLedgerEditSheet
+      loanId={id}
+      entry={editing?.entry ?? null}
+      bankId={editing?.bankId}
+      minDate={(l?.disbursedAt || l?.openedDate || "").slice(0, 10) || undefined}
+      mode={editing?.mode ?? "edit"}
+      onClose={() => setEditing(null)}
+    />
+    </>
   );
 }
 

@@ -1207,7 +1207,8 @@ button.fi-trigger {
  * modal only, so every other DatePicker app-wide keeps its normal fixed
  * width. */
 .repledge-modal-bd .dp.dp-date,
-.register-customer-bd .dp.dp-date {
+.register-customer-bd .dp.dp-date,
+.ledger-edit-bd .dp.dp-date {
   width: 100%;
   flex: 1 1 auto
 }
@@ -5114,6 +5115,19 @@ table.tbl {
 .modal.wide:has(.disburse-modal-bd) {
   max-width: 590px
 }
+/* The before / after preview table must fit the narrow modal (a table keeps its own min-width otherwise and the
+ * After column scrolls out of sight). */
+.ledger-edit-bd .tbl {
+  min-width: 0;
+  width: 100%
+}
+
+/* The ledger edit / delete modals: narrower than the shared wide size, still wide enough for the date picker and the
+ * Mode / Amount / Bank breakdown row. */
+.modal.wide:has(.ledger-edit-bd) {
+  max-width: 560px
+}
+
 
 /* PaymentModal's confirmation popup — a second, default-width modal stacked
  * over the open Record Payment modal (z-index 80) instead of replacing it. */

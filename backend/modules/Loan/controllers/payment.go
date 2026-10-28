@@ -58,6 +58,112 @@ type PaymentInput struct {
 	Description          string
 	BankID               *uint
 	InterestOverride     *float64
+	// CheckDateWindow is set by the staff-entered paths: the date must fall between the loan's start and today.
+	CheckDateWindow bool
+	// Discount is a negotiated write-off taken off the loan on the same date as the payment. It is saved as its own
+	// Discount row (no cash moves) in the same transaction as the payment, so both land or neither does.
+	Discount       float64
+	DiscountReason string
+	DiscountMode   string // Cash / UPI / Bank Transfer / Cheque — which ledger mode the discount is shown under
+	// DiscountKind is what the discount is given against (see models.LoanPayment.DiscountKind); empty means customer.
+	DiscountKind string
+}
+
+var discountModes = map[string]bool{"Cash": true, "UPI": true, "Bank Transfer": true, "Cheque": true}
+
+// What a discount is given against. A penal-interest or interest discount can only take off that much of what is
+// owed; a customer discount is the negotiated reduction that falls through penal interest, interest, then principal.
+const (
+	DiscountKindCustomer      = "customer"
+	DiscountKindInterest      = "interest"
+	DiscountKindPenalInterest = "penal_interest"
+)
+
+// discountKindFor is the kind to save on a payment row: only a Discount row carries one.
+func discountKindFor(in PaymentInput) string {
+	if in.Type == models.PaymentTypeDiscount {
+		return in.DiscountKind
+	}
+	return ""
+}
+
+func validDiscountKind(kind string) bool {
+	return kind == "" || kind == DiscountKindCustomer || kind == DiscountKindInterest || kind == DiscountKindPenalInterest
+}
+
+// allocateDiscountKind splits a discount over what the loan owes, by what it was given against.
+func allocateDiscountKind(l *models.Loan, amount float64, kind string) (penal, interest, principal float64, err error) {
+	switch kind {
+	case DiscountKindPenalInterest:
+		owed := clampMoney(l.AccruedPenalInterest - l.PenalInterestPaid)
+		if amount > owed+0.01 {
+			return 0, 0, 0, common.NewBadRequest(fmt.Sprintf("the penal interest discount cannot exceed the ₹%.2f of penal interest owed", owed))
+		}
+		return common.RoundMoney(amount), 0, 0, nil
+	case DiscountKindInterest:
+		owed := clampMoney(l.AccruedInterest - l.InterestPaid)
+		if amount > owed+0.01 {
+			return 0, 0, 0, common.NewBadRequest(fmt.Sprintf("the interest discount cannot exceed the ₹%.2f of interest owed", owed))
+		}
+		return 0, common.RoundMoney(amount), 0, nil
+	default:
+		_, penal, interest, principal, err = allocatePayment(l, models.PaymentTypeDiscount, amount, nil)
+		return penal, interest, principal, err
+	}
+}
+
+// applyDiscountTx takes in.Discount off the loan (penal, then interest, then principal) and writes its ledger row.
+// The row moves no cash: the company gives up the amount instead of receiving it.
+func applyDiscountTx(ctx context.Context, tx *gorm.DB, l *models.Loan, in PaymentInput) error {
+	penal, interest, principal, err := allocateDiscountKind(l, in.Discount, in.DiscountKind)
+	if err != nil {
+		return err
+	}
+	if common.RoundMoney(in.Discount-(penal+interest+principal)) > 0.01 {
+		return common.NewBadRequest("the discount cannot exceed what is owed on the loan")
+	}
+	l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
+	l.InterestPaid = common.RoundMoney(l.InterestPaid + interest)
+	l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount - principal)
+	if l.OutstandingAmount < 0 {
+		l.OutstandingAmount = 0
+	}
+	outstandingInterest := l.AccruedInterest - l.InterestPaid
+	outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
+	row := &models.LoanPayment{
+		LoanID:               l.ID,
+		Amount:               in.Discount,
+		Type:                 models.PaymentTypeDiscount,
+		PaidOn:               in.PaidOn,
+		ReceivedByEmployeeID: in.ReceivedByEmployeeID,
+		Description:          "Discount: " + in.DiscountReason,
+		DiscountKind:         in.DiscountKind,
+		Method:               in.DiscountMode,
+		BankID:               in.BankID,
+		PenalInterestApplied: penal,
+		InterestApplied:      interest,
+		PrincipalApplied:     principal,
+		RunningBalance:       l.OutstandingAmount + math.Max(0, outstandingInterest) + math.Max(0, outstandingPenal) + l.OutstandingProcessingFee,
+	}
+	return createPaymentTx(ctx, tx, row)
+}
+
+// validatePaymentDateWindow rejects a staff-chosen payment date before the loan started or in the future.
+// Dates are compared as calendar days so the time of day never decides the outcome.
+func validatePaymentDateWindow(l *models.Loan, paidOn time.Time) error {
+	const layout = "2006-01-02"
+	floor := l.OpenedDate
+	if l.DisbursementDate != nil {
+		floor = *l.DisbursementDate
+	}
+	day := paidOn.Format(layout)
+	if day > time.Now().Format(layout) {
+		return common.NewBadRequest("payment date cannot be in the future")
+	}
+	if day < floor.Format(layout) {
+		return common.NewBadRequest("payment date cannot be before the loan was opened on " + floor.Format(layout))
+	}
+	return nil
 }
 
 type paymentRequest struct {
@@ -73,6 +179,10 @@ type paymentRequest struct {
 	Reference          string   `json:"reference"`
 	Description        string   `json:"description"`
 	InterestOverride   *float64 `json:"interest_override"`
+	Discount           float64  `json:"discount"`
+	DiscountReason     string   `json:"discount_reason"`
+	DiscountMode       string   `json:"discount_mode"`
+	DiscountKind       string   `json:"discount_kind"`
 }
 
 type CustomerPaymentRow struct {
@@ -259,6 +369,11 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 	if in.ProcessingFee < 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
 	}
+	if in.CheckDateWindow {
+		if err := validatePaymentDateWindow(l, in.PaidOn); err != nil {
+			return nil, err
+		}
+	}
 	if isCashPaymentType(in.Type) && in.Method == "" {
 		if err := common.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.Amount); err != nil {
 			return nil, err
@@ -269,6 +384,20 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 	}
 	if in.InterestOverride != nil && *in.InterestOverride < 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
+	}
+	if in.Discount < 0 {
+		return nil, common.NewBadRequest("discount cannot be negative")
+	}
+	if !validDiscountKind(in.DiscountKind) {
+		return nil, common.NewBadRequest("discount type must be Custom discount, Interest or Penal interest")
+	}
+	if in.Discount > 0 {
+		if strings.TrimSpace(in.DiscountReason) == "" {
+			return nil, common.NewBadRequest("a reason is required for a discount")
+		}
+		if !discountModes[in.DiscountMode] {
+			return nil, common.NewBadRequest("discount mode must be Cash, UPI, Bank Transfer or Cheque")
+		}
 	}
 	var p *models.LoanPayment
 	// The interest up to the payment date, the payment's allocation, the loan, its payment row and the cash lines
@@ -287,10 +416,20 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 		if now := time.Now(); !in.PaidOn.After(now) && in.PaidOn.Format("2006-01-02") == now.Format("2006-01-02") {
 			in.PaidOn = now
 		}
+		if in.Discount > 0 {
+			if err := applyDiscountTx(ctx, tx, l, in); err != nil {
+				return err
+			}
+		}
 		if in.ProcessingFee > 0 {
 			l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee + in.ProcessingFee)
 		}
-		fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount, in.InterestOverride)
+		var fee, penal, interest, principal float64
+		if in.Type == models.PaymentTypeDiscount {
+			penal, interest, principal, err = allocateDiscountKind(l, in.Amount, in.DiscountKind)
+		} else {
+			fee, penal, interest, principal, err = allocatePayment(l, in.Type, in.Amount, in.InterestOverride)
+		}
 		if err != nil {
 			return err
 		}
@@ -322,7 +461,9 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 			LoanID:               loanID,
 			Amount:               in.Amount,
 			Type:                 in.Type,
+			DiscountKind:         discountKindFor(in),
 			ProcessingFee:        in.ProcessingFee,
+			InterestOverride:     in.InterestOverride,
 			ProcessingFeeApplied: fee,
 			PaidOn:               in.PaidOn,
 			ReceivedByEmployeeID: in.ReceivedByEmployeeID,
@@ -545,8 +686,15 @@ func RecordLoanPayment(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid paid_on: expected YYYY-MM-DD"})
 	}
-	actorEmployeeID, _, _ := auth.ActorFromContext(c)
+	actorEmployeeID, _, actorRoleID := auth.ActorFromContext(c)
+	if req.Discount > 0 && !checkStagePermission(ctx, actorRoleID, "can give discount") {
+		return common.FailErr(c, common.NewPermissionDenied("Access denied", "can give discount"))
+	}
 	rec, err := SaveLoanPayment(ctx, loanID, PaymentInput{
+		Discount:             req.Discount,
+		DiscountReason:       req.DiscountReason,
+		DiscountMode:         req.DiscountMode,
+		DiscountKind:         req.DiscountKind,
 		Amount:               req.Amount,
 		Type:                 req.Type,
 		ProcessingFee:        req.ProcessingFee,
@@ -560,6 +708,7 @@ func RecordLoanPayment(c echo.Context) error {
 		Reference:            req.Reference,
 		Description:          req.Description,
 		InterestOverride:     req.InterestOverride,
+		CheckDateWindow:      true,
 	})
 	if err != nil {
 		return common.FailErr(c, err)

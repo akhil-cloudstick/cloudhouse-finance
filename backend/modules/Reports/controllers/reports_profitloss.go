@@ -60,6 +60,21 @@ func profitAndLoss(ctx context.Context, f models.Filter) ([]models.ProfitLossRow
 	if err := eq.Scan(&oe).Error; err != nil {
 		return nil, models.ProfitLossTotals{}, err
 	}
+	// A Discount row's interest/penal is counted as income above (it clears the customer's dues), but no money
+	// came in for it — the company gave it up. Showing it as an expense keeps the profit honest.
+	var da sumValue
+	dq := config.DB.
+		WithContext(ctx).Table("loan_payments p").
+		Select("COALESCE(SUM(p.amount), 0) as value").
+		Joins("LEFT JOIN loans l ON l.id = p.loan_id").
+		Where("p.type = ?", "Discount").
+		Where("p.paid_on >= ? AND p.paid_on < ?", from, to)
+	if f.BranchID != nil {
+		dq = dq.Where("l.branch_id = ?", *f.BranchID)
+	}
+	if err := dq.Scan(&da).Error; err != nil {
+		return nil, models.ProfitLossTotals{}, err
+	}
 	header("I. Revenue from Operations", 0)
 	line("(a) Interest Income", it.Interest, 1)
 	line("(b) Fees and Commission Income", it.Fees, 1)
@@ -76,7 +91,8 @@ func profitAndLoss(ctx context.Context, f models.Filter) ([]models.ProfitLossRow
 	line("(d) Employee Benefits Expense", 0, 1)
 	line("(e) Depreciation, Amortisation and Impairment", 0, 1)
 	line("(f) Other Expenses", oe.Value, 1)
-	totalExpenses := oe.Value
+	line("(g) Discount Allowed to Customers", da.Value, 1)
+	totalExpenses := oe.Value + da.Value
 	total("Total Expenses (IV)", totalExpenses, 0)
 	pbt := totalIncome - totalExpenses
 	total("V. Profit Before Tax (III - IV)", pbt, 0)

@@ -22,7 +22,7 @@ export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.
 /* Thin fetch wrapper for the Go backend (Gin, `/api/v1/...`). In production
  * the backend serves the built frontend from the same origin, so requests
  * can go to a relative `/api/v1` path. In dev (`next dev` on its own port)
- * point NEXT_PUBLIC_API_BASE at the backend, e.g. http://localhost:8080/api/v1.
+ * point NEXT_PUBLIC_API_BASE at the backend, e.g. http://localhost:8090/api/v1.
  */
 
 export const API_BASE = isDevelopment ? DEV_URL : PROD_URL;

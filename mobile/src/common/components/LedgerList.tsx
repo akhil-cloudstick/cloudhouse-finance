@@ -17,6 +17,7 @@ import { shareLedgerPdf } from "@/common/utils/ledgerExport";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { LedgerLink } from "./LedgerLink";
 import { EntrySub, useEntryActions } from "@/modules/cash/components/EntryActions";
+import { useLoanRowEdit } from "@/modules/loans/components/useLoanRowEdit";
 
 // Mobile counterpart of the web ledger drill-downs (PartyLedger.tsx,
 // ModeLedgerPage.tsx): every bank / customer / payment mode / expense
@@ -148,6 +149,8 @@ function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds, highlight }: Le
   // A cash-in / debit / self transfer a person keyed in: info icon + Edit.
   // Every row gets the info icon; rows with no cash movement behind them open a popup built from the row itself.
   const entry = useEntryActions(r.entryId, r.editable, r);
+  // A gold-loan repayment (or its discount) can be corrected or deleted right here: the loan is recalculated.
+  const loanEdit = useLoanRowEdit(r);
   const loanRef = loanRefOf(r.reference) || loanRefOf(r.description);
   const invRef = prefixedRefOf("INV", r.reference) || prefixedRefOf("INV", r.description);
   const plRef = prefixedRefOf("PL", r.reference) || prefixedRefOf("PL", r.description);
@@ -191,10 +194,11 @@ function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds, highlight }: Le
         status={memo ? "Memo" : isDebit ? "Debit" : "Credit"}
         statusTone={memo ? "closed" : isDebit ? "overdue" : "active"}
         details={details}
-        actions={entry.actions}
+        actions={[...entry.actions, ...loanEdit.actions]}
         style={highlight ? { borderColor: C.brandDeep, borderWidth: 2, backgroundColor: "#f3f3ff" } : undefined}
       />
       {entry.sheets}
+      {loanEdit.sheet}
     </>
   );
 }

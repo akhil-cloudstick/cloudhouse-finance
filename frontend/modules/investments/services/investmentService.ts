@@ -197,3 +197,44 @@ export async function payInterestMonths(
   });
   return res.items || [];
 }
+
+/* --- Ledger entry edit / delete ---
+ * The investment is recalculated server-side in one transaction. dryRun asks for the before/after figures
+ * without saving anything. entryId is the ledger row id ("tx-5", "payout-3", "open-7"). */
+export type InvestmentLedgerSummary = {
+  invested: number;
+  outstandingPrincipal: number;
+  outstandingInterest: number;
+  totalInterestPaid: number;
+  paidPayouts: number;
+  status: string;
+  startDate: string;
+  maturityDate: string;
+};
+export type InvestmentLedgerEditPreview = { before: InvestmentLedgerSummary; after: InvestmentLedgerSummary; dryRun: boolean };
+export type EditInvestmentLedgerInput = {
+  occurredOn?: string;
+  amount?: number; // opening / add-cash deposit
+  principalAmount?: number; // withdrawal
+  interestAmount?: number; // withdrawal
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
+  reference?: string;
+  reason?: string;
+};
+
+export function editInvestmentLedgerEntry(investmentId: number, entryId: string, input: EditInvestmentLedgerInput, dryRun = false): Promise<InvestmentLedgerEditPreview> {
+  return apiFetch<InvestmentLedgerEditPreview>(`/investments/${investmentId}/ledger/${encodeURIComponent(entryId)}${dryRun ? "?dry_run=true" : ""}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteInvestmentLedgerEntry(investmentId: number, entryId: string, dryRun = false, reason?: string): Promise<InvestmentLedgerEditPreview> {
+  return apiFetch<InvestmentLedgerEditPreview>(`/investments/${investmentId}/ledger/${encodeURIComponent(entryId)}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, {
+    method: "DELETE",
+  });
+}

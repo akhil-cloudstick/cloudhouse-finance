@@ -82,6 +82,10 @@ type Expense struct {
 	// Editable is true for an expense the Expense Register may edit: a pending or approved one a person keyed in
 	// (not the ones the system books for an auction or a bank pledge release).
 	Editable bool `json:"editable" gorm:"-"`
+	// BankPledgeID / BankPledgeLoanID are set on a "Bank Pledge Release" entry: it is not edited as a plain expense but
+	// through the bank pledge it belongs to (PATCH /loans/:id/bank-pledge/:pledge_id), which rewrites it with its cash lines.
+	BankPledgeID     uint `json:"bank_pledge_id,omitempty" gorm:"-"`
+	BankPledgeLoanID uint `json:"bank_pledge_loan_id,omitempty" gorm:"-"`
 }
 
 func (e *Expense) AfterFind(_ *gorm.DB) error {

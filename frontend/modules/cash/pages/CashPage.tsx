@@ -27,6 +27,7 @@ import { useShowBranch, useShowBranchFilter } from "@/common/hooks/use-branch-sw
 import { singleFlight } from "@/common/utils/singleFlight";
 import { Kpi } from "@/modules/cash/components/Kpi";
 import { MovementRow } from "@/modules/cash/components/MovementRow";
+import { useBankPledgeEntryActions } from "@/modules/loans/components/useBankPledgeEntryActions";
 import { ExpenseRow } from "@/modules/cash/components/ExpenseRow";
 import { EditEntryModalContent } from "@/modules/cash/components/EditEntryModalContent";
 import { GoldSaleRow } from "@/modules/cash/components/GoldSaleRow";
@@ -252,6 +253,8 @@ export function CashPage() {
   useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0 && idsReady, [movements]);
   useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0 && idsReady, [expenses]);
 
+  const pledgeActions = useBankPledgeEntryActions(refresh);
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
   useEffect(() => { refresh(); }, [refresh]);
 
   async function onApproveExpense(e: ExpenseView) {
@@ -501,6 +504,7 @@ export function CashPage() {
                       onApprove={() => onApproveExpense(e)}
                       onReject={() => onRejectExpense(e)}
                       onEdit={() => openModal(<EditEntryModalContent entryId={e.id} viaExpense onSaved={refresh} />)}
+                      onEditPledge={canEditLedger && e.bankPledgeId && e.bankPledgeLoanId ? () => void pledgeActions.pledge(e.bankPledgeLoanId!, e.bankPledgeId!, "edit") : undefined}
                     />
                   ))
                   : <tr><td colSpan={showBranch ? 8 : 7} className="empty">No expenses recorded yet.</td></tr>}

@@ -173,6 +173,8 @@ export type BackendExpense = {
   receiptImage?: string;
   createdAt: string;
   editable?: boolean;
+  bankPledgeId?: number;
+  bankPledgeLoanId?: number;
 };
 export type ExpenseView = {
   id: number;
@@ -189,6 +191,9 @@ export type ExpenseView = {
   approvalStage?: string;
   remarks?: string;
   img?: string;
+  // A "Bank Pledge Release" entry: edited through its bank pledge (loan id + pledge id), not as a plain expense.
+  bankPledgeId?: number;
+  bankPledgeLoanId?: number;
   // A pending or approved expense a person keyed in — the register offers Edit on it.
   editable?: boolean;
 };
@@ -247,6 +252,15 @@ export type EntryInfo = {
   // A draw on a loan: the loan's number and its principal.
   loanNumber?: string;
   principalAmount?: number;
+  // The gold loan entry behind a system line (its payout or a top-up), so it can be edited from here.
+  loanEntry?: "disbursement" | "top_up" | "payment" | "bank_pledge" | "bank_pledge_release" | "personal_payment" | "personal_disbursement" | "investment_entry" | "service_charge" | "disbursement_reversal" | "auction_sale" | "auction_expense" | "auction_surplus";
+  loanId?: number;
+  loanTopUpId?: number;
+  loanPaymentId?: number;
+  // bank_pledge / bank_pledge_release: loanId is the gold loan, this the pledge record.
+  bankPledgeId?: number;
+  // investment_entry: loanId is the investment, this its ledger entry id (tx-N, payout-N, open-N).
+  investmentEntryId?: string;
 };
 export type EntryUpdateInput = {
   // The type the entry should have after saving; when it differs from the entry's own, it is converted.
@@ -396,6 +410,12 @@ export type LedgerRowView = {
   // popup and Edit open it. Absent on every other row.
   entryId?: number;
   editable?: boolean;
+  // The gold-loan repayment behind a row — the ledger offers its edit and delete.
+  loanId?: number;
+  paymentId?: number;
+  // The personal-loan payment (with paymentId) behind a row, and an Interest / Penal Interest Charged row (loanId).
+  personalLoanId?: number;
+  loanAccrual?: boolean;
 };
 export type BackendLedgerRow = {
   id: number;
@@ -415,5 +435,10 @@ export type BackendLedgerRow = {
   memo?: boolean;
   entryId?: number;
   editable?: boolean;
+  loanId?: number;
+  paymentId?: number;
+  // The personal-loan payment (with paymentId) behind a row, and an Interest / Penal Interest Charged row (loanId).
+  personalLoanId?: number;
+  loanAccrual?: boolean;
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];

@@ -142,7 +142,7 @@ export function createExtensionRequest(
 
 // ornamentIds: the ornaments to hand back. Empty, or every still-pledged
 // ornament, is a full release; a strict subset is a partial release.
-export function createReleaseRequest(loanId: number, input: { detail?: string; requestedBy?: string; ornamentIds?: number[] }) {
+export function createReleaseRequest(loanId: number, input: { detail?: string; requestedBy?: string; ornamentIds?: number[]; requestedAt?: string }) {
   return apiRequest<LoanRequest>(`/loans/${loanId}/release-request`, { method: "POST", body: input });
 }
 
@@ -208,6 +208,12 @@ export function recordReleasePayment(
     dueDate?: string;
     // The branch bank account a UPI / Bank Transfer share was received in.
     bankId?: number;
+    // The day of the release payment (YYYY-MM-DD); omitted = today.
+    paidOn?: string;
+    // Required by the API when discount > 0.
+    discountReason?: string;
+    discountKind?: "customer" | "interest" | "penal_interest";
+    discountMode?: string; // Cash | UPI | Bank Transfer | Cheque
   }
 ) {
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/release-payment`, { method: "POST", body: input });

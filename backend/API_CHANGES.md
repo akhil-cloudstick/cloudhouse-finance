@@ -833,6 +833,8 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/loans/:id/ledger` | `GET /api/v1/users/:user_id/loans/:id/ledger` |
 | `POST /api/v1/loans/:id/ornaments` | `POST /api/v1/users/:user_id/loans/:id/ornaments` |
 | `POST /api/v1/loans/:id/payments` | `POST /api/v1/users/:user_id/loans/:id/payments` |
+| `PATCH /api/v1/loans/:id/payments/:payment_id` | `PATCH /api/v1/users/:user_id/loans/:id/payments/:payment_id` |
+| `DELETE /api/v1/loans/:id/payments/:payment_id` | `DELETE /api/v1/users/:user_id/loans/:id/payments/:payment_id` |
 | `GET /api/v1/loans/:id/pledge-slip` | `GET /api/v1/users/:user_id/loans/:id/pledge-slip` |
 | `GET /api/v1/loans/:id/release-agreement/pdf` | `GET /api/v1/users/:user_id/loans/:id/release-agreement/pdf` |
 | `POST /api/v1/loans/:id/release-request` | `POST /api/v1/users/:user_id/loans/:id/release-request` |

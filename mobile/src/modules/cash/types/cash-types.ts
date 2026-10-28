@@ -143,6 +143,9 @@ export type LedgerRow = {
   // sheet and Edit open it. Absent on every other row.
   entryId?: number;
   editable?: boolean;
+  // The gold-loan repayment behind a row — the ledger offers its edit and delete.
+  loanId?: number;
+  paymentId?: number;
 };
 // One line of a payment breakdown: how much was paid in which mode (and
 // through which bank for UPI / Bank Transfer). Each line of a Credit or Debit

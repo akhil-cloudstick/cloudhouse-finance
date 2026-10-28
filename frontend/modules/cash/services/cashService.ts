@@ -186,6 +186,8 @@ function expenseToView(e: BackendExpense): ExpenseView {
     remarks: e.remarks,
     img: e.receiptImage,
     editable: e.editable,
+    bankPledgeId: e.bankPledgeId,
+    bankPledgeLoanId: e.bankPledgeLoanId,
   };
 }
 
@@ -349,6 +351,10 @@ export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
     memo: r.memo,
     entryId: r.entryId,
     editable: r.editable,
+    loanId: r.loanId,
+    paymentId: r.paymentId,
+    personalLoanId: r.personalLoanId,
+    loanAccrual: r.loanAccrual,
   };
 }
 
@@ -495,4 +501,10 @@ export async function exportPartyStatementByBranch(branchId: number, range?: Par
   const params = partyRangeParams(range);
   const qs = params.toString() ? `?${params.toString()}` : "";
   await downloadFile(`/cash-movements/transactions/branch/${branchId}/export${qs}`, "branch-ledger.pdf");
+}
+
+/* Deletes a cash-in, debit, self transfer or gold sale keyed into the ledger — every payment part goes with it.
+ * Needs the "can delete ledger entry" permission. */
+export async function deleteMovementEntry(id: number): Promise<void> {
+  await apiFetch<unknown>(`/cash-movements/${id}/entry`, { method: "DELETE" });
 }

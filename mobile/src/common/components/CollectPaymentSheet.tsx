@@ -4,9 +4,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { C, DateField, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropdown, Txt } from "@/common/components/ui";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { recordPayment } from "@/modules/loans/services/paymentService";
+import { useAuth } from "@/common/providers/AuthProvider";
 import { inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { PAYMENT_TYPES, PAYMENT_TYPE_LABELS, apiErr, invalidateLoan, type PaymentType } from "./loanSheetKit";
+
+type DiscountKind = "customer" | "interest" | "penal_interest";
+const DISCOUNT_KINDS: DiscountKind[] = ["customer", "interest", "penal_interest"];
+const DISCOUNT_KIND_LABELS: Record<DiscountKind, string> = { customer: "Custom discount", interest: "Interest", penal_interest: "Penal interest" };
 import { ErrorText } from "./ErrorText";
 
 // Interest / amount prefills are accrued figures with long decimals — show
@@ -35,6 +40,14 @@ type CollectPaymentSheetProps = { loan: Loan; visible: boolean; onClose: () => v
 /** Prototype #act-collect — record an EMI / part payment with a mode split. */
 export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymentSheetProps) {
   const qc = useQueryClient();
+  const canDiscount = useAuth().can("Loan_Management", "can_give_discount");
+  // A negotiated reduction with no cash movement, saved as its own Discount ledger entry. Amount stays what the
+  // customer actually pays; Amount + Discount clears the loan.
+  const [discount, setDiscount] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
+  const discountMode = "Cash"; // a discount moves no money; the ledger shows it under Cash
+  // what the discount is given against: a customer discount, or interest / penal interest only
+  const [discountKind, setDiscountKind] = useState<DiscountKind>("customer");
   const [type, setType] = useState<PaymentType>("Interest");
   const [amount, setAmount] = useState("");
   // Additional Charges are collected ON TOP of Amount (the charge settles the
@@ -60,6 +73,10 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
     setOpenKey((k) => k + 1);
     setDate(todayISO());
     setCharge("");
+    setDiscount("");
+    amountTouched.current = false;
+    setDiscountReason("");
+    setDiscountKind("customer");
     setError(null);
     interestTouched.current = false;
     setInterest(money(l.outstandingInterest ?? 0));
@@ -79,6 +96,15 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
   // Full Settlement is exactly what is owed — no more, no less.
   const settleOwed = (l.settlementAmount ?? l.totalOutstandingBalance ?? 0);
   const overSettle = type === "Full Settlement" && settleOwed > 0 && typedAmt > settleOwed + 0.01;
+  const discountAmt = canDiscount && Number(discount) > 0 ? Number(discount) : 0;
+  const discountMissingReason = discountAmt > 0 && !discountReason.trim();
+  // The Amount field is prefilled with what the type clears minus the discount, until staff type their own.
+  const amountTouched = useRef(false);
+  const refillAmount = (t: PaymentType, d: number) => {
+    const base = Number(autoAmount(l, t));
+    if (!(base > 0)) return;
+    setAmount(money(Math.max(0, Math.round((base - d) * 100) / 100)));
+  };
   const pay = useMutation({
     mutationFn: () =>
       recordPayment(l.id, {
@@ -86,9 +112,12 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
         type,
         processingFee: chargeAmt || undefined,
         paidOn: date,
+        ...(discountAmt > 0 ? { discount: discountAmt, discountReason: discountReason.trim(), discountMode, discountKind } : {}),
         ...(breakdown?.split ?? {}),
         bankId: breakdown?.bankId,
-        interestOverride: interest.trim() ? Number(interest) : undefined,
+        // The interest prefilled at open is the pre-discount figure; with a discount the server works interest out
+        // after it, so the prefill is only sent when hand-edited.
+        interestOverride: interest.trim() && !(discountAmt > 0 && !interestTouched.current) ? Number(interest) : undefined,
       }),
     onSuccess: () => {
       invalidateLoan(qc, l.id);
@@ -109,16 +138,68 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
           labelOf={(t) => PAYMENT_TYPE_LABELS[t]}
           onChange={(t) => {
             setType(t);
+            amountTouched.current = false;
             setAmount(autoAmount(l, t));
+            if (discountAmt > 0) refillAmount(t, discountAmt);
           }}
         />
       </Field>
       <FieldRow>
         <Field label="Amount">
-          <Input keyboardType="decimal-pad" value={amount} onChangeText={setAmount} placeholder="0" />
+          <Input
+            keyboardType="decimal-pad"
+            value={amount}
+            onChangeText={(v) => {
+              amountTouched.current = true;
+              setAmount(v);
+            }}
+            placeholder="0"
+          />
         </Field>
-        <DateField label="Payment date" value={date} onChange={setDate} max={todayISO()} />
+        <DateField label="Payment date" value={date} onChange={setDate} min={l.disbursementDate?.slice(0, 10) || undefined} max={todayISO()} />
       </FieldRow>
+      {canDiscount ? (
+        <>
+          <FieldRow>
+            <Field label="Discount type">
+              <ThemeDropdown
+                value={discountKind}
+                options={DISCOUNT_KINDS}
+                labelOf={(k) => DISCOUNT_KIND_LABELS[k]}
+                onChange={(k) => {
+                  // choosing what the discount is for fills it with what is still owed of that part
+                  setDiscountKind(k);
+                  const owed = k === "interest" ? (l.outstandingInterest ?? 0) : k === "penal_interest" ? (l.outstandingPenalInterest ?? 0) : 0;
+                  const next = owed > 0 ? String(Math.round(owed * 100) / 100) : "";
+                  setDiscount(next);
+                  if (!amountTouched.current) refillAmount(type, Number(next) > 0 ? Number(next) : 0);
+                }}
+              />
+            </Field>
+            <Field label="Discount (₹)">
+              <Input
+                keyboardType="decimal-pad"
+                value={discount}
+                onChangeText={(v) => {
+                  setDiscount(v);
+                  if (!amountTouched.current) refillAmount(type, Number(v) > 0 ? Number(v) : 0);
+                }}
+                placeholder="optional"
+              />
+            </Field>
+          </FieldRow>
+          {discountAmt > 0 ? (
+            <>
+              <Field label="Discount reason *">
+                <Input value={discountReason} onChangeText={setDiscountReason} placeholder="e.g. loyal customer, hardship, rounding off" maxLength={200} />
+              </Field>
+              <Txt style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>
+                Pays {inr(typedAmt)} + Discount {inr(discountAmt)} = {inr(typedAmt + discountAmt)} cleared on the loan.
+              </Txt>
+            </>
+          ) : null}
+        </>
+      ) : null}
       <FieldRow>
         <Field label="Additional Charges (₹)">
           <Input keyboardType="decimal-pad" value={charge} onChangeText={setCharge} placeholder="e.g. late fee" />
@@ -149,7 +230,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
           pay.mutate();
         }}
         loading={pay.isPending}
-        disabled={!(amt > 0) || overSettle || !date || !breakdown?.ready}
+        disabled={!(amt > 0) || overSettle || !date || !breakdown?.ready || discountMissingReason}
       />
     </Sheet>
   );

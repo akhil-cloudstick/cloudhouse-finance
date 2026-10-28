@@ -574,7 +574,7 @@ func loadCycleAccruals(ctx context.Context, l *models.Loan) []models.LoanAccrual
 		start = *l.ArrearsSince
 	}
 	var rows []models.LoanAccrual
-	if err := config.DB.WithContext(ctx).Where("loan_id = ? AND accrued_on > ?", l.ID, start).Order("accrued_on, id").Find(&rows).Error; err != nil {
+	if err := replayDB(ctx).Where("loan_id = ? AND accrued_on > ?", l.ID, start).Order("accrued_on, id").Find(&rows).Error; err != nil {
 		return nil
 	}
 	return rows
@@ -597,13 +597,30 @@ func saveRestated(ctx context.Context, tx *gorm.DB, restated []accrualPart) erro
 // is undone with the payment if the payment fails. It takes two passes because a
 // loan's first charge is made on its own before the periods that follow it.
 func accrueThroughInTx(ctx context.Context, tx *gorm.DB, l *models.Loan, paidOn time.Time) error {
+	return accrueThroughInTxAt(ctx, tx, l, paidOn, time.Time{})
+}
+
+// accrueThroughInTxAt is accrueThroughInTx with the saved rows stamped createdAt (zero means now). A recalculation
+// stamps them with the payment's own time, which is how the ledger pairs interest rows with the payment behind them.
+func accrueThroughInTxAt(ctx context.Context, tx *gorm.DB, l *models.Loan, paidOn, createdAt time.Time) error {
+	return accrueInTxAt(ctx, tx, l, paidOn, createdAt, true)
+}
+
+// accrueInTxAt is accrueThroughInTxAt with a choice of how far the interest goes: through true charges the part period up
+// to the date as well, false only the periods completed by it (what a top-up charges before it raises the principal).
+func accrueInTxAt(ctx context.Context, tx *gorm.DB, l *models.Loan, paidOn, createdAt time.Time, through bool) error {
 	if now := time.Now(); paidOn.After(now) {
 		paidOn = now
 	}
 	asOf := sameClockAsOpened(l, paidOn)
 	for pass := 0; pass < 2; pass++ {
-		rows, restated, _ := accrueStep(ctx, l, asOf, true)
+		rows, restated, _ := accrueStep(ctx, l, asOf, through)
 		if len(rows) > 0 {
+			if !createdAt.IsZero() {
+				for i := range rows {
+					rows[i].CreatedAt = createdAt
+				}
+			}
 			if err := tx.WithContext(ctx).Create(&rows).Error; err != nil {
 				return err
 			}
