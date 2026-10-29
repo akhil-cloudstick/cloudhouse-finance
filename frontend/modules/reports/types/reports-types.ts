@@ -12,6 +12,7 @@ export type ReportFilters = {
   branchId?: number;
   page?: number;
   pageSize?: number;
+  search?: string; // matched server-side against every field of a row
   // Per-report extra filters.
   status?: string; // /reports/loans/status
   triggerType?: string; // /reports/communication-history

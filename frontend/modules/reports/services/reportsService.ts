@@ -9,6 +9,7 @@ function buildQuery(filters: ReportFilters): string {
   if (filters.branchId) qs.set("branch_id", String(filters.branchId));
   if (filters.page) qs.set("page", String(filters.page));
   if (filters.pageSize) qs.set("page_size", String(filters.pageSize));
+  if (filters.search) qs.set("search", filters.search);
   if (filters.status) qs.set("status", filters.status);
   if (filters.triggerType) qs.set("trigger_type", filters.triggerType);
   return qs.toString();

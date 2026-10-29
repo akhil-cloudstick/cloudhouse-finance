@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -94,11 +95,10 @@ type EditPaymentResult struct {
 	Before LoanSummary `json:"before"`
 	After  LoanSummary `json:"after"`
 	DryRun bool        `json:"dry_run"`
-	// Packet is the move back the staff member may choose when the edit reopens a closed loan; PacketReversed says it
-	// was done, PacketError why it could not be (the edit itself is already saved).
-	Packet         *packet.ReversalPreview `json:"packet,omitempty"`
-	PacketReversed bool                    `json:"packet_reversed,omitempty"`
-	PacketError    string                  `json:"packet_error,omitempty"`
+	// Dependents are what a gold release did that this edit may need to undo (the packet, a partial release). The
+	// chosen ones are undone in the same transaction as the edit.
+	Dependents []EditDependent         `json:"dependents,omitempty"`
+	Packet     *packet.ReversalPreview `json:"packet,omitempty"`
 }
 
 // EditPaymentInput holds the fields a ledger edit may change; nil means "leave as is".
@@ -118,6 +118,7 @@ type EditPaymentInput struct {
 	DiscountReason     *string
 	DiscountMode       *string
 	DiscountKind       *string
+	Discount           *float64 // the discount that came with this payment: a new amount, or 0 to remove it
 	Reason             string
 	DryRun             bool
 	ActorEmployeeID    uint
@@ -151,6 +152,7 @@ func loadReplayRows(ctx context.Context, tx *gorm.DB, loanID uint) ([]models.Loa
 			rows = append(rows, p)
 		}
 	}
+	placeLinkedDiscountsFirst(rows)
 	return all, rows, nil
 }
 
@@ -161,6 +163,97 @@ func sortReplayRows(rows []models.LoanPayment) {
 		}
 		return rows[i].ID < rows[j].ID
 	})
+	placeLinkedDiscountsFirst(rows)
+}
+
+// placeLinkedDiscountsFirst moves a discount that was given together with a payment (and saved after it by an edit)
+// to just before that payment, which is where Record Payment saves it: the discount is applied first and lowers what
+// the payment has to cover.
+func placeLinkedDiscountsFirst(rows []models.LoanPayment) {
+	for i := range rows {
+		d := rows[i]
+		if d.Type != models.PaymentTypeDiscount || d.LinkedPaymentID == nil {
+			continue
+		}
+		for j := 0; j < i; j++ {
+			if rows[j].ID == *d.LinkedPaymentID && rows[j].PaidOn.Equal(d.PaidOn) {
+				copy(rows[j+1:i+1], rows[j:i])
+				rows[j] = d
+				break
+			}
+		}
+	}
+}
+
+// linkedDiscountIndex is the discount that came with the payment at idx: the one that points at it, or for a payment
+// saved before the link existed the discount saved right before it, within the same couple of seconds. -1 when there is none.
+func linkedDiscountIndex(rows []models.LoanPayment, idx int) int {
+	id := rows[idx].ID
+	for i := range rows {
+		if rows[i].Type == models.PaymentTypeDiscount && rows[i].LinkedPaymentID != nil && *rows[i].LinkedPaymentID == id {
+			return i
+		}
+	}
+	if idx > 0 {
+		d := rows[idx-1]
+		gap := d.PaidOn.Sub(rows[idx].PaidOn)
+		if gap < 0 {
+			gap = -gap
+		}
+		if d.Type == models.PaymentTypeDiscount && d.LinkedPaymentID == nil && d.ID < rows[idx].ID && gap <= 2*time.Second {
+			return idx - 1
+		}
+	}
+	return -1
+}
+
+func normDiscountKind(k string) string {
+	if k == "" {
+		return DiscountKindCustomer
+	}
+	return k
+}
+
+// applyLinkedDiscountEdit changes, creates or removes the discount that came with the payment at idx, and returns the
+// rows to recalculate and the ids of rows to delete.
+func applyLinkedDiscountEdit(rows []models.LoanPayment, idx, didx int, in *EditPaymentInput) ([]models.LoanPayment, []uint, error) {
+	pay := rows[idx]
+	if in.DiscountKind != nil && !validDiscountKind(*in.DiscountKind) {
+		return nil, nil, common.NewBadRequest("discount type must be Custom discount, Interest or Penal interest")
+	}
+	if in.Discount != nil && *in.Discount < 0 {
+		return nil, nil, common.NewBadRequest("discount cannot be negative")
+	}
+	pid := pay.ID
+	if didx >= 0 {
+		d := &rows[didx]
+		d.PaidOn = pay.PaidOn // follows the payment's date
+		d.LinkedPaymentID = &pid
+		if in.DiscountKind != nil {
+			d.DiscountKind = *in.DiscountKind
+		}
+		if in.Discount != nil {
+			if *in.Discount <= 0.004 {
+				id := d.ID
+				return append(append([]models.LoanPayment{}, rows[:didx]...), rows[didx+1:]...), []uint{id}, nil
+			}
+			d.Amount = common.RoundMoney(*in.Discount)
+		}
+		return rows, nil, nil
+	}
+	if in.Discount != nil && *in.Discount > 0.004 {
+		kind := DiscountKindCustomer
+		if in.DiscountKind != nil && *in.DiscountKind != "" {
+			kind = *in.DiscountKind
+		}
+		d := models.LoanPayment{
+			LoanID: pay.LoanID, Type: models.PaymentTypeDiscount, Amount: common.RoundMoney(*in.Discount), PaidOn: pay.PaidOn,
+			Method: "Cash", Description: "Discount: Discount", DiscountKind: kind,
+			ReceivedByEmployeeID: pay.ReceivedByEmployeeID, LinkedPaymentID: &pid,
+		}
+		return append(rows, d), nil, nil
+	}
+	return rows, nil, nil
 }
 
 // replayLoan resets l to the day it started and applies rows in order, rewriting each row's allocation fields.
@@ -180,6 +273,7 @@ func accrueAdvanceThrough(ctx context.Context, l *models.Loan, paidOn time.Time,
 	if now := time.Now(); paidOn.After(now) {
 		paidOn = now
 	}
+	ctx = withTopUpCutoff(ctx, paidOn)
 	asOf := sameClockAsOpened(l, paidOn)
 	for pass := 0; pass < 2; pass++ {
 		accrueStep(ctx, l, asOf, through)
@@ -274,7 +368,7 @@ func replayLoanFrom(ctx context.Context, tx *gorm.DB, l *models.Loan, rows []mod
 			fee, penal, interest, principal, err = allocatePayment(l, p.Type, p.Amount, p.InterestOverride)
 		}
 		if err != nil {
-			return fmt.Errorf("%s of ₹%.2f on %s no longer fits the loan: %w%s", p.Type, p.Amount, p.PaidOn.Format("02-01-2006"), err, owedAtPayment(l, p))
+			return shortFitError(l, p, err)
 		}
 		l.OutstandingProcessingFee = math.Max(0, common.RoundMoney(l.OutstandingProcessingFee-fee))
 		l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
@@ -334,17 +428,20 @@ func applyTopUpToReplay(ctx context.Context, tx *gorm.DB, l *models.Loan, t *mod
 	return nil
 }
 
-// owedAtPayment says what the loan owed when a payment was reached in the replay, so a refused amount can be fixed:
-// the largest amount that fits, and the discounts dated before it that already reduced what is owed.
-func owedAtPayment(l *models.Loan, p *models.LoanPayment) string {
-	interest := l.AccruedInterest - l.InterestPaid
-	if p.InterestOverride != nil {
-		interest = *p.InterestOverride
+// shortFitError is the message when an entry no longer fits the loan during a recalculation: which entry, and the most
+// it can be. The loan's whole balance at that point is left out of the message.
+func shortFitError(l *models.Loan, p *models.LoanPayment, cause error) error {
+	when := p.PaidOn.Format("02-01-2006")
+	msg := cause.Error()
+	if strings.Contains(msg, "does not match what is owed") {
+		interest := l.AccruedInterest - l.InterestPaid
+		if p.InterestOverride != nil {
+			interest = *p.InterestOverride
+		}
+		owed := common.RoundMoney(l.OutstandingAmount + clampMoney(interest) + clampMoney(l.AccruedPenalInterest-l.PenalInterestPaid) + l.OutstandingProcessingFee)
+		return fmt.Errorf("%s on %s can be at most ₹%.2f", p.Type, when, owed)
 	}
-	penal := l.AccruedPenalInterest - l.PenalInterestPaid
-	total := common.RoundMoney(l.OutstandingAmount + clampMoney(interest) + clampMoney(penal) + l.OutstandingProcessingFee)
-	return fmt.Sprintf(" — at that point the loan owed ₹%.2f (principal ₹%.2f, interest ₹%.2f, penal interest ₹%.2f, fee ₹%.2f), so this payment can be at most ₹%.2f; a discount entered on the same day is applied before it",
-		total, l.OutstandingAmount, clampMoney(interest), clampMoney(penal), l.OutstandingProcessingFee, total)
+	return fmt.Errorf("%s on %s: %s", p.Type, when, msg)
 }
 
 // sameLoanFigures reports the first loan total a recalculation does not reproduce, or "" when they all match.
@@ -399,8 +496,9 @@ func validateEditedPayment(l *models.Loan, p *models.LoanPayment) error {
 }
 
 // editLoanPayment edits (in != nil) or deletes (in == nil) one payment row, then recalculates the loan.
-func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymentInput, reason string, dryRun bool) (*EditPaymentResult, *models.LoanPayment, error) {
+func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymentInput, reason string, dryRun bool, choices packetChoices) (*EditPaymentResult, *models.LoanPayment, error) {
 	result := &EditPaymentResult{DryRun: dryRun}
+	restoredOrnaments := false
 	var oldRow *models.LoanPayment
 	var loanNumber string
 	err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -413,9 +511,6 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 		if err != nil {
 			return err
 		}
-		if err := guardReplayable(ctx, tx, l, all); err != nil {
-			return err
-		}
 		originalStatus := l.Status
 		result.Before = summarize(l)
 
@@ -426,13 +521,49 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			}
 		}
 		if idx < 0 {
-			return common.NewNotFound("this ledger entry cannot be edited (it is not a payment or discount of this loan)")
+			return common.NewNotFound("this entry can't be edited here")
 		}
 		if auctionPaymentTypes[rows[idx].Type] {
-			return common.NewConflict("an auction entry is changed from the auction edit (PATCH or DELETE /loans/:id/auction/sale, /auction/surplus or /auction/write-off), not as an ordinary payment")
+			return common.NewConflict("an auction entry is changed from the auction screen")
 		}
 		old := rows[idx]
 		oldRow = &old
+		// The edit form sends the date alone, which reads as the start of that day. An unchanged date keeps the entry's
+		// saved moment, or it would jump ahead of the same-day entries saved before it (the sanction, its discount).
+		if in != nil && in.PaidOn != nil && in.PaidOn.In(time.Local).Format("2006-01-02") == old.PaidOn.In(time.Local).Format("2006-01-02") {
+			kept := old.PaidOn
+			in.PaidOn = &kept
+		}
+
+		// the discount that came with this payment (edited together with it)
+		didx := -1
+		discountChanged := false
+		if in != nil && old.Type != models.PaymentTypeDiscount {
+			didx = linkedDiscountIndex(rows, idx)
+			cur, curKind := 0.0, DiscountKindCustomer
+			if didx >= 0 {
+				cur, curKind = rows[didx].Amount, normDiscountKind(rows[didx].DiscountKind)
+			}
+			if in.Discount != nil && absMoney(*in.Discount-cur) > 0.004 {
+				discountChanged = true
+			}
+			if in.DiscountKind != nil && didx >= 0 && normDiscountKind(*in.DiscountKind) != curKind {
+				discountChanged = true
+			}
+		}
+
+		// An edit that leaves every figure alone (the payment mode, bank, reference or note) changes no balance and no
+		// interest, so the loan is not recalculated at all: only this entry and its cash lines are rewritten.
+		if in != nil && !discountChanged && !editChangesFigures(&old, in) {
+			if l.Status == models.StatusPendingApproval || l.Status == models.StatusRejected {
+				return common.NewConflict("this loan can't be edited in its current status")
+			}
+			result.After = result.Before
+			return lightEditPayment(ctx, tx, l, &rows[idx], in, dryRun)
+		}
+		if err := guardReplayable(ctx, tx, l, all); err != nil {
+			return err
+		}
 
 		// The loan is first recalculated untouched: if that does not reproduce what is saved, the history holds
 		// figures this recalculation cannot explain and an edit would silently change them.
@@ -449,6 +580,9 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 				from = ni
 			}
 		}
+		if didx >= 0 && didx < from {
+			from = didx
+		}
 		if l.SchemeInterestMethod == commonModels.InterestMethodMultiple {
 			from = 0
 		}
@@ -461,6 +595,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 		}
 
 		edited := rows
+		var deleteIDs []uint // a discount removed with its payment's edit
 		if in == nil {
 			edited = append(append([]models.LoanPayment{}, rows[:idx]...), rows[idx+1:]...)
 		} else {
@@ -526,6 +661,12 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			if err := validateEditedPayment(l, p); err != nil {
 				return err
 			}
+			if p.Type != models.PaymentTypeDiscount && (in.Discount != nil || in.DiscountKind != nil) {
+				var derr error
+				if edited, deleteIDs, derr = applyLinkedDiscountEdit(edited, idx, didx, in); derr != nil {
+					return derr
+				}
+			}
 			sortReplayRows(edited)
 		}
 
@@ -533,6 +674,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			return common.NewBadRequest(err.Error())
 		}
 		result.After = summarize(l)
+		result.Dependents = editDependents(ctx, loanID, result)
 		if dryRun {
 			return errDryRun
 		}
@@ -545,6 +687,11 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 		}
 		if in == nil {
 			if err := tx.WithContext(ctx).Delete(&models.LoanPayment{}, paymentID).Error; err != nil {
+				return err
+			}
+		}
+		for _, id := range deleteIDs {
+			if err := tx.WithContext(ctx).Delete(&models.LoanPayment{}, id).Error; err != nil {
 				return err
 			}
 		}
@@ -565,7 +712,13 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 				return err
 			}
 		}
-		return nil
+		// a release's own payment edited here: its request shows the corrected figures
+		if err := syncReleaseRecorded(ctx, tx, loanID); err != nil {
+			return err
+		}
+		// the gold the ticked boxes put back, saved with the edit or not at all
+		restoredOrnaments, err = applyEditDependents(ctx, tx, loanID, result.Dependents, choices)
+		return err
 	})
 	if errors.Is(err, errDryRun) {
 		return result, oldRow, nil
@@ -573,8 +726,123 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 	if err != nil {
 		return nil, nil, err
 	}
+	if restoredOrnaments { // the loan's eligible amount follows the ornaments it holds again
+		if fresh, ferr := findLoanByID(ctx, loanID); ferr == nil {
+			if _, rerr := recalculateAndSave(ctx, fresh); rerr != nil {
+				log.Printf("could not refresh loan %d after putting released ornaments back: %v", loanID, rerr)
+			}
+		}
+	}
 	_ = loanNumber
 	return result, oldRow, nil
+}
+
+// editChangesFigures reports whether an edit changes anything the loan's figures depend on: the amount, the date, the
+// type, the interest typed over the calculated one, the fee charged with it, or what a discount was given against.
+// The payment mode, bank, reference and note are not among them.
+func editChangesFigures(old *models.LoanPayment, in *EditPaymentInput) bool {
+	day := func(t time.Time) string { return t.In(time.Local).Format("2006-01-02") }
+	if in.PaidOn != nil && day(*in.PaidOn) != day(old.PaidOn) {
+		return true
+	}
+	if in.Amount != nil && absMoney(*in.Amount-old.Amount) > 0.004 {
+		return true
+	}
+	if in.Type != nil && old.Type != models.PaymentTypeDiscount && old.Type != models.PaymentTypeWaiver && *in.Type != old.Type {
+		return true
+	}
+	if in.InterestOverride != nil && (old.InterestOverride == nil || absMoney(*in.InterestOverride-*old.InterestOverride) > 0.004) {
+		return true
+	}
+	if in.ProcessingFee != nil && absMoney(*in.ProcessingFee-old.ProcessingFee) > 0.004 {
+		return true
+	}
+	if in.DiscountKind != nil && old.Type == models.PaymentTypeDiscount {
+		norm := func(k string) string {
+			if k == "" {
+				return DiscountKindCustomer
+			}
+			return k
+		}
+		if norm(*in.DiscountKind) != norm(old.DiscountKind) {
+			return true
+		}
+	}
+	return false
+}
+
+// lightEditPayment saves an edit that changes no figure: the entry's mode, bank, reference and note, and its cash
+// lines. Nothing about the loan is recalculated, so an old history that could not be reproduced exactly no longer
+// stands in the way of a correction like this.
+func lightEditPayment(ctx context.Context, tx *gorm.DB, l *models.Loan, p *models.LoanPayment, in *EditPaymentInput, dryRun bool) error {
+	oldGroup, err := paymentCashGroup(ctx, tx, l, p)
+	if err != nil {
+		return err
+	}
+	if in.CashAmount != nil {
+		p.CashAmount = *in.CashAmount
+	}
+	if in.UpiAmount != nil {
+		p.UpiAmount = *in.UpiAmount
+	}
+	if in.BankTransferAmount != nil {
+		p.BankTransferAmount = *in.BankTransferAmount
+	}
+	if in.ChequeAmount != nil {
+		p.ChequeAmount = *in.ChequeAmount
+	}
+	if in.BankID != nil {
+		p.BankID = in.BankID
+	}
+	if in.Reference != nil {
+		p.Reference = *in.Reference
+	}
+	if in.Description != nil {
+		p.Description = *in.Description
+	}
+	if p.Type == models.PaymentTypeDiscount {
+		if in.DiscountReason != nil {
+			if strings.TrimSpace(*in.DiscountReason) == "" {
+				return common.NewBadRequest("a reason is required for a discount")
+			}
+			p.Description = "Discount: " + strings.TrimSpace(*in.DiscountReason)
+		}
+		if in.DiscountMode != nil {
+			if !discountModes[*in.DiscountMode] {
+				return common.NewBadRequest("discount mode must be Cash, UPI, Bank Transfer or Cheque")
+			}
+			p.Method = *in.DiscountMode
+		}
+	} else if isCashPaymentType(p.Type) {
+		p.Method = methodOrDerived("", p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount)
+		if p.Amount <= 0 {
+			return common.NewBadRequest("amount must be greater than zero")
+		}
+		if err := common.ValidateSplit(p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, p.Amount); err != nil {
+			return err
+		}
+		if (p.UpiAmount > 0 || p.BankTransferAmount > 0 || p.ChequeAmount > 0) && p.BankID == nil {
+			return common.NewBadRequest("bank is required when the payment breakdown includes UPI or Bank Transfer")
+		}
+	}
+	if dryRun {
+		return errDryRun
+	}
+	if err := tx.WithContext(ctx).Save(p).Error; err != nil {
+		return err
+	}
+	if !isCashPaymentType(p.Type) {
+		return nil
+	}
+	txCtx := cashbook.WithTx(ctx, tx)
+	if err := cashbook.DeleteCollectionByGroup(txCtx, oldGroup); err != nil {
+		return err
+	}
+	_, groupID, err := cashbook.RecordLoanPaymentCashIn(txCtx, l.ID, l.LoanNumber, p.Amount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, l.BranchID, p.PaidOn, p.Type, l.CustomerID, p.BankID)
+	if err != nil {
+		return fmt.Errorf("could not record the corrected payment in Cash-in-Hand: %w", err)
+	}
+	return tx.WithContext(ctx).Model(&models.LoanPayment{}).Where("id = ?", p.ID).Update("cash_transaction_group_id", groupID).Error
 }
 
 // paymentCashGroup is the cash-book group a repayment booked. A payment saved without its group is found by its
@@ -602,7 +870,7 @@ func paymentCashGroup(ctx context.Context, tx *gorm.DB, l *models.Loan, p *model
 		}
 	}
 	if len(match) != 1 {
-		return "", common.NewConflict("this payment's cash entries cannot be identified exactly, so it cannot be edited safely")
+		return "", common.NewConflict("This payment's cash entries can't be matched, so it can't be edited.")
 	}
 	return match[0], nil
 }
@@ -645,8 +913,10 @@ type editPaymentRequest struct {
 	DiscountReason     *string  `json:"discount_reason"`
 	DiscountMode       *string  `json:"discount_mode"`
 	DiscountKind       *string  `json:"discount_kind"`
+	Discount           *float64 `json:"discount"`
 	Reason             string   `json:"reason"`
 	ReversePacket      bool     `json:"reverse_packet"`
+	RestorePartial     bool     `json:"restore_partial_release"`
 }
 
 // EditLoanPayment is PATCH /loans/:id/payments/:payment_id[?dry_run=true].
@@ -671,7 +941,7 @@ func EditLoanPayment(c echo.Context) error {
 		Amount: req.Amount, Type: req.Type, CashAmount: req.CashAmount, UpiAmount: req.UpiAmount,
 		BankTransferAmount: req.BankTransferAmount, ChequeAmount: req.ChequeAmount, BankID: req.BankID,
 		Reference: req.Reference, Description: req.Description, InterestOverride: req.InterestOverride,
-		ProcessingFee: req.ProcessingFee, DiscountReason: req.DiscountReason, DiscountMode: req.DiscountMode, DiscountKind: req.DiscountKind,
+		ProcessingFee: req.ProcessingFee, DiscountReason: req.DiscountReason, DiscountMode: req.DiscountMode, DiscountKind: req.DiscountKind, Discount: req.Discount,
 	}
 	if req.PaidOn != nil {
 		d, err := parsePaidOn(*req.PaidOn)
@@ -681,15 +951,14 @@ func EditLoanPayment(c echo.Context) error {
 		in.PaidOn = &d
 	}
 	dryRun, _ := strconv.ParseBool(c.QueryParam("dry_run"))
-	res, old, err := editLoanPayment(ctx, loanID, paymentID, in, req.Reason, dryRun)
+	actorEmployeeID, _, _ := auth.ActorFromContext(c)
+	res, old, err := editLoanPayment(ctx, loanID, paymentID, in, req.Reason, dryRun, packetChoices{ReversePacket: req.ReversePacket, RestorePartial: req.RestorePartial, ActorEmployee: actorEmployeeID})
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	actorEmployeeID, _, _ := auth.ActorFromContext(c)
 	if !dryRun {
 		writeLedgerAudit(ctx, actorEmployeeID, "Ledger entry edited", loanID, loanNumberOf(ctx, loanID), req.Reason, old, res)
 	}
-	applyPacketReversal(ctx, loanID, actorEmployeeID, res, req.ReversePacket, dryRun)
 	return common.Success(c, http.StatusOK, res)
 }
 
@@ -709,16 +978,16 @@ func DeleteLoanPayment(c echo.Context) error {
 	}
 	reason := c.QueryParam("reason")
 	dryRun, _ := strconv.ParseBool(c.QueryParam("dry_run"))
-	res, old, err := editLoanPayment(ctx, loanID, paymentID, nil, reason, dryRun)
+	actorEmployeeID, _, _ := auth.ActorFromContext(c)
+	reversePacket, _ := strconv.ParseBool(c.QueryParam("reverse_packet"))
+	restorePartial, _ := strconv.ParseBool(c.QueryParam("restore_partial_release"))
+	res, old, err := editLoanPayment(ctx, loanID, paymentID, nil, reason, dryRun, packetChoices{ReversePacket: reversePacket, RestorePartial: restorePartial, ActorEmployee: actorEmployeeID})
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	actorEmployeeID, _, _ := auth.ActorFromContext(c)
 	if !dryRun {
 		writeLedgerAudit(ctx, actorEmployeeID, "Ledger entry deleted", loanID, loanNumberOf(ctx, loanID), reason, old, res)
 	}
-	reversePacket, _ := strconv.ParseBool(c.QueryParam("reverse_packet"))
-	applyPacketReversal(ctx, loanID, actorEmployeeID, res, reversePacket, dryRun)
 	return common.Success(c, http.StatusOK, res)
 }
 

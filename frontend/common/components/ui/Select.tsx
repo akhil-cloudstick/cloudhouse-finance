@@ -203,7 +203,7 @@ export function Select({
           setOpen(false);
         }}
       >
-        <span style={{ color: selected ? "var(--nav)" : "var(--muted)" }}>
+        <span style={{ color: selected ? "var(--nav)" : "var(--muted)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {selected ? selected.label : placeholder}
         </span>
         <svg

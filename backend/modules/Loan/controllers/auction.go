@@ -103,7 +103,8 @@ func canDecideAuction(ctx context.Context, roleID uint, flow string) bool {
 }
 
 func isAuctionCase(l *models.Loan) bool {
-	return l.Status == models.StatusAuctionEligible || l.Status == models.StatusAuctionedBalanceDue || l.IsDefaulted
+	// Auctioned loans only get this far when the query found an unconcluded case for them.
+	return l.Status == models.StatusAuctionEligible || l.Status == models.StatusAuctionedBalanceDue || l.Status == models.StatusAuctioned || l.IsDefaulted
 }
 
 func resolveAuctionAfterPayment(ctx context.Context, l *models.Loan, p *models.LoanPayment) bool {
@@ -1003,7 +1004,9 @@ func findAuctionAllByCustomerID(ctx context.Context, customerID uint, from, to *
 		Where("loans.customer_id = ?", customerID)
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("loans.loan_number ILIKE ? OR auction_records.auction_reference_number ILIKE ?", like, like)
+		q = q.Where("loans.loan_number ILIKE ? OR auction_records.auction_reference_number ILIKE ? OR auction_records.stage ILIKE ?"+
+			" OR CAST(auction_records.sale_amount AS TEXT) LIKE ?",
+			like, like, like, "%"+strings.ReplaceAll(search, ",", "")+"%")
 	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))

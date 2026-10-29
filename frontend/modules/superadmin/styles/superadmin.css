@@ -1074,6 +1074,11 @@ body {
   margin-right: auto;
 }
 
+.sa-search {
+  margin-right: auto;
+  min-width: 220px;
+}
+
 .sa-toolbar {
   display: flex;
   justify-content: flex-end;

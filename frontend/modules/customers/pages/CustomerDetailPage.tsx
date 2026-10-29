@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -128,11 +130,11 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
 
   const subtablePageSize = useResponsivePageSize(15, 15);
   const range = { from, to };
-  const listLoans = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerLoansPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerOrnamentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listPayments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listLoans = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerLoansPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerOrnamentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listPayments = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
   // Every CashMovement tagged to this customer (PartyCustomerID) — same
   // underlying query as the standalone Party Transactions page
   // (PartyLedger.tsx), reached here instead via this customer's own 360
@@ -165,8 +167,8 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
     { key: "__date", label: "Date", kind: "date" },
   ];
   const listTransactions = useCallback(
-    (page: number) =>
-      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters }, subtablePageSize)
+    (page: number, r?: { search?: string }) =>
+      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters, search: r?.search }, subtablePageSize)
         .then((res) => ({
           items: res.items,
           total: res.total,
@@ -210,13 +212,24 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
     onKeyDown: onActionsMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
 
-  const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
-  const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
-  const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
-  const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
+  // One search box on the header, one text per table (same order as TABLE_TABS).
+  const [tabQ, setTabQ] = useState<string[]>(["", "", "", "", "", ""]);
+  const tabSearch = useDebouncedValue(tabQ).map((s) => s.trim() || undefined);
+  const loanPager = useSubTablePage<LoanView>(listLoans, { ...range, search: tabSearch[0] }, !!id);
+  const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, { ...range, search: tabSearch[1] }, !!id);
+  const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, { ...range, search: tabSearch[2] }, !!id);
+  const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, { ...range, search: tabSearch[3] }, !!id);
   // Auction history needs "can view auction module" — not fetched without it.
-  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id && canViewAuctions);
-  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id && canViewCash);
+  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, { ...range, search: tabSearch[4] }, !!id && canViewAuctions);
+  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo, search: tabSearch[5] }, !!id && canViewCash);
+  const TAB_SEARCH: { placeholder: string; searches: string }[] = [
+    { placeholder: "Search loan, status…", searches: "loan number, customer name, customer code" },
+    { placeholder: "Search loan, ornament, purity…", searches: "loan number, ornament, purity" },
+    { placeholder: "Search loan, type, amount…", searches: "loan number, type, method, date, amount" },
+    { placeholder: "Search loan, bank, status…", searches: "loan number, bank, status, pledged date" },
+    { placeholder: "Search loan, stage, reference…", searches: "loan number, auction reference, stage, sale amount" },
+    { placeholder: "Search date, ref no, amount…", searches: "date, ref no, particulars, method, bank, debit, credit" },
+  ];
   useEffect(() => { transactionPager.setPage(1); }, [JSON.stringify(ledgerLoanFilters)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // profile.loans still backs the "Request Extension / Release" picker
@@ -595,6 +608,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
               {activeTable === 5 ? (
                 <>
                   <div className="sp" />
+                  <TableSearch value={tabQ[5]} onChange={(v) => setTabQ((q) => q.map((x, i) => (i === 5 ? v : x)))} placeholder={TAB_SEARCH[5].placeholder} searches={TAB_SEARCH[5].searches} />
                   <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips hideClearAll />
                   {canExport && (
                     <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>
@@ -606,6 +620,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
                 <>
                   <div className="sp" />
                   {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
+                  <TableSearch value={tabQ[activeTable]} onChange={(v) => setTabQ((q) => q.map((x, i) => (i === activeTable ? v : x)))} placeholder={TAB_SEARCH[activeTable].placeholder} searches={TAB_SEARCH[activeTable].searches} />
                   <FilterPanel categories={openedDateCategories} value={openedDateFilter} onChange={setOpenedDateFilter} hideChips hideClearAll />
                 </>
               )}

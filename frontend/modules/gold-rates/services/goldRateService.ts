@@ -41,18 +41,22 @@ export async function listGoldRatesPage(
 }
 
 /* Rate History table: one item per calendar day — the day's newest rate, with
- * every change of that day in `entries`. `date` ("YYYY-MM-DD") narrows to one day. */
+ * every change of that day in `entries`. `from` / `to` ("YYYY-MM-DD") narrow to a range of days. */
 export async function listGoldRateDaysPage(
   page: number,
   limit: number,
-  date?: string
+  from?: string,
+  to?: string,
+  q?: string
 ): Promise<{ items: GoldRateView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String((page - 1) * limit),
     group: "day",
   });
-  if (date) params.set("date", date);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (q?.trim()) params.set("search", q.trim());
   const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean; total?: number }>(`/gold-rates?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }

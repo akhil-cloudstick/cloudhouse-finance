@@ -1,6 +1,8 @@
 "use client";
 
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/common/components/Icon";
@@ -30,6 +32,7 @@ const TRANSACTION_TYPE_OPTIONS = [
   { value: "auction", label: "Auction" },
   { value: "collection", label: "Collection" },
   { value: "personal loan", label: "Personal Loan" },
+  { value: "bank pledge", label: "Bank Pledge" },
   { value: "investment", label: "Investment" },
   { value: "expenses", label: "Expenses" },
 ];
@@ -81,6 +84,8 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = usePersistedState<FilterValue>("branchledger:filters", {});
+  const [q, setQ] = usePersistedState("branchledger:q", "");
+  const search = useDebouncedValue(q.trim());
 
   const fromDate = filters.__dateFrom;
   const toDate = filters.__dateTo;
@@ -88,7 +93,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
   const customerValues = Array.isArray(filters.customer) ? filters.customer : [];
 
   // Any filter change resets to page 1 (not on mount, where the remembered page applies).
-  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(filters.type)}|${JSON.stringify(filters.customer)}`;
+  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(filters.type)}|${JSON.stringify(filters.customer)}|${search}`;
   const prevFilterKey = useRef(filterKey);
   useEffect(() => {
     if (prevFilterKey.current === filterKey) return;
@@ -119,7 +124,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
     if (!branchId) return;
     if (!(cards && itemsRef.current.length)) setLoading(true);
     listCashMovementsPage(page, pageSize, {
-      fromDate, toDate,
+      fromDate, toDate, search: search || undefined,
       branchIds: [String(branchId)],
       customerIds: customerValues.length ? customerValues : undefined,
       types: typeValues.length ? (typeValues as CashMovementCategory[]) : undefined,
@@ -136,7 +141,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId, page, pageSize, cards, fromDate, toDate, JSON.stringify(typeValues), JSON.stringify(customerValues)]);
+  }, [branchId, page, pageSize, cards, fromDate, toDate, JSON.stringify(typeValues), JSON.stringify(customerValues), search]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useLedgerFocus("branch", !loading, [items]);
@@ -145,7 +150,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
     setExporting(true);
     try {
       await exportCashMovements({
-        fromDate, toDate,
+        fromDate, toDate, search: search || undefined,
         branchIds: [String(branchId)],
         customerIds: customerValues.length ? customerValues : undefined,
         types: typeValues.length ? (typeValues as CashMovementCategory[]) : undefined,
@@ -192,6 +197,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
           <h3>Transactions</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <TableSearch value={q} onChange={setQ} placeholder="Search date, ref no, amount…" searches="date, ref no, particulars, mode, bank, party, debit, credit" />
             <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips hideClearAll />
             {canExport && <button className="btn ghost sm" disabled={exporting} onClick={onExport}><Icon name="download" /> {exporting ? "Exporting…" : "Download"}</button>}
           </div>

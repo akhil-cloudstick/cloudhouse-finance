@@ -34,6 +34,7 @@ const dateOnly = (v?: string | null) => (v ? v.slice(0, 10) : "");
 // Two steps, like a top-up edit: the first click previews what the change does (nothing is saved) and lists the
 // entries the auction booked because of the sale — a settled surplus, a shortfall decision, a write-off — each with
 // an "Also update this" box; the second click saves the change and updates the ticked ones.
+
 export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }: Props) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -190,32 +191,42 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
             <div className="frow">
               <div><label className="f">Auction Expenses (₹)</label><input className="inp" type="number" min={0} value={expenses} onChange={(e) => changed(setExpenses)(e.target.value)} /></div>
             </div>
-            <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payment breakdown <small style={{ fontWeight: 400, color: "var(--muted)" }}>How the buyer paid</small></h4>
-            <SplitPaymentInput
-              totalAmount={+saleAmount || 0} initialLines={initialLines} scrollInternally={false} label={null}
-              onChange={(s, r, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setBankId(b); }}
-            />
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+              <h4 style={{ margin: "0 0 10px", fontSize: 13 }}>Payment breakdown</h4>
+              <SplitPaymentInput
+                totalAmount={+saleAmount || 0} initialLines={initialLines} label={null}
+                onChange={(s, r, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setBankId(b); }}
+              />
+            </div>
           </>
         )}
         {mode === "edit" && kind === "surplus" && record && (
           <>
-            <div className="frow c2">
-              <div>
-                <label className="f">Surplus {fmt(surplusAmount)} is</label>
-                <select className="inp" value={disposition} onChange={(e) => changed(setDisposition)(e.target.value)}>
-                  <option value="RefundedToCustomer">Refunded to the customer</option>
-                  <option value="RecordedAsIncome">Retained as income</option>
-                </select>
+            <div style={{ marginBottom: 12 }}>
+                <label className="f">Surplus {fmt(surplusAmount)} *</label>
+                <div style={{ display: "flex", gap: 28, marginTop: 6 }}>
+                  <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
+                    <input type="radio" name="surplus-disposition" checked={disposition === "RefundedToCustomer"} onChange={() => changed(setDisposition)("RefundedToCustomer")} />
+                    <span className="mark" style={{ marginTop: 0 }} />
+                    <span><strong className="cradio-title">Refund to customer</strong></span>
+                  </label>
+                  <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
+                    <input type="radio" name="surplus-disposition" checked={disposition === "RecordedAsIncome"} onChange={() => changed(setDisposition)("RecordedAsIncome")} />
+                    <span className="mark" style={{ marginTop: 0 }} />
+                    <span><strong className="cradio-title">Record as company income</strong></span>
+                  </label>
+                </div>
               </div>
-              {disposition === "RefundedToCustomer" && (
-                <div><label className="f">Refund Date</label><DatePicker value={date} min={minDate} max={today} onChange={changed(setDate)} /></div>
-              )}
-            </div>
             {disposition === "RefundedToCustomer" && (
-              <SplitPaymentInput
-                totalAmount={surplusAmount} initialLines={[{ mode: "Cash" as const, amount: String(surplusAmount) }]} scrollInternally={false} label={null}
-                onChange={(s, r, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setBankId(b); }}
-              />
+              <>
+                <div className="frow c2">
+                  <div><label className="f">Refund Date</label><DatePicker value={date} min={minDate} max={today} onChange={changed(setDate)} /></div>
+                </div>
+                <SplitPaymentInput
+                  totalAmount={surplusAmount} initialLines={[{ mode: "Cash" as const, amount: String(surplusAmount) }]} label={null}
+                  onChange={(s, r, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setBankId(b); }}
+                />
+              </>
             )}
           </>
         )}
@@ -235,11 +246,12 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
           <div style={{ marginTop: 12 }}>
             {o && (
               <p style={{ marginBottom: 8 }}>
-                Net proceeds <b>{fmt(o.netProceeds)}</b> against <b>{fmt(o.totalDebt)}</b> owed on the sale date: {o.fullyCovered
-                  ? <>the loan is cleared{o.surplus > 0.005 ? <> and a surplus of <b>{fmt(o.surplus)}</b> is due to the customer</> : null}.</>
-                  : <>a shortfall of <b>{fmt(o.shortfall)}</b> remains.</>}
+                Net <b>{fmt(o.netProceeds)}</b> vs <b>{fmt(o.totalDebt)}</b> owed: {o.fullyCovered
+                  ? <>loan cleared{o.surplus > 0.005 ? <>, surplus <b>{fmt(o.surplus)}</b></> : null}.</>
+                  : <>shortfall <b>{fmt(o.shortfall)}</b>.</>}
               </p>
             )}
+            {[preview.before, preview.after].some((x) => x.principal || x.interest || x.penalInterest || x.total) || preview.before.status !== preview.after.status ? (<>
             <label className="f">What changes on the loan (as of its last entry)</label>
             <div className="tbl-wrap"><table className="tbl">
               <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
@@ -251,12 +263,14 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
                 <tr><td>Status</td><td className="num">{preview.before.status}</td><td className="num">{preview.after.status}</td></tr>
               </tbody>
             </table></div>
+            </>) : null}
             {preview.dependents.length > 0 && (
               <div style={{ marginTop: 14 }}>
                 <label className="f">This also affects entries booked from the auction</label>
                 {preview.dependents.map((d) => (
-                  <label key={key(d)} style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "6px 0", cursor: "pointer" }}>
-                    <input type="checkbox" checked={!!chosen[key(d)]} onChange={(e) => setChosen((c) => ({ ...c, [key(d)]: e.target.checked }))} style={{ marginTop: 3 }} />
+                  <label key={key(d)} className="ccheck" style={{ margin: "6px 0" }}>
+                    <input type="checkbox" checked={!!chosen[key(d)]} onChange={(e) => setChosen((c) => ({ ...c, [key(d)]: e.target.checked }))} />
+                    <span className="mark" />
                     <span>
                       <b>Also update this:</b> {d.description}
                       <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{d.current} → {d.suggested}{d.required ? " (required to keep the books consistent)" : ""}</div>

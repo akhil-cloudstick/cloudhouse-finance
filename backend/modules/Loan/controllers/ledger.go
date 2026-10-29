@@ -99,12 +99,7 @@ func ledgerColumnTotals(rows []LoanLedgerEntry) (debit, credit float64) {
 		case "sanction", "topup", "interest", "penal", "service-charge":
 			debit += r.Amount
 		case "payment":
-			// a Discount is the company giving an amount up: a debit entry, like it is on the main ledger
-			if r.Payment != nil && r.Payment.Type == models.PaymentTypeDiscount {
-				debit += r.Amount
-			} else {
-				credit += r.Amount
-			}
+			credit += r.Amount
 		case "auction-surplus":
 			if r.Auction != nil && r.Auction.SurplusDisposition == "RefundedToCustomer" {
 				debit += r.Amount
@@ -333,6 +328,10 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 		date, amount := time.Time{}, l.DisbursedAmount
 		if l.DisbursementDate != nil {
 			date = *l.DisbursementDate
+			// A loan opened on a past date is sanctioned on that date, not the day it was recorded.
+			if o := l.OpenedDate.In(time.Local); !l.OpenedDate.IsZero() && o.Format("2006-01-02") < date.In(time.Local).Format("2006-01-02") {
+				date = l.OpenedDate
+			}
 		}
 		if disbursement != nil {
 			parts = ledgerSplitParts(disbursement.CashAmount, disbursement.UpiAmount, disbursement.BankTransferAmount, disbursement.ChequeAmount)

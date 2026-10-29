@@ -10,6 +10,7 @@ import { useScrollPageSize } from "@/common/utils/responsive";
 import { listLoanRiskAssessmentPage, RISK_STATUSES, LOAN_RISK_PAGE_SIZE } from "@/modules/loans/services/loanService";
 import { type LoanRiskRow, type LoanRiskLevel, type LoanRiskCounts } from "@/modules/loans/types/loan-types";
 import { routeHref } from "@/common/services/appRoutes";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 
 const RISK_CHIP: Record<LoanRiskLevel, string> = { Safe: "green", AtRisk: "amber", Loss: "red" };
 const RISK_LABEL: Record<LoanRiskLevel, string> = { Safe: "Safe", AtRisk: "At Risk", Loss: "Loss" };
@@ -64,10 +65,17 @@ export function LoanRiskPage() {
     __dateTo: toDate || undefined,
   };
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  // The typed search, and the value sent to the server once typing pauses.
+  const [q, setQ] = usePersistedState("loan-risk:q", "");
+  const [sentQ, setSentQ] = useState(q);
+  useEffect(() => {
+    const handle = setTimeout(() => setSentQ(q), q === sentQ ? 0 : 300);
+    return () => clearTimeout(handle);
+  }, [q, sentQ]);
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [status, riskLevel, fromDate, toDate]);
+  useEffect(() => { setPage(1); }, [status, riskLevel, fromDate, toDate, sentQ]);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -76,6 +84,7 @@ export function LoanRiskPage() {
       riskLevel: riskLevel || undefined,
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
+      q: sentQ,
     })
       .then(({ items, hasMore, total, counts }) => {
         setRows(items);
@@ -89,7 +98,7 @@ export function LoanRiskPage() {
         setError(e instanceof ApiError ? e.message : "Could not load the risk assessment — a gold rate may not be published yet.");
       })
       .finally(() => setLoading(false));
-  }, [page, status, riskLevel, fromDate, toDate, pageSize]);
+  }, [page, status, riskLevel, fromDate, toDate, sentQ, pageSize]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -130,6 +139,7 @@ export function LoanRiskPage() {
           </button>
         ))}
       </div>
+      <TableSearch value={q} onChange={setQ} placeholder="Search loans…" searches="loan no., customer, status, risk, amounts, weight, gold value" />
       <FilterPanel
         categories={filterCategories}
         value={filterValue}

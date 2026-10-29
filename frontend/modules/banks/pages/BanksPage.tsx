@@ -6,6 +6,8 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { BankModalContent } from "@/modules/banks/components/BankModalContent";
 import { BankTable } from "@/modules/banks/components/BankTable";
+import { TableSearch } from "@/common/components/ui/TableSearch";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { balanceColor, fmtBalance } from "@/modules/banks/utils/bankBalance";
 
 /* Centralized bank management — mirrors Branches.tsx exactly (simple CRUD
@@ -22,6 +24,7 @@ export function BanksPage() {
   const { can } = useAuth();
   const canCreate = can("Bank_Management", "can_create_bank");
   const [reloadKey, setReloadKey] = useState(0);
+  const [q, setQ] = usePersistedState("banks:q", "");
   const reload = () => setReloadKey((k) => k + 1);
   // Net balance across every listed bank — the server's `totalBalance` from
   // the same GET /banks response the table renders, so it always equals the
@@ -42,7 +45,10 @@ export function BanksPage() {
           <div className="kpi"><div className="l">Net Bank Balance</div><div className="v" style={{ color: balanceColor(bankBalance) }}>{fmtBalance(bankBalance)}</div></div>
         </div>
       )}
-      <BankTable reloadKey={reloadKey} afterChange={reload} onTotalBalance={setBankBalance} />
+      <div style={{ margin: "0 0 12px" }}>
+        <TableSearch value={q} onChange={setQ} placeholder="Search banks…" searches="bank name, bank branch, IFSC, account no., phone, business branch" />
+      </div>
+      <BankTable q={q} reloadKey={reloadKey} afterChange={reload} onTotalBalance={setBankBalance} />
     </>
   );
 }

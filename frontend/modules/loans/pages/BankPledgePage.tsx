@@ -239,7 +239,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           <div className="tbl-wrap">
             <table className="tbl tbl-cards">
               <thead>
-                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th>Due</th><th className="col-act"></th></tr>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th>Due</th><th></th></tr>
               </thead>
               <tbody>
                 {pledgedLoading && !(cards && pledged.length > 0) ? (
@@ -263,7 +263,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                       <td data-label="Cash"><CashTreatmentBadge treatment={treatment} /></td>
                       <td data-label="Pledged On">{fmtDate(active?.pledgeDate)}</td>
                       <td data-label="Due">{active.bankPledgeDueDate ? fmtDate(active.bankPledgeDueDate) : "—"}</td>
-                      <td className="col-act" style={{ whiteSpace: "nowrap" }}>
+                      <td style={{ whiteSpace: "nowrap" }}>
                         {active && (
                           <button className="btn ghost sm" onClick={() => viewDetails(l, active, treatment)}>View</button>
                         )}
@@ -289,7 +289,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           <div className="tbl-wrap">
             <table className="tbl tbl-cards">
               <thead>
-                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th><th className="col-act"></th></tr>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th><th></th></tr>
               </thead>
               <tbody>
                 {historyLoading && !(cards && history.length > 0) ? (
@@ -316,7 +316,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                         <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{r.voidReason}</div>
                       )}
                     </td>
-                    <td className="col-act" style={{ whiteSpace: "nowrap" }}>
+                    <td style={{ whiteSpace: "nowrap" }}>
                       <button className="btn ghost sm" onClick={() => viewRecord(r)}>View</button>
                     </td>
                   </tr>

@@ -1152,9 +1152,11 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		}
 	}
 	if f.AllAuctionCases {
-		q = q.Where("(loans.status IN ?) OR (loans.status NOT IN ? AND loans.due_date < ?)",
+		// An Auctioned loan stays a case while its sale is not concluded (a surplus still to be settled).
+		q = q.Where("(loans.status IN ?) OR (loans.status NOT IN ? AND loans.due_date < ?) OR (loans.status = ? AND EXISTS (SELECT 1 FROM auction_records ar WHERE ar.loan_id = loans.id AND ar.stage NOT IN ?))",
 			[]string{models.StatusAuctionEligible, models.StatusAuctionedBalanceDue},
-			notDefaultableStatuses, time.Now().AddDate(0, 0, -defaultedAfterDays))
+			notDefaultableStatuses, time.Now().AddDate(0, 0, -defaultedAfterDays),
+			models.StatusAuctioned, []string{models.AuctionStageSettled, models.AuctionStageWithdrawn})
 	}
 	return q
 }

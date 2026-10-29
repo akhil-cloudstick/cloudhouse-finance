@@ -10,6 +10,8 @@ import { deactivateBranch, getBranchQuota, listBranches } from "@/modules/branch
 import { type BranchQuota, type BranchView } from "@/modules/branches/types/branch-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { routeHref } from "@/common/services/appRoutes";
+import { TableSearch } from "@/common/components/ui/TableSearch";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 
 /* Centralized branch management — admin-only. Loads real data from the Go
  * backend (`GET /api/v1/branches`), following the Schemes.tsx pattern. */
@@ -24,11 +26,12 @@ export function BranchesPage() {
   const canViewBranchLedger = can("Branch_Management", "can_view_branch_ledger");
   const [branches, setBranches] = useState<BranchView[] | null>(null);
   const [error, setError] = useState("");
+  const [q, setQ] = usePersistedState("branches:q", "");
   const [quota, setQuota] = useState<BranchQuota | null>(null);
 
   async function load() {
     try {
-      setBranches(await listBranches());
+      setBranches(await listBranches(q));
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load branches.");
@@ -48,7 +51,12 @@ export function BranchesPage() {
     ? `Your current plan (${quota.plan}) allows ${quota.quota} branch${quota.quota === 1 ? "" : "es"}. To add more branches, contact your administrator to upgrade your plan.`
     : "";
 
-  useEffect(() => { load(); }, []);
+  // Typing searches on the server (debounced); the first load is immediate.
+  useEffect(() => {
+    const handle = setTimeout(() => { void load(); }, q ? 300 : 0);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   function onSaved() {
     load();
@@ -118,12 +126,17 @@ export function BranchesPage() {
       {!error && branches === null && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading branches…</p>
       )}
-      {branches !== null && branches.length === 0 && !error && (
+      {branches !== null && branches.length === 0 && !error && !q.trim() && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>
           No branches yet. Click &quot;Add Branch&quot; to create one.
         </p>
       )}
-      {branches !== null && branches.length > 0 && (
+      {branches !== null && (branches.length > 0 || !!q.trim()) && (
+        <div style={{ margin: "0 0 12px" }}>
+          <TableSearch value={q} onChange={setQ} placeholder="Search branches…" searches="branch name, code, address, phone, status" />
+        </div>
+      )}
+      {branches !== null && (branches.length > 0 || !!q.trim()) && (
         <div className="card tbl-rounded">
           <div className="tbl-wrap">
             <table className="tbl">
@@ -149,6 +162,9 @@ export function BranchesPage() {
                     </td>
                   </tr>
                 ))}
+                {branches.length === 0 && (
+                  <tr><td colSpan={6} className="empty">No branches match “{q.trim()}”.</td></tr>
+                )}
               </tbody>
             </table>
           </div>

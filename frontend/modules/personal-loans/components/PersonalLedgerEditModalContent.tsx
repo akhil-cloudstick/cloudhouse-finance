@@ -107,9 +107,9 @@ export function PersonalLedgerEditModalContent({ loanId, entry: p, bankId: saved
                 <div><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => changed(setReference)(e.target.value)} /></div>
               </div>
             )}
-            <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payment breakdown <small style={{ fontWeight: 400, color: "var(--muted)" }}>{isDisbursement ? "How the customer was paid" : "How the customer paid"}</small></h4>
+            <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payment breakdown</h4>
             <SplitPaymentInput
-              totalAmount={+amount || 0} initialLines={initialLines} scrollInternally={false} label={null}
+              totalAmount={+amount || 0} initialLines={initialLines} label={null}
               onChange={(s, r, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setBankId(b); }}
             />
           </>

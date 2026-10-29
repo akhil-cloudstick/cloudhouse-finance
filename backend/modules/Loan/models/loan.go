@@ -61,6 +61,7 @@ type Loan struct {
 	SchemePenalRate          float64                 `json:"scheme_penal_rate"`
 	SchemeRateTiers          []commonModels.RateTier `json:"scheme_rate_tiers" gorm:"serializer:json;type:text"`
 	SchemeMinimumDays        int                     `json:"scheme_minimum_days" gorm:"not null;default:0"`
+	SchemeAccrualBasis       string                  `json:"scheme_accrual_basis" gorm:"size:10;not null;default:'daily'"`
 	RateTierLevel            int                     `json:"rate_tier_level" gorm:"not null;default:0"`
 	ArrearsSince             *time.Time              `json:"arrears_since"`
 	ServiceChargeType        string                  `json:"service_charge_type" gorm:"size:10"`

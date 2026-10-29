@@ -90,10 +90,6 @@ export function TopUpEditModalContent({ loanId, topUp: t, mode, minDate, onSaved
     <>
       <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Top-Up</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll ledger-edit-bd">
-        <p className="notice" style={{ marginBottom: 12 }}>
-          The loan is recalculated from its first day, so its principal, interest, later payments, balances and the cash
-          ledger update to match this change.
-        </p>
         {mode === "edit" ? (
           <>
             <div className="frow c2">
@@ -103,9 +99,9 @@ export function TopUpEditModalContent({ loanId, topUp: t, mode, minDate, onSaved
             <div className="frow">
               <div><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => changed(setReference)(e.target.value)} /></div>
             </div>
-            <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payout breakdown <small style={{ fontWeight: 400, color: "var(--muted)" }}>How the money went out</small></h4>
+            <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payout breakdown</h4>
             <SplitPaymentInput
-              totalAmount={+amount || 0} initialLines={initialLines} scrollInternally={false} label={null}
+              totalAmount={+amount || 0} initialLines={initialLines} label={null}
               onChange={(s, r, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setBankId(b); }}
             />
           </>

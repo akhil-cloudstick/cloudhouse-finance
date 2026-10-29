@@ -106,7 +106,8 @@ func findBanks(ctx context.Context, query string, branchID *uint, limit, offset 
 	q := config.DB.
 		WithContext(ctx).Preload("BusinessBranch").Order("name asc")
 	if query != "" {
-		q = q.Where("name ILIKE ?", "%"+query+"%")
+		q = ApplySearch(q, query, "banks.name", "banks.branch", "banks.ifsc", "banks.account_no", "banks.phone",
+			"(SELECT b.name FROM branches b WHERE b.id = banks.branch_id)")
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)

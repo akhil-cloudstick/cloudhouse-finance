@@ -2,7 +2,7 @@
 
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
-import { getLoan, listTopUps } from "@/modules/loans/services/loanService";
+import { getLoan, listTopUps, linkedDiscountOf } from "@/modules/loans/services/loanService";
 import { LedgerPaymentEditModalContent } from "@/modules/loans/components/LedgerPaymentEditModalContent";
 import { SanctionEditModalContent } from "@/modules/loans/components/SanctionEditModalContent";
 import { TopUpEditModalContent } from "@/modules/loans/components/TopUpEditModalContent";
@@ -25,7 +25,7 @@ export function useLoanEntryActions(onChanged?: () => void) {
         const loan = await getLoan(loanId);
         const payment = loan.payments.find((p) => p.id === paymentId);
         if (!payment) { toast("This entry could not be found on its loan."); return; }
-        openChildModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={payment} mode={mode} minDate={loan.disbursementDate?.slice(0, 10) || undefined} onSaved={saved} />, true);
+        openChildModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={payment} linkedDiscount={linkedDiscountOf(loan.payments, payment)} mode={mode} minDate={loan.opened?.slice(0, 10) || undefined} onSaved={saved} />, true);
       } catch { failed(); }
     },
     async sanction(loanId: number) {
@@ -71,7 +71,7 @@ export function useLoanEntryActions(onChanged?: () => void) {
         const [loan, topUps] = await Promise.all([getLoan(loanId), listTopUps(loanId)]);
         const topUp = topUps.find((t) => t.id === topUpId);
         if (!topUp) { toast("This top-up could not be found on its loan."); return; }
-        openChildModal(<TopUpEditModalContent loanId={loan.numericId} topUp={topUp} mode={mode} minDate={loan.disbursementDate?.slice(0, 10) || undefined} onSaved={saved} />, true);
+        openChildModal(<TopUpEditModalContent loanId={loan.numericId} topUp={topUp} mode={mode} minDate={loan.opened?.slice(0, 10) || undefined} onSaved={saved} />, true);
       } catch { failed(); }
     },
   };

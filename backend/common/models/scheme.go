@@ -20,6 +20,11 @@ const (
 
 const InterestMethodMultiple = "Multiple interest"
 
+const (
+	AccrualBasisDaily   = "daily"
+	AccrualBasisMonthly = "monthly"
+)
+
 // RateTier is one step of a Multiple-interest ladder: the rate applies while
 // interest has been unpaid for up to Days days (the last step has Days 0 = thereafter).
 type RateTier struct {
@@ -39,7 +44,8 @@ type Scheme struct {
 	LTVPercent         float64        `json:"ltv_percent" gorm:"not null"`
 	InterestMethod     string         `json:"interest_method" gorm:"size:80"`
 	PenalRate          float64        `json:"penal_rate"`
-	RateTiers          []RateTier     `json:"rate_tiers" gorm:"serializer:json;type:text"`
+	AccrualBasis       string         `json:"accrual_basis" gorm:"size:10;not null;default:'daily'"`
+	RateTiers         []RateTier     `json:"rate_tiers" gorm:"serializer:json;type:text"`
 	MinimumDays        int            `json:"minimum_days" gorm:"not null;default:0"`
 	Conditions         string         `json:"conditions"`
 	IsActive           bool           `json:"is_active" gorm:"default:false"`

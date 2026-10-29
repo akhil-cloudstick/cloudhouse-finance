@@ -76,6 +76,8 @@ func categoryWhere(category string) (string, []interface{}) {
 		return "(((source = ? OR source = ?) AND purpose LIKE ?) OR purpose LIKE ?)", []interface{}{"Loan", "Collection", "%PL-%", "Loan disbursement — PL-%"}
 	case "investment":
 		return "(source = ? OR purpose LIKE ?)", []interface{}{"Investment", "%INV-%"}
+	case "bank pledge":
+		return "(purpose LIKE ?)", []interface{}{"Bank pledge%"}
 	}
 	return "", nil
 }

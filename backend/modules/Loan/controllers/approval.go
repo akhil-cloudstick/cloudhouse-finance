@@ -121,6 +121,7 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 		}
 	}
 	disbursing := false
+	disbursedOn := time.Now() // when the money is recorded as paid out
 	rejected := in.Action == models.ApprovalStageRejected
 	var nextStageLabel string
 	if rejected {
@@ -141,11 +142,16 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 			l.Status = models.StatusActive
 			disbursing = true
 			now := time.Now()
+			// A loan opened on a past date is disbursed on that date: its sanction, payout and cash line carry the
+			// opening date, not the day it was approved. (A loan opened today or later starts when it is paid out.)
+			if o := l.OpenedDate.In(time.Local); o.Format("2006-01-02") < l.CreatedAt.In(time.Local).Format("2006-01-02") {
+				disbursedOn = time.Date(o.Year(), o.Month(), o.Day(), now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), time.Local)
+			}
 			l.SanctionedAmount = l.PrincipalAmount
 			// The customer is paid the principal less the service charge, whether the charge is withheld
 			// from the payout or added to the principal (the loan then carries the charge).
 			l.DisbursedAmount = common.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
-			l.DisbursementDate = &now
+			l.DisbursementDate = &disbursedOn
 			startAccrualAtDisbursement(l, now)
 		}
 	}
@@ -176,7 +182,7 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 	// other way round).
 	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if disbursing {
-			if _, err := cashbook.RecordLoanDisbursementGross(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, payoutParts, nil, l.BranchID, time.Now(), l.CustomerID); err != nil {
+			if _, err := cashbook.RecordLoanDisbursementGross(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, payoutParts, nil, l.BranchID, disbursedOn, l.CustomerID); err != nil {
 				return fmt.Errorf("could not record the disbursement in Cash-in-Hand, loan not approved: %w", err)
 			}
 		}
@@ -193,7 +199,7 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 			LoanID:             l.ID,
 			Amount:             l.DisbursedAmount,
 			Type:               models.PaymentTypeDisbursement,
-			PaidOn:             time.Now(),
+			PaidOn:             disbursedOn,
 			Description:        "Loan disbursed",
 			Method:             common.DeriveMethod(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount),
 			CashAmount:         in.CashAmount,

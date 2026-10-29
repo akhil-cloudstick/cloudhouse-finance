@@ -540,7 +540,9 @@ func findBankPledgeAllByCustomerID(ctx context.Context, customerID uint, from, t
 		Where("loans.customer_id = ?", customerID)
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("loans.loan_number ILIKE ? OR bank_pledge_records.bank_name ILIKE ?", like, like)
+		q = q.Where("loans.loan_number ILIKE ? OR bank_pledge_records.bank_name ILIKE ? OR bank_pledge_records.status ILIKE ?"+
+			" OR to_char(bank_pledge_records.pledge_date, 'DD-MM-YYYY') LIKE ? OR to_char(bank_pledge_records.pledge_date, 'YYYY-MM-DD') LIKE ?",
+			like, like, like, like, like)
 	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))

@@ -19,6 +19,7 @@ import { getPersonalLoan, resolvePersonalLoanNumber, getPersonalLoanSchedulePage
 import { type PersonalLoanApprovalRecord, type PersonalLoanBondLang, type BackendPersonalLoan, type BackendPersonalLoanInstallment, type BackendPersonalLoanHistory, type BackendPersonalLoanPayment } from "@/modules/personal-loans/types/personal-loan-types";
 import { CollectPaymentModalContent } from "@/modules/personal-loans/components/CollectPaymentModalContent";
 import { PersonalLedgerEditModalContent } from "@/modules/personal-loans/components/PersonalLedgerEditModalContent";
+import { LoanLedgerInfoModalContent, type LedgerInfoAction } from "@/modules/loans/components/LoanLedgerInfoModalContent";
 import { RenewLoanModalContent } from "@/modules/personal-loans/components/RenewLoanModalContent";
 import { EsignLanguageModalContent } from "@/modules/loans/components/EsignLanguageModalContent";
 import { navigate, routeHref } from "@/common/services/appRoutes";
@@ -120,7 +121,7 @@ type PersonalLoanDetailPageProps = { id?: string };
 
 export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
   const { can, role, isSystem } = useAuth();
-  const { openModal, closeModal } = useModal();
+  const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
   // Same grants the gold loan ledger uses: editing or deleting recalculates the loan.
   const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
@@ -479,7 +480,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
             <h3>Payment Ledger</h3>
           </div>
           {payments.error && <div className="notice" style={{ margin: 14 }}>{payments.error}</div>}
-          <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center ledger-amt tbl-cards">
+          <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt">
             <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
             <tbody>
               {payments.loading ? (
@@ -503,32 +504,34 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                   <td data-label="Credit" className="num" style={{ color: p.credit ? "var(--green)" : undefined }}>{p.credit ? fmt(p.credit) : "—"}</td>
                   <td data-label="Balance" className="num">
                     {fmt(p.balance)}
-                    {loan && (() => {
+                    {(() => {
                       const isPayment = p.kind === "payment" && p.id > 0 && (!p.part || p.part.index === 0);
                       const isDisbursement = p.kind === "disbursement";
-                      if (!isPayment && !isDisbursement) return null;
-                      const showEdit = canEditLedger;
-                      const showDelete = canDeleteLedger && isPayment; // the disbursement is the loan's start and cannot be deleted
-                      if (!showEdit && !showDelete) return null;
                       // a split payment's bank sits on its UPI / Bank Transfer row, which may not be this first row
                       const bankId = p.bankId ?? payments.items.find((x) => x.kind === p.kind && x.id === p.id && x.bankId)?.bankId ?? null;
                       const entry = isPayment ? { ...p, amount: payments.items.filter((x) => x.kind === "payment" && x.id === p.id).reduce((s, x) => s + x.amount, 0) } : p;
-                      const minDate = (loan.disbursedAt || loan.openedDate || "").slice(0, 10) || undefined;
-                      const onSaved = () => { void refreshLoan(); schedule.reload(); payments.reload(); history.reload(); };
+                      const minDate = ((loan && (loan.disbursedAt || loan.openedDate)) || "").slice(0, 10) || undefined;
+                      const done = () => { void refreshLoan(); schedule.reload(); payments.reload(); history.reload(); closeAllModals(); };
+                      // Edit / Delete live in the entry's info popup and open on top of it
+                      const actions: LedgerInfoAction[] = [];
+                      if (loan && (isPayment || isDisbursement)) {
+                        if (canEditLedger) actions.push({ label: "Edit", icon: "edit", run: () => openChildModal(<PersonalLedgerEditModalContent loanId={loan.id} entry={entry} bankId={bankId} mode="edit" minDate={minDate} onSaved={done} />, true) });
+                        // the disbursement is the loan's start and cannot be deleted
+                        if (canDeleteLedger && isPayment) actions.push({ label: "Delete", icon: "trash", danger: true, run: () => openChildModal(<PersonalLedgerEditModalContent loanId={loan.id} entry={entry} bankId={bankId} mode="delete" onSaved={done} />, true) });
+                      }
                       return (
-                        <span style={{ display: "inline-flex", gap: 8, marginLeft: 8, verticalAlign: "middle" }}>
-                          {showEdit && (
-                            <button type="button" title="Edit this entry" aria-label="Edit this entry" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)" }}
-                              onClick={() => openModal(<PersonalLedgerEditModalContent loanId={loan.id} entry={entry} bankId={bankId} mode="edit" minDate={minDate} onSaved={onSaved} />, true)}>
-                              <Icon name="edit" />
-                            </button>
-                          )}
-                          {showDelete && (
-                            <button type="button" title="Delete this entry" aria-label="Delete this entry" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--red)" }}
-                              onClick={() => openModal(<PersonalLedgerEditModalContent loanId={loan.id} entry={entry} bankId={bankId} mode="delete" onSaved={onSaved} />, true)}>
-                              <Icon name="trash" />
-                            </button>
-                          )}
+                        <span className="ledger-info">
+                          <button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}
+                            onClick={() => openModal(<LoanLedgerInfoModalContent
+                              title={p.particulars}
+                              kind={(p.debit ? "Debit · " : "Credit · ") + p.particulars}
+                              rows={[
+                                ["Date", fmtDate(p.date)], ["Ref no", p.refNo], ["Amount", fmt(entry.debit || entry.credit || 0)],
+                                ["Mode", p.mode || "—"], ...(p.bankName ? [["Bank", p.bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(p.balance)],
+                              ]}
+                              description={<>{p.particulars}{p.part ? <><br />Split {p.part.index + 1} of {p.part.count}</> : null}</>}
+                              actions={actions}
+                            />)}><Icon name="info" /></button>
                         </span>
                       );
                     })()}

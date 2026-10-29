@@ -48,6 +48,7 @@ function movementFilterParams(filters?: CashMovementFilters): URLSearchParams {
   if (filters?.customerIds?.length) params.set("customerIds", filters.customerIds.join(","));
   if (filters?.types?.length) params.set("types", filters.types.join(","));
   if (filters?.modes?.length) params.set("modes", filters.modes.join(","));
+  if (filters?.search) params.set("search", filters.search);
   return params;
 }
 
@@ -198,12 +199,13 @@ export async function listExpenses(): Promise<ExpenseView[]> {
 
 export const EXPENSES_PAGE_SIZE = 8;
 
-export async function listExpensesPage(page: number, limit?: number): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number; totalAmount: number }> {
+export async function listExpensesPage(page: number, limit?: number, search?: string): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number; totalAmount: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = new URLSearchParams({
     limit: String(pageSize),
     offset: String((page - 1) * pageSize),
   });
+  if (search) params.set("search", search);
   const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean; total?: number; totalAmount?: number }>(`/expenses?${params}`);
   return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalAmount: rec?.totalAmount ?? 0 };
 }
@@ -273,7 +275,7 @@ export const GOLD_SALES_PAGE_SIZE = 8;
 export async function listGoldSalesPage(
   page: number,
   limit?: number,
-  filters?: { fromDate?: string; toDate?: string }
+  filters?: { fromDate?: string; toDate?: string; search?: string }
 ): Promise<{ items: GoldSaleView[]; hasMore: boolean; total: number; totalSold: number; totalCost: number; totalProfit: number }> {
   const pageSize = limit ?? GOLD_SALES_PAGE_SIZE;
   const params = new URLSearchParams({
@@ -282,6 +284,7 @@ export async function listGoldSalesPage(
   });
   if (filters?.fromDate) params.set("fromDate", filters.fromDate);
   if (filters?.toDate) params.set("toDate", filters.toDate);
+  if (filters?.search) params.set("search", filters.search);
   const rec = await apiFetch<{ items: BackendGoldSale[]; hasMore: boolean; total?: number; totalSold?: number; totalCost?: number; totalProfit?: number }>(`/gold-sales?${params}`);
   return {
     items: (rec?.items || []).map(goldSaleToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0,
@@ -308,6 +311,7 @@ function partyRangeParams(range?: PartyDateRange): URLSearchParams {
   const params = new URLSearchParams();
   if (range?.fromDate) params.set("fromDate", range.fromDate);
   if (range?.toDate) params.set("toDate", range.toDate);
+  if (range?.search) params.set("search", range.search);
   if (range?.loanNumber) params.set("loanNumber", range.loanNumber);
   if (range?.loanNumbers?.length) params.set("loanNumbers", range.loanNumbers.join(","));
   if (range?.modes?.length) params.set("modes", range.modes.join(","));

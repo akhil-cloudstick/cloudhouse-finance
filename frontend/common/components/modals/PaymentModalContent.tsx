@@ -444,7 +444,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                 <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} /><FieldError msg={fe.mode} />
               </div></div>
               <div className="frow c2">
-                <div className={fe.date ? "has-err" : undefined}><label className="f">Payment Date *</label><DatePicker value={date} min={initialLoan.disbursementDate?.slice(0, 10) || undefined} max={today} onChange={(v) => { clearField("date"); setDate(v); }} /><FieldError msg={fe.date} /></div>
+                <div className={fe.date ? "has-err" : undefined}><label className="f">Payment Date *</label><DatePicker value={date} min={initialLoan.opened?.slice(0, 10) || undefined} max={today} onChange={(v) => { clearField("date"); setDate(v); }} /><FieldError msg={fe.date} /></div>
                 <div className={fe.interest ? "has-err" : undefined}><label className="f">Interest (₹)</label>
                   <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} /><FieldError msg={fe.interest} />
                 </div>
@@ -475,7 +475,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
             </div>
 
             <div className="pay-sec">
-              <div className="pay-sec-t">Payment breakdown <small>How the customer paid</small></div>
+              <div className="pay-sec-t">Payment breakdown</div>
               <div className={fe.split ? "has-err" : undefined}>
                 <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { clearField("split"); setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} label={null} />
                 <FieldError msg={fe.split} />
@@ -504,6 +504,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
             ) : (
               <div className="pay-r-row" style={{ color: "var(--muted)" }}>Enter an amount</div>
             )}
+            {discountNum > 0 && (
+              <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Includes {DISCOUNT_KIND_LABELS[discountKind].toLowerCase()}</span><b>{fmt(discountNum)}</b></div>
+            )}
 
             <div className="pay-r-h pay-r-div">Left on the loan</div>
             <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Principal</span><b>{fmt(principalLeft)}</b></div>
@@ -516,9 +519,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       <div className="ft">
         {/* Never a silently disabled button: whatever is blocking Review
           * (or the server's last rejection) is spelled out here. */}
-        <span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? "Select a bank" : "")) || err}</span>
+        <span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? "Select a bank" : !splitBalanced ? "The payment breakdown must add up to the amount." : "")) || err}</span>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
+        <button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing || !splitBalanced}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
       </div>
       {/* Portalled to <body> so it stacks over the whole Record Payment modal
         * as its own smaller popup instead of replacing its content. React

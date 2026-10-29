@@ -1,6 +1,8 @@
 "use client";
 
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -129,6 +131,18 @@ export function CashPage() {
   // row above and the Expense Register tab are untouched.
   const [movementsFrom, setMovementsFrom] = usePersistedState("cash:from", "");
   const [movementsTo, setMovementsTo] = usePersistedState("cash:to", "");
+  const [movementsQ, setMovementsQ] = usePersistedState("cash:q", "");
+  const [expensesQ, setExpensesQ] = usePersistedState("cash:expenses-q", "");
+  const [goldSalesQ, setGoldSalesQ] = usePersistedState("cash:gold-sales-q", "");
+  const movementsSearch = useDebouncedValue(movementsQ.trim());
+  const expensesSearch = useDebouncedValue(expensesQ.trim());
+  const goldSalesSearch = useDebouncedValue(goldSalesQ.trim());
+  // A new search starts from the first page.
+  const searchMounted = useRef(false);
+  useEffect(() => {
+    if (!searchMounted.current) { searchMounted.current = true; return; }
+    setMovementsPage(1); setExpensesPage(1); setGoldSalesPage(1);
+  }, [movementsSearch, expensesSearch, goldSalesSearch]);
   // Loan/Auction/Collection/Expenses — narrows which cash movements show,
   // same Category* buckets backend/internal/cash/repository.go's FindAll
   // filters on server-side (not a client-side re-filter of loaded rows).
@@ -181,6 +195,7 @@ export function CashPage() {
         { value: "auction", label: "Auction" },
         { value: "collection", label: "Collection" },
         { value: "personal loan", label: "Personal Loan" },
+        { value: "bank pledge", label: "Bank Pledge" },
         { value: "investment", label: "Investment" },
         { value: "expenses", label: "Expenses" },
       ],
@@ -220,6 +235,7 @@ export function CashPage() {
       customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
       types: movementsTypes.length ? movementsTypes : undefined,
       modes: movementsModes.length ? movementsModes : undefined,
+      search: movementsSearch || undefined,
     }).then(({ items, hasMore, total, totalDebit, totalCredit, pageBalance, rowBalances }) => {
       setMovements(items);
       setMovementsPageBalance(pageBalance);
@@ -228,13 +244,13 @@ export function CashPage() {
       setMovementsTotal(total);
       setMovementSums({ debit: totalDebit, credit: totalCredit });
     }).catch(() => { setMovements([]); setMovementsHasMore(false); setMovementsTotal(0); });
-    listExpensesPage(expensesPage, cashPageSize).then(({ items, hasMore, total, totalAmount }) => {
+    listExpensesPage(expensesPage, cashPageSize, expensesSearch || undefined).then(({ items, hasMore, total, totalAmount }) => {
       setExpenses(items);
       setExpensesHasMore(hasMore);
       setExpensesTotal(total);
       setExpenseSum(totalAmount);
     }).catch(() => { setExpenses([]); setExpensesHasMore(false); setExpensesTotal(0); });
-    listGoldSalesPage(goldSalesPage, cashPageSize).then(({ items, hasMore, total, totalSold, totalCost, totalProfit }) => {
+    listGoldSalesPage(goldSalesPage, cashPageSize, { search: goldSalesSearch || undefined }).then(({ items, hasMore, total, totalSold, totalCost, totalProfit }) => {
       setGoldSales(items);
       setGoldSalesHasMore(hasMore);
       setGoldSalesTotal(total);
@@ -248,7 +264,7 @@ export function CashPage() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes]);
+  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes, movementsSearch, expensesSearch, goldSalesSearch]);
 
   useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0 && idsReady, [movements]);
   useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0 && idsReady, [expenses]);
@@ -303,6 +319,7 @@ export function CashPage() {
         customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
         types: movementsTypes.length ? movementsTypes : undefined,
         modes: movementsModes.length ? movementsModes : undefined,
+        search: movementsSearch || undefined,
       });
     } catch {
       toast("Could not download cash movements — try again.");
@@ -423,6 +440,7 @@ export function CashPage() {
             <h3>Ledger</h3>
             <div className="sp" />
             <div className="cash-filter-row" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <TableSearch value={movementsQ} onChange={setMovementsQ} placeholder="Search date, ref no, party, bank, amount…" searches="date, ref no, particulars, mode, bank, party, debit, credit" />
               <FilterPanel
                 categories={movementsFilterCategories}
                 value={movementsFilterValue}
@@ -475,9 +493,10 @@ export function CashPage() {
 
       {activeCashTab === "expenses" && (
         <div className="card tbl-card tbl-card-fill cash-tbl-card">
-          <div className="hd">
+          <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
             <h3>Expense Register</h3>
             <div className="sp" />
+            <TableSearch value={expensesQ} onChange={setExpensesQ} placeholder="Search category, branch, amount…" searches="date, category, payee, amount, mode, branch, status, remarks" />
             {canExport && (
               <button className="btn ghost sm" onClick={downloadExpenses} disabled={downloadingExpenses} title="Download every expense row">
                 <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
@@ -524,9 +543,10 @@ export function CashPage() {
 
       {activeCashTab === "goldSales" && (
         <div className="card tbl-card tbl-card-fill cash-tbl-card">
-          <div className="hd">
+          <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
             <h3>Gold Sales</h3>
             <div className="sp" />
+            <TableSearch value={goldSalesQ} onChange={setGoldSalesQ} placeholder="Search ornament, bank, amount…" searches="date, ornament type, sold for, cost, mode, bank, branch, remarks" />
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
               Total profit {fmt(goldSales.reduce((s, g) => s + g.profit, 0))}
             </span>          </div>

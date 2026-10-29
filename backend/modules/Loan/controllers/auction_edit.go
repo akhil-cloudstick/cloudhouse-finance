@@ -11,6 +11,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -75,8 +77,8 @@ type auctionState struct {
 
 func sameDay(a, b time.Time) bool { return a.Format("2006-01-02") == b.Format("2006-01-02") }
 
-// loadAuctionState locks the loan and its sold auction case, finds the sale and write-off rows and proves the
-// loan's history can be recalculated untouched before anything is changed.
+// loadAuctionState locks the loan and its sold auction case and finds the sale and write-off rows. The loan's earlier
+// history is not replayed: an auction edit works from the loan's own figures.
 func loadAuctionState(ctx context.Context, tx *gorm.DB, loanID uint) (*auctionState, error) {
 	l, err := lockByID(ctx, tx, loanID)
 	if err != nil {
@@ -127,10 +129,23 @@ func loadAuctionState(ctx context.Context, tx *gorm.DB, loanID uint) (*auctionSt
 		return nil, err
 	}
 
-	if err := probeReplay(ctx, tx, l, rows, st.originalStatus); err != nil {
-		return nil, err
-	}
 	return st, nil
+}
+
+// takeOffLoan takes what a saved row applied back off the loan's figures: the balance as it stood before that row.
+func takeOffLoan(l *models.Loan, p models.LoanPayment) {
+	l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee + p.ProcessingFeeApplied)
+	l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid - p.PenalInterestApplied)
+	l.InterestPaid = common.RoundMoney(l.InterestPaid - p.InterestApplied)
+	l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount + p.PrincipalApplied)
+}
+
+// putOnLoan applies an allocation to the loan's figures, the way recording the row did.
+func putOnLoan(l *models.Loan, fee, penal, interest, principal float64) {
+	l.OutstandingProcessingFee = common.RoundMoney(math.Max(0, l.OutstandingProcessingFee-fee))
+	l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
+	l.InterestPaid = common.RoundMoney(l.InterestPaid + interest)
+	l.OutstandingAmount = common.RoundMoney(math.Max(0, l.OutstandingAmount-principal))
 }
 
 // debtAt replays rows on a copy of l and returns the total owed on the given date.
@@ -234,15 +249,15 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 		res.Current = cur
 		others := append([]models.LoanPayment{}, st.rows[:st.saleIdx]...)
 
-		// the sale must reproduce from the loan before it, or what is saved cannot be explained
-		oldDebt, err := debtAt(ctx, tx, l, others, sale.PaidOn, sale.CreatedAt, st.originalStatus)
-		if err != nil {
-			return common.NewConflict("this loan's history cannot be recalculated safely: " + err.Error())
+		// the balance just before the sale: the loan as it is now with the sale (and a write-off after it) taken off,
+		// so every payment the customer made is already in it
+		before := *l
+		if st.woIdx >= 0 {
+			takeOffLoan(&before, st.rows[st.woIdx])
 		}
-		oldOut := computeSaleOutcome(rec.SaleAmount, rec.AuctionExpenses, oldDebt)
-		if differs(oldOut.Applied, sale.Amount) || differs(oldOut.Diff, rec.SurplusShortfall) {
-			return common.NewConflict(fmt.Sprintf("this auction's figures cannot be reproduced exactly (the sale applied Rs %.2f saved vs Rs %.2f recalculated), so it cannot be edited safely", sale.Amount, oldOut.Applied))
-		}
+		takeOffLoan(&before, sale)
+		oldDebt := summarize(&before).Total
+		after := before
 
 		var out saleOutcome
 		saleDate := sale.PaidOn
@@ -315,11 +330,7 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			if err != nil {
 				return err
 			}
-			newDebt, err := debtAt(ctx, tx, l, others, saleDate, sale.CreatedAt, st.originalStatus)
-			if err != nil {
-				return common.NewBadRequest(err.Error())
-			}
-			out = computeSaleOutcome(saleAmount, expenses, newDebt)
+				out = computeSaleOutcome(saleAmount, expenses, oldDebt)
 			if out.Applied <= auctionMoneyTolerance {
 				return common.NewBadRequest("the sale leaves nothing to apply to the loan on that date (the net proceeds or the amount owed is zero)")
 			}
@@ -332,15 +343,17 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			newSale = sale
 			newSale.Amount, newSale.PaidOn = out.Applied, saleDate
 			newSale.CashAmount, newSale.UpiAmount, newSale.BankTransferAmount, newSale.BankID = ac, au, ab, abID
-			newSale.Method = common.DeriveMethod(ac, au, ab, 0)
+				newSale.Method = common.DeriveMethod(ac, au, ab, 0)
 			newSale.Description = fmt.Sprintf("Auction proceeds applied (sale Rs %.2f less expenses Rs %.2f)", saleAmount, expenses)
+			fee, penal, interest, principal, err := allocatePayment(&after, models.PaymentTypeAuctionSale, out.Applied, nil)
+			if err != nil {
+				return common.NewBadRequest(err.Error())
+			}
+			newSale.ProcessingFeeApplied, newSale.PenalInterestApplied, newSale.InterestApplied, newSale.PrincipalApplied = fee, penal, interest, principal
+			putOnLoan(&after, fee, penal, interest, principal)
+			newSale.RunningBalance = summarize(&after).Total
 			if st.woIdx >= 0 && !out.Covered {
-				wo := st.rows[st.woIdx]
-				nw, err := debtAt(ctx, tx, l, append(append([]models.LoanPayment{}, others...), newSale), wo.PaidOn, wo.CreatedAt, st.originalStatus)
-				if err != nil {
-					return common.NewBadRequest(err.Error())
-				}
-				newWriteOff = nw
+				newWriteOff = summarize(&after).Total
 			}
 		}
 
@@ -399,9 +412,19 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			plan = planCase(out, decStatus, keepSettlement, settledDisp, shortfallChain.Off())
 		}
 
-		if err := replayLoan(ctx, tx, l, edited, st.originalStatus); err != nil {
-			return common.NewBadRequest(err.Error())
+		// a write-off that stays is applied on the balance the sale leaves
+		if st.woIdx >= 0 && !removeWriteOff {
+			wo := &edited[len(edited)-1]
+			if depApplied(DependentWriteOff) {
+				fee, penal, interest, principal, err := allocatePayment(&after, models.PaymentTypeAuctionWriteOff, wo.Amount, nil)
+				if err != nil {
+					return common.NewBadRequest(err.Error())
+				}
+				wo.ProcessingFeeApplied, wo.PenalInterestApplied, wo.InterestApplied, wo.PrincipalApplied = fee, penal, interest, principal
+			}
+			putOnLoan(&after, wo.ProcessingFeeApplied, wo.PenalInterestApplied, wo.InterestApplied, wo.PrincipalApplied)
 		}
+		l.OutstandingProcessingFee, l.PenalInterestPaid, l.InterestPaid, l.OutstandingAmount = after.OutstandingProcessingFee, after.PenalInterestPaid, after.InterestPaid, after.OutstandingAmount
 		l.Status = plan.LoanStatus
 		if undo {
 			l.AuctionDate, l.AuctionAmount = nil, nil
@@ -564,10 +587,12 @@ func editAuctionWriteOff(ctx context.Context, loanID uint, newDate *time.Time, a
 		before := append([]models.LoanPayment{}, st.rows[:st.woIdx]...)
 		owed, err := debtAt(ctx, tx, l, before, wo.PaidOn, wo.CreatedAt, st.originalStatus)
 		if err != nil {
-			return common.NewConflict("this loan's history cannot be recalculated safely: " + err.Error())
+			log.Printf("auction edit refused: history cannot be recalculated: %v", err)
+			return common.NewConflict("This auction can't be edited: the loan's history can't be recalculated.")
 		}
 		if differs(owed, wo.Amount) {
-			return common.NewConflict(fmt.Sprintf("this write-off (Rs %.2f) cannot be reproduced exactly (Rs %.2f recalculated), so it cannot be edited safely", wo.Amount, owed))
+			log.Printf("write-off edit refused: %.2f saved vs %.2f recalculated", wo.Amount, owed)
+			return common.NewConflict("This write-off can't be edited: its figures don't recalculate exactly.")
 		}
 		if st.dec == nil || st.dec.Status != decisionStatusWriteOff {
 			return common.NewConflict("this write-off has no recorded write-off decision, so it cannot be edited safely")

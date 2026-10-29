@@ -8,7 +8,9 @@ import { RateModalContent } from "@/common/components/modals/RateModalContent";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { listGoldRateDaysPage } from "@/modules/gold-rates/services/goldRateService";
-import { DatePicker } from "@/common/components/ui/DatePicker";
+import { FilterPanel, type FilterCategory } from "@/common/components/ui/FilterPanel";
+import { TableSearch } from "@/common/components/ui/TableSearch";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { type GoldRateView } from "@/modules/gold-rates/types/gold-rate-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useResponsivePageSize, useScrollPageSize, useIsSmallScreen } from "@/common/utils/responsive";
@@ -59,8 +61,17 @@ export function GoldRatesPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  // "YYYY-MM-DD", or "" for every day.
-  const [day, setDay] = useState("");
+  // "YYYY-MM-DD", or "" for no limit.
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const filterCategories: FilterCategory[] = [{ key: "date", label: "Date", kind: "date" }];
+  // The typed search, and the value sent to the server once typing pauses.
+  const [q, setQ] = usePersistedState("gold-rates:q", "");
+  const [sentQ, setSentQ] = useState(q);
+  useEffect(() => {
+    const handle = setTimeout(() => { setSentQ(q); setPage(1); }, q === sentQ ? 0 : 300);
+    return () => clearTimeout(handle);
+  }, [q, sentQ]);
   // Days whose list of changes is open.
   const [openDays, setOpenDays] = useState<Set<string>>(new Set());
   const toggleDay = (d: string) => setOpenDays((cur) => { const next = new Set(cur); if (next.has(d)) next.delete(d); else next.add(d); return next; });
@@ -69,7 +80,7 @@ export function GoldRatesPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listGoldRateDaysPage(page, pageSize, day || undefined)
+    listGoldRateDaysPage(page, pageSize, from || undefined, to || undefined, sentQ)
       .then((res) => {
         if (cancelled) return;
         setRows(res.items);
@@ -79,7 +90,7 @@ export function GoldRatesPage() {
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, pageSize, version, day]);
+  }, [page, pageSize, version, from, to, sentQ]);
 
   return (
     <>
@@ -103,11 +114,14 @@ export function GoldRatesPage() {
         <div className="hd">
           <h3>Rate History</h3>
           <div className="sp" />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 170 }}>
-              <DatePicker value={day} onChange={(v) => { setDay(v); setPage(1); }} placeholder="Filter by date…" max={new Date().toISOString().slice(0, 10)} />
-            </div>
-            {day && <button className="btn plain sm" onClick={() => { setDay(""); setPage(1); }}>Clear</button>}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <TableSearch value={q} onChange={setQ} placeholder="Search rates…" searches="date, 24K, 22K, 18K rate, set by" />
+            <FilterPanel
+              categories={filterCategories}
+              value={{ __dateFrom: from || undefined, __dateTo: to || undefined }}
+              onChange={(next) => { setFrom(next.__dateFrom || ""); setTo(next.__dateTo || ""); setPage(1); }}
+              hideChips
+            />
           </div>
         </div>
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
@@ -120,7 +134,7 @@ export function GoldRatesPage() {
               {loading && !(cards && rows.length > 0) ? (
                 <tr><td colSpan={5} className="empty">Loading rate history…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={5} className="empty">{day ? "No rates were published on this date." : "No rates published yet."}</td></tr>
+                <tr><td colSpan={5} className="empty">{from || to ? "No rates were published in this date range." : "No rates published yet."}</td></tr>
               ) : rows.map((r) => {
                 // One row per day showing its newest rate; the day's changes sit behind it.
                 const entries = r.entries && r.entries.length ? r.entries : [r];
@@ -145,9 +159,9 @@ export function GoldRatesPage() {
                       <td className="num" data-label="18K ₹/g">{fmt(r.k18)}</td>
                       <td data-label="Published By"><PublishedBy r={r} /></td>
                     </tr>
-                    {open && entries.map((e, i) => (
+                    {open && entries.map((e) => (
                       <tr key={e.id} style={{ background: "var(--bg-soft, #f6f6f8)" }}>
-                        <td data-label="Time" style={{ paddingLeft: 36 }}>{timeOf(e.createdAt)}{i === 0 && <span className="chip" style={{ marginLeft: 6 }}>Latest</span>}</td>
+                        <td data-label="Time" style={{ paddingLeft: 36 }}>{timeOf(e.createdAt)}</td>
                         <td className="num" data-label="24K ₹/g">{fmt(e.k24)}</td>
                         <td className="num" data-label="22K ₹/g">{fmt(e.k22)}</td>
                         <td className="num" data-label="18K ₹/g">{fmt(e.k18)}</td>

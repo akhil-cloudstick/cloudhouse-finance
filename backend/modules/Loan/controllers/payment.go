@@ -114,13 +114,13 @@ func allocateDiscountKind(l *models.Loan, amount float64, kind string) (penal, i
 
 // applyDiscountTx takes in.Discount off the loan (penal, then interest, then principal) and writes its ledger row.
 // The row moves no cash: the company gives up the amount instead of receiving it.
-func applyDiscountTx(ctx context.Context, tx *gorm.DB, l *models.Loan, in PaymentInput) error {
+func applyDiscountTx(ctx context.Context, tx *gorm.DB, l *models.Loan, in PaymentInput) (*models.LoanPayment, error) {
 	penal, interest, principal, err := allocateDiscountKind(l, in.Discount, in.DiscountKind)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if common.RoundMoney(in.Discount-(penal+interest+principal)) > 0.01 {
-		return common.NewBadRequest("the discount cannot exceed what is owed on the loan")
+		return nil, common.NewBadRequest("the discount cannot exceed what is owed on the loan")
 	}
 	l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
 	l.InterestPaid = common.RoundMoney(l.InterestPaid + interest)
@@ -145,15 +145,19 @@ func applyDiscountTx(ctx context.Context, tx *gorm.DB, l *models.Loan, in Paymen
 		PrincipalApplied:     principal,
 		RunningBalance:       l.OutstandingAmount + math.Max(0, outstandingInterest) + math.Max(0, outstandingPenal) + l.OutstandingProcessingFee,
 	}
-	return createPaymentTx(ctx, tx, row)
+	if err := createPaymentTx(ctx, tx, row); err != nil {
+		return nil, err
+	}
+	return row, nil
 }
 
 // validatePaymentDateWindow rejects a staff-chosen payment date before the loan started or in the future.
 // Dates are compared as calendar days so the time of day never decides the outcome.
 func validatePaymentDateWindow(l *models.Loan, paidOn time.Time) error {
 	const layout = "2006-01-02"
+	// The loan's own opening date is the floor, even when the money was handed out later (a backdated loan).
 	floor := l.OpenedDate
-	if l.DisbursementDate != nil {
+	if l.DisbursementDate != nil && l.DisbursementDate.Before(floor) {
 		floor = *l.DisbursementDate
 	}
 	day := paidOn.Format(layout)
@@ -416,10 +420,13 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 		if now := time.Now(); !in.PaidOn.After(now) && in.PaidOn.Format("2006-01-02") == now.Format("2006-01-02") {
 			in.PaidOn = now
 		}
+		var discountRow *models.LoanPayment
 		if in.Discount > 0 {
-			if err := applyDiscountTx(ctx, tx, l, in); err != nil {
+			row, err := applyDiscountTx(ctx, tx, l, in)
+			if err != nil {
 				return err
 			}
+			discountRow = row
 		}
 		if in.ProcessingFee > 0 {
 			l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee + in.ProcessingFee)
@@ -485,6 +492,11 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 		}
 		if err := createPaymentTx(ctx, tx, p); err != nil {
 			return err
+		}
+		if discountRow != nil { // the discount that came with this payment points at it
+			if err := tx.Model(&models.LoanPayment{}).Where("id = ?", discountRow.ID).Update("linked_payment_id", p.ID).Error; err != nil {
+				return err
+			}
 		}
 		if !isCashPaymentType(in.Type) {
 			return nil
@@ -602,7 +614,10 @@ func findByCustomerIDForProfile(ctx context.Context, customerID uint, from, to *
 		Where("loans.customer_id = ?", customerID)
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("loans.loan_number ILIKE ? OR loan_payments.type ILIKE ? OR loan_payments.method ILIKE ?", like, like, like)
+		q = q.Where("loans.loan_number ILIKE ? OR loan_payments.type ILIKE ? OR loan_payments.method ILIKE ?"+
+			" OR to_char(loan_payments.paid_on, 'DD-MM-YYYY') LIKE ? OR to_char(loan_payments.paid_on, 'YYYY-MM-DD') LIKE ?"+
+			" OR CAST(loan_payments.amount AS TEXT) LIKE ?",
+			like, like, like, like, like, "%"+strings.ReplaceAll(search, ",", "")+"%")
 	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))

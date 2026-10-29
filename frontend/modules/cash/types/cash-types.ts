@@ -113,7 +113,7 @@ export type CashMovementInput = {
 // "" (CategoryAll) applies no filter. Kept as a plain string union rather
 // than an enum so a stray unrecognized value just falls through to "no
 // filter" server-side instead of a client-side type error.
-export type CashMovementCategory = "" | "loan" | "auction" | "collection" | "expenses" | "personal loan" | "investment";
+export type CashMovementCategory = "" | "loan" | "auction" | "collection" | "expenses" | "personal loan" | "investment" | "bank pledge";
 export type CashMovementFilters = {
   fromDate?: string;
   toDate?: string;
@@ -128,6 +128,7 @@ export type CashMovementFilters = {
   types?: CashMovementCategory[];
   // Cash / UPI / Bank Transfer — the Ledger filter's Mode section.
   modes?: string[];
+  search?: string;
 };
 /* Bank-to-bank self transfer — the backend writes a debit row on the from
  * bank and a credit row on the to bank (see POST /cash-movements/self-transfer).
@@ -383,7 +384,7 @@ export type PartyTotals = {
 };
 // loanNumbers is the customer drilldown's Loan filter, now multi-select —
 // loanNumber (singular) is kept for any caller still passing exactly one.
-export type PartyDateRange = { focusDate?: string; focusAmount?: number; fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
+export type PartyDateRange = { search?: string; focusDate?: string; focusAmount?: number; fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
 /* Combined ledger row shape returned by the customer/bank drill-down
  * endpoints (backend/internal/cash/ledger.go's LedgerRow) — a UNION of
  * CashMovement/LoanPayment/PersonalLoanPayment/GoldSale rows, not just plain

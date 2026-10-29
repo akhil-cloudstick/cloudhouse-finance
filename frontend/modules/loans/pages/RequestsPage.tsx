@@ -178,16 +178,15 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-cards">
             <thead>
-              <tr><th>Request</th><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
+              <tr><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
             </thead>
             <tbody>
               {loading && !(cards && reqs.length > 0) ? (
-                <tr><td colSpan={8} className="empty">Loading requests…</td></tr>
+                <tr><td colSpan={7} className="empty">Loading requests…</td></tr>
               ) : reqs.length === 0 ? (
-                <tr><td colSpan={8} className="empty">No extension or release requests yet.</td></tr>
+                <tr><td colSpan={7} className="empty">No extension or release requests yet.</td></tr>
               ) : reqs.map((r) => (
                 <tr key={r.id}>
-                  <td data-label="Request"><span className="id">#{r.id}</span></td>
                   <td data-label="Type">
                     <span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type}</span>
                     {/* Only meaningful for Release — flags at a glance which

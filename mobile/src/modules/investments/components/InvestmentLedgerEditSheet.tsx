@@ -162,11 +162,6 @@ export function InvestmentLedgerEditSheet({ investmentId, row: r, mode, live, mi
       visible={!!r}
       onClose={onClose}
       title={`${mode === "delete" ? "Delete" : "Edit"} ${KIND_LABEL[kind] || "entry"}`}
-      notice={
-        live
-          ? "The investment is recalculated from its first day, so interest, later entries, balances and the cash ledger update to match this change."
-          : "The change is applied to the investment and its cash-ledger line is rewritten to match."
-      }
       mode={mode}
       form={form}
       deleteText={`Delete the ${KIND_LABEL[kind] || "entry"} of ${inr(fixedAmount)} dated ${(r?.date ?? "").slice(0, 10)}? Its cash-ledger line is removed too.${isPayout ? " The payout goes back to Pending." : ""}`}

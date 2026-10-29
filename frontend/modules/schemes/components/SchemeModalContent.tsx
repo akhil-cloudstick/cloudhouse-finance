@@ -10,7 +10,7 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { createScheme, updateScheme } from "@/modules/schemes/services/schemeService";
-import { type SchemeView, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
+import { type AccrualBasis, type SchemeView, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
 import { Select } from "@/common/components/ui/Select";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -45,7 +45,11 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   name: /name/i,
 };
 const METHOD_OPTIONS = METHODS.map((m) => ({ value: m, label: m }));
-const STATUS_OPTIONS = [{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }];
+const ACCRUAL_OPTIONS: { value: AccrualBasis; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "monthly", label: "Monthly" },
+];
+const STATUS_OPTIONS =[{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }];
 const CHARGE_TYPE_OPTIONS: { value: ServiceChargeType; label: string }[] = [
   { value: "None", label: "No service charge" },
   { value: "Flat", label: "Flat amount (₹)" },
@@ -71,6 +75,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
   const [tiers, setTiers] = useState<TierDraft[]>(
     s?.rateTiers?.length ? s.rateTiers.map((t, i, a) => ({ days: i === a.length - 1 ? "" : String(t.days), rate: String(t.rate) })) : EMPTY_TIERS
   );
+  const [accrualBasis, setAccrualBasis] = useState<AccrualBasis>(s?.accrualBasis || "daily");
   const [minDays, setMinDays] = useState(String(s ? s.minimumDays || 0 : 30));
   const isMultiple = method === MULTIPLE_INTEREST;
   const [penal, setPenal] = useState(s ? String(s.penal) : "");
@@ -141,7 +146,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
       ? tiers.map((t, i) => ({ days: i === tiers.length - 1 ? 0 : parseInt(t.days, 10), rate: parseFloat(t.rate) }))
       : [];
     const input = {
-      name: n, rate: r, rateTiers, minimumDays: parseInt(minDays, 10) || 0, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active, branchId: branchId as number,
+      name: n, rate: r, rateTiers, minimumDays: parseInt(minDays, 10) || 0, durationMonths: d, ltv: l, penal: p, accrualBasis, method, cond: cond.trim(), active, branchId: branchId as number,
       serviceChargeType: chargeType, serviceChargeValue: cv,
     };
     setSaving(true);
@@ -165,6 +170,10 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
   const statusField = (
     <div><label className="f">Status</label>
       <Select options={STATUS_OPTIONS} value={active ? "1" : "0"} onChange={(v) => setActive(v === "1")} /></div>
+  );
+  const accrualField = (
+    <div><label className="f">Accrual Method</label>
+      <Select options={ACCRUAL_OPTIONS} value={accrualBasis} onChange={(v) => setAccrualBasis(v as AccrualBasis)} /></div>
   );
   const penalField = (
     <div className={fe.penal ? "has-err" : undefined}><label className="f">Penal Charges (% p.a.) *</label>
@@ -216,10 +225,16 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
           <div><label className="f">Minimum Period (days)</label><input className="inp" inputMode="numeric" value={minDays} onChange={(e) => setMinDays(cleanNum(e.target.value, false))} /></div>
         </div>
         {!isMultiple && (
-          <div className="frow c2 scheme-frow">
-            <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" inputMode="decimal" placeholder="12.5" value={rate} onChange={(e) => { setRate(cleanNum(e.target.value, true)); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
-            {penalField}
-          </div>
+          <>
+            <div className="frow c2 scheme-frow">
+              <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" inputMode="decimal" placeholder="12.5" value={rate} onChange={(e) => { setRate(cleanNum(e.target.value, true)); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
+              {accrualField}
+            </div>
+            <div className="frow c2 scheme-frow">
+              {penalField}
+              <div />
+            </div>
+          </>
         )}
         {isMultiple && (
           <div className={fe.tiers ? "has-err scheme-frow" : "scheme-frow"} style={{ marginBottom: 12 }}>
@@ -255,8 +270,8 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
         )}
         {isMultiple && (
           <div className="frow c2 scheme-frow">
+            {accrualField}
             {penalField}
-            <div />
           </div>
         )}
         <div className="scheme-sec">Charges &amp; status</div>

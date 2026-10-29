@@ -99,7 +99,39 @@ type auctionSnapshot struct {
 	WriteOff           *writeOffSnap
 }
 
-func auctionMoney(v float64) string { return fmt.Sprintf("Rs %.2f", v) }
+// auctionMoney writes an amount the way the screens do: ₹ and Indian digit grouping, e.g. ₹1,69,780.00
+func auctionMoney(v float64) string {
+	whole, frac := math.Modf(math.Abs(v))
+	digits := fmt.Sprintf("%.0f", whole)
+	if n := len(digits); n > 3 {
+		head, tail := digits[:n-3], digits[n-3:]
+		var parts []string
+		for len(head) > 2 {
+			parts = append([]string{head[len(head)-2:]}, parts...)
+			head = head[:len(head)-2]
+		}
+		if head != "" {
+			parts = append([]string{head}, parts...)
+		}
+		digits = strings.Join(parts, ",") + "," + tail
+	}
+	sign := ""
+	if v < 0 {
+		sign = "-"
+	}
+	return fmt.Sprintf("%s₹%s.%02d", sign, digits, int(math.Round(frac*100)))
+}
+
+// surplusWording names a surplus settlement the way a person would say it.
+func surplusWording(disposition string) string {
+	switch disposition {
+	case AuctionSurplusRefundedToCustomer:
+		return "refunded to the customer"
+	case "RecordedAsIncome":
+		return "kept as company income"
+	}
+	return disposition
+}
 
 func differs(a, b float64) bool { return math.Abs(a-b) > auctionMoneyTolerance }
 
@@ -110,14 +142,14 @@ func detectDependents(snap auctionSnapshot, out saleOutcome, newWriteOff float64
 	if snap.SurplusDisposition != "" {
 		switch {
 		case undo:
-			deps = append(deps, AuctionDependent{Kind: DependentSurplusSettlement, ID: snap.RecordID, Description: "Surplus settlement (" + snap.SurplusDisposition + ")",
-				Current: auctionMoney(snap.SurplusAmount) + " settled", Suggested: "Remove the settlement", Required: true})
+			deps = append(deps, AuctionDependent{Kind: DependentSurplusSettlement, ID: snap.RecordID, Description: "Surplus settlement, " + surplusWording(snap.SurplusDisposition),
+				Current: auctionMoney(snap.SurplusAmount) + " settled", Suggested: "Remove this settlement", Required: true})
 		case differs(out.Surplus, snap.SurplusAmount):
-			sug := "Settle " + auctionMoney(out.Surplus)
+			sug := "Change it to " + auctionMoney(out.Surplus)
 			if out.Surplus <= auctionMoneyTolerance {
-				sug = "No surplus is left, so the settlement is removed"
+				sug = "No surplus is left, so remove this settlement"
 			}
-			deps = append(deps, AuctionDependent{Kind: DependentSurplusSettlement, ID: snap.RecordID, Description: "Surplus settlement (" + snap.SurplusDisposition + ")",
+			deps = append(deps, AuctionDependent{Kind: DependentSurplusSettlement, ID: snap.RecordID, Description: "Surplus settlement, " + surplusWording(snap.SurplusDisposition),
 				Current: auctionMoney(snap.SurplusAmount) + " settled", Suggested: sug, Required: true})
 		}
 	}

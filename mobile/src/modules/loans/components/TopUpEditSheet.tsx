@@ -93,7 +93,6 @@ export function TopUpEditSheet({ loanId, loanStart, topUp: t, mode, onClose }: P
       visible={!!t}
       onClose={onClose}
       title={`${mode === "delete" ? "Delete" : "Edit"} top-up`}
-      notice="The loan is recalculated from its first day, so its principal, interest, later payments, balances and the cash ledger update to match."
       mode={mode}
       form={form}
       deleteText={`Delete the top-up of ${inr(t?.amount ?? 0)} dated ${(t?.occurredOn ?? "").slice(0, 10)}? Its cash-ledger lines are removed, the loan's principal goes back down by that amount, and any interest settled from its payout is removed too.`}

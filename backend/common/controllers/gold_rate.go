@@ -6,6 +6,7 @@ import (
 	"cloudhouse/backend/config"
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -175,13 +176,18 @@ func listGoldRates(ctx context.Context, limit, offset int) ([]commonModels.GoldR
 	return FindGoldRates(ctx, limit, offset)
 }
 
-// findGoldRateDays pages over calendar days (not rows), optionally narrowed to one day, newest day first.
-func findGoldRateDays(ctx context.Context, day string, limit, offset int) ([]GoldRateDay, int64, error) {
+// findGoldRateDays pages over calendar days (not rows), optionally narrowed to a from / to range of days, newest day first.
+func findGoldRateDays(ctx context.Context, from, to, search string, limit, offset int) ([]GoldRateDay, int64, error) {
 	base := func() *gorm.DB {
 		q := config.DB.WithContext(ctx).Model(&commonModels.GoldRate{})
-		if day != "" {
-			q = q.Where("CAST(date AS DATE) = ?", day)
+		if from != "" {
+			q = q.Where("CAST(date AS DATE) >= ?", from)
 		}
+		if to != "" {
+			q = q.Where("CAST(date AS DATE) <= ?", to)
+		}
+		// A day is listed when any of its rates matches: its date (as stored or as shown), a rate, or who set it.
+		q = ApplySearch(q, search, "CAST(date AS DATE)", "to_char(date, 'DD-MM-YYYY')", "to_char(date, 'DD/MM/YYYY')", "k24", "k22", "k18", "set_by")
 		return q
 	}
 	var total int64
@@ -263,13 +269,19 @@ func ListGoldRates(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := PageParams(c)
 	if c.QueryParam("group") == "day" {
-		day := c.QueryParam("date")
-		if day != "" {
-			if _, err := time.Parse("2006-01-02", day); err != nil {
+		from, to := c.QueryParam("from"), c.QueryParam("to")
+		if day := c.QueryParam("date"); day != "" {
+			from, to = day, day
+		}
+		for _, d := range []string{from, to} {
+			if d == "" {
+				continue
+			}
+			if _, err := time.Parse("2006-01-02", d); err != nil {
 				return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid date: expected YYYY-MM-DD"})
 			}
 		}
-		rec, total, err := findGoldRateDays(ctx, day, limit, offset)
+		rec, total, err := findGoldRateDays(ctx, from, to, strings.TrimSpace(c.QueryParam("search")), limit, offset)
 		if err != nil {
 			return FailErr(c, err)
 		}

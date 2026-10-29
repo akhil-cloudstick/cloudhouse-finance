@@ -188,7 +188,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
           <Icon name="unlock" /> {allSelected ? `${fmtW(loan.totalNetWeight)} gold pledged` : `${selected.size} of ${pledged.length} ornaments selected`} 
         </div>
         <div className="frow c2">
-          <div><label className="f">Request Date *</label><DatePicker value={requestedOn} min={loan.disbursementDate?.slice(0, 10) || undefined} max={today} onChange={setRequestedOn} /></div>
+          <div><label className="f">Request Date *</label><DatePicker value={requestedOn} min={loan.opened?.slice(0, 10) || undefined} max={today} onChange={setRequestedOn} /></div>
           <div><label className="f">Note</label><input className="inp" placeholder="optional detail" value={detail} onChange={(e) => setDetail(e.target.value)} /></div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

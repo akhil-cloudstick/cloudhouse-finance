@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -391,7 +392,8 @@ func editLiveTransaction(ctx context.Context, tx *gorm.DB, inv *models.Investmen
 		opening = txs[0].PrincipalBefore
 	}
 	if diff := checkPrincipalChain(opening, txs, inv); diff != "" {
-		return "", common.NewConflict("this investment's history cannot be reproduced exactly, so it cannot be edited safely (" + diff + ")")
+		log.Printf("investment ledger edit refused: history not reproduced: %s", diff)
+		return "", common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
 	}
 	old := txs[idx]
 	oldBank := movementBank(ctx, old.CashMovementID)
@@ -518,7 +520,8 @@ func editOpeningDeposit(ctx context.Context, tx *gorm.DB, inv *models.Investment
 			opening = txs[0].PrincipalBefore
 		}
 		if diff := checkPrincipalChain(opening, txs, inv); diff != "" {
-			return "", common.NewConflict("this investment's history cannot be reproduced exactly, so it cannot be edited safely (" + diff + ")")
+			log.Printf("investment ledger edit refused: history not reproduced: %s", diff)
+			return "", common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
 		}
 	} else {
 		if n := countPaid(ctx, tx, inv.ID); n > 0 {
