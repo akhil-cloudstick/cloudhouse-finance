@@ -261,7 +261,7 @@ export async function getCustomer360(
  * page fills it exactly without the card growing. */
 export const CUSTOMER_SUBTABLE_PAGE_SIZE = 10;
 
-function subTableParams(page: number, range?: { from?: string; to?: string }, limit?: number): URLSearchParams {
+function subTableParams(page: number, range?: { from?: string; to?: string; search?: string }, limit?: number): URLSearchParams {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
     limit: String(pageSize),
@@ -269,13 +269,14 @@ function subTableParams(page: number, range?: { from?: string; to?: string }, li
   });
   if (range?.from) params.set("from", range.from);
   if (range?.to) params.set("to", range.to);
+  if (range?.search) params.set("search", range.search);
   return params;
 }
 
 export async function listCustomerLoansPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
@@ -286,7 +287,7 @@ export async function listCustomerLoansPage(
 export async function listCustomerOrnamentsPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: CustomerOrnamentRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
@@ -297,7 +298,7 @@ export async function listCustomerOrnamentsPage(
 export async function listCustomerPaymentsPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: CustomerPaymentRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
@@ -308,7 +309,7 @@ export async function listCustomerPaymentsPage(
 export async function listCustomerBankPledgesPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: CustomerBankPledgeRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
@@ -319,7 +320,7 @@ export async function listCustomerBankPledgesPage(
 export async function listCustomerAuctionHistoryPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: CustomerAuctionRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);

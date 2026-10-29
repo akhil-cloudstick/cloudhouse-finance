@@ -110,8 +110,24 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		oldTopUp = &old
 
 		// The loan is first recalculated untouched: if that does not reproduce what is saved, an edit would
-		// silently change figures this recalculation cannot explain.
-		if err := probeReplay(ctx, tx, l, rows, originalStatus); err != nil {
+		// silently change figures this recalculation cannot explain. Only the entries from the top-up's date on
+		// (the earlier of its old and new date) are recalculated; what was saved before it is kept as it is.
+		// Multiple-interest loans restate earlier interest rows when the rate steps, so they are recalculated whole.
+		earliest := old.OccurredOn
+		if in != nil && in.OccurredOn != nil && in.OccurredOn.Before(earliest) {
+			earliest = *in.OccurredOn
+		}
+		from := len(rows)
+		for i := range rows {
+			if !rows[i].PaidOn.Before(earliest) {
+				from = i
+				break
+			}
+		}
+		if l.SchemeInterestMethod == commonModels.InterestMethodMultiple {
+			from = 0
+		}
+		if err := probeReplayFrom(ctx, tx, l, rows, originalStatus, from); err != nil {
 			return err
 		}
 
@@ -199,7 +215,7 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		}
 		l.PrincipalAmount = common.RoundMoney(initial + newSum)
 
-		if err := replayLoan(ctx, tx, l, edited, originalStatus); err != nil {
+		if err := replayLoanFrom(ctx, tx, l, edited, originalStatus, from); err != nil {
 			return common.NewBadRequest(err.Error())
 		}
 		if in != nil && in.Amount != nil && t.Amount > old.Amount+0.005 {

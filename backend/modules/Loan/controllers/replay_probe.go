@@ -4,6 +4,7 @@ import (
 	common "cloudhouse/backend/common/controllers"
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
+	"log"
 	"math"
 
 	"gorm.io/gorm"
@@ -42,12 +43,14 @@ func probeReplayFrom(ctx context.Context, tx *gorm.DB, l *models.Loan, rows []mo
 		probeRows := make([]models.LoanPayment, len(rows))
 		copy(probeRows, rows)
 		if err := replayLoanFrom(ctx, tx, &probe, probeRows, originalStatus, from); err != nil {
-			return common.NewConflict("this loan's history cannot be recalculated safely: " + err.Error())
+			log.Printf("ledger edit refused for loan %d: history cannot be recalculated: %v", l.ID, err)
+			return common.NewConflict("Can't edit: earlier history can't be recalculated.")
 		}
 		idx := firstAllocationDiff(saved, probeRows)
 		if idx < 0 {
 			if diff := sameLoanFigures(l, &probe); diff != "" {
-				return common.NewConflict("this loan's totals cannot be reproduced exactly, so it cannot be edited safely (" + diff + ")")
+				log.Printf("ledger edit refused for loan %d: totals not reproduced: %s", l.ID, diff)
+				return common.NewConflict("Can't edit: earlier figures don't recalculate.")
 			}
 			return nil
 		}
@@ -55,10 +58,11 @@ func probeReplayFrom(ctx context.Context, tx *gorm.DB, l *models.Loan, rows []mo
 		typedOver := s.InterestOverride == nil && s.Type != models.PaymentTypeDiscount && s.Type != models.PaymentTypeWaiver &&
 			b.InterestApplied > s.InterestApplied+moneyEpsilon
 		if !typedOver {
-			return common.NewConflict("this loan's earlier figures cannot be reproduced exactly, so it cannot be edited safely (" + sameAllocation(saved, probeRows) + ")")
+			log.Printf("ledger edit refused for loan %d: earlier figures not reproduced: %s", l.ID, sameAllocation(saved, probeRows))
+			return common.NewConflict("Can't edit: earlier figures don't recalculate.")
 		}
 		applied := s.InterestApplied
 		rows[idx].InterestOverride = &applied
 	}
-	return common.NewConflict("this loan's earlier figures cannot be reproduced exactly, so it cannot be edited safely")
+	return common.NewConflict("Can't edit: earlier figures don't recalculate.")
 }

@@ -110,11 +110,6 @@ export function InvestmentLedgerEditModalContent({ investmentId, row: r, mode, l
     <>
       <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} {KIND_LABEL[kind] || "entry"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll ledger-edit-bd">
-        <p className="notice" style={{ marginBottom: 12 }}>
-          {live
-            ? "The investment is recalculated from its first day, so interest, later entries, balances and the cash ledger update to match this change."
-            : "The change is applied to the investment and its cash-ledger line is rewritten to match."}
-        </p>
         {mode === "edit" && (
           <>
             <div className="frow c2">
@@ -139,7 +134,7 @@ export function InvestmentLedgerEditModalContent({ investmentId, row: r, mode, l
             )}
             <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payment breakdown <small style={{ fontWeight: 400, color: "var(--muted)" }}>How the money moved</small></h4>
             <SplitPaymentInput
-              totalAmount={total} initialLines={initialLines} scrollInternally={false} label={null}
+              totalAmount={total} initialLines={initialLines} label={null}
               onChange={(s, rem, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(rem); setBankId(b); }}
             />
           </>

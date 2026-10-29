@@ -1,7 +1,7 @@
 "use client";
 
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
@@ -13,6 +13,8 @@ import { deleteEmployee, listEmployeesPage } from "@/modules/employees/services/
 import { type EmployeeView } from "@/modules/employees/types/employee-types";
 import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 import { routeHref } from "@/common/services/appRoutes";
+import { TableSearch } from "@/common/components/ui/TableSearch";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
@@ -30,13 +32,14 @@ export function EmployeesPage() {
   const canDeleteEmployees = can("Employee_Management", "can_delete_employee");
   const [employees, setEmployees] = useState<EmployeeView[] | null>(null);
   const [error, setError] = useState("");
+  const [q, setQ] = usePersistedState("employees:q", "");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   async function load() {
     try {
-      const res = await listEmployeesPage(page, pageSize);
+      const res = await listEmployeesPage(page, pageSize, q);
       setEmployees(res.items);
       setTotal(res.total);
       setError("");
@@ -46,6 +49,14 @@ export function EmployeesPage() {
   }
 
   useEffect(() => { load(); }, [page, pageSize]);
+  // A new search restarts from page 1 (debounced); a search typed on page 1 reloads directly.
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return; }
+    const handle = setTimeout(() => { if (page === 1) void load(); else setPage(1); }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   function onSaved() {
     load();
@@ -88,12 +99,17 @@ export function EmployeesPage() {
       {!error && employees === null && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading employees…</p>
       )}
-      {employees !== null && employees.length === 0 && !error && (
+      {employees !== null && employees.length === 0 && !error && !q.trim() && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>
           No employees yet. Click &quot;Add Employee&quot; to create one.
         </p>
       )}
-      {employees !== null && employees.length > 0 && (
+      {employees !== null && (employees.length > 0 || !!q.trim()) && (
+        <div style={{ margin: "0 0 12px" }}>
+          <TableSearch value={q} onChange={setQ} placeholder="Search employees…" searches="name, code, phone, username, email, role, branch" />
+        </div>
+      )}
+      {employees !== null && (employees.length > 0 || !!q.trim()) && (
         <div className="card tbl-card tbl-card-fill tbl-rounded">
           <div className="tbl-wrap">
             <table className="tbl tbl-center col1-left tbl-tight emp-tbl tbl-cards">
@@ -101,6 +117,7 @@ export function EmployeesPage() {
                 <tr><th>Employee</th><th>Role</th>{showBranch && <th>Branch</th>}<th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th>Action</th></tr>
               </thead>
               <tbody>
+                {employees.length === 0 && <tr><td colSpan={8} className="empty">No employees match “{q.trim()}”.</td></tr>}
                 {employees.map((e) => (
                   <tr key={e.id}>
                     <td data-label="Employee">

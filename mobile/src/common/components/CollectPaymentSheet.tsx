@@ -156,7 +156,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
             placeholder="0"
           />
         </Field>
-        <DateField label="Payment date" value={date} onChange={setDate} min={l.disbursementDate?.slice(0, 10) || undefined} max={todayISO()} />
+        <DateField label="Payment date" value={date} onChange={setDate} min={l.openedDate?.slice(0, 10) || undefined} max={todayISO()} />
       </FieldRow>
       {canDiscount ? (
         <>

@@ -57,7 +57,7 @@ function splitLines(cash = 0, upi = 0, bt = 0, bankId?: number | null): SplitPay
 // Two steps, like the top-up editor: the first click previews (nothing is saved), the second click saves. Saving
 // rewrites the pledge's cash lines and, for a released pledge, the release cash lines and its expense entry.
 export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }: Props) {
-  const { closeModal } = useModal();
+  const { closeModal, closeAllModals, openChildModal } = useModal();
   const toast = useToast();
   const released = p.status === "Released";
   const [bank, setBank] = useState(p.bankName);
@@ -75,78 +75,75 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
   const [relSplit, setRelSplit] = useState<SplitAmounts>({ cashAmount: p.releaseCashAmount ?? 0, upiAmount: p.releaseUpiAmount ?? 0, bankTransferAmount: p.releaseBankTransferAmount ?? 0, chequeAmount: 0 });
   const [relRemaining, setRelRemaining] = useState(0);
   const [relBankId, setRelBankId] = useState<number | undefined>(p.releaseBankId ?? undefined);
-  const [preview, setPreview] = useState<BankPledgeEditPreview | null>(null);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
   void ZERO_SPLIT;
 
-  const changed = (set: (v: string) => void) => (v: string) => { setPreview(null); setErr(""); set(v); };
+  const changed = (set: (v: string) => void) => (v: string) => { setErr(""); set(v); };
 
-  async function submit() {
+  // Builds and sends the request; dry only previews. Returns null (with err set) when the form is not valid yet.
+  async function request(dry: boolean): Promise<BankPledgeEditPreview | null> {
+    if (mode === "delete") return deleteBankPledge(loanId, p.id, dry);
+    const amt = +amount;
+    if (!bank.trim()) { setErr("Select the bank."); return null; }
+    if (!(amt > 0)) { setErr("Enter a valid amount."); return null; }
+    if (treatment === "CashIn") {
+      if (Math.abs(remaining) > 0.01) { setErr(`The payment breakdown must add up to the amount (${fmt(amt)}).`); return null; }
+      if ((split.upiAmount > 0 || split.bankTransferAmount > 0) && !receivedBankId) { setErr("Select the bank the UPI / Bank Transfer part was received in."); return null; }
+      if (released) {
+        if (Math.abs(relRemaining) > 0.01) { setErr(`The release payment breakdown must add up to the amount (${fmt(amt)}).`); return null; }
+        if ((relSplit.upiAmount > 0 || relSplit.bankTransferAmount > 0) && !relBankId) { setErr("Select the bank the release UPI / Bank Transfer part was paid from."); return null; }
+      }
+    }
+    return editBankPledge(loanId, p.id, {
+      bankId, bankName: bank.trim(), pledgedAmount: amt, pledgeDate: date, bankPledgeDueDate: dueDate, bankInterestRate: +rate || 0,
+      referenceNumber: reference, cashTreatment: treatment,
+      ...(treatment === "CashIn" ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, receivedBankId } : {}),
+      ...(released ? { releaseDate } : {}),
+      ...(released && treatment === "CashIn" ? { releaseCashAmount: relSplit.cashAmount, releaseUpiAmount: relSplit.upiAmount, releaseBankTransferAmount: relSplit.bankTransferAmount, releaseBankId: relBankId } : {}),
+    }, dry);
+  }
+
+  // The preview opens as its own modal over this one; its Confirm does the real save.
+  async function openPreview() {
     return singleFlight("modal:bank-pledge-edit", async () => {
-      const dry = preview == null;
       setSaving(true);
       try {
-        let res: BankPledgeEditPreview;
-        if (mode === "delete") {
-          res = await deleteBankPledge(loanId, p.id, dry);
-        } else {
-          const amt = +amount;
-          if (!bank.trim()) { setErr("Select the bank."); return; }
-          if (!(amt > 0)) { setErr("Enter a valid amount."); return; }
-          if (treatment === "CashIn") {
-            if (Math.abs(remaining) > 0.01) { setErr(`The payment breakdown must add up to the amount (${fmt(amt)}).`); return; }
-            if ((split.upiAmount > 0 || split.bankTransferAmount > 0) && !receivedBankId) { setErr("Select the bank the UPI / Bank Transfer part was received in."); return; }
-            if (released) {
-              if (Math.abs(relRemaining) > 0.01) { setErr(`The release payment breakdown must add up to the amount (${fmt(amt)}).`); return; }
-              if ((relSplit.upiAmount > 0 || relSplit.bankTransferAmount > 0) && !relBankId) { setErr("Select the bank the release UPI / Bank Transfer part was paid from."); return; }
-            }
-          }
-          res = await editBankPledge(loanId, p.id, {
-            bankId, bankName: bank.trim(), pledgedAmount: amt, pledgeDate: date, bankPledgeDueDate: dueDate, bankInterestRate: +rate || 0,
-            referenceNumber: reference, cashTreatment: treatment,
-            ...(treatment === "CashIn" ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, receivedBankId } : {}),
-            ...(released ? { releaseDate } : {}),
-            ...(released && treatment === "CashIn" ? { releaseCashAmount: relSplit.cashAmount, releaseUpiAmount: relSplit.upiAmount, releaseBankTransferAmount: relSplit.bankTransferAmount, releaseBankId: relBankId } : {}),
-          }, dry);
-        }
-        if (dry) { setPreview(res); setErr(""); return; }
-        toast(mode === "delete" ? "Bank pledge deleted" : "Bank pledge updated");
-        onSaved();
-        closeModal();
+        const res = await request(true);
+        if (!res) return;
+        setErr("");
+        openChildModal(
+          <BankPledgePreviewModalContent
+            mode={mode}
+            preview={res}
+            onConfirm={async () => {
+              await request(false);
+              toast(mode === "delete" ? "Bank pledge deleted" : "Bank pledge updated");
+              onSaved();
+              closeAllModals();
+            }}
+          />,
+        );
       } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "Could not save the change — try again.");
-        setPreview(null);
+        setErr(e instanceof ApiError ? e.message : "Could not preview the change — try again.");
       } finally {
         setSaving(false);
       }
     });
   }
 
-  const row = (label: string, before: React.ReactNode, after: React.ReactNode) => (
-    <tr><td>{label}</td><td className="num">{before}</td><td className="num" style={{ fontWeight: 600, color: String(before) !== String(after) ? "var(--brand)" : undefined }}>{after}</td></tr>
-  );
-  const b = preview?.before;
-  const a = preview?.after;
-  const treatmentLabel = (t?: string) => (t === "CashIn" ? "Added to Cash-in-Hand" : "Record only");
-
   return (
     <>
       <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll ledger-edit-bd">
-        <p className="notice" style={{ marginBottom: 12 }}>
-          {mode === "delete"
-            ? "The pledge is removed together with the cash lines it booked in the ledger" + (released ? " and its release lines and expense entry." : ".")
-            : "Saving rewrites the cash lines this pledge booked" + (released ? ", its release lines and its Bank Pledge Release expense entry" : "") + " so the ledger matches."}
-        </p>
+      <div className="bd bd-scroll ledger-edit-bd bank-pledge-edit">
         {mode === "edit" ? (
           <>
             <div className="frow c2">
               <div><label className="f">Bank *</label>
                 <SearchableSelect<BackendBank>
                   value={bank}
-                  onChange={(id, item) => { setPreview(null); setErr(""); setBank(item.name); setBankId(Number(id) || undefined); }}
+                  onChange={(id, item) => { setErr(""); setBank(item.name); setBankId(Number(id) || undefined); }}
                   fetchFn={searchBanksPage}
                   searchHint="Searches: bank name"
                   getLabel={(x) => x.name}
@@ -169,7 +166,7 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
               <div className="rp-opts">
                 {(["RecordOnly", "CashIn"] as const).map((t) => (
                   <label key={t} className={"cradio rp-opt" + (treatment === t ? " on" : "")}>
-                    <input type="radio" name="bpTreatment" checked={treatment === t} onChange={() => { setPreview(null); setErr(""); setTreatment(t); }} />
+                    <input type="radio" name="bpTreatment" checked={treatment === t} onChange={() => { setErr(""); setTreatment(t); }} />
                     <span className="mark" />
                     <span>
                       <strong>{t === "CashIn" ? "Add to Cash-in-Hand" : "Record only"}</strong>
@@ -183,8 +180,8 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
               <>
                 <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>How the advance was received</h4>
                 <SplitPaymentInput
-                  totalAmount={+amount || 0} initialLines={splitLines(p.cashAmount, p.upiAmount, p.bankTransferAmount, p.receivedBankId)} scrollInternally={false} label={null}
-                  onChange={(s, r, bid) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setReceivedBankId(bid); }}
+                  totalAmount={+amount || 0} initialLines={splitLines(p.cashAmount, p.upiAmount, p.bankTransferAmount, p.receivedBankId)} label={null}
+                  onChange={(s, r, bid) => { setErr(""); setSplit(s); setRemaining(r); setReceivedBankId(bid); }}
                 />
               </>
             )}
@@ -201,8 +198,8 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
                       totalAmount={+amount || 0}
                       initialLines={p.cashTreatment === "CashIn" && ((p.releaseCashAmount ?? 0) + (p.releaseUpiAmount ?? 0) + (p.releaseBankTransferAmount ?? 0) > 0)
                         ? splitLines(p.releaseCashAmount, p.releaseUpiAmount, p.releaseBankTransferAmount, p.releaseBankId) : undefined}
-                      scrollInternally={false} label={null}
-                      onChange={(s, r, bid) => { setPreview(null); setErr(""); setRelSplit(s); setRelRemaining(r); setRelBankId(bid); }}
+                      label={null}
+                      onChange={(s, r, bid) => { setErr(""); setRelSplit(s); setRelRemaining(r); setRelBankId(bid); }}
                     />
                   </>
                 )}
@@ -216,28 +213,63 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
             {p.status === "Active" ? " and the gold goes back to the branch's custody record" : ""}.
           </p>
         )}
-        {preview && b && (
-          <div style={{ marginTop: 12 }}>
-            <label className="f">{mode === "delete" ? "This record will be removed" : "What changes"}</label>
-            <div className="tbl-wrap"><table className="tbl">
-              <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
-              <tbody>
-                {row("Bank", b.bankName, a ? a.bankName : "—")}
-                {row("Pledged amount", fmt(b.pledgedAmount), a ? fmt(a.pledgedAmount) : "—")}
-                {row("Pledge date", b.pledgeDate.slice(0, 10), a ? a.pledgeDate.slice(0, 10) : "—")}
-                {row("Cash treatment", treatmentLabel(b.cashTreatment), a ? treatmentLabel(a.cashTreatment) : "—")}
-                {row("Cash received", fmt((b.cashAmount ?? 0) + (b.upiAmount ?? 0) + (b.bankTransferAmount ?? 0)), a ? fmt((a.cashAmount ?? 0) + (a.upiAmount ?? 0) + (a.bankTransferAmount ?? 0)) : "—")}
-                {b.releaseDate && row("Release date", b.releaseDate.slice(0, 10), a?.releaseDate ? a.releaseDate.slice(0, 10) : "—")}
-              </tbody>
-            </table></div>
-          </div>
-        )}
         <FieldError msg={err} />
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
-        <button className="btn" onClick={submit} disabled={saving}>
-          <Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : preview ? (mode === "delete" ? "Confirm delete" : "Confirm & save") : "Preview the change"}
+        <button className="btn" onClick={openPreview} disabled={saving}>
+          <Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : "Preview the change"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "edit" | "delete"; preview: BankPledgeEditPreview; onConfirm: () => Promise<void> }) {
+  const { closeModal } = useModal();
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const b = preview.before;
+  const a = preview.after;
+  const treatmentLabel = (t?: string) => (t === "CashIn" ? "Added to Cash-in-Hand" : "Record only");
+  const row = (label: string, before: React.ReactNode, after: React.ReactNode) => (
+    <tr><td>{label}</td><td className="num">{before}</td><td className="num" style={{ fontWeight: 600, color: String(before) !== String(after) ? "var(--brand)" : undefined }}>{after}</td></tr>
+  );
+
+  async function confirm() {
+    return singleFlight("modal:bank-pledge-confirm", async () => {
+      setSaving(true);
+      try {
+        await onConfirm();
+      } catch (e) {
+        setErr(e instanceof ApiError ? e.message : "Could not save the change — try again.");
+        setSaving(false);
+      }
+    });
+  }
+
+  return (
+    <>
+      <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll ledger-edit-bd">
+        <label className="f">{mode === "delete" ? "This record will be removed" : "What changes"}</label>
+        <div className="tbl-wrap"><table className="tbl">
+          <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
+          <tbody>
+            {row("Bank", b.bankName, a ? a.bankName : "—")}
+            {row("Pledged amount", fmt(b.pledgedAmount), a ? fmt(a.pledgedAmount) : "—")}
+            {row("Pledge date", b.pledgeDate.slice(0, 10), a ? a.pledgeDate.slice(0, 10) : "—")}
+            {row("Cash treatment", treatmentLabel(b.cashTreatment), a ? treatmentLabel(a.cashTreatment) : "—")}
+            {row("Cash received", fmt((b.cashAmount ?? 0) + (b.upiAmount ?? 0) + (b.bankTransferAmount ?? 0)), a ? fmt((a.cashAmount ?? 0) + (a.upiAmount ?? 0) + (a.bankTransferAmount ?? 0)) : "—")}
+            {b.releaseDate && row("Release date", b.releaseDate.slice(0, 10), a?.releaseDate ? a.releaseDate.slice(0, 10) : "—")}
+          </tbody>
+        </table></div>
+        <FieldError msg={err} />
+      </div>
+      <div className="ft">
+        <button className="btn ghost" onClick={closeModal} disabled={saving}>Back</button>
+        <button className="btn" onClick={confirm} disabled={saving}>
+          <Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : mode === "delete" ? "Confirm delete" : "Confirm & save"}
         </button>
       </div>
     </>

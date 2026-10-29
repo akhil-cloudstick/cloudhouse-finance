@@ -20,6 +20,7 @@ func applySchemeSnapshot(l *models.Loan, sch *commonModels.Scheme) {
 	l.SchemePenalRate = sch.PenalRate
 	l.SchemeRateTiers = append([]commonModels.RateTier(nil), sch.RateTiers...)
 	l.SchemeMinimumDays = sch.MinimumDays
+	l.SchemeAccrualBasis = sch.AccrualBasis
 	l.RateTierLevel = 0
 	l.ArrearsSince = nil
 	l.ServiceChargeType = sch.ServiceChargeType

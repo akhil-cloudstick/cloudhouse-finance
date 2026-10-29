@@ -48,8 +48,9 @@ export const BANKS_PAGE_SIZE = 10;
  * listLoansPage/listBankPledgeHistoryPage. `totalBalance` is the server's
  * sum of `balance` over every matching bank (not just this page) — the Bank
  * Management page's "Net Bank Balance" card. */
-export async function listBanksPage(page: number, limit: number = BANKS_PAGE_SIZE): Promise<{ items: BackendBank[]; hasMore: boolean; total: number; totalBalance: number }> {
+export async function listBanksPage(page: number, limit: number = BANKS_PAGE_SIZE, q?: string): Promise<{ items: BackendBank[]; hasMore: boolean; total: number; totalBalance: number }> {
   const params = new URLSearchParams({ limit: String(limit), offset: String((page - 1) * limit) });
+  if (q?.trim()) params.set("search", q.trim());
   const res = await apiFetch<{ items: BackendBank[] | null; hasMore: boolean; total?: number; totalBalance?: number }>(`/banks?${params}`);
   return { items: res.items || [], hasMore: !!res.hasMore, total: res.total ?? 0, totalBalance: res.totalBalance ?? 0 };
 }

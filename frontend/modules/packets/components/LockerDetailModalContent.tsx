@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { deleteLocker } from "@/modules/lockers/services/lockerService";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { fmtW } from "@/common/utils/format";
@@ -44,6 +45,7 @@ export function LockerDetailModalContent({ locker, canUpdate, canDelete, onChang
     }
   }
   const [packets, setPackets] = useState<PacketView[] | null>(null);
+  const [q, setQ] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -52,6 +54,11 @@ export function LockerDetailModalContent({ locker, canUpdate, canDelete, onChang
       .catch(() => { if (!cancelled) setPackets([]); });
     return () => { cancelled = true; };
   }, [locker.id, locker.occupied]);
+
+  const needle = q.trim().toLowerCase();
+  const shown = !needle ? (packets || []) : (packets || []).filter((p) =>
+    [p.code, p.loanNumber, p.customerName, p.status, p.totalWeight, fmtW(p.totalWeight)]
+      .some((v) => String(v ?? "").toLowerCase().includes(needle)));
 
   const pct = Math.min(100, Math.max(4, (locker.occupied / Math.max(1, locker.capacity)) * 100));
 
@@ -67,14 +74,20 @@ export function LockerDetailModalContent({ locker, canUpdate, canDelete, onChang
         <div style={{ height: 7, background: "var(--brand-pale)", borderRadius: 4, margin: "4px 0 16px", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg,var(--brand-mid),var(--brand-deep))" }} />
         </div>
-        <label className="f">Packets in this locker</label>
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+          <label className="f" style={{ margin: 0 }}>Packets in this locker</label>
+          <div style={{ marginLeft: "auto", flex: "0 1 240px", minWidth: 160 }}>
+            <TableSearch value={q} onChange={setQ} placeholder="Search packets…" searches="packet code, loan number, customer, status, weight" />
+          </div>
+        </div>
         <div className="tbl-wrap">
           <table className="tbl tbl-center tbl-cards" style={{ minWidth: 0 }}>
             <thead><tr><th>Packet</th><th>Loan</th><th>Customer</th><th className="num">Weight</th><th>Status</th></tr></thead>
             <tbody>
               {packets === null && <tr><td colSpan={5} className="empty" style={{ color: "var(--muted)" }}>Loading packets…</td></tr>}
               {packets !== null && packets.length === 0 && <tr><td colSpan={5} className="empty" style={{ color: "var(--muted)" }}>No packets in this locker.</td></tr>}
-              {(packets || []).map((p) => (
+              {packets !== null && packets.length > 0 && shown.length === 0 && <tr><td colSpan={5} className="empty" style={{ color: "var(--muted)" }}>No packets match your search.</td></tr>}
+              {shown.map((p) => (
                 <tr key={p.id} className="click" onClick={() => { closeModal(); navigate(`packet/${p.code}`); }}>
                   <td data-label="Packet"><span className="id">{p.code}</span></td>
                   <td data-label="Loan">{p.loanNumber}</td>

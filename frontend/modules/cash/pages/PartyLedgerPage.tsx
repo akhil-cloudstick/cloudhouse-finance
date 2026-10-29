@@ -1,6 +1,8 @@
 "use client";
 
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt, fmtDate } from "@/common/utils/format";
@@ -79,6 +81,8 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   // don't get this, same "meaningless outside a bank ledger" reasoning as
   // ModeLedgerPage's own Bank filter being Cash-only-excluded.
   const [modeFilters, setModeFilters] = usePersistedState<FilterValue>("party:filters", {});
+  const [q, setQ] = usePersistedState("party:q", "");
+  const search = useDebouncedValue(q.trim());
   const modeValues = (Array.isArray(modeFilters.mode) ? modeFilters.mode : []) as LedgerMode[];
   const fromDate = modeFilters.__dateFrom || "";
   const toDate = modeFilters.__dateTo || "";
@@ -110,7 +114,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   // component stays mounted across bank/customer/category ids) starts on its
   // remembered page. Compared against the previous key so neither fires on
   // mount, where the initial page state already applies.
-  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(modeValues)}`;
+  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(modeValues)}|${search}`;
   const prevFilterKey = useRef(filterKey);
   useEffect(() => {
     if (prevFilterKey.current === filterKey) return;
@@ -140,7 +144,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
     if (!(cards && itemsRef.current.length)) setLoading(true);
     const target = focusPending.current ? ledgerFocusTarget("party") : null;
     const range = {
-      fromDate: fromDate || undefined, toDate: toDate || undefined,
+      fromDate: fromDate || undefined, toDate: toDate || undefined, search: search || undefined,
       ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount } : {}),
     };
     const call =
@@ -166,7 +170,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
       })
       .finally(() => { if (reqId === requestIdRef.current) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, numericId, page, pageSize, cards, fromDate, toDate, JSON.stringify(modeValues)]);
+  }, [kind, numericId, page, pageSize, cards, fromDate, toDate, JSON.stringify(modeValues), search]);
 
   // Server-side sums over every row matching the filters, not just this page.
   const totalDebit = totals.debit;
@@ -178,7 +182,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
   async function onExport() { return singleFlight("cash:party-ledger-export", async () => {
     setExporting(true);
     try {
-      const range = { fromDate: fromDate || undefined, toDate: toDate || undefined };
+      const range = { fromDate: fromDate || undefined, toDate: toDate || undefined, search: search || undefined };
       await downloadLedger(kind, numericId, kind === "bank" ? { ...range, modes: modeValues } : range);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not download the ledger.");
@@ -222,6 +226,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
           <h3>Transactions</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {kind !== "category" && <TableSearch value={q} onChange={setQ} placeholder="Search date, ref no, bank, amount…" searches="date, ref no, particulars, method, bank, debit, credit" />}
             <FilterPanel categories={modeFilterCategories} value={modeFilters} onChange={setModeFilters} hideChips hideClearAll />
             {canExport && (
               <button className="btn ghost sm" disabled={exporting} onClick={onExport} title="PDF of every transaction in the selected date range">

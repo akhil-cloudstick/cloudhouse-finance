@@ -17,6 +17,7 @@ import { MarkPayoutPaidModalContent } from "@/modules/investments/components/Mar
 import { AddInvestmentCashModalContent } from "@/modules/investments/components/AddInvestmentCashModalContent";
 import { WithdrawInvestmentModalContent } from "@/modules/investments/components/WithdrawInvestmentModalContent";
 import { InvestmentLedgerEditModalContent } from "@/modules/investments/components/InvestmentLedgerEditModalContent";
+import { LoanLedgerInfoModalContent, type LedgerInfoAction } from "@/modules/loans/components/LoanLedgerInfoModalContent";
 import { useModal } from "@/common/components/ModalProvider";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { Icon } from "@/common/components/Icon";
@@ -81,7 +82,7 @@ type InvestmentDetailPageProps = { id?: string };
 export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
-  const { openModal, closeModal } = useModal();
+  const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
   const toast = useToast();
   const canUpdate = can("Investment_Management", "can_update_investment");
   // Editing/deleting a ledger entry recalculates the investment, so each has its own grant (shared with the gold-loan ledger).
@@ -348,7 +349,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
           ) : null}
         </div>
         {ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
-        <div className="tbl-wrap"><table className="tbl tbl-cards" data-ledger-scope="investment-ledger">
+        <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="investment-ledger">
           <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
           <tbody>
             {ledgerLoading ? (
@@ -375,22 +376,28 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
                   <td data-label="Credit" className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
                   <td data-label="Balance" className="num">
                     {fmt(r.runningBalance)}
-                    {((r.editable && canEditLedger) || (r.deletable && canDeleteLedger)) && (
-                      <span style={{ display: "inline-flex", gap: 8, marginLeft: 8, verticalAlign: "middle" }}>
-                        {r.editable && canEditLedger && (
-                          <button type="button" title="Edit this entry" aria-label="Edit this entry" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)" }}
-                            onClick={() => openModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="edit" live={investment.engine === "Live"} minDate={investment.startDate?.slice(0, 10) || undefined} onSaved={onLedgerChanged} />, true)}>
-                            <Icon name="edit" />
-                          </button>
-                        )}
-                        {r.deletable && canDeleteLedger && (
-                          <button type="button" title="Delete this entry" aria-label="Delete this entry" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--red)" }}
-                            onClick={() => openModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="delete" live={investment.engine === "Live"} onSaved={onLedgerChanged} />, true)}>
-                            <Icon name="trash" />
-                          </button>
-                        )}
-                      </span>
-                    )}
+                    {(() => {
+                      // Edit / Delete live in the entry's info popup and open on top of it
+                      const done = () => { onLedgerChanged(); closeAllModals(); };
+                      const actions: LedgerInfoAction[] = [];
+                      if (r.editable && canEditLedger) actions.push({ label: "Edit", icon: "edit", run: () => openChildModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="edit" live={investment.engine === "Live"} minDate={investment.startDate?.slice(0, 10) || undefined} onSaved={done} />, true) });
+                      if (r.deletable && canDeleteLedger) actions.push({ label: "Delete", icon: "trash", danger: true, run: () => openChildModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="delete" live={investment.engine === "Live"} onSaved={done} />, true) });
+                      return (
+                        <span className="ledger-info">
+                          <button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}
+                            onClick={() => openModal(<LoanLedgerInfoModalContent
+                              title={r.description || r.type}
+                              kind={(r.debitOrCredit === "debit" ? "Debit · " : "Credit · ") + r.type}
+                              rows={[
+                                ["Date", fmtDate(r.date)], ["Reference", r.reference || "—"], ["Amount", fmt(r.amount)],
+                                ["Mode", r.method || "—"], ["Balance", fmt(r.runningBalance)],
+                              ]}
+                              description={<>{r.description || r.type}{split ? <><br />{split}</> : null}</>}
+                              actions={actions}
+                            />)}><Icon name="info" /></button>
+                        </span>
+                      );
+                    })()}
                   </td>
                 </tr>
               );

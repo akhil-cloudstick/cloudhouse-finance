@@ -86,8 +86,7 @@ func findBranchesFiltered(ctx context.Context, f BranchFilter) ([]commonModels.B
 		q = q.Where("is_active = ?", true)
 	}
 	if f.Query != "" {
-		like := "%" + f.Query + "%"
-		q = q.Where("name ILIKE ? OR code ILIKE ?", like, like)
+		q = ApplySearch(q, f.Query, "name", "code", "address", "phone", "CASE WHEN is_active THEN 'active' ELSE 'inactive' END")
 	}
 	var total int64
 	if f.Limit > 0 {

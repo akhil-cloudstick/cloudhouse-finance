@@ -32,6 +32,7 @@ function toPaymentView(p: BackendLoanPayment): PaymentView {
     receivedByEmployeeId: p.receivedByEmployeeId,
     description: p.description,
     discountKind: p.discountKind,
+    linkedPaymentId: p.linkedPaymentId,
     method: p.method,
     cashAmount: p.cashAmount,
     upiAmount: p.upiAmount,
@@ -941,7 +942,7 @@ export const LOAN_RISK_PAGE_SIZE = 15;
 export async function listLoanRiskAssessmentPage(
   page: number,
   limit?: number,
-  filters?: { status?: string; riskLevel?: LoanRiskLevel; fromDate?: string; toDate?: string }
+  filters?: { status?: string; riskLevel?: LoanRiskLevel; fromDate?: string; toDate?: string; q?: string }
 ): Promise<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }> {
   const pageSize = limit ?? LOAN_RISK_PAGE_SIZE;
   const params = new URLSearchParams({
@@ -952,6 +953,7 @@ export async function listLoanRiskAssessmentPage(
   if (filters?.riskLevel) params.set("riskLevel", filters.riskLevel);
   if (filters?.fromDate) params.set("from", filters.fromDate);
   if (filters?.toDate) params.set("to", filters.toDate);
+  if (filters?.q?.trim()) params.set("search", filters.q.trim());
   const rec = await apiFetch<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }>(`/loans/risk-assessment?${params}`);
   return { items: rec?.items || [], hasMore: !!rec?.hasMore, total: rec?.total ?? 0, counts: rec?.counts ?? { loss: 0, atRisk: 0, safe: 0 } };
 }
@@ -1043,12 +1045,17 @@ export async function completeRelease(loanId: number): Promise<LoanView> {
 export type LedgerLoanSummary = { principal: number; interest: number; penalInterest: number; fee: number; total: number; status: string };
 /* Offered when a repayment edit reopens a closed loan: the packet can go back to the status it had before. */
 export type PacketReversalOffer = { packetId: number; code: string; currentStatus: string; previousStatus: string; lockerId?: number };
+/* What a gold release did that an edit may need to undo — each is offered with a box, and the ticked ones are undone in
+ * the same save as the edit. `warning` is something to know before ticking it (e.g. the locker is full). */
+export type LedgerEditDependent = { kind: "packet" | "partial_release"; description: string; current: string; suggested: string; warning?: string };
 export type LedgerEditPreview = {
   before: LedgerLoanSummary; after: LedgerLoanSummary; dryRun: boolean;
-  packet?: PacketReversalOffer; packetReversed?: boolean; packetError?: string;
+  packet?: PacketReversalOffer;
 };
-export type EditLedgerPaymentInput = {
-  reversePacket?: boolean; // also put the packet back to its previous status (see PacketReversalOffer)
+/* A payment edit's preview also lists what a gold release did that the edit may undo. */
+export type LedgerPaymentEditPreview = LedgerEditPreview & { dependents?: LedgerEditDependent[] };
+export type LedgerGoldChoices = { reversePacket?: boolean; restorePartialRelease?: boolean };
+export type EditLedgerPaymentInput = LedgerGoldChoices & {
   paidOn?: string;
   amount?: number;
   type?: string;
@@ -1062,11 +1069,21 @@ export type EditLedgerPaymentInput = {
   discountReason?: string; // Discount rows only
   discountMode?: string; // Discount rows only
   discountKind?: string; // Discount rows only: customer / interest / penal_interest
+  processingFee?: number; // the additional charge collected with this payment
+  discount?: number; // the discount given with this payment (0 removes it)
   reason?: string;
 };
 
-export async function editLedgerPayment(loanId: number, paymentId: number, input: EditLedgerPaymentInput, dryRun = false): Promise<LedgerEditPreview> {
-  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, {
+/* The discount that was given together with a repayment: the one saved against it, or — for a payment recorded before
+ * discounts were linked — one saved for the same day right before it. */
+export function linkedDiscountOf(payments: PaymentView[], p: PaymentView): PaymentView | undefined {
+  const linked = payments.find((d) => d.type === "Discount" && d.linkedPaymentId === p.id);
+  if (linked) return linked;
+  return payments.find((d) => d.type === "Discount" && !d.linkedPaymentId && d.paidOn === p.paidOn && d.id < p.id && p.id - d.id <= 1);
+}
+
+export async function editLedgerPayment(loanId: number, paymentId: number, input: EditLedgerPaymentInput, dryRun = false): Promise<LedgerPaymentEditPreview> {
+  return apiFetch<LedgerPaymentEditPreview>(`/loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
@@ -1117,8 +1134,8 @@ export async function deleteLoanTopUp(loanId: number, topUpId: number, dryRun = 
   });
 }
 
-export async function deleteLedgerPayment(loanId: number, paymentId: number, dryRun = false, reason?: string, reversePacket = false): Promise<LedgerEditPreview> {
-  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/payments/${paymentId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}), ...(reversePacket ? { reverse_packet: "true" } : {}) })}`, {
+export async function deleteLedgerPayment(loanId: number, paymentId: number, dryRun = false, reason?: string, gold: LedgerGoldChoices = {}): Promise<LedgerPaymentEditPreview> {
+  return apiFetch<LedgerPaymentEditPreview>(`/loans/${loanId}/payments/${paymentId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}), ...(gold.reversePacket ? { reverse_packet: "true" } : {}), ...(gold.restorePartialRelease ? { restore_partial_release: "true" } : {}) })}`, {
     method: "DELETE",
   });
 }

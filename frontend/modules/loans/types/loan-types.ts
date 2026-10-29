@@ -85,6 +85,7 @@ export type BackendLoanPayment = {
   receivedByEmployeeId: number;
   description: string;
   discountKind?: string; // Discount rows: customer / interest / penal_interest
+  linkedPaymentId?: number; // a discount: the payment it was given together with
   /* Derived/display-only — the single mode's name when exactly one split
    * amount below is non-zero, "Split" when more than one is. */
   method: string;
@@ -260,6 +261,7 @@ export type PaymentView = {
   receivedByEmployeeId: number;
   description: string;
   discountKind?: string; // Discount rows: customer / interest / penal_interest
+  linkedPaymentId?: number; // a discount: the payment it was given together with
   method: string;
   cashAmount: number;
   upiAmount: number;

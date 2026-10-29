@@ -241,10 +241,6 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
             <input className="inp" value={`${schemeLtv}%`} disabled />
           </div>
         </div>
-        <p style={{ fontSize: 11, color: "var(--muted)", marginTop: -8, marginBottom: 10 }}>
-          Recomputes live as ornaments or scheme change below. The backend recalculates the authoritative
-          figure on save.
-        </p>
 
         {triggersReapproval && (
           <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>

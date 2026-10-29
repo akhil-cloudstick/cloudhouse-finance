@@ -23,12 +23,12 @@ const PAGE_SIZE = 15;
 // `.tbl-scroll-paged` in app.css) so the first 10 rows overflow and
 // scrolling to the end fetches the next 10.
 const MODAL_PAGE_SIZE = 10;
-type BankTableProps = { reloadKey: number; afterChange: () => void; inModal?: boolean; onTotalBalance?: (n: number) => void };
+type BankTableProps = { reloadKey: number; afterChange: () => void; inModal?: boolean; onTotalBalance?: (n: number) => void; q?: string };
 
 /* `inModal` drops the card border (the modal box is already the frame — see
  * `.tbl-flat` / `.bd-tbl` in app.css) and swaps the Prev/Next pager for
  * infinite scroll: the next page loads as the rows are scrolled to the end. */
-export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: BankTableProps) {
+export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q = "" }: BankTableProps) {
   const { openModal } = useModal();
   const { can } = useAuth();
   const canOpenRoute = useCanOpenRoute();
@@ -52,7 +52,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
   async function load() {
     if (inModal && page > 1) setLoadingMore(true);
     try {
-      const res = await listBanksPage(page, pageSize);
+      const res = await listBanksPage(page, pageSize, q);
       setBanks((prev) => (inModal && page > 1 ? [...(prev ?? []), ...res.items] : res.items));
       setTotal(res.total);
       setHasMore(res.hasMore);
@@ -66,6 +66,14 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
   }
 
   useEffect(() => { load(); }, [page, reloadKey, pageSize]);
+  // A new search restarts from page 1 (debounced); a search typed on page 1 reloads directly.
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return; }
+    const handle = setTimeout(() => { if (page === 1) void load(); else setPage(1); }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -109,7 +117,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance }: B
     : banks === null
     ? "Loading banks…"
     : banks.length === 0
-    ? "No banks yet. Click “Add Bank” to create one."
+    ? (q.trim() ? `No banks match “${q.trim()}”.` : "No banks yet. Click “Add Bank” to create one.")
     : "";
   const rows = banks ?? [];
 

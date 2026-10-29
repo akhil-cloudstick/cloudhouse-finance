@@ -274,7 +274,7 @@ func findOrnamentByCustomerID(ctx context.Context, customerID uint, from, to *ti
 		Where("loans.customer_id = ? AND ornaments.released_at IS NULL", customerID)
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("loans.loan_number ILIKE ? OR ornaments.name ILIKE ?", like, like)
+		q = q.Where("loans.loan_number ILIKE ? OR ornaments.name ILIKE ? OR ornaments.purity ILIKE ?", like, like, like)
 	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))

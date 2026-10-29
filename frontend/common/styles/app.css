@@ -1234,6 +1234,13 @@ button.fi-trigger {
   flex: 1 1 auto
 }
 
+/* Gold Rates' date filter sits in a 170px box in the card header: fill that box instead of keeping the fixed 230px
+ * that pushed it past the card's edge. */
+.rate-filter-dp .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
+}
+
 /* Ledger tables' Ref No column (CustomerDetail.tsx's Ledger tab,
    BranchLedgerModal.tsx, LedgerExportView.tsx) — a split-payment's
    transactionGroupId is a raw UUID, long enough to blow the column out to
@@ -1580,7 +1587,8 @@ button.fi-trigger {
 }
 
 .ss-input {
-  padding-right: 26px
+  padding-right: 26px;
+  text-overflow: ellipsis
 }
 
 /* A locked SearchableSelect reads like a locked native select — faint fill,
@@ -5060,6 +5068,12 @@ table.tbl {
   padding-left: 34px
 }
 
+/* Row-scoped `.inp` padding rules (e.g. .cash-filter-row) must not pull the text under the icon. */
+.search .inp,
+.cash-filter-row .search .inp {
+  padding-left: 34px
+}
+
 .search svg {
   position: absolute;
   left: 11px;
@@ -5377,7 +5391,8 @@ table.tbl {
 
 .modal:has(> .bd-scroll) {
   height: auto;
-  max-height: calc(100dvh - var(--titlebar-h) - 32px);
+  /* the standard modal cap: 640px, or the screen when that is shorter */
+  max-height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
   display: flex;
   flex-direction: column;
   margin: auto;
@@ -5399,7 +5414,8 @@ table.tbl {
 @media (min-height: 700px) {
   /* Personal-loan New / Renew modals share the same cap. */
   .modal:has(> .bd-scroll.entry-form),
-  .modal:has(> .bd-scroll.pl-modal) {
+  .modal:has(> .bd-scroll.pl-modal),
+  .modal:has(> .bd-scroll.bank-pledge-edit) {
     max-height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
   }
 }
@@ -6678,8 +6694,9 @@ table.tbl {
  * (plus the same 1px margin-top the mark already uses) guarantees their
  * first lines share one center regardless of surrounding font-size
  * overrides. */
-.cradio>span:last-child,
-.ccheck>span:last-child {
+/* :not(.mark) — a box with no label text after it has its own mark as the last span, which must stay a grid */
+.cradio>span:last-child:not(.mark),
+.ccheck>span:last-child:not(.mark) {
   display: inline-block;
   line-height: 18px
 }
@@ -6713,10 +6730,10 @@ table.tbl {
   cursor: not-allowed
 }
 
+/* no focus ring around a radio or a checkbox */
 .cradio input:focus-visible+.mark,
 .ccheck input:focus-visible+.mark {
-  outline: 2px solid var(--brand-deep);
-  outline-offset: 2px
+  outline: none
 }
 
 /* Consistent title/hint sizing for every .ccheck (checklist-style checkbox)
@@ -9620,5 +9637,38 @@ table.tbl.lockers-tbl {
   .tbl.tbl-stack td.num {
     padding-left: 0 !important;
     padding-right: 0 !important;
+  }
+}
+
+/* Stacked ledger cards: the table's "no line under the last row" rule must not strip the dashed dividers inside the
+ * last card — only the card's own final line (its last cell) stays open. */
+@media (max-width: 1279px) {
+  .tbl.tbl-stack tr:last-child td:not(:last-child) {
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+  }
+}
+
+/* Card-mode tables (.tbl-cards) with an entry info icon: like the stacked ledgers, the icon moves to the top-left of
+ * the card and its action cell collapses, instead of the icon floating loose at the page edge. */
+@media (max-width: 1100px) {
+  table.tbl.tbl-cards tr:has(.ledger-info) {
+    position: relative;
+    padding-top: 30px;
+  }
+  table.tbl.tbl-cards tr:has(.ledger-info) td:has(> .ledger-info) {
+    position: static;
+    display: block;
+    height: 0;
+    min-height: 0;
+    padding: 0 !important;
+    border: 0;
+  }
+  table.tbl.tbl-cards tr:has(.ledger-info) .ledger-info {
+    position: absolute;
+    top: 7px;
+    left: 12px;
+    right: auto !important;
+    transform: none !important;
+    margin: 0;
   }
 }

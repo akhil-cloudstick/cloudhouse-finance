@@ -11,15 +11,15 @@ import { SplitPaymentInput, type SplitAmounts, type SplitPaymentLine } from "@/c
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
-import { editLedgerPayment, deleteLedgerPayment, type LedgerEditPreview } from "@/modules/loans/services/loanService";
+import { editLedgerPayment, deleteLedgerPayment, type LedgerPaymentEditPreview } from "@/modules/loans/services/loanService";
 import { type PaymentView, type DiscountKind, DISCOUNT_KIND_LABELS } from "@/modules/loans/types/loan-types";
 
 const CASH_TYPES = ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement"];
-const DISCOUNT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"];
 
 type Props = {
   loanId: number;
   payment: PaymentView;
+  linkedDiscount?: PaymentView; // the discount that was given together with this repayment, if any
   mode: "edit" | "delete";
   minDate?: string; // the loan's start — a payment cannot be dated before it
   onSaved: () => void;
@@ -27,7 +27,7 @@ type Props = {
 
 // Two steps: the first click asks the server what the change would do to the loan (nothing is saved), the second
 // click saves it. The loan is recalculated from its first day, so every later entry may change.
-export function LedgerPaymentEditModalContent({ loanId, payment: p, mode, minDate, onSaved }: Props) {
+export function LedgerPaymentEditModalContent({ loanId, payment: p, linkedDiscount, mode, minDate, onSaved }: Props) {
   const { closeModal } = useModal();
   const toast = useToast();
   const isDiscount = p.type === "Discount";
@@ -45,11 +45,18 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, mode, minDat
   const [bankId, setBankId] = useState<number | undefined>(p.bankId ?? undefined);
   const [reference, setReference] = useState(p.reference || "");
   const [discountReason, setDiscountReason] = useState((p.description || "").replace(/^Discount:\s*/, ""));
-  const [discountMode, setDiscountMode] = useState(DISCOUNT_MODES.includes(p.method) ? p.method : "Cash");
   const [discountKind, setDiscountKind] = useState<DiscountKind>((p.discountKind as DiscountKind) || "customer");
-  const [preview, setPreview] = useState<LedgerEditPreview | null>(null);
-  // Whether the packet goes back too, when the edit reopens a closed loan (asked after the preview).
-  const [reversePacket, setReversePacket] = useState(true);
+  // What came with a repayment: its additional charge, and the discount given together with it.
+  const [fee, setFee] = useState(p.processingFee > 0 ? String(p.processingFee) : "");
+  const [withDiscount, setWithDiscount] = useState(linkedDiscount ? String(linkedDiscount.amount) : "");
+  const [withDiscountKind, setWithDiscountKind] = useState<DiscountKind>((linkedDiscount?.discountKind as DiscountKind) || "customer");
+  const [preview, setPreview] = useState<LedgerPaymentEditPreview | null>(null);
+  // Which of the things a gold release did are undone too (asked after the preview); all ticked to start with.
+  const [chosen, setChosen] = useState<Record<string, boolean>>({});
+  const goldChoices = (): { reversePacket?: boolean; restorePartialRelease?: boolean } => ({
+    ...(preview?.dependents?.some((d) => d.kind === "packet") && chosen.packet ? { reversePacket: true } : {}),
+    ...(preview?.dependents?.some((d) => d.kind === "partial_release") && chosen.partial_release ? { restorePartialRelease: true } : {}),
+  });
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const now = new Date();
@@ -65,9 +72,9 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, mode, minDat
       const dry = preview == null;
       setSaving(true);
       try {
-        let res: LedgerEditPreview;
+        let res: LedgerPaymentEditPreview;
         if (mode === "delete") {
-          res = await deleteLedgerPayment(loanId, p.id, dry, undefined, !dry && !!preview?.packet && reversePacket);
+          res = await deleteLedgerPayment(loanId, p.id, dry, undefined, dry ? {} : goldChoices());
         } else {
           const amt = +amount;
           if (!(amt > 0)) { setErr("Enter a valid amount."); return; }
@@ -80,16 +87,19 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, mode, minDat
           }
           res = await editLedgerPayment(loanId, p.id, {
             paidOn: date, amount: amt,
-            ...(!dry && preview?.packet && reversePacket ? { reversePacket: true } : {}),
+            ...(dry ? {} : goldChoices()),
             ...(isDiscount
-              ? { discountReason: discountReason.trim(), discountMode, discountKind }
-              : { type, cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: 0, bankId, reference }),
+              ? { discountReason: discountReason.trim(), discountMode: "Cash", discountKind }
+              : { type, processingFee: +fee || 0, discount: +withDiscount || 0, discountKind: withDiscountKind, cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: 0, bankId, reference }),
           }, dry);
         }
-        if (dry) { setPreview(res); setErr(""); return; }
+        if (dry) {
+          setPreview(res);
+          setChosen(Object.fromEntries((res.dependents ?? []).map((d) => [d.kind, true])));
+          setErr("");
+          return;
+        }
         toast(mode === "delete" ? "Entry deleted and the loan recalculated" : "Entry updated and the loan recalculated");
-        if (res.packetReversed && res.packet) toast(`Packet ${res.packet.code} moved back to ${res.packet.previousStatus}`);
-        else if (res.packetError) toast(`The loan was updated, but the packet could not be moved back: ${res.packetError}`);
         onSaved();
         closeModal();
       } catch (e) {
@@ -113,10 +123,6 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, mode, minDat
     <>
       <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} {p.type} entry</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll ledger-edit-bd">
-        <p className="notice" style={{ marginBottom: 12 }}>
-          The loan is recalculated from its first day, so interest, later payments, balances, the cash ledger and every other
-          ledger update to match this change.
-        </p>
         {mode === "edit" && (
           <>
             <div className="frow c2">
@@ -126,7 +132,6 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, mode, minDat
             {isDiscount ? (
               <div className="frow c2">
                 <div><label className="f">Discount Reason *</label><input className="inp" maxLength={200} value={discountReason} onChange={(e) => changed(setDiscountReason)(e.target.value)} /></div>
-                <div><label className="f">Discount Mode</label><Select options={DISCOUNT_MODES.map((m) => ({ value: m, label: m }))} value={discountMode} onChange={changed(setDiscountMode)} /></div>
                 <div><label className="f">Discount Type</label><Select options={(Object.keys(DISCOUNT_KIND_LABELS) as DiscountKind[]).map((k) => ({ value: k, label: DISCOUNT_KIND_LABELS[k] }))} value={discountKind} onChange={(v) => changed(setDiscountKind as (v: string) => void)(v)} /></div>
               </div>
             ) : (
@@ -135,9 +140,17 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, mode, minDat
                   <div><label className="f">Apply Payment To</label><Select options={CASH_TYPES.map((t) => ({ value: t, label: t }))} value={type} onChange={changed(setType)} /></div>
                   <div><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => changed(setReference)(e.target.value)} /></div>
                 </div>
-                <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payment breakdown <small style={{ fontWeight: 400, color: "var(--muted)" }}>How the customer paid</small></h4>
+                <div className="frow c2">
+                  <div><label className="f">Additional Charges (₹)</label><input className="inp" type="number" min={0} placeholder="e.g. late fee" value={fee} onChange={(e) => changed(setFee)(e.target.value)} /></div>
+                  <div />
+                </div>
+                <div className="frow c2">
+                  <div><label className="f">Discount Type</label><Select options={(Object.keys(DISCOUNT_KIND_LABELS) as DiscountKind[]).map((k) => ({ value: k, label: DISCOUNT_KIND_LABELS[k] }))} value={withDiscountKind} onChange={changed(setWithDiscountKind as (v: string) => void)} /></div>
+                  <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional" value={withDiscount} onChange={(e) => changed(setWithDiscount)(e.target.value)} /></div>
+                </div>
+                <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payment breakdown</h4>
                 <SplitPaymentInput
-                  totalAmount={+amount || 0} initialLines={initialLines} scrollInternally={false} label={null}
+                  totalAmount={+amount || 0} initialLines={initialLines} label={null}
                   onChange={(s, r, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setBankId(b); }}
                 />
               </>
@@ -165,20 +178,27 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, mode, minDat
             </table></div>
           </div>
         )}
-        {preview?.packet && (
-          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 12, fontSize: 13.5, cursor: "pointer" }}>
-            <input type="checkbox" checked={reversePacket} onChange={(e) => setReversePacket(e.target.checked)} style={{ marginTop: 3 }} />
-            <span>
-              This reopens the loan. Move packet <b>{preview.packet.code}</b> back from <b>{preview.packet.currentStatus}</b> to <b>{preview.packet.previousStatus}</b>?
-              <span style={{ display: "block", color: "var(--muted)", fontSize: 12.5 }}>Untick to leave the packet as it is.</span>
-            </span>
-          </label>
+        {!!preview?.dependents?.length && (
+          <div style={{ marginTop: 14 }}>
+            <label className="f">This also affects the gold released for this loan</label>
+            {preview.dependents.map((d) => (
+              <label key={d.kind} className="ccheck" style={{ margin: "6px 0" }}>
+                <input type="checkbox" checked={!!chosen[d.kind]} onChange={(e) => setChosen((c) => ({ ...c, [d.kind]: e.target.checked }))} />
+                <span className="mark" />
+                <span>
+                  <b>Also update this:</b> {d.description}
+                  <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{d.current} → {d.suggested}</div>
+                  {d.warning && chosen[d.kind] && <div style={{ fontSize: "0.85em", color: "var(--red)", marginTop: 2 }}>{d.warning}</div>}
+                </span>
+              </label>
+            ))}
+          </div>
         )}
         <FieldError msg={err} />
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
-        <button className="btn" onClick={submit} disabled={saving}>
+        <button className="btn" onClick={submit} disabled={saving || (mode === "edit" && !isDiscount && Math.abs(remaining) > 0.01)}>
           <Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : preview ? (mode === "delete" ? "Confirm delete" : "Confirm") : "Preview the change"}
         </button>
       </div>

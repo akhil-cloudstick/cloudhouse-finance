@@ -496,7 +496,10 @@ func findExpenses(ctx context.Context, branchID *uint, search string, limit, off
 	}
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("category ILIKE ? OR payee ILIKE ? OR remarks ILIKE ?", like, like, like)
+		q = q.Where("category ILIKE ? OR payee ILIKE ? OR remarks ILIKE ? OR mode ILIKE ? OR status ILIKE ?"+
+			" OR branch_id IN (SELECT id FROM branches WHERE name ILIKE ?)"+
+			" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ? OR CAST(amount AS TEXT) LIKE ?",
+			like, like, like, like, like, like, like, like, searchAmountLike(search))
 	}
 	var total int64
 	if limit > 0 {
@@ -554,7 +557,10 @@ func sumExpenseFiltered(ctx context.Context, branchID *uint, search string) (flo
 	}
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("category ILIKE ? OR payee ILIKE ? OR remarks ILIKE ?", like, like, like)
+		q = q.Where("category ILIKE ? OR payee ILIKE ? OR remarks ILIKE ? OR mode ILIKE ? OR status ILIKE ?"+
+			" OR branch_id IN (SELECT id FROM branches WHERE name ILIKE ?)"+
+			" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ? OR CAST(amount AS TEXT) LIKE ?",
+			like, like, like, like, like, like, like, like, searchAmountLike(search))
 	}
 	var sum float64
 	err := q.Select("COALESCE(SUM(amount), 0)").Scan(&sum).Error

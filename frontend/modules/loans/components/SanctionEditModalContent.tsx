@@ -114,7 +114,7 @@ export function SanctionEditModalContent({ loanId, sanctionedAmount, serviceChar
         </div>
         <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payout breakdown <small style={{ fontWeight: 400, color: "var(--muted)" }}>Paid to the customer: {fmt(payout)}</small></h4>
         <SplitPaymentInput
-          totalAmount={payout} initialLines={initialLines} scrollInternally={false} label={null}
+          totalAmount={payout} initialLines={initialLines} label={null}
           onChange={(s, r, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(r); setBankId(b); }}
         />
         {preview && (

@@ -47,7 +47,9 @@ type LoanPayment struct {
 	InterestOverride *float64 `json:"interest_override,omitempty" gorm:"type:numeric(16,2)"`
 	// DiscountKind says what a Discount row was given against: "interest", "penal_interest", or "customer" (the
 	// default — a negotiated reduction taken off penal interest, then interest, then principal).
-	DiscountKind           string    `json:"discount_kind,omitempty" gorm:"size:20"`
+	DiscountKind string `json:"discount_kind,omitempty" gorm:"size:20"`
+	// LinkedPaymentID, on a Discount row, is the payment it was given together with (nil for a discount entered alone).
+	LinkedPaymentID        *uint     `json:"linked_payment_id,omitempty" gorm:"index"`
 	CashTransactionGroupID string    `json:"cash_transaction_group_id,omitempty" gorm:"size:40;index"`
 	CreatedAt              time.Time `json:"created_at"`
 }

@@ -236,7 +236,15 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 	}
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ?", like, like, like)
+		// Text columns, the party's name, the date (DD-MM-YYYY or ISO) and the
+		// amount ("5,000" and "5000" both find 5000.00).
+		amount := searchAmountLike(search)
+		q = q.Where(
+			"purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ? OR mode ILIKE ? OR remarks ILIKE ?"+
+				" OR party_customer_id IN (SELECT id FROM customers WHERE name ILIKE ?)"+
+				" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ?"+
+				" OR CAST(amount AS TEXT) LIKE ?",
+			like, like, like, like, like, like, like, like, amount)
 	}
 	return q
 }
@@ -1657,7 +1665,7 @@ func GetCashLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCashModeLedger(ctx, branchID, branchIDs, fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCashModeLedger(ctx, branchID, branchIDs, strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1691,7 +1699,7 @@ func GetModeLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listModeLedger(ctx, mode, bankID, branchID, branchIDs, parseStringCSV(c.QueryParam("types")), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listModeLedger(ctx, mode, bankID, branchID, branchIDs, parseStringCSV(c.QueryParam("types")), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1746,7 +1754,7 @@ func ListMovementsByCustomer(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCombinedLedgerByCustomer(ctx, customerID, loanNumbersFromQuery(c), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCombinedLedgerByCustomer(ctx, customerID, loanNumbersFromQuery(c), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1772,7 +1780,7 @@ func GetBankLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCombinedLedgerByBank(ctx, bankID, splitCSV(c.QueryParam("modes")), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCombinedLedgerByBank(ctx, bankID, splitCSV(c.QueryParam("modes")), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1934,7 +1942,7 @@ func ExportMovements(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	filter := movementQueryFilter(c)
-	rows, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, "", exportMaxRows+1, 0)
+	rows, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, strings.TrimSpace(c.QueryParam("search")), exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

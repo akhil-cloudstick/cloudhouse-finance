@@ -92,8 +92,8 @@ func findEmployees(ctx context.Context, branchID *uint, search string, limit, of
 		q = q.Where("branch_id = ?", *branchID)
 	}
 	if search != "" {
-		like := "%" + search + "%"
-		q = q.Where("name ILIKE ? OR code ILIKE ? OR phone ILIKE ? OR username ILIKE ? OR email ILIKE ?", like, like, like, like, like)
+		q = ApplySearch(q, search, "employees.name", "employees.code", "employees.phone", "employees.username", "employees.email", "employees.role",
+			"(SELECT b.name FROM branches b WHERE b.id = employees.branch_id)")
 	}
 	var total int64
 	if limit > 0 {

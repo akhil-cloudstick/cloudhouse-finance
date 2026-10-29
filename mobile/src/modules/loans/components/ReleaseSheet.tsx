@@ -164,7 +164,7 @@ export function ReleaseSheet({
         v={inr(minAmount)}
         tone={allSelected || minAmount > 0.01 ? "brand" : "green"}
       />
-      <DateField label="Request date" value={requestedOn} onChange={setRequestedOn} min={l.disbursementDate?.slice(0, 10) || undefined} max={todayISO()} />
+      <DateField label="Request date" value={requestedOn} onChange={setRequestedOn} min={l.openedDate?.slice(0, 10) || undefined} max={todayISO()} />
       <TextField label="Note (optional)" placeholder="Add a note" value={detail} onChangeText={setDetail} />
       <ErrorText>{error}</ErrorText>
       <PrimaryButton

@@ -13,7 +13,7 @@ type LedgerEditShellProps = {
   visible: boolean;
   onClose: () => void;
   title: string;
-  notice: string;
+  notice?: string;
   mode: "edit" | "delete";
   /** The edit fields (shown in edit mode). */
   form: React.ReactNode;
@@ -33,7 +33,7 @@ type LedgerEditShellProps = {
 export function LedgerEditShell({ visible, onClose, title, notice, mode, form, deleteText, previewTitle, preview, error, busy, onSubmit, extra }: LedgerEditShellProps) {
   return (
     <Sheet visible={visible} onClose={onClose} title={title}>
-      <Txt style={{ fontSize: 11.5, color: C.muted, marginVertical: 8 }}>{notice}</Txt>
+      {notice ? <Txt style={{ fontSize: 11.5, color: C.muted, marginVertical: 8 }}>{notice}</Txt> : null}
       {mode === "edit" ? form : <Txt style={{ fontSize: 13, marginBottom: 12 }}>{deleteText}</Txt>}
       {preview ? (
         <View style={{ marginBottom: 12 }}>

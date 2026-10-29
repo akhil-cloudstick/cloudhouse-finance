@@ -16,7 +16,6 @@ const MODE_OPTIONS = [
   { value: "Bank Transfer", label: "Bank Transfer" },
 ];
 
-const MAX_ROWS = 6;
 
 const noWheelStep = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
 
@@ -128,7 +127,7 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
     const last = left[left.length - 1];
     return left.map((r) => (r.key === last.key && gone ? { ...r, amount: String(round2((Number(r.amount) || 0) + (Number(gone.amount) || 0))), auto: false } : r));
   });
-  const add = () => onChange((cur) => (cur.length >= MAX_ROWS ? cur : [...cur, newPaymentRow({ auto: false, amount: remaining > 0 ? String(remaining) : "" })]));
+  const add = () => onChange((cur) => [...cur, newPaymentRow({ auto: false, amount: remaining > 0 ? String(remaining) : "" })]);
 
   // The remove column only exists once there is more than one line.
   const grid = {
@@ -144,8 +143,8 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
           {label === null ? <span /> : <label className="f" style={{ margin: 0 }}>{label ?? <>Mode * <span style={{ fontWeight: 400, color: "var(--muted)" }}>(payment breakdown)</span></>}</label>}
           <button
-            type="button" onClick={add} disabled={rows.length >= MAX_ROWS} title="Add payment mode" aria-label="Add payment mode"
-            style={{ width: 28, height: 28, borderRadius: "50%", border: "1.5px solid var(--line)", background: "#fff", color: "var(--brand-deep, #423591)", cursor: rows.length >= MAX_ROWS ? "not-allowed" : "pointer", opacity: rows.length >= MAX_ROWS ? 0.5 : 1, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }}
+            type="button" onClick={add} title="Add payment mode" aria-label="Add payment mode"
+            style={{ width: 28, height: 28, borderRadius: "50%", border: "1.5px solid var(--line)", background: "#fff", color: "var(--brand-deep, #423591)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }}
           ><Icon name="plus" /></button>
         </div>
         <div style={{ ...grid, marginBottom: 4 }}>
@@ -196,13 +195,12 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
           </div>
         ))}
         </div>
-        <div style={{ minHeight: 18 }}>
+        <div>
           {error && error.key === null && <FieldError msg={error.message} />}
-          {total > 0 && !(error && error.key === null) && (
-            <span style={{ fontSize: 12.5, color: Math.abs(remaining) < 0.005 ? "var(--green)" : "var(--red)" }}>
-              {Math.abs(remaining) < 0.005
-                ? `Fully allocated ${fmt(total)}`
-                : remaining > 0 ? `${fmt(remaining)} still to allocate` : `Exceeds the amount by ${fmt(-remaining)}`}
+          {/* said only while the lines do not add up — a breakdown that is complete needs no message */}
+          {total > 0 && Math.abs(remaining) >= 0.005 && !(error && error.key === null) && (
+            <span style={{ fontSize: 12.5, color: "var(--red)" }}>
+              {remaining > 0 ? `${fmt(remaining)} still to allocate` : `Exceeds the amount by ${fmt(-remaining)}`}
             </span>
           )}
         </div>

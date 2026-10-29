@@ -301,7 +301,16 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if in.PaidOn != nil {
 		paidOn = *in.PaidOn
 	}
-	if in.Discount > 0 {
+	paymentType := in.Type
+	if paymentType == "" {
+		paymentType = models.PaymentTypePartial
+	}
+	paymentAmount := in.Amount
+	if chargeDelta > 0.01 && paymentAmount <= 0 {
+		paymentAmount = chargeDelta
+	}
+	// With a payment the discount is saved together with it (and linked to it); alone it is its own entry.
+	if in.Discount > 0 && paymentAmount <= 0 {
 		if _, err := SaveLoanPayment(ctx, req.LoanID, PaymentInput{
 			Amount:               in.Discount,
 			Type:                 models.PaymentTypeDiscount,
@@ -315,19 +324,15 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 			return nil, err
 		}
 	}
-	paymentType := in.Type
-	if paymentType == "" {
-		paymentType = models.PaymentTypePartial
-	}
-	paymentAmount := in.Amount
-	if chargeDelta > 0.01 && paymentAmount <= 0 {
-		paymentAmount = chargeDelta
-	}
 	if paymentAmount > 0 {
 		if _, err := SaveLoanPayment(ctx, req.LoanID, PaymentInput{
 			Amount:               paymentAmount,
 			Type:                 paymentType,
 			ProcessingFee:        chargeDelta,
+			Discount:             in.Discount,
+			DiscountReason:       in.DiscountReason,
+			DiscountMode:         in.DiscountMode,
+			DiscountKind:         in.DiscountKind,
 			PaidOn:               paidOn,
 			CheckDateWindow:      true,
 			ReceivedByEmployeeID: &in.ActorEmployeeID,

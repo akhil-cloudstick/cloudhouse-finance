@@ -2,6 +2,7 @@
 
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { BackLink } from "@/common/components/ui/BackLink";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
@@ -61,6 +62,9 @@ export type ReportConfig<Row = any, Totals = any> = {
   // exist either (the backend refuses the API calls too — see
   // internal/reports/routes.go).
   tenantModule?: string;
+  // false for the printed statements (Balance Sheet, P&L): dropping rows
+  // from a statement would leave it unbalanced, so they get no search box.
+  searchable?: boolean;
 };
 
 function firstOfMonth(): string {
@@ -89,6 +93,13 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   const [to, setTo] = useState(today());
   const [extraValue, setExtraValue] = useState("");
   const [page, setPage] = useState(1);
+  const [q, setQ] = useState("");
+  // The box updates instantly; the server is only asked once typing pauses.
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
 
   const [result, setResult] = useState<ReportResult<any, any> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,16 +113,17 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   const filters: ReportFilters = useMemo(() => {
     const f: ReportFilters = { from, to, page, pageSize };
     if (branchId) f.branchId = branchId;
+    if (search) f.search = search;
     if (config.extraFilter && extraValue) {
       if (config.extraFilter.field === "status") f.status = extraValue;
       else f.triggerType = extraValue;
     }
     return f;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, branchId, extraValue, page, pageSize, config.id]);
+  }, [from, to, branchId, extraValue, search, page, pageSize, config.id]);
 
   // Reset to page 1 whenever a filter (other than page itself) changes.
-  useEffect(() => { setPage(1); }, [from, to, branchId, extraValue, pageSize, config.id]);
+  useEffect(() => { setPage(1); }, [from, to, branchId, extraValue, search, pageSize, config.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -213,6 +225,7 @@ export function ReportView({ config, onBack }: ReportViewProps) {
           <h3>{config.title}</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {config.searchable !== false && <TableSearch value={q} onChange={setQ} placeholder="Search report…" searches={columns.map((c) => c.label.toLowerCase()).join(", ")} />}
             <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
             <button className="btn ghost sm" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
               <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}

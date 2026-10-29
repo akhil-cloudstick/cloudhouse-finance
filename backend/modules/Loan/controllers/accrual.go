@@ -131,6 +131,26 @@ func multipleDayRate(annualPercent float64) float64 {
 	return annualPercent / 100 / 365
 }
 
+func isMonthlyBasis(l *models.Loan) bool {
+	return l.SchemeAccrualBasis == commonModels.AccrualBasisMonthly
+}
+
+// periodFactor is the interest on one rupee between two dates at an annual rate. A daily scheme counts the actual
+// days over a 365-day year. A monthly scheme charges each completed calendar month as rate ÷ 12, whatever its length,
+// and each leftover day as rate ÷ 12 ÷ 30.
+func periodFactor(l *models.Loan, annualPercent float64, start, end time.Time) float64 {
+	if !isMonthlyBasis(l) {
+		return multipleDayRate(annualPercent) * float64(dayDiff(start, end))
+	}
+	months, boundary := completedPeriods(start, end, 1)
+	monthRate := annualPercent / 100 / 12
+	leftover := dayDiff(boundary, end)
+	if leftover < 0 {
+		leftover = 0
+	}
+	return monthRate*float64(months) + monthRate/30*float64(leftover)
+}
+
 // ladderThreshold is the unpaid-days count that, once passed, moves the loan
 // from step `level` to the next: the days of rows 0..level added together.
 func ladderThreshold(tiers []commonModels.RateTier, level int) int {
@@ -217,7 +237,7 @@ func projectMultipleInterest(l *models.Loan, asOf, from time.Time, firstAccrual,
 		for level < len(tiers)-1 && watch > ladderThreshold(tiers, level) {
 			accrued := dayDiff(start, periodStart)
 			if accrued > 0 {
-				extra := l.OutstandingAmount * multipleDayRate(tiers[level+1].Rate-tiers[level].Rate) * float64(accrued)
+				extra := l.OutstandingAmount * periodFactor(l, tiers[level+1].Rate-tiers[level].Rate, start, periodStart)
 				interest += extra
 				restate(extra)
 			}
@@ -225,9 +245,17 @@ func projectMultipleInterest(l *models.Loan, asOf, from time.Time, firstAccrual,
 		}
 	}
 	charge := func(base float64, periodStart, periodEnd time.Time) {
-		if days := dayDiff(periodStart, periodEnd); days > 0 {
-			interest += base * multipleDayRate(tiers[level].Rate) * float64(days)
+		if periodEnd.After(periodStart) {
+			interest += base * periodFactor(l, tiers[level].Rate, periodStart, periodEnd)
 		}
+	}
+	monthly := isMonthlyBasis(l)
+	// a charge cycle is 30 days on a daily scheme and one calendar month on a monthly one
+	cycleEnd := func(k int) time.Time {
+		if monthly {
+			return addMonths(from, k)
+		}
+		return from.AddDate(0, 0, k*multipleCycleDays)
 	}
 	if firstAccrual {
 		firstDays := multipleCycleDays
@@ -235,6 +263,12 @@ func projectMultipleInterest(l *models.Loan, asOf, from time.Time, firstAccrual,
 			firstDays = l.SchemeMinimumDays
 		}
 		anchor = l.OpenedDate.AddDate(0, 0, firstDays)
+		if monthly {
+			anchor = addMonths(l.OpenedDate, 1)
+			if minEnd := l.OpenedDate.AddDate(0, 0, l.SchemeMinimumDays); minEnd.After(anchor) {
+				anchor = minEnd
+			}
+		}
 		if !through && asOf.Before(anchor) {
 			// nothing is charged ahead of time: the first charge waits until its period is over
 			return 0, from, level, nil
@@ -257,7 +291,10 @@ func projectMultipleInterest(l *models.Loan, asOf, from time.Time, firstAccrual,
 		return interest, anchor, level, []accrualPart{{On: anchor, Interest: interest}}
 	}
 	periods := dayDiff(from, asOf) / multipleCycleDays
-	boundary := from.AddDate(0, 0, periods*multipleCycleDays)
+	if monthly {
+		periods, _ = completedPeriods(from, asOf, 1)
+	}
+	boundary := cycleEnd(periods)
 	// chargePeriod charges one period at the rate the loan is on after any step it passes, and files it as a new
 	// part; what the step restated on earlier periods is not part of this period's own interest
 	chargePeriod := func(ps, pe time.Time) {
@@ -268,7 +305,7 @@ func projectMultipleInterest(l *models.Loan, asOf, from time.Time, firstAccrual,
 		done = append(done, charged{days: float64(dayDiff(ps, pe)), part: len(parts) - 1})
 	}
 	for k := 1; k <= periods; k++ {
-		chargePeriod(from.AddDate(0, 0, (k-1)*multipleCycleDays), from.AddDate(0, 0, k*multipleCycleDays))
+		chargePeriod(cycleEnd(k-1), cycleEnd(k))
 	}
 	if through && asOf.After(boundary) {
 		chargePeriod(boundary, asOf)
@@ -317,13 +354,13 @@ func projectAccrualDetail(l *models.Loan, asOf time.Time, firstMonthTopUps []mod
 // single-rate scheme: the period's interest spread evenly over its days (30 for
 // a month, 90 for a quarter). unpaid is the interest already owing, which a
 // compound scheme charges interest on.
-func partialPeriodInterest(l *models.Loan, days int, unpaid float64) float64 {
+func partialPeriodInterest(l *models.Loan, start, end time.Time, unpaid float64) float64 {
 	if isLegacyBasis(l) {
-		if periodDays := singleRatePeriodDays(l); days > periodDays {
-			days = periodDays
+		if periodDays := singleRatePeriodDays(l); dayDiff(start, end) > periodDays {
+			end = start.AddDate(0, 0, periodDays)
 		}
 	}
-	return singleRateInterestForDays(l, days, unpaid)
+	return singleRateInterestForDays(l, start, end, unpaid)
 }
 
 // isLegacyBasis is true for the one single-rate scheme still charged on flat
@@ -353,12 +390,13 @@ func singleRatePeriodDays(l *models.Loan) int {
 // monthly keeps its old footing (a month's interest spread evenly over 30 days,
 // on the base plus the interest unpaid). It is not capped at one period, so a
 // minimum longer than a month is charged in full.
-func singleRateInterestForDays(l *models.Loan, days int, unpaid float64) float64 {
+func singleRateInterestForDays(l *models.Loan, start, end time.Time, unpaid float64) float64 {
+	days := dayDiff(start, end)
 	if days <= 0 {
 		return 0
 	}
 	if !isLegacyBasis(l) {
-		return singleRateBase(l) * multipleDayRate(l.SchemeInterestRate) * float64(days)
+		return singleRateBase(l) * periodFactor(l, l.SchemeInterestRate, start, end)
 	}
 	monthlyRate := l.SchemeInterestRate / 100 / 12
 	if unpaid < 0 {
@@ -424,10 +462,18 @@ func projectAccrualThrough(l *models.Loan, asOf time.Time, through bool, firstMo
 				if days <= 0 {
 					continue
 				}
+				if isMonthlyBasis(l) && !isLegacyBasis(l) {
+					interestDelta += seg.base * periodFactor(l, l.SchemeInterestRate, seg.start, seg.end)
+					continue
+				}
 				interestDelta += seg.base * dayRate * days
 			}
 		} else if !isLegacyBasis(l) || partial || extended {
-			interestDelta = singleRateInterestForDays(l, dayDiff(l.OpenedDate, anchor), 0)
+			interestDelta = singleRateInterestForDays(l, l.OpenedDate, anchor, 0)
+			if isMonthlyBasis(l) && !isLegacyBasis(l) && l.SchemeMinimumDays > 0 && anchor.Equal(minEnd) {
+				// a minimum period is charged by its days: rate ÷ 12 ÷ 30 for each day
+				interestDelta = singleRateBase(l) * l.SchemeInterestRate / 100 / 12 / 30 * float64(l.SchemeMinimumDays)
+			}
 		} else {
 			interestDelta = l.OutstandingAmount * monthlyRate
 		}
@@ -437,6 +483,8 @@ func projectAccrualThrough(l *models.Loan, asOf time.Time, through bool, firstMo
 			periodMonths = 3
 		}
 		periods, boundary := completedPeriods(from, asOf, periodMonths)
+		// Several periods charged at once (a loan opened long ago, looked at late) are saved one row per period, so
+		// the ledger shows each month's interest on its own date instead of one lump on the last.
 		if isLegacyBasis(l) {
 			unpaid := l.AccruedInterest - l.InterestPaid
 			if unpaid < 0 {
@@ -446,15 +494,26 @@ func projectAccrualThrough(l *models.Loan, asOf time.Time, through bool, firstMo
 				d := (l.OutstandingAmount + unpaid) * monthlyRate
 				interestDelta += d
 				unpaid += d
+				parts = append(parts, accrualPart{On: addMonths(from, periodMonths*(i+1)), Interest: d})
 			}
 		} else {
 			// the completed periods are one run of actual days from the last charge date
-			interestDelta = singleRateInterestForDays(l, dayDiff(from, boundary), 0)
+			interestDelta = singleRateInterestForDays(l, from, boundary, 0)
+			var prev float64
+			for i := 1; i <= periods; i++ {
+				end := addMonths(from, periodMonths*i)
+				cum := singleRateInterestForDays(l, from, end, 0)
+				parts = append(parts, accrualPart{On: end, Interest: cum - prev})
+				prev = cum
+			}
 		}
 		anchor = boundary
 		if through && asOf.After(boundary) {
-			interestDelta += partialPeriodInterest(l, dayDiff(boundary, asOf), l.AccruedInterest+interestDelta-l.InterestPaid)
+			interestDelta += partialPeriodInterest(l, boundary, asOf, l.AccruedInterest+interestDelta-l.InterestPaid)
 			anchor = asOf
+			if len(parts) > 0 {
+				parts[len(parts)-1].On = anchor // the part period's interest is charged on the last row
+			}
 		}
 	}
 	if interestDelta < 0 {
@@ -528,6 +587,29 @@ func syncAccrualState(l, saved *models.Loan) {
 	l.Status = saved.Status
 }
 
+// topUpCutoffKey carries, through the context, the real moment an accrual is being made for. A recalculation walks a
+// loan's history in order, so a top-up made after that moment is not on the loan yet and must not be treated as part
+// of the first month's principal when the interest for that moment is worked out.
+type topUpCutoffKey struct{}
+
+func withTopUpCutoff(ctx context.Context, at time.Time) context.Context {
+	return context.WithValue(ctx, topUpCutoffKey{}, at)
+}
+
+func topUpsUpTo(ctx context.Context, ups []models.LoanTopUp) []models.LoanTopUp {
+	at, ok := ctx.Value(topUpCutoffKey{}).(time.Time)
+	if !ok {
+		return ups
+	}
+	kept := make([]models.LoanTopUp, 0, len(ups))
+	for _, u := range ups {
+		if !u.OccurredOn.After(at) {
+			kept = append(kept, u)
+		}
+	}
+	return kept
+}
+
 // accrueStep works out one pass of interest to asOf and applies it to l in
 // memory, returning the ledger rows to save with it. Nothing is written.
 func accrueStep(ctx context.Context, l *models.Loan, asOf time.Time, through bool) (rows []models.LoanAccrual, restated []accrualPart, changed bool) {
@@ -536,7 +618,7 @@ func accrueStep(ctx context.Context, l *models.Loan, asOf time.Time, through boo
 	first := l.LastAccrualDate.IsZero() || l.LastAccrualDate.Equal(l.OpenedDate)
 	if first {
 		if ups, err := findLoanTopUpActiveByLoanID(ctx, l.ID); err == nil {
-			firstMonthTopUps = ups
+			firstMonthTopUps = topUpsUpTo(ctx, ups)
 		}
 	} else if l.SchemeInterestMethod == commonModels.InterestMethodMultiple && l.PriorAccruals == nil {
 		l.PriorAccruals = loadCycleAccruals(ctx, l)
@@ -612,6 +694,7 @@ func accrueInTxAt(ctx context.Context, tx *gorm.DB, l *models.Loan, paidOn, crea
 	if now := time.Now(); paidOn.After(now) {
 		paidOn = now
 	}
+	ctx = withTopUpCutoff(ctx, paidOn)
 	asOf := sameClockAsOpened(l, paidOn)
 	for pass := 0; pass < 2; pass++ {
 		rows, restated, _ := accrueStep(ctx, l, asOf, through)

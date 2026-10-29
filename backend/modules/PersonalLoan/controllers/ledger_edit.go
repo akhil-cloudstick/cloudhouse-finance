@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -134,19 +135,22 @@ func guardPersonalEditable(l *models.PersonalLoan, payments []models.PersonalLoa
 func probePersonalLoan(l *models.PersonalLoan, ordered []models.PersonalLoanPayment, insts []models.PersonalLoanInstallment) error {
 	running, outstanding, err := replayBalances(l.PrincipalAmount, ordered)
 	if err != nil {
-		return common.NewConflict("this loan's history cannot be recalculated safely: " + err.Error())
+		log.Printf("personal loan %d ledger edit refused: history cannot be recalculated: %v", l.ID, err)
+		return common.NewConflict("This entry can't be edited: the loan's history can't be recalculated.")
 	}
 	for i := range ordered {
 		if math.Abs(ordered[i].RunningBalance-running[i]) > epsilon {
-			return common.NewConflict(fmt.Sprintf("this loan's earlier figures cannot be reproduced exactly, so it cannot be edited safely (balance after the payment of ₹%.2f on %s is ₹%.2f saved vs ₹%.2f recalculated)",
-				ordered[i].Amount, ordered[i].PaidOn.Format("02-01-2006"), ordered[i].RunningBalance, running[i]))
+			log.Printf("personal loan %d ledger edit refused: balance after the payment of %.2f on %s is %.2f saved vs %.2f recalculated",
+				l.ID, ordered[i].Amount, ordered[i].PaidOn.Format("02-01-2006"), ordered[i].RunningBalance, running[i])
+			return common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
 		}
 	}
 	if math.Abs(outstanding-l.OutstandingAmount) > epsilon || math.Abs(sumPayments(ordered)-l.TotalPaid) > epsilon {
-		return common.NewConflict("this loan's totals cannot be reproduced exactly, so it cannot be edited safely")
+		return common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
 	}
 	if diff := sameInstallments(insts, replayInstallments(insts, sumPayments(ordered))); diff != "" {
-		return common.NewConflict("this loan's instalments cannot be reproduced exactly, so it cannot be edited safely (" + diff + ")")
+		log.Printf("personal loan %d ledger edit refused: instalments not reproduced: %s", l.ID, diff)
+		return common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
 	}
 	return nil
 }

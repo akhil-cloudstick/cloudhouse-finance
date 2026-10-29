@@ -12,7 +12,6 @@ import type { Loan } from "@/modules/loans/types/loan-types";
 type Payment = NonNullable<Loan["payments"]>[number];
 
 const CASH_TYPES = ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement"];
-const DISCOUNT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"];
 
 type Props = { loanId: number; loanStart?: string | null; payment: Payment | null; mode: "edit" | "delete"; onClose: () => void };
 
@@ -27,7 +26,6 @@ export function LedgerPaymentEditSheet({ loanId, loanStart, payment: p, mode, on
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
   const [discountReason, setDiscountReason] = useState("");
-  const [discountMode, setDiscountMode] = useState("Cash");
   const [discountKind, setDiscountKind] = useState<"customer" | "interest" | "penal_interest">("customer");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reversePacket, setReversePacket] = useState(true);
@@ -42,7 +40,6 @@ export function LedgerPaymentEditSheet({ loanId, loanStart, payment: p, mode, on
     setAmount(String(p.amount));
     setReference(p.reference ?? "");
     setDiscountReason((p.description ?? "").replace(/^Discount:\s*/, ""));
-    setDiscountMode(DISCOUNT_MODES.includes(p.method ?? "") ? (p.method as string) : "Cash");
     setDiscountKind((p.discountKind as "customer" | "interest" | "penal_interest") || "customer");
     setReversePacket(true);
     setPreview(null);
@@ -65,7 +62,7 @@ export function LedgerPaymentEditSheet({ loanId, loanStart, payment: p, mode, on
       if (!(amt > 0)) throw new Error("Enter a valid amount.");
       if (isDiscount) {
         if (!discountReason.trim()) throw new Error("A discount needs a reason.");
-        return editLedgerPayment(loanId, p.id, { paidOn: date, amount: amt, discountReason: discountReason.trim(), discountMode, discountKind, ...(reverse ? { reversePacket: true } : {}) }, dry);
+        return editLedgerPayment(loanId, p.id, { paidOn: date, amount: amt, discountReason: discountReason.trim(), discountMode: "Cash", discountKind, ...(reverse ? { reversePacket: true } : {}) }, dry);
       }
       if (!pay?.ready) throw new Error(`The payment breakdown must add up to the amount (${inr(amt)}) and every UPI / Bank Transfer line needs its bank.`);
       return editLedgerPayment(
@@ -105,9 +102,6 @@ export function LedgerPaymentEditSheet({ loanId, loanStart, payment: p, mode, on
         <>
           <Field label="Discount reason *">
             <Input value={discountReason} onChangeText={touch(setDiscountReason)} maxLength={200} />
-          </Field>
-          <Field label="Discount mode">
-            <ThemeDropdown value={discountMode} options={DISCOUNT_MODES} labelOf={(m) => m} onChange={touch(setDiscountMode)} />
           </Field>
           <Field label="Discount type">
             <ThemeDropdown value={discountKind} options={["customer", "interest", "penal_interest"] as const} labelOf={(k) => (k === "customer" ? "Custom discount" : k === "interest" ? "Interest" : "Penal interest")} onChange={touch(setDiscountKind)} />
@@ -155,7 +149,6 @@ export function LedgerPaymentEditSheet({ loanId, loanStart, payment: p, mode, on
       visible={!!p}
       onClose={onClose}
       title={`${mode === "delete" ? "Delete" : "Edit"} ${p?.type ?? ""} entry`}
-      notice="The loan is recalculated from its first day, so interest, later payments, balances and the cash ledger update to match."
       mode={mode}
       form={form}
       deleteText={

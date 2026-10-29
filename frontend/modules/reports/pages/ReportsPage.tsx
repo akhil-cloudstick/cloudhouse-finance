@@ -379,6 +379,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
   },
   {
     id: "balance-sheet",
+    searchable: false,
     title: "Balance Sheet",
     description: "Assets, liabilities & equity as of a date (Ind AS Division III format)",
     icon: "scale",
@@ -400,6 +401,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
   },
   {
     id: "profit-loss",
+    searchable: false,
     title: "Statement of Profit and Loss",
     description: "Income & expenses for a period (Ind AS Division III format)",
     icon: "chart",

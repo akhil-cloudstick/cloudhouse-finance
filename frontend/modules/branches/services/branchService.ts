@@ -1,8 +1,9 @@
 import { apiFetchEnveloped, ApiError } from "@/common/services/httpClient";
 import type { BranchView, BranchFormInput, SwitchableBranches, BranchQuota } from "@/modules/branches/types/branch-types";
 
-export async function listBranches(): Promise<BranchView[]> {
-  const rec = await apiFetchEnveloped<BranchView[]>("/branches");
+// q is searched by the server across every column the table shows.
+export async function listBranches(q?: string): Promise<BranchView[]> {
+  const rec = await apiFetchEnveloped<BranchView[]>(q?.trim() ? `/branches?search=${encodeURIComponent(q.trim())}` : "/branches");
   return rec || [];
 }
 

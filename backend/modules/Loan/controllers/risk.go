@@ -5,6 +5,7 @@ import (
 	common "cloudhouse/backend/common/controllers"
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -71,7 +72,6 @@ func listLoanRiskAssessment(ctx context.Context, f RiskAssessmentFilter) (*RiskA
 		BranchScope: f.BranchScope,
 		OpenedFrom:  f.OpenedFrom,
 		OpenedTo:    f.OpenedTo,
-		Query:       f.Query,
 	}
 	if f.Status != "" {
 		lf.Status = f.Status
@@ -97,6 +97,12 @@ func listLoanRiskAssessment(ctx context.Context, f RiskAssessmentFilter) (*RiskA
 			currentValue += o.NetWeight * r
 		}
 		level := ClassifyRisk(currentValue, l.OutstandingAmount)
+		// Search covers every column the table shows (loan, customer, status, the amounts, the weight, the risk level).
+		if f.Query != "" && !common.MatchesSearch(f.Query, l.LoanNumber, l.Customer.Name, l.Status, string(level),
+			fmt.Sprintf("%.2f", l.PrincipalAmount), fmt.Sprintf("%.2f", l.OutstandingAmount),
+			fmt.Sprintf("%.3f", l.TotalNetWeight), fmt.Sprintf("%.2f", currentValue)) {
+			continue
+		}
 		counts[level]++
 		if f.RiskLevel != "" && level != f.RiskLevel {
 			continue

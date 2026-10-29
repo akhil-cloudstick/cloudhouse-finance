@@ -5,7 +5,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
-import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest } from "@/modules/loans/services/loanService";
+import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, editReleaseRecord, linkedDiscountOf } from "@/modules/loans/services/loanService";
 import { type RequestView, type LoanView } from "@/modules/loans/types/loan-types";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
@@ -19,6 +19,7 @@ import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError } from "@/common/components/ui/FieldError";
 import { DatePicker } from "@/common/components/ui/DatePicker";
+import { LedgerPaymentEditModalContent } from "@/modules/loans/components/LedgerPaymentEditModalContent";
 
 function localToday(): string {
   const n = new Date();
@@ -56,6 +57,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const { can, role, isSystem } = useAuth();
   const canOpen = useCanOpenRoute();
   const canDecide = can("Loan_Management", "can_update_loan");
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
   // Checklist verification and the two Manager/Management approval stages
   // each need their own "Release Approval" permission on top of the
   // general canDecide gate — see internal/authz.Catalogue and backend/
@@ -78,6 +80,8 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // The day the customer saw the gold / the release happened. Staff can backdate it; it becomes the default
   // Payment Date in the Record Payment form, which they can still change each time.
   const [releaseDate, setReleaseDate] = useState(() => {
+    // a release that is already decided shows the date it was recorded with, so it can be corrected
+    if (request.status !== "Pending" && request.requestedAt) return request.requestedAt.slice(0, 10);
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
   });
@@ -165,6 +169,28 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       setReq(updated);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not update the checklist — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }); }
+
+  // The release's own record: its date, and the payment recorded for it. The payment is an ordinary loan payment, so
+  // it is corrected through the same ledger editor, which checks it against the entries after it.
+  const recordedPaymentRow = loan && req.paymentRecorded
+    ? [...loan.payments].reverse().find((p) => Math.abs(p.amount - req.recordedPayment) < 0.005 && p.type !== "Disbursement" && p.type !== "Discount")
+    : undefined;
+  const dateChanged = !!req.requestedAt && releaseDate !== req.requestedAt.slice(0, 10) && (req.status !== "Pending" || req.paymentRecorded);
+
+  async function saveReleaseDate() { return singleFlight("modal:releasereview:saveDate", async () => {
+    setSaving(true);
+    setErr("");
+    try {
+      await editReleaseRecord(req.id, { requestedAt: releaseDate });
+      await refreshRequest();
+      onSaved();
+      toast("Release date updated");
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not update the release date — try again.");
     } finally {
       setSaving(false);
     }
@@ -298,9 +324,21 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         <div className="frow" style={{ marginBottom: 10 }}>
           <div>
             <label className="f">Release Date</label>
-            <DatePicker value={releaseDate} min={loan?.disbursementDate?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status !== "Pending" || !canDecide} />
+            <DatePicker value={releaseDate} min={loan?.opened?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status === "Pending" ? !canDecide : !canEditLedger} />
           </div>
         </div>
+
+        {canEditLedger && (dateChanged || recordedPaymentRow) && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            {dateChanged && <button className="btn ghost sm" disabled={saving} onClick={saveReleaseDate}><Icon name="check" /> Save release date</button>}
+            {recordedPaymentRow && loan && (
+              <button className="btn ghost sm" disabled={saving}
+                onClick={() => openModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={recordedPaymentRow} linkedDiscount={linkedDiscountOf(loan.payments, recordedPaymentRow)} mode="edit" minDate={loan.opened?.slice(0, 10) || undefined} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); closeModal(); }} />, true)}>
+                <Icon name="edit" /> Edit recorded payment
+              </button>
+            )}
+          </div>
+        )}
 
         <button
           className="btn ghost sm"

@@ -685,7 +685,7 @@ func toLedgerRow(r ledgerSourceRow) LedgerRow {
 	return row
 }
 
-func listCombinedLedgerByBank(ctx context.Context, bankID uint, modes []string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+func listCombinedLedgerByBank(ctx context.Context, bankID uint, modes []string, search string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	keep := func(rows []ledgerSourceRow) []ledgerSourceRow {
 		if len(modes) == 0 {
 			return rows
@@ -704,10 +704,10 @@ func listCombinedLedgerByBank(ctx context.Context, bankID uint, modes []string, 
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
 		return combinedLedgerByBank(ctx, bankID, from, to)
 	}
-	return paginateLedgerWindowed(ctx, fetch, keep, fromDate, toDate, limit, offset)
+	return paginateLedgerWindowed(ctx, fetch, withLedgerSearch(keep, search), fromDate, toDate, limit, offset)
 }
 
-func listCombinedLedgerByCustomer(ctx context.Context, customerID uint, loanNumbers []string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+func listCombinedLedgerByCustomer(ctx context.Context, customerID uint, loanNumbers []string, search string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	keep := func(rows []ledgerSourceRow) []ledgerSourceRow {
 		if len(loanNumbers) == 0 {
 			return rows
@@ -726,7 +726,7 @@ func listCombinedLedgerByCustomer(ctx context.Context, customerID uint, loanNumb
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
 		return combinedLedgerByCustomer(ctx, customerID, from, to)
 	}
-	return paginateLedgerWindowed(ctx, fetch, keep, fromDate, toDate, limit, offset)
+	return paginateLedgerWindowed(ctx, fetch, withLedgerSearch(keep, search), fromDate, toDate, limit, offset)
 }
 
 func paginateLedgerRows(ctx context.Context, rows []ledgerSourceRow, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
@@ -907,18 +907,18 @@ func sortLedgerSourceRows(rows []ledgerSourceRow) {
 	})
 }
 
-func listCashModeLedger(ctx context.Context, branchID *uint, branchIDs []uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
-	return listModeLedger(ctx, "Cash", nil, branchID, branchIDs, nil, fromDate, toDate, limit, offset)
+func listCashModeLedger(ctx context.Context, branchID *uint, branchIDs []uint, search string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+	return listModeLedger(ctx, "Cash", nil, branchID, branchIDs, nil, search, fromDate, toDate, limit, offset)
 }
 
-func listModeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, types []string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+func listModeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, types []string, search string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
 		return modeLedger(ctx, mode, bankID, branchID, branchIDs, from, to)
 	}
-	keep := func(rows []ledgerSourceRow) []ledgerSourceRow { return filterLedgerRowsByType(rows, types) }
+	keep := withLedgerSearch(func(rows []ledgerSourceRow) []ledgerSourceRow { return filterLedgerRowsByType(rows, types) }, search)
 	// The mode ledgers span the whole cash book: cache their closed years' totals.
 	tenantID, _ := config.TenantFromContext(ctx)
-	key := fmt.Sprintf("mode|%d|%s|%s|%s|%v|%v", tenantID, mode, uintKey(bankID), uintKey(branchID), branchIDs, types)
+	key := fmt.Sprintf("mode|%d|%s|%s|%s|%v|%v|%s", tenantID, mode, uintKey(bankID), uintKey(branchID), branchIDs, types, strings.ToLower(strings.TrimSpace(search)))
 	return paginateLedgerWindowedCached(ctx, key, modeLedgerFingerprint, fetch, keep, fromDate, toDate, limit, offset)
 }
 
@@ -1514,6 +1514,8 @@ func ledgerRowTypeBuckets(r ledgerSourceRow) []string {
 		isPL := strings.Contains(r.Description, "PL-") || strings.Contains(r.Reference, "PL-")
 		var out []string
 		switch {
+		case strings.HasPrefix(r.Description, "Bank pledge"):
+			out = append(out, "bank pledge")
 		case r.Type == "Personal Loan":
 			out = append(out, "personal loan")
 		case r.Type == "Investment" || strings.Contains(r.Description, "INV-"):

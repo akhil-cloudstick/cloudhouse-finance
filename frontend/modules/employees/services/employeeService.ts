@@ -29,13 +29,15 @@ export const EMPLOYEES_PAGE_SIZE = 12;
 
 export async function listEmployeesPage(
   page: number,
-  limit?: number
+  limit?: number,
+  q?: string
 ): Promise<{ items: EmployeeView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 8 : 12);
   const params = new URLSearchParams({
     limit: String(pageSize),
     offset: String((page - 1) * pageSize),
   });
+  if (q?.trim()) params.set("search", q.trim());
   const rec = await apiFetch<{ items: BackendEmployee[]; hasMore: boolean; total?: number }>(`/employees?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }

@@ -21,7 +21,8 @@ type schemeRequest struct {
 	LTVPercent         float64                 `json:"ltv_percent" binding:"required"`
 	InterestMethod     string                  `json:"interest_method"`
 	PenalRate          float64                 `json:"penal_rate"`
-	Conditions         string                  `json:"conditions"`
+	AccrualBasis       string                  `json:"accrual_basis"`
+	Conditions        string                  `json:"conditions"`
 	IsActive           bool                    `json:"is_active"`
 	RateTiers          []commonModels.RateTier `json:"rate_tiers"`
 	MinimumDays        int                     `json:"minimum_days"`
@@ -43,7 +44,8 @@ type SchemeCreateInput struct {
 	LTVPercent         float64
 	InterestMethod     string
 	PenalRate          float64
-	Conditions         string
+	AccrualBasis       string
+	Conditions        string
 	IsActive           bool
 	RateTiers          []commonModels.RateTier
 	MinimumDays        int
@@ -71,6 +73,7 @@ func (req schemeRequest) toInput() SchemeCreateInput {
 		LTVPercent:         req.LTVPercent,
 		InterestMethod:     req.InterestMethod,
 		PenalRate:          req.PenalRate,
+		AccrualBasis:       req.AccrualBasis,
 		RateTiers:          req.RateTiers,
 		MinimumDays:        req.MinimumDays,
 		Conditions:         req.Conditions,
@@ -197,9 +200,19 @@ func normalizeTiers(in *SchemeCreateInput) {
 	}
 }
 
+func accrualBasisOrDefault(basis string) string {
+	if basis == commonModels.AccrualBasisMonthly {
+		return commonModels.AccrualBasisMonthly
+	}
+	return commonModels.AccrualBasisDaily
+}
+
 func validateTiers(in SchemeCreateInput) error {
 	if in.MinimumDays < 0 {
 		return NewBadRequest("minimum period cannot be negative")
+	}
+	if in.AccrualBasis != "" && in.AccrualBasis != commonModels.AccrualBasisDaily && in.AccrualBasis != commonModels.AccrualBasisMonthly {
+		return NewBadRequest("accrual method must be daily or monthly")
 	}
 	if in.InterestMethod != commonModels.InterestMethodMultiple {
 		return nil
@@ -310,7 +323,8 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 		LTVPercent:         in.LTVPercent,
 		InterestMethod:     in.InterestMethod,
 		PenalRate:          in.PenalRate,
-		RateTiers:          in.RateTiers,
+		AccrualBasis:       accrualBasisOrDefault(in.AccrualBasis),
+		RateTiers:         in.RateTiers,
 		MinimumDays:        in.MinimumDays,
 		Conditions:         in.Conditions,
 		IsActive:           in.IsActive,
@@ -379,6 +393,7 @@ func updateScheme(ctx context.Context, id uint, in SchemeUpdateInput, branchID *
 	rec.LTVPercent = in.LTVPercent
 	rec.InterestMethod = in.InterestMethod
 	rec.PenalRate = in.PenalRate
+	rec.AccrualBasis = accrualBasisOrDefault(in.AccrualBasis)
 	rec.RateTiers = in.RateTiers
 	rec.MinimumDays = in.MinimumDays
 	rec.Conditions = in.Conditions

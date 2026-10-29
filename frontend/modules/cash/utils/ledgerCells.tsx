@@ -50,6 +50,12 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
       </span>
     );
   }
+  // The auction's proceeds and its surplus settlement belong to that loan's auction: they open the Auction History, not
+  // the Auction expenses ledger that the expense category below would give.
+  if (m.purpose && /^Auction (sale proceeds|surplus settlement)/.test(m.purpose)) {
+    const loanNo = loanNumberFor(m);
+    if (loanNo.startsWith("LN-")) return <LedgerRefLink kind="auction" id={`history:${loanNo}`} label={text || "Auction"} />;
+  }
   const category = expenseCategoryOf(m.purpose);
   const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
   if (categoryId) {

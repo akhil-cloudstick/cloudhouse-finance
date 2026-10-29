@@ -221,8 +221,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
       date: p.paidOn || p.createdAt,
       title: p.type,
       sub: [method, p.reference ? `Ref ${p.reference}` : "", p.processingFee > 0 ? `+${inr(p.processingFee)} fee` : ""].filter(Boolean).join(" · ") || undefined,
-      // a Discount is the company giving an amount up: a debit entry, like on the web ledger
-      ...(p.type === "Discount" ? { debit: p.amount } : { credit: p.amount }),
+      credit: p.amount,
       nonCash,
       balance: p.runningBalance,
       method: method || undefined,
