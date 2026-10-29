@@ -177,7 +177,8 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // The release's own record: its date, and the payment recorded for it. The payment is an ordinary loan payment, so
   // it is corrected through the same ledger editor, which checks it against the entries after it.
   const recordedPaymentRow = loan && req.paymentRecorded
-    ? [...loan.payments].reverse().find((p) => Math.abs(p.amount - req.recordedPayment) < 0.005 && p.type !== "Disbursement" && p.type !== "Discount")
+    ? [...loan.payments].reverse().find((p) => p.description === "Release payment" && p.type !== "Discount")
+      ?? [...loan.payments].reverse().find((p) => Math.abs(p.amount - req.recordedPayment) < 0.005 && p.type !== "Disbursement" && p.type !== "Discount")
     : undefined;
   const dateChanged = !!req.requestedAt && releaseDate !== req.requestedAt.slice(0, 10) && (req.status !== "Pending" || req.paymentRecorded);
 
@@ -328,15 +329,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           </div>
         </div>
 
-        {canEditLedger && (dateChanged || recordedPaymentRow) && (
+        {canEditLedger && dateChanged && (
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            {dateChanged && <button className="btn ghost sm" disabled={saving} onClick={saveReleaseDate}><Icon name="check" /> Save release date</button>}
-            {recordedPaymentRow && loan && (
-              <button className="btn ghost sm" disabled={saving}
-                onClick={() => openModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={recordedPaymentRow} linkedDiscount={linkedDiscountOf(loan.payments, recordedPaymentRow)} mode="edit" minDate={loan.opened?.slice(0, 10) || undefined} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); closeModal(); }} />, true)}>
-                <Icon name="edit" /> Edit recorded payment
-              </button>
-            )}
+            <button className="btn ghost sm" disabled={saving} onClick={saveReleaseDate}><Icon name="check" /> Save release date</button>
           </div>
         )}
 
@@ -395,6 +390,12 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
+        {canEditLedger && recordedPaymentRow && loan && (
+          <button className="btn ghost" disabled={saving}
+            onClick={() => openModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={recordedPaymentRow} linkedDiscount={linkedDiscountOf(loan.payments, recordedPaymentRow)} mode="edit" minDate={loan.opened?.slice(0, 10) || undefined} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); closeModal(); }} />, true)}>
+            <Icon name="edit" /> Edit
+          </button>
+        )}
         {req.status === "Pending" && canDecide && canActOnStage && !!stage && (
           <>
             {/* Locked (a payment has already been recorded against this

@@ -3,6 +3,7 @@ package controllers
 import (
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/modules/Loan/models"
+	"context"
 	"testing"
 	"time"
 )
@@ -95,4 +96,33 @@ func TestMinimumPeriod_MonthlyChargesDaysOverThirty(t *testing.T) {
 		i, _, _, _, _ := projectAccrualThrough(l, opened, true, nil)
 		nearly(t, i, c.want, c.basis)
 	}
+}
+
+func TestTopUpsUpTo_IgnoresTopUpsAfterTheAccrualMoment(t *testing.T) {
+	at := time.Date(2026, 10, 29, 18, 38, 47, 0, time.UTC)
+	ups := []models.LoanTopUp{
+		{ID: 1, OccurredOn: at.Add(-time.Hour), Amount: 1000},
+		{ID: 2, OccurredOn: at.Add(time.Second), Amount: 5000},
+	}
+	if got := topUpsUpTo(context.Background(), ups); len(got) != 2 {
+		t.Fatalf("without a cutoff every top-up is kept, got %d", len(got))
+	}
+	got := topUpsUpTo(withTopUpCutoff(context.Background(), at), ups)
+	if len(got) != 1 || got[0].ID != 1 {
+		t.Fatalf("a top-up made after the accrual moment must be left out, got %+v", got)
+	}
+}
+
+// The loan 276 case: a 25,000 loan (30-day minimum, monthly basis) paid its 375.00 interest one second before a
+// 5,000 top-up. Treating that later top-up as part of the first month gave 372.50 and blocked every edit.
+func TestMonthlyBasis_LaterTopUpDoesNotChangeFirstMonthInterest(t *testing.T) {
+	opened := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
+	l := basisLoan(commonModels.AccrualBasisMonthly, opened, opened)
+	l.OutstandingAmount, l.SchemeInterestRate, l.SchemeMinimumDays = 25_000, 18, 30
+	payAt := opened.Add(18*time.Hour + 38*time.Minute + 47*time.Second)
+	topUps := []models.LoanTopUp{{ID: 18, OccurredOn: payAt.Add(time.Second), Amount: 5_000}}
+
+	left := topUpsUpTo(withTopUpCutoff(context.Background(), payAt), topUps)
+	i, _, _, _, _ := projectAccrualThrough(l, opened, true, left)
+	nearly(t, i, 375, "interest owed at the payment, the later top-up left out")
 }

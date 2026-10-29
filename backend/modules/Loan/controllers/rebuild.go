@@ -712,6 +712,10 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 				return err
 			}
 		}
+		// a release's own payment edited here: its request shows the corrected figures
+		if err := syncReleaseRecorded(ctx, tx, loanID); err != nil {
+			return err
+		}
 		// the gold the ticked boxes put back, saved with the edit or not at all
 		restoredOrnaments, err = applyEditDependents(ctx, tx, loanID, result.Dependents, choices)
 		return err
