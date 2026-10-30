@@ -97,8 +97,12 @@ type EditPaymentResult struct {
 	DryRun bool        `json:"dry_run"`
 	// Dependents are what a gold release did that this edit may need to undo (the packet, a partial release). The
 	// chosen ones are undone in the same transaction as the edit.
-	Dependents []EditDependent         `json:"dependents,omitempty"`
-	Packet     *packet.ReversalPreview `json:"packet,omitempty"`
+	Dependents []EditDependent `json:"dependents,omitempty"`
+	// Following lists the later payments that no longer fit and what each can still be; they are saved that way.
+	Following []LoanFollowingEntry `json:"following,omitempty"`
+	// InterestChanges are the interest charges the recalculation changes — worked out by the system, shown only.
+	InterestChanges []InterestChange        `json:"interest_changes,omitempty"`
+	Packet          *packet.ReversalPreview `json:"packet,omitempty"`
 }
 
 // EditPaymentInput holds the fields a ledger edit may change; nil means "leave as is".
@@ -124,6 +128,9 @@ type EditPaymentInput struct {
 	ActorEmployeeID    uint
 }
 
+// paymentTypeDisbursementReversal is the entry an older loan edit wrote when it took back a payout.
+const paymentTypeDisbursementReversal = "Disbursement Reversal"
+
 // guardReplayable refuses a loan whose history this recalculation cannot reproduce.
 func guardReplayable(ctx context.Context, tx *gorm.DB, l *models.Loan, payments []models.LoanPayment) error {
 	switch l.Status {
@@ -133,6 +140,11 @@ func guardReplayable(ctx context.Context, tx *gorm.DB, l *models.Loan, payments 
 		return common.NewConflict("a loan in status " + l.Status + " cannot have its ledger edited")
 	}
 	for _, p := range payments {
+		// a payout and the reversal of an earlier payout (from when a loan edit sent it back for approval) are not
+		// part of the recalculation: the loan restarted from its later payout
+		if p.Type == paymentTypeDisbursementReversal {
+			continue
+		}
 		if p.Type != models.PaymentTypeDisbursement && !replayTypes[p.Type] {
 			return common.NewConflict("ledger edits are not available yet: this loan has a " + p.Type + " entry")
 		}
@@ -365,6 +377,11 @@ func replayLoanFrom(ctx context.Context, tx *gorm.DB, l *models.Loan, rows []mod
 			if p.ProcessingFee > 0 {
 				l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee + p.ProcessingFee)
 			}
+			if fit := replayFitOf(ctx); fit.eligible(p) {
+				if err := fit.fit(l, p); err != nil {
+					return err
+				}
+			}
 			fee, penal, interest, principal, err = allocatePayment(l, p.Type, p.Amount, p.InterestOverride)
 		}
 		if err != nil {
@@ -496,7 +513,7 @@ func validateEditedPayment(l *models.Loan, p *models.LoanPayment) error {
 }
 
 // editLoanPayment edits (in != nil) or deletes (in == nil) one payment row, then recalculates the loan.
-func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymentInput, reason string, dryRun bool, choices packetChoices) (*EditPaymentResult, *models.LoanPayment, error) {
+func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymentInput, reason string, dryRun bool, choices packetChoices, adjust []LoanFollowingAdjust) (*EditPaymentResult, *models.LoanPayment, error) {
 	result := &EditPaymentResult{DryRun: dryRun}
 	restoredOrnaments := false
 	var oldRow *models.LoanPayment
@@ -564,6 +581,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 		if err := guardReplayable(ctx, tx, l, all); err != nil {
 			return err
 		}
+		interestBefore := accrualSnapshot(ctx, tx, loanID)
 
 		// The loan is first recalculated untouched: if that does not reproduce what is saved, the history holds
 		// figures this recalculation cannot explain and an edit would silently change them.
@@ -594,6 +612,11 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			return err
 		}
 
+		// every row as it was saved (the edit below changes the rows in place)
+		savedRows := make(map[uint]models.LoanPayment, len(rows))
+		for _, r := range rows {
+			savedRows[r.ID] = r
+		}
 		edited := rows
 		var deleteIDs []uint // a discount removed with its payment's edit
 		if in == nil {
@@ -670,13 +693,32 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			sortReplayRows(edited)
 		}
 
-		if err := replayLoanFrom(ctx, tx, l, edited, originalStatus, from); err != nil {
+		fit := newReplayFit(paymentID, adjust)
+		fit.strict = !dryRun
+		if err := replayLoanFrom(withReplayFit(ctx, fit), tx, l, edited, originalStatus, from); err != nil {
 			return common.NewBadRequest(err.Error())
 		}
 		result.After = summarize(l)
+		result.Following = fit.listed
+		result.InterestChanges = interestChanges(interestBefore, accrualSnapshot(ctx, tx, loanID))
 		result.Dependents = editDependents(ctx, loanID, result)
 		if dryRun {
 			return errDryRun
+		}
+		// the later payments lowered to nothing are removed; the cash lines of the others are rewritten below
+		followingGroups, err := fit.captureGroups(ctx, tx, l, savedRows)
+		if err != nil {
+			return err
+		}
+		removedFollowing := fit.removed(edited)
+		if len(removedFollowing) > 0 {
+			kept := make([]models.LoanPayment, 0, len(edited))
+			for _, r := range edited {
+				if !removedFollowing[r.ID] {
+					kept = append(kept, r)
+				}
+			}
+			edited = kept
 		}
 
 		// Save: the recalculated rows, the loan, and this one payment's cash lines.
@@ -691,6 +733,11 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			}
 		}
 		for _, id := range deleteIDs {
+			if err := tx.WithContext(ctx).Delete(&models.LoanPayment{}, id).Error; err != nil {
+				return err
+			}
+		}
+		for id := range removedFollowing {
 			if err := tx.WithContext(ctx).Delete(&models.LoanPayment{}, id).Error; err != nil {
 				return err
 			}
@@ -711,6 +758,9 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			if err := tx.WithContext(ctx).Model(&models.LoanPayment{}).Where("id = ?", p.ID).Update("cash_transaction_group_id", groupID).Error; err != nil {
 				return err
 			}
+		}
+		if err := rewriteFollowingCash(ctx, tx, l, edited, followingGroups); err != nil {
+			return err
 		}
 		// a release's own payment edited here: its request shows the corrected figures
 		if err := syncReleaseRecorded(ctx, tx, loanID); err != nil {
@@ -898,25 +948,26 @@ func writeLedgerAudit(ctx context.Context, actorEmployeeID uint, action string, 
 }
 
 type editPaymentRequest struct {
-	PaidOn             *string  `json:"paid_on"`
-	Amount             *float64 `json:"amount"`
-	Type               *string  `json:"type"`
-	CashAmount         *float64 `json:"cash_amount"`
-	UpiAmount          *float64 `json:"upi_amount"`
-	BankTransferAmount *float64 `json:"bank_transfer_amount"`
-	ChequeAmount       *float64 `json:"cheque_amount"`
-	BankID             *uint    `json:"bank_id"`
-	Reference          *string  `json:"reference"`
-	Description        *string  `json:"description"`
-	InterestOverride   *float64 `json:"interest_override"`
-	ProcessingFee      *float64 `json:"processing_fee"`
-	DiscountReason     *string  `json:"discount_reason"`
-	DiscountMode       *string  `json:"discount_mode"`
-	DiscountKind       *string  `json:"discount_kind"`
-	Discount           *float64 `json:"discount"`
-	Reason             string   `json:"reason"`
-	ReversePacket      bool     `json:"reverse_packet"`
-	RestorePartial     bool     `json:"restore_partial_release"`
+	PaidOn             *string               `json:"paid_on"`
+	Amount             *float64              `json:"amount"`
+	Type               *string               `json:"type"`
+	CashAmount         *float64              `json:"cash_amount"`
+	UpiAmount          *float64              `json:"upi_amount"`
+	BankTransferAmount *float64              `json:"bank_transfer_amount"`
+	ChequeAmount       *float64              `json:"cheque_amount"`
+	BankID             *uint                 `json:"bank_id"`
+	Reference          *string               `json:"reference"`
+	Description        *string               `json:"description"`
+	InterestOverride   *float64              `json:"interest_override"`
+	ProcessingFee      *float64              `json:"processing_fee"`
+	DiscountReason     *string               `json:"discount_reason"`
+	DiscountMode       *string               `json:"discount_mode"`
+	DiscountKind       *string               `json:"discount_kind"`
+	Discount           *float64              `json:"discount"`
+	Reason             string                `json:"reason"`
+	ReversePacket      bool                  `json:"reverse_packet"`
+	RestorePartial     bool                  `json:"restore_partial_release"`
+	AdjustFollowing    []LoanFollowingAdjust `json:"adjust_following"`
 }
 
 // EditLoanPayment is PATCH /loans/:id/payments/:payment_id[?dry_run=true].
@@ -952,7 +1003,7 @@ func EditLoanPayment(c echo.Context) error {
 	}
 	dryRun, _ := strconv.ParseBool(c.QueryParam("dry_run"))
 	actorEmployeeID, _, _ := auth.ActorFromContext(c)
-	res, old, err := editLoanPayment(ctx, loanID, paymentID, in, req.Reason, dryRun, packetChoices{ReversePacket: req.ReversePacket, RestorePartial: req.RestorePartial, ActorEmployee: actorEmployeeID})
+	res, old, err := editLoanPayment(ctx, loanID, paymentID, in, req.Reason, dryRun, packetChoices{ReversePacket: req.ReversePacket, RestorePartial: req.RestorePartial, ActorEmployee: actorEmployeeID}, req.AdjustFollowing)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -981,7 +1032,7 @@ func DeleteLoanPayment(c echo.Context) error {
 	actorEmployeeID, _, _ := auth.ActorFromContext(c)
 	reversePacket, _ := strconv.ParseBool(c.QueryParam("reverse_packet"))
 	restorePartial, _ := strconv.ParseBool(c.QueryParam("restore_partial_release"))
-	res, old, err := editLoanPayment(ctx, loanID, paymentID, nil, reason, dryRun, packetChoices{ReversePacket: reversePacket, RestorePartial: restorePartial, ActorEmployee: actorEmployeeID})
+	res, old, err := editLoanPayment(ctx, loanID, paymentID, nil, reason, dryRun, packetChoices{ReversePacket: reversePacket, RestorePartial: restorePartial, ActorEmployee: actorEmployeeID}, nil)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

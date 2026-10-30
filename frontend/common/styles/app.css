@@ -3795,7 +3795,7 @@ button.fi-trigger {
  * wants the full row. Rows size to their content (both tables are paged) and
  * the cards never shrink below it — a shrinking card used to spill its pager
  * over the card beneath on a short or zoomed-in window. */
-.pl-detail-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);grid-auto-rows:auto;gap:15px;align-items:start;flex:0 0 auto}
+.pl-detail-grid{display:grid;grid-template-columns:minmax(380px,4fr) minmax(0,7fr);grid-auto-rows:auto;gap:15px;align-items:start;flex:0 0 auto}
 .pl-detail-grid > .card{flex-shrink:0;min-height:auto}
 /* Schedule has only 4 short columns, so it gives up its 640px table floor and
  * the (7-column) Payment Ledger gets the wider share; the ledger's date stays
@@ -5142,6 +5142,11 @@ table.tbl {
   max-width: 560px
 }
 
+/* Edit Loan: narrower than the shared wide size so its inputs are not stretched across the full width. */
+.modal.wide:has(.edit-loan-bd) {
+  max-width: 640px
+}
+
 
 /* PaymentModal's confirmation popup — a second, default-width modal stacked
  * over the open Record Payment modal (z-index 80) instead of replacing it. */
@@ -6157,6 +6162,10 @@ table.tbl {
   .pl-detail-grid {
     grid-template-columns: 1fr
   }
+  /* stacked cards: a long table scrolls inside its card (the usual max-height cap), not the page */
+  .pl-detail-grid .tbl-wrap {
+    max-height: calc(100vh - 350px)
+  }
 }
 
 /* Big screens (the exact complement of the stacking query above): like every
@@ -6169,8 +6178,17 @@ table.tbl {
   .pl-detail-grid {
     flex: 1 1 auto;
     min-height: 0;
-    grid-template-rows: minmax(min-content, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     align-items: stretch
+  }
+  /* the row takes only the height left on the page; each table scrolls inside its card, so the page does not */
+  .pl-detail-grid > .card {
+    min-height: 0
+  }
+  .pl-detail-grid .tbl-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto
   }
 }
 
@@ -7111,6 +7129,18 @@ table.tbl {
   height: 38px;
 }
 
+/* the purity field matches the toggle beside it (and the other inputs on the card), not the 31px default */
+.eln-card .pur-search,
+.eln-card .pur-search .ss,
+.eln-card .pur-search .inp {
+  height: 38px;
+  box-sizing: border-box;
+}
+
+.eln-card .pur-search .inp {
+  padding: 9px 12px;
+}
+
 @media (max-width: 700px) {
   .eln-top {
     grid-template-columns: 1fr 1fr;
@@ -7237,6 +7267,12 @@ table.tbl {
 .ledger-ref-chip-bank {
   background: var(--info-bg);
   color: var(--info);
+  /* a long bank name ends in "…" instead of stretching the cell */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .ledger-ref-chip-category {

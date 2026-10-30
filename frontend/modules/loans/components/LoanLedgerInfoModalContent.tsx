@@ -37,14 +37,16 @@ export function LoanLedgerInfoModalContent({ title, kind, rows, description, act
         <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Description</h4>
         <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, minHeight: 40 }}>{description}</div>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
-        {actions.map((a) => (
-          <button key={a.label} className={a.danger ? "btn ghost" : "btn"} style={a.danger ? { color: "var(--red)" } : undefined} onClick={a.run}>
-            <Icon name={a.icon} /> {a.label}
-          </button>
-        ))}
-      </div>
+      {/* the × in the header closes the popup; the footer exists only for Edit / Delete */}
+      {actions.length > 0 && (
+        <div className="ft">
+          {actions.map((a) => (
+            <button key={a.label} className={a.danger ? "btn ghost" : "btn"} style={a.danger ? { color: "var(--red)" } : undefined} onClick={a.run}>
+              <Icon name={a.icon} /> {a.label}
+            </button>
+          ))}
+        </div>
+      )}
     </>
   );
 }

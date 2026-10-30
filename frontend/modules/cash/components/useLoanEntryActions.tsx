@@ -32,7 +32,7 @@ export function useLoanEntryActions(onChanged?: () => void) {
       try {
         const loan = await getLoan(loanId);
         if (!loan.disbursementDate) { toast("This loan has not been disbursed yet."); return; }
-        const payment = loan.payments.find((p) => p.type === "Disbursement") ?? null;
+        const payment = [...loan.payments].reverse().find((p) => p.type === "Disbursement") ?? null;
         openChildModal(<SanctionEditModalContent loanId={loan.numericId} sanctionedAmount={loan.sanctionedAmount} serviceChargeAmount={loan.serviceChargeAmount} disbursementDate={loan.disbursementDate} dueDate={loan.due} payment={payment} onSaved={saved} />, true);
       } catch { failed(); }
     },

@@ -34,6 +34,19 @@ type updateLoanRequest struct {
 	SchemeID        *uint    `json:"scheme_id"`
 	PrincipalAmount *float64 `json:"principal_amount"`
 	OverallPhotoURL *string  `json:"overall_photo_url"`
+	// the payout's breakdown, for a loan already paid out
+	CashAmount         *float64 `json:"cash_amount"`
+	UpiAmount          *float64 `json:"upi_amount"`
+	BankTransferAmount *float64 `json:"bank_transfer_amount"`
+	BankID             *uint    `json:"bank_id"`
+	// the loan's branch and the locker for its gold (needs the permission to view all branches)
+	BranchID *uint `json:"branch_id"`
+	LockerID *uint `json:"locker_id"`
+	// the amounts chosen for later payments that no longer fit once the loan is recalculated
+	AdjustFollowing []LoanFollowingAdjust `json:"adjust_following"`
+	// what a release did that the edit undoes
+	ReversePacket  bool `json:"reverse_packet"`
+	RestorePartial bool `json:"restore_partial_release"`
 }
 
 type purityTestRequest struct {

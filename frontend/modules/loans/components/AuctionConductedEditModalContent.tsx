@@ -6,6 +6,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FieldError } from "@/common/components/ui/FieldError";
+import { ShortfallDecisionPicker, applyShortfallChoice, hasDecidedShortfall, useCanDecideShortfall, type ShortfallChoice } from "@/modules/loans/components/ShortfallDecisionPicker";
 import { SplitPaymentInput, type SplitAmounts, type SplitPaymentLine } from "@/common/components/SplitPaymentInput";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
@@ -57,6 +58,9 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
 
   const [preview, setPreview] = useState<AuctionEditPreview | null>(null);
   const [chosen, setChosen] = useState<Record<string, boolean>>({});
+  // a sale edited into a shortfall: its decision can be made here
+  const [shortfallChoice, setShortfallChoice] = useState<ShortfallChoice>({ decision: "", remarks: "" });
+  const canDecideShortfall = useCanDecideShortfall();
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const now = new Date();
@@ -97,7 +101,7 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
   );
 
   async function saveSurplusAndWriteOff() {
-    if (hasSurplus && surplusTouched) {
+    if (showSurplus && surplusTouched) {
       const refund = disposition === "RefundedToCustomer";
       const mode = sSplit.upiAmount > 0 ? "UPI" : sSplit.bankTransferAmount > 0 ? "Bank Transfer" : "Cash";
       await editAuctionSurplus(loanId, { disposition, ...(refund ? { mode, bankId: sBank, settledOn: refundDate || undefined } : {}) }, false);
@@ -105,18 +109,26 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
     if (hasWriteOff && woTouched) await editAuctionWriteOff(loanId, woDate, false);
   }
 
+  // The surplus settlement only applies while the sale still leaves a surplus: worked out live from what is typed
+  // (against what the loan owed at the sale), and from the preview once there is one.
+  const owedAtSale = auction.saleAmount - (auction.auctionExpenses || 0) - auction.surplusShortfall;
+  const surplusNow = preview?.outcome ? preview.outcome.surplus : (+saleAmount || 0) - (+expenses || 0) - owedAtSale;
+  const showSurplus = hasSurplus && surplusNow > 0.005;
+  const askShortfall = !!preview?.outcome && !preview.outcome.fullyCovered && preview.outcome.shortfall > 0.005 && !hasDecidedShortfall(auction);
+
   async function submit() {
     return singleFlight("modal:auction-conducted-edit", async () => {
       const dry = preview == null;
       setSaving(true);
       try {
-        if (!saleChanged && !(hasSurplus && surplusTouched) && !(hasWriteOff && woTouched)) { setErr("Nothing has been changed."); return; }
+        if (!saleChanged && !(showSurplus && surplusTouched) && !(hasWriteOff && woTouched)) { setErr("Nothing has been changed."); return; }
         const refund = disposition === "RefundedToCustomer";
-        if (hasSurplus && surplusTouched && refund) {
+        if (showSurplus && surplusTouched && refund) {
           if (Math.abs(sRemaining) > 0.01) { setErr("The refund must be paid out by one mode and add up to the surplus."); return; }
           if ((sSplit.upiAmount > 0 || sSplit.bankTransferAmount > 0) && !sBank) { setErr("Select the bank for the refund."); return; }
         }
         if (hasWriteOff && woTouched && !woDate) { setErr("Choose the write-off date."); return; }
+        if (!dry && askShortfall && shortfallChoice.decision && !shortfallChoice.remarks.trim()) { setErr("Give a reason for the shortfall decision."); return; }
         let res: AuctionEditPreview;
         if (saleChanged) {
           const sale = +saleAmount;
@@ -131,7 +143,7 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
             applyDependents: dry ? [] : applied(preview!),
           }, dry);
           if (!dry) await saveSurplusAndWriteOff();
-        } else if (hasSurplus && surplusTouched) {
+        } else if (showSurplus && surplusTouched) {
           res = await editAuctionSurplus(loanId, { disposition, ...(refund ? { mode: sSplit.upiAmount > 0 ? "UPI" : sSplit.bankTransferAmount > 0 ? "Bank Transfer" : "Cash", bankId: sBank, settledOn: refundDate || undefined } : {}) }, dry);
           if (!dry && hasWriteOff && woTouched) await editAuctionWriteOff(loanId, woDate, false);
         } else {
@@ -142,7 +154,17 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
           setChosen(Object.fromEntries(res.dependents.map((d) => [key(d), true])));
           return;
         }
-        toast("Auction updated and the loan recalculated");
+        // the shortfall decision chosen here is recorded once the sale is saved; if that fails the sale stays saved and
+        // the decision can still be made from Auction Management
+        let decisionNote = "";
+        if (askShortfall && shortfallChoice.decision) {
+          try {
+            await applyShortfallChoice(loanId, shortfallChoice);
+          } catch (e) {
+            decisionNote = e instanceof ApiError ? e.message : "the shortfall decision could not be recorded";
+          }
+        }
+        toast(decisionNote ? `Auction updated — but ${decisionNote}. Decide the shortfall from Auction Management.` : "Auction updated");
         onSaved();
         closeModal();
       } catch (e) {
@@ -184,7 +206,7 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
                 onChange={(s, r, b) => { touch(); setSplit(s); setRemaining(r); setBankId(b); }}
               />
             </div>
-            {hasSurplus && (
+            {showSurplus && (
               <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
                 <h4 style={{ margin: "0 0 10px", fontSize: 13 }}>Surplus settlement</h4>
                 <div style={{ marginBottom: 12 }}>
@@ -261,6 +283,9 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
               </div>
             )}
           </div>
+        )}
+        {askShortfall && preview?.outcome && (
+          <ShortfallDecisionPicker shortfall={preview.outcome.shortfall} value={shortfallChoice} onChange={setShortfallChoice} canDecide={canDecideShortfall} />
         )}
         <FieldError msg={err} />
       </div>

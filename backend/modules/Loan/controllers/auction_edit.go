@@ -330,7 +330,7 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			if err != nil {
 				return err
 			}
-				out = computeSaleOutcome(saleAmount, expenses, oldDebt)
+			out = computeSaleOutcome(saleAmount, expenses, oldDebt)
 			if out.Applied <= auctionMoneyTolerance {
 				return common.NewBadRequest("the sale leaves nothing to apply to the loan on that date (the net proceeds or the amount owed is zero)")
 			}
@@ -343,7 +343,7 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			newSale = sale
 			newSale.Amount, newSale.PaidOn = out.Applied, saleDate
 			newSale.CashAmount, newSale.UpiAmount, newSale.BankTransferAmount, newSale.BankID = ac, au, ab, abID
-				newSale.Method = common.DeriveMethod(ac, au, ab, 0)
+			newSale.Method = common.DeriveMethod(ac, au, ab, 0)
 			newSale.Description = fmt.Sprintf("Auction proceeds applied (sale Rs %.2f less expenses Rs %.2f)", saleAmount, expenses)
 			fee, penal, interest, principal, err := allocatePayment(&after, models.PaymentTypeAuctionSale, out.Applied, nil)
 			if err != nil {
@@ -591,8 +591,8 @@ func editAuctionWriteOff(ctx context.Context, loanID uint, newDate *time.Time, a
 			return common.NewConflict("This auction can't be edited: the loan's history can't be recalculated.")
 		}
 		if differs(owed, wo.Amount) {
-			log.Printf("write-off edit refused: %.2f saved vs %.2f recalculated", wo.Amount, owed)
-			return common.NewConflict("This write-off can't be edited: its figures don't recalculate exactly.")
+			// logged only: the write-off is worked out again for its date, and the preview shows the result
+			log.Printf("write-off edit on loan %d: %.2f saved vs %.2f recalculated; going ahead", l.ID, wo.Amount, owed)
 		}
 		if st.dec == nil || st.dec.Status != decisionStatusWriteOff {
 			return common.NewConflict("this write-off has no recorded write-off decision, so it cannot be edited safely")

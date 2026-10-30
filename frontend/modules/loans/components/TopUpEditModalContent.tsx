@@ -6,11 +6,14 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FieldError } from "@/common/components/ui/FieldError";
+import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
+import { InterestChangesTable } from "@/modules/loans/components/InterestChangesTable";
+import { GoldReleaseDependents, goldChoicesOf } from "@/modules/loans/components/GoldReleaseDependents";
 import { SplitPaymentInput, type SplitAmounts, type SplitPaymentLine } from "@/common/components/SplitPaymentInput";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
-import { editLoanTopUp, deleteLoanTopUp, type LedgerEditPreview } from "@/modules/loans/services/loanService";
+import { editLoanTopUp, deleteLoanTopUp, type LedgerPaymentEditPreview } from "@/modules/loans/services/loanService";
 import { type LoanTopUpView } from "@/modules/loans/types/loan-types";
 
 type Props = {
@@ -37,8 +40,12 @@ export function TopUpEditModalContent({ loanId, topUp: t, mode, minDate, onSaved
   const [split, setSplit] = useState<SplitAmounts>({ cashAmount: t.cashAmount, upiAmount: t.upiAmount, bankTransferAmount: t.bankTransferAmount, chequeAmount: 0 });
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(t.bankId ?? undefined);
-  const [preview, setPreview] = useState<LedgerEditPreview | null>(null);
+  const [preview, setPreview] = useState<LedgerPaymentEditPreview | null>(null);
   const [err, setErr] = useState("");
+  // the later payments that no longer fit: what each becomes (filled in, editable)
+  const [follow, setFollow] = useState<Record<number, string>>({});
+  // which of the things a gold release did are undone too (all ticked to start with)
+  const [chosen, setChosen] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -52,9 +59,9 @@ export function TopUpEditModalContent({ loanId, topUp: t, mode, minDate, onSaved
       const dry = preview == null;
       setSaving(true);
       try {
-        let res: LedgerEditPreview;
+        let res: LedgerPaymentEditPreview;
         if (mode === "delete") {
-          res = await deleteLoanTopUp(loanId, t.id, dry);
+          res = await deleteLoanTopUp(loanId, t.id, dry, undefined, dry ? {} : goldChoicesOf(preview?.dependents, chosen));
         } else {
           const amt = +amount;
           if (!(amt > 0)) { setErr("Enter a valid amount."); return; }
@@ -63,15 +70,25 @@ export function TopUpEditModalContent({ loanId, topUp: t, mode, minDate, onSaved
           res = await editLoanTopUp(loanId, t.id, {
             occurredOn: date, amount: amt, reference,
             cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId,
+            ...(dry ? {} : goldChoicesOf(preview?.dependents, chosen)),
+            ...(!dry && preview?.following?.length ? { adjustFollowing: preview.following.map((f) => ({ id: f.id, amount: +(follow[f.id] ?? f.current) || 0 })) } : {}),
           }, dry);
         }
-        if (dry) { setPreview(res); setErr(""); return; }
-        toast(mode === "delete" ? "Top-up deleted and the loan recalculated" : "Top-up updated and the loan recalculated");
+        if (dry) {
+          setPreview(res);
+          setFollow(Object.fromEntries((res.following ?? []).map((f) => [f.id, String(f.current)])));
+          setChosen(Object.fromEntries((res.dependents ?? []).map((d) => [d.kind, true])));
+          setErr("");
+          return;
+        }
+        toast(mode === "delete" ? "Top-up deleted" : "Top-up updated");
         onSaved();
         closeModal();
       } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "Could not save the change — try again.");
-        setPreview(null);
+        const msg = e instanceof ApiError ? e.message : "Could not save the change — try again.";
+        setErr(msg);
+        // a later payment that still does not fit leaves the list on screen to be corrected
+        if (!/can be at most|can only be lowered/.test(msg)) setPreview(null);
       } finally {
         setSaving(false);
       }
@@ -126,6 +143,11 @@ export function TopUpEditModalContent({ loanId, topUp: t, mode, minDate, onSaved
             </table></div>
           </div>
         )}
+        <InterestChangesTable changes={preview?.interestChanges ?? []} />
+        {!!preview?.following?.length && (
+          <FollowingEntriesTable entries={preview.following} values={follow} onChange={(id, v) => setFollow((cur) => ({ ...cur, [id]: v }))} />
+        )}
+        <GoldReleaseDependents dependents={preview?.dependents ?? []} chosen={chosen} onToggle={(k, on) => setChosen((c) => ({ ...c, [k]: on }))} />
         <FieldError msg={err} />
       </div>
       <div className="ft">

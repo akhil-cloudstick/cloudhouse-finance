@@ -202,6 +202,8 @@ export type BackendLoan = {
   disbursedAmount?: number;
   serviceChargeMode?: string;
   serviceChargeAmount?: number;
+  serviceChargeType?: string;
+  serviceChargeValue?: number;
   disbursementDate?: string | null;
   bankPledgeStatus: string;
   isDueSoon: boolean;
@@ -349,6 +351,8 @@ export type LoanView = {
   disbursedAmount: number;
   serviceChargeMode: string;
   serviceChargeAmount: number;
+  serviceChargeType?: string;
+  serviceChargeValue?: number;
   disbursementDate: string | null;
   bankPledgeStatus: string;
   isDueSoon: boolean;
@@ -534,7 +538,17 @@ export type ApprovalInput = {
  * doc comment) — scheme and/or principal amount, either independently.
  * Ornaments themselves go through the existing addOrnament/updateOrnament/
  * deleteOrnament calls below, one ornament at a time, not through this. */
-export type UpdateLoanInput = { schemeId?: number; principalAmount?: number; overallPhotoUrl?: string };
+export type UpdateLoanInput = {
+  schemeId?: number; principalAmount?: number; overallPhotoUrl?: string;
+  // how the payout of a loan already paid out was made
+  cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; bankId?: number;
+  // the loan's branch and the locker for its gold — only for a role that may see every branch
+  branchId?: number; lockerId?: number;
+  // the amounts chosen for later payments that no longer fit once the loan is recalculated
+  adjustFollowing?: { id: number; amount: number }[];
+  // what a release did that the edit undoes: the gold packet, a partial release
+  reversePacket?: boolean; restorePartialRelease?: boolean;
+};
 // employeeId is NOT sent — the backend derives the receiving employee's
 // identity from the authenticated JWT, never the request body (see
 // platform.ActorFromContext).

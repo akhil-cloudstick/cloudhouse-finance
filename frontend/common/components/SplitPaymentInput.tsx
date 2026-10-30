@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getBank } from "@/modules/banks/services/bankService";
 import { PaymentBreakdownFields, effectiveRows, newPaymentRow, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
 
 // Cheque is not a payment mode in the application: Cash, UPI and Bank Transfer only.
@@ -122,6 +123,16 @@ export function SplitPaymentInput({
   const split = sumSplitLines(lines);
   const remaining = Math.round((totalAmount - splitTotal(split)) * 100) / 100;
   const bankId = firstSelectedBankId(lines);
+
+  // A saved entry hands over only a bank id: the names are looked up once so the bank shows instead of an empty field.
+  useEffect(() => {
+    rows.filter((r) => r.bankId && !r.bankName).forEach((r) => {
+      getBank(+r.bankId)
+        .then((b) => setRows((cur) => cur.map((x) => (x.key === r.key && !x.bankName ? { ...x, bankName: b.name } : x))))
+        .catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reports the live split/remaining/bankId to the parent on every render
   // where any changed — the parent owns submit-gating and payload assembly,

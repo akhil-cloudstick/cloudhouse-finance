@@ -253,7 +253,16 @@ func editBankPledge(ctx context.Context, loanID, pledgeID uint, in *EditBankPled
 			// delete: the packet must still be where this pledge put it
 			if p.Status == models.BankPledgeStatusRecordActive {
 				if pk, perr := packet.FindActiveByLoanID(ctx, loanID); perr == nil && pk.Status != packetModels.StatusBankPledged {
-					return common.NewConflict("the packet has moved since this gold was pledged, so the pledge cannot be deleted")
+					// A packet that was never marked as pledged (the gold was not in a locker yet when the pledge was
+					// recorded) has nothing to move back. Only one that was pledged and has since gone elsewhere is refused.
+					var pledgedMoves int64
+					if err := tx.WithContext(ctx).Model(&packetModels.PacketMovement{}).
+						Where("packet_id = ? AND to_status = ?", pk.ID, packetModels.StatusBankPledged).Count(&pledgedMoves).Error; err != nil {
+						return err
+					}
+					if pledgedMoves > 0 {
+						return common.NewConflict("the gold packet has moved since it was pledged (it is now " + pk.Status + "), so this pledge cannot be deleted")
+					}
 				}
 			}
 			if dryRun {

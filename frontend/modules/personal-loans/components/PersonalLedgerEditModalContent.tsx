@@ -13,6 +13,8 @@ import { singleFlight } from "@/common/utils/singleFlight";
 import {
   editPersonalLoanPayment, deletePersonalLoanPayment, editPersonalLoanDisbursement, type PersonalLedgerEditPreview,
 } from "@/modules/personal-loans/services/personalLoanService";
+import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
+import { InstalmentChangesTable } from "@/modules/personal-loans/components/InstalmentChangesTable";
 import { type BackendPersonalLoanPayment } from "@/modules/personal-loans/types/personal-loan-types";
 
 type Props = {
@@ -42,6 +44,8 @@ export function PersonalLedgerEditModalContent({ loanId, entry: p, bankId: saved
   const [bankId, setBankId] = useState<number | undefined>(savedBankId ?? undefined);
   const [reference, setReference] = useState(p.reference || "");
   const [preview, setPreview] = useState<PersonalLedgerEditPreview | null>(null);
+  // The later payments that no longer fit: what each becomes, filled in with what it can still be and editable.
+  const [follow, setFollow] = useState<Record<number, string>>({});
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const now = new Date();
@@ -68,15 +72,25 @@ export function PersonalLedgerEditModalContent({ loanId, entry: p, bankId: saved
           const breakdown = { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: 0, bankId };
           res = isDisbursement
             ? await editPersonalLoanDisbursement(loanId, { disbursedAt: date, ...breakdown }, dry)
-            : await editPersonalLoanPayment(loanId, p.id, { paidOn: date, amount: amt, ...breakdown, reference }, dry);
+            : await editPersonalLoanPayment(loanId, p.id, {
+              paidOn: date, amount: amt, ...breakdown, reference,
+              ...(!dry && preview?.following?.length ? { adjustFollowing: preview.following.map((f) => ({ id: f.id, amount: +(follow[f.id] ?? f.current) || 0 })) } : {}),
+            }, dry);
         }
-        if (dry) { setPreview(res); setErr(""); return; }
-        toast(mode === "delete" ? "Payment deleted and the loan recalculated" : "Entry updated and the loan recalculated");
+        if (dry) {
+          setPreview(res);
+          setFollow(Object.fromEntries((res.following ?? []).map((f) => [f.id, String(f.current)])));
+          setErr("");
+          return;
+        }
+        toast(mode === "delete" ? "Payment deleted" : "Entry updated");
         onSaved();
         closeModal();
       } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "Could not save the change — try again.");
-        setPreview(null);
+        const msg = e instanceof ApiError ? e.message : "Could not save the change — try again.";
+        setErr(msg);
+        // a later payment that still does not fit leaves the list on screen to be corrected
+        if (!/can be at most|can only be lowered/.test(msg)) setPreview(null);
       } finally {
         setSaving(false);
       }
@@ -87,11 +101,6 @@ export function PersonalLedgerEditModalContent({ loanId, entry: p, bankId: saved
     <>
       <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} {isDisbursement ? "disbursement" : "payment"} entry</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll ledger-edit-bd">
-        <p className="notice" style={{ marginBottom: 12 }}>
-          {isDisbursement
-            ? "The disbursed amount is fixed; the date and how the money was paid out can be corrected. Its cash-ledger line is rewritten."
-            : "The loan's balances, instalments and status are recalculated, and the cash ledger line is rewritten."}
-        </p>
         {mode === "edit" && (
           <>
             <div className="frow c2">
@@ -130,6 +139,10 @@ export function PersonalLedgerEditModalContent({ loanId, entry: p, bankId: saved
                 <tr><td>Status</td><td className="num">{preview.before.status}</td><td className="num">{preview.after.status}</td></tr>
               </tbody>
             </table></div>
+            <InstalmentChangesTable changes={preview.instalmentChanges ?? []} />
+            {!!preview.following?.length && (
+              <FollowingEntriesTable entries={preview.following} values={follow} onChange={(id, v) => setFollow((cur) => ({ ...cur, [id]: v }))} />
+            )}
           </div>
         )}
         <FieldError msg={err} />

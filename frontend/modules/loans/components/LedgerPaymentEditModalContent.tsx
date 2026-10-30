@@ -11,6 +11,9 @@ import { SplitPaymentInput, type SplitAmounts, type SplitPaymentLine } from "@/c
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
+import { InterestChangesTable } from "@/modules/loans/components/InterestChangesTable";
+import { GoldReleaseDependents } from "@/modules/loans/components/GoldReleaseDependents";
 import { editLedgerPayment, deleteLedgerPayment, type LedgerPaymentEditPreview } from "@/modules/loans/services/loanService";
 import { type PaymentView, type DiscountKind, DISCOUNT_KIND_LABELS } from "@/modules/loans/types/loan-types";
 
@@ -53,6 +56,8 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, linkedDiscou
   const [preview, setPreview] = useState<LedgerPaymentEditPreview | null>(null);
   // Which of the things a gold release did are undone too (asked after the preview); all ticked to start with.
   const [chosen, setChosen] = useState<Record<string, boolean>>({});
+  // the later payments that no longer fit: what each becomes (filled in, editable)
+  const [follow, setFollow] = useState<Record<number, string>>({});
   const goldChoices = (): { reversePacket?: boolean; restorePartialRelease?: boolean } => ({
     ...(preview?.dependents?.some((d) => d.kind === "packet") && chosen.packet ? { reversePacket: true } : {}),
     ...(preview?.dependents?.some((d) => d.kind === "partial_release") && chosen.partial_release ? { restorePartialRelease: true } : {}),
@@ -88,6 +93,7 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, linkedDiscou
           res = await editLedgerPayment(loanId, p.id, {
             paidOn: date, amount: amt,
             ...(dry ? {} : goldChoices()),
+            ...(!dry && preview?.following?.length ? { adjustFollowing: preview.following.map((f) => ({ id: f.id, amount: +(follow[f.id] ?? f.current) || 0 })) } : {}),
             ...(isDiscount
               ? { discountReason: discountReason.trim(), discountMode: "Cash", discountKind }
               : { type, processingFee: +fee || 0, discount: +withDiscount || 0, discountKind: withDiscountKind, cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: 0, bankId, reference }),
@@ -96,15 +102,18 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, linkedDiscou
         if (dry) {
           setPreview(res);
           setChosen(Object.fromEntries((res.dependents ?? []).map((d) => [d.kind, true])));
+          setFollow(Object.fromEntries((res.following ?? []).map((f) => [f.id, String(f.current)])));
           setErr("");
           return;
         }
-        toast(mode === "delete" ? "Entry deleted and the loan recalculated" : "Entry updated and the loan recalculated");
+        toast(mode === "delete" ? "Entry deleted" : "Entry updated");
         onSaved();
         closeModal();
       } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "Could not save the change — try again.");
-        setPreview(null);
+        const msg = e instanceof ApiError ? e.message : "Could not save the change — try again.";
+        setErr(msg);
+        // a later payment that still does not fit leaves the list on screen to be corrected
+        if (!/can be at most|can only be lowered/.test(msg)) setPreview(null);
       } finally {
         setSaving(false);
       }
@@ -178,22 +187,11 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, linkedDiscou
             </table></div>
           </div>
         )}
-        {!!preview?.dependents?.length && (
-          <div style={{ marginTop: 14 }}>
-            <label className="f">This also affects the gold released for this loan</label>
-            {preview.dependents.map((d) => (
-              <label key={d.kind} className="ccheck" style={{ margin: "6px 0" }}>
-                <input type="checkbox" checked={!!chosen[d.kind]} onChange={(e) => setChosen((c) => ({ ...c, [d.kind]: e.target.checked }))} />
-                <span className="mark" />
-                <span>
-                  <b>Also update this:</b> {d.description}
-                  <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{d.current} → {d.suggested}</div>
-                  {d.warning && chosen[d.kind] && <div style={{ fontSize: "0.85em", color: "var(--red)", marginTop: 2 }}>{d.warning}</div>}
-                </span>
-              </label>
-            ))}
-          </div>
+        <InterestChangesTable changes={preview?.interestChanges ?? []} />
+        {!!preview?.following?.length && (
+          <FollowingEntriesTable entries={preview.following} values={follow} onChange={(id, v) => setFollow((cur) => ({ ...cur, [id]: v }))} />
         )}
+        <GoldReleaseDependents dependents={preview?.dependents ?? []} chosen={chosen} onToggle={(k, on) => setChosen((c) => ({ ...c, [k]: on }))} />
         <FieldError msg={err} />
       </div>
       <div className="ft">

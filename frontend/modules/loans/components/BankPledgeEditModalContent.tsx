@@ -208,9 +208,7 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
           </>
         ) : (
           <p style={{ marginBottom: 12 }}>
-            Delete the <b>{fmt(p.pledgedAmount)}</b> pledge to <b>{p.bankName}</b> dated <b>{p.pledgeDate.slice(0, 10)}</b>?
-            Its cash lines{released ? ", the release lines and the Bank Pledge Release expense entry" : ""} are removed from the ledger
-            {p.status === "Active" ? " and the gold goes back to the branch's custody record" : ""}.
+            Delete the <b>{fmt(p.pledgedAmount)}</b> pledge to <b>{p.bankName}</b> ({p.pledgeDate.slice(0, 10)})?
           </p>
         )}
         <FieldError msg={err} />

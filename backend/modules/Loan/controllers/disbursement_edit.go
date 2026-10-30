@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"math"
 	"cloudhouse/backend/auth"
 	common "cloudhouse/backend/common/controllers"
 	commonModels "cloudhouse/backend/common/models"
@@ -13,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -36,6 +36,10 @@ type EditDisbursementInput struct {
 	UpiAmount          *float64
 	BankTransferAmount *float64
 	BankID             *uint
+	// Prepare changes the loan's own terms (a new scheme) inside the same transaction, before the loan is recalculated,
+	// so the terms and their effect on every interest figure are saved together or not at all. When it is set the loan
+	// is not first checked against its old terms: the figures are meant to change.
+	Prepare func(l *models.Loan) error
 }
 
 // disbursementFigures are the loan's starting figures worked out from an edit.
@@ -87,8 +91,9 @@ func checkEligible(l *models.Loan, f disbursementFigures) error {
 func dayOf(t time.Time) string { return t.In(time.Local).Format("2006-01-02") }
 
 // editLoanDisbursement edits the sanction, then recalculates the loan.
-func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursementInput, reason string, dryRun bool) (*EditPaymentResult, *models.Loan, error) {
+func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursementInput, reason string, dryRun bool, choices packetChoices) (*EditPaymentResult, *models.Loan, error) {
 	result := &EditPaymentResult{DryRun: dryRun}
+	restoredOrnaments := false
 	var before *models.Loan
 	err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		l, err := lockByID(ctx, tx, loanID)
@@ -108,14 +113,24 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 		if err := guardReplayable(ctx, tx, l, all); err != nil {
 			return err
 		}
+		interestBefore := accrualSnapshot(ctx, tx, loanID)
+		// A loan edited before edits were made in place may have an earlier payout and its reversal: the payout in
+		// force is the last one.
 		var disbRows []*models.LoanPayment
+		reversed := 0
 		for i := range all {
-			if all[i].Type == models.PaymentTypeDisbursement {
+			switch all[i].Type {
+			case models.PaymentTypeDisbursement:
 				disbRows = append(disbRows, &all[i])
+			case paymentTypeDisbursementReversal:
+				reversed++
 			}
 		}
-		if len(disbRows) > 1 {
+		if len(disbRows)-reversed > 1 {
 			return common.NewConflict("this loan was disbursed more than once, so its sanction cannot be edited safely")
+		}
+		if len(disbRows) > 1 {
+			disbRows = disbRows[len(disbRows)-1:]
 		}
 		originalStatus := l.Status
 		result.Before = summarize(l)
@@ -132,9 +147,21 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 			return common.NewConflict("this loan's disbursement cash entries cannot be identified exactly, so it cannot be edited safely")
 		}
 
-		// Recalculated untouched first: an edit must not silently change figures this recalculation cannot explain.
-		if err := probeReplay(ctx, tx, l, rows, originalStatus); err != nil {
-			return err
+		// An edit that only changes how the payout was paid (mode, bank) touches no figure: nothing is recalculated.
+		light := in.Prepare == nil &&
+			(in.SanctionedAmount == nil || absMoney(common.RoundMoney(*in.SanctionedAmount)-l.SanctionedAmount) < 0.005) &&
+			(in.ServiceCharge == nil || absMoney(common.RoundMoney(*in.ServiceCharge)-l.ServiceChargeAmount) < 0.005) &&
+			(in.DisbursedOn == nil || dayOf(*in.DisbursedOn) == dayOf(*l.DisbursementDate)) &&
+			(in.DueDate == nil || dayOf(*in.DueDate) == dayOf(l.DueDate))
+		if in.Prepare != nil {
+			if err := in.Prepare(l); err != nil {
+				return err
+			}
+		} else if !light {
+			// Recalculated untouched first: an edit must not silently change figures this recalculation cannot explain.
+			if err := probeReplay(ctx, tx, l, rows, originalStatus); err != nil {
+				return err
+			}
 		}
 
 		ups, err := activeTopUpsInOrder(ctx, tx, loanID)
@@ -206,6 +233,11 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 		} else {
 			cash = fig.Disbursed
 		}
+		// no breakdown sent for a changed payout: the saved one is scaled to the new amount
+		if in.CashAmount == nil && in.UpiAmount == nil && in.BankTransferAmount == nil && disb != nil && absMoney(disb.Amount-fig.Disbursed) > 0.005 {
+			c, u, b, ch := scaleSplit(cash, upi, bank, 0, disb.Amount, fig.Disbursed)
+			cash, upi, bank = common.RoundMoney(c+ch), u, b
+		}
 		if in.CashAmount != nil {
 			cash = *in.CashAmount
 		}
@@ -240,22 +272,45 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 			}
 		}
 
-		edited := rows
-		if err := replayLoan(ctx, tx, l, edited, originalStatus); err != nil {
-			return common.NewBadRequest(err.Error())
+		// every payment as it was saved (the recalculation changes the rows in place)
+		savedRows := make(map[uint]models.LoanPayment, len(rows))
+		for _, r := range rows {
+			savedRows[r.ID] = r
 		}
-		result.After = summarize(l)
+		edited := rows
+		fit := newReplayFit(0, choices.Adjust)
+		fit.strict = !dryRun
+		if light {
+			result.After = result.Before
+		} else {
+			if err := replayLoanFrom(withReplayFit(ctx, fit), tx, l, edited, originalStatus, 0); err != nil {
+				return common.NewBadRequest(err.Error())
+			}
+			result.After = summarize(l)
+			result.Following = fit.listed
+			result.InterestChanges = interestChanges(interestBefore, accrualSnapshot(ctx, tx, loanID))
+			result.Dependents = editDependents(ctx, loanID, result)
+		}
 		if dryRun {
 			return errDryRun
 		}
+		plan, edited, err := prepareFollowing(ctx, tx, l, fit, savedRows, edited)
+		if err != nil {
+			return err
+		}
 
-		for i := range edited {
-			if err := tx.WithContext(ctx).Save(&edited[i]).Error; err != nil {
+		if !light {
+			for i := range edited {
+				if err := tx.WithContext(ctx).Save(&edited[i]).Error; err != nil {
+					return err
+				}
+			}
+			if err := updateLoanTx(ctx, tx, l); err != nil {
 				return err
 			}
-		}
-		if err := updateLoanTx(ctx, tx, l); err != nil {
-			return err
+			if err := plan.finish(ctx, tx, l, edited); err != nil {
+				return err
+			}
 		}
 		if err := tx.WithContext(ctx).Where("source_id = ? AND source_type IN ?", l.ID, []string{cashbook.SourceLoanDisbursement, cashbook.SourceLoanServiceCharge}).
 			Delete(&cashModels.CashMovement{}).Error; err != nil {
@@ -277,7 +332,9 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 				return err
 			}
 		}
-		return nil
+		// the gold the ticked boxes put back, saved with the edit or not at all
+		restoredOrnaments, err = applyEditDependents(ctx, tx, loanID, result.Dependents, choices)
+		return err
 	})
 	if errors.Is(err, errDryRun) {
 		return result, before, nil
@@ -285,6 +342,7 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 	if err != nil {
 		return nil, nil, err
 	}
+	refreshAfterRestore(ctx, loanID, restoredOrnaments)
 	return result, before, nil
 }
 
@@ -306,15 +364,18 @@ func writeDisbursementAudit(ctx context.Context, actorEmployeeID uint, loanID ui
 }
 
 type editDisbursementRequest struct {
-	DisbursedOn        *string  `json:"disbursed_on"`
-	DueDate            *string  `json:"due_date"`
-	SanctionedAmount   *float64 `json:"sanctioned_amount"`
-	ServiceCharge      *float64 `json:"service_charge"`
-	CashAmount         *float64 `json:"cash_amount"`
-	UpiAmount          *float64 `json:"upi_amount"`
-	BankTransferAmount *float64 `json:"bank_transfer_amount"`
-	BankID             *uint    `json:"bank_id"`
-	Reason             string   `json:"reason"`
+	DisbursedOn        *string               `json:"disbursed_on"`
+	DueDate            *string               `json:"due_date"`
+	SanctionedAmount   *float64              `json:"sanctioned_amount"`
+	ServiceCharge      *float64              `json:"service_charge"`
+	CashAmount         *float64              `json:"cash_amount"`
+	UpiAmount          *float64              `json:"upi_amount"`
+	BankTransferAmount *float64              `json:"bank_transfer_amount"`
+	BankID             *uint                 `json:"bank_id"`
+	Reason             string                `json:"reason"`
+	AdjustFollowing    []LoanFollowingAdjust `json:"adjust_following"`
+	ReversePacket      bool                  `json:"reverse_packet"`
+	RestorePartial     bool                  `json:"restore_partial_release"`
 }
 
 // EditLoanDisbursement is PATCH /loans/:id/disbursement[?dry_run=true].
@@ -350,7 +411,8 @@ func EditLoanDisbursement(c echo.Context) error {
 		in.DueDate = &d
 	}
 	dryRun, _ := strconv.ParseBool(c.QueryParam("dry_run"))
-	res, old, err := editLoanDisbursement(ctx, loanID, in, req.Reason, dryRun)
+	actor, _, _ := auth.ActorFromContext(c)
+	res, old, err := editLoanDisbursement(ctx, loanID, in, req.Reason, dryRun, packetChoices{ReversePacket: req.ReversePacket, RestorePartial: req.RestorePartial, ActorEmployee: actor, Adjust: req.AdjustFollowing})
 	if err != nil {
 		return common.FailErr(c, err)
 	}

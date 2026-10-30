@@ -32,10 +32,11 @@ export function LedgerRefLink({
     : kind === "auction" ? "auctions"
     : "ledger-bank";
   // A chip to a page this role can't open is just its label, not a link.
-  if (!canOpen(route)) return <span className={`ledger-ref-chip ledger-ref-chip-${kind}`}>{label}</span>;
+  if (!canOpen(route)) return <span className={`ledger-ref-chip ledger-ref-chip-${kind}`} title={label}>{label}</span>;
   return (
     <a
       href={routeHref(route, id)}
+      title={label}
       className={`ledger-ref-chip ledger-ref-chip-${kind}`}
       onClick={(e) => {
         e.stopPropagation();
