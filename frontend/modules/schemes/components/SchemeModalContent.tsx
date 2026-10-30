@@ -17,7 +17,9 @@ import { singleFlight } from "@/common/utils/singleFlight";
 
 const DEFAULT_DURATION_MONTHS = 12;
 export const MULTIPLE_INTEREST = "Multiple interest";
-export const SCHEME_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", MULTIPLE_INTEREST];
+// "Compound monthly" is unused for now — hidden from new choices; a scheme already on it still shows it.
+const COMPOUND_MONTHLY = "Compound monthly";
+export const SCHEME_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", MULTIPLE_INTEREST];
 const METHODS = SCHEME_METHODS;
 type TierDraft = { days: string; rate: string };
 const EMPTY_TIERS: TierDraft[] = [{ days: "", rate: "" }, { days: "", rate: "" }];
@@ -88,9 +90,12 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
   const { singleBranch, hasModule } = useBranding();
   // "Multiple interest" is a module the superadmin switches on per business;
   // a scheme already on it keeps the option so it can still be edited.
-  const methodOptions = hasModule("multiple_interest") || s?.method === MULTIPLE_INTEREST
-    ? METHOD_OPTIONS
-    : METHOD_OPTIONS.filter((o) => o.value !== MULTIPLE_INTEREST);
+  const methodOptions = [
+    ...(hasModule("multiple_interest") || s?.method === MULTIPLE_INTEREST
+      ? METHOD_OPTIONS
+      : METHOD_OPTIONS.filter((o) => o.value !== MULTIPLE_INTEREST)),
+    ...(s?.method === COMPOUND_MONTHLY ? [{ value: COMPOUND_MONTHLY, label: COMPOUND_MONTHLY }] : []),
+  ];
   // Single-branch plan: no branch is ever shown — the field is not rendered.
   const showBranch = useShowBranch();
   // Locked (and defaulted) to the global branch selection when one is
