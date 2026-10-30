@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
@@ -13,10 +13,21 @@ import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeServic
 import { type SchemeView } from "@/modules/schemes/types/scheme-types";
 import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
-import { updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
+import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
+import { InterestChangesTable, type InterestChangeView } from "@/modules/loans/components/InterestChangesTable";
+import { GoldReleaseDependents, goldChoicesOf } from "@/modules/loans/components/GoldReleaseDependents";
+import { type LedgerEditDependent, type LedgerFollowingEntry, previewLoanEdit, updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
 import { uploadFile } from "@/modules/customers/services/customerService";
 import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
 import { SafeImage } from "@/common/components/ui/SafeImage";
+import { Select } from "@/common/components/ui/Select";
+import { useShowBranch } from "@/common/hooks/use-branch-switch";
+import { listActiveBranches } from "@/modules/branches/services/branchService";
+import { type BranchView } from "@/modules/branches/types/branch-types";
+import { listLockers } from "@/modules/lockers/services/lockerService";
+import { type LockerView } from "@/modules/lockers/types/locker-types";
+import { listPackets } from "@/modules/packets/services/packetService";
+import { SplitPaymentInput, type SplitAmounts, type SplitPaymentLine } from "@/common/components/SplitPaymentInput";
 import { type LoanView, type OrnamentView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -143,6 +154,70 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     return eligibleLoanAmount > 0 && n > eligibleLoanAmount ? String(Math.floor(eligibleLoanAmount)) : value;
   };
 
+  // A loan already paid out: how its payout was made can be corrected here too. The total follows the principal
+  // (a percentage service charge follows it, a flat one stays), and the breakdown must add up to it.
+  const paidOut = !!loan.disbursementDate;
+  // the payout in force: a loan edited the old way also keeps an earlier payout and its reversal
+  const disbursement = [...loan.payments].reverse().find((p) => p.type === "Disbursement");
+  const principalNum = +principal > 0 ? +principal : loan.principal;
+  const newSanctioned = (loan.sanctionedAmount || loan.principal) + (principalNum - loan.principal);
+  const serviceCharge = loan.serviceChargeType === "Percent"
+    ? Math.round(newSanctioned * (loan.serviceChargeValue ?? 0)) / 100
+    : loan.serviceChargeAmount;
+  const payout = Math.round((newSanctioned - serviceCharge) * 100) / 100;
+  const payoutLines: SplitPaymentLine[] | undefined = disbursement ? [
+    disbursement.cashAmount > 0 && { mode: "Cash" as const, amount: String(disbursement.cashAmount) },
+    disbursement.upiAmount > 0 && { mode: "UPI" as const, amount: String(disbursement.upiAmount), bankId: disbursement.bankId ?? undefined, bankName: disbursement.bankName },
+    disbursement.bankTransferAmount > 0 && { mode: "Bank Transfer" as const, amount: String(disbursement.bankTransferAmount), bankId: disbursement.bankId ?? undefined, bankName: disbursement.bankName },
+  ].filter(Boolean) as SplitPaymentLine[] : undefined;
+  const [payoutSplit, setPayoutSplit] = useState<SplitAmounts | null>(null);
+  const [payoutRemaining, setPayoutRemaining] = useState(0);
+  const [payoutBankId, setPayoutBankId] = useState<number | undefined>(undefined);
+  const payoutChanged = !!disbursement && !!payoutSplit && (
+    Math.abs(payoutSplit.cashAmount - disbursement.cashAmount) > 0.005 ||
+    Math.abs(payoutSplit.upiAmount - disbursement.upiAmount) > 0.005 ||
+    Math.abs(payoutSplit.bankTransferAmount - disbursement.bankTransferAmount) > 0.005 ||
+    ((payoutSplit.upiAmount > 0 || payoutSplit.bankTransferAmount > 0) && (payoutBankId ?? null) !== (disbursement.bankId ?? null))
+  );
+
+  // Branch and locker: only for a role that may see every branch. The gold goes to a locker of the loan's branch.
+  const showBranch = useShowBranch();
+  const [branches, setBranches] = useState<BranchView[]>([]);
+  const [branchSel, setBranchSel] = useState(String(loan.branchId));
+  const [lockers, setLockers] = useState<LockerView[]>([]);
+  const [lockerSel, setLockerSel] = useState("");
+  const [packetLocker, setPacketLocker] = useState<number | null>(null); // the locker the packet is in now
+  const [hasPacket, setHasPacket] = useState(false);
+  useEffect(() => {
+    if (!showBranch) return;
+    listActiveBranches().then(setBranches).catch(() => {});
+    listPackets({ loanId: loan.numericId }).then((ps) => {
+      setHasPacket(ps.length > 0);
+      const id = ps[0]?.currentLockerId ?? null;
+      setPacketLocker(id);
+      if (id) setLockerSel(String(id));
+    }).catch(() => {});
+  }, [showBranch, loan.numericId]);
+  useEffect(() => {
+    if (!showBranch) return;
+    listLockers({ branchId: [+branchSel] }).then((ls) => setLockers(ls.filter((x) => x.isActive))).catch(() => setLockers([]));
+  }, [showBranch, branchSel]);
+  const branchChanged = branchSel !== String(loan.branchId);
+  const lockerChanged = !!lockerSel && +lockerSel !== packetLocker;
+
+  // Later payments that no longer fit once the loan is recalculated under the new scheme / amount: shown for review
+  // (each lowered to what it can still be, editable) before anything is saved.
+  const [following, setFollowing] = useState<LedgerFollowingEntry[]>([]);
+  const [follow, setFollow] = useState<Record<number, string>>({});
+  // the scheme / amount the review above was made for: change either and the review no longer applies
+  const [reviewedFor, setReviewedFor] = useState("");
+  const [depList, setDepList] = useState<LedgerEditDependent[]>([]);
+  const [interestList, setInterestList] = useState<InterestChangeView[]>([]);
+  const [chosenDeps, setChosenDeps] = useState<Record<string, boolean>>({});
+  const reviewKey = `${schemeId}|${principal}`;
+  const activeFollowing = reviewedFor === reviewKey ? following : [];
+  const activeDeps = reviewedFor === reviewKey ? depList : [];
+
   const triggersReapproval = schemeId !== loan.schemeId || (+principal > 0 && +principal !== loan.principal);
 
   async function save() { return singleFlight("modal:editloan:save", async () => {
@@ -166,8 +241,40 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
       return;
     }
 
+    if (showBranch && branchChanged && hasPacket && packetLocker && !lockerSel) {
+      setErr("Choose a locker in the new branch for the gold."); return;
+    }
+    const principalChanged = +principal !== loan.principal;
+    if (paidOut && (payoutChanged || principalChanged)) {
+      if (Math.abs(payoutRemaining) > 0.01) { setErr(`The payout breakdown must add up to ${fmt(payout)}.`); return; }
+      if (payoutSplit && (payoutSplit.upiAmount > 0 || payoutSplit.bankTransferAmount > 0) && !payoutBankId) { setErr("Select the bank for the UPI / Bank Transfer part of the payout."); return; }
+    }
+
     setSaving(true);
     try {
+      // A loan already paid out is recalculated by a scheme or amount change: look first at what that does to its
+      // later payments, so nothing is saved until the staff member has seen them.
+      const recalculates = paidOut && (schemeId !== loan.schemeId || principalChanged);
+      // Any recalculating edit is looked at first: the later payments (and what a release did to the gold) are shown
+      // and nothing is saved until they have been seen and Save is pressed again.
+      if (recalculates && reviewedFor !== reviewKey) {
+        const probe = await previewLoanEdit(loan.numericId, {
+          schemeId: schemeId !== loan.schemeId ? Number(schemeId) : undefined,
+          principalAmount: principalChanged ? +principal : undefined,
+          ...(paidOut && payoutSplit && (payoutChanged || principalChanged)
+            ? { cashAmount: payoutSplit.cashAmount, upiAmount: payoutSplit.upiAmount, bankTransferAmount: payoutSplit.bankTransferAmount, bankId: payoutBankId }
+            : {}),
+        });
+        if (probe.following?.length || probe.dependents?.length || probe.interestChanges?.length) {
+          setInterestList(probe.interestChanges ?? []);
+          setFollowing(probe.following ?? []);
+          setDepList(probe.dependents ?? []);
+          setReviewedFor(reviewKey);
+          setFollow(Object.fromEntries((probe.following ?? []).map((f) => [f.id, String(f.current)])));
+          setChosenDeps(Object.fromEntries((probe.dependents ?? []).map((d) => [d.kind, true])));
+          return;
+        }
+      }
       // Ornaments MUST be saved before updateLoan() below — each ornament
       // call revalues that row against the live gold rate and recalculates
       // the loan's EligibleLoanAmount for real (see backend's
@@ -196,6 +303,13 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
         schemeId: schemeId !== loan.schemeId ? Number(schemeId) : undefined,
         principalAmount: +principal !== loan.principal ? +principal : undefined,
         overallPhotoUrl: overallPhoto !== loan.overallPhotoUrl ? overallPhoto : undefined,
+        ...goldChoicesOf(activeDeps, chosenDeps),
+        ...(activeFollowing.length ? { adjustFollowing: activeFollowing.map((f) => ({ id: f.id, amount: +(follow[f.id] ?? f.current) || 0 })) } : {}),
+        ...(showBranch && branchChanged ? { branchId: +branchSel } : {}),
+        ...(showBranch && hasPacket && lockerChanged ? { lockerId: +lockerSel } : {}),
+        ...(paidOut && payoutSplit && (payoutChanged || principalChanged)
+          ? { cashAmount: payoutSplit.cashAmount, upiAmount: payoutSplit.upiAmount, bankTransferAmount: payoutSplit.bankTransferAmount, bankId: payoutBankId }
+          : {}),
       });
       onSaved();
       closeModal();
@@ -242,7 +356,46 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
           </div>
         </div>
 
-        {triggersReapproval && (
+        {showBranch && (
+          <div className="frow c2" style={{ marginBottom: 14 }}>
+            <div>
+              <label className="f">Branch</label>
+              <Select
+                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                value={branchSel}
+                onChange={(v) => { setBranchSel(v); setLockerSel(""); }}
+              />
+            </div>
+            {hasPacket && (
+              <div>
+                <label className="f">Locker</label>
+                <Select
+                  options={lockers.map((x) => ({ value: String(x.id), label: `${x.code} (${x.occupied}/${x.capacity})`, disabled: x.occupied >= x.capacity && x.id !== packetLocker }))}
+                  value={lockerSel}
+                  onChange={setLockerSel}
+                  placeholder="Select locker…"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {paidOut && disbursement && (
+          <div style={{ marginBottom: 14 }}>
+            <label className="f">Payout breakdown — {fmt(payout)}</label>
+            <SplitPaymentInput totalAmount={payout} initialLines={payoutLines} label={null}
+              onChange={(s, r, b) => { setPayoutSplit(s); setPayoutRemaining(r); setPayoutBankId(b); }} />
+          </div>
+        )}
+
+        <InterestChangesTable changes={reviewedFor === reviewKey ? interestList : []} />
+        {activeFollowing.length > 0 && (
+          <FollowingEntriesTable entries={activeFollowing} values={follow} onChange={(id, v) => setFollow((cur) => ({ ...cur, [id]: v }))} />
+        )}
+        <GoldReleaseDependents dependents={activeDeps} chosen={chosenDeps} onToggle={(k, on) => setChosenDeps((c) => ({ ...c, [k]: on }))} />
+
+        {/* a loan already paid out is edited where it is; only one still waiting for approval goes back to its first stage */}
+        {triggersReapproval && !loan.disbursementDate && (
           <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
             <Icon name="shield" />
             Saving will resubmit this loan for approval from the first stage.
@@ -309,7 +462,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                   onFile={(f) => { void ornPhotoPicked(i, f); }}
                   webcamTitle={`Ornament Photo${r.name ? " — " + r.name : ""}`}
                   trigger={(t) => (
-                    <button ref={t.ref} type="button" className="btn plain sm" style={{ height: 34 }} aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}><Icon name="camera" /> Add photo</button>
+                    <button ref={t.ref} type="button" className="btn plain sm" style={{ height: 38 }} aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}><Icon name="camera" /> Add photo</button>
                   )}
                 />
                 </div>
@@ -335,7 +488,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
               onFile={(f) => { void overallPhotoPicked(f); }}
               webcamTitle="Overall Photo"
               trigger={(t) => (
-                <button ref={t.ref} type="button" className="btn plain sm" aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}>
+                <button ref={t.ref} type="button" className="btn plain sm" style={{ height: 38 }} aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}>
                   <Icon name="camera" /> {overallPhoto ? "Change overall photo" : "Add overall photo"}
                 </button>
               )}
@@ -345,9 +498,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
         </div>
 
         <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
-          Total net weight: {fmt(activeRows.reduce((s, r) => s + (+r.net || 0) * (+r.qty || 1), 0)).replace("₹", "")}g
-          — the eligible loan amount recalculates automatically from these ornaments on save; the principal
-          above is rejected if it ends up higher than the new eligible amount.
+          Total net weight: {fmt(activeRows.reduce((s, r) => s + (+r.net || 0) * (+r.qty || 1), 0)).replace("₹", "")}g · eligible amount updates on save
         </p>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

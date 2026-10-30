@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -44,6 +43,36 @@ type EditEntryResult struct {
 	Before PersonalLoanSummary `json:"before"`
 	After  PersonalLoanSummary `json:"after"`
 	DryRun bool                `json:"dry_run"`
+	// Following lists the later payments that no longer fit and what each can still be; they are saved that way.
+	Following []FollowingEntry `json:"following,omitempty"`
+	// InstalmentChanges are the instalments whose paid amount or status the edit changes — worked out, shown only.
+	InstalmentChanges []InstalmentChange `json:"instalment_changes,omitempty"`
+}
+
+// InstalmentChange is one instalment an edit changes.
+type InstalmentChange struct {
+	SequenceNo   int       `json:"sequence_no"`
+	DueDate      time.Time `json:"due_date"`
+	PaidBefore   float64   `json:"paid_before"`
+	PaidAfter    float64   `json:"paid_after"`
+	StatusBefore string    `json:"status_before"`
+	StatusAfter  string    `json:"status_after"`
+}
+
+// instalmentChanges lists the instalments whose paid amount or status differs, in schedule order.
+func instalmentChanges(before, after []models.PersonalLoanInstallment) []InstalmentChange {
+	var out []InstalmentChange
+	for i := range before {
+		if i >= len(after) {
+			break
+		}
+		b, a := before[i], after[i]
+		if math.Abs(b.PaidAmount-a.PaidAmount) < epsilon && b.Status == a.Status {
+			continue
+		}
+		out = append(out, InstalmentChange{SequenceNo: b.SequenceNo, DueDate: b.DueDate, PaidBefore: b.PaidAmount, PaidAfter: a.PaidAmount, StatusBefore: b.Status, StatusAfter: a.Status})
+	}
+	return out
 }
 
 // replayBalances applies payments (already in order) to base and returns each payment's running balance and
@@ -83,16 +112,6 @@ func replayInstallments(insts []models.PersonalLoanInstallment, total float64) [
 	return out
 }
 
-// sameInstallments reports the first instalment whose paid amount differs, or "".
-func sameInstallments(saved, replayed []models.PersonalLoanInstallment) string {
-	for i := range saved {
-		if math.Abs(saved[i].PaidAmount-replayed[i].PaidAmount) > epsilon {
-			return fmt.Sprintf("instalment %d paid ₹%.2f saved vs ₹%.2f recalculated", saved[i].SequenceNo, saved[i].PaidAmount, replayed[i].PaidAmount)
-		}
-	}
-	return ""
-}
-
 func sortPersonalPayments(rows []models.PersonalLoanPayment) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		if !rows[i].PaidOn.Equal(rows[j].PaidOn) {
@@ -127,30 +146,6 @@ func guardPersonalEditable(l *models.PersonalLoan, payments []models.PersonalLoa
 		if p.Method == rolloverMethod {
 			return common.NewConflict("ledger edits are not available for a loan with a renewal rollover entry")
 		}
-	}
-	return nil
-}
-
-// probePersonalLoan checks the untouched replay reproduces the saved figures.
-func probePersonalLoan(l *models.PersonalLoan, ordered []models.PersonalLoanPayment, insts []models.PersonalLoanInstallment) error {
-	running, outstanding, err := replayBalances(l.PrincipalAmount, ordered)
-	if err != nil {
-		log.Printf("personal loan %d ledger edit refused: history cannot be recalculated: %v", l.ID, err)
-		return common.NewConflict("This entry can't be edited: the loan's history can't be recalculated.")
-	}
-	for i := range ordered {
-		if math.Abs(ordered[i].RunningBalance-running[i]) > epsilon {
-			log.Printf("personal loan %d ledger edit refused: balance after the payment of %.2f on %s is %.2f saved vs %.2f recalculated",
-				l.ID, ordered[i].Amount, ordered[i].PaidOn.Format("02-01-2006"), ordered[i].RunningBalance, running[i])
-			return common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
-		}
-	}
-	if math.Abs(outstanding-l.OutstandingAmount) > epsilon || math.Abs(sumPayments(ordered)-l.TotalPaid) > epsilon {
-		return common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
-	}
-	if diff := sameInstallments(insts, replayInstallments(insts, sumPayments(ordered))); diff != "" {
-		log.Printf("personal loan %d ledger edit refused: instalments not reproduced: %s", l.ID, diff)
-		return common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
 	}
 	return nil
 }
@@ -210,6 +205,7 @@ type PersonalPaymentEdit struct {
 	BankID             *uint
 	Reference          *string
 	Description        *string
+	Adjust             []FollowingAdjust
 }
 
 func loadPersonalReplay(ctx context.Context, tx *gorm.DB, loanID uint) ([]models.PersonalLoanPayment, []models.PersonalLoanInstallment, error) {
@@ -222,41 +218,6 @@ func loadPersonalReplay(ctx context.Context, tx *gorm.DB, loanID uint) ([]models
 		return nil, nil, err
 	}
 	return pays, insts, nil
-}
-
-// applyReplay writes the recalculated figures onto the loan and returns the instalments to save.
-func applyReplay(l *models.PersonalLoan, ordered []models.PersonalLoanPayment, insts []models.PersonalLoanInstallment, originalStatus string) ([]models.PersonalLoanInstallment, error) {
-	running, outstanding, err := replayBalances(l.PrincipalAmount, ordered)
-	if err != nil {
-		return nil, common.NewBadRequest(err.Error())
-	}
-	for i := range ordered {
-		ordered[i].RunningBalance = running[i]
-	}
-	total := sumPayments(ordered)
-	newInsts := replayInstallments(insts, total)
-	l.OutstandingAmount, l.TotalPaid = outstanding, total
-	switch {
-	case outstanding <= epsilon:
-		l.OutstandingAmount = 0
-		l.Status = models.StatusClosed
-		if l.ClosedAt == nil || originalStatus != models.StatusClosed {
-			at := time.Now()
-			if n := len(ordered); n > 0 {
-				at = ordered[n-1].PaidOn
-			}
-			l.ClosedAt = &at
-		}
-	case originalStatus == models.StatusClosed:
-		l.ClosedAt = nil
-		l.Status = models.StatusActive
-		if isPastGracePeriod(l, newInsts, time.Now()) {
-			l.Status = models.StatusPending
-		}
-	default:
-		l.Status = originalStatus
-	}
-	return newInsts, nil
 }
 
 func validatePersonalPayment(l *models.PersonalLoan, p *models.PersonalLoanPayment) error {
@@ -284,7 +245,210 @@ func validatePersonalPayment(l *models.PersonalLoan, p *models.PersonalLoanPayme
 	return nil
 }
 
-// editPersonalPayment edits (in != nil) or deletes (in == nil) one payment, then recalculates the loan.
+// FollowingEntry is a later payment that no longer fits the loan once an earlier one is edited. Suggested is what it
+// can still be (0 means it would be removed); the staff member may lower it further before saving.
+type FollowingEntry struct {
+	ID        uint      `json:"id"`
+	PaidOn    time.Time `json:"paid_on"`
+	Reference string    `json:"reference"`
+	Current   float64   `json:"current"`
+	Suggested float64   `json:"suggested"`
+	// NeedsChange is set when the payment no longer fits and was lowered; the others are listed unchanged so the
+	// staff member can look at them.
+	NeedsChange bool `json:"needs_change"`
+}
+
+// FollowingAdjust is the amount the staff member chose for one following entry.
+type FollowingAdjust struct {
+	ID     uint    `json:"id"`
+	Amount float64 `json:"amount"`
+}
+
+// shrinkPayment lowers a payment to a smaller amount, taking the difference off its cash part first, then UPI, then
+// bank transfer, then cheque, so its breakdown still adds up to the new amount.
+func shrinkPayment(p *models.PersonalLoanPayment, amount float64) {
+	reduce := common.RoundMoney(p.Amount - amount)
+	take := func(v *float64) {
+		d := math.Min(*v, reduce)
+		*v = common.RoundMoney(*v - d)
+		reduce = common.RoundMoney(reduce - d)
+	}
+	take(&p.CashAmount)
+	take(&p.UpiAmount)
+	take(&p.BankTransferAmount)
+	take(&p.ChequeAmount)
+	p.Amount = amount
+	if p.UpiAmount+p.BankTransferAmount+p.ChequeAmount == 0 {
+		p.BankID = nil
+	}
+	p.Method = common.DeriveMethod(p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount)
+}
+
+// fitFollowing walks the payments from index from, carrying the balance, and lowers every later payment that is
+// larger than what is then outstanding (or the amount the staff member chose for it). The edited payment itself must
+// fit as it is. It returns the later payments it changed, and those with nothing left to pay are returned with a
+// suggested amount of 0.
+func fitFollowing(base float64, edited []models.PersonalLoanPayment, from int, editedID uint, adjust map[uint]float64, strict bool) (changed, listed []FollowingEntry, err error) {
+	outstanding := common.RoundMoney(base)
+	for i := from; i < len(edited); i++ {
+		p := &edited[i]
+		if p.ID == editedID {
+			if p.Amount > outstanding+epsilon {
+				return nil, nil, common.NewBadRequest(fmt.Sprintf("the payment of ₹%.2f on %s is more than the ₹%.2f outstanding then", p.Amount, p.PaidOn.Format("02-01-2006"), outstanding))
+			}
+		} else {
+			want := p.Amount
+			if v, ok := adjust[p.ID]; ok {
+				if v < 0 || v > p.Amount+epsilon {
+					return nil, nil, common.NewBadRequest(fmt.Sprintf("the payment on %s can only be lowered, not raised", p.PaidOn.Format("02-01-2006")))
+				}
+				want = common.RoundMoney(v)
+			}
+			forced := false
+			if want > outstanding+epsilon {
+				forced = true
+				if _, ok := adjust[p.ID]; ok || strict {
+					return nil, nil, common.NewBadRequest(fmt.Sprintf("the payment on %s can be at most ₹%.2f — lower it in the list of payments after this one", p.PaidOn.Format("02-01-2006"), outstanding))
+				}
+				want = outstanding
+			}
+			entry := FollowingEntry{ID: p.ID, PaidOn: p.PaidOn, Reference: p.Reference, Current: p.Amount, Suggested: want, NeedsChange: forced}
+			listed = append(listed, entry)
+			if math.Abs(want-p.Amount) > epsilon {
+				changed = append(changed, entry)
+				if want > epsilon {
+					shrinkPayment(p, want)
+				} else {
+					p.Amount = 0
+				}
+			}
+		}
+		outstanding = math.Max(0, common.RoundMoney(outstanding-p.Amount))
+	}
+	return changed, listed, nil
+}
+
+// applyReplayFrom writes the recalculated figures from payment index from onwards onto the loan and returns the
+// instalments to save. The payments before it keep exactly what they were saved with.
+func applyReplayFrom(l *models.PersonalLoan, ordered []models.PersonalLoanPayment, from int, insts []models.PersonalLoanInstallment, originalStatus string) ([]models.PersonalLoanInstallment, error) {
+	outstanding := common.RoundMoney(l.PrincipalAmount)
+	if from > 0 {
+		outstanding = ordered[from-1].RunningBalance
+	}
+	for i := from; i < len(ordered); i++ {
+		if ordered[i].Amount > outstanding+epsilon {
+			return nil, common.NewBadRequest(fmt.Sprintf("the payment of ₹%.2f on %s is more than the ₹%.2f then outstanding", ordered[i].Amount, ordered[i].PaidOn.Format("02-01-2006"), outstanding))
+		}
+		outstanding = math.Max(0, common.RoundMoney(outstanding-ordered[i].Amount))
+		ordered[i].RunningBalance = outstanding
+	}
+	if len(ordered) == 0 {
+		outstanding = common.RoundMoney(l.PrincipalAmount)
+	}
+	total := sumPayments(ordered)
+	newInsts := replayInstallments(insts, total)
+	l.OutstandingAmount, l.TotalPaid = outstanding, total
+	switch {
+	case outstanding <= epsilon:
+		l.OutstandingAmount = 0
+		l.Status = models.StatusClosed
+		if l.ClosedAt == nil || originalStatus != models.StatusClosed {
+			at := time.Now()
+			if n := len(ordered); n > 0 {
+				at = ordered[n-1].PaidOn
+			}
+			l.ClosedAt = &at
+		}
+	case originalStatus == models.StatusClosed:
+		l.ClosedAt = nil
+		l.Status = models.StatusActive
+		if isPastGracePeriod(l, newInsts, time.Now()) {
+			l.Status = models.StatusPending
+		}
+	default:
+		l.Status = originalStatus
+	}
+	return newInsts, nil
+}
+
+// onlyModeChanged reports whether an edit leaves the amount and the day alone: only the payment mode, bank,
+// reference or note change, so no balance, instalment or later payment is affected.
+func onlyModeChanged(old *models.PersonalLoanPayment, in *PersonalPaymentEdit) bool {
+	if in == nil {
+		return false
+	}
+	if in.Amount != nil && math.Abs(common.RoundMoney(*in.Amount)-old.Amount) > epsilon {
+		return false
+	}
+	if in.PaidOn != nil && !sameDay(*in.PaidOn, old.PaidOn) {
+		return false
+	}
+	return true
+}
+
+// lightPersonalEdit rewrites one payment's mode, bank, reference and note and its cash-book lines. Nothing is
+// recalculated, so how the rest of the history adds up cannot stand in the way of a correction like this.
+func lightPersonalEdit(ctx context.Context, tx *gorm.DB, l *models.PersonalLoan, old models.PersonalLoanPayment, in *PersonalPaymentEdit, dryRun bool) error {
+	switch l.Status {
+	case models.StatusActive, models.StatusPending, models.StatusClosed:
+	default:
+		return common.NewConflict("a loan in status " + l.Status + " cannot have its ledger edited")
+	}
+	p := old
+	if in.CashAmount != nil {
+		p.CashAmount = *in.CashAmount
+	}
+	if in.UpiAmount != nil {
+		p.UpiAmount = *in.UpiAmount
+	}
+	if in.BankTransferAmount != nil {
+		p.BankTransferAmount = *in.BankTransferAmount
+	}
+	if in.ChequeAmount != nil {
+		p.ChequeAmount = *in.ChequeAmount
+	}
+	if in.BankID != nil {
+		p.BankID = in.BankID
+	}
+	if in.Reference != nil {
+		p.Reference = *in.Reference
+	}
+	if in.Description != nil {
+		p.Description = *in.Description
+	}
+	if p.UpiAmount+p.BankTransferAmount+p.ChequeAmount == 0 {
+		p.BankID = nil
+	}
+	p.Method = common.DeriveMethod(p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount)
+	if err := common.ValidateSplit(p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, p.Amount); err != nil {
+		return err
+	}
+	if (p.UpiAmount > 0 || p.BankTransferAmount > 0) && p.BankID == nil {
+		return common.NewBadRequest("bank is required when the payment breakdown includes UPI or Bank Transfer")
+	}
+	if dryRun {
+		return errEditDryRun
+	}
+	oldGroup, err := findCashGroup(ctx, tx, old.CashTransactionGroupID, "Personal Loan Payment — "+l.LoanNumber, "in", "Collection", l.BranchID, old.Amount, old.PaidOn)
+	if err != nil {
+		return err
+	}
+	if err := tx.WithContext(ctx).Save(&p).Error; err != nil {
+		return err
+	}
+	if err := deleteCashGroup(ctx, tx, oldGroup); err != nil {
+		return err
+	}
+	_, groupID, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, p.Amount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, l.BranchID, p.PaidOn, "Personal Loan Payment", l.CustomerID, p.BankID)
+	if err != nil {
+		return fmt.Errorf("could not record the corrected payment in Cash-in-Hand: %w", err)
+	}
+	return tx.WithContext(ctx).Model(&models.PersonalLoanPayment{}).Where("id = ?", p.ID).Update("cash_transaction_group_id", groupID).Error
+}
+
+// editPersonalPayment edits (in != nil) or deletes (in == nil) one payment. Only the entries from it onwards are
+// recalculated; the earlier ones are left exactly as saved. A later payment that no longer fits is listed for the
+// staff member (with what it can still be) and saved with that amount, or the one they chose.
 func editPersonalPayment(ctx context.Context, loanID, paymentID uint, branchID *uint, in *PersonalPaymentEdit, reason string, dryRun bool) (*EditEntryResult, *models.PersonalLoanPayment, error) {
 	result := &EditEntryResult{DryRun: dryRun}
 	var oldRow *models.PersonalLoanPayment
@@ -297,11 +461,6 @@ func editPersonalPayment(ctx context.Context, loanID, paymentID uint, branchID *
 		if err != nil {
 			return err
 		}
-		if err := guardPersonalEditable(l, pays); err != nil {
-			return err
-		}
-		originalStatus := l.Status
-		result.Before = summarizePersonal(l)
 		idx := -1
 		for i := range pays {
 			if pays[i].ID == paymentID {
@@ -313,11 +472,18 @@ func editPersonalPayment(ctx context.Context, loanID, paymentID uint, branchID *
 		}
 		old := pays[idx]
 		oldRow = &old
-		if err := probePersonalLoan(l, pays, insts); err != nil {
+		result.Before = summarizePersonal(l)
+		if onlyModeChanged(&old, in) {
+			result.After = result.Before
+			return lightPersonalEdit(ctx, tx, l, old, in, dryRun)
+		}
+		if err := guardPersonalEditable(l, pays); err != nil {
 			return err
 		}
+		originalStatus := l.Status
 
 		edited := append([]models.PersonalLoanPayment{}, pays...)
+		from := idx
 		if in == nil {
 			edited = append(edited[:idx], edited[idx+1:]...)
 		} else {
@@ -357,27 +523,79 @@ func editPersonalPayment(ctx context.Context, loanID, paymentID uint, branchID *
 				return err
 			}
 			sortPersonalPayments(edited)
+			for i := range edited {
+				if edited[i].ID == paymentID && i < from {
+					from = i
+				}
+			}
 		}
-		newInsts, err := applyReplay(l, edited, insts, originalStatus)
+		// the balance the recalculation starts from is the one saved before the first entry it touches
+		adjust := map[uint]float64{}
+		if in != nil {
+			for _, a := range in.Adjust {
+				adjust[a.ID] = a.Amount
+			}
+		}
+		base := common.RoundMoney(l.PrincipalAmount)
+		if from > 0 {
+			base = edited[from-1].RunningBalance
+		}
+		following, listed, err := fitFollowing(base, edited, from, paymentID, adjust, !dryRun)
 		if err != nil {
 			return err
 		}
+		result.Following = listed
+		// a later payment brought down to nothing is removed
+		var removeIDs []uint
+		kept := edited[:0:0]
+		for _, p := range edited {
+			if p.ID != paymentID && p.Amount <= epsilon {
+				removeIDs = append(removeIDs, p.ID)
+				continue
+			}
+			kept = append(kept, p)
+		}
+		edited = kept
+		newInsts, err := applyReplayFrom(l, edited, from, insts, originalStatus)
+		if err != nil {
+			return err
+		}
+		result.InstalmentChanges = instalmentChanges(insts, newInsts)
 		result.After = summarizePersonal(l)
 		if dryRun {
 			return errEditDryRun
 		}
 
+		byID := map[uint]models.PersonalLoanPayment{}
+		for _, p := range pays {
+			byID[p.ID] = p
+		}
 		oldGroup, err := findCashGroup(ctx, tx, old.CashTransactionGroupID, "Personal Loan Payment — "+l.LoanNumber, "in", "Collection", l.BranchID, old.Amount, old.PaidOn)
 		if err != nil {
 			return err
 		}
-		for i := range edited {
+		// the cash-book lines of every later payment that was lowered or removed
+		followingGroups := map[uint]string{}
+		for _, f := range following {
+			o := byID[f.ID]
+			g, err := findCashGroup(ctx, tx, o.CashTransactionGroupID, "Personal Loan Payment — "+l.LoanNumber, "in", "Collection", l.BranchID, o.Amount, o.PaidOn)
+			if err != nil {
+				return err
+			}
+			followingGroups[f.ID] = g
+		}
+		for i := from; i < len(edited); i++ { // the entries before the edit are not rewritten
 			if err := tx.WithContext(ctx).Save(&edited[i]).Error; err != nil {
 				return err
 			}
 		}
 		if in == nil {
 			if err := tx.WithContext(ctx).Delete(&models.PersonalLoanPayment{}, paymentID).Error; err != nil {
+				return err
+			}
+		}
+		for _, id := range removeIDs {
+			if err := tx.WithContext(ctx).Delete(&models.PersonalLoanPayment{}, id).Error; err != nil {
 				return err
 			}
 		}
@@ -392,19 +610,24 @@ func editPersonalPayment(ctx context.Context, loanID, paymentID uint, branchID *
 		if err := deleteCashGroup(ctx, tx, oldGroup); err != nil {
 			return err
 		}
-		if in != nil {
-			var p *models.PersonalLoanPayment
-			for i := range edited {
-				if edited[i].ID == paymentID {
-					p = &edited[i]
-				}
+		for _, g := range followingGroups {
+			if err := deleteCashGroup(ctx, tx, g); err != nil {
+				return err
 			}
+		}
+		rebook := func(p *models.PersonalLoanPayment) error {
 			_, groupID, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, p.Amount, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, l.BranchID, p.PaidOn, "Personal Loan Payment", l.CustomerID, p.BankID)
 			if err != nil {
 				return fmt.Errorf("could not record the corrected payment in Cash-in-Hand: %w", err)
 			}
-			if err := tx.WithContext(ctx).Model(&models.PersonalLoanPayment{}).Where("id = ?", p.ID).Update("cash_transaction_group_id", groupID).Error; err != nil {
-				return err
+			return tx.WithContext(ctx).Model(&models.PersonalLoanPayment{}).Where("id = ?", p.ID).Update("cash_transaction_group_id", groupID).Error
+		}
+		for i := range edited {
+			_, lowered := followingGroups[edited[i].ID]
+			if (in != nil && edited[i].ID == paymentID) || lowered {
+				if err := rebook(&edited[i]); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -557,16 +780,17 @@ func parseEditDate(s string) (time.Time, error) {
 }
 
 type editPersonalPaymentRequest struct {
-	PaidOn             *string  `json:"paid_on"`
-	Amount             *float64 `json:"amount"`
-	CashAmount         *float64 `json:"cash_amount"`
-	UpiAmount          *float64 `json:"upi_amount"`
-	BankTransferAmount *float64 `json:"bank_transfer_amount"`
-	ChequeAmount       *float64 `json:"cheque_amount"`
-	BankID             *uint    `json:"bank_id"`
-	Reference          *string  `json:"reference"`
-	Description        *string  `json:"description"`
-	Reason             string   `json:"reason"`
+	PaidOn             *string           `json:"paid_on"`
+	Amount             *float64          `json:"amount"`
+	CashAmount         *float64          `json:"cash_amount"`
+	UpiAmount          *float64          `json:"upi_amount"`
+	BankTransferAmount *float64          `json:"bank_transfer_amount"`
+	ChequeAmount       *float64          `json:"cheque_amount"`
+	BankID             *uint             `json:"bank_id"`
+	Reference          *string           `json:"reference"`
+	Description        *string           `json:"description"`
+	Reason             string            `json:"reason"`
+	AdjustFollowing    []FollowingAdjust `json:"adjust_following"`
 }
 
 // EditPersonalLoanPayment is PATCH /personal-loans/:id/payments/:payment_id[?dry_run=true].
@@ -586,7 +810,7 @@ func EditPersonalLoanPayment(c echo.Context) error {
 	}
 	in := &PersonalPaymentEdit{Amount: req.Amount, CashAmount: req.CashAmount, UpiAmount: req.UpiAmount,
 		BankTransferAmount: req.BankTransferAmount, ChequeAmount: req.ChequeAmount, BankID: req.BankID,
-		Reference: req.Reference, Description: req.Description}
+		Reference: req.Reference, Description: req.Description, Adjust: req.AdjustFollowing}
 	if req.PaidOn != nil {
 		d, err := parseEditDate(*req.PaidOn)
 		if err != nil {

@@ -27,14 +27,15 @@ import { printAuctionLetter } from "@/modules/loans/utils/printAuctionLetter";
 import { LoanLedgerInfoModalContent, type LedgerInfoAction } from "@/modules/loans/components/LoanLedgerInfoModalContent";
 import { useAuctionEntryActions } from "@/modules/loans/components/useAuctionEntryActions";
 
-type AuctionCardProps = { l: LoanView; onLoanChanged: () => void };
+// version: bumped by the page after an auction edit, so the card fetches its case again
+type AuctionCardProps = { l: LoanView; onLoanChanged: () => void; version?: number };
 
 /* One card per loan currently in (or eligible for) the auction pipeline —
  * drives the real 7-stage AuctionRecord (Overdue/Defaulted are the loan's
  * own isOverdue/isDefaulted flags; AuctionEligible onward come from
  * GET /loans/:id/auction) instead of the old cosmetic 4-box track that
  * just read `l.status`. */
-function AuctionCard({ l, onLoanChanged }: AuctionCardProps) {
+function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
   const { openModal } = useModal();
   const { can, role, isSystem } = useAuth();
   const { config: workflow } = useApprovalWorkflow();
@@ -56,7 +57,7 @@ function AuctionCard({ l, onLoanChanged }: AuctionCardProps) {
     if (!mayHaveCase) { setRec(null); return; }
     getAuctionRecord(l.numericId).then(setRec);
   }
-  useEffect(load, [l.numericId, mayHaveCase]);
+  useEffect(load, [l.numericId, mayHaveCase, version]);
 
   // Settle Surplus's button visibility is gated on this card's own `rec`
   // state, which only refreshes after an action taken FROM this card
@@ -409,7 +410,10 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
 
   // A concluded auction is edited from its History row: the sale amount and expenses, the surplus settlement, the write-off.
   const canEditAuction = can("Loan_Management", "can_edit_ledger_entry");
+  // bumped after an auction edit: every case card and the stage-filtered list fetch again
+  const [auctionVersion, setAuctionVersion] = useState(0);
   const auctionActions = useAuctionEntryActions(() => {
+    setAuctionVersion((v) => v + 1);
     void loadConducted(conductedPage, q.trim());
     void loadClosed(closedPage, q.trim());
     refresh();
@@ -509,7 +513,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
           </div></div>
         ) : (
           <>
-            {cases.map((l) => <AuctionCard key={l.id} l={l} onLoanChanged={refresh} />)}
+            {cases.map((l) => <AuctionCard key={l.id} l={l} onLoanChanged={refresh} version={auctionVersion} />)}
             <ScrollSentinel enabled={cards && allCases.length > cases.length} onVisible={more} watch={cases.length} />
             <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={activePage <= 1} onClick={() => setActivePage((p) => Math.max(1, p - 1))}>‹ Prev</button>

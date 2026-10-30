@@ -173,7 +173,7 @@ func BuildLedger(l *models.PersonalLoan, payments []models.PersonalLoanPayment, 
 			parts := ledgerModeParts(&p)
 			if len(parts) < 2 {
 				r := mk(fmt.Sprintf("payment-%d", p.ID))
-				r.Particulars = "Instalment collected"
+				r.Particulars = "Installment "
 				r.Mode = p.Method
 				if len(parts) == 1 {
 					r.Mode = parts[0].Mode
@@ -189,7 +189,7 @@ func BuildLedger(l *models.PersonalLoan, payments []models.PersonalLoanPayment, 
 				pt := pt
 				later -= pt.Amount
 				r := mk(fmt.Sprintf("payment-%d-%s", p.ID, strings.ReplaceAll(pt.Mode, " ", "")))
-				r.Particulars, r.Mode, r.Part = "Instalment collected", pt.Mode, &pt
+				r.Particulars, r.Mode, r.Part = "Installment", pt.Mode, &pt
 				r.Credit, r.Amount = pt.Amount, pt.Amount
 				r.Balance = bal - p.Amount + later
 				r.RunningBalance = r.Balance
@@ -242,6 +242,17 @@ func getLedger(ctx context.Context, loanID uint, branchID *uint, limit, offset i
 		return nil, false, 0, totals, err
 	}
 	rows := BuildLedger(l, payments, penal)
+	// the payout row carries only the bank's id; the screen shows its name
+	if l.DisbursementBankID != nil {
+		var bank commonModels.Bank
+		if err := personalLoanDB().WithContext(ctx).First(&bank, *l.DisbursementBankID).Error; err == nil {
+			for i := range rows {
+				if rows[i].Kind == "disbursement" && rows[i].BankID != nil && rows[i].BankName == "" {
+					rows[i].BankName = bank.Name
+				}
+			}
+		}
+	}
 	for _, r := range rows {
 		totals.Debit += r.Debit
 		totals.Credit += r.Credit

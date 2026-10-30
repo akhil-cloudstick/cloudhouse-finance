@@ -388,8 +388,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
+      {/* the × in the header closes the popup; the footer is only for Edit and the approval buttons */}
+      {((canEditLedger && recordedPaymentRow && loan) || (req.status === "Pending" && canDecide && canActOnStage && !!stage)) && (
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
         {canEditLedger && recordedPaymentRow && loan && (
           <button className="btn ghost" disabled={saving}
             onClick={() => openModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={recordedPaymentRow} linkedDiscount={linkedDiscountOf(loan.payments, recordedPaymentRow)} mode="edit" minDate={loan.opened?.slice(0, 10) || undefined} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); closeModal(); }} />, true)}>
@@ -408,6 +409,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           </>
         )}
       </div>
+      )}
     </>
   );
 }

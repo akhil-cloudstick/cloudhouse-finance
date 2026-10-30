@@ -133,6 +133,8 @@ export function toView(l: BackendLoan): LoanView {
     disbursedAmount: l.disbursedAmount || 0,
     serviceChargeMode: l.serviceChargeMode || "",
     serviceChargeAmount: l.serviceChargeAmount || 0,
+    serviceChargeType: l.serviceChargeType,
+    serviceChargeValue: l.serviceChargeValue,
     disbursementDate: l.disbursementDate ? l.disbursementDate.slice(0, 10) : null,
     bankPledgeStatus: l.bankPledgeStatus,
     isDueSoon: l.isDueSoon,
@@ -409,6 +411,12 @@ export async function approveLoan(loanId: number, input: ApprovalInput): Promise
     body: JSON.stringify(input),
   });
   return toView(rec);
+}
+
+/* What editing a loan that is already paid out would change — before and after, and the later payments that no longer
+ * fit — without saving anything. */
+export async function previewLoanEdit(loanId: number, input: UpdateLoanInput): Promise<LedgerPaymentEditPreview> {
+  return apiFetch<LedgerPaymentEditPreview>(`/loans/${loanId}?dry_run=true`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
 export async function updateLoan(loanId: number, input: UpdateLoanInput): Promise<LoanView> {
@@ -1042,6 +1050,7 @@ export async function completeRelease(loanId: number): Promise<LoanView> {
  * Editing or deleting a payment or discount recalculates the whole loan on the
  * server (interest, every later payment's split, balances, status, cash lines)
  * in one transaction. dryRun asks for the before/after figures without saving. */
+import type { InterestChangeView } from "@/modules/loans/components/InterestChangesTable";
 export type LedgerLoanSummary = { principal: number; interest: number; penalInterest: number; fee: number; total: number; status: string };
 /* Offered when a repayment edit reopens a closed loan: the packet can go back to the status it had before. */
 export type PacketReversalOffer = { packetId: number; code: string; currentStatus: string; previousStatus: string; lockerId?: number };
@@ -1051,11 +1060,16 @@ export type LedgerEditDependent = { kind: "packet" | "partial_release"; descript
 export type LedgerEditPreview = {
   before: LedgerLoanSummary; after: LedgerLoanSummary; dryRun: boolean;
   packet?: PacketReversalOffer;
+  following?: LedgerFollowingEntry[]; // later payments that no longer fit, and what each can still be
+  interestChanges?: InterestChangeView[]; // interest charges the edit changes — worked out, shown only
 };
 /* A payment edit's preview also lists what a gold release did that the edit may undo. */
-export type LedgerPaymentEditPreview = LedgerEditPreview & { dependents?: LedgerEditDependent[] };
+/* A later payment that no longer fits once an earlier one is edited: what it can still be (0 = it would be removed). */
+export type LedgerFollowingEntry = { id: number; paidOn: string; type?: string; reference?: string; current: number; suggested: number; needsChange?: boolean };
+export type LedgerPaymentEditPreview = LedgerEditPreview & { dependents?: LedgerEditDependent[]; following?: LedgerFollowingEntry[] };
 export type LedgerGoldChoices = { reversePacket?: boolean; restorePartialRelease?: boolean };
 export type EditLedgerPaymentInput = LedgerGoldChoices & {
+  adjustFollowing?: { id: number; amount: number }[]; // the amounts chosen for the later payments that no longer fit
   paidOn?: string;
   amount?: number;
   type?: string;
@@ -1090,7 +1104,8 @@ export async function editLedgerPayment(loanId: number, paymentId: number, input
 }
 
 /* Top-up edit / delete — the loan is recalculated from its first day with every top-up applied on its date. */
-export type EditTopUpInput = {
+export type EditTopUpInput = LedgerGoldChoices & {
+  adjustFollowing?: { id: number; amount: number }[];
   occurredOn?: string;
   amount?: number;
   cashAmount?: number;
@@ -1101,15 +1116,16 @@ export type EditTopUpInput = {
   reason?: string;
 };
 
-export async function editLoanTopUp(loanId: number, topUpId: number, input: EditTopUpInput, dryRun = false): Promise<LedgerEditPreview> {
-  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/top-ups/${topUpId}${dryRun ? "?dry_run=true" : ""}`, {
+export async function editLoanTopUp(loanId: number, topUpId: number, input: EditTopUpInput, dryRun = false): Promise<LedgerPaymentEditPreview> {
+  return apiFetch<LedgerPaymentEditPreview>(`/loans/${loanId}/top-ups/${topUpId}${dryRun ? "?dry_run=true" : ""}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
 }
 
 /* Sanction (disbursement) edit — applied at once; the loan is recalculated from its first day. */
-export type EditLoanDisbursementInput = {
+export type EditLoanDisbursementInput = LedgerGoldChoices & {
+  adjustFollowing?: { id: number; amount: number }[];
   disbursedOn?: string;
   dueDate?: string;
   sanctionedAmount?: number;
@@ -1121,15 +1137,15 @@ export type EditLoanDisbursementInput = {
   reason?: string;
 };
 
-export async function editLoanDisbursement(loanId: number, input: EditLoanDisbursementInput, dryRun = false): Promise<LedgerEditPreview> {
-  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, {
+export async function editLoanDisbursement(loanId: number, input: EditLoanDisbursementInput, dryRun = false): Promise<LedgerPaymentEditPreview> {
+  return apiFetch<LedgerPaymentEditPreview>(`/loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
 }
 
-export async function deleteLoanTopUp(loanId: number, topUpId: number, dryRun = false, reason?: string): Promise<LedgerEditPreview> {
-  return apiFetch<LedgerEditPreview>(`/loans/${loanId}/top-ups/${topUpId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, {
+export async function deleteLoanTopUp(loanId: number, topUpId: number, dryRun = false, reason?: string, gold: LedgerGoldChoices = {}): Promise<LedgerPaymentEditPreview> {
+  return apiFetch<LedgerPaymentEditPreview>(`/loans/${loanId}/top-ups/${topUpId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}), ...(gold.reversePacket ? { reverse_packet: "true" } : {}), ...(gold.restorePartialRelease ? { restore_partial_release: "true" } : {}) })}`, {
     method: "DELETE",
   });
 }

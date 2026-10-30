@@ -72,9 +72,63 @@ func absMoney(v float64) float64 {
 	return v
 }
 
+// topUpModeOnly reports whether an edit leaves the top-up's amount and day alone.
+func topUpModeOnly(old *models.LoanTopUp, in *EditTopUpInput) bool {
+	if in.Amount != nil && absMoney(common.RoundMoney(*in.Amount)-old.Amount) > 0.005 {
+		return false
+	}
+	if in.OccurredOn != nil && dayOf(*in.OccurredOn) != dayOf(old.OccurredOn) {
+		return false
+	}
+	return true
+}
+
+// lightTopUpEdit rewrites a top-up's payout breakdown, bank and reference and its cash-out lines. The loan is not
+// recalculated, so nothing after the top-up can be affected.
+func lightTopUpEdit(ctx context.Context, tx *gorm.DB, l *models.Loan, old *models.LoanTopUp, in *EditTopUpInput, dryRun bool) error {
+	group, err := topUpCashGroup(ctx, tx, l, old)
+	if err != nil {
+		return err
+	}
+	t := *old
+	if in.CashAmount != nil {
+		t.CashAmount = *in.CashAmount
+	}
+	if in.UpiAmount != nil {
+		t.UpiAmount = *in.UpiAmount
+	}
+	if in.BankTransferAmount != nil {
+		t.BankTransferAmount = *in.BankTransferAmount
+	}
+	if in.BankID != nil {
+		t.BankID = in.BankID
+	}
+	if in.Reference != nil {
+		t.Reference = *in.Reference
+	}
+	if err := validateTopUpSplit(TopUpInput{Amount: t.Amount, CashAmount: t.CashAmount, UpiAmount: t.UpiAmount, BankTransferAmount: t.BankTransferAmount, ChequeAmount: t.ChequeAmount, BankID: t.BankID}); err != nil {
+		return err
+	}
+	if dryRun {
+		return errDryRun
+	}
+	if err := tx.WithContext(ctx).Save(&t).Error; err != nil {
+		return err
+	}
+	if err := tx.WithContext(ctx).Where("transaction_group_id = ?", group).Delete(&cashModels.CashMovement{}).Error; err != nil {
+		return err
+	}
+	_, groupID, err := cashbook.RecordLoanTopUpCashOut(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, t.Amount, t.CashAmount, t.UpiAmount, t.BankTransferAmount, t.ChequeAmount, l.BranchID, t.OccurredOn, l.CustomerID, t.BankID)
+	if err != nil {
+		return fmt.Errorf("could not record the corrected top-up in Cash-in-Hand: %w", err)
+	}
+	return tx.WithContext(ctx).Model(&models.LoanTopUp{}).Where("id = ?", t.ID).Update("cash_transaction_group_id", groupID).Error
+}
+
 // editLoanTopUp edits (in != nil) or deletes (in == nil) one top-up, then recalculates the loan.
-func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput, reason string, dryRun bool) (*EditPaymentResult, *models.LoanTopUp, error) {
+func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput, reason string, dryRun bool, choices packetChoices) (*EditPaymentResult, *models.LoanTopUp, error) {
 	result := &EditPaymentResult{DryRun: dryRun}
+	restoredOrnaments := false
 	var oldTopUp *models.LoanTopUp
 	err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		l, err := lockByID(ctx, tx, loanID)
@@ -88,6 +142,7 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		if err := guardReplayable(ctx, tx, l, all); err != nil {
 			return err
 		}
+		interestBefore := accrualSnapshot(ctx, tx, loanID)
 		originalStatus := l.Status
 		result.Before = summarize(l)
 
@@ -108,6 +163,13 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		}
 		old := ups[idx]
 		oldTopUp = &old
+
+		// An edit that only changes how the top-up was paid out (mode, bank, reference) touches no figure: nothing is
+		// recalculated, only this top-up and its cash lines are rewritten.
+		if in != nil && topUpModeOnly(&old, in) {
+			result.After = result.Before
+			return lightTopUpEdit(ctx, tx, l, &old, in, dryRun)
+		}
 
 		// The loan is first recalculated untouched: if that does not reproduce what is saved, an edit would
 		// silently change figures this recalculation cannot explain. Only the entries from the top-up's date on
@@ -138,6 +200,11 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 
 		initial := common.RoundMoney(l.PrincipalAmount - sum)
 		newSum := sum
+		// every payment as it was saved (the edit below changes the rows in place)
+		savedRows := make(map[uint]models.LoanPayment, len(rows))
+		for _, r := range rows {
+			savedRows[r.ID] = r
+		}
 		edited := rows
 		var settlementID uint
 		var movedSettlement string
@@ -215,23 +282,35 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		}
 		l.PrincipalAmount = common.RoundMoney(initial + newSum)
 
-		if err := replayLoanFrom(ctx, tx, l, edited, originalStatus, from); err != nil {
+		fit := newReplayFit(0, choices.Adjust)
+		fit.strict = !dryRun
+		if err := replayLoanFrom(withReplayFit(ctx, fit), tx, l, edited, originalStatus, from); err != nil {
 			return common.NewBadRequest(err.Error())
 		}
+		result.Following = fit.listed
+		result.InterestChanges = interestChanges(interestBefore, accrualSnapshot(ctx, tx, loanID))
 		if in != nil && in.Amount != nil && t.Amount > old.Amount+0.005 {
 			if err := checkTopUpEligible(ctx, l, initial, ups, &t, edited); err != nil {
 				return err
 			}
 		}
 		result.After = summarize(l)
+		result.Dependents = editDependents(ctx, loanID, result)
 		if dryRun {
 			return errDryRun
+		}
+		plan, edited, err := prepareFollowing(ctx, tx, l, fit, savedRows, edited)
+		if err != nil {
+			return err
 		}
 
 		for i := range edited {
 			if err := tx.WithContext(ctx).Save(&edited[i]).Error; err != nil {
 				return err
 			}
+		}
+		if err := plan.finish(ctx, tx, l, edited); err != nil {
+			return err
 		}
 		if settlementID != 0 {
 			var settlement models.LoanPayment
@@ -265,7 +344,9 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 				return err
 			}
 		}
-		return nil
+		// the gold the ticked boxes put back, saved with the edit or not at all
+		restoredOrnaments, err = applyEditDependents(ctx, tx, loanID, result.Dependents, choices)
+		return err
 	})
 	if errors.Is(err, errDryRun) {
 		return result, oldTopUp, nil
@@ -273,6 +354,7 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 	if err != nil {
 		return nil, nil, err
 	}
+	refreshAfterRestore(ctx, loanID, restoredOrnaments)
 	return result, oldTopUp, nil
 }
 
@@ -290,14 +372,17 @@ func writeTopUpAudit(ctx context.Context, actorEmployeeID uint, action string, l
 }
 
 type editTopUpRequest struct {
-	OccurredOn         *string  `json:"occurred_on"`
-	Amount             *float64 `json:"amount"`
-	CashAmount         *float64 `json:"cash_amount"`
-	UpiAmount          *float64 `json:"upi_amount"`
-	BankTransferAmount *float64 `json:"bank_transfer_amount"`
-	BankID             *uint    `json:"bank_id"`
-	Reference          *string  `json:"reference"`
-	Reason             string   `json:"reason"`
+	OccurredOn         *string               `json:"occurred_on"`
+	Amount             *float64              `json:"amount"`
+	CashAmount         *float64              `json:"cash_amount"`
+	UpiAmount          *float64              `json:"upi_amount"`
+	BankTransferAmount *float64              `json:"bank_transfer_amount"`
+	BankID             *uint                 `json:"bank_id"`
+	Reference          *string               `json:"reference"`
+	Reason             string                `json:"reason"`
+	AdjustFollowing    []LoanFollowingAdjust `json:"adjust_following"`
+	ReversePacket      bool                  `json:"reverse_packet"`
+	RestorePartial     bool                  `json:"restore_partial_release"`
 }
 
 // EditLoanTopUp is PATCH /loans/:id/top-ups/:top_up_id[?dry_run=true].
@@ -330,7 +415,8 @@ func EditLoanTopUp(c echo.Context) error {
 		in.OccurredOn = &d
 	}
 	dryRun, _ := strconv.ParseBool(c.QueryParam("dry_run"))
-	res, old, err := editLoanTopUp(ctx, loanID, topUpID, in, req.Reason, dryRun)
+	actor, _, _ := auth.ActorFromContext(c)
+	res, old, err := editLoanTopUp(ctx, loanID, topUpID, in, req.Reason, dryRun, packetChoices{ReversePacket: req.ReversePacket, RestorePartial: req.RestorePartial, ActorEmployee: actor, Adjust: req.AdjustFollowing})
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -357,7 +443,10 @@ func DeleteLoanTopUp(c echo.Context) error {
 	}
 	reason := c.QueryParam("reason")
 	dryRun, _ := strconv.ParseBool(c.QueryParam("dry_run"))
-	res, old, err := editLoanTopUp(ctx, loanID, topUpID, nil, reason, dryRun)
+	actor, _, _ := auth.ActorFromContext(c)
+	reversePacket, _ := strconv.ParseBool(c.QueryParam("reverse_packet"))
+	restorePartial, _ := strconv.ParseBool(c.QueryParam("restore_partial_release"))
+	res, old, err := editLoanTopUp(ctx, loanID, topUpID, nil, reason, dryRun, packetChoices{ReversePacket: reversePacket, RestorePartial: restorePartial, ActorEmployee: actor})
 	if err != nil {
 		return common.FailErr(c, err)
 	}

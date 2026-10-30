@@ -38,6 +38,20 @@ type packetChoices struct {
 	ReversePacket  bool
 	RestorePartial bool
 	ActorEmployee  uint
+	// the amounts chosen for the later payments listed in the preview
+	Adjust []LoanFollowingAdjust
+}
+
+// refreshAfterRestore brings the loan's eligible amount up to date once ornaments were put back by an edit.
+func refreshAfterRestore(ctx context.Context, loanID uint, restored bool) {
+	if !restored {
+		return
+	}
+	if fresh, err := findLoanByID(ctx, loanID); err == nil {
+		if _, rerr := recalculateAndSave(ctx, fresh); rerr != nil {
+			log.Printf("could not refresh loan %d after putting released ornaments back: %v", loanID, rerr)
+		}
+	}
 }
 
 // partialRelease is what the loan's latest approved partial release handed back.

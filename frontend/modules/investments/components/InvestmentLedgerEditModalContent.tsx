@@ -126,13 +126,13 @@ export function InvestmentLedgerEditModalContent({ investmentId, row: r, mode, l
                 <div><label className="f">Interest (₹)</label><input className="inp" type="number" min={0} value={interest} onChange={(e) => changed(setInterest)(e.target.value)} /></div>
               </div>
             )}
-            {isPayout && <p style={{ margin: "4px 0 10px", color: "var(--muted)", fontSize: 12 }}>The amount of a payout is fixed by the schedule. To change it, delete this entry and pay the payout again.</p>}
+            {isPayout && <p style={{ margin: "4px 0 10px", color: "var(--muted)", fontSize: 12 }}>Payout amount is fixed.</p>}
             {!isPayout && kind !== "opening" && (
               <div className="frow">
                 <div><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => changed(setReference)(e.target.value)} /></div>
               </div>
             )}
-            <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payment breakdown <small style={{ fontWeight: 400, color: "var(--muted)" }}>How the money moved</small></h4>
+            <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Payment breakdown <small style={{ fontWeight: 400, color: "var(--muted)" }}></small></h4>
             <SplitPaymentInput
               totalAmount={total} initialLines={initialLines} label={null}
               onChange={(s, rem, b) => { setPreview(null); setErr(""); setSplit(s); setRemaining(rem); setBankId(b); }}

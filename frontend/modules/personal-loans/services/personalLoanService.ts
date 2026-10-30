@@ -138,8 +138,11 @@ export async function downloadPersonalLoanBond(loanId: number, lang: PersonalLoa
  * status on the server in one transaction. dryRun asks for the before/after figures
  * without saving. The disbursement can be edited (date, payment breakdown) but not
  * deleted or re-amounted. */
+import type { InstalmentChangeView } from "@/modules/personal-loans/components/InstalmentChangesTable";
 export type PersonalLedgerSummary = { outstanding: number; totalPaid: number; status: string };
-export type PersonalLedgerEditPreview = { before: PersonalLedgerSummary; after: PersonalLedgerSummary; dryRun: boolean };
+/* A later payment that no longer fits once an earlier one is edited: what it can still be (0 = it would be removed). */
+export type PersonalFollowingEntry = { id: number; paidOn: string; reference?: string; current: number; suggested: number; needsChange?: boolean };
+export type PersonalLedgerEditPreview = { before: PersonalLedgerSummary; after: PersonalLedgerSummary; dryRun: boolean; following?: PersonalFollowingEntry[]; instalmentChanges?: InstalmentChangeView[] };
 export type EditPersonalPaymentInput = {
   paidOn?: string;
   amount?: number;
@@ -151,6 +154,7 @@ export type EditPersonalPaymentInput = {
   reference?: string;
   description?: string;
   reason?: string;
+  adjustFollowing?: { id: number; amount: number }[]; // the amounts chosen for the later payments that no longer fit
 };
 export type EditPersonalDisbursementInput = {
   disbursedAt?: string;

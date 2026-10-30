@@ -28,11 +28,12 @@ export function PledgeDetailsGrid({ loanNumber, customerName, pledge, ornamentNa
     ["Ornaments", ornamentNames.length ? ornamentNames.join(", ") : "All ornaments"],
   ];
   return (
+    // label on the left edge, value on the right edge of each row
     <div style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: "6px 16px", fontSize: 13.5, marginBottom: 14 }}>
       {rows.map(([k, v]) => (
         <div key={k} style={{ display: "contents" }}>
           <span style={{ color: "var(--muted)" }}>{k}</span>
-          <span>{v}</span>
+          <span style={{ textAlign: "right" }}>{v}</span>
         </div>
       ))}
     </div>
@@ -51,14 +52,16 @@ export function PledgeDetailsModalContent({ actions = [], ...grid }: PledgeDetai
     <>
       <div className="hd"><h3>Re-Pledge Details</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll"><PledgeDetailsGrid {...grid} /></div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
-        {actions.map((a) => (
-          <button key={a.label} className={a.danger ? "btn ghost" : "btn"} style={a.danger ? { color: "var(--red)" } : undefined} onClick={a.run}>
-            {a.icon && <Icon name={a.icon} />} {a.label}
-          </button>
-        ))}
-      </div>
+      {/* the × in the header closes the popup; the footer is only for Release / Edit / Delete */}
+      {actions.length > 0 && (
+        <div className="ft">
+          {actions.map((a) => (
+            <button key={a.label} className={a.danger ? "btn ghost" : "btn"} style={a.danger ? { color: "var(--red)" } : undefined} onClick={a.run}>
+              {a.icon && <Icon name={a.icon} />} {a.label}
+            </button>
+          ))}
+        </div>
+      )}
     </>
   );
 }

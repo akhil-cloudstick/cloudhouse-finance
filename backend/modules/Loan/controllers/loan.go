@@ -13,6 +13,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,6 +87,19 @@ type CreateInput struct {
 type UpdateLoanInput struct {
 	SchemeID        *uint
 	PrincipalAmount *float64
+	// How the payout of a loan already paid out was made; nil leaves the saved breakdown as it is.
+	CashAmount         *float64
+	UpiAmount          *float64
+	BankTransferAmount *float64
+	BankID             *uint
+	// The loan's branch and the locker its gold is kept in; only for a role that may see every branch.
+	BranchID *uint
+	LockerID *uint
+	// The amounts chosen for later payments that no longer fit once the loan is recalculated.
+	AdjustFollowing []LoanFollowingAdjust
+	// what a release did that the edit undoes: the gold packet, a partial release
+	ReversePacket  bool
+	RestorePartial bool
 	// nil leaves the overall photo alone; "" clears it.
 	OverallPhotoURL *string
 	ActorEmployeeID uint
@@ -542,7 +556,30 @@ func accrueAndEnrich(ctx context.Context, rec *models.Loan) (*models.Loan, error
 	return rec, nil
 }
 
+// updateLoan applies an edit. The branch / locker change is checked first and saved last, so a change that cannot
+// be made stops the whole edit before anything is saved.
 func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.Loan, error) {
+	current, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return nil, common.NewNotFound("loan not found")
+	}
+	if err := validateLoanMove(ctx, current, in); err != nil {
+		return nil, err
+	}
+	rec, err := updateLoanFields(ctx, loanID, in)
+	if err != nil {
+		return nil, err
+	}
+	if in.BranchID == nil && in.LockerID == nil {
+		return rec, nil
+	}
+	if err := applyLoanMove(ctx, loanID, in); err != nil {
+		return nil, err
+	}
+	return GetLoan(ctx, loanID, nil)
+}
+
+func updateLoanFields(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.Loan, error) {
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")
@@ -554,6 +591,10 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
 		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount))
 	wasDisbursed := l.DisbursementDate != nil
+	payoutGiven := in.CashAmount != nil || in.UpiAmount != nil || in.BankTransferAmount != nil || in.BankID != nil
+	if wasDisbursed && (materialChange || payoutGiven) {
+		return updateDisbursedLoanInPlace(ctx, l, in)
+	}
 	priorDisbursed := l.DisbursedAmount
 	if in.SchemeID != nil {
 		sch, err := common.FindSchemeByID(ctx, *in.SchemeID)
@@ -561,6 +602,8 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 			return nil, common.NewBadRequest("scheme does not exist")
 		}
 		l.SchemeID = *in.SchemeID
+		// the loan was loaded with its old scheme attached; saving it would write that scheme's id back over the new one
+		l.Scheme = *sch
 		applySchemeSnapshot(l, sch)
 	}
 	if in.PrincipalAmount != nil {
@@ -630,6 +673,109 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 		}
 	}
 	return GetLoan(ctx, l.ID, nil)
+}
+
+// updateDisbursedLoanInPlace changes the scheme and/or the amount of a loan that has already been paid out. The loan
+// is edited where it is: its sanction entry is corrected, the interest is worked out again from its first day under the
+// new terms, and the cash lines are rewritten. Nothing is reversed and nothing goes back for approval. What the
+// customer was charged as a service fee stays as it was; only the interest terms follow the new scheme.
+func updateDisbursedLoanInPlace(ctx context.Context, l *models.Loan, in UpdateLoanInput) (*models.Loan, error) {
+	edit, err := disbursedLoanEdit(ctx, l, in)
+	if err != nil {
+		return nil, err
+	}
+	if _, _, err := editLoanDisbursement(ctx, l.ID, edit, "Loan edited", false, loanEditChoices(in)); err != nil {
+		return nil, err
+	}
+	audit := &models.LoanApproval{
+		LoanID:          l.ID,
+		Stage:           l.ApprovalStage,
+		Action:          "Edited",
+		ActorEmployeeID: in.ActorEmployeeID,
+		ActorRole:       in.ActorRole,
+		Remarks:         "Loan edited in place",
+	}
+	if err := insertApproval(ctx, audit); err != nil {
+		log.Printf("edit audit row failed for loan %d: %v", l.ID, err)
+	}
+	return GetLoan(ctx, l.ID, nil)
+}
+
+func loanEditChoices(in UpdateLoanInput) packetChoices {
+	return packetChoices{ReversePacket: in.ReversePacket, RestorePartial: in.RestorePartial, ActorEmployee: in.ActorEmployeeID, Adjust: in.AdjustFollowing}
+}
+
+// PreviewLoanEdit says what editing a loan that has been paid out would do — before and after, and the later payments
+// that would no longer fit — without saving anything. A loan edit that does not recalculate has nothing to preview.
+func PreviewLoanEdit(ctx context.Context, loanID uint, in UpdateLoanInput) (*EditPaymentResult, error) {
+	l, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return nil, common.NewNotFound("loan not found")
+	}
+	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
+		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount))
+	if l.DisbursementDate == nil || !materialChange {
+		return &EditPaymentResult{DryRun: true}, nil
+	}
+	edit, err := disbursedLoanEdit(ctx, l, in)
+	if err != nil {
+		return nil, err
+	}
+	res, _, err := editLoanDisbursement(ctx, l.ID, edit, "Loan edited", true, loanEditChoices(in))
+	return res, err
+}
+
+// disbursedLoanEdit turns an Edit Loan request for a loan already paid out into the sanction edit that carries it out.
+func disbursedLoanEdit(ctx context.Context, l *models.Loan, in UpdateLoanInput) (*EditDisbursementInput, error) {
+	var newScheme *commonModels.Scheme
+	if in.SchemeID != nil && *in.SchemeID != l.SchemeID {
+		sch, err := common.FindSchemeByID(ctx, *in.SchemeID)
+		if err != nil {
+			return nil, common.NewBadRequest("scheme does not exist")
+		}
+		newScheme = sch
+	}
+	edit := &EditDisbursementInput{CashAmount: in.CashAmount, UpiAmount: in.UpiAmount, BankTransferAmount: in.BankTransferAmount, BankID: in.BankID}
+	if in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount) {
+		if *in.PrincipalAmount <= 0 {
+			return nil, common.NewBadRequest("principal amount must be greater than zero")
+		}
+		ups, err := activeTopUpsInOrder(ctx, config.DB.WithContext(ctx), l.ID)
+		if err != nil {
+			return nil, err
+		}
+		var topUpSum float64
+		for _, t := range ups {
+			topUpSum = common.RoundMoney(topUpSum + t.Amount)
+		}
+		sanctioned := common.RoundMoney(*in.PrincipalAmount - topUpSum)
+		edit.SanctionedAmount = &sanctioned
+	}
+	// a scheme or amount change recalculates the loan; a change of the payout's mode alone does not
+	if newScheme != nil || edit.SanctionedAmount != nil {
+		edit.Prepare = func(loan *models.Loan) error {
+			if in.OverallPhotoURL != nil {
+				loan.OverallPhotoURL = strings.TrimSpace(*in.OverallPhotoURL)
+			}
+			if newScheme == nil {
+				return nil
+			}
+			chargeType, chargeValue, chargeMode, chargeAmount := loan.ServiceChargeType, loan.ServiceChargeValue, loan.ServiceChargeMode, loan.ServiceChargeAmount
+			loan.SchemeID = newScheme.ID
+			// the loan was loaded with its old scheme attached; saving it would write that scheme's id back over the new one
+			loan.Scheme = *newScheme
+			applySchemeSnapshot(loan, newScheme)
+			loan.ServiceChargeType, loan.ServiceChargeValue, loan.ServiceChargeMode, loan.ServiceChargeAmount = chargeType, chargeValue, chargeMode, chargeAmount
+			loan.DueDate = addMonths(loan.OpenedDate, newScheme.DurationMonths)
+			ornaments, err := FindByLoanID(ctx, loan.ID)
+			if err != nil {
+				return err
+			}
+			recalculateTotals(loan, ornaments)
+			return nil
+		}
+	}
+	return edit, nil
 }
 
 func scaleSplit(cash, upi, bank, cheque, total, newTotal float64) (float64, float64, float64, float64) {
@@ -1387,11 +1533,29 @@ func UpdateLoan(c echo.Context) error {
 	if err := common.BindJSON(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
+	if dry, _ := strconv.ParseBool(c.QueryParam("dry_run")); dry {
+		res, err := PreviewLoanEdit(auth.RequestContext(c), loanID, UpdateLoanInput{
+			SchemeID: req.SchemeID, PrincipalAmount: req.PrincipalAmount,
+			CashAmount: req.CashAmount, UpiAmount: req.UpiAmount, BankTransferAmount: req.BankTransferAmount, BankID: req.BankID,
+			AdjustFollowing: req.AdjustFollowing,
+			ReversePacket:   req.ReversePacket, RestorePartial: req.RestorePartial,
+		})
+		if err != nil {
+			return common.FailErr(c, err)
+		}
+		return common.Success(c, http.StatusOK, res)
+	}
+	if (req.BranchID != nil || req.LockerID != nil) && !auth.IsCrossBranchRole(c) {
+		return common.FailErr(c, common.NewForbidden("changing a loan's branch or locker needs the permission to view all branches"))
+	}
 	actorEmployeeID, actorRole, _ := auth.ActorFromContext(c)
 	rec, err := updateLoan(auth.RequestContext(c), loanID, UpdateLoanInput{
 		SchemeID:        req.SchemeID,
 		PrincipalAmount: req.PrincipalAmount,
 		OverallPhotoURL: req.OverallPhotoURL,
+		CashAmount:      req.CashAmount, UpiAmount: req.UpiAmount, BankTransferAmount: req.BankTransferAmount, BankID: req.BankID,
+		BranchID: req.BranchID, LockerID: req.LockerID, AdjustFollowing: req.AdjustFollowing,
+		ReversePacket: req.ReversePacket, RestorePartial: req.RestorePartial,
 		ActorEmployeeID: actorEmployeeID,
 		ActorRole:       actorRole,
 	})

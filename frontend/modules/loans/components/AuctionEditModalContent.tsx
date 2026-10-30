@@ -6,6 +6,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FieldError } from "@/common/components/ui/FieldError";
+import { ShortfallDecisionPicker, applyShortfallChoice, hasDecidedShortfall, useCanDecideShortfall, type ShortfallChoice } from "@/modules/loans/components/ShortfallDecisionPicker";
 import { SplitPaymentInput, type SplitAmounts, type SplitPaymentLine } from "@/common/components/SplitPaymentInput";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
@@ -50,6 +51,9 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
   const [disposition, setDisposition] = useState("RefundedToCustomer");
   const [preview, setPreview] = useState<AuctionEditPreview | null>(null);
   const [chosen, setChosen] = useState<Record<string, boolean>>({});
+  // a sale edited into a shortfall: its decision can be made here
+  const [shortfallChoice, setShortfallChoice] = useState<ShortfallChoice>({ decision: "", remarks: "" });
+  const canDecideShortfall = useCanDecideShortfall();
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const now = new Date();
@@ -65,6 +69,8 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
           setCur(c); setDate(dateOnly(c.saleDate)); setSaleAmount(String(c.saleAmount)); setExpenses(String(c.auctionExpenses || 0));
           setSplit({ cashAmount: c.cashAmount, upiAmount: c.upiAmount, bankTransferAmount: c.bankTransferAmount, chequeAmount: 0 });
           setBankId(c.bankId ?? undefined);
+          const hist = await getAuctionHistory(loanId).catch(() => []);
+          if (alive) setRecord(hist.find((r) => r.saleAmount > 0) ?? null);
         } else {
           const hist = await getAuctionHistory(loanId);
           const rec = hist.find((r) => r.saleAmount > 0) ?? null;
@@ -103,11 +109,14 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
     return "Cash";
   }
 
+  const askShortfall = kind === "sale" && mode === "edit" && !!preview?.outcome && !preview.outcome.fullyCovered && preview.outcome.shortfall > 0.005 && !hasDecidedShortfall(record);
+
   async function submit() {
     return singleFlight("modal:auction-edit", async () => {
       const dry = preview == null;
       setSaving(true);
       try {
+        if (!dry && askShortfall && shortfallChoice.decision && !shortfallChoice.remarks.trim()) { setErr("Give a reason for the shortfall decision."); return; }
         let res: AuctionEditPreview;
         if (kind === "sale") {
           if (mode === "delete") {
@@ -146,7 +155,17 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
           setChosen(Object.fromEntries(res.dependents.map((d) => [key(d), true])));
           return;
         }
-        toast(mode === "delete" ? `${TITLES[kind]} deleted` : `${TITLES[kind]} updated and the loan recalculated`);
+        // the shortfall decision chosen here is recorded once the sale is saved; if that fails the sale stays saved and
+        // the decision can still be made from Auction Management
+        let decisionNote = "";
+        if (askShortfall && shortfallChoice.decision) {
+          try {
+            await applyShortfallChoice(loanId, shortfallChoice);
+          } catch (e) {
+            decisionNote = e instanceof ApiError ? e.message : "the shortfall decision could not be recorded";
+          }
+        }
+        toast(decisionNote ? `${TITLES[kind]} updated — but ${decisionNote}. Decide the shortfall from Auction Management.` : mode === "delete" ? `${TITLES[kind]} deleted` : `${TITLES[kind]} updated`);
         onSaved();
         closeModal();
       } catch (e) {
@@ -175,13 +194,6 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
       <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} {TITLES[kind]}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll ledger-edit-bd">
         {loadErr && <FieldError msg={loadErr} />}
-        <p className="notice" style={{ marginBottom: 12 }}>
-          {kind === "sale"
-            ? "The loan is recalculated up to the sale, so what the sale clears, the surplus or shortfall, the loan's status and the cash ledger update to match. Entries booked because of the sale are listed for you to update too."
-            : kind === "surplus"
-              ? "The surplus settlement's cash entry is rewritten to match."
-              : "The shortfall written off is recalculated for its date."}
-        </p>
         {mode === "edit" && ready && kind === "sale" && (
           <>
             <div className="frow c2">
@@ -280,6 +292,9 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
               </div>
             )}
           </div>
+        )}
+        {askShortfall && preview?.outcome && (
+          <ShortfallDecisionPicker shortfall={preview.outcome.shortfall} value={shortfallChoice} onChange={setShortfallChoice} canDecide={canDecideShortfall} />
         )}
         <FieldError msg={err} />
       </div>

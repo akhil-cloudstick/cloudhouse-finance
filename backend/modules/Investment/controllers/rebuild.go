@@ -392,8 +392,8 @@ func editLiveTransaction(ctx context.Context, tx *gorm.DB, inv *models.Investmen
 		opening = txs[0].PrincipalBefore
 	}
 	if diff := checkPrincipalChain(opening, txs, inv); diff != "" {
-		log.Printf("investment ledger edit refused: history not reproduced: %s", diff)
-		return "", common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
+		// logged only: the edit goes ahead and the preview shows what it changes
+		log.Printf("investment ledger edit: saved history does not recalculate exactly (%s); going ahead", diff)
 	}
 	old := txs[idx]
 	oldBank := movementBank(ctx, old.CashMovementID)
@@ -520,8 +520,8 @@ func editOpeningDeposit(ctx context.Context, tx *gorm.DB, inv *models.Investment
 			opening = txs[0].PrincipalBefore
 		}
 		if diff := checkPrincipalChain(opening, txs, inv); diff != "" {
-			log.Printf("investment ledger edit refused: history not reproduced: %s", diff)
-			return "", common.NewConflict("This entry can't be edited: the earlier figures don't recalculate exactly.")
+			// logged only: the edit goes ahead and the preview shows what it changes
+			log.Printf("investment ledger edit: saved history does not recalculate exactly (%s); going ahead", diff)
 		}
 	} else {
 		if n := countPaid(ctx, tx, inv.ID); n > 0 {

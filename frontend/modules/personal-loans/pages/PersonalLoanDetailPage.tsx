@@ -509,6 +509,8 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                       const isDisbursement = p.kind === "disbursement";
                       // a split payment's bank sits on its UPI / Bank Transfer row, which may not be this first row
                       const bankId = p.bankId ?? payments.items.find((x) => x.kind === p.kind && x.id === p.id && x.bankId)?.bankId ?? null;
+                      // the bank is shown for a UPI / Bank Transfer entry (a split payment keeps it on that part's row)
+                      const bankName = p.mode && p.mode !== "Cash" ? (p.bankName || payments.items.find((x) => x.kind === p.kind && x.id === p.id && x.bankName)?.bankName || "") : "";
                       const entry = isPayment ? { ...p, amount: payments.items.filter((x) => x.kind === "payment" && x.id === p.id).reduce((s, x) => s + x.amount, 0) } : p;
                       const minDate = ((loan && (loan.disbursedAt || loan.openedDate)) || "").slice(0, 10) || undefined;
                       const done = () => { void refreshLoan(); schedule.reload(); payments.reload(); history.reload(); closeAllModals(); };
@@ -527,7 +529,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                               kind={(p.debit ? "Debit · " : "Credit · ") + p.particulars}
                               rows={[
                                 ["Date", fmtDate(p.date)], ["Ref no", p.refNo], ["Amount", fmt(entry.debit || entry.credit || 0)],
-                                ["Mode", p.mode || "—"], ...(p.bankName ? [["Bank", p.bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(p.balance)],
+                                ["Mode", p.mode || "—"], ...(bankName ? [["Bank", bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(p.balance)],
                               ]}
                               description={<>{p.particulars}{p.part ? <><br />Split {p.part.index + 1} of {p.part.count}</> : null}</>}
                               actions={actions}

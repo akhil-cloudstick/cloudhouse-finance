@@ -101,6 +101,15 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `aadhaarLast4` | `aadhaar_last4` |
 | `aadhaarStatus` | `aadhaar_status` |
 | `accentColor` | `accent_color` |
+| `interestChanges` | `interest_changes` |
+| `penalBefore` | `penal_before` |
+| `penalAfter` | `penal_after` |
+| `instalmentChanges` | `instalment_changes` |
+| `paidBefore` | `paid_before` |
+| `paidAfter` | `paid_after` |
+| `statusBefore` | `status_before` |
+| `statusAfter` | `status_after` |
+| `adjustFollowing` | `adjust_following` |
 | `accrualBasis` | `accrual_basis` |
 | `accountNo` | `account_no` |
 | `accruedInterest` | `accrued_interest` |
@@ -370,6 +379,7 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `newCustomers` | `new_customers` |
 | `newDueDate` | `new_due_date` |
 | `newLoan` | `new_loan` |
+| `needsChange` | `needs_change` |
 | `newPassword` | `new_password` |
 | `nomineeName` | `nominee_name` |
 | `nomineePhone` | `nominee_phone` |
