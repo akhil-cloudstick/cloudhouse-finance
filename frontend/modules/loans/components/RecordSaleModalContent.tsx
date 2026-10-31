@@ -41,10 +41,13 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
 
   async function save() { return singleFlight("auction-modal:save:3", async () => {
     setErr(""); setFe({});
-    if (!sale || sale <= 0) { fail("amount", "Please enter the sale amount."); return; }
-    if (exp > sale) { fail("expenses", "Auction expenses cannot be more than the sale amount."); return; }
-    if (Math.abs(remaining) >= 0.01) { fail("payments", "The payment breakdown must add up to the sale amount."); return; }
-    if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { fail("payments", "Pick the bank the proceeds were received in."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!sale || sale <= 0) errors["amount"] ??= "Please enter the sale amount.";
+    if (exp > sale) errors["expenses"] ??= "Auction expenses cannot be more than the sale amount.";
+    if (Math.abs(remaining) >= 0.01) errors["payments"] ??= "The payment breakdown must add up to the sale amount.";
+    if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) errors["payments"] ??= "Pick the bank the proceeds were received in.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     try {
       const rec = await recordAuctionSale(loan.numericId, sale, exp, { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId });

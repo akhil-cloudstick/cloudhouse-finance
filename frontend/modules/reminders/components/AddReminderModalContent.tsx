@@ -55,8 +55,11 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
   const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
 
   async function save() { return singleFlight("modal:reminder:save", async () => {
-    if (!customerId) { fail("customer", "Please select a customer."); return; }
-    if (!dueDate) { fail("dueDate", "Please choose a due date."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!customerId) errors["customer"] ??= "Please select a customer.";
+    if (!dueDate) errors["dueDate"] ??= "Please choose a due date.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     if (!employee) { setErr("You must be signed in to log a reminder."); return; }
 
     setSaving(true);

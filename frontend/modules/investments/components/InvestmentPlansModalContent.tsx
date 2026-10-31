@@ -127,17 +127,20 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
   }
 
   async function save() {
-    if (!form.name.trim()) { fail("name", "Please enter a plan name."); return; }
-    if (form.interestRatePercent < 0) { fail("rate", "Interest rate must not be negative."); return; }
-    if (form.tenureMonths <= 0) { fail("tenure", "Tenure must be greater than zero."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!form.name.trim()) errors["name"] ??= "Please enter a plan name.";
+    if (form.interestRatePercent < 0) errors["rate"] ??= "Interest rate must not be negative.";
+    if (form.tenureMonths <= 0) errors["tenure"] ??= "Tenure must be greater than zero.";
     // The tenure/frequency divisibility rule only applies to Fixed Payout
     // plans (whose payout schedule steps in whole calendar-month periods) —
     // Single Payout plans accrue continuously and pay out once at maturity,
     // with nothing to divide evenly.
     if (form.engine === "Schedule") {
       const stepMonths = form.payoutFrequency === "Yearly" ? 12 : form.payoutFrequency === "Quarterly" ? 3 : 1;
-      if (form.tenureMonths % stepMonths !== 0) { fail("tenure", `Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`); return; }
+      if (form.tenureMonths % stepMonths !== 0) errors["tenure"] ??= `Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`;
     }
+    if (Object.keys(errors).length) { setFormErr(""); setFe(errors); return; }
 
     setSaving(true);
     setFormErr("");

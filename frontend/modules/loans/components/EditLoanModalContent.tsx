@@ -223,8 +223,10 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 
   async function save() { return singleFlight("modal:editloan:save", async () => {
     setErr(""); setFe({}); setRowErr(null);
-    if (!(+principal > 0)) { fail("principal", "Please enter a valid principal amount."); return; }
-    if (!activeRows.length) { fail("ornaments", "A loan must have at least one ornament."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!(+principal > 0)) errors["principal"] ??= "Please enter a valid principal amount.";
+    if (!activeRows.length) errors["ornaments"] ??= "A loan must have at least one ornament.";
     const incomplete = activeRows.find((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0));
     if (incomplete) {
       const missing = [!incomplete.name.trim() && "name", !(+incomplete.gross > 0) && "gross weight", !(+incomplete.net > 0) && "net weight"].filter(Boolean).join(", ");
@@ -237,10 +239,8 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     // Amount field above, not a stale pre-edit figure — the backend
     // recomputes and enforces this independently on save too, but this
     // gives immediate feedback consistent with what's already on screen.
-    if (roundRupee(+principal) > eligibleLoanAmount) {
-      fail("principal", `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`);
-      return;
-    }
+    if (roundRupee(+principal) > eligibleLoanAmount) errors["principal"] ??= `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`;
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     if (showBranch && branchChanged && hasPacket && packetLocker && !lockerSel) {
       setErr("Choose a locker in the new branch for the gold."); return;

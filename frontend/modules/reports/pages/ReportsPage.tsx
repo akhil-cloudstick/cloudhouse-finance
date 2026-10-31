@@ -547,7 +547,7 @@ export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }
     return <LedgerExportView onBack={() => setActiveId(null)} />;
   }
   if (active) {
-    return <ReportView config={active} onBack={() => setActiveId(null)} />;
+    return <ReportView key={active.id} config={active} onBack={() => setActiveId(null)} />;
   }
 
   async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE) { return singleFlight("reports:print:"+r.id, async () => {

@@ -81,14 +81,17 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
 
   async function save() { return singleFlight("modal:repledge:save", async () => {
     setErr(""); setFe({});
-    if (!bank.trim()) { fail("bank", "Please enter the bank to repledge with."); return; }
-    if (!date) { fail("date", "Please select the pledge date."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!bank.trim()) errors["bank"] ??= "Please enter the bank to repledge with.";
+    if (!date) errors["date"] ??= "Please select the pledge date.";
     const amount = +amt;
-    if (!amount || amount <= 0) { fail("amount", "Please enter the pledged amount."); return; }
+    if (!amount || amount <= 0) errors["amount"] ??= "Please enter the pledged amount.";
     if (pickedOrnaments.length === 0) { setErr("Select at least one ornament to pledge."); return; }
     // Everything still free and nothing pledged yet = the usual whole-loan pledge.
     const wholeLoan = pledgedIds.size === 0 && pickedOrnaments.length === available.length;
-    if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the pledged amount."); return; }
+    if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the pledged amount.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     try {
       await recordBankPledge(loan.numericId, {

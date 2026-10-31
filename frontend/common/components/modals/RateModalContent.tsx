@@ -203,9 +203,12 @@ export function RateModalContent() {
     // row's setBy (that was e.g. "Auto (GoldAPI)" from the background sync).
     const setBy = employee?.name || employee?.username || "Admin";
     setErr(""); setFe({});
-    if (!(+rate24 > 0)) { fail("rate24", "The 24K rate must be greater than zero."); return; }
-    if (!(+rate22 > 0)) { fail("rate22", "The 22K rate must be greater than zero."); return; }
-    if (!(+rate18 > 0)) { fail("rate18", "The 18K rate must be greater than zero."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!(+rate24 > 0)) errors["rate24"] ??= "The 24K rate must be greater than zero.";
+    if (!(+rate22 > 0)) errors["rate22"] ??= "The 22K rate must be greater than zero.";
+    if (!(+rate18 > 0)) errors["rate18"] ??= "The 18K rate must be greater than zero.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     // Only karats that actually changed from the latest published row get
     // published — publishing an untouched karat would still be harmless

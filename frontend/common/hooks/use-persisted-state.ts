@@ -66,6 +66,15 @@ const SECTION_KEY = "filters-section";
 // area: the ledger's filters are kept so Back returns to the same filtered view.
 const LEDGER_DRILLDOWNS = new Set(["loan", "personalloan", "investment", "customer"]);
 
+// Lists whose rows open a loan: opening one is a drill-down too, so Back returns to the same page and filters.
+const LOAN_DRILLDOWNS = new Set(["loan"]);
+const DRILLDOWNS_FROM: Record<string, Set<string>> = {
+  ledger: LEDGER_DRILLDOWNS,
+  auctions: LOAN_DRILLDOWNS,
+  bankpledge: LOAN_DRILLDOWNS,
+  reports: LOAN_DRILLDOWNS,
+};
+
 // Called as the route changes (see AppShell). Entering a different section than
 // the last one clears every remembered filter; a refresh stays in its section,
 // so its filters survive.
@@ -74,7 +83,7 @@ export function syncFilterSection(route: string) {
     const section = SECTION_OF[route] ?? route;
     const last = window.sessionStorage.getItem(SECTION_KEY);
     if (last === section) return;
-    if (last === "ledger" && LEDGER_DRILLDOWNS.has(route)) return;
+    if (last && DRILLDOWNS_FROM[last]?.has(route)) return;
     for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
       const k = window.sessionStorage.key(i);
       if (k && k.startsWith("filters:")) window.sessionStorage.removeItem(k);

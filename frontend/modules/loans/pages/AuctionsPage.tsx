@@ -1,7 +1,8 @@
   "use client";
 
 import { GoToPage } from "@/common/components/ui/GoToPage";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePersistedPage, usePersistedState, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -326,9 +327,12 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // client-side, see the comment on `allCases` below); History re-queries
   // the server on each edit (debounced), since its two sub-tables are real
   // paginated backend queries.
-  const [q, setQ] = useState(focusLoan || "");
+  // Search, status filter and page numbers are remembered, so opening a loan and pressing Back returns to the same view.
+  const [q, setQ] = usePersistedState("auctions:q", focusLoan || "");
+  // Arriving with a loan number (route argument) searches for it even when an older search is remembered.
+  useEffect(() => { if (focusLoan) setQ(focusLoan); }, [focusLoan]); // eslint-disable-line react-hooks/exhaustive-deps
   // Auction status (stage) filter, applied by the backend on both tabs.
-  const [stages, setStages] = useState<string[]>([]);
+  const [stages, setStages] = usePersistedState<string[]>("auctions:stages", []);
   const stagesKey = stages.join(",");
   const ACTIVE_STAGE_VALUES = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"];
   const activeStages = stages.filter((s) => ACTIVE_STAGE_VALUES.includes(s));
@@ -363,7 +367,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // scroll (`more` raises pageSize, page stays 1). Above it, pageSize is fixed.
   const { cards, size: pageSize, more } = useScrollPageSize(15);
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
-  const [conductedPage, setConductedPage] = useState(1);
+  const [conductedPage, setConductedPage] = usePersistedPage("auctions:conducted");
   const [conductedHasMore, setConductedHasMore] = useState(false);
   const [conductedTotal, setConductedTotal] = useState(0);
   const [conductedLoading, setConductedLoading] = useState(false);
@@ -371,7 +375,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   const conductedTotalPages = Math.max(1, Math.ceil(conductedTotal / pageSize));
 
   const [closedWithoutSale, setClosedWithoutSale] = useState<ConcludedAuctionRowView[]>([]);
-  const [closedPage, setClosedPage] = useState(1);
+  const [closedPage, setClosedPage] = usePersistedPage("auctions:closed");
   const [closedHasMore, setClosedHasMore] = useState(false);
   const [closedTotal, setClosedTotal] = useState(0);
   const [closedLoading, setClosedLoading] = useState(false);
@@ -384,7 +388,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // client-side over LoansProvider's already-loaded list instead, the same
   // approach Loans.tsx uses for its own computed-flag tabs (Due Soon/
   // Overdue/Defaulted).
-  const [activePage, setActivePage] = useState(1);
+  const [activePage, setActivePage] = usePersistedPage("auctions:active");
 
   /* "Auctioned - Balance Due" is included so a loan whose sale fell short stays
    * visible here while its shortfall decision is outstanding — otherwise the
@@ -403,7 +407,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // The active-tab page must reset when the search narrows/widens the
   // result set, or a search that leaves fewer pages than the current one
   // would strand the viewer on a page that no longer exists.
-  useEffect(() => { setActivePage(1); }, [trimmedQ]);
+  useResetPageOnChange(setActivePage, [trimmedQ]);
   // Entering card mode drops back to page 1 — card mode only ever grows page 1.
   useEffect(() => {
     if (cards) { setActivePage(1); setConductedPage(1); setClosedPage(1); }
@@ -495,13 +499,23 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // the "no results" hint below can point the viewer at Auction History
   // with an accurate count, rather than requiring them to already know to
   // switch tabs before the same search box finds a concluded case.
+  // The first run (page opened) loads the remembered pages; later runs (search, filter or size changed) start at page 1.
+  const historyMounted = useRef(false);
+  useEffect(() => () => { historyMounted.current = false; }, []);
   useEffect(() => {
+    const first = !historyMounted.current;
+    historyMounted.current = true;
     const handle = setTimeout(() => {
+      if (first) {
+        void loadConducted(conductedPage, q.trim());
+        void loadClosed(closedPage, q.trim());
+        return;
+      }
       setConductedPage(1);
       setClosedPage(1);
       void loadConducted(1, q.trim());
       void loadClosed(1, q.trim());
-    }, 300);
+    }, first ? 0 : 300);
     return () => clearTimeout(handle);
     // pageSize/cards: card mode grows pageSize on scroll, which must refetch
     // page 1 with the larger size (rows stay on screen meanwhile).

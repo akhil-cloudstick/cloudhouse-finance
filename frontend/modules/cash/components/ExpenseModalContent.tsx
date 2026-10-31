@@ -103,13 +103,17 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
 
   async function save() { return singleFlight("modal:expense:save", async () => {
     setErr(""); setFe({}); setPayIssue(null);
-    if (!cat.trim()) { fail("category", "Please select a category."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!cat.trim()) errors["category"] ??= "Please select a category.";
     const amount = +amt;
-    if (!(amount > 0)) { fail("amount", "Please enter a valid amount."); return; }
-    if (!date) { fail("date", "Please select the date."); return; }
+    if (!(amount > 0)) errors["amount"] ??= "Please enter a valid amount.";
+    if (!date) errors["date"] ??= "Please select the date.";
     const issue = paymentRowIssue(payRows, amount);
     if (issue) { setErr(""); setFe({}); setPayIssue(issue); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    if (!branchId) return; // narrows branchId; the check above already reported it
 
     setSaving(true);
     try {

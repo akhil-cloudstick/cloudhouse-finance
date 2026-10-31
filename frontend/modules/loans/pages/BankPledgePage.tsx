@@ -1,7 +1,7 @@
 "use client";
 
 import { GoToPage } from "@/common/components/ui/GoToPage";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -21,7 +21,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedPage, usePersistedState } from "@/common/hooks/use-persisted-state";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
@@ -57,7 +57,10 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   // customer name — seeded from the route arg when arriving via a
   // "#bankpledge/LN-00013"-style link (see ReleaseReviewModal.tsx's
   // gold-still-pledged warning), same pattern as Auctions.tsx's own search.
-  const [q, setQ] = useState(focusLoanNumber || "");
+  // Remembered, so opening a loan and pressing Back returns to the same search and pages.
+  const [q, setQ] = usePersistedState("bankpledge:q", focusLoanNumber || "");
+  // Arriving with a loan number (route argument) searches for it even when an older search is remembered.
+  useEffect(() => { if (focusLoanNumber) setQ(focusLoanNumber); }, [focusLoanNumber]); // eslint-disable-line react-hooks/exhaustive-deps
   const trimmedQ = q.trim();
   // The date range bounds the pledge date on both tabs.
   const [fromDate, setFromDate] = usePersistedState("bankpledge:from", "");
@@ -67,7 +70,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   const [history, setHistory] = useState<BankPledgeRecordView[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPage, setHistoryPage] = usePersistedPage("bankpledge:history");
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyTotal, setHistoryTotal] = useState(0);
   const historyTotalPages = Math.max(1, Math.ceil(historyTotal / pageSize));
@@ -79,7 +82,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   const [pledged, setPledged] = useState<LoanView[]>([]);
   const [pledgedLoading, setPledgedLoading] = useState(true);
   const [pledgedError, setPledgedError] = useState("");
-  const [pledgedPage, setPledgedPage] = useState(1);
+  const [pledgedPage, setPledgedPage] = usePersistedPage("bankpledge:pledged");
   const [pledgedHasMore, setPledgedHasMore] = useState(false);
   const [pledgedTotal, setPledgedTotal] = useState(0);
   const pledgedTotalPages = Math.max(1, Math.ceil(pledgedTotal / pageSize));
@@ -127,13 +130,23 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   // found via History; querying both unconditionally (debounced, and on
   // mount since trimmedQ starts truthy when arriving via focusLoanNumber)
   // means switching tabs never shows stale results for whatever's typed.
+  // The first run (page opened) loads the remembered pages; later runs (search, filter or size changed) start at page 1.
+  const listsMounted = useRef(false);
+  useEffect(() => () => { listsMounted.current = false; }, []);
   useEffect(() => {
+    const first = !listsMounted.current;
+    listsMounted.current = true;
     const handle = setTimeout(() => {
+      if (first) {
+        void loadPledged(pledgedPage, trimmedQ);
+        void loadHistory(historyPage, trimmedQ);
+        return;
+      }
       setPledgedPage(1);
       setHistoryPage(1);
       void loadPledged(1, trimmedQ);
       void loadHistory(1, trimmedQ);
-    }, 300);
+    }, first ? 0 : 300);
     return () => clearTimeout(handle);
     // pageSize/cards: card mode grows pageSize on scroll, which must refetch
     // page 1 with the larger size (rows stay on screen meanwhile).

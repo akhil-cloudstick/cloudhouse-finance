@@ -79,14 +79,17 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
   async function save() {
     const n = name.trim();
     const p = phone.trim();
-    if (n.length < 3) { fail("name", "Please enter the investor's full name."); return; }
-    if (!/^\d{10}$/.test(p)) { fail("phone", "Please enter a valid 10-digit mobile number."); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
-    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) { fail("pan", "Please enter a valid PAN (e.g. ABCDE1234F)."); return; }
-    if (!/^\d{12}$/.test(aadhaar.trim())) { fail("aadhaar", "Please enter a valid 12-digit Aadhaar number."); return; }
-    if (!bankAccountName.trim()) { fail("bankAccountName", "Please enter the bank account holder's name."); return; }
-    if (!bankAccountNumber.trim()) { fail("bankAccountNumber", "Please enter the bank account number."); return; }
-    if (!bankIfsc.trim()) { fail("bankIfsc", "Please enter the bank IFSC code."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (n.length < 3) errors["name"] ??= "Please enter the investor's full name.";
+    if (!/^\d{10}$/.test(p)) errors["phone"] ??= "Please enter a valid 10-digit mobile number.";
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
+    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) errors["pan"] ??= "Please enter a valid PAN (e.g. ABCDE1234F).";
+    if (!/^\d{12}$/.test(aadhaar.trim())) errors["aadhaar"] ??= "Please enter a valid 12-digit Aadhaar number.";
+    if (!bankAccountName.trim()) errors["bankAccountName"] ??= "Please enter the bank account holder's name.";
+    if (!bankAccountNumber.trim()) errors["bankAccountNumber"] ??= "Please enter the bank account number.";
+    if (!bankIfsc.trim()) errors["bankIfsc"] ??= "Please enter the bank IFSC code.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     setSaving(true);
     setErr("");

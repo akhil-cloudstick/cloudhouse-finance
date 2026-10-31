@@ -65,12 +65,15 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
 
   async function save() { return singleFlight("modal:locker:save", async () => {
     const trimmedCode = code.trim().toUpperCase();
-    if (!trimmedCode) { fail("code", "Locker code is required."); return; }
-    if (!CODE_RE.test(trimmedCode)) { fail("code", "Locker code may only contain letters, numbers and hyphens."); return; }
-    if (branchId === "") { fail("branch", "Please select a branch."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!trimmedCode) errors["code"] ??= "Locker code is required.";
+    if (!CODE_RE.test(trimmedCode)) errors["code"] ??= "Locker code may only contain letters, numbers and hyphens.";
+    if (branchId === "") errors["branch"] ??= "Please select a branch.";
     const capacity = parseInt(cap, 10);
-    if (!capacity || capacity <= 0) { fail("capacity", "Capacity must be greater than zero."); return; }
-    if (locker && capacity < locker.occupied) { fail("capacity", `Capacity cannot be less than the ${locker.occupied} packets already stored in this locker.`); return; }
+    if (!capacity || capacity <= 0) errors["capacity"] ??= "Capacity must be greater than zero.";
+    if (locker && capacity < locker.occupied) errors["capacity"] ??= `Capacity cannot be less than the ${locker.occupied} packets already stored in this locker.`;
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     setSaving(true);
     setErr("");

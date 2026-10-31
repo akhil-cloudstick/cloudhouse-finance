@@ -82,9 +82,12 @@ export function BankModalContent({ bank: b, onSaved }: BankModalContentProps) {
   async function save() { return singleFlight("modal:bank:save", async () => {
     const n = name.trim();
     const p = phone.trim();
-    if (n.length < 2) { fail("name", "Please enter a bank name (at least 2 characters)."); return; }
-    if (p && !PHONE_RE.test(p)) { fail("phone", "Phone number must be exactly 10 digits."); return; }
-    if (!branchId) { fail("branchId", "Please select the business branch this account belongs to."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (n.length < 2) errors["name"] ??= "Please enter a bank name (at least 2 characters).";
+    if (p && !PHONE_RE.test(p)) errors["phone"] ??= "Phone number must be exactly 10 digits.";
+    if (!branchId) errors["branchId"] ??= "Please select the business branch this account belongs to.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     const input = { name: n, branchId: Number(branchId), branch: branch.trim(), ifsc: ifsc.trim(), accountNo: accountNo.trim(), phone: p };
     setSaving(true);

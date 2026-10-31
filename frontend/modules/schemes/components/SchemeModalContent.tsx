@@ -134,18 +134,18 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
     const tIssue = isMultiple ? tiersIssue(tiers) : null;
     // Multiple interest: the scheme's headline rate is the first step's rate.
     const r = isMultiple ? parseFloat(tiers[0]?.rate) : parseFloat(rate);
-    if (n.length < 3) { fail("name", "Please enter a scheme name."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (n.length < 3) errors["name"] ??= "Please enter a scheme name.";
     if (tIssue) { fail(tIssue.row === null ? "tiers" : `tier${tIssue.row}`, tIssue.message); return; }
-    if (!(r > 0)) { fail("rate", "Please enter a valid interest rate."); return; }
-    if (!(d > 0)) { fail("duration", "Please enter a valid loan duration in months."); return; }
-    if (!(l >= 1 && l <= 100)) { fail("ltv", "LTV must be between 1 and 100%."); return; }
-    if (!(p >= 0 && p <= 60)) { fail("penal", "Please enter penal charges between 0 and 60% per annum."); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    if (!(r > 0)) errors["rate"] ??= "Please enter a valid interest rate.";
+    if (!(d > 0)) errors["duration"] ??= "Please enter a valid loan duration in months.";
+    if (!(l >= 1 && l <= 100)) errors["ltv"] ??= "LTV must be between 1 and 100%.";
+    if (!(p >= 0 && p <= 60)) errors["penal"] ??= "Please enter penal charges between 0 and 60% per annum.";
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
     const cv = chargeType === "None" ? 0 : parseFloat(chargeValue);
-    if (chargeType !== "None" && !(cv >= 0 && (chargeType !== "Percent" || cv <= 100))) {
-      fail("charge", chargeType === "Percent" ? "Percentage charge must be between 0 and 100." : "Please enter a valid flat charge amount.");
-      return;
-    }
+    if (chargeType !== "None" && !(cv >= 0 && (chargeType !== "Percent" || cv <= 100))) errors["charge"] ??= chargeType === "Percent" ? "Percentage charge must be between 0 and 100." : "Please enter a valid flat charge amount.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     const rateTiers = isMultiple
       ? tiers.map((t, i) => ({ days: i === tiers.length - 1 ? 0 : parseInt(t.days, 10), rate: parseFloat(t.rate) }))

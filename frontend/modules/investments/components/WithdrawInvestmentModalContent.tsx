@@ -69,9 +69,12 @@ export function WithdrawInvestmentModalContent({
 
   async function save() { return singleFlight("modal:withdrawinvestment:save", async () => {
     if (total <= 0) { fail(from === "Principal" ? "principal" : "interest", "Enter an amount greater than zero."); return; }
-    if (interestNum > outstandingInterest + 0.01) { fail("interest", `Interest amount exceeds the outstanding interest (${fmt(outstandingInterest)}).`); return; }
-    if (principalNum > outstandingPrincipal + 0.01) { fail("principal", `Principal amount exceeds the outstanding principal (${fmt(outstandingPrincipal)}).`); return; }
-    if (!balanced) { fail("split", "The payment breakdown must add up to the amount."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (interestNum > outstandingInterest + 0.01) errors["interest"] ??= `Interest amount exceeds the outstanding interest (${fmt(outstandingInterest)}).`;
+    if (principalNum > outstandingPrincipal + 0.01) errors["principal"] ??= `Principal amount exceeds the outstanding principal (${fmt(outstandingPrincipal)}).`;
+    if (!balanced) errors["split"] ??= "The payment breakdown must add up to the amount.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     setErr("");
     setFe({});
