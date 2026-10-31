@@ -89,16 +89,21 @@ func insertScheme(ctx context.Context, s *commonModels.Scheme) error {
 		WithContext(ctx).Create(s).Error
 }
 
-func findSchemes(ctx context.Context, query string, methods []string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
+func findSchemes(ctx context.Context, query string, methods []string, active *bool, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
 	var schemes []commonModels.Scheme
 	q := config.DB.
 		WithContext(ctx).Preload("Branch").Order("id asc")
 	if query != "" {
 		like := "%" + query + "%"
-		q = q.Where("name ILIKE ? OR code ILIKE ? OR CAST(interest_rate AS TEXT) ILIKE ? OR CAST(ltv_percent AS TEXT) ILIKE ? OR CAST(duration_months AS TEXT) ILIKE ?", like, like, like, like, like)
+		// Names and codes only: matching the rate / LTV / duration columns as text made
+		// "8" return every scheme with an 8 in its rate (e.g. 18%).
+		q = q.Where("(name ILIKE ? OR code ILIKE ?)", like, like)
 	}
 	if len(methods) > 0 {
 		q = q.Where("interest_method IN ?", methods)
+	}
+	if active != nil {
+		q = q.Where("is_active = ?", *active)
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
@@ -338,8 +343,8 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 	return rec, nil
 }
 
-func listSchemes(ctx context.Context, query string, methods []string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
-	return findSchemes(ctx, query, methods, branchID, limit, offset)
+func listSchemes(ctx context.Context, query string, methods []string, active *bool, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
+	return findSchemes(ctx, query, methods, active, branchID, limit, offset)
 }
 
 func listActive(ctx context.Context, query string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
@@ -501,14 +506,26 @@ func ListSchemes(c echo.Context) error {
 			methods = append(methods, m)
 		}
 	}
+	var active *bool
+	switch strings.ToLower(strings.TrimSpace(c.QueryParam("status"))) {
+	case "":
+	case "active":
+		v := true
+		active = &v
+	case "inactive":
+		v := false
+		active = &v
+	default:
+		return Fail(c, http.StatusBadRequest, "status must be Active or Inactive")
+	}
 	if limit == 0 {
-		rec, _, err := listSchemes(ctx, c.QueryParam("search"), methods, branchID, 0, 0)
+		rec, _, err := listSchemes(ctx, c.QueryParam("search"), methods, active, branchID, 0, 0)
 		if err != nil {
 			return FailErr(c, err)
 		}
 		return SuccessAll(c, rec)
 	}
-	rec, total, err := listSchemes(ctx, c.QueryParam("search"), methods, branchID, limit, offset)
+	rec, total, err := listSchemes(ctx, c.QueryParam("search"), methods, active, branchID, limit, offset)
 	if err != nil {
 		return FailErr(c, err)
 	}

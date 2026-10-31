@@ -150,7 +150,7 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
         </div>
         <div className="frow"><div className={fe.bankAccountName ? "has-err" : undefined}><label className="f">Bank Account Holder Name *</label><input className="inp" placeholder="As per bank records" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} /><FieldError msg={fe.bankAccountName} /></div></div>
         <div className="frow c2">
-          <div className={fe.bankAccountNumber ? "has-err" : undefined}><label className="f">Bank Account Number *</label><input className="inp" placeholder="Account number" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} /><FieldError msg={fe.bankAccountNumber} /></div>
+          <div className={fe.bankAccountNumber ? "has-err" : undefined}><label className="f">Bank Account Number *</label><input className="inp" placeholder="Account number" inputMode="numeric" maxLength={18} value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.bankAccountNumber} /></div>
           <div className={fe.bankIfsc ? "has-err" : undefined}><label className="f">Bank IFSC *</label><input className="inp" placeholder="e.g. SBIN0001234" maxLength={11} value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} /><FieldError msg={fe.bankIfsc} /></div>
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}

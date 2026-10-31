@@ -5,6 +5,11 @@ export type Bank = {
   ifsc?: string;
   accountNo?: string;
   phone?: string;
+  // From GET /banks: the business branch it belongs to, its balance (negative when overdrawn) and what is re-pledged to it.
+  branchName?: string;
+  balance?: number;
+  activePledgeCount?: number;
+  activePledgeAmount?: number;
   createdAt: string;
   updatedAt: string;
 };

@@ -97,9 +97,9 @@ const REPORTS: ReportDef[] = [
     group: "Loans & Collections",
     kind: "table",
     fetch: getLoansStatus,
-    extra: { field: "status", label: "Status", options: ["Active", "Closed", "Pending Approval", "Auction Eligible"] },
+    extra: { field: "status", label: "Status", options: ["Active", "Due Soon", "Overdue", "Defaulted", "Closed"] },
     headline: (t) => `${t?.count ?? 0} loans`,
-    sub: (t) => `${t?.active ?? 0} active · ${t?.overdue ?? 0} overdue · ${t?.dueSoon ?? 0} due soon · ${t?.closed ?? 0} closed`,
+    sub: (t) => `${t?.active ?? 0} active · ${t?.overdue ?? 0} overdue · ${t?.defaulted ?? 0} defaulted · ${t?.dueSoon ?? 0} due soon · ${t?.closed ?? 0} closed`,
     row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: `Due ${dmy(r.dueDate)}`, amount: inr(r.outstanding), status: r.status, details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Outstanding", v: inr(r.outstanding) }] }),
   },
   {
@@ -571,7 +571,7 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
       ]
     : [];
   const headExtra = report ? (
-    <View style={{ paddingTop: 12 }}>
+    <View style={{ paddingTop: 12, paddingBottom: 10 }}>
       {isTable ? <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search this report" style={{ paddingHorizontal: 16, paddingBottom: 8 }} /> : null}
       <View style={{ paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <GroupedFilter title="Filter report" sections={sections} value={fv} onChange={setFv} />
@@ -650,7 +650,9 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
 
   return (
     <Sheet visible={visible} onClose={onClose} title={report?.title ?? "Report"} maxHeightPct={88} scroll={false} headExtra={headExtra}>
-      <View style={{ flexShrink: 1 }}>{body}</View>
+      {/* A floor under the body keeps the card the same size whichever report it is and while it loads, instead of
+          shrinking to a few rows and jumping when the data arrives. */}
+      <View style={{ flexShrink: 1, minHeight: 320 }}>{body}</View>
     </Sheet>
   );
 }

@@ -22,8 +22,9 @@ func TestBuildLedger_DisbursementInterestSplitAndPenal(t *testing.T) {
 	}
 	penal := []models.PersonalLoanHistory{{ID: 1, Event: models.EventPenalApplied, Amount: 600, OccurredAt: d0.AddDate(0, 0, 2), Detail: "x"}}
 	rows := BuildLedger(l, payments, penal)
-	if len(rows) != 5 {
-		t.Fatalf("rows = %d, want 5", len(rows))
+	// disbursement, interest, penal, then the 4,000 payment as one line for each thing it paid
+	if len(rows) != 7 {
+		t.Fatalf("rows = %d, want 7", len(rows))
 	}
 	for _, r := range rows {
 		if r.RefNo != "PL-00025" {
@@ -39,11 +40,32 @@ func TestBuildLedger_DisbursementInterestSplitAndPenal(t *testing.T) {
 	if rows[2].Kind != "penal" || rows[2].Balance != 10600 {
 		t.Errorf("penal row = %+v", rows[2])
 	}
-	if rows[3].Mode != "Cash" || rows[3].BankID != nil || rows[3].Balance != 10600-1000 {
-		t.Errorf("cash share = %+v", rows[3])
+	// penal first, then interest, then principal; paid from cash (1,000) first, then UPI (3,000)
+	want := []struct {
+		particulars, mode string
+		credit, balance   float64
+	}{
+		{"Penal interest paid", "Cash", 600, 10000},
+		{"Interest paid", "Cash", 400, 9600},
+		{"Interest paid", "UPI", 100, 9500},
+		{"Amount paid", "UPI", 2900, 6600},
 	}
-	if rows[4].Mode != "UPI" || rows[4].BankID == nil || rows[4].BankName != "HDFC" || rows[4].Balance != 6600 {
-		t.Errorf("upi share = %+v", rows[4])
+	var credit float64
+	for i, w := range want {
+		r := rows[3+i]
+		if r.Particulars != w.particulars || r.Mode != w.mode || r.Credit != w.credit || r.Balance != w.balance {
+			t.Errorf("payment line %d = %s via %s %.0f bal %.0f, want %s via %s %.0f bal %.0f", i, r.Particulars, r.Mode, r.Credit, r.Balance, w.particulars, w.mode, w.credit, w.balance)
+		}
+		if w.mode == "Cash" && r.BankID != nil {
+			t.Errorf("cash line %d carries a bank", i)
+		}
+		if w.mode == "UPI" && (r.BankID == nil || r.BankName != "HDFC") {
+			t.Errorf("UPI line %d lost its bank: %+v", i, r)
+		}
+		credit += r.Credit
+	}
+	if credit != 4000 {
+		t.Errorf("lines add up to %.0f, want the 4000 paid", credit)
 	}
 }
 

@@ -2,19 +2,28 @@
 import type { CustomerView } from "@/modules/customers/types/customer-types";
 import type { SchemeView } from "@/modules/schemes/types/scheme-types";
 
-// Money is shown to 2 decimals everywhere. Rounding each figure to whole
-// rupees used to make component lines disagree with their own total (₹5,487.60
-// principal + ₹1.40 interest rendered as "₹5,488 + ₹1 = ₹5,490"), which reads
-// as a maths error to a cashier and invites over-collection by a rupee or two.
-// A NaN/Infinity (e.g. a 0/0 ratio, or a figure derived from a response that
+// Money is shown in whole rupees (the backend rounds every figure the same way, so a line and its
+// total agree). A NaN/Infinity (e.g. a 0/0 ratio, or a figure derived from a response that
 // never arrived because the backend was down) renders as "-" rather than
 // "₹NaN" (Infinity too). null/undefined still read as zero.
+/* Whole-rupee rounding, halves away from zero (5.2 -> 5, 5.5 -> 6, 5.7 -> 6) — the same rule as the
+ * backend's RoundMoney, including snapping float noise first so 5.499999999999 (really 5.5) rounds up.
+ * For money only: ornament weights and rates keep their decimals. */
+export const roundRupee = (n: number): number => {
+  const v = n ?? 0;
+  if (!Number.isFinite(v)) return 0;
+  const snapped = Math.round(Math.abs(v) * 1e6) / 1e6;
+  const r = Math.round(snapped);
+  return v < 0 ? -r : r;
+};
 export const fmt = (n: number) => {
   let v = n ?? 0;
   if (!Number.isFinite(v)) return "-";
-  // a balance that is zero up to float drift (e.g. -1e-12) must read ₹0.00, not ₹-0.00
-  if (Math.abs(v) < 0.005) v = 0;
-  return "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Whole rupees, halves away from zero (5.5 -> 6), matching the backend's RoundMoney. A balance that is
+  // zero up to float drift (e.g. -1e-12) must read ₹0, not ₹-0.
+  v = roundRupee(v);
+  if (v === 0) v = 0;
+  return "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 };
 export const fmtW = (n: number) => (Number.isFinite(n) ? n.toFixed(1) + " g" : "-");
 
@@ -37,6 +46,8 @@ const STATUS_COLOR: Record<string, string> = {
   Released: "gray", "Notice Issued": "amber", "Not Pledged": "gray", "Auction Scheduled": "red",
   "Packet Generated": "info", "Ready For Release": "amber", Returned: "brand",
   "Name Mismatch": "red",
+  // A personal-loan installment whose due date has passed unpaid.
+  Missed: "red",
   // Investment (internal/investment) status/payout chips.
   Matured: "amber", Renewed: "blue", Paid: "green",
   // verificationLabel()'s 3-value summary (customerService.ts) — shown as a
@@ -52,6 +63,14 @@ const STATUS_COLOR: Record<string, string> = {
 export function statusChipColor(status: string): string {
   return STATUS_COLOR[status] || "gray";
 }
+
+// Today's date in the viewer's timezone as YYYY-MM-DD (toISOString would give the UTC day,
+// which is yesterday in India before 05:30).
+export const localToday = (): string => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 // App-wide date style: "05-10-2026" (DD-MM-YYYY). Reads the YYYY-MM-DD prefix
 // of an ISO date/timestamp directly so it never shifts a day across timezones.

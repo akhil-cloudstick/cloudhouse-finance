@@ -43,6 +43,9 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 	if l.Status == models.StatusPendingApproval {
 		return nil, common.NewBadRequest("this loan is still pending approval — extension or release can only be requested once it is approved and disbursed")
 	}
+	if isGoldSold(l.Status) {
+		return nil, common.NewBadRequest("this loan's gold has been auctioned — extension or release can no longer be requested")
+	}
 	accrueAndSave(
 		ctx, l)
 	enrichLoan(ctx, l)

@@ -20,7 +20,7 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 /* The seeded roles — the fallback list when the live one (GET /roles,
  * which also carries custom roles) cannot be loaded because this user lacks
  * the role-view permission. The backend accepts any role that exists. */
-const DEFAULT_ROLES = [
+export const DEFAULT_ROLES = [
   "Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
   "Accountant", "Collection Staff", "Auction Administrator", "Auditor",
 ];

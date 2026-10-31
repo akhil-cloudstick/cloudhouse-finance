@@ -219,6 +219,27 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
         {chargeAmt > 0 ? `Customer pays ${inr(amt)} (${inr(typedAmt)} + ${inr(chargeAmt)} charges). ` : "Charges are added on top of Amount. "}
         Leave interest blank to use the system figure{(l.outstandingPenalInterest ?? 0) > 0 ? ` (penal ${inr(l.outstandingPenalInterest)} outstanding)` : ""}.
       </Txt>
+      {/* Payment summary: what is owed, what this payment clears and what is left. Charges settle the fee bucket, not the loan. */}
+      {(() => {
+        const owed = l.totalOutstandingBalance ?? l.outstandingAmount ?? 0;
+        const after = Math.max(0, Math.round((owed - typedAmt - discountAmt) * 100) / 100);
+        const rows: [string, string, boolean?][] = [
+          ["Outstanding", inr(owed)],
+          ["This payment", inr(typedAmt)],
+          ...(discountAmt > 0 ? ([["Discount", inr(discountAmt)]] as [string, string][]) : []),
+          ["Balance after payment", inr(after), true],
+        ];
+        return (
+          <View style={{ backgroundColor: C.card, borderColor: C.line, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 12 }}>
+            {rows.map(([k, v, strong]) => (
+              <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
+                <Txt style={{ fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
+                <Txt style={{ fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
+              </View>
+            ))}
+          </View>
+        );
+      })()}
       <View style={{ marginBottom: 12 }}>
         <SplitPaymentInput key={openKey} total={amt} onChange={setBreakdown} />
       </View>

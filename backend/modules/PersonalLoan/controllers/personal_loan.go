@@ -118,8 +118,10 @@ type ListInput struct {
 	Status     string
 	Frequency  string
 	Query      string
-	Limit      int
-	Offset     int
+	// From / To bound the loan's opened date (inclusive days).
+	From, To *time.Time
+	Limit    int
+	Offset   int
 }
 
 type PaymentInput struct {
@@ -173,6 +175,7 @@ type ListFilter struct {
 	Status     string
 	Frequency  string
 	Query      string
+	From, To   *time.Time
 	Limit      int
 	Offset     int
 }
@@ -285,7 +288,7 @@ func SavePersonalLoan(ctx context.Context, in CreateInput) (*models.PersonalLoan
 		CreatedByEmployeeID:            in.CreatedByEmployeeID,
 		PrincipalAmount:                obligation,
 		InterestType:                   in.InterestType,
-		InterestValue:                  common.RoundMoney(in.InterestValue),
+		InterestValue:                  common.RoundDecimal2(in.InterestValue),
 		InterestAmount:                 interestAmount,
 		DisbursedAmount:                disbursed,
 		DisbursementCashAmount:         dCash,
@@ -539,6 +542,8 @@ func listPersonalLoans(ctx context.Context, in ListInput) ([]models.PersonalLoan
 		Status:     in.Status,
 		Frequency:  in.Frequency,
 		Query:      in.Query,
+		From:       in.From,
+		To:         in.To,
 		Limit:      limit,
 		Offset:     in.Offset,
 	})
@@ -845,7 +850,7 @@ func renewLoan(ctx context.Context, loanID uint, branchID *uint, in RenewInput) 
 			CreatedByEmployeeID: in.CreatedByEmployeeID,
 			PrincipalAmount:     principal,
 			InterestType:        in.InterestType,
-			InterestValue:       common.RoundMoney(in.InterestValue),
+			InterestValue:       common.RoundDecimal2(in.InterestValue),
 			InterestAmount:      interestAmount,
 			DisbursedAmount:     disbursed,
 			Frequency:           in.Frequency,
@@ -1008,6 +1013,32 @@ func splitCSV(s string) []string {
 	return out
 }
 
+// statusFilterClause turns the status filter values into one WHERE clause. "Renewed"
+// is not a stored status: a renewed loan is stored as Closed with the loan that
+// replaced it recorded, so it is matched on that link, and plain "Closed" leaves
+// those out so a loan is never listed under both.
+func statusFilterClause(vals []string) (string, []any) {
+	var parts []string
+	var args []any
+	var plain []string
+	for _, v := range vals {
+		switch v {
+		case "Renewed":
+			parts = append(parts, "personal_loans.renewed_to_loan_id IS NOT NULL")
+		case models.StatusClosed:
+			parts = append(parts, "(personal_loans.status = ? AND personal_loans.renewed_to_loan_id IS NULL)")
+			args = append(args, models.StatusClosed)
+		default:
+			plain = append(plain, v)
+		}
+	}
+	if len(plain) > 0 {
+		parts = append(parts, "personal_loans.status IN ?")
+		args = append(args, plain)
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
 func findPersonalLoans(ctx context.Context, f ListFilter) ([]models.PersonalLoan, int64, error) {
 	var recs []models.PersonalLoan
 	q := config.DB.
@@ -1019,10 +1050,17 @@ func findPersonalLoans(ctx context.Context, f ListFilter) ([]models.PersonalLoan
 		q = q.Where("personal_loans.customer_id = ?", *f.CustomerID)
 	}
 	if vals := splitCSV(f.Status); len(vals) > 0 {
-		q = q.Where("personal_loans.status IN ?", vals)
+		clause, args := statusFilterClause(vals)
+		q = q.Where(clause, args...)
 	}
 	if vals := splitCSV(f.Frequency); len(vals) > 0 {
 		q = q.Where("personal_loans.frequency IN ?", vals)
+	}
+	if f.From != nil {
+		q = q.Where("personal_loans.opened_date >= ?", startOfLocalDay(*f.From))
+	}
+	if f.To != nil {
+		q = q.Where("personal_loans.opened_date < ?", startOfLocalDay(*f.To).AddDate(0, 0, 1))
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
@@ -1189,6 +1227,22 @@ func CreatePersonalLoan(c echo.Context) error {
 	return common.Success(c, http.StatusOK, rec)
 }
 
+// queryDay reads a YYYY-MM-DD query parameter, nil when absent or malformed.
+func queryDay(v string) *time.Time {
+	if v == "" {
+		return nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
+func startOfLocalDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
 func ListPersonalLoans(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	branchID := auth.GetBranchScope(c)
@@ -1203,12 +1257,15 @@ func ListPersonalLoans(c echo.Context) error {
 	if limit == 0 {
 		page, limit = 1, defaultPageSize
 	}
+	from, to := queryDay(c.QueryParam("from")), queryDay(c.QueryParam("to"))
 	recs, _, total, err := listPersonalLoans(ctx, ListInput{
 		BranchID:   branchID,
 		CustomerID: customerID,
 		Status:     c.QueryParam("status"),
 		Frequency:  c.QueryParam("frequency"),
 		Query:      c.QueryParam("search"),
+		From:       from,
+		To:         to,
 		Limit:      limit,
 		Offset:     offset,
 	})

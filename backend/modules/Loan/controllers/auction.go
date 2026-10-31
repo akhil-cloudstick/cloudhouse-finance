@@ -272,6 +272,19 @@ func getAuctionRecord(ctx context.Context, loanID uint, branchID *uint) (*models
 	return loadAuctionRecord(ctx, loanID)
 }
 
+// requireGoldInHand stops an auction step while any of the loan's gold sits with a
+// bank: the company cannot notify, schedule or sell what it does not hold.
+func requireGoldInHand(ctx context.Context, loanID uint) error {
+	l, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return common.NewNotFound("loan not found")
+	}
+	if l.BankPledgeStatus == models.BankPledgeStatusPledged {
+		return common.NewBadRequest("this loan's gold is pledged to a bank; release it from the bank before continuing the auction")
+	}
+	return nil
+}
+
 func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can mark loan auction eligible") {
 		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can mark loan auction eligible")
@@ -286,6 +299,9 @@ func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, ac
 	accrueAndSave(
 		ctx, l)
 	enrichLoan(ctx, l)
+	if l.BankPledgeStatus == models.BankPledgeStatusPledged {
+		return nil, common.NewBadRequest("this loan's gold is pledged to a bank; release it from the bank before marking it auction-eligible")
+	}
 	if !l.IsDefaulted {
 		return nil, common.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
 	}
@@ -322,6 +338,9 @@ func SaveAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks
 		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can issue auction notice")
 	}
 	if err := checkLoanBranch(ctx, loanID, branchID); err != nil {
+		return nil, err
+	}
+	if err := requireGoldInHand(ctx, loanID); err != nil {
 		return nil, err
 	}
 	rec, err := loadAuctionRecord(ctx, loanID)
@@ -371,6 +390,9 @@ func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date 
 	if err := checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
 	}
+	if err := requireGoldInHand(ctx, loanID); err != nil {
+		return nil, err
+	}
 	rec, err := loadAuctionRecord(ctx, loanID)
 	if err != nil {
 		return nil, err
@@ -411,6 +433,9 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 	}
 	if expenses > saleAmount {
 		return nil, common.NewBadRequest("auction expenses cannot be more than the sale amount")
+	}
+	if err := requireGoldInHand(ctx, loanID); err != nil {
+		return nil, err
 	}
 	rec, err := loadAuctionRecord(ctx, loanID)
 	if err != nil {
@@ -667,7 +692,7 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 	// leaves the auction unsettled instead of settled with no money recorded.
 	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if disposition == AuctionSurplusRefundedToCustomer {
-			movementID, err := cashbook.RecordAuctionSurplusCashOut(cashbook.WithTx(ctx, tx), loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now, mode, bankID, l.CustomerID)
+			movementID, err := cashbook.RecordAuctionSurplusCashOut(cashbook.WithTx(ctx, tx), loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now, mode, bankID, l.CustomerID, remarks)
 			if err != nil {
 				return fmt.Errorf("could not record the surplus refund in Cash-in-Hand, settlement not saved: %w", err)
 			}
@@ -677,6 +702,7 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 			rec.FinalSettlementStatus = "SettledToLoanCo"
 		}
 		rec.SurplusDisposition = disposition
+		rec.SurplusRemarks = strings.TrimSpace(remarks)
 		rec.Stage = models.AuctionStageSettled
 		return tx.Save(rec).Error
 	}); err != nil {
@@ -822,6 +848,10 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 					}
 				}
 				l.Status = models.StatusClosed
+				if l.ClosedAt == nil {
+					closedAt := time.Now()
+					l.ClosedAt = &closedAt
+				}
 				if err := tx.Save(l).Error; err != nil {
 					return err
 				}

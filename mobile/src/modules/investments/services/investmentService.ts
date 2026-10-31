@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest } from "@/common/services/httpClient";
-import { Investment, InvestmentPlan, InvestmentTransaction, InvestmentLedgerRow, InvestmentPayout, InvestmentStatus, type CreateInvestmentInput, type PaymentMode, type SplitAmounts, type MaturityAction, type CreatePlanInput } from "@/modules/investments/types/investment-types";
+import { Investment, InvestmentPlan, InvestmentTransaction, InvestmentLedgerRow, InvestmentPayout, type CreateInvestmentInput, type PaymentMode, type SplitAmounts, type MaturityAction, type CreatePlanInput } from "@/modules/investments/types/investment-types";
 
 export function listInvestmentPlans(activeOnly?: boolean) {
   return apiRequest<InvestmentPlan[]>("/investment-plans", { params: activeOnly ? { activeOnly: true } : undefined });
@@ -10,7 +10,7 @@ export function listInvestmentPlans(activeOnly?: boolean) {
 // uses a 1-based `page` instead).
 export function listInvestmentsPage(params: {
   q?: string;
-  status?: InvestmentStatus;
+  status?: string; // one status or a comma-separated list
   customerId?: number;
   limit: number;
   offset: number;

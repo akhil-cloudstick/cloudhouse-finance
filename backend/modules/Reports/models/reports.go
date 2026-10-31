@@ -11,6 +11,7 @@ type Filter struct {
 	Page     int
 	PageSize int
 	Q        string
+	Status   string
 }
 
 type Result struct {

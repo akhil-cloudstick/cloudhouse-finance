@@ -24,14 +24,29 @@ var loanNoLongerMovableStatuses = map[string]bool{
 	loanModels.StatusRejected:            true,
 }
 
+// pendingLoanBlocksMove returns the reason a packet cannot be put into a locker
+// or pledged to a bank while its loan is still awaiting approval, or "" if the
+// move is fine. Releasing it (e.g. when the loan is rejected) is not a custody
+// move, so it stays allowed.
+func pendingLoanBlocksMove(loanStatus, toStatus string) string {
+	if loanStatus != loanModels.StatusPendingApproval {
+		return ""
+	}
+	if toStatus == models.StatusLockerStored || toStatus == models.StatusBankPledged {
+		return "this loan is still pending approval — its packet can be placed in a locker only after the loan is approved"
+	}
+	return ""
+}
+
 var allowedTransitions = map[string][]string{
 	// Released too: a loan can be released before its packet was ever checked into a locker.
-	"Packet Generated":        {models.StatusLockerStored, models.StatusReleased},
+	"Packet Generated":        {models.StatusLockerStored, models.StatusBankPledged, models.StatusReleased},
 	models.StatusLockerStored: {models.StatusBankPledged, models.StatusReleased},
 	models.StatusBankPledged:  {models.StatusReturned},
-	models.StatusReturned:     {models.StatusLockerStored, models.StatusReleased},
-	"Ready For Release":       {models.StatusReleased},
-	models.StatusReleased:     {},
+	// Back from a bank, the gold can be pledged again straight away.
+	models.StatusReturned: {models.StatusLockerStored, models.StatusBankPledged, models.StatusReleased},
+	"Ready For Release":   {models.StatusReleased},
+	models.StatusReleased: {},
 }
 
 var LockerCapacity func(ctx context.Context, lockerID uint) (capacity int, isActive bool, ok bool, err error)
@@ -542,6 +557,9 @@ func RecordPacketMovement(c echo.Context) error {
 	}
 	if loanNoLongerMovableStatuses[p.Loan.Status] {
 		return common.FailErr(c, common.NewConflict("this loan's gold has already left custody — no further packet movement is possible"))
+	}
+	if blocked := pendingLoanBlocksMove(p.Loan.Status, req.ToStatus); blocked != "" {
+		return common.FailErr(c, common.NewConflict(blocked))
 	}
 	rec, err := SavePacketMovement(ctx, id, req.ToStatus, req.LockerID, req.EmployeeID, req.Remarks)
 	if err != nil {

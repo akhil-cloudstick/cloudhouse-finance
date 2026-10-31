@@ -31,7 +31,7 @@ func reportRows(ctx context.Context, key string, f models.Filter) (rows any, tot
 	case "personal-loans":
 		return call2(personalLoans(ctx, f))
 	case "loans-status":
-		return call2(loanStatus(ctx, f, ""))
+		return call2(loanStatus(ctx, f, f.Status))
 	case "interest-collection":
 		return call2(interestCollection(ctx, f))
 	case "outstanding-principal":

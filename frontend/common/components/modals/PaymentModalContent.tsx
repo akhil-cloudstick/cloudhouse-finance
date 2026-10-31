@@ -8,7 +8,7 @@ import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { DatePicker } from "@/common/components/ui/DatePicker";
-import { fmt, fmtDate as fmtDisplayDate } from "@/common/utils/format";
+import { fmt, fmtDate as fmtDisplayDate, roundRupee } from "@/common/utils/format";
 import { recordPayment, recordReleasePayment, getLoan } from "@/modules/loans/services/loanService";
 import { type LoanView, type DiscountKind, DISCOUNT_KIND_LABELS } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
@@ -120,7 +120,7 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
 
 // Prefilled money figures are accrued/prorated, so they carry long decimals —
 // show them to the paisa.
-const prefill = (v: number) => (v > 0 ? String(Math.round(v * 100) / 100) : "");
+const prefill = (v: number) => (v > 0 ? String(roundRupee(v)) : "");
 
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = {
@@ -187,9 +187,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     }
   }
 
-  const releaseMin = releaseRequestId != null && releaseMinFor ? Math.round(releaseMinFor(loan) * 100) / 100 : null;
+  const releaseMin = releaseRequestId != null && releaseMinFor ? roundRupee(releaseMinFor(loan)) : null;
   const [amt, setAmt] = useState(() => {
-    const v = releaseRequestId != null && releaseMinFor ? Math.round(releaseMinFor(initialLoan) * 100) / 100 : amountForMode(initialLoan, startMode);
+    const v = releaseRequestId != null && releaseMinFor ? roundRupee(releaseMinFor(initialLoan)) : amountForMode(initialLoan, startMode);
     return v > 0 ? prefill(v) : "";
   });
   // Set the instant a mode is picked, before the user has typed their own
@@ -305,7 +305,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   const modeBase = mode === "Partial" && releaseMin != null
     ? releaseMin
     : amountForMode({ ...loan, outstandingInterest: interestForAmount, settlementAmount: loan.settlementAmount - loan.outstandingInterest + interestForAmount }, mode) + charge;
-  const modeTotal = Math.max(0, Math.round((modeBase - discountNum) * 100) / 100);
+  const modeTotal = Math.max(0, roundRupee((modeBase - discountNum)));
   // Amount follows what the picked option owes (after the discount) in every mode but a hand-typed Partial, and the
   // field is only filled in by the effect below a render later. The preview and its warnings use that figure at once,
   // so changing the discount or the amount never flashes "amount greater than" against the old figure.

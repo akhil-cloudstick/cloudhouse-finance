@@ -1,8 +1,8 @@
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import {
@@ -104,10 +104,15 @@ export default function PersonalLoansScreen() {
   const [renewLoan, setRenewLoan] = useState<PersonalLoan | null>(null);
 
   // ?id=<personal loan id> (dashboard "Needs attention") opens its detail.
-  const params = useLocalSearchParams<{ id?: string; t?: string }>();
+  // &from=reminders (a reminder opened it): closing the detail goes back to Reminders.
+  const params = useLocalSearchParams<{ id?: string; t?: string; from?: string }>();
+  const cameFromReminders = useRef(false);
   useEffect(() => {
-    if (params.id && Number(params.id)) setDetailId(Number(params.id));
-  }, [params.id, params.t]);
+    if (params.id && Number(params.id)) {
+      cameFromReminders.current = params.from === "reminders";
+      setDetailId(Number(params.id));
+    }
+  }, [params.id, params.t, params.from]);
 
   const freqs = gfValues(fv, "freq");
   const statuses = gfValues(fv, "status");
@@ -161,7 +166,13 @@ export default function PersonalLoansScreen() {
       />
       <PersonalLoanDetailSheet
         loanId={detailId}
-        onClose={() => setDetailId(null)}
+        onClose={() => {
+          setDetailId(null);
+          if (cameFromReminders.current) {
+            cameFromReminders.current = false;
+            if (router.canGoBack()) router.back();
+          }
+        }}
         onOpenLoan={setDetailId}
         canUpdate={canUpdate}
         onCollect={setCollectLoan}

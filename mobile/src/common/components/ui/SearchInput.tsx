@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { TextInput, View, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, TextInput, View, type StyleProp, type ViewStyle } from "react-native";
 import { textStyle } from "@/common/theme/typography";
 import { C } from "./base";
+import { PIcon } from "./PIcon";
 import { s } from "./listKitStyles";
 
 type SearchInputProps = {
@@ -35,8 +36,18 @@ export function SearchInput({
         allowFontScaling={false}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={textStyle([s.search, focused && { borderColor: C.brand }], false)}
+        style={textStyle([s.search, focused && { borderColor: C.brand }, !!value && { paddingRight: 40 }], false)}
       />
+      {value ? (
+        <Pressable
+          style={{ position: "absolute", right: 10, top: 0, bottom: 0, width: 28, alignItems: "center", justifyContent: "center" }}
+          hitSlop={8}
+          onPress={() => onChangeText("")}
+          accessibilityLabel="Clear search"
+        >
+          <PIcon name="close" color={C.muted} size={14} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }

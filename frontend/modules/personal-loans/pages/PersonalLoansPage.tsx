@@ -1,7 +1,7 @@
 "use client";
 
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -54,14 +54,17 @@ export function PersonalLoansPage() {
   const [freq, setFreq] = usePersistedState<string>("personalloans:freq:multi", "");
   const [q, setQ] = usePersistedState("personalloans:q", "");
   const [status, setStatus] = usePersistedState("personalloans:status", "");
-  const [page, setPage] = useState(1);
+  const [fromDate, setFromDate] = usePersistedState("personalloans:from", "");
+  const [toDate, setToDate] = usePersistedState("personalloans:to", "");
+  const [page, setPage] = usePersistedPage("personalloans");
   // One grouped filter: Frequency and Status. Selections show as a count in
   // the panel, not as chips.
   const filterCategories: FilterCategory[] = [
     { key: "freq", label: "Frequency", kind: "static", options: FREQS.filter((f) => f !== "All").map((f) => ({ value: f, label: f })) },
     { key: "status", label: "Status", kind: "static", options: approvalOn ? [STATUS_OPTIONS[0], ...APPROVAL_STATUS_OPTIONS, ...STATUS_OPTIONS.slice(1)] : STATUS_OPTIONS },
+    { key: "__date", label: "Date", kind: "date" as const },
   ];
-  const filterValue: FilterValue = { freq: freq ? freq.split(",") : [], status: status ? status.split(",") : [] };
+  const filterValue: FilterValue = { freq: freq ? freq.split(",") : [], status: status ? status.split(",") : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
   const [loans, setLoans] = useState<BackendPersonalLoan[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -70,13 +73,13 @@ export function PersonalLoansPage() {
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [freq, q, status, pageSize]);
+  useResetPageOnChange(setPage, [freq, q, status, fromDate, toDate, pageSize]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq || undefined, status: status || undefined, pageSize });
+      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq || undefined, status: status || undefined, from: fromDate || undefined, to: toDate || undefined, pageSize });
       setLoans(res?.items || []);
       setHasMore(!!res?.hasMore);
       setTotal(res?.total || 0);
@@ -85,13 +88,13 @@ export function PersonalLoansPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, q, freq, status, pageSize]);
+  }, [page, q, freq, status, fromDate, toDate, pageSize]);
 
   useEffect(() => {
     const handle = setTimeout(() => void refresh(), q ? 300 : 0);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, freq, q, status, pageSize]);
+  }, [page, freq, q, status, fromDate, toDate, pageSize]);
 
   const knownTotal = total > 0;
   const totalPages = knownTotal ? Math.max(1, Math.ceil(total / pageSize)) : (hasMore ? page + 1 : page);
@@ -126,6 +129,8 @@ export function PersonalLoansPage() {
           onChange={(next) => {
             setFreq(Array.isArray(next.freq) ? next.freq.join(",") : "");
             setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
+            setFromDate(next.__dateFrom || "");
+            setToDate(next.__dateTo || "");
           }}
           hideChips
           hideClearAll

@@ -1,5 +1,6 @@
   "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -15,8 +16,9 @@ import { SettleAuctionModalContent } from "@/modules/loans/components/SettleAuct
 import { RecordSaleModalContent } from "@/modules/loans/components/RecordSaleModalContent";
 import { ScheduleAuctionModalContent } from "@/modules/loans/components/ScheduleAuctionModalContent";
 import { IssueNoticeModalContent } from "@/modules/loans/components/IssueNoticeModalContent";
+import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { FilterPanel, type FilterCategory } from "@/common/components/ui/FilterPanel";
-import { getAuctionRecord, markAuctionEligible, listConcludedAuctionsPage, listLoans, pendingDecision, hasUndisposedSurplus, isActiveAuctionCase, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
+import { getAuctionRecord, getLoanByNumber, releaseBankPledge, markAuctionEligible, listConcludedAuctionsPage, listLoans, pendingDecision, hasUndisposedSurplus, isActiveAuctionCase, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type ConcludedAuctionRowView, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { useScrollPageSize } from "@/common/utils/responsive";
@@ -127,6 +129,36 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
   // While an escalation is open the pipeline is frozen server-side; hiding the
   // advance buttons keeps the UI honest instead of offering actions that 409.
   const frozen = !!decision;
+  // Gold sitting with a bank cannot be noticed, scheduled or sold; the server rejects it too.
+  const goldAtBank = l.bankPledgeStatus === "Bank Pledged";
+  const canReleaseFromBank = can("Bank_Pledge_Management", "can_update_bank_pledge");
+  const [releasingBank, setReleasingBank] = useState(false);
+  // The list carries no pledge records, so fetch the loan to find the active one,
+  // then confirm and release it exactly as the loan page does.
+  async function doReleaseFromBank() {
+    setReleasingBank(true);
+    try {
+      const fresh = await getLoanByNumber(l.loanNumber);
+      const p = fresh.bankPledges.find((x) => x.status === "Active");
+      if (!p) { toast("No active bank pledge found for this loan."); onLoanChanged(); return; }
+      openModal(
+        <ReleasePledgeModalContent
+          bankName={p.bankName}
+          amount={p.pledgedAmount}
+          cashTreatment={p.cashTreatment}
+          onConfirm={async (payment) => {
+            await releaseBankPledge(fresh.numericId, p.id, payment);
+            toast("Bank pledge released");
+            onLoanChanged();
+          }}
+        />
+      );
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not load the bank pledge — try again.");
+    } finally {
+      setReleasingBank(false);
+    }
+  }
   const balanceDue = l.status === "Auctioned - Balance Due";
   // With an auction decision flow switched off, the backend raises no
   // decision request for that case — it records the outcome as already
@@ -241,16 +273,24 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
           </button>
         )}
 
-        {!frozen && canAct && can("Auction_Workflow", "can_mark_loan_auction_eligible") && (rec === undefined ? null : !rec ? (
+        {goldAtBank && !frozen && (
+          <>
+            <span className="muted" style={{ fontSize: 12 }}>Gold is pledged to a bank — release it before continuing the auction.</span>
+            {canReleaseFromBank && (
+              <button className="btn sm" disabled={releasingBank} onClick={doReleaseFromBank}><Icon name="bank" /> {releasingBank ? "Loading…" : "Release from Bank"}</button>
+            )}
+          </>
+        )}
+        {!frozen && !goldAtBank && canAct && can("Auction_Workflow", "can_mark_loan_auction_eligible") && (rec === undefined ? null : !rec ? (
           <button className="btn sm" disabled={starting} onClick={doMarkEligible}><Icon name="gavel" /> {starting ? "Starting…" : "Mark Auction Eligible"}</button>
         ) : null)}
-        {!frozen && canAct && can("Auction_Workflow", "can_issue_auction_notice") && rec && (rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued") && (
+        {!frozen && !goldAtBank && canAct && can("Auction_Workflow", "can_issue_auction_notice") && rec && (rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued") && (
           <button className="btn sm" onClick={() => openModal(<IssueNoticeModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="doc" /> Issue Notice</button>
         )}
-        {!frozen && canAct && can("Auction_Workflow", "can_schedule_auction") && rec && rec.stage === "NoticeIssued" && (
+        {!frozen && !goldAtBank && canAct && can("Auction_Workflow", "can_schedule_auction") && rec && rec.stage === "NoticeIssued" && (
           <button className="btn sm" onClick={() => openModal(<ScheduleAuctionModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="clock" /> Schedule Auction</button>
         )}
-        {!frozen && canAct && can("Auction_Workflow", "can_record_auction_sale") && rec && rec.stage === "AuctionScheduled" && (
+        {!frozen && !goldAtBank && canAct && can("Auction_Workflow", "can_record_auction_sale") && rec && rec.stage === "AuctionScheduled" && (
           <button className="btn sm" onClick={() => openModal(<RecordSaleModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="gavel" /> Record Sale</button>
         )}
         {/* Settle is the surplus-disposition step, so it only applies when the
@@ -258,7 +298,9 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
         {!frozen && canAct && can("Auction_Workflow", "can_settle_auction") && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
           <button className="btn sm" disabled={checkingRec} onClick={openSettleModal}><Icon name="check" /> {checkingRec ? "Checking…" : "Settle Surplus"}</button>
         )}
-        {rec && (rec.stage === "Auctioned" || rec.stage === "Settled") && (
+        {/* The letter is the final notice, so it is available from the moment the notice
+          * is issued — not only after a sale date is set or the auction is over. */}
+        {rec && (rec.stage === "NoticeIssued" || rec.stage === "AuctionScheduled" || rec.stage === "Auctioned" || rec.stage === "Settled") && (
           <button className="btn sm ghost" onClick={() => printAuctionLetter(l, toast)}><Icon name="doc" /> Print Auction Letter</button>
         )}
       </div>
@@ -426,7 +468,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
       kind="Auction · Sale"
       rows={[
         ["Loan", r.loanNumber], ["Customer", r.customerName], ["Auction date", fmtDate(r.auctionDate)],
-        ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"],
+        ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"], ["Net proceeds", fmt(r.saleAmount - (r.auctionExpenses || 0))],
         [r.surplusShortfall >= 0 ? "Surplus" : "Shortfall", fmt(Math.abs(r.surplusShortfall))], ["Outcome", AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]],
       ]}
       description={<>Auction sale of {fmt(r.saleAmount)} less {fmt(r.auctionExpenses)} expenses.{r.surplusDisposition ? <><br />Surplus {r.surplusDisposition === "RefundedToCustomer" ? "refunded to the customer" : "kept as income"}.</> : null}</>}
@@ -519,6 +561,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
               <button className="btn plain sm" disabled={activePage <= 1} onClick={() => setActivePage((p) => Math.max(1, p - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {activePage} of {activeTotalPages}</span>
               <button className="btn plain sm" disabled={activePage >= activeTotalPages} onClick={() => setActivePage((p) => Math.min(activeTotalPages, p + 1))}>Next ›</button>
+              <GoToPage page={activePage} totalPages={activeTotalPages} onChange={setActivePage} />
             </div>
           </>
         )
@@ -544,14 +587,15 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
                   <tr>
                     <th>Loan</th><th>Auction Date</th><th>Reference</th>
                     <th className="num">Sale Amount</th><th className="num">Expenses</th>
-                    <th className="num">Surplus / Shortfall</th><th>Outcome</th><th></th>
+                    <th className="num">Net Proceeds</th>
+                    <th className="num">Surplus / Shortfall</th><th>Surplus Disposition</th><th>Outcome</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {conductedLoading && !(cards && conducted.length > 0) ? (
-                    <tr><td colSpan={8} className="empty">Loading…</td></tr>
+                    <tr><td colSpan={10} className="empty">Loading…</td></tr>
                   ) : conducted.length === 0 ? (
-                    <tr><td colSpan={8} className="empty">No auctions have been conducted yet.</td></tr>
+                    <tr><td colSpan={10} className="empty">No auctions have been conducted yet.</td></tr>
                   ) : conducted.map((r) => (
                     <tr key={r.id}>
                       <td data-label="Loan">{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
@@ -559,9 +603,11 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
                       <td data-label="Reference">{r.auctionReferenceNumber || "—"}</td>
                       <td className="num" data-label="Sale Amount">{fmt(r.saleAmount)}</td>
                       <td className="num" data-label="Expenses">{r.auctionExpenses ? fmt(r.auctionExpenses) : "—"}</td>
+                      <td className="num" data-label="Net Proceeds">{fmt(r.saleAmount - (r.auctionExpenses || 0))}</td>
                       <td className="num" data-label="Surplus / Shortfall" style={{ color: r.surplusShortfall >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
                         {r.surplusShortfall >= 0 ? "+" : "−"}{fmt(Math.abs(r.surplusShortfall))}
                       </td>
+                      <td data-label="Surplus Disposition">{r.surplusDisposition === "RefundedToCustomer" ? "Refunded to customer" : r.surplusDisposition === "RecordedAsIncome" ? "Kept as income" : "—"}</td>
                       <td data-label="Outcome"><span className="pill green">{AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]}</span></td>
                       <td style={{ width: 40, minWidth: 40 }}>
                         <span className="ledger-info" style={{ right: "50%", transform: "translate(50%, -50%)" }}><button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }} onClick={() => viewConducted(r)}><Icon name="info" /></button></span>
@@ -576,6 +622,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
               <button className="btn plain sm" disabled={conductedPage <= 1} onClick={() => changeConductedPage(Math.max(1, conductedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {conductedPage} of {conductedTotalPages}</span>
               <button className="btn plain sm" disabled={conductedPage >= conductedTotalPages} onClick={() => changeConductedPage(Math.min(conductedTotalPages, conductedPage + 1))}>Next ›</button>
+              <GoToPage page={conductedPage} totalPages={conductedTotalPages} onChange={changeConductedPage} />
               <div className="sp" />
               <span>Gold that was actually sold at auction, with what it realised and how the surplus or shortfall was resolved.</span>
             </div>
@@ -621,6 +668,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
               <button className="btn plain sm" disabled={closedPage <= 1} onClick={() => changeClosedPage(Math.max(1, closedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {closedPage} of {closedTotalPages}</span>
               <button className="btn plain sm" disabled={closedPage >= closedTotalPages} onClick={() => changeClosedPage(Math.min(closedTotalPages, closedPage + 1))}>Next ›</button>
+              <GoToPage page={closedPage} totalPages={closedTotalPages} onChange={changeClosedPage} />
             </div>
           </div>
         </>

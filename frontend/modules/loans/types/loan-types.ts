@@ -175,6 +175,7 @@ export type BackendLoan = {
   schemePenalRate: number;
   openedDate: string;
   dueDate: string;
+  closedAt?: string | null;
   additionalInfo?: string;
   overallPhotoUrl?: string;
   totalNetWeight: number;
@@ -328,6 +329,8 @@ export type LoanView = {
   schemePenal: number;
   opened: string; // "YYYY-MM-DD"
   due: string;
+  /** YYYY-MM-DD the loan was closed, "" while open (or closed before this was recorded). */
+  closed: string;
   additionalInfo: string;
   overallPhotoUrl: string;
   totalNetWeight: number;
@@ -539,7 +542,7 @@ export type ApprovalInput = {
  * Ornaments themselves go through the existing addOrnament/updateOrnament/
  * deleteOrnament calls below, one ornament at a time, not through this. */
 export type UpdateLoanInput = {
-  schemeId?: number; principalAmount?: number; overallPhotoUrl?: string;
+  schemeId?: number; principalAmount?: number; overallPhotoUrl?: string; additionalInfo?: string; // additionalInfo: "" clears it
   // how the payout of a loan already paid out was made
   cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; bankId?: number;
   // the loan's branch and the locker for its gold — only for a role that may see every branch
@@ -773,6 +776,8 @@ export type AuctionRecordView = {
    * so without this the customer's share would silently sit in branch cash. */
   surplusPayableAmount: number;
   surplusDisposition: AuctionSurplusDisposition | "";
+  /** Notes entered when the surplus was settled ("" if none). */
+  surplusRemarks: string;
   finalSettlementStatus: AuctionSettlementStatus;
   notices: AuctionNoticeView[];
   events: AuctionEventView[];
@@ -810,6 +815,7 @@ export type BackendAuctionRecord = {
   surplusShortfall: number;
   surplusPayableAmount?: number;
   surplusDisposition?: AuctionSurplusDisposition | "";
+  surplusRemarks?: string;
   finalSettlementStatus: AuctionSettlementStatus;
   notices: { id: number; issuedAt: string; method: string; remarks: string }[] | null;
   events?: BackendAuctionEvent[] | null;
@@ -833,7 +839,7 @@ export type ConcludedAuctionRowView = AuctionRecordView & { loanNumber: string; 
 export type LoanLedgerPart = { mode: string; amount: number; index: number; count: number };
 // component names what a split repayment row was applied to (e.g. an auction's proceeds).
 // accruing marks interest worked out up to the day the ledger is opened and not saved yet.
-type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string; accruing?: boolean };
+type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string; accruing?: boolean; paidThrough?: string };
 export type LoanLedgerEntry =
   | (LedgerEntryBase & { kind: "sanction"; balance: number; payment: PaymentView | null })
   | (LedgerEntryBase & { kind: "payment"; balance: number; row: PaymentView; auction: AuctionRecordView | null })
@@ -868,6 +874,8 @@ export type BackendLoanLedgerEntry = {
   component?: string;
   mode?: string;
   accruing?: boolean;
+  // the date the loan's interest is paid up to once this payment is counted (YYYY-MM-DD)
+  paidThrough?: string;
   payment?: BackendLoanPayment;
   topUp?: LoanTopUpView;
   auction?: BackendAuctionRecord;
@@ -960,6 +968,9 @@ export type LoanRequestFilters = {
   type?: string;
   /* Server-side search: loan number, customer name / code / phone. */
   q?: string;
+  /* YYYY-MM-DD bounds on the requested date (inclusive). */
+  from?: string;
+  to?: string;
 };
 /* Gold-value risk assessment — mirrors backend/internal/loan/service.go's
  * LoanRiskRow exactly. Compares each open loan's principal against what its

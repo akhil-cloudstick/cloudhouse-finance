@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt, fmtDate } from "@/common/utils/format";
+import { fmt, fmtDate, roundRupee } from "@/common/utils/format";
 import { Select } from "@/common/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
@@ -41,7 +41,7 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   const [saving, setSaving] = useState(false);
   // A live-engine investment is paid out in full when it is closed, so the close asks how.
   const isLive = investment.engine === "Live";
-  const payable = Math.round(((investment.outstandingPrincipal || 0) + (investment.outstandingInterest || 0)) * 100) / 100;
+  const payable = roundRupee(((investment.outstandingPrincipal || 0) + (investment.outstandingInterest || 0)));
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt, fmtDate } from "@/common/utils/format";
+import { fmt, fmtDate, roundRupee } from "@/common/utils/format";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
 import { type BackendInvestmentPayout } from "@/modules/investments/types/investment-types";
@@ -50,13 +50,13 @@ export function PayInterestModalContent({ investmentId, investmentNumber, onSave
     let n = 0;
     for (const m of months) {
       if (sum + m.amount > amt + 0.01) break;
-      sum = Math.round((sum + m.amount) * 100) / 100;
+      sum = roundRupee((sum + m.amount));
       n++;
     }
-    return { n, sum, next: months[n] ? Math.round((sum + months[n].amount) * 100) / 100 : null };
+    return { n, sum, next: months[n] ? roundRupee((sum + months[n].amount)) : null };
   }, [months, amt]);
   const exact = amt > 0 && cover.n > 0 && Math.abs(cover.sum - amt) < 0.01;
-  const total = Math.round(months.reduce((s, m) => s + m.amount, 0) * 100) / 100;
+  const total = roundRupee(months.reduce((s, m) => s + m.amount, 0));
   const balanced = Math.abs(remaining) < 0.01;
   const bankMissing = split.upiAmount + split.bankTransferAmount > 0 && !bankId;
 

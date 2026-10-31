@@ -59,7 +59,13 @@ export const MODULE_LABELS: Record<string, string> = {
   demo_reset: "Demo Reset",
   whatsapp: "WhatsApp",
   multiple_interest: "Multiple Interest Schemes",
+  quick_pay: "Record Payment",
+  quick_extension: "Request Extension",
+  quick_release: "Request Release",
 };
+/* Modules that are dashboard quick actions rather than pages. The console shows them in their own
+ * "Dashboard actions" group, in this order. */
+export const DASHBOARD_ACTION_MODULES = ["quick_pay", "quick_extension", "quick_release"] as const;
 export const LANGUAGE_LABELS: Record<string, string> = {
   en: "English",
   ml: "Malayalam",

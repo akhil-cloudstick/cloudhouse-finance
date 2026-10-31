@@ -47,8 +47,9 @@ const TABS = ["packets", "lockers"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { packets: "Packets", lockers: "Lockers" };
 
-// "Ready For Release" is a legacy stage nothing moves into, so not offered.
-const PKT_STATUSES = ["Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released"] as const;
+// "Ready For Release" is a legacy stage nothing moves into, so not offered. "Auctioned" is the loan's status (matched
+// through the loan by the server), shown on the card the same way.
+const PKT_STATUSES = ["Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released", "Auctioned"] as const;
 
 
 const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
@@ -260,7 +261,7 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
           return (
             <PktCard
               code={p.code}
-              status={auctioned ? "Auctioned" : p.loan?.status === "Rejected" ? "Rejected" : p.status}
+              status={auctioned ? "Auctioned" : p.status}
               loan={p.loan?.loanNumber ?? `Loan #${p.loanId}`}
               customer={p.loan?.customer?.name ?? "—"}
               items={items}

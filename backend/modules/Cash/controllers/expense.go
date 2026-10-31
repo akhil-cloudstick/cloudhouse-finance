@@ -381,8 +381,8 @@ func SaveExpense(ctx context.Context, in RecordExpenseInput) (*models.Expense, e
 	return findExpenseByID(ctx, rec.ID)
 }
 
-func listExpenses(ctx context.Context, branchID *uint, search string, limit, offset int) ([]models.Expense, int64, error) {
-	return findExpenses(ctx, branchID, search, limit, offset)
+func listExpenses(ctx context.Context, branchID *uint, f expenseFilter, limit, offset int) ([]models.Expense, int64, error) {
+	return findExpenses(ctx, branchID, f, limit, offset)
 }
 
 func getExpense(ctx context.Context, id uint, branchID *uint) (*models.Expense, error) {
@@ -487,20 +487,67 @@ func insertExpense(ctx context.Context, e *models.Expense) error {
 	return cashDB(ctx).Create(e).Error
 }
 
-func findExpenses(ctx context.Context, branchID *uint, search string, limit, offset int) ([]models.Expense, int64, error) {
-	var expenses []models.Expense
-	q := config.DB.
-		WithContext(ctx).Preload("Branch").Order("occurred_on desc, id desc")
+// expenseFilter narrows the Expense register: free-text search plus category /
+// mode / status and an occurred_on date range (From inclusive, To exclusive).
+type expenseFilter struct {
+	Search   string
+	Category string
+	Mode     string
+	Status   string
+	From     *time.Time
+	To       *time.Time
+}
+
+func expenseFilterFromQuery(c echo.Context) expenseFilter {
+	f := expenseFilter{
+		Search:   strings.TrimSpace(c.QueryParam("search")),
+		Category: strings.TrimSpace(c.QueryParam("category")),
+		Mode:     strings.TrimSpace(c.QueryParam("mode")),
+		Status:   strings.TrimSpace(c.QueryParam("status")),
+	}
+	if t, err := time.ParseInLocation("2006-01-02", c.QueryParam("from"), time.Local); err == nil {
+		f.From = &t
+	}
+	if t, err := time.ParseInLocation("2006-01-02", c.QueryParam("to"), time.Local); err == nil {
+		end := t.AddDate(0, 0, 1)
+		f.To = &end
+	}
+	return f
+}
+
+func applyExpenseFilter(q *gorm.DB, branchID *uint, f expenseFilter) *gorm.DB {
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
-	if search != "" {
-		like := "%" + search + "%"
+	if f.Category != "" {
+		q = q.Where("category = ?", f.Category)
+	}
+	if f.Mode != "" {
+		q = q.Where("mode = ?", f.Mode)
+	}
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+	if f.From != nil {
+		q = q.Where("occurred_on >= ?", *f.From)
+	}
+	if f.To != nil {
+		q = q.Where("occurred_on < ?", *f.To)
+	}
+	if f.Search != "" {
+		like := "%" + f.Search + "%"
 		q = q.Where("category ILIKE ? OR payee ILIKE ? OR remarks ILIKE ? OR mode ILIKE ? OR status ILIKE ?"+
 			" OR branch_id IN (SELECT id FROM branches WHERE name ILIKE ?)"+
 			" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ? OR CAST(amount AS TEXT) LIKE ?",
-			like, like, like, like, like, like, like, like, searchAmountLike(search))
+			like, like, like, like, like, like, like, like, searchAmountLike(f.Search))
 	}
+	return q
+}
+
+func findExpenses(ctx context.Context, branchID *uint, f expenseFilter, limit, offset int) ([]models.Expense, int64, error) {
+	var expenses []models.Expense
+	q := applyExpenseFilter(config.DB.
+		WithContext(ctx).Preload("Branch").Order("occurred_on desc, id desc"), branchID, f)
 	var total int64
 	if limit > 0 {
 		if err := q.Session(&gorm.Session{}).Model(&models.Expense{}).Count(&total).Error; err != nil {
@@ -549,19 +596,9 @@ func attachBankPledgeLinks(ctx context.Context, expenses []models.Expense) {
 	}
 }
 
-func sumExpenseFiltered(ctx context.Context, branchID *uint, search string) (float64, error) {
-	q := config.DB.
-		WithContext(ctx).Model(&models.Expense{})
-	if branchID != nil {
-		q = q.Where("branch_id = ?", *branchID)
-	}
-	if search != "" {
-		like := "%" + search + "%"
-		q = q.Where("category ILIKE ? OR payee ILIKE ? OR remarks ILIKE ? OR mode ILIKE ? OR status ILIKE ?"+
-			" OR branch_id IN (SELECT id FROM branches WHERE name ILIKE ?)"+
-			" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ? OR CAST(amount AS TEXT) LIKE ?",
-			like, like, like, like, like, like, like, like, searchAmountLike(search))
-	}
+func sumExpenseFiltered(ctx context.Context, branchID *uint, f expenseFilter) (float64, error) {
+	q := applyExpenseFilter(config.DB.
+		WithContext(ctx).Model(&models.Expense{}), branchID, f)
 	var sum float64
 	err := q.Select("COALESCE(SUM(amount), 0)").Scan(&sum).Error
 	return sum, err
@@ -709,20 +746,20 @@ func RecordExpense(c echo.Context) error {
 func ListExpenses(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	branchID := auth.GetBranchScope(c)
-	search := strings.TrimSpace(c.QueryParam("search"))
+	filter := expenseFilterFromQuery(c)
 	page, limit, offset := common.PageParams(c)
 	if limit > 0 {
-		rec, total, err := listExpenses(ctx, branchID, search, limit, offset)
+		rec, total, err := listExpenses(ctx, branchID, filter, limit, offset)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
-		totalAmount, err := sumExpenseFiltered(ctx, branchID, search)
+		totalAmount, err := sumExpenseFiltered(ctx, branchID, filter)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessPage(c, page, limit, total, rec, echo.Map{"total_amount": totalAmount})
 	}
-	rec, _, err := listExpenses(ctx, branchID, search, 0, 0)
+	rec, _, err := listExpenses(ctx, branchID, filter, 0, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -732,7 +769,7 @@ func ListExpenses(c echo.Context) error {
 func ExportExpense(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	branchID := auth.GetBranchScope(c)
-	rows, _, err := listExpenses(ctx, branchID, "", 0, 0)
+	rows, _, err := listExpenses(ctx, branchID, expenseFilterFromQuery(c), 0, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

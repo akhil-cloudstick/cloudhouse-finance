@@ -176,7 +176,7 @@ func TestMatrix_PageShowsWhatAPaymentWouldCharge(t *testing.T) {
 					i, p, a, lv, _ := projectAccrualThrough(paying, sameClockAsOpened(paying, time.Now()), true, nil)
 					applyAccrual(paying, i, p, a, lv)
 				}
-				if math.Abs(shown-paying.AccruedInterest) > 0.01 {
+				if math.Abs(shown-math.Round(paying.AccruedInterest)) > 0.01 { // both are whole rupees: the page rounds what it shows, a payment rounds what it saves
 					t.Errorf("%s min %d age %d: page shows %.4f, a payment would save %.4f", method, minimum, age, shown, paying.AccruedInterest)
 				}
 			}

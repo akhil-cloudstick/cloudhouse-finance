@@ -60,13 +60,14 @@ export async function listSchemes(filters?: { q?: string; methods?: string[] }):
  * listSchemes, paged server-side ({items, hasMore, total} envelope).
  * `page` is 0-based. */
 export async function listSchemesPage(
-  filters: { q?: string; methods?: string[] },
+  filters: { q?: string; methods?: string[]; status?: string },
   page: number,
   limit: number
 ): Promise<{ items: SchemeView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(page * limit) });
   if (filters.q) params.set("q", filters.q);
   if (filters.methods?.length) params.set("method", filters.methods.join(","));
+  if (filters.status) params.set("status", filters.status);
   const rec = await apiFetch<{ items: BackendScheme[] | null; hasMore: boolean }>(`/schemes?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }

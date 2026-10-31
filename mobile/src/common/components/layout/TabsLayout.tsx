@@ -212,6 +212,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="auctions" options={{ title: "Auctions", href: null }} />
         <Tabs.Screen name="packets" options={{ title: "Packets & Lockers", href: null }} />
         <Tabs.Screen name="banks" options={{ title: "Bank Pledges", href: null }} />
+        <Tabs.Screen name="bank-management" options={{ title: "Bank Management", href: null }} />
         <Tabs.Screen name="requests" options={{ title: "Requests", href: null }} />
         <Tabs.Screen name="cash" options={{ title: "Ledger", href: null }} />
         <Tabs.Screen name="personal-loans" options={{ title: "Personal Loans", href: null }} />

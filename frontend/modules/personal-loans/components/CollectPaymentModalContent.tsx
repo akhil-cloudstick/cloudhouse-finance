@@ -43,9 +43,12 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
   const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
 
   async function save() {
-    if (!amt || amt <= 0) { fail("amount", "Please enter the amount collected."); return; }
-    if (amt > loan.outstandingAmount + 0.01) { fail("amount", `Amount cannot exceed the outstanding balance of ${fmt(loan.outstandingAmount)}.`); return; }
-    if (!balanced) { fail("split", "The payment breakdown must add up to the amount collected."); return; }
+    // Every problem is shown at once, each under its own field.
+    const errors: Record<string, string> = {};
+    if (!amt || amt <= 0) errors.amount = "Please enter the amount collected.";
+    else if (amt > loan.outstandingAmount + 0.01) errors.amount = `Amount cannot exceed the outstanding balance of ${fmt(loan.outstandingAmount)}.`;
+    if (!balanced) errors.split = "The payment breakdown must add up to the amount collected.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     setErr("");
     setFe({});
@@ -73,7 +76,11 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
     <>
       <div className="hd"><h3>Collect Payment — {loan.loanNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="notice" style={{ marginBottom: 16 }}>Outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></div>
+        <div className="notice" style={{ marginBottom: 16 }}>
+          Outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong>
+          <br />
+          Balance after payment: <strong>{fmt(Math.max(0, loan.outstandingAmount - amt))}</strong>
+        </div>
         <div className="frow">
           <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} max={loan.outstandingAmount} placeholder={`e.g. ${defaultAmount}`} value={amount} onChange={(e) => { setAmount(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
         </div>

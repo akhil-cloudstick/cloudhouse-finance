@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type Dispatch, type SetStateAction } from "react";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { Icon } from "@/common/components/Icon";
 import { FieldError } from "@/common/components/ui/FieldError";
 import { Select } from "@/common/components/ui/Select";
@@ -32,7 +32,7 @@ export function newPaymentRow(init?: Partial<PaymentRow>): PaymentRow {
 
 export const isBankMode = (mode: string) => mode === "UPI" || mode === "Bank Transfer";
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+const round2 = (n: number) => roundRupee(n);
 
 /* A lone untouched row follows the total, but only via the effect below — one render late. Anything that
  * reads the rows during render (the "still to allocate" line, the parent's balanced check) must use this

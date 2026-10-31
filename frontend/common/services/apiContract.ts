@@ -552,6 +552,18 @@ const ROUTES: [string, string, string, string][] = [
   "/users/:user_id/expense-categories"
  ],
  [
+  "DELETE",
+  "/expense-categories/:id",
+  "DELETE",
+  "/users/:user_id/expense-categories/:id"
+ ],
+ [
+  "DELETE",
+  "/categories/:id",
+  "DELETE",
+  "/users/:user_id/categories/:id"
+ ],
+ [
   "GET",
   "/expense-categories/:id/ledger",
   "GET",
@@ -1491,6 +1503,12 @@ const ROUTES: [string, string, string, string][] = [
   "GET",
   "/personal-loans/:id",
   "GET",
+  "/users/:user_id/personal-loans/:id"
+ ],
+ [
+  "DELETE",
+  "/personal-loans/:id",
+  "DELETE",
   "/users/:user_id/personal-loans/:id"
  ],
  [

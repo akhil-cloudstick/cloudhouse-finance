@@ -6,8 +6,8 @@ import {
   AccRow,
   Buffering,
   C,
+  ChipMultiSelect,
   Field,
-  FilterChipRow,
   FiltersBar,
   FlatHeader,
   PrimaryButton,
@@ -40,10 +40,9 @@ import { useAuth } from "@/common/providers/AuthProvider";
 // searched (`q`) and filtered (`status`, `type`) server-side; "Review
 // Request" raises the same review panels the loan detail screen uses.
 
-const STATUSES = ["All", "Pending", "Approved", "Rejected"] as const;
-type Status = (typeof STATUSES)[number];
-const TYPES = ["All", "Extension", "Release"] as const;
-type ReqType = (typeof TYPES)[number];
+// Status and type each take any number of ticked values; none ticked means no restriction.
+const STATUSES = ["Pending", "Approved", "Rejected"] as const;
+const TYPES = ["Extension", "Release"] as const;
 type Filters = { status?: string; type?: string };
 
 export default function RequestsScreen() {
@@ -53,8 +52,8 @@ export default function RequestsScreen() {
   const canDecide = can("Loan_Management", "can_update_loan");
   const params = useLocalSearchParams<{ requestId?: string; loanId?: string }>();
 
-  const [status, setStatus] = usePersistedState<Status>("requests:status", "All");
-  const [type, setType] = usePersistedState<ReqType>("requests:type", "All");
+  const [status, setStatus] = usePersistedState<string[]>("requests:statuses", []);
+  const [type, setType] = usePersistedState<string[]>("requests:types", []);
   const [draft, setDraft] = useState({ status, type });
   const [filterOpen, setFilterOpen] = useState(false);
   // Holds just the id — the sheet derives the request live from the list (or
@@ -65,7 +64,7 @@ export default function RequestsScreen() {
   const [downloadFor, setDownloadFor] = useState<LoanRequest | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
 
-  const filters: Filters = { status: status === "All" ? undefined : status, type: type === "All" ? undefined : type.toLowerCase() };
+  const filters: Filters = { status: status.length ? status.join(",") : undefined, type: type.length ? type.map((t) => t.toLowerCase()).join(",") : undefined };
   const list = useServerList<LoanRequest, Filters>({ key: ["loanRequests", "list"], filters, fetchPage: (p) => listLoanRequestsPage(p) });
 
   // ?requestId=<id> (dashboard "Needs attention") opens that request's review.
@@ -131,8 +130,8 @@ export default function RequestsScreen() {
     qc.invalidateQueries({ queryKey: ["loan"] });
   }
 
-  const count = (status !== "All" ? 1 : 0) + (type !== "All" ? 1 : 0);
-  const summary = `${status === "All" && type === "All" ? "All requests" : [status !== "All" ? status : null, type !== "All" ? type : null].filter(Boolean).join(" · ")} · ${list.total ?? list.items.length}`;
+  const count = status.length + type.length;
+  const summary = `${count === 0 ? "All requests" : [status.join(", "), type.join(", ")].filter(Boolean).join(" · ")} · ${list.total ?? list.items.length}`;
 
   return (
     <Screen header={<FlatHeader title="Requests" subtitle="Extensions & release" />}>
@@ -201,10 +200,10 @@ export default function RequestsScreen() {
 
       <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Requests" maxHeightPct={60}>
         <Field label="Status">
-          <FilterChipRow options={STATUSES} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
+          <ChipMultiSelect options={STATUSES} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
         </Field>
         <Field label="Type">
-          <FilterChipRow options={TYPES} value={draft.type} onChange={(v) => setDraft((d) => ({ ...d, type: v }))} />
+          <ChipMultiSelect options={TYPES} value={draft.type} onChange={(v) => setDraft((d) => ({ ...d, type: v }))} />
         </Field>
         <PrimaryButton
           label="Apply Filters"

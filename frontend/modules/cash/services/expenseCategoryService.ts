@@ -46,6 +46,13 @@ export async function createExpenseCategory(name: string): Promise<BackendExpens
   return rec;
 }
 
+/* Deletes an expense category. The backend refuses system categories and any category
+ * that ledger entries still use, answering with the reason. */
+export async function deleteExpenseCategory(id: number): Promise<void> {
+  await apiFetch<unknown>(`/expense-categories/${id}`, { method: "DELETE" });
+  notifyExpenseCategoriesChanged();
+}
+
 export const EXPENSE_CATEGORY_LEDGER_PAGE_SIZE = 12;
 
 /* The category-ledger endpoint — used for the JSON drill-down below and the

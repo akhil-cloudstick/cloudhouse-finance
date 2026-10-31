@@ -28,6 +28,7 @@ export const ROUTE_PERMISSIONS: Record<string, readonly PermissionRef[]> = {
     ["Locker_Management", "can_view_locker_module"],
   ],
   banks: [["Bank_Pledge_Management", "can_view_bank_pledge_module"]],
+  "bank-management": [["Bank_Management", "can_view_bank_module"]],
   requests: [["Loan_Management", "can_view_loan_module"]],
   // Also covers every /cash/<kind> drill-down ledger (bank, customer, mode,
   // category) — all of them read cash movements.

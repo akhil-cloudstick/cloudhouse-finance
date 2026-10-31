@@ -1,7 +1,7 @@
 "use client";
 
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
@@ -24,7 +24,7 @@ const NO_BRANCHES: string[] = [];
 
 const PLEDGE_STATUSES = ["Not Pledged", "Bank Pledged", "Released"];
 
-const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
+const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Auctioned", "Auctioned - Balance Due", "Closure Requested", "Closed", "Rejected"];
 
 /* "Due Soon"/"Overdue"/"Defaulted" are read-time classifications (see
  * loan/accrual.go's enrichStatusFlags), not stored statuses, so they are not
@@ -32,7 +32,7 @@ const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Appr
  * applies the same rules and paginates (see loan/servicing_filter.go). The
  * three are mutually exclusive: Overdue leaves out defaulted loans, and
  * Defaulted leaves out loans already in the auction pipeline. */
-const SERVICING_CATS: Partial<Record<string, "due_soon" | "overdue" | "defaulted">> = {
+const SERVICING_CATS: Partial<Record<string, ServicingClass>> = {
   "Due Soon": "due_soon",
   "Overdue": "overdue",
   "Defaulted": "defaulted",
@@ -73,7 +73,7 @@ export function LoansPage() {
   const [pledgeStatuses, setPledgeStatuses] = usePersistedState<string[]>("loans:pledge", []);
   const [branches, setBranches] = useState<BranchView[]>([]);
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePersistedPage("loans");
   const [filtered, setFiltered] = useState<LoanView[] | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [serverTotal, setServerTotal] = useState(0);
@@ -90,7 +90,7 @@ export function LoansPage() {
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [catsKey, q, fromDate, toDate, branchKey, customerKey, schemeKey, pledgeKey, pageSize]);
+  useResetPageOnChange(setPage, [catsKey, q, fromDate, toDate, branchKey, customerKey, schemeKey, pledgeKey, pageSize]);
 
   // LoansProvider fetches once when the app shell mounts and is only
   // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,

@@ -367,6 +367,9 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")
 	}
+	if l.Status == models.StatusPendingApproval {
+		return nil, common.NewBadRequest("payments cannot be recorded until the loan is approved")
+	}
 	if in.Amount <= 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
 	}

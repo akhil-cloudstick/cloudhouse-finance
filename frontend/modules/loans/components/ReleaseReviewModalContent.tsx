@@ -5,11 +5,12 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
-import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, editReleaseRecord, linkedDiscountOf } from "@/modules/loans/services/loanService";
+import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, releaseBankPledge, editReleaseRecord, linkedDiscountOf } from "@/modules/loans/services/loanService";
 import { type RequestView, type LoanView } from "@/modules/loans/types/loan-types";
-import { listPackets } from "@/modules/packets/services/packetService";
+import { listPackets, recordMovement, PACKET_STATUS } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModalContent";
+import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { canActAtStage, chainFor, flowOf, isFlowOff, stageByPending, trackerLabels } from "@/common/services/approvalWorkflowService";
@@ -49,7 +50,7 @@ type ReleaseReviewModalContentProps = { request: RequestView; onSaved: () => voi
  * releases go through this same screen; l.isPartial only changes what
  * CompleteRelease does at the final approval. */
 export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewModalContentProps) {
-  const { closeModal, openModal } = useModal();
+  const { closeModal, openModal, openChildModal } = useModal();
   const toast = useToast();
   // Without "can update loan" this modal is a read-only view: the checklist
   // toggles stay locked and the approve/reject pair never renders (see
@@ -103,7 +104,41 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
   }, [loan?.numericId, loan?.bankPledgeStatus]);
 
+  // Shown again after a popup it opened (payment, bank pledge release) closes: pick up what that changed.
+  useEffect(() => { refreshRequest(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const goldStillHeld = loan?.bankPledgeStatus === "Bank Pledged" || packet?.status === "Locker Stored";
+  // The gold sitting in a locker can be checked out right here instead of from the packet page: ticking the
+  // box records the packet as Released, the same move the packet page's Release button makes, and that is
+  // what lets the customer be shown the gold below. A bank-pledged loan still has to be released from its
+  // own page first.
+  const canMovePackets = can("Packet_Management", "can_update_packet");
+  const packetInLocker = loan?.bankPledgeStatus !== "Bank Pledged" && packet?.status === "Locker Stored";
+  // Gold pledged to a bank is released the same way: the box opens the usual Release Bank Pledge popup
+  // (it needs the repayment split for a cash-in pledge) and returns here once it is done.
+  const activePledge = loan?.bankPledgeStatus === "Bank Pledged" ? loan.bankPledges.find((bp) => bp.status === "Active") : undefined;
+  const canReleasePledge = can("Bank_Pledge_Management", "can_update_bank_pledge");
+  const canReleaseHeldGold = req.status === "Pending" && canDecide && !req.locked && ((packetInLocker && canMovePackets) || (!!activePledge && canReleasePledge));
+  const [releasingPacket, setReleasingPacket] = useState(false);
+  const [packetReleasedHere, setPacketReleasedHere] = useState(false);
+  async function releasePacket() { return singleFlight("modal:releasereview:releasePacket", async () => {
+    if (!packet) return;
+    setReleasingPacket(true);
+    setErr("");
+    try {
+      // Same fixed actor id the packet page sends; the server takes the real employee from the login.
+      await recordMovement(packet.id, { toStatus: PACKET_STATUS.RELEASED, employeeId: 1, remarks: `Released with release request on ${request.loanNumber}` });
+      const ps = await listPackets({ loanId: packet.loanId });
+      setPacket(ps[0] ?? null);
+      setPacketReleasedHere(true);
+      onSaved();
+      toast(`Packet ${packet.code} released`);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not release the packet — try again.");
+    } finally {
+      setReleasingPacket(false);
+    }
+  }); }
   const goldHeldReason = loan?.bankPledgeStatus === "Bank Pledged" ? "pledged to a bank" : "checked into a locker";
 
   // Re-fetches this one request after a payment recorded via the general
@@ -300,7 +335,50 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
               </span>
             </label>
           </div>
-          {goldStillHeld && loan && (
+          {((packetInLocker && canMovePackets && canReleaseHeldGold) || packetReleasedHere) && packet && (
+            <div className="ccheck-grid">
+              <label className="ccheck" style={{ padding: "6px 0" }}>
+                <input type="checkbox" checked={packetReleasedHere} disabled={releasingPacket || packetReleasedHere || saving || req.locked} onChange={(e) => { if (e.target.checked) releasePacket(); }} />
+                <span className="mark" />
+                <span>
+                  <b>{packetReleasedHere ? `Packet ${packet.code} released` : `Release packet ${packet.code} from the locker`}</b>
+                  <div className="ccheck-hint">{packetReleasedHere ? "The gold is out of the locker and can be shown to the customer" : "Records the packet as Released, the same as the Release button on the packet page"}</div>
+                </span>
+              </label>
+            </div>
+          )}
+          {activePledge && canReleaseHeldGold && loan && (
+            <div className="ccheck-grid">
+              <label className="ccheck" style={{ padding: "6px 0" }}>
+                <input
+                  type="checkbox"
+                  checked={false}
+                  disabled={saving || req.locked}
+                  onChange={(e) => {
+                    if (!e.target.checked) return;
+                    openChildModal(
+                      <ReleasePledgeModalContent
+                        bankName={activePledge.bankName}
+                        amount={activePledge.pledgedAmount}
+                        cashTreatment={activePledge.cashTreatment}
+                        onConfirm={async (payment) => {
+                          await releaseBankPledge(loan.numericId, activePledge.id, payment);
+                          toast("Bank pledge released");
+                          onSaved();
+                        }}
+                      />,
+                    );
+                  }}
+                />
+                <span className="mark" />
+                <span>
+                  <b>Release the bank pledge ({activePledge.bankName})</b>
+                  <div className="ccheck-hint">The gold is pledged to a bank — release it first so it can be shown to the customer</div>
+                </span>
+              </label>
+            </div>
+          )}
+          {goldStillHeld && loan && !canReleaseHeldGold && (
             <p className="notice" style={{ marginTop: 8, color: "var(--red)" }}>
               <Icon name="shield" />{" "}
               This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
@@ -338,7 +416,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         <button
           className="btn ghost sm"
           disabled={req.status !== "Pending" || !canDecide || !loan}
-          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
+          onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
         >
           <Icon name="coin" /> Record Payment
         </button>
@@ -355,7 +433,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
               * VerifyReleaseChecklist/ApproveReleaseRequest are), posted
               * through the plain /loans/:id/payments endpoint like any
               * other payment, not the release-request endpoint. */}
-            <button className="btn ghost sm" onClick={() => openModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}>
+            <button className="btn ghost sm" onClick={() => openChildModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}>
               <Icon name="coin" /> Record Top-Up Payment
             </button>
           </div>

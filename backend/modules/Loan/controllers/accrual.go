@@ -15,7 +15,7 @@ import (
 
 const (
 	dueSoonWindowDays  = 7
-	defaultedAfterDays = 90
+	defaultedAfterDays = models.DefaultedAfterDays
 
 	// multipleCycleDays is the length of one charge period on a Multiple-interest loan.
 	multipleCycleDays = 30
@@ -817,21 +817,33 @@ func clampMoney(v float64) float64 {
 	return v
 }
 
+// calendarDay drops the time of day, keeping the calendar date t shows in its own
+// location, so due dates compare by day rather than by instant.
+func calendarDay(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+// daysPastDue is how many whole calendar days asOf is after the due date: 0 on
+// the due date itself, 1 the day after. Negative while the loan is not yet due.
+func daysPastDue(dueDate, asOf time.Time) int {
+	return int(calendarDay(asOf).Sub(calendarDay(dueDate)).Hours() / 24)
+}
+
 func enrichStatusFlags(l *models.Loan, asOf time.Time) {
 	switch l.Status {
-	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned:
+	// A loan awaiting sanction is not being serviced yet, so it is never due or overdue.
+	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusPendingApproval:
 		return
 	}
-	if asOf.After(l.DueDate) {
-		overdueDays := int(asOf.Sub(l.DueDate).Hours() / 24)
+	if overdueDays := daysPastDue(l.DueDate, asOf); overdueDays > 0 {
 		l.IsOverdue = true
 		l.DaysOverdue = overdueDays
 		l.IsDefaulted = overdueDays > defaultedAfterDays &&
 			(l.OutstandingInterest >= moneyEpsilon || l.OutstandingPenalInterest >= moneyEpsilon)
 		return
 	}
-	daysUntilDue := int(l.DueDate.Sub(asOf).Hours() / 24)
-	l.IsDueSoon = daysUntilDue <= dueSoonWindowDays
+	l.IsDueSoon = -daysPastDue(l.DueDate, asOf) <= dueSoonWindowDays
 }
 
 func isCashPaymentType(t string) bool {

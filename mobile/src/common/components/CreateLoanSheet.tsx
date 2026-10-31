@@ -27,6 +27,7 @@ import {
   toast,
 } from "@/common/components/ui";
 import { UploadField } from "./UploadField";
+import { ErrorText } from "./ErrorText";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listCustomers } from "@/modules/customers/services/customerService";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
@@ -166,7 +167,30 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
   const principal = pActive ? (pActive.v === "" ? "" : String(Math.min(+pActive.v || 0, eligible))) : eligible > 0 ? String(eligible) : "";
   const showExceeds = exceeds && pActive?.at === eligible;
   const hasCharge = !!scheme && !!scheme.serviceChargeType && scheme.serviceChargeType !== "None";
-  const canSubmit = canCreate && !!openedDate && openedDate <= today && !!branch && !!customer && !!scheme && Number(principal) > 0 && valid.length > 0 && isTodaySet && !lessExceeds && (!overallPhotoRequired || !!overallPhoto);
+  // The first mandatory thing still missing, in form order. Create Loan stays disabled until there is none
+  // (permission is explained by its own banner).
+  const missingReason: string | null = !openedDate
+    ? "Choose the opening date."
+    : openedDate > today
+      ? "The opening date can't be after today."
+      : !branch
+        ? "Select a branch."
+        : !customer
+          ? "Select a customer."
+          : !scheme
+            ? "Select a scheme."
+            : valid.length === 0
+              ? "Add at least one ornament with its name, purity, gross weight and net weight."
+              : lessExceeds
+                ? "An ornament's less weight can't be more than its gross weight."
+                : !(Number(principal) > 0)
+                  ? "Enter the loan amount."
+                  : !isTodaySet
+                    ? "Today's gold rate hasn't been published yet."
+                    : overallPhotoRequired && !overallPhoto
+                      ? "Add the overall photo of the pledged gold."
+                      : null;
+  const canSubmit = canCreate && missingReason === null;
 
   const reset = () => {
     setCustomer(null);
@@ -324,26 +348,6 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
         <WarningBanner>Today&apos;s gold rate hasn&apos;t been published yet — loan creation is blocked until it is. Set it from the dashboard gold rate.</WarningBanner>
       ) : null}
 
-      {canCreate && (drafts.data?.length ?? 0) > 0 ? (
-        <Card style={{ marginHorizontal: 0, marginBottom: 14, padding: 14 }}>
-          <SectionTitle flush style={{ marginBottom: 6 }}>
-            Saved drafts
-          </SectionTitle>
-          {drafts.data!.map((d) => (
-            <View key={d.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.line }}>
-              <Txt style={{ fontSize: 13, fontWeight: draftId === d.id ? "700" : "500" }}>
-                {d.customer?.name ?? "No customer yet"} · {d.ornaments.length} ornament{d.ornaments.length === 1 ? "" : "s"}
-              </Txt>
-              <Txt style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>{[d.scheme?.name, d.branch?.name].filter(Boolean).join(" · ") || "Saved " + d.updatedAt.slice(0, 10)}</Txt>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <AccBtn label="Open" onPress={() => applyDraft(d)} />
-                <AccBtn label="Discard" onPress={() => discardDraftMut.mutate(d.id)} />
-              </View>
-            </View>
-          ))}
-        </Card>
-      ) : null}
-
       <AsyncSelect<Customer>
         label="Customer"
         placeholder="Search existing customer by name, ID or phone"
@@ -351,7 +355,14 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
         fetcher={(q) => listCustomers(q || undefined)}
         selectedLabel={customer ? `${customer.name} · ${customer.code ?? ""}` : undefined}
         onClear={() => setCustomer(null)}
-        onSelect={setCustomer}
+        onSelect={(c) => {
+          setCustomer(c);
+          // A customer borrows from their own branch, so the loan takes it (the backend enforces this too).
+          if (c.branchId) {
+            setBranch({ id: c.branchId, name: c.branch?.name ?? branch?.name ?? "" });
+            if (locker && locker.branchId !== c.branchId) setLocker(null);
+          }
+        }}
         keyOf={(c) => c.id}
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
@@ -367,7 +378,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
         renderItem={(sc) => ({ title: sc.name, sub: `${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%` })}
       />
 
-      {canPickBranch ? (
+      {canPickBranch && !customer ? (
         <AsyncSelect<{ id: number; name: string; code?: string }>
           label="Branch"
           placeholder="Search branch"
@@ -382,7 +393,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
           renderItem={(b) => ({ title: b.name, sub: b.code })}
         />
       ) : (
-        <Field label="Branch">
+        <Field label={canPickBranch ? "Branch (customer's branch)" : "Branch"}>
           <Input value={branch?.name ?? ""} editable={false} />
         </Field>
       )}
@@ -509,7 +520,28 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
       <Field label="Additional information">
         <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline />
       </Field>
+      {/* Saved drafts sit at the bottom, below the form, above the buttons. */}
+      {canCreate && (drafts.data?.length ?? 0) > 0 ? (
+        <Card style={{ marginHorizontal: 0, marginTop: 4, marginBottom: 14, padding: 14 }}>
+          <SectionTitle flush style={{ marginBottom: 6 }}>
+            Saved drafts
+          </SectionTitle>
+          {drafts.data!.map((d) => (
+            <View key={d.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.line }}>
+              <Txt style={{ fontSize: 13, fontWeight: draftId === d.id ? "700" : "500" }}>
+                {d.customer?.name ?? "No customer yet"} · {d.ornaments.length} ornament{d.ornaments.length === 1 ? "" : "s"}
+              </Txt>
+              <Txt style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>{[d.scheme?.name, d.branch?.name].filter(Boolean).join(" · ") || "Saved " + d.updatedAt.slice(0, 10)}</Txt>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <AccBtn label="Open" onPress={() => applyDraft(d)} />
+                <AccBtn label="Discard" onPress={() => discardDraftMut.mutate(d.id)} />
+              </View>
+            </View>
+          ))}
+        </Card>
+      ) : null}
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+      {canCreate && !error ? <ErrorText>{missingReason}</ErrorText> : null}
       <BtnRow2>
         {canCreate ? (
           <PrimaryButton

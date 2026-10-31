@@ -1,5 +1,6 @@
 "use client";
 
+import { PAN_RE, AADHAAR_RE, PAN_MESSAGE, AADHAAR_MESSAGE, stripDigits } from "@/common/utils/kyc";
 import { useEffect, useState } from "react";
 import { ageFromDob } from "@/common/utils/format";
 import { useModal } from "@/common/components/ModalProvider";
@@ -95,10 +96,15 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
   async function save() { return singleFlight("modal:editcustomer:save", async () => {
     const n = name.trim();
     const p = phone.trim();
-    if (n.length < 3) { fail("name", "Please enter the customer’s full name."); return; }
-    if (!p) { fail("phone", "Please enter the customer’s mobile number."); return; }
-    if (!/^\d{10}$/.test(p)) { fail("phone", "Please enter a valid 10-digit mobile number."); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    // Every problem is shown at once, each under its own field. Aadhaar stays blank to keep the one on file.
+    const errors: Record<string, string> = {};
+    if (n.length < 3) errors.name = "Please enter the customer’s full name.";
+    if (!p) errors.phone = "Please enter the customer’s mobile number.";
+    else if (!/^\d{10}$/.test(p)) errors.phone = "Please enter a valid 10-digit mobile number.";
+    if (!branchId) errors.branch = "Please select a branch.";
+    if (pan.trim() && !PAN_RE.test(pan.trim().toUpperCase())) errors.pan = PAN_MESSAGE;
+    if (aadhaar.trim() && !AADHAAR_RE.test(aadhaar.trim())) errors.aadhaar = AADHAAR_MESSAGE;
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     setSaving(true);
     setErr("");
@@ -169,7 +175,7 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
           <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
           <div><label className="f">Age</label><input className="inp" readOnly tabIndex={-1} placeholder="Auto from date of birth" value={ageFromDob(dob) ?? ""} style={{ background: "var(--bg-soft, #f6f6f8)" }} /></div>
           <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
-          <div className={fe.pan ? "has-err" : undefined}><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value)} /><FieldError msg={fe.pan} /></div>
+          <div className={fe.pan ? "has-err" : undefined}><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} /><FieldError msg={fe.pan} /></div>
           <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number</label><input className="inp" placeholder="Leave blank to keep on-file Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
         </div>
 
@@ -185,8 +191,8 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
 
         <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>
         <div className="frow c3">
-          <div><label className="f">Nominee Name</label><input className="inp" placeholder="e.g. Sunitha Varma" value={nomineeName} onChange={(e) => setNomineeName(e.target.value)} /></div>
-          <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)} /></div>
+          <div><label className="f">Nominee Name</label><input className="inp" placeholder="e.g. Sunitha Varma" value={nomineeName} onChange={(e) => setNomineeName(stripDigits(e.target.value))} /></div>
+          <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(stripDigits(e.target.value))} /></div>
           <div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
 
@@ -203,16 +209,14 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
         {showAdditional && (
           <>
             <div className="frow c3" style={{ marginTop: 14 }}>
-              <div><label className="f">Father&apos;s Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(e.target.value)} /></div>
               <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
-            </div>
-            <div className="frow c3">
               <div><label className="f">Taluk</label><input className="inp" placeholder="e.g. Kozhikode" value={taluk} onChange={(e) => setTaluk(e.target.value)} /></div>
               <div><label className="f">Village</label><input className="inp" placeholder="e.g. Feroke" value={village} onChange={(e) => setVillage(e.target.value)} /></div>
-              <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
             </div>
             <div className="frow c3">
+              <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
               <div><label className="f">Pin Code</label><input className="inp" inputMode="numeric" placeholder="6-digit pin code" maxLength={6} value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ""))} /></div>
+              <div><label className="f">Guardian Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(stripDigits(e.target.value))} /></div>
             </div>
           </>
         )}

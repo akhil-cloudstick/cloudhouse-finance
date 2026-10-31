@@ -262,6 +262,8 @@ export type EntryInfo = {
   bankPledgeId?: number;
   // investment_entry: loanId is the investment, this its ledger entry id (tx-N, payout-N, open-N).
   investmentEntryId?: string;
+  // What a loan repayment was applied to, each part with the mode it was paid by (cash first, then UPI, then bank).
+  split?: LedgerSplitLineView[];
 };
 export type EntryUpdateInput = {
   // The type the entry should have after saving; when it differs from the entry's own, it is converted.
@@ -417,7 +419,11 @@ export type LedgerRowView = {
   // The personal-loan payment (with paymentId) behind a row, and an Interest / Penal Interest Charged row (loanId).
   personalLoanId?: number;
   loanAccrual?: boolean;
+  // What a loan repayment was applied to, each part with the mode it was paid by (cash first, then UPI, then
+  // bank transfer). The row stays one entry for the amount paid; the info popup lists these.
+  split?: LedgerSplitLineView[];
 };
+export type LedgerSplitLineView = { label: string; mode?: string; amount: number };
 export type BackendLedgerRow = {
   id: number;
   date: string;
@@ -441,5 +447,6 @@ export type BackendLedgerRow = {
   // The personal-loan payment (with paymentId) behind a row, and an Interest / Penal Interest Charged row (loanId).
   personalLoanId?: number;
   loanAccrual?: boolean;
+  split?: LedgerSplitLineView[];
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];

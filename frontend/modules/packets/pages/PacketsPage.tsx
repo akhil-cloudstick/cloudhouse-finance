@@ -1,5 +1,6 @@
 "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { Icon } from "@/common/components/Icon";
@@ -16,7 +17,7 @@ import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { listPacketsPage, getPacketByCode } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
@@ -72,7 +73,7 @@ export function PacketsPage() {
   const [error, setError] = useState("");
   const [lookup, setLookup] = useState("");
   const [lookupErr, setLookupErr] = useState("");
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePersistedPage("packets");
   const [total, setTotal] = useState(0);
   const [lockerPage, setLockerPage] = useState(1);
   // Card mode shows one table at a time; these tabs switch between them.
@@ -184,7 +185,7 @@ export function PacketsPage() {
   useEffect(() => { loadPackets(); }, [page, statusKey, branchKey, customerKey, q, pageSize]);
   // A new search term always starts back at page 1 — otherwise a filter
   // typed while sitting on page 3 can land on an empty page.
-  useEffect(() => { setPage(1); }, [q]);
+  useResetPageOnChange(setPage, [q]);
 
   async function onLookup(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== "Enter") return;
@@ -288,6 +289,7 @@ export function PacketsPage() {
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+            <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
           </div>
         </div>
         {canViewLockers && <div className="card tbl-card tbl-card-fill" style={cards && cardTab !== "lockers" ? { display: "none" } : undefined}>
@@ -340,6 +342,7 @@ export function PacketsPage() {
             <button className="btn plain sm" disabled={lockerPageClamped <= 1} onClick={() => setLockerPage(Math.max(1, lockerPageClamped - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {lockerPageClamped} of {lockerTotalPages}</span>
             <button className="btn plain sm" disabled={lockerPageClamped >= lockerTotalPages} onClick={() => setLockerPage(Math.min(lockerTotalPages, lockerPageClamped + 1))}>Next ›</button>
+            <GoToPage page={lockerPageClamped} totalPages={lockerTotalPages} onChange={setLockerPage} />
           </div>
         </div>}
       </div>

@@ -123,10 +123,13 @@ func findBanks(ctx context.Context, query string, branchID *uint, limit, offset 
 	return banks, total, err
 }
 
-func findBankByName(ctx context.Context, name string) (*commonModels.Bank, error) {
+// findBankByNameAndBranch matches a bank by name together with the bank's own
+// branch, case-insensitively and without treating % or _ as wildcards. One bank
+// name may have many branches; only the pair must be unique.
+func findBankByNameAndBranch(ctx context.Context, name, branch string) (*commonModels.Bank, error) {
 	var b commonModels.Bank
 	if err := config.DB.
-		WithContext(ctx).Where("name ILIKE ?", name).First(&b).Error; err != nil {
+		WithContext(ctx).Where("lower(name) = lower(?) AND lower(coalesce(branch, '')) = lower(?)", name, branch).First(&b).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil
@@ -243,7 +246,7 @@ func FindBankOrCreate(ctx context.Context, in BankCreateInput) (*commonModels.Ba
 	if phone != "" && !bankPhoneRe.MatchString(phone) {
 		return nil, false, NewBadRequest("phone number must be exactly 10 digits")
 	}
-	existing, err := findBankByName(ctx, trimmed)
+	existing, err := findBankByNameAndBranch(ctx, trimmed, strings.TrimSpace(in.Branch))
 	if err == nil {
 		return existing, false, nil
 	}
@@ -282,8 +285,8 @@ func updateBank(ctx context.Context, id uint, in BankCreateInput) (*commonModels
 	if phone != "" && !bankPhoneRe.MatchString(phone) {
 		return nil, NewBadRequest("phone number must be exactly 10 digits")
 	}
-	if existing, _ := findBankByName(ctx, trimmed); existing != nil && existing.ID != id {
-		return nil, NewConflict("a bank with this name already exists")
+	if existing, _ := findBankByNameAndBranch(ctx, trimmed, strings.TrimSpace(in.Branch)); existing != nil && existing.ID != id {
+		return nil, NewConflict("a bank with this name and branch already exists")
 	}
 	rec.Name = trimmed
 	if in.BranchID != 0 {
@@ -337,7 +340,10 @@ func mergeBank(ctx context.Context, sourceID, targetID uint) (*commonModels.Bank
 func ListBanks(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := PageParams(c)
-	scope := auth.GetBranchScope(c)
+	scope, ok := queryBranchFilter(c)
+	if !ok {
+		return Fail(c, http.StatusBadRequest, "that branch is outside your current branch selection")
+	}
 	if limit == 0 {
 		rec, _, _, _, err := listWithBalances(ctx, c.QueryParam("search"), scope, 0, 0)
 		if err != nil {

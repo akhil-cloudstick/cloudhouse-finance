@@ -4566,7 +4566,7 @@ table.tbl {
   white-space: nowrap
 }
 
-/* Loans page only (.tbl.tbl-center) — center every column's content,
+/* Opt-in (.tbl.tbl-center) — center every column's content,
  * including the numeric ones that .tbl .num otherwise right-aligns. */
 .tbl.tbl-center th,
 .tbl.tbl-center td {
@@ -9706,5 +9706,19 @@ table.tbl.lockers-tbl {
     right: auto !important;
     transform: none !important;
     margin: 0;
+  }
+}
+
+/* Bug 105: list tables used automatic layout, so a column's width followed that page's content and the same
+ * table looked different from page to page. On desktop the card tables now share fixed column sizing (equal
+ * columns unless a <col> says otherwise). Skipped at <=1100px, where these tables are cards, and for the loans
+ * table (loans-tbl) and customer 360 tables, which size their own columns. */
+@media (min-width: 1101px) {
+  table.tbl.tbl-cards:not(.loans-tbl) {
+    table-layout: fixed;
+  }
+  table.tbl.tbl-cards:not(.loans-tbl) th,
+  table.tbl.tbl-cards:not(.loans-tbl) td {
+    overflow-wrap: anywhere;
   }
 }

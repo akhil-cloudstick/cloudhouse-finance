@@ -1,5 +1,6 @@
 "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { TableSearch } from "@/common/components/ui/TableSearch";
@@ -236,7 +237,7 @@ export function ReportView({ config, onBack }: ReportViewProps) {
           </div>
         </div>
         <div className="tbl-wrap">
-          <table className="tbl tbl-cards">
+          <table className="tbl tbl-cards tbl-center">
             <thead>
               <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
             </thead>
@@ -266,6 +267,7 @@ export function ReportView({ config, onBack }: ReportViewProps) {
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+          <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       </div>
     </>

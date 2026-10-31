@@ -272,10 +272,14 @@ export default function LoanDetailScreen() {
     go("delete");
   }
 
+  // A loan still awaiting approval has no Actions button: its documents stay one tap away instead.
+  const pendingApproval = l.status === "Pending Approval";
   const bar =
     pendingStage && canActOnStage
       ? [
-          { label: "Actions", icon: "bolt", onPress: () => go("actions") },
+          pendingApproval
+            ? { label: "Documents", icon: "doc", onPress: () => go("documents") }
+            : { label: "Actions", icon: "bolt", onPress: () => go("actions") },
           { label: "Reject", tone: "danger" as const, onPress: rejectCurrent, disabled: doApprove.isPending },
           {
             label: approveLabel,
@@ -285,10 +289,12 @@ export default function LoanDetailScreen() {
             disabled: doApprove.isPending,
           },
         ]
-      : [
-          { label: "Documents", icon: "doc", onPress: () => go("documents") },
-          { label: "Actions", icon: "bolt", primary: true, onPress: () => go("actions") },
-        ];
+      : pendingApproval
+        ? [{ label: "Documents", icon: "doc", primary: true, onPress: () => go("documents") }]
+        : [
+            { label: "Documents", icon: "doc", onPress: () => go("documents") },
+            { label: "Actions", icon: "bolt", primary: true, onPress: () => go("actions") },
+          ];
 
   // Overview tab, in the web page's column order: Loan Details, Settlement
   // Preview, Financial Summary.
@@ -528,7 +534,7 @@ export default function LoanDetailScreen() {
           // Collect / request / complete all POST behind "can update loan";
           // a pending request can still be opened read-only to review it.
           if (!isFinished) {
-            if (canEditLoan) add("collect", { icon: "card", title: "Collect Payment", sub: "Record an EMI or part payment", onPress: () => go("collect") });
+            if (canEditLoan && l.status !== "Pending Approval") add("collect", { icon: "card", title: "Collect Payment", sub: "Record an EMI or part payment", onPress: () => go("collect") });
             if (canEditLoan || pendingExtension) add("extend", {
               icon: "calendar",
               title: pendingExtension ? "Review Extension" : "Extend Loan Tenure",
@@ -573,7 +579,7 @@ export default function LoanDetailScreen() {
         onClose={() => setOpen(null)}
         onAddOrnaments={canEditThis ? () => go("edit") : undefined}
         // Recording a payment is a loan update — top-up alone doesn't grant it.
-        onRecordPayment={canEditLoan ? () => go("collect") : undefined}
+        onRecordPayment={canEditLoan && l.status !== "Pending Approval" ? () => go("collect") : undefined}
       />
       {pendingStage ? (
         <ConfirmSheet

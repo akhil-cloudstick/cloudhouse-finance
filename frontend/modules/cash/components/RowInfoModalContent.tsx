@@ -33,6 +33,23 @@ export function RowInfoModalContent({ row }: RowInfoModalContentProps) {
           {row.bankName ? item("Bank", row.bankName) : null}
           {item("Balance", fmt(row.runningBalance))}
         </div>
+        {row.split && row.split.length > 0 && (
+          <>
+            <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Paid towards</h4>
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Part</th><th>Mode</th><th className="num">Amount</th></tr></thead>
+              <tbody>
+                {row.split.map((ln, i) => (
+                  <tr key={`${ln.label}-${ln.mode ?? ""}-${i}`}>
+                    <td>{ln.label}</td>
+                    <td>{ln.mode || "—"}</td>
+                    <td className="num">{fmt(ln.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          </>
+        )}
         <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Description</h4>
         <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, whiteSpace: "pre-wrap", minHeight: 40 }}>
           {row.description || row.type || "—"}

@@ -1,11 +1,11 @@
 package controllers
 
 import (
+	common "cloudhouse/backend/common/controllers"
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Cash/models"
 	"context"
 	"fmt"
-	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -53,6 +53,10 @@ type LedgerRow struct {
 	// Interest Charged row, derived from the gold loan LoanID's sanction.
 	PersonalLoanID uint `json:"personal_loan_id,omitempty"`
 	LoanAccrual    bool `json:"loan_accrual,omitempty"`
+	// Split is what a loan repayment was applied to (processing fee, penal interest, interest, principal), each part
+	// with the mode it was paid by (cash first, then UPI, then bank transfer). The row itself stays one entry for the
+	// amount paid; the info popup shows this.
+	Split []LedgerSplitLine `json:"split,omitempty"`
 }
 
 type ledgerSourceRow struct {
@@ -73,6 +77,7 @@ type ledgerSourceRow struct {
 	CustomerName   string
 	IsOut          bool
 	Memo           bool
+	Split          []LedgerSplitLine
 }
 
 type splitParts struct {
@@ -500,6 +505,7 @@ func scanLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg uint, from
 			BankName:       p.BankName,
 			CustomerID:     p.CustomerID,
 			CustomerName:   p.CustomerName,
+			Split:          loanRepaymentSplit(p.Type, p.PenalInterestApplied, p.InterestApplied, p.PrincipalApplied, p.ProcessingFeeApplied, p.Amount, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount}, p.Method),
 		}, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount}, ledgerPaymentComponents(p.Type, p.PenalInterestApplied, p.InterestApplied, p.PrincipalApplied, p.ProcessingFeeApplied, p.Amount))...)
 	}
 	return out, nil
@@ -543,6 +549,7 @@ func scanPersonalLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg ui
 	if err := q.Scan(&raw).Error; err != nil {
 		return nil, err
 	}
+	plSplits := personalSplitsForLoans(db, distinctPersonalLoanIDs(len(raw), func(i int) uint { return raw[i].PersonalLoanID }))
 	out := make([]ledgerSourceRow, 0, len(raw))
 	for _, p := range raw {
 		if p.Method == "Renewal Rollover" {
@@ -582,6 +589,7 @@ func scanPersonalLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg ui
 			BankName:       p.BankName,
 			CustomerID:     p.CustomerID,
 			CustomerName:   p.CustomerName,
+			Split:          PersonalSplitLines(plSplits[p.ID], p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, p.Method, p.Amount),
 		}, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount})...)
 	}
 	return out, nil
@@ -671,6 +679,7 @@ func toLedgerRow(r ledgerSourceRow) LedgerRow {
 		CustomerID:     r.CustomerID,
 		CustomerName:   r.CustomerName,
 		Memo:           r.Memo,
+		Split:          r.Split,
 	}
 	switch r.Kind {
 	case "loan_payment", "loan_discount":
@@ -1109,6 +1118,7 @@ func scanLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branc
 			BankName:       p.BankName,
 			CustomerID:     p.CustomerID,
 			CustomerName:   p.CustomerName,
+			Split:          loanRepaymentSplit(p.Type, p.PenalInterestApplied, p.InterestApplied, p.PrincipalApplied, p.ProcessingFeeApplied, p.Amount, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount}, p.Method),
 		}, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount}, ledgerPaymentComponents(p.Type, p.PenalInterestApplied, p.InterestApplied, p.PrincipalApplied, p.ProcessingFeeApplied, p.Amount))...)
 	}
 	return onlyMode(out, mode), nil
@@ -1157,6 +1167,7 @@ func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uin
 		return nil, err
 	}
 	out := make([]ledgerSourceRow, 0, len(raw))
+	plSplits := personalSplitsForLoans(db, distinctPersonalLoanIDs(len(raw), func(i int) uint { return raw[i].PersonalLoanID }))
 	for _, p := range raw {
 		if ledgerNonCashPaymentTypes[p.Method] {
 			continue
@@ -1176,6 +1187,7 @@ func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uin
 			RunningBalance: p.RunningBalance,
 			CustomerID:     p.CustomerID,
 			CustomerName:   p.CustomerName,
+			Split:          PersonalSplitLines(plSplits[p.ID], p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, p.Method, p.Amount),
 		}, splitParts{p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount})...)
 	}
 	return onlyMode(out, mode), nil
@@ -1635,7 +1647,7 @@ func expandPaymentRows(r ledgerSourceRow, parts splitParts, comps []payComponent
 				}
 			}
 			row.Method = modes[mi].mode
-			row.Amount = math.Round(take*100) / 100
+			row.Amount = common.RoundMoney(take)
 			if row.Method == models.CashModeCash {
 				row.BankID, row.BankName = nil, ""
 			}
@@ -1695,7 +1707,7 @@ func legacyAuctionSplit(db *gorm.DB, loanNumber string, applied float64) (splitP
 	var parts splitParts
 	var bank *uint
 	for _, l := range lines {
-		share := math.Round(applied*l.Total/whole*100) / 100
+		share := common.RoundMoney(applied * l.Total / whole)
 		switch l.Mode {
 		case models.CashModeUPI:
 			parts.Upi += share
@@ -1708,7 +1720,7 @@ func legacyAuctionSplit(db *gorm.DB, loanNumber string, applied float64) (splitP
 		}
 	}
 	// rounding: the last mode with money takes the remainder so the parts add up to what was applied
-	diff := math.Round((applied-parts.Cash-parts.Upi-parts.BankTransfer)*100) / 100
+	diff := common.RoundMoney(applied - parts.Cash - parts.Upi - parts.BankTransfer)
 	switch {
 	case parts.BankTransfer > 0:
 		parts.BankTransfer += diff
@@ -1718,4 +1730,17 @@ func legacyAuctionSplit(db *gorm.DB, loanNumber string, applied float64) (splitP
 		parts.Cash += diff
 	}
 	return parts, bank, true
+}
+
+// distinctPersonalLoanIDs lists the distinct personal loans among n scanned payment rows.
+func distinctPersonalLoanIDs(n int, at func(int) uint) []uint {
+	seen := map[uint]bool{}
+	var ids []uint
+	for i := 0; i < n; i++ {
+		if id := at(i); id != 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

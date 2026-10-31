@@ -1,6 +1,8 @@
 "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useEffect, useRef, useState } from "react";
+import { usePersistedPage } from "@/common/hooks/use-persisted-state";
 import { useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useModal } from "@/common/components/ModalProvider";
@@ -23,12 +25,12 @@ const PAGE_SIZE = 15;
 // `.tbl-scroll-paged` in app.css) so the first 10 rows overflow and
 // scrolling to the end fetches the next 10.
 const MODAL_PAGE_SIZE = 10;
-type BankTableProps = { reloadKey: number; afterChange: () => void; inModal?: boolean; onTotalBalance?: (n: number) => void; q?: string };
+type BankTableProps = { reloadKey: number; afterChange: () => void; inModal?: boolean; onTotalBalance?: (n: number) => void; q?: string; branchId?: string };
 
 /* `inModal` drops the card border (the modal box is already the frame — see
  * `.tbl-flat` / `.bd-tbl` in app.css) and swaps the Prev/Next pager for
  * infinite scroll: the next page loads as the rows are scrolled to the end. */
-export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q = "" }: BankTableProps) {
+export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q = "", branchId }: BankTableProps) {
   const { openModal } = useModal();
   const { can } = useAuth();
   const canOpenRoute = useCanOpenRoute();
@@ -42,7 +44,12 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
-  const [page, setPage] = useState(1);
+  // The Bank Management page remembers its page across a Back; the modal list loads
+  // page by page as it scrolls, so it always starts from the first.
+  const [savedPage, setSavedPage] = usePersistedPage("banks");
+  const [modalPage, setModalPage] = useState(1);
+  const page = inModal ? modalPage : savedPage;
+  const setPage = inModal ? setModalPage : setSavedPage;
   const wrapRef = useRef<HTMLDivElement>(null);
   const { cards, size: scrollSize, more } = useScrollPageSize(PAGE_SIZE);
   // Card mode: the page size grows as the list is scrolled (page stays 1).
@@ -52,7 +59,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
   async function load() {
     if (inModal && page > 1) setLoadingMore(true);
     try {
-      const res = await listBanksPage(page, pageSize, q);
+      const res = await listBanksPage(page, pageSize, q, branchId || undefined);
       setBanks((prev) => (inModal && page > 1 ? [...(prev ?? []), ...res.items] : res.items));
       setTotal(res.total);
       setHasMore(res.hasMore);
@@ -73,7 +80,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
     const handle = setTimeout(() => { if (page === 1) void load(); else setPage(1); }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, [q, branchId]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -124,7 +131,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
   return (
     <div className={`card tbl-card tbl-card-fill${inModal ? " tbl-flat tbl-scroll-paged" : " tbl-rounded"}`}>
       <div className="tbl-wrap" ref={wrapRef} onScroll={inModal ? onWrapScroll : undefined}>
-        <table className={`tbl${inModal ? "" : " tbl-cards"}`}>
+        <table className={`tbl tbl-center${inModal ? "" : " tbl-cards"}`}>
           <thead>
             <tr><th>Bank</th>{showBranch && <th>Business branch</th>}<th>Bank branch</th>{!inModal && <th>IFSC</th>}{!inModal && <th>Account No.</th>}{inModal
               ? <><th className="num">Active pledges</th><th className="num">Pledged amount</th></>
@@ -176,6 +183,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+          <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       )}
     </div>

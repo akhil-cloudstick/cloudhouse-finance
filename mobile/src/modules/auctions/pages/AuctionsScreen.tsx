@@ -62,7 +62,7 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
     fetchPage: (p) => listLoansPage(p),
   });
 
-  const caseSub = (l: Loan) => (l.status === "Auction Eligible" || l.status === "Auctioned - Balance Due" ? l.status : "Defaulted");
+  const caseSub = (l: Loan) => (l.status === "Auction Eligible" || l.status === "Auctioned" || l.status === "Auctioned - Balance Due" ? l.status : "Defaulted");
 
   return (
     <>
@@ -100,7 +100,8 @@ const NEXT_STEP: Partial<Record<AuctionStage, string>> = {
 
 function flowLabel(l: Loan, rec: AuctionRecord | null | undefined, loading: boolean): string {
   if (l.status === "Auctioned - Balance Due") return "View Auction";
-  if (l.status !== "Auction Eligible") return "Mark Auction Eligible";
+  // An Auctioned loan is still a case while its sale is unsettled: it has an auction record, so its next step is shown.
+  if (l.status !== "Auction Eligible" && l.status !== "Auctioned") return "Mark Auction Eligible";
   if (loading || !rec) return "Auction Flow";
   if (pendingDecision(rec)) return "Decision Pending";
   if (rec.stage === "Settled" || rec.stage === "Withdrawn") return "View Auction";
@@ -110,7 +111,7 @@ function flowLabel(l: Loan, rec: AuctionRecord | null | undefined, loading: bool
 type AuctionCaseRowProps = { loan: Loan; defaultOpen: boolean; sub: string; onView: () => void; onFlow: () => void };
 
 function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: AuctionCaseRowProps) {
-  const hasRecord = l.status === "Auction Eligible";
+  const hasRecord = l.status === "Auction Eligible" || l.status === "Auctioned";
   const auction = useQuery({ queryKey: ["auction", String(l.id)], queryFn: () => getAuction(l.id), enabled: hasRecord });
   const days = l.daysOverdue ?? 0;
   const overdue = !!l.isOverdue || days > 0;

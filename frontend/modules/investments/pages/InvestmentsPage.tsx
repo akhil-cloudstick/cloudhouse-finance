@@ -1,6 +1,7 @@
 "use client";
 
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { GoToPage } from "@/common/components/ui/GoToPage";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -32,13 +33,16 @@ export function InvestmentsPage() {
 
   const [status, setStatus] = usePersistedState<"All" | InvestmentStatus>("investments:status", "All");
   const [q, setQ] = usePersistedState("investments:q", "");
-  const [page, setPage] = useState(1);
+  const [fromDate, setFromDate] = usePersistedState("investments:from", "");
+  const [toDate, setToDate] = usePersistedState("investments:to", "");
+  const [page, setPage] = usePersistedPage("investments");
   const { cards, size: pageSize, more } = useScrollPageSize(PAGE_SIZE);
   // The status tabs became one grouped filter (single choice).
   const filterCategories: FilterCategory[] = [
     { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUSES.filter((st) => st !== "All").map((st) => ({ value: st, label: st })) },
+    { key: "__date", label: "Start date", kind: "date" as const },
   ];
-  const filterValue: FilterValue = { status: status === "All" ? [] : [status] };
+  const filterValue: FilterValue = { status: status === "All" ? [] : [status], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
   const [investments, setInvestments] = useState<BackendInvestment[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -49,13 +53,14 @@ export function InvestmentsPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // A new filter/search restarts from page 1 (search debounced). Skipped on
-  // mount — the fetch effect below already loads page 1 then.
+  // mount — the fetch effect below loads the remembered page then.
   const mounted = useRef(false);
+  useEffect(() => () => { mounted.current = false; }, []);
   useEffect(() => {
     if (!mounted.current) { mounted.current = true; return; }
     const handle = setTimeout(() => { setPage(1); setReloadKey((k) => k + 1); }, q ? 300 : 0);
     return () => clearTimeout(handle);
-  }, [status, q]);
+  }, [status, q, fromDate, toDate]);
 
   // Each fetch replaces the rows: a new page on desktop, or a larger page
   // size in card mode (page stays 1 there).
@@ -63,7 +68,7 @@ export function InvestmentsPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await listInvestmentsPage({ page: p, q: q.trim() || undefined, status, pageSize });
+      const res = await listInvestmentsPage({ page: p, q: q.trim() || undefined, status, from: fromDate || undefined, to: toDate || undefined, pageSize });
       setInvestments(res?.items || []);
       if (wrapRef.current) wrapRef.current.scrollTop = 0;
       setHasMore(!!res?.hasMore);
@@ -73,7 +78,7 @@ export function InvestmentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, status, pageSize]);
+  }, [q, status, fromDate, toDate, pageSize]);
 
   useEffect(() => {
     void fetchPage(page);
@@ -110,7 +115,11 @@ export function InvestmentsPage() {
         <FilterPanel
           categories={filterCategories}
           value={filterValue}
-          onChange={(next) => setStatus(((Array.isArray(next.status) ? next.status[0] : undefined) as InvestmentStatus | undefined) || "All")}
+          onChange={(next) => {
+            setStatus(((Array.isArray(next.status) ? next.status[0] : undefined) as InvestmentStatus | undefined) || "All");
+            setFromDate(next.__dateFrom || "");
+            setToDate(next.__dateTo || "");
+          }}
           hideChips
           hideClearAll
         />
@@ -131,6 +140,7 @@ export function InvestmentsPage() {
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
         <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+        <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
       </div>
       </div>
     </>

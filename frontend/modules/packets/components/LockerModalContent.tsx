@@ -70,6 +70,7 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
     if (branchId === "") { fail("branch", "Please select a branch."); return; }
     const capacity = parseInt(cap, 10);
     if (!capacity || capacity <= 0) { fail("capacity", "Capacity must be greater than zero."); return; }
+    if (locker && capacity < locker.occupied) { fail("capacity", `Capacity cannot be less than the ${locker.occupied} packets already stored in this locker.`); return; }
 
     setSaving(true);
     setErr("");
@@ -100,7 +101,7 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
       <div className="bd bd-scroll">
         <div className="frow c2">
           <div className={fe.code ? "has-err" : undefined}><label className="f">Locker Code *</label><input className="inp" placeholder="e.g. LKR-B2" value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); clearFe("code"); }} /><FieldError msg={fe.code} /></div>
-          <div className={fe.capacity ? "has-err" : undefined}><label className="f">Capacity (packets) *</label><input className="inp" type="number" min={1} value={cap} onChange={(e) => { setCap(e.target.value); clearFe("capacity"); }} /><FieldError msg={fe.capacity} /></div>
+          <div className={fe.capacity ? "has-err" : undefined}><label className="f">Capacity (packets) *</label><input className="inp" type="number" min={Math.max(1, locker?.occupied ?? 1)} value={cap} onChange={(e) => { setCap(e.target.value); clearFe("capacity"); }} /><FieldError msg={fe.capacity} /></div>
         </div>
         {showBranch && (
           <div className="frow"><div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>

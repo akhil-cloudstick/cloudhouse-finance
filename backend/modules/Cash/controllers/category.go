@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -328,4 +329,60 @@ func CreateCategory(c echo.Context) error {
 		return common.Success(c, http.StatusOK, rec)
 	}
 	return common.Success(c, http.StatusOK, rec)
+}
+
+// categoryProtectedReason is why a category must never be deleted ("" if it may be): the
+// two the system files entries under automatically, and any created for a specific loan.
+func categoryProtectedReason(name, loanNumber string) string {
+	switch {
+	case strings.EqualFold(name, auctionExpenseCategory), strings.EqualFold(name, bankPledgeReleaseCategory):
+		return "this is a system category used automatically by the auction and bank pledge flows"
+	case strings.TrimSpace(loanNumber) != "":
+		return "this category belongs to loan " + loanNumber
+	}
+	return ""
+}
+
+// deleteCategory removes an unused, non-system category. Entries refer to a category by its
+// name, so a category that any expense or cash entry still uses is kept rather than orphaning them.
+func deleteCategory(ctx context.Context, id uint) error {
+	cat, err := findCategoryByID(ctx, id)
+	if err != nil {
+		return common.NewNotFound("category not found")
+	}
+	if reason := categoryProtectedReason(cat.Name, cat.LoanNumber); reason != "" {
+		return common.NewConflict("This category cannot be deleted — " + reason + ".")
+	}
+	var inExpenses, inMovements int64
+	if err := cashDB(ctx).Model(&models.Expense{}).Where("lower(category) = lower(?)", cat.Name).Count(&inExpenses).Error; err != nil {
+		return err
+	}
+	if err := cashDB(ctx).Model(&models.CashMovement{}).
+		Where("lower(purpose) IN (lower(?), lower(?), lower(?))", cat.Name, "Expense — "+cat.Name, "Self transfer — "+cat.Name).
+		Count(&inMovements).Error; err != nil {
+		return err
+	}
+	if used := inExpenses + inMovements; used > 0 {
+		return common.NewConflict("This category cannot be deleted — " + strconv.FormatInt(used, 10) + " ledger entr" + pluralY(used) + " still use it.")
+	}
+	return cashDB(ctx).Delete(&models.Category{}, cat.ID).Error
+}
+
+func pluralY(n int64) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
+}
+
+func DeleteCategory(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	if err := deleteCategory(ctx, id); err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"deleted": true})
 }

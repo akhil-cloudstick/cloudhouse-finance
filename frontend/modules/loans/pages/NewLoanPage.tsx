@@ -11,7 +11,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { stageByPending } from "@/common/services/approvalWorkflowService";
 import { Icon } from "@/common/components/Icon";
-import { fmt, custOf, schemeOf, fmtDateTime } from "@/common/utils/format";
+import { fmt, roundRupee, custOf, schemeOf, fmtDateTime } from "@/common/utils/format";
 import { uploadFile, searchCustomersPage, getCustomer } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
@@ -384,9 +384,9 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // The cap applies to the entered loan amount only — an AddedToPrincipal
   // charge is added on top of it and does not eat into the eligible amount
   // (see loan.Service.Create).
-  // Rounded to the paisa exactly as the backend's RoundMoney does, so the full
-  // eligible amount (e.g. 5,987.17) can be entered, not just its whole rupees.
-  const maxPrincipalEntry = Math.round(eligible * 100) / 100;
+  // Rounded to a whole rupee exactly as the backend's RoundMoney does (5.5 -> 6), so the full
+  // eligible amount can be entered and the server accepts it.
+  const maxPrincipalEntry = roundRupee(eligible);
   // Staff can reduce the disbursed principal below the ceiling, but never
   // raise it above — maxPrincipalEntry (eligible amount, minus any
   // AddedToPrincipal charge) is the hard cap a manual override may not
@@ -394,7 +394,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // full roundedEligible — defaulting to that when a charge applies would
   // prefill a figure that fails submission the moment the charge is added
   // on top).
-  const principal = principalOverride.trim() ? Math.min(Math.max(0, +principalOverride), maxPrincipalEntry) : maxPrincipalEntry;
+  const principal = principalOverride.trim() ? Math.min(Math.max(0, roundRupee(+principalOverride)), maxPrincipalEntry) : maxPrincipalEntry;
   // Set when a saved draft is being applied: that draft's own override
   // arrived together with its ornaments, so it is not stale and must survive
   // the reset this effect would otherwise perform. See applyDraft().
@@ -890,8 +890,11 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
-                disabled={!isCrossBranch || singleBranch || selectedBranchId != null || branches.length <= 1}
-              /></div>}
+                disabled={!isCrossBranch || singleBranch || selectedBranchId != null || branches.length <= 1 || !!custId}
+              />
+              {!!custId && isCrossBranch && !singleBranch && selectedBranchId == null && branches.length > 1 && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}></div>
+              )}</div>}
             {canViewLockers && <div><label className="f">Locker / Storage</label>
               {/* key={branchId}: SearchableSelect caches results per search
                 * term, so without remounting it kept showing the previous
@@ -1146,7 +1149,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               {(() => {
                 const hasCharge = !!sch;
                 const amount = +principalOverride || 0;
-                const charge = !sch || sch.serviceChargeType === "None" ? 0 : sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : (amount * sch.serviceChargeValue) / 100;
+                const charge = !sch || sch.serviceChargeType === "None" ? 0 : sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : roundRupee((amount * sch.serviceChargeValue) / 100);
                 const withheld = chargeMode === "WithheldFromPayout";
                 // AddedToPrincipal: the charge rides on top of the amount the
                 // customer receives; WithheldFromPayout: it comes off it.
@@ -1245,6 +1248,14 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                       <span style={{ color: "var(--muted)", fontWeight: 500 }}>Loan amount to disburse</span>
                       <b style={{ fontSize: 18, letterSpacing: "-.01em", color: "var(--green)" }}>{fmt(disbursed)}</b>
                     </div>
+                    {sch && loanPrincipal > 0 && (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: "8px 0 0", marginTop: 6, borderTop: "1px solid var(--line)" }}>
+                        <span style={{ color: "var(--muted)", fontWeight: 500 }}>
+                          Monthly interest <small>({sch.rate}% p.a.{sch.rateTiers?.length ? ", first tier" : ""})</small>
+                        </span>
+                        <b style={{ fontSize: 15, color: "var(--brand-deep)" }}>{fmt((loanPrincipal * sch.rate) / 100 / 12)}</b>
+                      </div>
+                    )}
                   </>
                 );
               })()}

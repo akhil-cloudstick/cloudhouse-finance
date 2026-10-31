@@ -948,10 +948,11 @@ func RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, inves
 	})
 }
 
-func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint) (uint, error) {
+func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint, remarks string) (uint, error) {
 	rec := &models.CashMovement{
 		Type:     "out",
 		Purpose:  "Auction surplus settlement — " + loanNumber,
+		Remarks:  strings.TrimSpace(remarks),
 		Amount:   amount,
 		Mode:     auctionMode(mode),
 		BankID:   bankID,

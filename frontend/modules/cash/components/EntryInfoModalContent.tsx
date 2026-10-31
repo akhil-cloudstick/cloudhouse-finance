@@ -125,6 +125,19 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
                 )}
               </tbody>
             </table>
+            {info.split && info.split.length > 0 && (
+              <>
+                <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Paid towards</h4>
+                <table className="tbl" style={{ width: "100%", minWidth: 0 }}>
+                  <thead><tr><th>Part</th><th>Mode</th><th className="num">Amount</th></tr></thead>
+                  <tbody>
+                    {info.split.map((ln, i) => (
+                      <tr key={`${ln.label}-${ln.mode ?? ""}-${i}`}><td>{ln.label}</td><td>{ln.mode || "—"}</td><td className="num">{fmt(ln.amount)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
           </>
         )}
 

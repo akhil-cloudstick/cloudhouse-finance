@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW, fmtDate } from "@/common/utils/format";
-import { createExtensionRequest } from "@/modules/loans/services/loanService";
+import { createExtensionRequest, getLoan } from "@/modules/loans/services/loanService";
 import { type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModalContent";
@@ -15,14 +15,22 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = { months: /month/i };
 
-type RequestExtensionModalContentProps = { loan: LoanView; onSaved: () => void };
+// onPaid, when given, is called instead of onSaved after the arrears payment (onSaved then means "request logged" only).
+type RequestExtensionModalContentProps = { loan: LoanView; onSaved: () => void; onPaid?: () => void };
 
 /* Logs a customer's ask to push a loan's due date out. Staff decide on it
  * later from the Extensions & Release page (modules/loans/pages/RequestsPage.tsx) — this
  * only records the request, it does not change the loan's due date itself. */
-export function RequestExtensionModalContent({ loan, onSaved }: RequestExtensionModalContentProps) {
-  const { closeModal, openModal } = useModal();
+export function RequestExtensionModalContent({ loan: initialLoan, onSaved, onPaid }: RequestExtensionModalContentProps) {
+  const { closeModal, openChildModal } = useModal();
   const toast = useToast();
+
+  // Re-read on open: this form is shown again after the Record Payment popup closes, and the arrears the caller's
+  // copy still carries would keep the form locked.
+  const [loan, setLoan] = useState(initialLoan);
+  useEffect(() => {
+    getLoan(initialLoan.numericId).then(setLoan).catch(() => { /* keep the caller's copy */ });
+  }, [initialLoan.numericId]);
 
   const [months, setMonths] = useState("3");
   const [detail, setDetail] = useState("");
@@ -82,7 +90,7 @@ export function RequestExtensionModalContent({ loan, onSaved }: RequestExtension
             {" "}
             <a
               href="#"
-              onClick={(e) => { e.preventDefault(); openModal(<PaymentModalContent loan={loan} onSaved={() => { onSaved(); toast("Payment recorded — you can now request the extension."); closeModal(); }} />, true); }}
+              onClick={(e) => { e.preventDefault(); openChildModal(<PaymentModalContent loan={loan} onSaved={() => { (onPaid ?? onSaved)(); toast("Payment recorded — you can now request the extension."); }} />, true); }}
               style={{ textDecoration: "underline", cursor: "pointer" }}
             >
               Record Payment

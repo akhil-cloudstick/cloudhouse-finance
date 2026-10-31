@@ -108,6 +108,10 @@ type entryInfo struct {
 	// (loan_id is the investment, investment_entry_id its ledger entry id: tx-N, payout-N, open-N), service_charge /
 	// disbursement_reversal (derived from gold loan loan_id: edited through its sanction).
 	InvestmentEntryID string `json:"investment_entry_id,omitempty"`
+	// Split is what a loan repayment was applied to (processing fee, penal interest, interest, principal), each part
+	// with the mode it was paid by: cash first, then UPI, then bank transfer. Set on the cash line of a gold-loan or
+	// personal-loan repayment, and shows the whole payment even when this line is only one of its modes.
+	Split []LedgerSplitLine `json:"split,omitempty"`
 }
 
 // paymentParts checks a payment breakdown and turns it into split parts: every mode must be Cash, UPI or
@@ -355,11 +359,16 @@ func attachLoanEntry(ctx context.Context, m *models.CashMovement, info *entryInf
 	case (m.Source == "Collection" || m.Source == "Auction") && m.TransactionGroupID != "":
 		// a repayment's cash line: the loan payment that booked this group of lines
 		var pay struct {
-			ID     uint
-			LoanID uint
-			Type   string
+			ID                                                                            uint
+			LoanID                                                                        uint
+			Type, Method                                                                  string
+			Amount                                                                        float64
+			CashAmount, UpiAmount, BankTransferAmount, ChequeAmount                       float64
+			InterestApplied, PenalInterestApplied, PrincipalApplied, ProcessingFeeApplied float64
 		}
-		if err := config.DB.WithContext(ctx).Table("loan_payments").Select("id, loan_id, type").
+		if err := config.DB.WithContext(ctx).Table("loan_payments").Select(`id, loan_id, type, method, amount,
+			cash_amount, upi_amount, bank_transfer_amount, cheque_amount,
+			interest_applied, penal_interest_applied, principal_applied, processing_fee_applied`).
 			Where("cash_transaction_group_id = ?", m.TransactionGroupID).Order("id").Limit(1).Scan(&pay).Error; err != nil || pay.ID == 0 {
 			return
 		}
@@ -371,6 +380,8 @@ func attachLoanEntry(ctx context.Context, m *models.CashMovement, info *entryInf
 			return
 		}
 		info.LoanEntry, info.LoanID, info.LoanPaymentID = "payment", pay.LoanID, pay.ID
+		info.Split = loanRepaymentSplit(pay.Type, pay.PenalInterestApplied, pay.InterestApplied, pay.PrincipalApplied, pay.ProcessingFeeApplied, pay.Amount,
+			splitParts{pay.CashAmount, pay.UpiAmount, pay.BankTransferAmount, pay.ChequeAmount}, pay.Method)
 	case strings.HasPrefix(m.Purpose, "Auction surplus settlement — "):
 		attachAuctionLoan(ctx, strings.TrimPrefix(m.Purpose, "Auction surplus settlement — "), "auction_surplus", info)
 	case m.ExpenseID != nil && m.Purpose == "Expense — Auction":

@@ -31,9 +31,9 @@ import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type Auc
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
-import { openPrintWindow, openPrintableTab, brandHeader, canPrintInline, downloadBlob } from "@/common/utils/print";
+import { openPrintWindow, openPrintableTab, brandHeader, canPrintInline, downloadBlob, esc } from "@/common/utils/print";
 import { printColors, tenantLenderProfile } from "@/common/config/brand";
-import type { BondLang } from "@/modules/loans/utils/indemnityBond";
+import { RELEASE_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
 import { useBranding } from "@/common/providers/BrandingProvider";
@@ -251,7 +251,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     // /loans request (e.g. refreshLoans() below, or a stale request from
     // a just-abandoned page). A single request has nothing to race with.
     getLoanByNumber(id)
-      .then(setLoan)
+      // A background poll that finds nothing new keeps the same object, so the
+      // page (and the ledger fetched off `loan`) is not needlessly refreshed.
+      .then((next) => setLoan((cur) => (isBackgroundRefresh && cur && JSON.stringify(cur) === JSON.stringify(next) ? cur : next)))
       .catch((e) => {
         // The 20s background poll below shares this function but must never
         // blank out a page that's already showing a valid loan — e.g. an
@@ -363,6 +365,10 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // never disbursed) are both finished — nothing left to pay, extend,
   // release or edit.
   const isFinished = l.status === "Closed" || l.status === "Rejected";
+  // Once the gold is auctioned there is nothing left to extend or release.
+  const goldSold = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
+  // Paid off in full and waiting only for the gold to be released: nothing left to record.
+  const fullyPaid = l.status === "Closure Requested" && l.totalOutstandingBalance <= 0.01;
 
   // Opens the slide viewer over every photo of the ornament (one photo just
   // shows without the arrows/thumbnails).
@@ -750,13 +756,13 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         ${brandHeader("Statement of Account")}
         <table>
           <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${fmtToday()}</td></tr>
-          <tr><th>Debtor Name</th><td colspan="3">${c.name}</td></tr>
-          <tr><th>Debtor Address</th><td colspan="3">${c.address || "—"}</td></tr>
+          <tr><th>Debtor Name</th><td colspan="3">${esc(c.name)}</td></tr>
+          <tr><th>Debtor Address</th><td colspan="3">${esc(c.address || "—")}</td></tr>
           <tr><th>Amount of Loan</th><td>${fmt(l.principal)}</td><th>Amount in Words</th><td>${rupeesInWords(l.principal)}</td></tr>
           <tr><th>Date of Loan</th><td>${fmtDate(l.opened)}</td><th>Date of Maturity</th><td>${fmtDate(l.due)}</td></tr>
           <tr><th>Rate of Interest</th><td>${l.schemeRate}% p.a.</td><th>Status</th><td>${l.status}</td></tr>
-          <tr><th>Nature of Security</th><td colspan="3">${security}</td></tr>
-          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${l.additionalInfo}</td></tr>` : ""}
+          <tr><th>Nature of Security</th><td colspan="3">${esc(security)}</td></tr>
+          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${esc(l.additionalInfo)}</td></tr>` : ""}
         </table>
         <p><b>True account of the transaction with the debtor:</b></p>
         <table>
@@ -946,6 +952,20 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     }
   }
 
+  // One Release Agreement entry: the language is chosen here, like the bond, instead of two menu items.
+  function openReleaseAgreementPicker() {
+    openModal(
+      <EsignLanguageModalContent
+        loanNumber={l.id}
+        customerName={l.customerName}
+        title="Release Agreement"
+        confirmLabel="🖨 Print Agreement"
+        options={RELEASE_LANG_OPTIONS}
+        onConfirm={(lang) => printReleaseAgreementDoc(lang === "ml" ? "ml" : "en")}
+      />
+    );
+  }
+
   // One modal for the bond: pick the language, then either print it or — with the checkbox ticked
   // — choose the delivery channel and witnesses and send it for eSign. The checkbox is offered only
   // while the bond can still be sent (not already signed or out for signing).
@@ -1105,7 +1125,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
          * loan's own state and read more naturally leading. */}
         <div className="page-h-actions">
           {approvalButtons ? approvalButtons : (
-            !isFinished && canUpdateLoans && (
+            !isFinished && l.status !== "Pending Approval" && !fullyPaid && canUpdateLoans && (
               <button className="btn" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />, true)}><Icon name="coin" /> Record Payment</button>
             )
           )}
@@ -1138,12 +1158,12 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                       <Icon name="bank" /><span className="tx">Repledge to Bank</span>
                     </a>
                   )}
-                  {!isFinished && canUpdateLoans && (
+                  {!isFinished && !goldSold && canUpdateLoans && (
                     <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />); }}>
                       <Icon name="clock" /><span className="tx">Request Extension</span>
                     </a>
                   )}
-                  {!isFinished && canUpdateLoans && (
+                  {!isFinished && !goldSold && canUpdateLoans && (
                     <a href="#" title="Request Release" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestReleaseModalContent loan={l} onSaved={load} />); }}>
                       <Icon name="unlock" /><span className="tx">Request Release</span>
                     </a>
@@ -1300,11 +1320,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                 )}
               {l.status === "Closed" && (
                 <>
-                  <a href="#" title="Release Agreement (English)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("en"); }}>
-                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement (English)"}</span>
-                  </a>
-                  <a href="#" title="Release Agreement (Malayalam)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("ml"); }}>
-                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement (Malayalam)"}</span>
+                  <a href="#" title="Release Agreement" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); openReleaseAgreementPicker(); }}>
+                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement"}</span>
                   </a>
                 </>
               )}
@@ -1443,6 +1460,15 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>}
               <div className="i"><div className="k">Opening Date</div><div className="v">{fmtDate(l.opened)}</div></div>
               <div className="i"><div className="k">Due Date</div><div className="v" style={l.isOverdue ? { color: "var(--red)" } : undefined}>{fmtDate(l.due)}{l.isOverdue ? ` · ${l.daysOverdue}d overdue` : ""}</div></div>
+              {l.status === "Closed" && l.closed && (
+                <div className="i"><div className="k">Closed On</div><div className="v">{fmtDate(l.closed)}</div></div>
+              )}
+              {l.additionalInfo && (
+                <div className="i" style={{ gridColumn: "1 / -1" }}>
+                  <div className="k">Additional Information</div>
+                  <div className="v" style={{ whiteSpace: "pre-wrap", fontWeight: 400 }}>{l.additionalInfo}</div>
+                </div>
+              )}
               {l.overallPhotoUrl && (
                 <div className="i" style={{ gridColumn: "1 / -1" }}>
                   <div className="k">Overall Photo</div>
@@ -1547,9 +1573,10 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                       if (entry.kind === "auction-surplus") {
                         const a = entry.row;
                         const refunded = a.surplusDisposition === "RefundedToCustomer";
-                        const note = refunded ? "Refunded to customer"
+                        const baseNote = refunded ? "Refunded to customer"
                           : a.surplusDisposition === "RecordedAsIncome" ? "Retained as income — no cash paid out"
                           : "Payable to customer — awaiting settlement";
+                        const note = a.surplusRemarks ? `${baseNote} · ${a.surplusRemarks}` : baseNote;
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td data-label="Date">{fmtDate(entry.date)}</td>
@@ -1618,6 +1645,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                       const firstPart = !part || part.index === 0;
                       // A repayment row split by what it paid (auction proceeds): this row is one component.
                       const component = entry.component;
+                      // the first line of a payment shown as one line per part carries its actions and breakdown
+                      const firstRow = firstPart && (!component || /-0$/.test(entry.key));
+                      const rowLabel = component && component !== p.type ? `${component} — ${p.type}` : (component || p.type);
                       // Interest/Principal/Partial/Full Settlement/Waiver all
                       // reduce what's owed (credit); an Adjustment can go
                       // either way depending on what it corrected — shown as a
@@ -1640,7 +1670,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                           <td data-label="Date">{fmtDate(p.paidOn)}</td>
                           <td data-label="Ref No">{p.reference || l.loanNumber}</td>
                           <td data-label="Particulars">
-                            {component ? `${component} — ${p.type}` : p.type}
+                            {rowLabel}
                             {p.bankId && part?.mode !== "Cash" && (
                               <div style={{ marginTop: 4 }}>
                                 <LedgerRefLink kind="bank" id={p.bankId} label={p.bankName || "Bank"} />
@@ -1653,18 +1683,18 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                           <td className="num" data-label="Balance">
                             {fmt(entry.balance)}
                             {infoIcon({
-                              title: component ? `${component} — ${p.type}` : p.type,
+                              title: rowLabel,
                               kind: "Credit · " + p.type,
-                              rows: [["Date", fmtDate(p.paidOn)], ["Amount", fmt(part ? part.amount : component ? entry.amount : p.amount)], ["Mode", isCash ? (entry.mode || part?.mode || p.method || "—") : "Non-cash"], ...(p.reference ? [["Reference", p.reference] as [string, React.ReactNode]] : []), ...(p.bankName ? [["Bank", p.bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(entry.balance)]],
+                              rows: [["Date", fmtDate(p.paidOn)], ["Amount", fmt(part ? part.amount : component ? entry.amount : p.amount)], ...(entry.paidThrough ? [["Interest paid up to", fmtDate(entry.paidThrough)] as [string, React.ReactNode]] : []), ["Mode", isCash ? (entry.mode || part?.mode || p.method || "—") : "Non-cash"], ...(p.reference ? [["Reference", p.reference] as [string, React.ReactNode]] : []), ...(p.bankName ? [["Bank", p.bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(entry.balance)]],
                               description: <>
-                                {component ? `${component} — ${p.type}` : p.type}
+                                {rowLabel}
                                 {part && <><br />Split {part.index + 1} of {part.count} · total {fmt(p.amount)}</>}
-      {firstPart && !component && breakdown && <><br />{breakdown}</>}
-                                {firstPart && p.processingFee > 0 && <><br /><span style={{ color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</span></>}
+      {firstRow && p.type !== "Auction Sale" && breakdown && <><br />{breakdown}</>}
+                                {firstRow && p.processingFee > 0 && <><br /><span style={{ color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</span></>}
                                 {firstPart && p.type === "Auction Sale" && entry.auction && <><br />{auctionBreakdown(entry.auction)}</>}
                                 {p.description && p.type !== "Discount" ? <><br />{p.description}</> : null}
                               </>,
-                              actions: firstPart && !component ? (
+                              actions: firstRow ? (
                                 p.type === "Auction Write-Off" ? [
                                   ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("write-off", "edit") }] : []),
                                   ...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openAuctionEdit("write-off", "delete") }] : []),

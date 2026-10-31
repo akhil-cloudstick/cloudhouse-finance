@@ -1,7 +1,8 @@
 "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useModal } from "@/common/components/ModalProvider";
@@ -52,7 +53,7 @@ export function CustomersPage() {
   const [q, setQ] = usePersistedState("customers:q", "");
   const [panStatus, setPanStatus] = usePersistedState("customers:pan", "");
   const [aadhaarStatus, setAadhaarStatus] = usePersistedState("customers:aadhaar", "");
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePersistedPage("customers");
   // One grouped filter: PAN and Aadhaar verification status (single choice each).
   const filterCategories: FilterCategory[] = [
     { key: "pan", label: "PAN Verified", kind: "static", singleSelect: true, options: VERIFICATION_STATUS_OPTIONS },
@@ -66,7 +67,7 @@ export function CustomersPage() {
   const [error, setError] = useState("");
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  useEffect(() => { setPage(1); }, [q, panStatus, aadhaarStatus, pageSize]);
+  useResetPageOnChange(setPage, [q, panStatus, aadhaarStatus, pageSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +148,7 @@ export function CustomersPage() {
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
         <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+        <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
       </div>
       </div>
     </>

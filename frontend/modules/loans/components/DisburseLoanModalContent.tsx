@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { approveLoan } from "@/modules/loans/services/loanService";
 import { type LoanView } from "@/modules/loans/types/loan-types";
@@ -49,7 +49,7 @@ export function DisburseLoanModalContent({
   // The customer is paid the principal less the charge in both modes: a withheld charge stays with the
   // branch, an added charge is carried on the loan (principal already includes it).
   const charge = loan.serviceChargeAmount || 0;
-  const payout = Math.round((loan.principal - charge) * 100) / 100;
+  const payout = roundRupee((loan.principal - charge));
   // Disbursement is blocked until the branch has enough balance in hand.
   const balanceInHand = useBalanceInHand(loan.branchId);
   const insufficient = balanceInHand !== null && payout > balanceInHand + 0.005;

@@ -34,6 +34,8 @@ export function listInvestmentsPage(params: {
   q?: string;
   status?: InvestmentStatus | "All";
   customerId?: number;
+  from?: string; // YYYY-MM-DD, bounds the start date (inclusive)
+  to?: string; // YYYY-MM-DD, bounds the start date (inclusive)
   pageSize?: number;
 }): Promise<{ items: BackendInvestment[]; hasMore: boolean; total: number }> {
   const pageSize = params.pageSize || INVESTMENTS_TABLE_PAGE_SIZE;
@@ -44,6 +46,8 @@ export function listInvestmentsPage(params: {
   if (params.q) query.set("q", params.q);
   if (params.status && params.status !== "All") query.set("status", params.status);
   if (params.customerId) query.set("customerId", String(params.customerId));
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
   return apiFetch<{ items: BackendInvestment[]; hasMore: boolean; total: number }>(`/investments?${query}`);
 }
 

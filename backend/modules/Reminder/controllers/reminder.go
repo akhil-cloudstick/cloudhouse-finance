@@ -325,7 +325,13 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 				CustomerCode: l.Customer.Code,
 			})
 		}
-		for _, occ := range monthlyOccurrences(l.OpenedDate, from, to) {
+		// Interest is only due until the loan's due date; after that the loan is
+		// chased through its overdue reminder, not a monthly interest one.
+		interestTo := to
+		if due.Before(interestTo) {
+			interestTo = due
+		}
+		for _, occ := range monthlyOccurrences(l.OpenedDate, from, interestTo) {
 			events = append(events, models.CalendarEvent{
 				Date:         occ.Format("2006-01-02"),
 				Type:         "InterestDue",
@@ -344,39 +350,73 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		if err != nil {
 			return nil, 0, err
 		}
+		// A loan that missed several installments gets ONE overdue reminder
+		// (listing how many were missed), not one per installment. Installments
+		// not yet due still get their own due-date reminder.
+		type overdueLoan struct {
+			first  personalLoan.CalendarInstallment
+			missed int
+		}
+		overdue := map[uint]*overdueLoan{}
+		var overdueOrder []uint
 		for _, inst := range installments {
 			due := truncateDay(inst.DueDate)
-			loanID := inst.LoanID
-			if !due.Before(from) && !due.After(to) {
-				evType, title := "PersonalLoanDue", "Installment due"
-				if due.Before(now) {
-					evType, title = "PersonalLoanOverdue", "Installment overdue"
+			if due.Before(now) {
+				o, ok := overdue[inst.LoanID]
+				if !ok {
+					overdue[inst.LoanID] = &overdueLoan{first: inst, missed: 1}
+					overdueOrder = append(overdueOrder, inst.LoanID)
+					continue
 				}
-				events = append(events, models.CalendarEvent{
-					Date:           due.Format("2006-01-02"),
-					Type:           evType,
-					Title:          fmt.Sprintf("%s — %s", title, inst.LoanNumber),
-					Detail:         inst.CustomerName,
-					PersonalLoanID: &loanID,
-					LoanNumber:     inst.LoanNumber,
-					CustomerID:     &inst.CustomerID,
-					CustomerName:   inst.CustomerName,
-					CustomerCode:   inst.CustomerCode,
-				})
+				o.missed++
+				if due.Before(truncateDay(o.first.DueDate)) {
+					o.first = inst
+				}
+				continue
 			}
-			if due.Before(now) && (due.Before(from) || due.After(to)) && !now.Before(from) && !now.After(to) {
-				events = append(events, models.CalendarEvent{
-					Date:           now.Format("2006-01-02"),
-					Type:           "PersonalLoanOverdue",
-					Title:          fmt.Sprintf("Installment overdue — %s", inst.LoanNumber),
-					Detail:         inst.CustomerName,
-					PersonalLoanID: &loanID,
-					LoanNumber:     inst.LoanNumber,
-					CustomerID:     &inst.CustomerID,
-					CustomerName:   inst.CustomerName,
-					CustomerCode:   inst.CustomerCode,
-				})
+			if due.Before(from) || due.After(to) {
+				continue
 			}
+			loanID := inst.LoanID
+			events = append(events, models.CalendarEvent{
+				Date:           due.Format("2006-01-02"),
+				Type:           "PersonalLoanDue",
+				Title:          fmt.Sprintf("Installment due — %s", inst.LoanNumber),
+				Detail:         inst.CustomerName,
+				PersonalLoanID: &loanID,
+				LoanNumber:     inst.LoanNumber,
+				CustomerID:     &inst.CustomerID,
+				CustomerName:   inst.CustomerName,
+				CustomerCode:   inst.CustomerCode,
+			})
+		}
+		for _, id := range overdueOrder {
+			o := overdue[id]
+			// Shown on the first missed due date when that falls in the window,
+			// otherwise on today while today is in the window.
+			at := truncateDay(o.first.DueDate)
+			if at.Before(from) || at.After(to) {
+				if now.Before(from) || now.After(to) {
+					continue
+				}
+				at = now
+			}
+			loanID := o.first.LoanID
+			title := fmt.Sprintf("Installment overdue — %s", o.first.LoanNumber)
+			if o.missed > 1 {
+				title = fmt.Sprintf("Installments overdue (%d missed) — %s", o.missed, o.first.LoanNumber)
+			}
+			events = append(events, models.CalendarEvent{
+				Date:           at.Format("2006-01-02"),
+				Type:           "PersonalLoanOverdue",
+				Title:          title,
+				Detail:         o.first.CustomerName,
+				PersonalLoanID: &loanID,
+				LoanNumber:     o.first.LoanNumber,
+				CustomerID:     &o.first.CustomerID,
+				CustomerName:   o.first.CustomerName,
+				CustomerCode:   o.first.CustomerCode,
+			})
 		}
 	}
 	scheduledAuctions, err := loan.FindScheduledForCalendar(ctx)
@@ -411,6 +451,10 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		return nil, 0, err
 	}
 	for _, r := range reminders {
+		// A completed reminder is finished work: it must not keep showing on the calendar.
+		if r.Status == "Done" {
+			continue
+		}
 		evType := "Custom"
 		switch r.Type {
 		case "Follow-Up":
@@ -478,28 +522,39 @@ func truncateDay(t time.Time) time.Time {
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
+// monthlyOccurrences returns the monthly anniversaries of openedDate that fall
+// within [from, to]. Each month's date is built from the original day of month,
+// clamped to the last day of that month, so a loan opened on the 30th still gets
+// a February reminder (28th/29th) and returns to the 30th in March.
 func monthlyOccurrences(openedDate, from, to time.Time) []time.Time {
 	var out []time.Time
 	if openedDate.IsZero() || to.Before(openedDate) {
 		return out
 	}
-	day := openedDate.Day()
-	// Start at the first monthly anniversary on/after `from` (but never before openedDate itself).
-	year, month := from.Year(), from.Month()
-	if from.Before(openedDate) {
-		year, month = openedDate.Year(), openedDate.Month()
+	anchor := openedDate.Day()
+	loc := openedDate.Location()
+	year, month := openedDate.Year(), int(openedDate.Month())
+	if from.After(openedDate) {
+		year, month = from.Year(), int(from.Month())
 	}
-	cursor := time.Date(year, month, day, 0, 0, 0, 0, openedDate.Location())
-	if cursor.Before(openedDate) {
-		cursor = cursor.AddDate(0, 1, 0)
-	}
-	for !cursor.After(to) {
-		if !cursor.Before(from) {
-			out = append(out, cursor)
+	for {
+		last := time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, loc).Day()
+		day := anchor
+		if day > last {
+			day = last
 		}
-		cursor = cursor.AddDate(0, 1, 0)
+		occ := time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
+		if occ.After(to) {
+			return out
+		}
+		if !occ.Before(from) && !occ.Before(openedDate) {
+			out = append(out, occ)
+		}
+		month++
+		if month > 12 {
+			month, year = 1, year+1
+		}
 	}
-	return out
 }
 
 func CreateReminder(c echo.Context) error {

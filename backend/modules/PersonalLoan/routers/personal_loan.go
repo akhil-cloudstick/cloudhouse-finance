@@ -23,6 +23,7 @@ func PersonalLoanRoutes(e *echo.Echo) *echo.Echo {
 	e.POST(personalLoanPath+"/:id/payments", personalLoan.RecordPersonalLoanPayment, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Update)...)
 	e.PATCH(personalLoanPath+"/:id/payments/:payment_id", personalLoan.EditPersonalLoanPayment, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read, auth.RequirePermission("can edit ledger entry"))...)
 	e.DELETE(personalLoanPath+"/:id/payments/:payment_id", personalLoan.DeletePersonalLoanPayment, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read, auth.RequirePermission("can delete ledger entry"))...)
+	e.DELETE(personalLoanPath+"/:id", personalLoan.DeletePersonalLoan, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read, auth.RequirePermission("can delete ledger entry"))...)
 	e.PATCH(personalLoanPath+"/:id/disbursement", personalLoan.EditPersonalLoanDisbursement, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read, auth.RequirePermission("can edit ledger entry"))...)
 	e.POST(personalLoanPath+"/:id/renewal-preview", personalLoan.PreviewPersonalLoanRenewal, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Update)...)
 	e.POST(personalLoanPath+"/:id/renew", personalLoan.RenewPersonalLoan, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Update)...)

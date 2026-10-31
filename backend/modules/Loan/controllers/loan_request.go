@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -34,6 +35,8 @@ type updateLoanRequest struct {
 	SchemeID        *uint    `json:"scheme_id"`
 	PrincipalAmount *float64 `json:"principal_amount"`
 	OverallPhotoURL *string  `json:"overall_photo_url"`
+	// nil leaves the loan's additional information alone; "" clears it
+	AdditionalInfo *string `json:"additional_info"`
 	// the payout's breakdown, for a loan already paid out
 	CashAmount         *float64 `json:"cash_amount"`
 	UpiAmount          *float64 `json:"upi_amount"`
@@ -69,8 +72,24 @@ type LoanRequestFilter struct {
 	Type     string
 	Query    string
 	BranchID *uint
-	Limit    int
-	Offset   int
+	// From / To bound requested_at; To is exclusive (the day after the chosen end date).
+	From   *time.Time
+	To     *time.Time
+	Limit  int
+	Offset int
+}
+
+// queryDayRange reads optional from/to YYYY-MM-DD query parameters as a local
+// [from, to) range, the end day inclusive. Either end is nil when absent or malformed.
+func queryDayRange(fromV, toV string) (from, to *time.Time) {
+	if t, err := time.ParseInLocation("2006-01-02", fromV, time.Local); err == nil {
+		from = &t
+	}
+	if t, err := time.ParseInLocation("2006-01-02", toV, time.Local); err == nil {
+		end := t.AddDate(0, 0, 1)
+		to = &end
+	}
+	return from, to
 }
 
 func listRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRequest, int64, error) {
@@ -171,15 +190,22 @@ func FindLoanRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRe
 		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
 			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR customers.phone ILIKE ?", like, like, like, like)
 	}
-	if f.Type != "" {
-		q = q.Where("loan_requests.type = ?", f.Type)
+	// Type and Status each hold one value or a comma-separated list.
+	if types := splitCSV(f.Type); len(types) > 0 {
+		q = q.Where("loan_requests.type IN ?", types)
 	}
 	q = q.Where("loan_requests.type NOT IN ?", []string{"Waiver", "Adjustment"})
-	if f.Status != "" {
-		q = q.Where("loan_requests.status = ?", f.Status)
+	if statuses := splitCSV(f.Status); len(statuses) > 0 {
+		q = q.Where("loan_requests.status IN ?", statuses)
 	}
 	if f.LoanID != 0 {
 		q = q.Where("loan_requests.loan_id = ?", f.LoanID)
+	}
+	if f.From != nil {
+		q = q.Where("loan_requests.requested_at >= ?", *f.From)
+	}
+	if f.To != nil {
+		q = q.Where("loan_requests.requested_at < ?", *f.To)
 	}
 	var total int64
 	if f.Limit > 0 {
@@ -200,20 +226,24 @@ func ListRequests(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := common.PageParams(c)
 	f := LoanRequestFilter{Status: c.QueryParam("status"), Query: strings.TrimSpace(c.QueryParam("search"))}
-	switch strings.ToLower(strings.TrimSpace(c.QueryParam("type"))) {
-	case "":
-	case "extension":
-		f.Type = models.RequestTypeExtension
-	case "release":
-		f.Type = models.RequestTypeRelease
-	default:
-		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid type: expected extension or release"})
+	var types []string
+	for _, t := range splitCSV(c.QueryParam("type")) {
+		switch strings.ToLower(t) {
+		case "extension":
+			types = append(types, models.RequestTypeExtension)
+		case "release":
+			types = append(types, models.RequestTypeRelease)
+		default:
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid type: expected extension or release"})
+		}
 	}
+	f.Type = strings.Join(types, ",")
 	if v := c.QueryParam("loan_id"); v != "" {
 		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
 			f.LoanID = uint(id)
 		}
 	}
+	f.From, f.To = queryDayRange(c.QueryParam("from"), c.QueryParam("to"))
 	f.BranchID = auth.GetBranchScope(c)
 	if limit > 0 {
 		f.Limit, f.Offset = limit, offset

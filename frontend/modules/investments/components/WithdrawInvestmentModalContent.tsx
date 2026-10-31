@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { Select } from "@/common/components/ui/Select";
 import { DatePicker } from "@/common/components/ui/DatePicker";
@@ -61,7 +61,7 @@ export function WithdrawInvestmentModalContent({
 
   const interestNum = from === "Principal" ? 0 : (+interestAmount || 0);
   const principalNum = from === "Interest" ? 0 : (+principalAmount || 0);
-  const total = Math.round((interestNum + principalNum) * 100) / 100;
+  const total = roundRupee((interestNum + principalNum));
   const balanced = Math.abs(remaining) < 0.01;
 
   const outstandingInterest = investment.outstandingInterest;

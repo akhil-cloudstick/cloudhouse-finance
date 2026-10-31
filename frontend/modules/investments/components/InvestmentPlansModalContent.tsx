@@ -58,6 +58,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
+  const [planQ, setPlanQ] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<CreatePlanInput>(emptyForm);
@@ -81,8 +82,13 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
 
   useEffect(() => { void refresh(); }, []);
 
-  const shownPlans = plans.slice(0, page * PAGE_SIZE);
-  const hasMore = shownPlans.length < plans.length;
+  // Plans are all loaded already, so the search is applied here (name, type, frequency, status).
+  const needle = planQ.trim().toLowerCase();
+  const matchingPlans = needle
+    ? plans.filter((p) => [p.name, p.interestRateType, p.payoutFrequency, p.isActive ? "active" : "inactive", p.productType].some((v) => String(v ?? "").toLowerCase().includes(needle)))
+    : plans;
+  const shownPlans = matchingPlans.slice(0, page * PAGE_SIZE);
+  const hasMore = shownPlans.length < matchingPlans.length;
 
   function onWrapScroll() {
     const el = wrapRef.current;
@@ -160,7 +166,8 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
       <div className="bd">
         {editingId === null ? (
           <>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <input className="inp" style={{ maxWidth: 260 }} placeholder="Search plans…" aria-label="Search plans" value={planQ} onChange={(e) => { setPlanQ(e.target.value); setPage(1); }} />
               <button className="btn sm" onClick={startCreate}>+ New Plan</button>
             </div>
             {error && <div className="notice">{error}</div>}
@@ -169,8 +176,8 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
               <tbody>
                 {loading ? (
                   <tr><td colSpan={9} className="empty compact">Loading…</td></tr>
-                ) : plans.length === 0 ? (
-                  <tr><td colSpan={9} className="empty compact">No plans yet.</td></tr>
+                ) : matchingPlans.length === 0 ? (
+                  <tr><td colSpan={9} className="empty compact">{plans.length === 0 ? "No plans yet." : "No plans match your search."}</td></tr>
                 ) : shownPlans.map((p) => (
                   <tr key={p.id} className="click" onClick={() => startEdit(p)}>
                     <td>{p.name}<div className="sub">{p.interestRateType}</div></td>
@@ -188,7 +195,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
             </table></div>
             {!loading && plans.length > 0 && (
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
-                Showing {shownPlans.length} of {plans.length}{hasMore ? " — scroll for more" : ""}
+                Showing {shownPlans.length} of {matchingPlans.length}{hasMore ? " — scroll for more" : ""}
               </div>
             )}
           </>

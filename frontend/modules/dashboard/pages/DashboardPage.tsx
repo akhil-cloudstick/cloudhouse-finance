@@ -1,5 +1,6 @@
 "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useEffect, useState } from "react";
 import { brandRampHex, readCachedBrandColor, DEFAULT_BRAND_COLOR } from "@/common/config/theme";
 import { activeBusinessSlug } from "@/common/services/tenantSession";
@@ -27,6 +28,9 @@ import { getNeedsAttentionPage, getDashboardLoanStats, type DashboardLoanStats }
 import { type NeedsAttentionItem } from "@/modules/dashboard/types/dashboard-types";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
+import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
+import { useBranding } from "@/common/providers/BrandingProvider";
+import { QuickActionModalContent, type QuickAction } from "@/common/components/modals/QuickActionModalContent";
 
 type KpiProps = { l: string; v: string | number; s?: React.ReactNode; cls?: string; href?: string };
 
@@ -109,8 +113,9 @@ function expenseColors(): string[] {
 export function DashboardPage() {
   const { schemes } = useSchemes();
   const { refresh: refreshCustomers } = useCustomers();
-  const { loans } = useLoans();
+  const { loans, refresh: refreshLoans } = useLoans();
   const { can } = useAuth();
+  const { hasModule } = useBranding();
   const { config: workflow } = useApprovalWorkflow();
   // Gated on the real permission (not a hardcoded role check) — the backend
   // already 403s a POST /loans without "can create loan", hide the button
@@ -118,6 +123,22 @@ export function DashboardPage() {
   const canCreateLoans = can("Loan_Management", "can_create_loan");
   const canCreateRates = can("Gold_Rate_Management", "can_create_gold_rate");
   const canCreateCustomers = can("Customer_Management", "can_create_customer");
+  // Extra Quick actions this business was granted. Payment, extension and release requests are all
+  // loan updates, the same permission the loan page gates them on.
+  const canUpdateLoans = can("Loan_Management", "can_update_loan");
+  const quickActions: { action: QuickAction; label: string; icon: "coin" | "clock" | "unlock" }[] = [];
+  if (canUpdateLoans) {
+    if (hasModule("quick_pay")) quickActions.push({ action: "payment", label: "Record Payment", icon: "coin" });
+    if (hasModule("quick_extension")) quickActions.push({ action: "extension", label: "Request Extension", icon: "clock" });
+    if (hasModule("quick_release")) quickActions.push({ action: "release", label: "Request Release", icon: "unlock" });
+  }
+  const {
+    open: quickMenuOpen,
+    setOpen: setQuickMenuOpen,
+    menuRef: quickMenuRef,
+    triggerRef: quickMenuTriggerRef,
+    onKeyDown: onQuickMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
   // Links, KPI tiles and buttons only to pages this role can open.
   const canOpen = useCanOpenRoute();
   const link = (r: string) => (canOpen(r) ? routeHref(r) : undefined);
@@ -274,7 +295,28 @@ export function DashboardPage() {
             <Icon name="coin" /> Set Today&apos;s Gold Rate
           </button>
         )}
-        {canCreateLoans && <a className="btn ghost" href={routeHref("newloan")}><Icon name="plus" /> New Loan</a>}
+        {canCreateLoans && quickActions.length === 0 && <a className="btn ghost" href={routeHref("newloan")}><Icon name="plus" /> New Loan</a>}
+        {/* One grouped button when the business was granted any extra dashboard action (superadmin >
+          * Dashboard actions); with only the default New Loan it stays the plain button above. */}
+        {quickActions.length > 0 && (
+          <div className="docs-dd" ref={quickMenuRef} onKeyDown={onQuickMenuKeyDown}>
+            <button ref={quickMenuTriggerRef} className="btn ghost" onClick={() => setQuickMenuOpen((v) => !v)} aria-haspopup="menu" aria-expanded={quickMenuOpen}>
+              Quick actions <Icon name="chevronDown" className="docs-dd-chev" />
+            </button>
+            {quickMenuOpen && (
+              <div className="docs-dd-menu" role="menu" style={{ minWidth: 220 }}>
+                {canCreateLoans && (
+                  <a href={routeHref("newloan")} title="New Loan"><Icon name="plus" /><span className="tx">New Loan</span></a>
+                )}
+                {quickActions.map((a) => (
+                  <a key={a.action} href="#" title={a.label} onClick={(e) => { e.preventDefault(); setQuickMenuOpen(false); openModal(<QuickActionModalContent action={a.action} onChanged={refreshLoans} />); }}>
+                    <Icon name={a.icon} /><span className="tx">{a.label}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {canCreateCustomers && (
           <button className="btn ghost" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refreshCustomers} />, true)}>
             <Icon name="user" /> Register Customer
@@ -313,8 +355,8 @@ export function DashboardPage() {
             <Kpi l="Due Soon" v={dueSoon.length} s="within 7 days" cls={dueSoon.length ? "amber" : ""} href={link(`loans/${encodeURIComponent("Due Soon")}`)} />
             <Kpi l="Overdue Loans" v={overdue.length} s={fmt(overdue.reduce((s, l) => s + l.outstanding, 0)) + " at risk"} cls={overdue.length ? "warn" : ""} href={link("loans/Overdue")} />
             <Kpi l="Pending Approvals" v={pendingApprovalLoans.length} s="awaiting sanction" cls={pendingApprovalLoans.length ? "info" : ""} href={link(`loans/${encodeURIComponent("Pending Approval")}`)} />
-            <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="pending review" cls={pendingReq.some((r) => r.type === "Extension") ? "amber" : ""} href={link("requests")} />
-            <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" cls={pendingReq.some((r) => r.type === "Release") ? "amber" : ""} href={link("requests")} />
+            <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="pending review" cls={pendingReq.some((r) => r.type === "Extension") ? "amber" : ""} href={link("requests/pending-extension")} />
+            <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" cls={pendingReq.some((r) => r.type === "Release") ? "amber" : ""} href={link("requests/pending-release")} />
             <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} cls="info" href={link("bankpledge")} />
             <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href={link("auctions")} />
             <Kpi l="Today's Expenses" v={fmt(expToday)} href={link("ledger")} />
@@ -350,7 +392,7 @@ export function DashboardPage() {
                         <li key={"appr-exp-" + item.entityId}>
                           <span className="ic"><Icon name="stamp" /></span>
                           <span className="tx"><b>Expense approval — {item.detail || "Expense"}</b><small>{item.customerName} · {fmt(item.principal)}</small></span>
-                          {canOpen("ledger") ? <span className="rt"><a className="btn sm" href={routeHref("ledger")}>Review</a></span> : null}
+                          {canOpen("ledger") ? <span className="rt"><a className="btn sm" href={routeHref(`ledger/${item.entityId}`)}>Review</a></span> : null}
                         </li>
                       );
                     }
@@ -394,6 +436,7 @@ export function DashboardPage() {
               <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={needsAttentionPage <= 1} onClick={() => setNeedsAttentionPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {needsAttentionPage} of {needsAttentionPages}</span>
               <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={needsAttentionPage >= needsAttentionPages} onClick={() => setNeedsAttentionPage((p) => Math.min(needsAttentionPages, p + 1))}>Next ›</button>
+              <GoToPage page={needsAttentionPage} totalPages={needsAttentionPages} onChange={setNeedsAttentionPage} />
             </div>
           </div>
         </div>
@@ -458,6 +501,12 @@ export function DashboardPage() {
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
                     </span>
                     <span className="tx"><b>{e.title}</b><small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""} · {fmtDate(e.date)}</small></span>
+                    {/* Same target as the calendar's "Open loan"; manual reminders have none and stay plain. */}
+                    {e.personalLoanId != null && canOpen("personalloan")
+                      ? <span className="rt"><a className="btn sm ghost" href={routeHref(`personalloan/${e.personalLoanId}`)}>Open</a></span>
+                      : e.personalLoanId == null && e.loanNumber && canOpen("loan")
+                        ? <span className="rt"><a className="btn sm ghost" href={routeHref(`loan/${e.loanNumber}`)}>Open</a></span>
+                        : null}
                   </li>
                 )) : <li><span className="tx"><small>No pending reminders.</small></span></li>}
               </ul>
@@ -467,6 +516,7 @@ export function DashboardPage() {
                 <button className="btn plain sm" disabled={reminderPage <= 1} onClick={() => setReminderPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
                 <span style={{ fontSize: 12.5 }}>Page {reminderPage} of {reminderPages}</span>
                 <button className="btn plain sm" disabled={reminderPage >= reminderPages} onClick={() => setReminderPage((p) => Math.min(reminderPages, p + 1))}>Next ›</button>
+                <GoToPage page={reminderPage} totalPages={reminderPages} onChange={setReminderPage} />
               </div>
             )}
           </div>

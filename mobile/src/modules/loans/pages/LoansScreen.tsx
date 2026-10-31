@@ -115,7 +115,7 @@ export default function LoansScreen() {
         }
         contentStyle={{ paddingTop: 0 }}
         renderItem={(l, i) => {
-          const closed = /closed|released/i.test(l.status ?? "");
+          const closed = /closed|released|pending approval/i.test(l.status ?? "");
           return (
             <AccRow
               defaultOpen={i === 0}

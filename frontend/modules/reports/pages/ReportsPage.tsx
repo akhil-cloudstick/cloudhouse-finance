@@ -100,7 +100,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "loans-status",
     fetchFn: getLoansStatus,
     rowKey: (r) => r.loanId,
-    extraFilter: { field: "status", label: "Status", options: ["Active", "Closed", "Pending Approval", "Auction Eligible"] },
+    extraFilter: { field: "status", label: "Status", options: ["Active", "Due Soon", "Overdue", "Defaulted", "Closed"] },
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },

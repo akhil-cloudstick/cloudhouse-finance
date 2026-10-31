@@ -16,7 +16,16 @@ const (
 	ModuleMultipleInterest = "multiple_interest"
 )
 
-var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp, ModuleMultipleInterest}
+// Dashboard quick actions. New Loan is always offered; each of these adds one more entry to the
+// grouped Quick actions button on the dashboard. UI entitlement only: the loan endpoints they call
+// keep their own permission checks.
+const (
+	ModuleQuickPay       = "quick_pay"
+	ModuleQuickExtension = "quick_extension"
+	ModuleQuickRelease   = "quick_release"
+)
+
+var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp, ModuleMultipleInterest, ModuleQuickPay, ModuleQuickExtension, ModuleQuickRelease}
 
 const (
 	LangEnglish = "en"

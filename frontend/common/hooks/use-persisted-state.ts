@@ -1,4 +1,4 @@
-import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 // useState whose value is mirrored to sessionStorage under `key`, so a page's
 // search/filter selections survive opening a detail page and coming back, a
@@ -22,6 +22,25 @@ export function usePersistedState<T>(key: string, initial: T): [T, Dispatch<SetS
     });
   }, [storageKey]);
   return [value, set];
+}
+
+// A list's current page, kept like the search/filter selections so that opening
+// a record and pressing Back returns to the same page instead of page 1.
+export function usePersistedPage(key: string): [number, Dispatch<SetStateAction<number>>] {
+  return usePersistedState<number>(`${key}:page`, 1);
+}
+
+// Sends the list back to page 1 when `deps` (its search / filters / page size)
+// change. Not on mount: the page restored by usePersistedPage must survive the
+// first render (also under StrictMode's mount, unmount, mount).
+export function useResetPageOnChange(setPage: (page: number) => void, deps: readonly unknown[]): void {
+  const mounted = useRef(false);
+  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
 }
 
 // Pages that belong to one area of the app. Search/filter state is kept while

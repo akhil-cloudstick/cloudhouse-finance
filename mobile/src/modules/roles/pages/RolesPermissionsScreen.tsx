@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import {
   Buffering,
   BtnRow2,
@@ -181,6 +182,8 @@ type PageTab = (typeof PAGE_TABS)[number];
 
 export default function RolesPermissionsScreen() {
   const { employee, can, refetchPermissions } = useAuth();
+  // Opened from an employee's "Role permissions": start on that employee's role.
+  const params = useLocalSearchParams<{ role?: string }>();
   const canView = can("Role_Management", "can_view_role_and_permission_module");
   const canCreateRole = can("Role_Management", "can_create_role");
   const canUpdateRole = can("Role_Management", "can_update_role");
@@ -208,7 +211,8 @@ export default function RolesPermissionsScreen() {
         if (selectId && list.some((r) => r.id === selectId)) {
           setRoleId(selectId);
         } else if (!roleId && list.length > 0) {
-          setRoleId((list.find((r) => !r.isSystem) ?? list[0]).id);
+          const asked = params.role ? list.find((r) => r.name === params.role) : undefined;
+          setRoleId((asked ?? list.find((r) => !r.isSystem) ?? list[0]).id);
         }
       })
       .catch((e) => setError(userMessage(e, "Could not load roles — pull down to try again.")));

@@ -132,11 +132,16 @@ export function CalendarPage() {
     cells.push(week);
   }
 
-  function goMonth(delta: number) {
-    const d = new Date(year, month + delta, 1);
+  // Jump to any month: used by Prev/Next and by the month / year pickers.
+  function goTo(y: number, m: number) {
+    const d = new Date(y, m, 1);
     setYear(d.getFullYear());
     setMonth(d.getMonth());
     setSelectedDay(null);
+  }
+
+  function goMonth(delta: number) {
+    goTo(year, month + delta);
   }
 
   function goToday() {
@@ -220,7 +225,12 @@ export function CalendarPage() {
           {/* Month label with its small prev/next buttons right beside it, directly above the grid. */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px 0" }}>
             <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0 }} onClick={() => goMonth(-1)} aria-label="Previous month">‹</button>
-            <b style={{ fontSize: 14, minWidth: 120, textAlign: "center" }}>{fmtMonthYear(year, month)}</b>
+            <select className="inp" aria-label="Month" style={{ width: 112, padding: "2px 6px" }} value={month} onChange={(e) => goTo(year, +e.target.value)}>
+              {Array.from({ length: 12 }, (_, m) => <option key={m} value={m}>{new Date(2000, m, 1).toLocaleString("en-US", { month: "long" })}</option>)}
+            </select>
+            <select className="inp" aria-label="Year" style={{ width: 84, padding: "2px 6px" }} value={year} onChange={(e) => goTo(+e.target.value, month)}>
+              {Array.from(new Set([...Array.from({ length: 21 }, (_, i) => today.getFullYear() - 10 + i), year])).sort((a, b) => a - b).map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
             <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0 }} onClick={() => goMonth(1)} aria-label="Next month">›</button>
             <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={goToday}>Today</button>
           </div>

@@ -6,7 +6,6 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Reports/models"
 	"context"
-	"math"
 	"sort"
 	"time"
 )
@@ -101,7 +100,7 @@ func expenseCashflow(ctx context.Context, f models.Filter) ([]models.ExpenseCash
 		totals.TotalDisbursements += row.Disbursements
 		totals.TotalExpenses += row.CashExpenses
 	}
-	paisa := func(v float64) float64 { return math.Round(v*100) / 100 }
+	paisa := common.RoundMoney
 	totals.TotalCollections = paisa(totals.TotalCollections)
 	totals.TotalDisbursements = paisa(totals.TotalDisbursements)
 	totals.TotalExpenses = paisa(totals.TotalExpenses)

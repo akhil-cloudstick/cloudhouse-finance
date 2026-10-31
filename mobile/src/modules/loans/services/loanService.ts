@@ -55,7 +55,7 @@ export function listLoanRiskAssessmentPage(params: {
   q?: string;
   status?: string;
   servicing?: string; // due_soon | overdue | defaulted
-  riskLevel?: LoanRiskLevel;
+  riskLevel?: string; // one level or a comma-separated list
   from?: string; // "YYYY-MM-DD", bounds openedDate
   to?: string;
   limit: number;

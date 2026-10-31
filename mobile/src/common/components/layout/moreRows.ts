@@ -14,6 +14,7 @@ const MORE_ROWS: MoreRow[] = [
   { key: "auctions", route: "auctions", title: "Auctions", sub: "Active cases & auction history", icon: "gavel" },
   { key: "packets", route: "packets", title: "Packets & Lockers", sub: "Ornament custody tracking", icon: "doc" },
   { key: "banks", route: "banks", title: "Bank Pledges", sub: "Loans pledged to a bank", icon: "card" },
+  { key: "bank-management", route: "bank-management", title: "Bank Management", sub: "Banks & net balance", icon: "coin" },
   { key: "requests", route: "requests", title: "Releases", sub: "Loan extensions & gold release", icon: "edit" },
   { key: "cash", route: "cash", title: "Ledger", sub: "Movements, expenses & gold sales", icon: "coin" },
   { key: "personal-loans", route: "personal-loans", title: "Personal Loans", sub: "Non-gold loans & collections", icon: "card" },

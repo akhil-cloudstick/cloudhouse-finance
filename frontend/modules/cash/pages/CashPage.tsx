@@ -1,13 +1,16 @@
 "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
+import { ManageCategoriesModalContent } from "@/modules/cash/components/ManageCategoriesModalContent";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
-import { fmt } from "@/common/utils/format";
+import { fmt, fmtDate, localToday } from "@/common/utils/format";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { AddEntryModalContent } from "@/modules/cash/components/AddEntryModalContent";
 import { ReceiptViewModalContent } from "@/modules/cash/components/ReceiptViewModalContent";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
@@ -17,7 +20,7 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/com
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { useExpenseCategoryIdsState } from "@/common/hooks/use-expense-category-ids";
 import { rememberedLedgerPage, reloadedLedgerPosition, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
-import { listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary, approveExpense, rejectExpense, exportCashMovements, exportExpenses } from "@/modules/cash/services/cashService";
+import { listCashMovementsPage, listExpensesPage, getExpense, listGoldSalesPage, getCashSummary, approveExpense, rejectExpense, exportCashMovements, exportExpenses } from "@/modules/cash/services/cashService";
 import { type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory } from "@/modules/cash/types/cash-types";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { canActAtStage, stageByPending } from "@/common/services/approvalWorkflowService";
@@ -55,7 +58,7 @@ function withRunningBalance(items: CashMovementView[], topBalance: number): { m:
  * backend-backed: cash movements, the expense register, the opening cash
  * balance, and the Expected Cash in Hand figure all come from the Go API
  * (backend/internal/cash) instead of localStorage. */
-export function CashPage() {
+export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
   const { openModal } = useModal();
   const toast = useToast();
   // Recording cash movements and expenses is a create; closing a loan movement is an update.
@@ -76,7 +79,12 @@ export function CashPage() {
   // the first step, the same as the backend reads it.
   const expenseStage = (e: ExpenseView) => stageByPending(workflow, "expense", e.approvalStage || "Pending");
   const [decidingExpenseId, setDecidingExpenseId] = useState<number | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  // The summary tiles show one day: today (in the browser's own timezone) unless another date is picked.
+  const realToday = localToday();
+  const [summaryDate, setSummaryDate] = usePersistedState("cash:summary-date", "");
+  const today = summaryDate && summaryDate <= realToday ? summaryDate : realToday;
+  const isToday = today === realToday;
+  const dayLabel = isToday ? "today" : fmtDate(today);
 
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
@@ -134,6 +142,30 @@ export function CashPage() {
   const [movementsQ, setMovementsQ] = usePersistedState("cash:q", "");
   const [expensesQ, setExpensesQ] = usePersistedState("cash:expenses-q", "");
   const [goldSalesQ, setGoldSalesQ] = usePersistedState("cash:gold-sales-q", "");
+  const [expCategory, setExpCategory] = usePersistedState("cash:expenses-category", "");
+  const [expMode, setExpMode] = usePersistedState("cash:expenses-mode", "");
+  const [expStatus, setExpStatus] = usePersistedState("cash:expenses-status", "");
+  const [expFrom, setExpFrom] = usePersistedState("cash:expenses-from", "");
+  const [expTo, setExpTo] = usePersistedState("cash:expenses-to", "");
+  const [salesFrom, setSalesFrom] = usePersistedState("cash:gold-sales-from", "");
+  const [salesTo, setSalesTo] = usePersistedState("cash:gold-sales-to", "");
+  // Arrived from the dashboard's expense approval "Review" (/ledger/<expenseId>): show the
+  // Expense Register narrowed to that expense's day, then highlight its row once it has loaded.
+  const pendingExpenseFocus = useRef<number | null>(null);
+  useEffect(() => {
+    const id = Number(focusExpenseId);
+    if (!focusExpenseId || !Number.isInteger(id) || id <= 0) return;
+    setActiveCashTab("expenses");
+    getExpense(id)
+      .then((e) => {
+        pendingExpenseFocus.current = id;
+        setExpCategory(""); setExpMode(""); setExpStatus("");
+        setExpFrom(e.d); setExpTo(e.d);
+        setExpensesPage(1);
+      })
+      .catch(() => { /* not found or outside this branch: the Expense Register opens unfiltered */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusExpenseId]);
   const movementsSearch = useDebouncedValue(movementsQ.trim());
   const expensesSearch = useDebouncedValue(expensesQ.trim());
   const goldSalesSearch = useDebouncedValue(goldSalesQ.trim());
@@ -143,6 +175,12 @@ export function CashPage() {
     if (!searchMounted.current) { searchMounted.current = true; return; }
     setMovementsPage(1); setExpensesPage(1); setGoldSalesPage(1);
   }, [movementsSearch, expensesSearch, goldSalesSearch]);
+  // A new expense / gold-sale filter also starts from the first page.
+  const filterMounted = useRef(false);
+  useEffect(() => {
+    if (!filterMounted.current) { filterMounted.current = true; return; }
+    setExpensesPage(1); setGoldSalesPage(1);
+  }, [expCategory, expMode, expStatus, expFrom, expTo, salesFrom, salesTo]);
   // Loan/Auction/Collection/Expenses — narrows which cash movements show,
   // same Category* buckets backend/internal/cash/repository.go's FindAll
   // filters on server-side (not a client-side re-filter of loaded rows).
@@ -210,6 +248,23 @@ export function CashPage() {
     },
     { key: "__date", label: "Date", kind: "date" },
   ];
+  const filterOptions = (values: string[]) => values.map((v) => ({ value: v, label: v }));
+  const expensesFilterCategories: FilterCategory[] = [
+    { key: "category", label: "Category", kind: "static", singleSelect: true, options: filterOptions(Object.keys(categoryIdByName).sort()) },
+    { key: "mode", label: "Mode", kind: "static", singleSelect: true, options: filterOptions(["Cash", "UPI", "Bank Transfer"]) },
+    { key: "status", label: "Status", kind: "static", singleSelect: true, options: filterOptions(["Pending", "Approved", "Rejected"]) },
+    { key: "__date", label: "Date", kind: "date" },
+  ];
+  const expensesFilterValue: FilterValue = {
+    category: expCategory ? [expCategory] : [],
+    mode: expMode ? [expMode] : [],
+    status: expStatus ? [expStatus] : [],
+    __dateFrom: expFrom || undefined,
+    __dateTo: expTo || undefined,
+  };
+  const goldSalesFilterCategories: FilterCategory[] = [{ key: "__date", label: "Date", kind: "date" }];
+  const goldSalesFilterValue: FilterValue = { __dateFrom: salesFrom || undefined, __dateTo: salesTo || undefined };
+  const expenseListFilters = { search: expensesSearch || undefined, category: expCategory || undefined, mode: expMode || undefined, status: expStatus || undefined, from: expFrom || undefined, to: expTo || undefined };
   const movementsFilterValue: FilterValue = {
     branch: movementsBranchIds,
     customer: movementsCustomerIds,
@@ -244,13 +299,13 @@ export function CashPage() {
       setMovementsTotal(total);
       setMovementSums({ debit: totalDebit, credit: totalCredit });
     }).catch(() => { setMovements([]); setMovementsHasMore(false); setMovementsTotal(0); });
-    listExpensesPage(expensesPage, cashPageSize, expensesSearch || undefined).then(({ items, hasMore, total, totalAmount }) => {
+    listExpensesPage(expensesPage, cashPageSize, expenseListFilters).then(({ items, hasMore, total, totalAmount }) => {
       setExpenses(items);
       setExpensesHasMore(hasMore);
       setExpensesTotal(total);
       setExpenseSum(totalAmount);
     }).catch(() => { setExpenses([]); setExpensesHasMore(false); setExpensesTotal(0); });
-    listGoldSalesPage(goldSalesPage, cashPageSize, { search: goldSalesSearch || undefined }).then(({ items, hasMore, total, totalSold, totalCost, totalProfit }) => {
+    listGoldSalesPage(goldSalesPage, cashPageSize, { search: goldSalesSearch || undefined, fromDate: salesFrom || undefined, toDate: salesTo || undefined }).then(({ items, hasMore, total, totalSold, totalCost, totalProfit }) => {
       setGoldSales(items);
       setGoldSalesHasMore(hasMore);
       setGoldSalesTotal(total);
@@ -264,10 +319,19 @@ export function CashPage() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes, movementsSearch, expensesSearch, goldSalesSearch]);
+  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes, movementsSearch, expensesSearch, goldSalesSearch, expCategory, expMode, expStatus, expFrom, expTo, salesFrom, salesTo]);
 
   useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0 && idsReady, [movements]);
   useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0 && idsReady, [expenses]);
+  useEffect(() => {
+    const id = pendingExpenseFocus.current;
+    if (id === null || activeCashTab !== "expenses" || !idsReady || !expenses.some((e) => e.id === id)) return;
+    const row = document.querySelector<HTMLElement>(`tr[data-ledger-key="e-${id}"]`);
+    if (!row) return;
+    pendingExpenseFocus.current = null;
+    row.classList.add("ledger-row-focus");
+    row.scrollIntoView({ block: "center" });
+  }, [expenses, activeCashTab, idsReady]);
 
   const pledgeActions = useBankPledgeEntryActions(refresh);
   const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
@@ -331,7 +395,7 @@ export function CashPage() {
   async function downloadExpenses() { return singleFlight("cash:download-expenses", async () => {
     setDownloadingExpenses(true);
     try {
-      await exportExpenses();
+      await exportExpenses(expenseListFilters);
     } catch {
       toast("Could not download the expense register — try again.");
     } finally {
@@ -365,16 +429,21 @@ export function CashPage() {
       </div>
       <hr className="gold-rule rule-sm" />
 
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "0 0 10px" }}>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Summary for</span>
+        <div style={{ width: 170 }}><DatePicker value={today} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} /></div>
+        {!isToday && <button type="button" className="btn plain sm" onClick={() => setSummaryDate("")}>Today</button>}
+      </div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
         <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
-          <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} s="carried forward" />
+          <Kpi l={`Opening Cash (${dayLabel})`} v={fmt(summary?.openingCash || 0)} s="carried forward" />
           {/* Backend's `collections` is every cash-in movement for the day —
               Savings top-ups, bank pledges and loan repayments alike, not just
               interest/principal (see cash.SummaryService.GetExpectedCash), so
               show `collectionsBreakdown` under the total rather than leaving the
               reader to guess what the one figure is made of. */}
           <Kpi
-            l="Cash In (today)"
+            l={`Cash In (${dayLabel})`}
             v={fmt(summary?.collections || 0)}
             cls="ok"
             parts={[
@@ -389,7 +458,7 @@ export function CashPage() {
               loan principal handed out, manual "Take Cash Out" withdrawals,
               and bank-pledge releases all land here. */}
           <Kpi
-            l="Cash Out (today)"
+            l={`Cash Out (${dayLabel})`}
             v={fmt(summary?.disbursements || 0)}
             parts={[
               ["Loan disbursements", summary?.disbursementsBreakdown?.loanDisbursements || 0],
@@ -399,7 +468,7 @@ export function CashPage() {
               ["Withdrawals", summary?.disbursementsBreakdown?.withdrawals || 0],
             ]}
           />
-          <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
+          <Kpi l={`Expenses (${dayLabel})`} v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
           <Kpi
             l="Balance in Hand"
             v={fmt((summary?.cashInHand || 0) + (summary?.bankBalance || 0))}
@@ -483,6 +552,7 @@ export function CashPage() {
               * just the current page rather than a fabricated "of N". */}
             {!cards && <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>}
             {!cards && <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>}
+            {!cards && <GoToPage page={movementsPage} totalPages={movementsTotalPages} onChange={setMovementsPage} />}
             <FooterTotals aligned items={[
               { value: movementSums.debit, color: "var(--red)" },
               { value: movementSums.credit, color: "var(--green)" },
@@ -497,6 +567,23 @@ export function CashPage() {
             <h3>Expense Register</h3>
             <div className="sp" />
             <TableSearch value={expensesQ} onChange={setExpensesQ} placeholder="Search category, branch, amount…" searches="date, category, payee, amount, mode, branch, status, remarks" />
+            <FilterPanel
+              categories={expensesFilterCategories}
+              value={expensesFilterValue}
+              onChange={(next) => {
+                setExpCategory(Array.isArray(next.category) ? next.category[0] || "" : "");
+                setExpMode(Array.isArray(next.mode) ? next.mode[0] || "" : "");
+                setExpStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+                setExpFrom(next.__dateFrom || "");
+                setExpTo(next.__dateTo || "");
+              }}
+              hideChips
+            />
+            {canUpdateCash && (
+              <button className="btn ghost sm" onClick={() => openModal(<ManageCategoriesModalContent />)} title="Delete categories you no longer use">
+                <Icon name="edit" /> Categories
+              </button>
+            )}
             {canExport && (
               <button className="btn ghost sm" onClick={downloadExpenses} disabled={downloadingExpenses} title="Download every expense row">
                 <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
@@ -535,6 +622,7 @@ export function CashPage() {
             {!cards && <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>}
             {!cards && <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>}
             {!cards && <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>}
+            {!cards && <GoToPage page={expensesPage} totalPages={expensesTotalPages} onChange={setExpensesPage} />}
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}></span>
             <FooterTotals items={[{ label: "Total", value: expenseSum, color: "var(--red)" }]} />
           </div>
@@ -547,6 +635,15 @@ export function CashPage() {
             <h3>Gold Sales</h3>
             <div className="sp" />
             <TableSearch value={goldSalesQ} onChange={setGoldSalesQ} placeholder="Search ornament, bank, amount…" searches="date, ornament type, sold for, cost, mode, bank, branch, remarks" />
+            <FilterPanel
+              categories={goldSalesFilterCategories}
+              value={goldSalesFilterValue}
+              onChange={(next) => {
+                setSalesFrom(next.__dateFrom || "");
+                setSalesTo(next.__dateTo || "");
+              }}
+              hideChips
+            />
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
               Total profit {fmt(goldSales.reduce((s, g) => s + g.profit, 0))}
             </span>          </div>
@@ -565,6 +662,7 @@ export function CashPage() {
             {!cards && <button className="btn plain sm" disabled={goldSalesPage <= 1} onClick={() => setGoldSalesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>}
             {!cards && <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>}
             {!cards && <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>}
+            {!cards && <GoToPage page={goldSalesPage} totalPages={goldSalesTotalPages} onChange={setGoldSalesPage} />}
             <span
               title="Sold amount automatically books into Cash-in-Hand as a cash-in movement"
               style={{ fontSize: 12.5, color: "var(--muted)", flex: "1 1 0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { previewRenewal, renewPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
@@ -88,7 +88,7 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
     }
   }
 
-  const installmentAmount = +tenureCount > 0 && principalNum > 0 ? Math.round((principalNum / +tenureCount) * 100) / 100 : 0;
+  const installmentAmount = +tenureCount > 0 && principalNum > 0 ? roundRupee((principalNum / +tenureCount)) : 0;
   const v = (n: number | undefined) => (preview && n !== undefined ? fmt(n) : "—");
 
   return (

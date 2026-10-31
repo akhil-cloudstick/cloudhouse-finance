@@ -10,7 +10,7 @@ import { classicLayout, LAYOUT_PRESETS, LOGO_WIDTH_SQUARE, matchingPreset, parse
 import { ReasonField } from "@/modules/superadmin/components/ReasonField";
 import { ReviewRow } from "@/modules/superadmin/components/ReviewRow";
 import { DesktopReleaseModal } from "@/modules/superadmin/components/DesktopReleaseModal";
-import { sortedTiers, plansFor, downgradeNote, planLabel, MODULE_LABELS, LANGUAGE_LABELS } from "@/modules/superadmin/utils/dashboardHelpers";
+import { sortedTiers, plansFor, downgradeNote, planLabel, MODULE_LABELS, LANGUAGE_LABELS, DASHBOARD_ACTION_MODULES } from "@/modules/superadmin/utils/dashboardHelpers";
 import { useActiveBranches } from "@/modules/superadmin/hooks/use-active-branches";
 import { StepId } from "@/modules/superadmin/types/dashboard-types";
 
@@ -25,6 +25,9 @@ const MODULE_HINTS: Record<string, string> = {
     "Settings > Integrations > WhatsApp: lets this business link its own WhatsApp number (QR or phone number) so messages go out from it. Without it the business keeps using the shared server number.",
   demo_reset:
     "Lets this business wipe its own data back to the admin login, optionally reloading the demo dataset. Leave OFF for a live client — every other module hides a page, this one hands out a delete button.",
+  quick_pay: "Pick a customer and one of their loans, then the usual Record Payment screen.",
+  quick_extension: "Log the request here; if the user can approve their stage they approve it in the same window.",
+  quick_release: "Log the release request and, if the user can approve their stage, review it in the same window.",
 };
 /* Modules whose grant is irreversible in effect rather than merely
  * revealing a page. Rendered with the danger styling so it does not read as
@@ -727,7 +730,7 @@ export function BusinessWizard({
                   Off by default. A module left unticked is hidden from the app and refused by the API, not merely
                   hidden from the menu.
                 </span>
-                {catalogue.modules.map((m) => {
+                {catalogue.modules.filter((m) => !(DASHBOARD_ACTION_MODULES as readonly string[]).includes(m)).map((m) => {
                   const destructive = DESTRUCTIVE_MODULES.has(m);
                   // Branch Management is meaningless for a single-branch
                   // business; the server refuses it regardless. The stored
@@ -805,6 +808,33 @@ export function BusinessWizard({
                   );
                 })}
               </div>
+
+              {DASHBOARD_ACTION_MODULES.some((m) => catalogue.modules.includes(m)) && (
+                <div className="sa-field">
+                  <label>Dashboard actions</label>
+                  <span className="sa-hint" style={{ marginBottom: 6 }}>
+                    What the Quick actions button on this business&apos;s dashboard offers. With only New Loan, the
+                    dashboard keeps the normal New Loan button; ticking anything else groups them under one Quick
+                    actions button.
+                  </span>
+                  <label className="sa-check locked">
+                    <input type="checkbox" checked disabled />
+                    <span>
+                      New Loan
+                      <span className="sa-check-sub">Default, always on. Opens the New Loan page.</span>
+                    </span>
+                  </label>
+                  {DASHBOARD_ACTION_MODULES.filter((m) => catalogue.modules.includes(m)).map((m) => (
+                    <label key={m} className="sa-check">
+                      <input type="checkbox" checked={modules.includes(m)} onChange={() => setModulesState(toggle(modules, m))} />
+                      <span>
+                        {MODULE_LABELS[m] ?? m}
+                        <span className="sa-check-sub">{MODULE_HINTS[m] ?? ""}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
 
               <div className="sa-field">
                 <label>Document languages</label>

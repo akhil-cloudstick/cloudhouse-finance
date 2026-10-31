@@ -27,7 +27,7 @@ type ExtensionReviewModalContentProps = { request: RequestView; onSaved: () => v
  * "Loan Extension Approval" permission grant, not a role-name match; the
  * stage's role is display-only ("Awaiting <role> approval"). */
 export function ExtensionReviewModalContent({ request, onSaved }: ExtensionReviewModalContentProps) {
-  const { closeModal, openModal } = useModal();
+  const { closeModal, openModal, openChildModal } = useModal();
   const toast = useToast();
   const { can, role, isSystem } = useAuth();
   const { config: workflow } = useApprovalWorkflow();
@@ -194,7 +194,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
             <p className="ccheck-hint" style={{ marginBottom: 8 }}>Clear the outstanding interest/penal interest, then try Approve again.</p>
             <button
               className="btn ghost sm"
-              onClick={() => openModal(
+              onClick={() => openChildModal(
                 <PaymentModalContent
                   loan={loan}
                   onSaved={() => { setNeedsPayment(false); setErr(""); getLoan(request.loanNumericId).then(setLoan); }}

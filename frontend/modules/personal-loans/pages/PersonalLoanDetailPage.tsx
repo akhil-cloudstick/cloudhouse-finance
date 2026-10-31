@@ -1,21 +1,23 @@
 "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBalanceInHand } from "@/common/hooks/use-balance-in-hand";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { StageTracker } from "@/common/components/StageTracker";
 import { RejectRemarksModalContent } from "@/common/components/modals/RejectRemarksModalContent";
+import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { canActAtStage, chainFor, isFinalStage, nextStage, stageByPending, trackerLabels } from "@/common/services/approvalWorkflowService";
 import { useModal } from "@/common/components/ModalProvider";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { Icon } from "@/common/components/Icon";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt, fmtDate } from "@/common/utils/format";
+import { fmt, fmtDate, localToday } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
-import { getPersonalLoan, resolvePersonalLoanNumber, getPersonalLoanSchedulePage, getPersonalLoanHistoryPage, listPersonalLoanPaymentsPage, downloadPersonalLoanBond, approvePersonalLoan, listPersonalLoanApprovals, PERSONAL_LOAN_PAGE_SIZE } from "@/modules/personal-loans/services/personalLoanService";
+import { getPersonalLoan, resolvePersonalLoanNumber, getPersonalLoanSchedulePage, getPersonalLoanHistoryPage, listPersonalLoanPaymentsPage, downloadPersonalLoanBond, approvePersonalLoan, listPersonalLoanApprovals, deletePersonalLoan, PERSONAL_LOAN_PAGE_SIZE } from "@/modules/personal-loans/services/personalLoanService";
 import { type PersonalLoanApprovalRecord, type PersonalLoanBondLang, type BackendPersonalLoan, type BackendPersonalLoanInstallment, type BackendPersonalLoanHistory, type BackendPersonalLoanPayment } from "@/modules/personal-loans/types/personal-loan-types";
 import { CollectPaymentModalContent } from "@/modules/personal-loans/components/CollectPaymentModalContent";
 import { PersonalLedgerEditModalContent } from "@/modules/personal-loans/components/PersonalLedgerEditModalContent";
@@ -112,6 +114,7 @@ function Pager({ page, totalPages, onChange, children }: PagerProps) {
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+      <GoToPage page={page} totalPages={totalPages} onChange={onChange} />
       {children}
     </div>
   );
@@ -356,6 +359,33 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                   <Icon name="clock" /><span className="tx">Renew Loan</span>
                 </a>
               )}
+              {canDeleteLedger && (
+                <a
+                  href="#"
+                  title="Delete Loan"
+                  className="danger"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setActionsMenuOpen(false);
+                    openModal(
+                      <ConfirmModalContent
+                        title="Delete Personal Loan"
+                        confirmLabel="Delete Loan"
+                        busyLabel="Deleting…"
+                        danger
+                        message={<>This deletes <strong>{loan.loanNumber}</strong> and reverses its disbursement in the cash book. It cannot be undone. A loan that still has payments, or that was renewed, cannot be deleted.</>}
+                        onConfirm={async () => {
+                          await deletePersonalLoan(loan.id);
+                          toast(`${loan.loanNumber} deleted`);
+                          navigate("personalloans");
+                        }}
+                      />
+                    );
+                  }}
+                >
+                  <Icon name="trash" /><span className="tx">Delete Loan</span>
+                </a>
+              )}
             </div>
           )}
         </div>
@@ -432,14 +462,18 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                     <tr><td colSpan={4} className="empty compact">Loading…</td></tr>
                   ) : schedule.items.length === 0 ? (
                     <tr><td colSpan={4} className="empty compact">No installments.</td></tr>
-                  ) : schedule.items.map((s) => (
+                  ) : schedule.items.map((s) => {
+                    // An unpaid installment past its due date is Missed, not still Pending (same rule as the mobile app).
+                    const missed = s.status !== "Paid" && s.status !== "PartiallyPaid" && s.dueDate.slice(0, 10) < localToday();
+                    return (
                     <tr key={s.id}>
                       <td data-label="#">{s.sequenceNo}</td>
                       <td data-label="Due Date">{fmtDate(s.dueDate)}</td>
                       <td data-label="Amount" className="num">{fmt(s.amount)}</td>
-                      <td data-label="Status"><StatusChip status={s.status === "PartiallyPaid" ? "Partially Paid" : s.status} /></td>
+                      <td data-label="Status"><StatusChip status={missed ? "Missed" : s.status === "PartiallyPaid" ? "Partially Paid" : s.status} /></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table></div>
               <ScrollSentinel enabled={schedule.cards && schedule.hasMore && !schedule.loading} onVisible={schedule.more} watch={schedule.items.length} />

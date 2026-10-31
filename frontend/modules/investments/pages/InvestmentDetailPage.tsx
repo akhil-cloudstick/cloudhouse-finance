@@ -1,5 +1,6 @@
 "use client";
 
+import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -73,6 +74,7 @@ function Pager({ page, totalPages, onChange }: PagerProps) {
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+      <GoToPage page={page} totalPages={totalPages} onChange={onChange} />
     </div>
   );
 }

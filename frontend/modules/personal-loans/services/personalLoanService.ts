@@ -32,6 +32,8 @@ export function listPersonalLoansPage(params: {
   frequency?: string; // one value or a comma-separated list
   customerId?: number;
   status?: string; // one value or a comma-separated list
+  from?: string; // YYYY-MM-DD, bounds the opened date (inclusive)
+  to?: string; // YYYY-MM-DD, bounds the opened date (inclusive)
   pageSize?: number;
 }): Promise<{ items: BackendPersonalLoan[]; hasMore: boolean; total: number }> {
   const pageSize = params.pageSize || PERSONAL_LOANS_TABLE_PAGE_SIZE;
@@ -43,7 +45,15 @@ export function listPersonalLoansPage(params: {
   if (params.frequency) query.set("frequency", params.frequency);
   if (params.customerId) query.set("customerId", String(params.customerId));
   if (params.status) query.set("status", params.status);
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
   return apiFetch<{ items: BackendPersonalLoan[]; hasMore: boolean; total: number }>(`/personal-loans?${query}`);
+}
+
+/* Deletes a personal loan and reverses its disbursement in the cash book. The backend refuses
+ * a loan that still has payments or is part of a renewal, answering with the reason. */
+export async function deletePersonalLoan(id: number): Promise<void> {
+  await apiFetch<unknown>(`/personal-loans/${id}`, { method: "DELETE" });
 }
 
 export function getPersonalLoan(id: number): Promise<BackendPersonalLoan> {
