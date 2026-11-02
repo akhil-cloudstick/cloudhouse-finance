@@ -151,6 +151,26 @@ func applyDiscountTx(ctx context.Context, tx *gorm.DB, l *models.Loan, in Paymen
 	return row, nil
 }
 
+// OwedAsOf is what a loan owes on paidOn — processing fee, penal interest, interest and principal — worked out
+// exactly as SaveLoanPayment charges a payment dated paidOn, without saving anything. Used to size backdated
+// payments (the demo seed) so they match what was owed on their own date, not today.
+func OwedAsOf(ctx context.Context, loanID uint, paidOn time.Time) (fee, penal, interest, principal float64, err error) {
+	l, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return 0, 0, 0, 0, common.NewNotFound("loan not found")
+	}
+	if now := time.Now(); paidOn.After(now) {
+		paidOn = now
+	}
+	ctx = withTopUpCutoff(ctx, paidOn)
+	asOf := sameClockAsOpened(l, paidOn)
+	for pass := 0; pass < 2; pass++ {
+		accrueStep(ctx, l, asOf, true)
+	}
+	return l.OutstandingProcessingFee, clampMoney(l.AccruedPenalInterest - l.PenalInterestPaid),
+		clampMoney(l.AccruedInterest - l.InterestPaid), l.OutstandingAmount, nil
+}
+
 // validatePaymentDateWindow rejects a staff-chosen payment date before the loan started or in the future.
 // Dates are compared as calendar days so the time of day never decides the outcome.
 func validatePaymentDateWindow(l *models.Loan, paidOn time.Time) error {
