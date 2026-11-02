@@ -79,7 +79,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   }
   // Gross/Less drive Net (gross − less); typing Net directly back-fills Less — same as New Loan.
   const w3 = (n: number) => String(Math.round(Math.max(0, n) * 1000) / 1000);
-  const wOk = (v: string) => /^d*.?d{0,3}$/.test(v);
+  const wOk = (v: string) => /^\d*\.?\d{0,3}$/.test(v);
   function setGross(i: number, v: string) {
     if (!wOk(v)) return;
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, gross: v, net: v === "" ? "" : w3(+v - (+r.less || 0)) } : r)));

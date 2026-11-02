@@ -26,8 +26,8 @@ import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { ledgerFocusTarget, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
-import { getLoanByNumber, linkedDiscountOf, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF, startPledgeSlipEsign, checkPledgeSlipEsign } from "@/modules/loans/services/loanService";
-import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView, type EsignWitnessInput } from "@/modules/loans/types/loan-types";
+import { getLoanByNumber, linkedDiscountOf, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF, listLoanRequests, startPledgeSlipEsign, checkPledgeSlipEsign } from "@/modules/loans/services/loanService";
+import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView, type RequestView, type EsignWitnessInput } from "@/modules/loans/types/loan-types";
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
@@ -188,6 +188,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   const [printingBond, setPrintingBond] = useState(false);
   const [printingStatement, setPrintingStatement] = useState(false);
   const [printingReleaseAgreement, setPrintingReleaseAgreement] = useState(false);
+  // Approved partial releases of this loan — each has its own receipt, listed in the Documents menu.
+  const [partialReleases, setPartialReleases] = useState<RequestView[]>([]);
+  const [printingPartialId, setPrintingPartialId] = useState<number | null>(null);
   // Indemnity bond Aadhaar eSign (Setu) — same "started, then poll" shape
   // CustomerDetail.tsx's DigiLocker Aadhaar-verify flow uses: "started"
   // means the customer's been sent the eSign URL and we're waiting for
@@ -236,6 +239,16 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // the header back to "Send Bond for eSign" — leaving no way to
   // poll the request already in flight, and inviting staff to start a
   // second one against the same bond.
+  const numericLoanId = loan?.numericId;
+  const releasedCount = loan?.ornaments?.length;
+  useEffect(() => {
+    if (!numericLoanId) return;
+    let cancelled = false;
+    listLoanRequests({ loanId: numericLoanId, status: "Approved" })
+      .then((rs) => { if (!cancelled) setPartialReleases(rs.filter((r) => r.type === "Release" && r.isPartial)); })
+      .catch(() => { if (!cancelled) setPartialReleases([]); });
+    return () => { cancelled = true; };
+  }, [numericLoanId, releasedCount]);
   useEffect(() => {
     if (loan?.indemnityBondSignStatus === "sign_initiated") setEsignStarted(true);
   }, [loan?.indemnityBondSignStatus]);
@@ -952,6 +965,36 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     }
   }
 
+  async function printPartialReceiptDoc(r: RequestView, lang: "en" | "ml") { return singleFlight("loan:partial-receipt:"+r.id+":"+lang, async () => {
+    setPrintingPartialId(r.id);
+    try {
+      await downloadPartialReleaseReceiptPDF(r.id, lang);
+    } catch {
+      toast("Could not generate the partial release receipt — try again");
+    } finally {
+      setPrintingPartialId(null);
+    }
+  }); }
+
+  function openPartialReceiptPicker() {
+    openModal(
+      <EsignLanguageModalContent
+        loanNumber={l.id}
+        customerName={l.customerName}
+        title="Partial Release Receipt"
+        confirmLabel="🖨 Print Receipt"
+        languageLabel="Language"
+        options={RELEASE_LANG_OPTIONS}
+        choices={partialReleases.map((r, i) => ({ value: r.id, label: `Release ${i + 1} · ${r.requestedAt}` }))}
+        onConfirm={() => undefined}
+        onConfirmChoice={(lang, requestId) => {
+          const r = partialReleases.find((x) => x.id === requestId);
+          return r ? printPartialReceiptDoc(r, lang === "ml" ? "ml" : "en") : undefined;
+        }}
+      />
+    );
+  }
+
   // One Release Agreement entry: the language is chosen here, like the bond, instead of two menu items.
   function openReleaseAgreementPicker() {
     openModal(
@@ -1159,7 +1202,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     </a>
                   )}
                   {!isFinished && !goldSold && canUpdateLoans && (
-                    <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />); }}>
+                    <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />, true); }}>
                       <Icon name="clock" /><span className="tx">Request Extension</span>
                     </a>
                   )}
@@ -1318,6 +1361,11 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
                   </a>
                 )}
+              {partialReleases.length > 0 && (
+                <a href="#" title="Partial Release Receipt" className={printingPartialId != null ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingPartialId != null) return; setDocsMenuOpen(false); openPartialReceiptPicker(); }}>
+                  <Icon name="unlock" /><span className="tx">{printingPartialId != null ? "Preparing…" : "Partial Release Receipt"}</span>
+                </a>
+              )}
               {l.status === "Closed" && (
                 <>
                   <a href="#" title="Release Agreement" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); openReleaseAgreementPicker(); }}>
@@ -1348,7 +1396,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
           {l.rejectionRemarks ? ` — ${l.rejectionRemarks}` : ""}. This loan was never disbursed.
         </div>
       )}
-      {pendingStage && (
+      {pendingStage && (sanctionChain.length > 1 || l.approvalWarning) && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="bd">
             <StageTracker

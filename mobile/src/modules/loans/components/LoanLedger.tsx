@@ -361,13 +361,15 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
     <View style={{ paddingHorizontal: 18 }}>
       {toolbar}
       {totals && (totals.totalDebit != null || totals.totalCredit != null) ? (
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>
-            Total Debit <Txt style={{ fontWeight: "700", color: C.red }}>{inr(totals.totalDebit ?? 0)}</Txt>
-          </Txt>
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>
-            Total Credit <Txt style={{ fontWeight: "700", color: C.green }}>{inr(totals.totalCredit ?? 0)}</Txt>
-          </Txt>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Txt style={{ fontSize: 12.5, color: C.muted }}>Total Debit</Txt>
+            <Txt style={{ fontSize: 14, fontWeight: "700", color: C.red }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(totals.totalDebit ?? 0)}</Txt>
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Txt style={{ fontSize: 12.5, color: C.muted }}>Total Credit</Txt>
+            <Txt style={{ fontSize: 14, fontWeight: "700", color: C.green }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(totals.totalCredit ?? 0)}</Txt>
+          </View>
         </View>
       ) : null}
       {hidden > 0 ? <AccBtn label={`Show ${Math.min(PAGE, hidden)} earlier (${hidden} more)`} onPress={() => setShown((s) => s + PAGE)} style={{ marginBottom: 10 }} /> : null}
@@ -411,12 +413,12 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
       </AccGroup>
       <LedgerPaymentEditSheet
         loanId={loan.id}
-        loanStart={loan.disbursementDate}
+        loanStart={loan.openedDate}
         payment={editing?.payment ?? null}
         mode={editing?.mode ?? "edit"}
         onClose={() => setEditing(null)}
       />
-      <TopUpEditSheet loanId={loan.id} loanStart={loan.disbursementDate} topUp={editingTopUp?.topUp ?? null} mode={editingTopUp?.mode ?? "edit"} onClose={() => setEditingTopUp(null)} />
+      <TopUpEditSheet loanId={loan.id} loanStart={loan.openedDate} topUp={editingTopUp?.topUp ?? null} mode={editingTopUp?.mode ?? "edit"} onClose={() => setEditingTopUp(null)} />
     </View>
   );
 }

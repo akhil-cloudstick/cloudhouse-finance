@@ -47,20 +47,20 @@ export function LoanRiskPage() {
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [status, setStatus] = usePersistedState("loanrisk:status", "");
-  const [riskLevel, setRiskLevel] = usePersistedState<LoanRiskLevel | "">("loanrisk:risk", "");
+  const [riskLevel, setRiskLevel] = usePersistedState("loanrisk:risk", "");
   const [fromDate, setFromDate] = usePersistedState("loanrisk:from", "");
   const [toDate, setToDate] = usePersistedState("loanrisk:to", "");
 
   // One grouped filter: Status, Risk level (single choice each) and the
   // opened-date range.
   const filterCategories: FilterCategory[] = [
-    { key: "status", label: "Status", kind: "static", singleSelect: true, options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
-    { key: "risk", label: "Risk", kind: "static", singleSelect: true, options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
+    { key: "status", label: "Status", kind: "static", options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
+    { key: "risk", label: "Risk", kind: "static", options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
     { key: "__date", label: "Opened Date", kind: "date" },
   ];
   const filterValue: FilterValue = {
-    status: status ? [status] : [],
-    risk: riskLevel ? [riskLevel] : [],
+    status: status ? status.split(",") : [],
+    risk: riskLevel ? riskLevel.split(",") : [],
     __dateFrom: fromDate || undefined,
     __dateTo: toDate || undefined,
   };
@@ -127,9 +127,9 @@ export function LoanRiskPage() {
             style={{
               cursor: "pointer",
               textAlign: "left",
-              border: riskLevel === level ? `1px solid var(--${RISK_CHIP[level]})` : undefined,
+              border: riskLevel.split(",").includes(level) ? `1px solid var(--${RISK_CHIP[level]})` : undefined,
             }}
-            onClick={() => setRiskLevel((cur) => (cur === level ? "" : level))}
+            onClick={() => setRiskLevel((cur) => { const set = cur ? cur.split(",") : []; return (set.includes(level) ? set.filter((x) => x !== level) : [...set, level]).join(","); })}
             title={`Show only ${RISK_LABEL[level]} loans`}
           >
             <div className="l">{RISK_LABEL[level]}</div>
@@ -144,8 +144,8 @@ export function LoanRiskPage() {
         categories={filterCategories}
         value={filterValue}
         onChange={(next) => {
-          setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
-          setRiskLevel((Array.isArray(next.risk) ? next.risk[0] || "" : "") as LoanRiskLevel | "");
+          setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
+          setRiskLevel(Array.isArray(next.risk) ? next.risk.join(",") : "");
           setFromDate(next.__dateFrom || "");
           setToDate(next.__dateTo || "");
         }}
@@ -201,6 +201,7 @@ export function LoanRiskPage() {
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
           <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
         </div>
         {/* <div className="ft">Red = gold, sold today, would not cover the principal · Orange = covered by less than a 10% margin · Green = comfortably covered</div> */}

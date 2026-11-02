@@ -164,7 +164,7 @@ func resolveAuctionAfterPayment(ctx context.Context, l *models.Loan, p *models.L
 			recordAuctionEvent(ctx, tx, rec.ID, "DecisionRemove", nil, "", fmt.Sprintf(
 				"Payment of ₹%.2f cleared all interest and penal interest — auction withdrawn automatically (₹%.2f principal still payable)", p.Amount, outstanding))
 			notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Removed From Auction", brandedMessage(ctx,
-				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Finance",
+				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.0f remains payable. — CloudHouse Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber, outstanding,
 			), commonModels.TriggerPayment, "loan", l.ID)
 			return nil
@@ -630,7 +630,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 		recordAuctionEvent(ctx, nil, rec.ID, "DecisionPursue", nil, "System", fmt.Sprintf(
 			"Auction proceeds fell short by ₹%.2f — balance pursued automatically (no shortfall decision stage configured)", shortfall))
 		notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Shortfall", brandedMessage(ctx,
-			"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
+			"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.0f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, shortfall,
 		), commonModels.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
@@ -687,6 +687,8 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 	if rec.SurplusDisposition != "" || rec.SurplusPaidOutMovementID != nil {
 		return nil, common.NewConflict("this auction's surplus has already been disposed of")
 	}
+	// Sales recorded before money was kept in whole rupees can carry paise; settle the rounded figure staff see.
+	rec.SurplusPayableAmount = common.RoundMoney(rec.SurplusPayableAmount)
 	now := time.Now()
 	// The refund's cash line and the settled auction record are saved together: a failed refund line
 	// leaves the auction unsettled instead of settled with no money recorded.
@@ -709,10 +711,10 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 		return nil, err
 	}
 	recordAuctionEvent(ctx, nil, rec.ID, "Settled", actorID, actorRole, fmt.Sprintf(
-		"Surplus ₹%.2f — %s. %s", rec.SurplusPayableAmount, disposition, remarks))
+		"Surplus ₹%.0f — %s. %s", rec.SurplusPayableAmount, disposition, remarks))
 	if disposition == AuctionSurplusRefundedToCustomer {
 		notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Surplus Refund", brandedMessage(ctx,
-			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — CloudHouse Finance",
+			"Dear %s, the surplus of ₹%.0f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — CloudHouse Finance",
 			l.Customer.Name, rec.SurplusPayableAmount, l.LoanNumber,
 		), commonModels.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
@@ -765,6 +767,9 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 		req.DecidedByRole = actorRole
 		req.DecisionRemarks = remarks
 		req.DecidedAt = &now
+		// Older requests can carry paise; the decision is made on the whole-rupee figures staff see.
+		req.AmountPaid = common.RoundMoney(req.AmountPaid)
+		req.OutstandingAtRequest = common.RoundMoney(req.OutstandingAtRequest)
 		switch req.Kind {
 		case AuctionDecisionKindPartialRepayment:
 			if !canDecideAuction(ctx, actorRoleID, common.FlowAuctionPartialRepayment) {
@@ -775,7 +780,7 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 				recordAuctionEvent(
 					ctx, tx, rec.ID, "DecisionKeep", actorID, actorRole, remarks)
 				notifyMsg = brandedMessage(ctx,
-					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.2f is still outstanding. Please contact the branch urgently. — CloudHouse Finance",
+					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.0f is still outstanding. Please contact the branch urgently. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			case "RemovedFromAuction":
@@ -789,7 +794,7 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 				}
 				recordAuctionEvent(ctx, tx, rec.ID, "DecisionRemove", actorID, actorRole, remarks)
 				notifyMsg = brandedMessage(ctx,
-					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Finance",
+					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.0f remains payable. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			default:
@@ -814,7 +819,7 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 				}
 				recordAuctionEvent(ctx, tx, rec.ID, "DecisionPursue", actorID, actorRole, remarks)
 				notifyMsg = brandedMessage(ctx,
-					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
+					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.0f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			case "WriteOff":

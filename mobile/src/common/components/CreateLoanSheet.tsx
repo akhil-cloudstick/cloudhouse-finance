@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AccBtn,
   AsyncSelect,
   BtnRow2,
   C,
@@ -33,7 +31,7 @@ import { listCustomers } from "@/modules/customers/services/customerService";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listLockersPage } from "@/modules/lockers/services/lockerService";
 import { listActiveSchemes } from "@/modules/schemes/services/schemeService";
-import { createLoan, addOrnamentImage, deleteDraft, listDrafts, saveDraft, updateDraft } from "@/modules/loans/services/loanService";
+import { createLoan, addOrnamentImage, saveDraft, updateDraft } from "@/modules/loans/services/loanService";
 import { getLocker } from "@/modules/lockers/services/lockerService";
 import { type CreateOrnamentInput, type LoanDraft, type SaveDraftInput } from "@/modules/loans/types/loan-types";
 import { latestGoldRate } from "@/modules/gold-rates/services/goldRateService";
@@ -51,8 +49,8 @@ import { OrnamentTypeField } from "./OrnamentTypeField";
 // rules as the web NewLoan form: blocked until today's gold rate is
 // published, ornament value = net wt × rate for its purity (quantity is not multiplied in), principal
 // capped at the scheme's LTV-eligible amount.
-type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; lessWeight: string; quantity: string; img: string };
-const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "22", grossWeight: "", lessWeight: "", quantity: "1", img: "" };
+type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; lessWeight: string; quantity: string; imgs: string[] };
+const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "22", grossWeight: "", lessWeight: "", quantity: "1", imgs: [] };
 const KARATS = ["24", "23", "22", "21", "20", "18", "16", "14", "12", "10"];
 const FINENESS = ["99.9", "99.5", "91.6", "87.5", "83.3", "75", "58.5", "41.7"];
 
@@ -86,6 +84,26 @@ function PurityInput({ unit, value, onChange }: PurityInputProps) {
   );
 }
 
+/** Estimated interest over the scheme's full period, using the scheme's interest method (the backend does the
+ * exact accrual; this is the up-front preview, like web's "Monthly premium"). */
+function periodInterest(sc: Scheme, principal: number): number {
+  const months = sc.durationMonths || 0;
+  const m = (sc.interestMethod ?? "").toLowerCase();
+  if (m.includes("compound")) return principal * (Math.pow(1 + sc.interestRate / 1200, months) - 1);
+  if (m.includes("multiple") && sc.rateTiers?.length) {
+    const totalDays = months * 30;
+    let from = 0;
+    let sum = 0;
+    for (const t of sc.rateTiers) {
+      const to = t.days > 0 ? Math.min(t.days, totalDays) : totalDays;
+      if (to > from) sum += (principal * t.rate) / 1200 * ((to - from) / 30);
+      from = Math.max(from, to);
+    }
+    return sum;
+  }
+  return (principal * sc.interestRate) / 1200 * months;
+}
+
 const netOf = (r: OrnRow) => Math.max(0, (Number(r.grossWeight) || 0) - (Number(r.lessWeight) || 0));
 const trim3 = (n: number) => String(+n.toFixed(3));
 
@@ -97,9 +115,9 @@ function rowPurity(r: OrnRow): string | null {
   return formatPurity(r.purityUnit, n);
 }
 
-type CreateLoanSheetProps = { visible: boolean; onClose: () => void; /** Start with this customer already picked (opened from the customer page). */ initialCustomer?: Customer | null };
+type CreateLoanSheetProps = { visible: boolean; onClose: () => void; /** Start with this customer already picked (opened from the customer page). */ initialCustomer?: Customer | null; /** A saved draft picked from the Loans screen's Draft loans list — loaded into the form when the sheet opens. */ initialDraft?: LoanDraft | null };
 
-export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoanSheetProps) {
+export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraft }: CreateLoanSheetProps) {
   const qc = useQueryClient();
   const { employee, can } = useAuth();
   const canCreate = can("Loan_Management", "can_create_loan");
@@ -212,7 +230,9 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
     mutationFn: () => {
       const [oy, om, od] = openedDate.split("-").map(Number);
       const due = new Date(oy, om - 1, od);
-      due.setMonth(due.getMonth() + (scheme?.durationMonths ?? 0));
+      // Clamp to the last day of the target month (31 Jan + 1 month = 28/29 Feb, not 3 Mar), like the backend's addMonths.
+      const target = new Date(oy, om - 1 + (scheme?.durationMonths ?? 0), 1);
+      due.setFullYear(target.getFullYear(), target.getMonth(), Math.min(od, new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()));
       const ornaments: CreateOrnamentInput[] = valid.map((r) => ({
         name: r.name.trim(),
         purity: rowPurity(r)!,
@@ -242,7 +262,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
       // reported rather than blocking — it can be re-added from Edit Loan.
       const created = loan.ornaments ?? [];
       const photoResults = await Promise.all(
-        valid.map((r, i) => (r.img && created[i] ? addOrnamentImage(created[i].id, r.img).then(() => true, () => false) : Promise.resolve(true)))
+        valid.flatMap((r, i) => (created[i] ? r.imgs.map((img) => addOrnamentImage(created[i].id, img).then(() => true, () => false)) : []))
       );
       if (photoResults.some((ok) => !ok)) toast.error("Some ornament photos weren't saved", "The loan was created — add the photos again from Edit Loan.");
       qc.invalidateQueries({ queryKey: ["loans"] });
@@ -255,10 +275,10 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not create loan."),
   });
 
-  const schemeLabel = (sc: Scheme) => `${sc.name} — ${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%`;
+  const schemeLabel = (sc: Scheme) => `${sc.name} — ${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%${sc.interestMethod ? ` · ${sc.interestMethod}` : ""}`;
 
-  // ---- Saved drafts — a half-entered loan kept per employee, like web's "Saved drafts" card ----
-  const drafts = useQuery({ queryKey: ["loan-drafts"], queryFn: listDrafts, enabled: visible && canCreate });
+  // ---- Saved drafts — a half-entered loan kept per employee. They are listed from the Loans screen's
+  // "Draft loans" button, which hands one back through `initialDraft`. ----
 
   // Saves whatever is on screen with no validation beyond a branch: the point is to keep an incomplete form.
   // The real rules still apply when the loan is created.
@@ -277,28 +297,21 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
         purity: rowPurity(r) ?? "22K",
         grossWeight: Number(r.grossWeight) || 0,
         quantity: Number(r.quantity) || 1,
-        ...(r.img ? { imageUrl: r.img, imageUrls: [r.img] } : {}),
+        ...(r.imgs.length ? { imageUrl: r.imgs[0], imageUrls: r.imgs } : {}),
       })),
     };
   }
 
-  const hasDraftContent = !!customer || !!scheme || !!locker || !!overallPhoto || rows.some((r) => r.name.trim() || Number(r.grossWeight) > 0 || r.img);
+  const hasDraftContent = !!customer || !!scheme || !!locker || !!overallPhoto || rows.some((r) => r.name.trim() || Number(r.grossWeight) > 0 || r.imgs.length > 0);
   const saveDraftMut = useMutation({
     mutationFn: () => (draftId ? updateDraft(draftId, buildDraftInput()) : saveDraft(buildDraftInput())),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["loan-drafts"] });
-      toast.success(draftId ? "Draft updated" : "Draft saved", "Reopen it from Saved drafts.");
+      toast.success(draftId ? "Draft updated" : "Draft saved", "Reopen it from Draft loans.");
       // The draft is safely stored — hand back a blank form so the next Save Draft starts another one.
       reset();
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save the draft — try again."),
-  });
-  const discardDraftMut = useMutation({
-    mutationFn: (id: number) => deleteDraft(id),
-    onSuccess: (_r, id) => {
-      if (draftId === id) setDraftId(null);
-      qc.invalidateQueries({ queryKey: ["loan-drafts"] });
-    },
   });
 
   // Reopens a saved draft into the form. The customer / scheme / branch labels come from the draft's preloaded
@@ -328,7 +341,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
               // Drafts don't keep the Gross / Less split — reopening assumes no deduction yet.
               lessWeight: "",
               quantity: String(o.quantity || 1),
-              img: o.imageUrls?.[0] ?? o.imageUrl ?? "",
+              imgs: o.imageUrls?.length ? o.imageUrls : o.imageUrl ? [o.imageUrl] : [],
             };
           })
         : [{ ...emptyRow }]
@@ -338,6 +351,11 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
     setPEdit(d.principalOverride ? { v: String(d.principalOverride), at: null } : null);
     setExceeds(false);
   }
+
+  useEffect(() => {
+    if (visible && initialDraft) void applyDraft(initialDraft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialDraft]);
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Create New Loan" maxHeightPct={80}>
@@ -375,7 +393,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
         onClear={() => setScheme(null)}
         onSelect={setScheme}
         keyOf={(sc) => sc.id}
-        renderItem={(sc) => ({ title: sc.name, sub: `${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%` })}
+        renderItem={(sc) => ({ title: sc.name, sub: `${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%${sc.interestMethod ? ` · ${sc.interestMethod}` : ""}` })}
       />
 
       {canPickBranch && !customer ? (
@@ -447,7 +465,24 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
             <Field label="Net Wt (g)">
               <Input value={r.grossWeight ? trim3(netOf(r)) : ""} editable={false} placeholder="Auto" />
             </Field>
-            <UploadField label="Ornament photo" value={r.img} onChange={(url) => update(i, { img: url })} allowPdf={false} />
+            {r.imgs.map((url, k) => (
+              <UploadField
+                key={`${i}-${k}-${url}`}
+                label={r.imgs.length > 1 ? `Ornament photo ${k + 1}` : "Ornament photo"}
+                value={url}
+                onChange={(u) => update(i, { imgs: u ? r.imgs.map((x, xi) => (xi === k ? u : x)) : r.imgs.filter((_, xi) => xi !== k) })}
+                allowPdf={false}
+              />
+            ))}
+            {r.imgs.length < 5 ? (
+              <UploadField
+                key={`${i}-add-${r.imgs.length}`}
+                label={r.imgs.length ? "Add another photo" : "Ornament photo"}
+                value=""
+                onChange={(u) => u && update(i, { imgs: [...r.imgs, u] })}
+                allowPdf={false}
+              />
+            ) : null}
           </OrnamentCard>
         );
       })}
@@ -462,6 +497,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
             { k: "Total Net Wt", v: `${+totalNet.toFixed(2)} g` },
             { k: "Gold Value", v: inr(Math.round(goldValue)) },
             { k: "LTV", v: scheme ? `${scheme.ltvPercent}%` : "—" },
+            { k: "Interest method", v: scheme?.interestMethod || "—" },
             { k: "Eligible Amount", v: inr(eligible), color: C.brandDeep },
           ]}
         />
@@ -505,10 +541,19 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
         const withheld = chargeMode === "WithheldFromPayout";
         const loanPrincipal = hasCharge && !withheld ? amount + charge : amount;
         const disbursed = hasCharge && withheld ? Math.max(0, amount - charge) : amount;
+        const monthly = scheme ? (loanPrincipal * scheme.interestRate) / 1200 : 0;
+        const forPeriod = scheme ? periodInterest(scheme, loanPrincipal) : 0;
         return (
           <Card style={{ marginHorizontal: 0, marginBottom: 14, padding: 14 }}>
             <FieldGrid
               items={[
+                ...(scheme
+                  ? [
+                      { k: `Monthly interest (${scheme.interestRate}% p.a.${scheme.rateTiers?.length ? ", first tier" : ""})`, v: inr(Math.round(monthly)) },
+                      { k: `Interest for ${scheme.durationMonths} month${scheme.durationMonths === 1 ? "" : "s"} (est.)`, v: inr(Math.round(forPeriod)), color: C.brandDeep },
+                      { k: "Total payable at maturity (est.)", v: inr(Math.round(loanPrincipal + forPeriod)) },
+                    ]
+                  : []),
                 ...(hasCharge ? [{ k: "Service charge", v: `${withheld ? "−" : "+"}${inr(charge)}`, color: withheld ? C.red : C.green }] : []),
                 { k: "Principal", v: inr(loanPrincipal), color: C.brandDeep },
                 { k: "Loan amount to disburse", v: inr(disbursed), color: C.green },
@@ -520,26 +565,6 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer }: CreateLoa
       <Field label="Additional information">
         <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline />
       </Field>
-      {/* Saved drafts sit at the bottom, below the form, above the buttons. */}
-      {canCreate && (drafts.data?.length ?? 0) > 0 ? (
-        <Card style={{ marginHorizontal: 0, marginTop: 4, marginBottom: 14, padding: 14 }}>
-          <SectionTitle flush style={{ marginBottom: 6 }}>
-            Saved drafts
-          </SectionTitle>
-          {drafts.data!.map((d) => (
-            <View key={d.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.line }}>
-              <Txt style={{ fontSize: 13, fontWeight: draftId === d.id ? "700" : "500" }}>
-                {d.customer?.name ?? "No customer yet"} · {d.ornaments.length} ornament{d.ornaments.length === 1 ? "" : "s"}
-              </Txt>
-              <Txt style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>{[d.scheme?.name, d.branch?.name].filter(Boolean).join(" · ") || "Saved " + d.updatedAt.slice(0, 10)}</Txt>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <AccBtn label="Open" onPress={() => applyDraft(d)} />
-                <AccBtn label="Discard" onPress={() => discardDraftMut.mutate(d.id)} />
-              </View>
-            </View>
-          ))}
-        </Card>
-      ) : null}
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       {canCreate && !error ? <ErrorText>{missingReason}</ErrorText> : null}
       <BtnRow2>

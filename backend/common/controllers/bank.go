@@ -30,6 +30,7 @@ var bankRefColumns = []struct{ table, column string }{
 }
 
 var bankPhoneRe = regexp.MustCompile(`^\d{10}$`)
+var bankAccountNoRe = regexp.MustCompile(`^\d{1,18}$`)
 
 type bankRequest struct {
 	Name      string `json:"name"`
@@ -242,6 +243,9 @@ func FindBankOrCreate(ctx context.Context, in BankCreateInput) (*commonModels.Ba
 	if trimmed == "" {
 		return nil, false, NewBadRequest("name is required")
 	}
+	if acc := strings.TrimSpace(in.AccountNo); acc != "" && !bankAccountNoRe.MatchString(acc) {
+		return nil, false, NewBadRequest("account number must be digits only, up to 18 digits")
+	}
 	phone := strings.TrimSpace(in.Phone)
 	if phone != "" && !bankPhoneRe.MatchString(phone) {
 		return nil, false, NewBadRequest("phone number must be exactly 10 digits")
@@ -280,6 +284,9 @@ func updateBank(ctx context.Context, id uint, in BankCreateInput) (*commonModels
 	trimmed := strings.TrimSpace(in.Name)
 	if trimmed == "" {
 		return nil, NewBadRequest("name is required")
+	}
+	if acc := strings.TrimSpace(in.AccountNo); acc != "" && !bankAccountNoRe.MatchString(acc) {
+		return nil, NewBadRequest("account number must be digits only, up to 18 digits")
 	}
 	phone := strings.TrimSpace(in.Phone)
 	if phone != "" && !bankPhoneRe.MatchString(phone) {

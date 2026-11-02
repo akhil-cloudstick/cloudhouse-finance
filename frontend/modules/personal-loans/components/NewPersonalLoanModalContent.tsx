@@ -8,7 +8,7 @@ import { fmt, roundRupee } from "@/common/utils/format";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
-import { searchCustomersPage } from "@/modules/customers/services/customerService";
+import { searchBorrowersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModalContent";
@@ -178,7 +178,7 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
           <SearchableSelect<CustomerView>
             value={customerLabel}
             onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); clearFe("customer"); }}
-            fetchFn={searchCustomersPage}
+            fetchFn={searchBorrowersPage}
             searchHint="Searches: customer name, customer code, phone"
             getLabel={(c) => `${c.name} (${c.code})`}
             /* Same treatment as the gold-loan picker (NewLoan.tsx): name

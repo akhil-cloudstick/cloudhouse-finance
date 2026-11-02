@@ -132,7 +132,7 @@ export function BranchesPage() {
         </p>
       )}
       {branches !== null && (branches.length > 0 || !!q.trim()) && (
-        <div style={{ margin: "0 0 12px" }}>
+        <div style={{ margin: "0 0 12px", display: "flex", justifyContent: "flex-end" }}>
           <TableSearch value={q} onChange={setQ} placeholder="Search branches…" searches="branch name, code, address, phone, status" />
         </div>
       )}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { BtnRow2, C, FieldGrid, NoticeBanner, PrimaryButton, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
+import { BtnRow2, C, CheckItem, FieldGrid, NoticeBanner, PrimaryButton, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
 import { recordBankPledge, releaseBankPledge, voidBankPledge } from "@/modules/bank-pledges/services/bankPledgeService";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
@@ -29,8 +29,22 @@ export function BankPledgeSheet({
   onClose,
 }: BankPledgeSheetProps) {
   const qc = useQueryClient();
-  const isFinished = l.status === "Closed" || l.status === "Rejected";
-  const activePledge = l.bankPledges?.find((p) => p.status === "Active");
+  // Same statuses the backend refuses a pledge on (models.BankPledgeIneligibleStatuses).
+  const isFinished = ["Closed", "Rejected", "Closure Requested", "Pending Approval", "Auctioned", "Auctioned - Balance Due"].includes(l.status ?? "");
+  // A loan can carry several active pledges, each covering a subset of ornaments (web RepledgeModalContent).
+  const activePledges = (l.bankPledges ?? []).filter((p) => p.status === "Active");
+  const [targetId, setTargetId] = useState<number | null>(null);
+  const activePledge = activePledges.find((p) => p.id === targetId) ?? activePledges[0];
+  const pledgedIds = new Set(activePledges.flatMap((p) => p.ornamentIds ?? []));
+  const wholeLoanPledged = activePledges.some((p) => !p.ornamentIds || p.ornamentIds.length === 0);
+  // Ornaments that can still go to a bank: not handed back and not already with a bank.
+  const available = (l.ornaments ?? []).filter((o) => !o.releasedAt && !wholeLoanPledged && !pledgedIds.has(o.id));
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const availableKey = available.map((o) => o.id).join(",");
+  useEffect(() => { setPicked(new Set(available.map((o) => o.id))); }, [availableKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const togglePicked = (id: number) => setPicked((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const pickedList = available.filter((o) => picked.has(o.id));
+  const wholeLoan = activePledges.length === 0 && pickedList.length === available.length;
 
   const [form, setForm] = useState(() => bankPledgeFormInit(l));
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +78,7 @@ export function BankPledgeSheet({
         bankPledgeDueDate: form.dueDate || undefined,
         cashTreatment: form.cash,
         ...cashInPayload(form),
+        ...(wholeLoan ? {} : { ornamentIds: pickedList.map((o) => o.id) }),
       }),
     onSuccess: () => {
       setForm(bankPledgeFormInit(l));
@@ -112,31 +127,44 @@ export function BankPledgeSheet({
           <NoticeBanner>Gold is currently pledged to a bank.</NoticeBanner>
         ) : null}
 
-        {activePledge ? (
-          <>
+        {activePledges.map((ap) => (
+          <View key={ap.id}>
             <FieldGrid
               style={{ marginBottom: 14 }}
               items={[
-                { k: "Bank", v: activePledge.bankName },
-                { k: "Pledged amount", v: inr(activePledge.pledgedAmount) },
-                { k: "Pledge date", v: dmy(activePledge.pledgeDate) },
-                { k: "Reference", v: activePledge.referenceNumber || "—" },
-                { k: "Bank interest", v: activePledge.bankInterestRate != null ? `${activePledge.bankInterestRate}% p.a.` : "—" },
-                { k: "Due date", v: dmy(activePledge.bankPledgeDueDate) },
-                { k: "Cash treatment", v: activePledge.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect" },
+                { k: "Bank", v: ap.bankName },
+                { k: "Gold", v: ap.ornamentIds?.length ? `${ap.ornamentIds.length} ornament${ap.ornamentIds.length > 1 ? "s" : ""}` : "Whole loan" },
+                { k: "Pledged amount", v: inr(ap.pledgedAmount) },
+                { k: "Pledge date", v: dmy(ap.pledgeDate) },
+                { k: "Reference", v: ap.referenceNumber || "—" },
+                { k: "Bank interest", v: ap.bankInterestRate != null ? `${ap.bankInterestRate}% p.a.` : "—" },
+                { k: "Due date", v: dmy(ap.bankPledgeDueDate) },
+                { k: "Cash treatment", v: ap.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect" },
               ]}
             />
-            <ErrorText>{error}</ErrorText>
             {canUpdate ? (
               <BtnRow2 style={{ marginBottom: 12 }}>
-                <PrimaryButton label="Delete Entry" variant="reject" onPress={() => setVoidOpen(true)} />
-                <PrimaryButton label="Release from Bank" onPress={() => setConfirmRelease(true)} />
+                <PrimaryButton label="Delete Entry" variant="reject" onPress={() => { setTargetId(ap.id); setVoidOpen(true); }} />
+                <PrimaryButton label="Release from Bank" onPress={() => { setTargetId(ap.id); setConfirmRelease(true); }} />
               </BtnRow2>
             ) : null}
+          </View>
+        ))}
+        {activePledges.length > 0 ? <ErrorText>{error}</ErrorText> : null}
+        {!isFinished && canCreate && available.length > 0 ? (
+          <>
+            {l.ornaments && l.ornaments.length > 0 ? (
+              <>
+                <Txt style={{ fontSize: 12, fontWeight: "700", color: C.muted, marginBottom: 6 }}>{`Gold being pledged — ${pickedList.length} of ${available.length} selected`}</Txt>
+                {available.map((o) => (
+                  <CheckItem key={o.id} checked={picked.has(o.id)} onPress={() => togglePicked(o.id)} title={o.name} sub={`${o.quantity} pc · ${+o.netWeight.toFixed(2)} g net`} />
+                ))}
+                {pickedList.length === 0 ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 8 }}>Select at least one ornament to pledge.</Txt> : null}
+              </>
+            ) : null}
+            <BankPledgeForm value={form} onChange={setForm} fixedLoan={l} error={error} onSubmit={() => record.mutate()} submitting={record.isPending} extraReady={pickedList.length > 0 || !(l.ornaments && l.ornaments.length)} />
           </>
-        ) : !isFinished && canCreate ? (
-          <BankPledgeForm value={form} onChange={setForm} fixedLoan={l} error={error} onSubmit={() => record.mutate()} submitting={record.isPending} />
-        ) : (
+        ) : activePledges.length > 0 ? null : (
           <Txt style={{ fontSize: 12.5, color: C.muted, marginBottom: 14 }}>
             Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"}
             {l.bankPledgeStatus ? ` — ${l.bankPledgeStatus}` : ""}

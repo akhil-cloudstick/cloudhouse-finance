@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -8,7 +7,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { StatusChip } from "@/common/components/ui/StatusChip";
-import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVESTMENT_LEDGER_PAGE_SIZE, INVESTMENT_PAGE_SIZE, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf } from "@/modules/investments/services/investmentService";
+import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVESTMENT_LEDGER_PAGE_SIZE, INVESTMENT_PAGE_SIZE, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf, closeInvestment, deleteInvestment } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { InvestorProfileModalContent } from "@/modules/investments/components/InvestorProfileModalContent";
@@ -22,7 +21,8 @@ import { LoanLedgerInfoModalContent, type LedgerInfoAction } from "@/modules/loa
 import { useModal } from "@/common/components/ModalProvider";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { Icon } from "@/common/components/Icon";
-import { routeHref } from "@/common/services/appRoutes";
+import { navigate, routeHref } from "@/common/services/appRoutes";
+import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { useScrollPageSize } from "@/common/utils/responsive";
@@ -74,7 +74,6 @@ function Pager({ page, totalPages, onChange }: PagerProps) {
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
-      <GoToPage page={page} totalPages={totalPages} onChange={onChange} />
     </div>
   );
 }
@@ -87,6 +86,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
   const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
   const toast = useToast();
   const canUpdate = can("Investment_Management", "can_update_investment");
+  const canDelete = can("Investment_Management", "can_delete_investment");
   // Editing/deleting a ledger entry recalculates the investment, so each has its own grant (shared with the gold-loan ledger).
   const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
   const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
@@ -166,6 +166,9 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
   if (error || !investment) return <div className="notice">{error || "Investment not found."}</div>;
 
   const isLive = investment.engine === "Live";
+  // Nothing left owed (principal paid back, interest withdrawn): it can be closed before maturity, no cash moves.
+  // A scheduled investment only pays its principal back once closed at maturity, so this is live-engine only.
+  const nothingOwed = isLive && investment.outstandingPrincipal < 0.01 && investment.outstandingInterest < 0.01;
 
   function openMarkPaid(payout: BackendInvestmentPayout) {
     if (!investment) return;
@@ -245,6 +248,46 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
     );
   }
 
+  function openClose() {
+    if (!investment) return;
+    const { id, investmentNumber } = investment;
+    openModal(
+      <ConfirmModalContent
+        title="Close Investment"
+        confirmLabel="Close Investment"
+        busyLabel="Closing…"
+        danger={false}
+        message={<>Close <strong>{investmentNumber}</strong>? Nothing is owed, so no cash moves.</>}
+        onConfirm={async () => {
+          await closeInvestment(id);
+          toast(`${investmentNumber} closed`);
+          await refreshInvestment();
+          schedule.reload();
+          void refreshLedger();
+        }}
+      />
+    );
+  }
+
+  function openDelete() {
+    if (!investment) return;
+    const { id, investmentNumber } = investment;
+    openModal(
+      <ConfirmModalContent
+        title="Delete Investment"
+        confirmLabel="Delete Investment"
+        busyLabel="Deleting…"
+        danger
+        message={<>Delete <strong>{investmentNumber}</strong> and reverse all its cash entries? This can&apos;t be undone.</>}
+        onConfirm={async () => {
+          await deleteInvestment(id);
+          toast(`${investmentNumber} deleted`);
+          navigate("investments");
+        }}
+      />
+    );
+  }
+
   const investorName = investment.customer?.name || investment.customer?.code || "";
 
   return (
@@ -317,6 +360,12 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         )}
         {canUpdate && investment.status === "Matured" && (
           <button className="btn" onClick={openMaturity}>Close / Renew</button>
+        )}
+        {canUpdate && nothingOwed && (investment.status === "Active" || investment.status === "Matured") && (
+          <button className="btn" onClick={openClose}><Icon name="check" /> Close Investment</button>
+        )}
+        {canDelete && (
+          <button className="btn danger" onClick={openDelete}><Icon name="trash" /> Delete</button>
         )}
       </div>
       <hr className="gold-rule" />
@@ -414,7 +463,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Interest Payout Schedule</h3></div>
           {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-          <div className="tbl-wrap"><table className="tbl tbl-center tbl-cards">
+          <div className="tbl-wrap"><table className="tbl tbl-center tbl-cards inv-schedule-tbl">
             <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {schedule.loading ? (

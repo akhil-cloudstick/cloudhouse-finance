@@ -1,3 +1,4 @@
+import type { LoanDraft } from "@/modules/loans/types/loan-types";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import React, { createContext, useContext } from "react";
 import { Animated, StyleSheet } from "react-native";
@@ -18,6 +19,8 @@ export type ShellActions = {
   openNewLoan: () => void;
   /** New Loan with this customer already picked (from the customer page). */
   openNewLoanFor: (customer: Customer) => void;
+  /** New Loan sheet with a saved draft loaded (from the Loans screen's Draft loans list). */
+  openNewLoanDraft: (draft: LoanDraft) => void;
   openMore: () => void;
   openSearch: () => void;
   openGoldRate: () => void;
@@ -30,6 +33,7 @@ const noop = () => {};
 export const ShellContext = createContext<ShellActions>({
   openNewLoan: noop,
   openNewLoanFor: noop,
+  openNewLoanDraft: noop,
   openMore: noop,
   openSearch: noop,
   openGoldRate: noop,
@@ -45,7 +49,7 @@ const BLANK_HEADER = <FlatHeader title="" />;
 /** Set by HeaderHost while the hero collapses into (or grows back out of) a
  * page's flat header. `p` runs 0 (hero open) → 1 (collapsed to the flat
  * header's height); `lift` is the height difference between the two. */
-export type HeroMorph = { p: Animated.Value; lift: Animated.Value };
+export type HeroMorph = { p: Animated.AnimatedAddition<number>; lift: Animated.Value };
 export const HeroMorphContext = createContext<HeroMorph | null>(null);
 
 // ---------------------------------------------------------------------------
@@ -238,7 +242,6 @@ const STACK_TABS = new Set([
   "investments",
   "employees",
   "branches",
-  "settings",
   "billing",
 ]);
 
@@ -525,6 +528,7 @@ export const s = StyleSheet.create({
   tab: { alignItems: "center", gap: 3 },
   tabIc: { width: 54, height: 36, borderRadius: 18, overflow: "hidden", alignItems: "center", justifyContent: "center" },
   tabIcActive: { backgroundColor: C.brandPale },
+  tabIcOverlay: { alignItems: "center", justifyContent: "center" },
   tabLbl: { fontSize: 10, fontWeight: "600", color: C.muted },
   tabLblActive: { color: C.brandDeep },
   tabFab: { top: -22 },

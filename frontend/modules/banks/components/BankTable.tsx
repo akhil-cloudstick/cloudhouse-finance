@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useEffect, useRef, useState } from "react";
 import { usePersistedPage } from "@/common/hooks/use-persisted-state";
 import { useScrollPageSize } from "@/common/utils/responsive";
@@ -183,7 +182,6 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-          <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       )}
     </div>

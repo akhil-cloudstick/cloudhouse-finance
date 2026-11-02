@@ -28,7 +28,6 @@ const MORE_ROWS: MoreRow[] = [
   { key: "roles", route: "roles", title: "Roles & Permissions", sub: "What each role can do", icon: "shield" },
   // Shown only with EXPO_PUBLIC_ENABLE_PLAN_UPGRADE on (filtered below).
   { key: "billing", route: "billing", title: "Billing & Plan", sub: "Your plan, branch limit & upgrades", icon: "card" },
-  { key: "settings", route: "settings", title: "Settings", sub: "Branch, staff, and app settings", icon: "dots" },
 ];
 /** The More rows this user may open; the tab bar hides More when it's empty. */
 export function useMoreRows(): MoreRow[] {

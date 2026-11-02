@@ -26,6 +26,8 @@ func InvestmentRoutes(e *echo.Echo) *echo.Echo {
 	e.POST(investmentPath+"/:id/mature", investment.MatureInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.POST(investmentPath+"/:id/add-cash", investment.AddInvestmentCash, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.POST(investmentPath+"/:id/withdraw", investment.WithdrawInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
+	e.POST(investmentPath+"/:id/close", investment.CloseInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
+	e.DELETE(investmentPath+"/:id/delete", investment.DeleteInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Delete)...)
 	e.GET(investmentPath+"/:id/transactions", investment.ListInvestmentTransactions, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.PATCH(investmentPath+"/:id/ledger/:entry_id", investment.EditInvestmentLedgerEntry, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read, auth.RequirePermission("can edit ledger entry"))...)
 	e.DELETE(investmentPath+"/:id/ledger/:entry_id", investment.DeleteInvestmentLedgerEntry, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read, auth.RequirePermission("can delete ledger entry"))...)

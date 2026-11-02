@@ -154,27 +154,32 @@ func findPackets(ctx context.Context, f Filter) ([]models.Packet, int64, error) 
 		statuses = []string{f.Status}
 	}
 	if len(statuses) > 0 {
-		// "Auctioned" is a loan status, not a packet status: a packet keeps its own status after the loan is auctioned,
-		// so match it through the loan instead.
+		// "Auctioned" and "Rejected" are loan statuses, not packet statuses: a packet keeps its own status after the
+		// loan is auctioned, and a rejected loan's packet is simply released. Both are matched through the loan, and
+		// "Released" leaves out rejected loans so those only show under "Rejected".
 		var plain []string
-		auctioned := false
-		for _, s := range statuses {
-			if s == "Auctioned" {
-				auctioned = true
-			} else {
-				plain = append(plain, s)
+		var conds []string
+		var args []interface{}
+		for _, st := range statuses {
+			switch st {
+			case "Auctioned":
+				conds = append(conds, "packets.loan_id IN (SELECT id FROM loans WHERE status IN ?)")
+				args = append(args, []string{loanModels.StatusAuctioned, loanModels.StatusAuctionedBalanceDue})
+			case "Rejected":
+				conds = append(conds, "packets.loan_id IN (SELECT id FROM loans WHERE status = ?)")
+				args = append(args, loanModels.StatusRejected)
+			case models.StatusReleased:
+				conds = append(conds, "(packets.status = ? AND packets.loan_id NOT IN (SELECT id FROM loans WHERE status = ?))")
+				args = append(args, models.StatusReleased, loanModels.StatusRejected)
+			default:
+				plain = append(plain, st)
 			}
 		}
-		auctionedCond := "packets.loan_id IN (SELECT id FROM loans WHERE status IN ?)"
-		auctionedStatuses := []string{loanModels.StatusAuctioned, loanModels.StatusAuctionedBalanceDue}
-		switch {
-		case auctioned && len(plain) > 0:
-			q = q.Where("(packets.status IN ? OR "+auctionedCond+")", plain, auctionedStatuses)
-		case auctioned:
-			q = q.Where(auctionedCond, auctionedStatuses)
-		default:
-			q = q.Where("packets.status IN ?", plain)
+		if len(plain) > 0 {
+			conds = append(conds, "packets.status IN ?")
+			args = append(args, plain)
 		}
+		q = q.Where("("+strings.Join(conds, " OR ")+")", args...)
 	}
 	if f.LockerID != 0 {
 		q = q.Where("packets.current_locker_id = ?", f.LockerID)

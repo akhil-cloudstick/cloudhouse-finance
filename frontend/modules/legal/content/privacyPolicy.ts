@@ -7,9 +7,9 @@ export const privacyPolicy: LegalDocumentSource = {
     {
       heading: "1. Who we are",
       body: [
-        "{{app}} is provided by {{provider}}, {{address}} (“we”, “us”).",
+        "{{app}} is provided by {{provider}} (“we”, “us”).",
         { only: "staff", text: "This is the internal staff and field-agent policy. The app is for authorised employees and agents of the lender, not for the public or for loan applicants." },
-        "You can reach us at {{email}} or {{phone}}.",
+        "You can reach us at {{phone}}.",
       ],
     },
     {
@@ -17,7 +17,7 @@ export const privacyPolicy: LegalDocumentSource = {
       list: [
         { only: "customer", text: "Your name, mobile number, address and KYC details (such as Aadhaar or PAN numbers and documents) that your lender holds about you; your loan, interest and payment records; and the one-time password sent to your mobile number to sign you in." },
         { only: "staff", text: "Your name, login ID and role; the customer, loan, payment and KYC records you enter or view while working; and photographs and documents you capture or upload with the camera, photo library or file picker." },
-        "Device and technical information: device type, app version, push-notification token, error and diagnostic logs and IP address, used to keep the service secure and working and to send notifications.",
+        "Our servers log your IP address and the requests the app makes, used only to keep the service secure and working. The app has no push-notification, analytics, advertising or crash-reporting service.",
         "We do not collect your location, contacts or microphone data, and we do not use advertising identifiers.",
       ],
     },
@@ -27,7 +27,6 @@ export const privacyPolicy: LegalDocumentSource = {
         "To sign you in and verify your identity.",
         "To show and manage loans, payments and statements.",
         "To meet legal, KYC and anti-money-laundering duties.",
-        "To send service messages such as payment reminders.",
         "To detect fraud, secure the service and support you.",
       ],
     },
@@ -45,7 +44,7 @@ export const privacyPolicy: LegalDocumentSource = {
       body: ["We do not sell your personal data. We share it only:"],
       list: [
         "with the lender (business) that holds your account;",
-        "with service providers acting for us — hosting, SMS or WhatsApp delivery, payment and identity-verification partners — under confidentiality;",
+        "with service providers acting for us — hosting and message-delivery partners — under confidentiality;",
         { only: "customer", text: "with Razorpay, our payment processor, when you pay a loan instalment: card, UPI or bank details are entered on Razorpay's screen and are processed by Razorpay under its own privacy policy; we do not receive or store them, and only receive the payment status, amount and reference;" },
         "with authorities, when the law requires it.",
       ],
@@ -66,14 +65,14 @@ export const privacyPolicy: LegalDocumentSource = {
       heading: "8. Your rights",
       body: [
         "You may ask to access or correct your data, to withdraw consent, or to have your data deleted, subject to the legal retention above.",
-        "Account deletion: to request deletion, follow the steps on the Account Deletion page or write to {{email}} from your registered address. We verify your identity and tell you the expected processing time; the Account Deletion page lists what is deleted and which records we must keep. Uninstalling the app does not delete your account.",
+        "Account deletion: to request deletion, follow the steps on the Account Deletion page or call {{phone}}. We verify your identity and tell you the expected processing time; the Account Deletion page lists what is deleted and which records we must keep. Uninstalling the app does not delete your account.",
       ],
     },
     { heading: "9. Children", body: ["The app is not for anyone under 18."] },
     { heading: "10. Changes", body: ["When this policy changes we update this page and its date."] },
     {
       heading: "11. Grievance contact",
-      body: ["{{provider}}, {{address}}. Email {{email}}. Phone {{phone}}."],
+      body: ["{{provider}}. Phone {{phone}}."],
     },
   ],
 };

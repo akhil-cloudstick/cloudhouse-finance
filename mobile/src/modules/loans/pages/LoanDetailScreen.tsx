@@ -148,20 +148,43 @@ export default function LoanDetailScreen() {
     }
     if (!loan.data || handledAction.current) return;
     handledAction.current = true;
-    const finished = loan.data.status === "Closed" || loan.data.status === "Rejected";
+    const st = loan.data.status;
+    const finished = st === "Closed" || st === "Rejected";
+    const goldSold = st === "Auctioned" || st === "Auctioned - Balance Due";
+    const pending = st === "Pending Approval";
     if (action === "bank") setOpen("bank");
-    else if (!finished) setOpen(action === "extend" ? "extend" : action === "release" ? "release" : "collect");
+    else if (!finished) {
+      // Same gates as the web loan page: no payment on an unapproved loan,
+      // no extension/release on an unapproved or auctioned one.
+      if (action === "collect" && !pending) setOpen("collect");
+      else if ((action === "extend" || action === "release") && !pending && !goldSold) setOpen(action);
+    }
     router.setParams({ action: undefined } as never);
   }, [action, loan.data, router]);
 
+  // Synchronous double-tap guard (isPending only flips after a render), released in finally so a failed or
+  // timed-out request can never leave the button stuck dimmed.
+  const approveBusy = useRef(false);
   const doApprove = useMutation({
-    mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts> & { bankId?: number }) => approveLoan(loanId, vars),
+    mutationFn: async (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts> & { bankId?: number }) => {
+      if (approveBusy.current) throw new Error("Already submitting — please wait.");
+      approveBusy.current = true;
+      try {
+        return await approveLoan(loanId, vars);
+      } finally {
+        approveBusy.current = false;
+      }
+    },
     onSuccess: () => {
       setError(null);
       setOpen(null);
       invalidateLoan(qc, loanId);
     },
-    onError: (e) => setError(apiErr(e)),
+    onError: (e) => {
+      setError(apiErr(e));
+      // A timed-out request may still have been applied server-side — refresh so the screen shows the truth.
+      qc.invalidateQueries({ queryKey: ["loan", String(loanId)] });
+    },
   });
 
   const doHardDelete = useMutation({
@@ -200,10 +223,11 @@ export default function LoanDetailScreen() {
   // Closed (gold released) and Rejected (never disbursed) are finished —
   // nothing left to pay, extend, release or edit.
   const isFinished = l.status === "Closed" || l.status === "Rejected";
+  const goldSold = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
   const canEditThis = canEditLoan && !isFinished && l.status !== "Auctioned";
   const allRequests = requests.data ?? [];
   const pendingExtension = allRequests.find((r) => r.type === "Extension" && r.status === "Pending");
-  const pendingRelease = allRequests.find((r) => r.type === "Release" && r.status === "Pending");
+  const pendingRelease = l.status === "Closed" ? undefined : allRequests.find((r) => r.type === "Release" && r.status === "Pending");
   const pendingTopUps = (topUps.data ?? []).filter((t) => t.status === "Pending");
   const reviewTopUp = pendingTopUps.find((t) => t.id === reviewId);
 
@@ -535,13 +559,13 @@ export default function LoanDetailScreen() {
           // a pending request can still be opened read-only to review it.
           if (!isFinished) {
             if (canEditLoan && l.status !== "Pending Approval") add("collect", { icon: "card", title: "Collect Payment", sub: "Record an EMI or part payment", onPress: () => go("collect") });
-            if (canEditLoan || pendingExtension) add("extend", {
+            if (l.status !== "Pending Approval" && !goldSold && (canEditLoan || pendingExtension)) add("extend", {
               icon: "calendar",
               title: pendingExtension ? "Review Extension" : "Extend Loan Tenure",
               sub: pendingExtension ? "Extension request awaiting approval" : "Push out the due date",
               onPress: () => go("extend"),
             });
-            if (canEditLoan || (pendingRelease && l.status !== "Closure Requested")) add("release", {
+            if (l.status !== "Pending Approval" && !goldSold && (canEditLoan || (pendingRelease && l.status !== "Closure Requested"))) add("release", {
               icon: "coin",
               title: l.status === "Closure Requested" ? "Complete Release" : pendingRelease ? "Review Release" : "Gold Release",
               sub:

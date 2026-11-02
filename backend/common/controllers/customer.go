@@ -320,6 +320,9 @@ func customerValidate(in CustomerCreateInput) error {
 	if strings.ContainsAny(in.NomineeRelation, "0123456789") {
 		return NewBadRequest("nominee relation must not contain digits")
 	}
+	if in.BankAccountNumber != "" && (len(in.BankAccountNumber) > 18 || strings.Trim(in.BankAccountNumber, "0123456789") != "") {
+		return NewBadRequest("bank account number must be digits only, up to 18 digits")
+	}
 	switch in.CustomerType {
 	case "", "Borrower":
 	case "Investor":
@@ -328,9 +331,6 @@ func customerValidate(in CustomerCreateInput) error {
 		}
 		if in.PAN == "" || in.Aadhaar == "" {
 			return NewBadRequest("PAN and Aadhaar are required for an investor")
-		}
-		if strings.Trim(in.BankAccountNumber, "0123456789") != "" {
-			return NewBadRequest("bank account number must contain digits only")
 		}
 	default:
 		return NewBadRequest("customer type must be Borrower or Investor")

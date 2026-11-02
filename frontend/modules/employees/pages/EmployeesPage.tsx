@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
@@ -125,7 +124,7 @@ export function EmployeesPage() {
         </p>
       )}
       {employees !== null && (employees.length > 0 || !!q.trim() || !!roleFilter || !!branchFilter) && (
-        <div style={{ margin: "0 0 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ margin: "0 0 12px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
           <TableSearch value={q} onChange={setQ} placeholder="Search employees…" searches="name, code, phone, username, email, role, branch" />
           {filterCategories.length > 0 && (
             <FilterPanel
@@ -190,8 +189,8 @@ export function EmployeesPage() {
           <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-            <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
           </div>
         </div>
       )}

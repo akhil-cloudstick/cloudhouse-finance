@@ -19,6 +19,12 @@ export function listInvestmentPlans(activeOnly?: boolean): Promise<BackendInvest
   return apiFetch<BackendInvestmentPlan[]>(`/investment-plans${qs}`);
 }
 
+/* One page of plans (1-based), searched by name on the server — backs the Plan filter's scrolling list. */
+export function searchInvestmentPlansPage(q: string, page: number, limit = 20): Promise<{ items: BackendInvestmentPlan[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ q, limit: String(limit), offset: String((page - 1) * limit) });
+  return apiFetch<{ items: BackendInvestmentPlan[]; hasMore: boolean }>(`/investment-plans?${params}`);
+}
+
 export function createInvestment(input: CreateInvestmentInput): Promise<BackendInvestment> {
   return apiFetch<BackendInvestment>("/investments", { method: "POST", body: JSON.stringify(input) });
 }
@@ -32,8 +38,10 @@ export const INVESTMENTS_TABLE_PAGE_SIZE = 10;
 export function listInvestmentsPage(params: {
   page: number;
   q?: string;
-  status?: InvestmentStatus | "All";
+  status?: string; // "All", one status, or several joined by commas
   customerId?: number;
+  customerIds?: string[]; // any of these investors
+  planIds?: string[]; // any of these plans
   from?: string; // YYYY-MM-DD, bounds the start date (inclusive)
   to?: string; // YYYY-MM-DD, bounds the start date (inclusive)
   pageSize?: number;
@@ -46,6 +54,9 @@ export function listInvestmentsPage(params: {
   if (params.q) query.set("q", params.q);
   if (params.status && params.status !== "All") query.set("status", params.status);
   if (params.customerId) query.set("customerId", String(params.customerId));
+  if (params.customerIds?.length) query.set("customerIds", params.customerIds.join(","));
+  // Not in the contract's key table, so sent under the backend's own name.
+  if (params.planIds?.length) query.set("plan_ids", params.planIds.join(","));
   if (params.from) query.set("from", params.from);
   if (params.to) query.set("to", params.to);
   return apiFetch<{ items: BackendInvestment[]; hasMore: boolean; total: number }>(`/investments?${query}`);
@@ -241,4 +252,16 @@ export function deleteInvestmentLedgerEntry(investmentId: number, entryId: strin
   return apiFetch<InvestmentLedgerEditPreview>(`/investments/${investmentId}/ledger/${encodeURIComponent(entryId)}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, {
     method: "DELETE",
   });
+}
+
+/* Closes an active/matured investment that owes the investor nothing more (every payout paid, principal paid
+ * back) — no cash moves. The backend refuses with what is still owed otherwise. */
+export function closeInvestment(investmentId: number): Promise<BackendInvestment> {
+  return apiFetch<BackendInvestment>(`/investments/${investmentId}/close`, { method: "POST" });
+}
+
+/* Deletes an investment at any stage, reversing every cash entry it booked, in one transaction server-side.
+ * Needs the "can delete investment" permission. */
+export async function deleteInvestment(investmentId: number): Promise<void> {
+  await apiFetch<unknown>(`/investments/${investmentId}/delete`, { method: "DELETE" });
 }

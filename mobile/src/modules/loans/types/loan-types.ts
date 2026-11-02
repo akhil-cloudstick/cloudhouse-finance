@@ -103,6 +103,8 @@ export type BankPledgeRecord = {
   // voidBankPledge() cancelled a mis-recorded pledge (see src/modules/bank-pledges/services/bankPledgeService.ts).
   voidReason?: string;
   voidedAt?: string | null;
+  // Ornaments this pledge covers; empty/absent = the whole loan's gold.
+  ornamentIds?: number[] | null;
 };
 
 // backend/internal/loan/model.go's LoanRequest (523+) — Extension or Release.
@@ -328,6 +330,8 @@ export type OrnamentRequestInput = {
   deductionWeight?: number;
   quantity?: number;
   remarks?: string;
+  /** Photo URLs attached when the ornament is added. */
+  images?: string[];
 };
 // --- Sanction-chain approvals (backend/internal/loan/handler.go's Approve/
 // ListApprovals, POST/GET /loans/:id/approve|approvals) ---------------------
@@ -346,7 +350,17 @@ export type SanctionStage = string;
 // go through addOrnament/updateOrnament/deleteOrnament above, one at a
 // time, not through this. -------------------------------------------------
 
-export type UpdateLoanInput = { schemeId?: number; principalAmount?: number };
+export type UpdateLoanInput = {
+  schemeId?: number;
+  principalAmount?: number;
+  /** undefined leaves it alone; "" clears it. */
+  overallPhotoUrl?: string;
+  /** undefined leaves it alone; "" clears it (max 2000 chars). */
+  additionalInfo?: string;
+  /** Cross-branch roles only (Branch_Management.can_view_all_branches). */
+  branchId?: number;
+  lockerId?: number;
+};
 // --- Indemnity bond Aadhaar eSign (Setu) ------------------------------------
 // Mirrors src/modules/loans/services/loanService.ts's
 // startIndemnityBondEsign/checkIndemnityBondEsign exactly — same backend

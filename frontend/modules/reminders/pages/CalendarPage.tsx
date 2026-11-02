@@ -224,14 +224,14 @@ export function CalendarPage() {
         <div className="card">
           {/* Month label with its small prev/next buttons right beside it, directly above the grid. */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px 0" }}>
-            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0 }} onClick={() => goMonth(-1)} aria-label="Previous month">‹</button>
-            <select className="inp" aria-label="Month" style={{ width: 112, padding: "2px 6px" }} value={month} onChange={(e) => goTo(year, +e.target.value)}>
+            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0, height: 31 }} onClick={() => goMonth(-1)} aria-label="Previous month">‹</button>
+            <select className="inp" aria-label="Month" style={{ width: 112, padding: "2px 6px", height: 31 }} value={month} onChange={(e) => goTo(year, +e.target.value)}>
               {Array.from({ length: 12 }, (_, m) => <option key={m} value={m}>{new Date(2000, m, 1).toLocaleString("en-US", { month: "long" })}</option>)}
             </select>
-            <select className="inp" aria-label="Year" style={{ width: 84, padding: "2px 6px" }} value={year} onChange={(e) => goTo(+e.target.value, month)}>
+            <select className="inp" aria-label="Year" style={{ width: 84, padding: "2px 6px", height: 31 }} value={year} onChange={(e) => goTo(+e.target.value, month)}>
               {Array.from(new Set([...Array.from({ length: 21 }, (_, i) => today.getFullYear() - 10 + i), year])).sort((a, b) => a - b).map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
-            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0 }} onClick={() => goMonth(1)} aria-label="Next month">›</button>
+            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0, height: 31 }} onClick={() => goMonth(1)} aria-label="Next month">›</button>
             <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={goToday}>Today</button>
           </div>
           <div className="bd" style={{ padding: 10, overflowX: "auto" }}>
@@ -268,6 +268,10 @@ export function CalendarPage() {
           </div>
           <div className="ft">Click a day to see its full list of events and log a follow-up, promise-to-pay date, or custom reminder.</div>
         </div>
+        </div>
+
+        <div className="grid">
+          {selectedDay == null ? (
           <div className="card">
             <div className="hd"><h3>This Month at a Glance</h3></div>
             <div className="bd" style={{ paddingTop: 6 }}>
@@ -281,11 +285,12 @@ export function CalendarPage() {
               </ul>
             </div>
           </div>
-        </div>
-
-        <div className="grid">
+          ) : (
           <div className="card">
-            <div className="hd"><h3>{selectedDay != null ? fmtDate(toISODate(year, month, selectedDay)) : "Select a day"}</h3></div>
+            <div className="hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3>{fmtDate(toISODate(year, month, selectedDay))}</h3>
+              <button className="btn ghost sm" onClick={() => setSelectedDay(null)}>Month summary</button>
+            </div>
             <div className="bd no-scrollbar" style={{ paddingTop: 6, maxHeight: 420, overflowY: "auto" }} onScroll={onDayScroll}>
               {groupsOfDay.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "8px 0 12px" }}>
@@ -340,15 +345,8 @@ export function CalendarPage() {
                 ))}
               </ul>
             </div>
-            {selectedDay != null && canCreateReminders && (
-              <div className="ft">
-                <button className="btn ghost" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
-                  <Icon name="plus" /> Add Reminder for this day
-                </button>
-              </div>
-            )}
           </div>
-
+          )}
         </div>
       </div>
     </>

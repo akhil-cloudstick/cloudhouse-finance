@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
@@ -12,6 +12,7 @@ import { useKeyboardVisible } from "@/common/hooks/use-keyboard-visible";
 import { routeAllowed } from "@/common/config/routePermissions";
 import { useMoreRows } from "@/common/components/layout/moreRows";
 import { tabsRef, useShell, focusTab, s, coverStore } from "./shellContext";
+import { PRIMARY_ROUTES, swipe } from "./swipeStore";
 
 function NavCover() {
   const phase = useSyncExternalStore(coverStore.subscribe, coverStore.get, coverStore.get);
@@ -66,6 +67,29 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
   const hasMore = useMoreRows().length > 0;
   const isPrimary = tabs.some((t) => t.route === activeRoute);
 
+  // Follow the active tab with the shared swipe position: a tap glides the
+  // highlight across, and a finger swipe drives it directly (see swipeController).
+  const activeIdx = PRIMARY_ROUTES.indexOf(activeRoute);
+  const parked = useRef(false);
+  useEffect(() => {
+    if (activeIdx < 0) {
+      // A More page slid over the primary pages: park them off-screen once it has landed.
+      const t = setTimeout(() => {
+        swipe.pos.setValue(-5);
+        parked.current = true;
+      }, 260);
+      return () => clearTimeout(t);
+    }
+    if (parked.current) {
+      parked.current = false;
+      swipe.pos.setValue(activeIdx);
+    } else if (!swipe.active) {
+      Animated.timing(swipe.pos, { toValue: activeIdx, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    }
+  }, [activeIdx]);
+  // 1 while tab i is the (fractional) active one, fading out a full tab away.
+  const lit = (i: number) => swipe.pos.interpolate({ inputRange: [i - 1, i, i + 1], outputRange: [0, 1, 0], extrapolate: "clamp" });
+
   function go(name: string) {
     const route = state.routes.find((r) => r.name === name);
     if (!route) return;
@@ -109,22 +133,37 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
       <Fade from="bottom" height={PTAB_INSET + PTAB_HEIGHT + TAB_FADE_ABOVE + tabBarLift(insets.bottom)} solidAt={0.6} style={s.tabFade} />
       <View style={[s.tabbar, { bottom: PTAB_INSET + tabBarLift(insets.bottom) }]}>
         {tabs.map((t) => {
-          const active = t.route === activeRoute;
+          const i = PRIMARY_ROUTES.indexOf(t.route);
           if (t.fab) {
             return (
               <Pressable key={t.route} style={s.tabFab} onPressIn={() => go(t.route)} accessibilityLabel={t.label}>
-                <View style={[s.tabFabIc, active && s.tabFabIcActive]}>
+                <Animated.View
+                  style={[
+                    s.tabFabIc,
+                    { transform: [{ scale: swipe.pos.interpolate({ inputRange: [i - 1, i, i + 1], outputRange: [1, 1.06, 1], extrapolate: "clamp" }) }] },
+                  ]}
+                >
+                  <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 26, backgroundColor: C.brand, opacity: lit(i) }]} />
                   <PIcon name={t.icon} color="#fff" />
-                </View>
+                </Animated.View>
               </Pressable>
             );
           }
           return (
             <Pressable key={t.route} style={s.tab} onPressIn={() => go(t.route)} accessibilityLabel={t.label}>
-              <View style={[s.tabIc, active && s.tabIcActive]}>
-                <PIcon name={t.icon} color={active ? C.brandDeep : C.muted} />
+              <View style={s.tabIc}>
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcActive, { opacity: lit(i) }]} />
+                <PIcon name={t.icon} color={C.muted} />
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcOverlay, { opacity: lit(i) }]}>
+                  <PIcon name={t.icon} color={C.brandDeep} />
+                </Animated.View>
               </View>
-              <Txt style={[s.tabLbl, active && s.tabLblActive]}>{t.label}</Txt>
+              <View>
+                <Txt style={s.tabLbl}>{t.label}</Txt>
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: lit(i) }]}>
+                  <Txt style={[s.tabLbl, s.tabLblActive]}>{t.label}</Txt>
+                </Animated.View>
+              </View>
             </Pressable>
           );
         })}

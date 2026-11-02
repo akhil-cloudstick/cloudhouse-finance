@@ -132,12 +132,15 @@ type CreateInput struct {
 type ListInput struct {
 	BranchID   *uint
 	CustomerID *uint
-	Status     string
-	Query      string
-	From       *time.Time
-	To         *time.Time
-	Limit      int
-	Offset     int
+	// CustomerIDs / PlanIDs narrow to any of several investors / plans (the list page's filters).
+	CustomerIDs []uint
+	PlanIDs     []uint
+	Status      string
+	Query       string
+	From        *time.Time
+	To          *time.Time
+	Limit       int
+	Offset      int
 }
 
 type MarkPayoutPaidInput struct {
@@ -180,10 +183,12 @@ type WithdrawInput struct {
 }
 
 type ListFilter struct {
-	BranchID   *uint
-	CustomerID *uint
-	Status     string
-	Query      string
+	BranchID    *uint
+	CustomerID  *uint
+	CustomerIDs []uint
+	PlanIDs     []uint
+	Status      string
+	Query       string
 	// From / To bound start_date; To is exclusive (the day after the chosen end date).
 	From   *time.Time
 	To     *time.Time
@@ -516,14 +521,16 @@ func listInvestments(ctx context.Context, in ListInput) ([]models.Investment, bo
 		limit = 10
 	}
 	recs, total, err := findInvestments(ctx, ListFilter{
-		BranchID:   in.BranchID,
-		CustomerID: in.CustomerID,
-		Status:     in.Status,
-		Query:      in.Query,
-		From:       in.From,
-		To:         in.To,
-		Limit:      limit,
-		Offset:     in.Offset,
+		BranchID:    in.BranchID,
+		CustomerID:  in.CustomerID,
+		CustomerIDs: in.CustomerIDs,
+		PlanIDs:     in.PlanIDs,
+		Status:      in.Status,
+		Query:       in.Query,
+		From:        in.From,
+		To:          in.To,
+		Limit:       limit,
+		Offset:      in.Offset,
 	})
 	if err != nil {
 		return nil, false, 0, err
@@ -1141,6 +1148,12 @@ func findInvestments(ctx context.Context, f ListFilter) ([]models.Investment, in
 	if f.CustomerID != nil {
 		q = q.Where("investments.customer_id = ?", *f.CustomerID)
 	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("investments.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.PlanIDs) > 0 {
+		q = q.Where("investments.plan_id IN ?", f.PlanIDs)
+	}
 	// Status is one value or a comma-separated list.
 	var statuses []string
 	for _, s := range strings.Split(f.Status, ",") {
@@ -1416,14 +1429,16 @@ func ListInvestments(c echo.Context) error {
 	}
 	from, to := queryDayRange(c.QueryParam("from"), c.QueryParam("to"))
 	recs, _, total, err := listInvestments(ctx, ListInput{
-		BranchID:   branchID,
-		CustomerID: customerID,
-		Status:     c.QueryParam("status"),
-		Query:      c.QueryParam("search"),
-		From:       from,
-		To:         to,
-		Limit:      limit,
-		Offset:     offset,
+		BranchID:    branchID,
+		CustomerID:  customerID,
+		CustomerIDs: parseUintCSV(c.QueryParam("customer_ids")),
+		PlanIDs:     parseUintCSV(c.QueryParam("plan_ids")),
+		Status:      c.QueryParam("status"),
+		Query:       c.QueryParam("search"),
+		From:        from,
+		To:          to,
+		Limit:       limit,
+		Offset:      offset,
 	})
 	if err != nil {
 		return common.FailErr(c, err)

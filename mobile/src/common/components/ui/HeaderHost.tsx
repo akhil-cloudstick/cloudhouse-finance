@@ -1,15 +1,18 @@
-import React, { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, View } from "react-native";
 import { HeroHeader } from "./HeroHeader";
-import { headerStore, HeroMorph, s, HeroMorphContext, setTallHeaderCheck } from "./shellContext";
+import { headerStore, HeroMorph, s, HeroMorphContext, setTallHeaderCheck, tabsRef } from "./shellContext";
+import { PRIMARY_ROUTES, swipe } from "./swipeStore";
 
 setTallHeaderCheck((node) => React.isValidElement(node) && node.type === HeroHeader);
 
 // Material "standard" curve: eases in and out, so the header neither jumps
 // off at the start nor stops dead at the end. Close to the page slide (220ms)
 // so the header and the page finish together.
-const HEADER_MS = 280;
-const HEADER_EASE = Easing.bezier(0.4, 0, 0.2, 1);
+// Whether the previous focused page was a primary tab (see HeaderHost).
+const track = { prev: true };
+const HEADER_MS = 170;
+const HEADER_EASE = Easing.out(Easing.cubic);
 type HeroClipProps = {
   morph: HeroMorph;
   style?: object;
@@ -68,7 +71,23 @@ export function HeaderHost() {
   const [flatNode, setFlatNode] = useState<React.ReactNode>(tall ? null : node);
   if (!tall && flatNode !== node) setFlatNode(node);
 
-  const [morph] = useState<HeroMorph>(() => ({ p: new Animated.Value(0), lift: new Animated.Value(0) }));
+  // p = timed + driven. Between two primary tabs the page position (swipe.pos)
+  // IS the hero's progress — the hero collapses and drops exactly with the
+  // page, whether swiped or tapped. Only transitions with a More page, which
+  // slides by the navigator's own clock, use the timed part.
+  const [timed] = useState(() => new Animated.Value(0));
+  const [morph] = useState<HeroMorph>(() => ({
+    p: Animated.add(timed, swipe.pos.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' })),
+    lift: new Animated.Value(0),
+  }));
+  const focusedPrimary = () => {
+    const st = tabsRef.state;
+    return !!st && PRIMARY_ROUTES.includes(st.routes[st.index]?.name);
+  };
+  // With both heights known the hero's travel is fixed, so it can follow the page from the first frame of a swipe.
+  useEffect(() => {
+    if (heights.tall && heights.short) morph.lift.setValue(heights.tall - heights.short);
+  }, [heights, morph]);
   // The flat header fades in over the back half of a collapse (and out over
   // the front half of an expand).
   const [flatFade] = useState(() => morph.p.interpolate({ inputRange: [0.2, 0.75], outputRange: [0, 1], extrapolate: "clamp" }));
@@ -80,17 +99,18 @@ export function HeaderHost() {
   const [prevTall, setPrevTall] = useState(tall);
   if (prevTall !== tall) {
     setPrevTall(tall);
-    morph.p.stopAnimation();
+    timed.stopAnimation();
+    const driven = track.prev && focusedPrimary();
     if (!tall && heights.tall && heroNode) {
-      morph.p.setValue(0);
+      timed.setValue(0);
       if (heights.short) morph.lift.setValue(heights.tall - heights.short);
       setRunning({ dir: "collapse", hero: heroNode });
     } else if (tall && heights.tall && heights.short && flatNode) {
-      morph.p.setValue(1);
+      timed.setValue(driven ? 0 : 1);
       morph.lift.setValue(heights.tall - heights.short);
       setRunning({ dir: "expand", flat: flatNode });
     } else {
-      morph.p.setValue(tall ? 0 : 1);
+      timed.setValue(tall ? 0 : 1);
       setRunning(null);
     }
   }
@@ -105,10 +125,18 @@ export function HeaderHost() {
     // Starts once the incoming header has a height to aim for.
     if (!running || started.current === running) return;
     started.current = running;
+    const driven = track.prev && focusedPrimary();
+    track.prev = focusedPrimary();
     const lift = tall ? h - heights.short : heights.tall - h;
     morph.lift.setValue(Math.max(0, lift));
     const ran = running;
-    Animated.timing(morph.p, { toValue: tall ? 0 : 1, duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }).start(({ finished }) => {
+    if (driven) {
+      // The page position carries the hero; just retire the curtain once the slide is done.
+      timed.setValue(0);
+      setTimeout(() => setRunning((cur) => (cur === ran ? null : cur)), 320);
+      return;
+    }
+    Animated.timing(timed, { toValue: tall ? 0 : 1, duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }).start(({ finished }) => {
       if (finished) setRunning((cur) => (cur === ran ? null : cur));
     });
   };

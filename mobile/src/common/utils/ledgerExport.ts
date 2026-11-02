@@ -1,5 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
+import { presentFile } from "@/common/utils/presentFile";
 import { API_BASE_URL, apiUrl, ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 import type { LedgerKind } from "@/modules/cash/types/cash-types";
@@ -76,11 +76,7 @@ async function shareFile(path: string, params: URLSearchParams, fileStem: string
   if (result.status < 200 || result.status >= 300) {
     throw new ApiError(result.status, "", undefined);
   }
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(result.uri, { mimeType: kind.mimeType, dialogTitle: title, UTI: kind.UTI });
-  } else {
-    throw new Error(`Saved to ${result.uri} — sharing isn't available on this device.`);
-  }
+  await presentFile(result.uri, { mimeType: kind.mimeType, UTI: kind.UTI, title });
 }
 
 /** Branch ledger Download — web's exportPartyStatementByBranch:

@@ -9,13 +9,13 @@ export const refundPolicy: LegalDocumentSource = {
       heading: "The app",
       body: [
         { only: "customer", text: "{{app}} is free for customers; we charge customers no fee for using it." },
-        { only: "staff", text: "Subscription, plan changes and cancellation for a business are per its agreement with {{provider}}. Write to {{email}}." },
+        { only: "staff", text: "Subscription, plan changes and cancellation for a business are per its agreement with {{provider}}. Call {{phone}}." },
       ],
     },
     {
       heading: "Loan payments",
       body: [
-        "Payments toward a loan are made to the lender and credited against the loan. They are not refundable through the app. A refund of an incorrect or duplicate payment is decided and processed by the lender — contact them, or {{email}}, with the payment reference.",
+        "Payments toward a loan are made to the lender and credited against the loan. They are not refundable through the app. A refund of an incorrect or duplicate payment is decided and processed by the lender — contact them, or call {{phone}}, with the payment reference.",
       ],
     },
     {

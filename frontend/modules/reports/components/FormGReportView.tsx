@@ -1,5 +1,6 @@
 "use client";
 
+import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/common/components/Icon";
@@ -175,12 +176,7 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
           />
         </div>
         <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
-        <button className="btn ghost sm" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-          <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
-        </button>
-        <button className="btn sm" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-          <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
-        </button>
+        <ExportMenu busy={exporting} onExport={handleExport} />
       </div>
       </div>
 

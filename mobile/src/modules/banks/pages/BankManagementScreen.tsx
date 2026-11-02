@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { View } from "react-native";
-import { AccRow, FabCorner, FlatHeader, Screen, SearchInput, ServerFlatList, SummaryCard } from "@/common/components/ui";
+import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, SummaryCard, emptyGroupedFilter, gfFirst, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
+import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useCanOpen } from "@/common/config/routePermissions";
@@ -26,9 +29,23 @@ export default function BankManagementScreen() {
   const [manageOpen, setManageOpen] = useState(false);
 
   // The "banks" prefix is invalidated by the Banks sheet after an add, edit or delete.
-  const list = useServerList<Bank>({
+  // Business branch — single-select, like the web (GET /banks?branchId=).
+  const showBranch = useShowBranchFilter();
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("banks:filters", emptyGroupedFilter());
+  const sections: GFSection[] = [
+    {
+      kind: "async",
+      key: "branch",
+      label: "Branch",
+      single: true,
+      fetchPage: (p) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+    },
+  ];
+  const branchId = showBranch ? gfFirst(fv, "branch") : undefined;
+  const list = useServerList<Bank, { branchId?: string }>({
     key: ["banks", "management"],
     persistKey: "bankManagement",
+    filters: { branchId },
     fetchPage: (p) => listBanksPage(p),
   });
   const netBalance = list.pages?.[0]?.totalBalance;
@@ -42,12 +59,17 @@ export default function BankManagementScreen() {
         list={list}
         items={list.items}
         keyOf={(b) => String(b.id)}
-        emptyText={list.search ? "No banks match your search." : "No banks yet."}
+        emptyText={list.search || branchId ? "No banks match your search." : "No banks yet."}
         header={
           <View>
             {netBalance != null ? (
               <View style={{ paddingTop: 14 }}>
                 <SummaryCard title="Net bank balance" stats={[{ n: fmtBalance(netBalance), l: "Across all banks" }]} />
+              </View>
+            ) : null}
+            {showBranch ? (
+              <View style={{ paddingHorizontal: 18, paddingTop: 8 }}>
+                <GroupedFilter title="Filter banks" sections={sections} value={fv} onChange={setFv} />
               </View>
             ) : null}
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by bank, branch, IFSC or account no." style={{ paddingTop: 8 }} />

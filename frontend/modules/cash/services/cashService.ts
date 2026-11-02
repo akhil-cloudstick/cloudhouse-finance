@@ -48,6 +48,7 @@ function movementFilterParams(filters?: CashMovementFilters): URLSearchParams {
   if (filters?.customerIds?.length) params.set("customerIds", filters.customerIds.join(","));
   if (filters?.types?.length) params.set("types", filters.types.join(","));
   if (filters?.modes?.length) params.set("modes", filters.modes.join(","));
+  if (filters?.categoryNames?.length) params.set("category_names", filters.categoryNames.join(","));
   if (filters?.search) params.set("search", filters.search);
   return params;
 }
@@ -205,14 +206,14 @@ export async function listExpenses(): Promise<ExpenseView[]> {
 
 export const EXPENSES_PAGE_SIZE = 8;
 
-export type ExpenseFilters = { search?: string; category?: string; mode?: string; status?: string; from?: string; to?: string };
+export type ExpenseFilters = { search?: string; category?: string[]; mode?: string[]; status?: string[]; from?: string; to?: string };
 
 function expenseFilterParams(filters?: ExpenseFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters?.search) params.set("search", filters.search);
-  if (filters?.category) params.set("category", filters.category);
-  if (filters?.mode) params.set("mode", filters.mode);
-  if (filters?.status) params.set("status", filters.status);
+  filters?.category?.forEach((v) => params.append("category", v));
+  filters?.mode?.forEach((v) => params.append("mode", v));
+  filters?.status?.forEach((v) => params.append("status", v));
   if (filters?.from) params.set("from", filters.from);
   if (filters?.to) params.set("to", filters.to);
   return params;

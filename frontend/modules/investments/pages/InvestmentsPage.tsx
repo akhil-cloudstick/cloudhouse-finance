@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/common/components/Icon";
@@ -9,8 +8,10 @@ import { useModal } from "@/common/components/ModalProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { useIsSmallScreen, useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { listInvestmentsPage } from "@/modules/investments/services/investmentService";
+import { listInvestmentsPage, searchInvestmentPlansPage } from "@/modules/investments/services/investmentService";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { type BackendInvestment, type InvestmentStatus } from "@/modules/investments/types/investment-types";
+import { InvestorsModalContent } from "@/modules/investments/components/InvestorsModalContent";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { InvestmentRow } from "@/modules/investments/components/InvestmentRow";
 import { NewInvestmentModalContent } from "@/modules/investments/components/NewInvestmentModalContent";
@@ -31,18 +32,32 @@ export function InvestmentsPage() {
   const canUpdate = can("Investment_Management", "can_update_investment");
   const smallScreen = useIsSmallScreen();
 
-  const [status, setStatus] = usePersistedState<"All" | InvestmentStatus>("investments:status", "All");
+  const [status, setStatus] = usePersistedState<string>("investments:status", "All");
   const [q, setQ] = usePersistedState("investments:q", "");
   const [fromDate, setFromDate] = usePersistedState("investments:from", "");
   const [toDate, setToDate] = usePersistedState("investments:to", "");
+  const [investorIds, setInvestorIds] = usePersistedState<string[]>("investments:investors", []);
+  const [planIds, setPlanIds] = usePersistedState<string[]>("investments:plans", []);
   const [page, setPage] = usePersistedPage("investments");
   const { cards, size: pageSize, more } = useScrollPageSize(PAGE_SIZE);
-  // The status tabs became one grouped filter (single choice).
+  // The status tabs became one grouped filter (single choice). Investor and Plan load 20 at a time as their list scrolls.
   const filterCategories: FilterCategory[] = [
-    { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUSES.filter((st) => st !== "All").map((st) => ({ value: st, label: st })) },
+    { key: "status", label: "Status", kind: "static", options: STATUSES.filter((st) => st !== "All").map((st) => ({ value: st, label: st })) },
+    {
+      key: "investor", label: "Investor", kind: "async" as const, searchHint: "Searches: investor name, code, phone",
+      fetchOptions: (search: string, p: number) =>
+        listCustomersPage(search, p, { customerType: "Investor" }, 20).then((res) => ({ items: res.items.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })), hasMore: res.hasMore })),
+    },
+    {
+      key: "plan", label: "Plan", kind: "async" as const, searchHint: "Searches: plan name",
+      fetchOptions: (search: string, p: number) =>
+        searchInvestmentPlansPage(search, p).then((res) => ({ items: (res?.items || []).map((pl) => ({ value: String(pl.id), label: pl.name })), hasMore: !!res?.hasMore })),
+    },
     { key: "__date", label: "Start date", kind: "date" as const },
   ];
-  const filterValue: FilterValue = { status: status === "All" ? [] : [status], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
+  const filterValue: FilterValue = { status: status === "All" ? [] : status.split(","), investor: investorIds, plan: planIds, __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
+  const investorKey = investorIds.join(",");
+  const planKey = planIds.join(",");
   const [investments, setInvestments] = useState<BackendInvestment[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -60,7 +75,7 @@ export function InvestmentsPage() {
     if (!mounted.current) { mounted.current = true; return; }
     const handle = setTimeout(() => { setPage(1); setReloadKey((k) => k + 1); }, q ? 300 : 0);
     return () => clearTimeout(handle);
-  }, [status, q, fromDate, toDate]);
+  }, [status, q, fromDate, toDate, investorKey, planKey]);
 
   // Each fetch replaces the rows: a new page on desktop, or a larger page
   // size in card mode (page stays 1 there).
@@ -68,7 +83,7 @@ export function InvestmentsPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await listInvestmentsPage({ page: p, q: q.trim() || undefined, status, from: fromDate || undefined, to: toDate || undefined, pageSize });
+      const res = await listInvestmentsPage({ page: p, q: q.trim() || undefined, status, customerIds: investorIds, planIds, from: fromDate || undefined, to: toDate || undefined, pageSize });
       setInvestments(res?.items || []);
       if (wrapRef.current) wrapRef.current.scrollTop = 0;
       setHasMore(!!res?.hasMore);
@@ -78,7 +93,8 @@ export function InvestmentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, status, fromDate, toDate, pageSize]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the id lists are tracked by their joined keys
+  }, [q, status, fromDate, toDate, investorKey, planKey, pageSize]);
 
   useEffect(() => {
     void fetchPage(page);
@@ -102,7 +118,8 @@ export function InvestmentsPage() {
         <div><h1>Investments</h1><p>Investor deposits, interest payout schedules and maturity</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search investment # or investor…" title="Searches: investment number, investor name, investor code" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        {canUpdate && <button className="btn plain" onClick={openPlans}>Manage Plans</button>}
+        {canUpdate && <button className="btn ghost" onClick={() => openModal(<InvestorsModalContent />, true)}><Icon name="user" /> Investors</button>}
+        {canUpdate && <button className="btn ghost" onClick={openPlans}>Manage Plans</button>}
         {canCreate && <button className="btn" onClick={openNewInvestment}><Icon name="plus" /> New Investment</button>}
       </div>
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
@@ -116,7 +133,9 @@ export function InvestmentsPage() {
           categories={filterCategories}
           value={filterValue}
           onChange={(next) => {
-            setStatus(((Array.isArray(next.status) ? next.status[0] : undefined) as InvestmentStatus | undefined) || "All");
+            setStatus((Array.isArray(next.status) && next.status.length ? next.status.join(",") : "All"));
+            setInvestorIds(Array.isArray(next.investor) ? next.investor : []);
+            setPlanIds(Array.isArray(next.plan) ? next.plan : []);
             setFromDate(next.__dateFrom || "");
             setToDate(next.__dateTo || "");
           }}
@@ -139,8 +158,8 @@ export function InvestmentsPage() {
       <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
         <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-        <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
       </div>
       </div>
     </>

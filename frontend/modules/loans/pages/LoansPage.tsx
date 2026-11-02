@@ -150,7 +150,7 @@ export function LoansPage() {
     {
       key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search: string, p: number) =>
-        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined }, 20).then((res) => ({
+        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined, customerType: "Borrower" }, 20).then((res) => ({
           items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
           hasMore: res.hasMore,
         })),
@@ -231,6 +231,7 @@ export function LoansPage() {
       <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page}{knownTotal ? ` of ${totalPages}` : ""}</span>
+        {knownTotal && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {serverTotal.toLocaleString("en-IN")} {serverTotal === 1 ? "result" : "results"}</span>}
         <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
       </div>
       </div>

@@ -2,6 +2,7 @@ import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } fr
 import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
 import { printPdfJob } from "@/common/utils/print";
+import { roundRupee } from "@/common/utils/format";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import type { OrnamentRequestInput, CreateLoanInput, BackendOrnament, BackendLoanPayment, BackendBankPledgeRecord, BackendLoan, OrnamentView, PaymentView, BankPledgeView, LoanView, BackendCustomerOrnamentRow, CustomerOrnamentRowView, BackendCustomerPaymentRow, CustomerPaymentRowView, BackendCustomerBankPledgeRow, CustomerBankPledgeRowView, SaveDraftInput, BackendLoanDraft, IndemnityBondEsignStart, EsignWitnessInput, IndemnityBondDeliverBy, IndemnityBondEsignCheck, LoanFilters, PurityTestInput, SanctionStage, ApprovalStageRecord, ApprovalInput, UpdateLoanInput, PaymentInput, TopUpInput, LoanTopUpView, TopUpApprovalInput, BankPledgeInput, BankPledgeCashTreatment, BankPledgeRecordView, AuctionStage, AuctionSettlementStatus, AuctionSurplusDisposition, AuctionDecisionStatus, AuctionDecisionRequestView, AuctionRecordView, BackendAuctionDecisionRequest, BackendAuctionRecord, BackendCustomerAuctionRow, CustomerAuctionRowView, BackendConcludedAuctionRow, ConcludedAuctionRowView, LoanLedgerEntry, LoanLedgerPage, LoanLedgerQuery, BackendLoanLedgerEntry, BackendLoanRequest, RequestView, LoanRequestFilters, LoanRiskLevel, LoanRiskRow, LoanRiskCounts, ChecklistInput, ReleasePaymentInput, ReleaseApprovalInput, ExtensionApprovalInput, IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types";
 
@@ -667,8 +668,8 @@ export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView 
     auctionReferenceNumber: r.auctionReferenceNumber,
     saleAmount: r.saleAmount,
     auctionExpenses: r.auctionExpenses,
-    surplusShortfall: r.surplusShortfall,
-    surplusPayableAmount: r.surplusPayableAmount ?? 0,
+    surplusShortfall: roundRupee(r.surplusShortfall),
+    surplusPayableAmount: roundRupee(r.surplusPayableAmount ?? 0),
     surplusDisposition: r.surplusDisposition || "",
     surplusRemarks: r.surplusRemarks || "",
     finalSettlementStatus: r.finalSettlementStatus,
@@ -685,8 +686,8 @@ export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView 
       auctionRecordId: d.auctionRecordId,
       loanId: d.loanId,
       kind: d.kind,
-      amountPaid: d.amountPaid,
-      outstandingAtRequest: d.outstandingAtRequest,
+      amountPaid: roundRupee(d.amountPaid),
+      outstandingAtRequest: roundRupee(d.outstandingAtRequest),
       status: d.status,
       decidedByRole: d.decidedByRole || "",
       decisionRemarks: d.decisionRemarks || "",
@@ -849,8 +850,8 @@ export async function listPendingAuctionDecisions(): Promise<AuctionDecisionRequ
     auctionRecordId: d.auctionRecordId,
     loanId: d.loanId,
     kind: d.kind,
-    amountPaid: d.amountPaid,
-    outstandingAtRequest: d.outstandingAtRequest,
+    amountPaid: roundRupee(d.amountPaid),
+    outstandingAtRequest: roundRupee(d.outstandingAtRequest),
     status: d.status,
     decidedByRole: d.decidedByRole || "",
     decisionRemarks: d.decisionRemarks || "",
@@ -909,7 +910,7 @@ function toRequestView(r: BackendLoanRequest): RequestView {
 export async function listLoanRequests(filters?: LoanRequestFilters): Promise<RequestView[]> {
   const params = new URLSearchParams();
   if (filters?.status) params.set("status", filters.status);
-  if (filters?.loanId) params.set("loanId", String(filters.loanId));
+  if (filters?.loanId) params.set("loan_id", String(filters.loanId));
   const qs = params.toString();
   const rec = await apiFetch<BackendLoanRequest[]>(`/loans/requests${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toRequestView);
@@ -930,7 +931,7 @@ export async function listLoanRequestsPage(
     offset: String((page - 1) * pageSize),
   });
   if (filters?.status) params.set("status", filters.status);
-  if (filters?.loanId) params.set("loanId", String(filters.loanId));
+  if (filters?.loanId) params.set("loan_id", String(filters.loanId));
   if (filters?.type) params.set("type", filters.type);
   if (filters?.q) params.set("q", filters.q);
   if (filters?.from) params.set("from", filters.from);
@@ -969,7 +970,7 @@ export const LOAN_RISK_PAGE_SIZE = 15;
 export async function listLoanRiskAssessmentPage(
   page: number,
   limit?: number,
-  filters?: { status?: string; riskLevel?: LoanRiskLevel; fromDate?: string; toDate?: string; q?: string }
+  filters?: { status?: string; riskLevel?: string; fromDate?: string; toDate?: string; q?: string }
 ): Promise<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }> {
   const pageSize = limit ?? LOAN_RISK_PAGE_SIZE;
   const params = new URLSearchParams({
@@ -977,7 +978,7 @@ export async function listLoanRiskAssessmentPage(
     offset: String((page - 1) * pageSize),
   });
   if (filters?.status) params.set("status", filters.status);
-  if (filters?.riskLevel) params.set("riskLevel", filters.riskLevel);
+  if (filters?.riskLevel) params.set("risk_level", filters.riskLevel);
   if (filters?.fromDate) params.set("from", filters.fromDate);
   if (filters?.toDate) params.set("to", filters.toDate);
   if (filters?.q?.trim()) params.set("search", filters.q.trim());

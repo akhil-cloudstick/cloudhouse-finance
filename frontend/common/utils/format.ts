@@ -81,6 +81,15 @@ export const fmtDate = (v?: string | null) => {
   return m && m[1] !== "0001" ? `${m[3]}-${m[2]}-${m[1]}` : "—";
 };
 
+// "2026-11-02" + 3 → "2027-02-02". Overflow rolls on like the backend's time.AddDate (31 Jan + 1 → 3 Mar), so a
+// preview shows the due date the server will actually set. "" for an unreadable date.
+export const addMonthsISO = (v: string | null | undefined, months: number) => {
+  const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
+  if (!m || !Number.isFinite(months)) return "";
+  const d = new Date(+m[1], +m[2] - 1 + months, +m[3]);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 // Whole years from a "YYYY-MM-DD" date of birth to today (local date), read
 // from the string like fmtDate so it never shifts a day across timezones.
 // null when empty, unparseable, Go's zero time, or in the future.

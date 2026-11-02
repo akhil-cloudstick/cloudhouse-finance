@@ -12,7 +12,7 @@ import { RequestExtensionModalContent } from "@/common/components/modals/Request
 import { RequestReleaseModalContent } from "@/common/components/modals/RequestReleaseModalContent";
 import { ExtensionReviewModalContent } from "@/modules/loans/components/ExtensionReviewModalContent";
 import { ReleaseReviewModalContent } from "@/modules/loans/components/ReleaseReviewModalContent";
-import { searchCustomersPage } from "@/modules/customers/services/customerService";
+import { searchBorrowersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { getLoan, searchLoansPage, listLoanRequests } from "@/modules/loans/services/loanService";
 import { type LoanView, type RequestView } from "@/modules/loans/types/loan-types";
@@ -108,7 +108,7 @@ export function QuickActionModalContent({ action, onChanged }: QuickActionModalC
       if (action === "payment") {
         openModal(<PaymentModalContent loan={full} onSaved={() => onChanged?.()} />, true);
       } else if (action === "extension") {
-        openModal(<RequestExtensionModalContent loan={full} onPaid={() => onChanged?.()} onSaved={() => { void reviewIfMine("Extension", full.numericId); }} />);
+        openModal(<RequestExtensionModalContent loan={full} onPaid={() => onChanged?.()} onSaved={() => { void reviewIfMine("Extension", full.numericId); }} />, true);
       } else {
         openModal(<RequestReleaseModalContent loan={full} onSaved={() => { void reviewIfMine("Release", full.numericId); }} />);
       }
@@ -127,7 +127,7 @@ export function QuickActionModalContent({ action, onChanged }: QuickActionModalC
           <SearchableSelect<CustomerView>
             value={customerText}
             onChange={(_id, c) => pickCustomer(c)}
-            fetchFn={searchCustomersPage}
+            fetchFn={searchBorrowersPage}
             searchHint="Searches: name, customer code, phone number"
             getLabel={customerLabel}
             getId={(c) => c.id}

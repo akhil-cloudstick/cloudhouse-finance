@@ -47,6 +47,7 @@ var AuthzCatalogue = []PermissionDef{
 	{"can view investment module", "View investment plans, investments, schedules and payouts", "Investment Management"},
 	{"can create investment", "Create investment plans and investments", "Investment Management"},
 	{"can update investment", "Update investment plans, mark payouts paid and apply maturity decisions", "Investment Management"},
+	{"can delete investment", "Delete an investment at any stage and reverse all its cash entries", "Investment Management"},
 	{"can view bank pledge module", "View bank pledge records", "Bank Pledge Management"},
 	{"can create bank pledge", "Re-pledge a loan's gold to a bank", "Bank Pledge Management"},
 	{"can update bank pledge", "Release and void bank pledges", "Bank Pledge Management"},

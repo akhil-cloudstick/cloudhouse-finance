@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { Fragment, useEffect, useState } from "react";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
@@ -179,8 +178,8 @@ export function GoldRatesPage() {
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-          <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       </div>
     </>

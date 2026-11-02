@@ -209,14 +209,14 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
         {showAdditional && (
           <>
             <div className="frow c3" style={{ marginTop: 14 }}>
+              <div><label className="f">Guardian Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(stripDigits(e.target.value))} /></div>
               <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
               <div><label className="f">Taluk</label><input className="inp" placeholder="e.g. Kozhikode" value={taluk} onChange={(e) => setTaluk(e.target.value)} /></div>
-              <div><label className="f">Village</label><input className="inp" placeholder="e.g. Feroke" value={village} onChange={(e) => setVillage(e.target.value)} /></div>
             </div>
             <div className="frow c3">
+              <div><label className="f">Village</label><input className="inp" placeholder="e.g. Feroke" value={village} onChange={(e) => setVillage(e.target.value)} /></div>
               <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
               <div><label className="f">Pin Code</label><input className="inp" inputMode="numeric" placeholder="6-digit pin code" maxLength={6} value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ""))} /></div>
-              <div><label className="f">Guardian Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(stripDigits(e.target.value))} /></div>
             </div>
           </>
         )}

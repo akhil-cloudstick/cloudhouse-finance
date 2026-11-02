@@ -6,7 +6,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
-import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/common/utils/purity";
+import { rateForFineness, FINENESS_24K } from "@/common/utils/purity";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -76,13 +76,12 @@ export function RateModalContent() {
   const [rate24, setRate24] = useState(String(latest.k24 || ""));
 
   const [rate22, setRate22] = useState(String(latest.k22 || ""));
-  // Fineness isn't stored — restore what the last published rates imply
-  // (rate ÷ 24K) rather than the standard ratio, so a custom fineness set
-  // earlier is still showing when the modal is reopened.
-  const [fineness22, setFineness22] = useState(String(finenessFromRate(latest.k24, latest.k22, 22)));
+  // The fineness last set in Auto mode is stored with the rate, so a custom
+  // fineness is still showing when the modal is reopened.
+  const [fineness22, setFineness22] = useState(String(latest.fineness22));
 
   const [rate18, setRate18] = useState(String(latest.k18 || ""));
-  const [fineness18, setFineness18] = useState(String(finenessFromRate(latest.k24, latest.k18, 18)));
+  const [fineness18, setFineness18] = useState(String(latest.fineness18));
 
   const [err, setErr] = useState("");
   // Validation messages, each shown under the rate it is about; `err` keeps the ones that fit no field.
@@ -101,8 +100,8 @@ export function RateModalContent() {
 
   function setAuto() {
     setMode("auto");
-    const f22 = finenessFromRate(latest.k24, latest.k22, 22);
-    const f18 = finenessFromRate(latest.k24, latest.k18, 18);
+    const f22 = latest.fineness22;
+    const f18 = latest.fineness18;
     setFineness22(String(f22));
     setFineness18(String(f18));
 
@@ -218,6 +217,12 @@ export function RateModalContent() {
     if (Math.round(+rate24) !== Math.round(latest.k24 || 0)) jobs.push({ karat: 24, rate: +rate24 });
     if (Math.round(+rate22) !== Math.round(latest.k22 || 0)) jobs.push({ karat: 22, rate: +rate22 });
     if (Math.round(+rate18) !== Math.round(latest.k18 || 0)) jobs.push({ karat: 18, rate: +rate18 });
+    // Auto mode saves its fineness so a 24K-only publish (New Gold Loan page) derives 22K/18K the same way.
+    // A fineness change alone still publishes, so the new fineness is kept.
+    const fineness = mode === "auto" && +fineness22 > 0 && +fineness18 > 0 ? { 22: +fineness22, 18: +fineness18 } : undefined;
+    if (jobs.length === 0 && fineness && (fineness[22] !== latest.fineness22 || fineness[18] !== latest.fineness18)) {
+      jobs.push({ karat: 24, rate: +rate24 });
+    }
 
     if (jobs.length === 0) {
       setErr("Nothing has changed from today's published rates.");
@@ -227,7 +232,7 @@ export function RateModalContent() {
     setErr("");
     setSaving(true);
     try {
-      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy);
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, fineness);
       refresh();
       closeModal();
       toast(`${jobs.map((j) => `${j.karat}K`).join(", ")} rate${jobs.length > 1 ? "s" : ""} published for today`);

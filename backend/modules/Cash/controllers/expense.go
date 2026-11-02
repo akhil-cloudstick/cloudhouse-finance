@@ -491,19 +491,38 @@ func insertExpense(ctx context.Context, e *models.Expense) error {
 // mode / status and an occurred_on date range (From inclusive, To exclusive).
 type expenseFilter struct {
 	Search   string
-	Category string
-	Mode     string
-	Status   string
+	Category []string
+	Mode     []string
+	Status   []string
 	From     *time.Time
 	To       *time.Time
+}
+
+// expenseQueryValues reads a filter that may repeat (?mode=Cash&mode=UPI), dropping blanks.
+func expenseQueryValues(c echo.Context, key string) []string {
+	var out []string
+	for _, v := range c.QueryParams()[key] {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func lowerAll(in []string) []string {
+	out := make([]string, len(in))
+	for i, v := range in {
+		out[i] = strings.ToLower(v)
+	}
+	return out
 }
 
 func expenseFilterFromQuery(c echo.Context) expenseFilter {
 	f := expenseFilter{
 		Search:   strings.TrimSpace(c.QueryParam("search")),
-		Category: strings.TrimSpace(c.QueryParam("category")),
-		Mode:     strings.TrimSpace(c.QueryParam("mode")),
-		Status:   strings.TrimSpace(c.QueryParam("status")),
+		Category: expenseQueryValues(c, "category"),
+		Mode:     expenseQueryValues(c, "mode"),
+		Status:   expenseQueryValues(c, "status"),
 	}
 	if t, err := time.ParseInLocation("2006-01-02", c.QueryParam("from"), time.Local); err == nil {
 		f.From = &t
@@ -519,14 +538,14 @@ func applyExpenseFilter(q *gorm.DB, branchID *uint, f expenseFilter) *gorm.DB {
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
-	if f.Category != "" {
-		q = q.Where("category = ?", f.Category)
+	if len(f.Category) > 0 {
+		q = q.Where("lower(category) IN ?", lowerAll(f.Category))
 	}
-	if f.Mode != "" {
-		q = q.Where("mode = ?", f.Mode)
+	if len(f.Mode) > 0 {
+		q = q.Where("mode IN ?", f.Mode)
 	}
-	if f.Status != "" {
-		q = q.Where("status = ?", f.Status)
+	if len(f.Status) > 0 {
+		q = q.Where("status IN ?", f.Status)
 	}
 	if f.From != nil {
 		q = q.Where("occurred_on >= ?", *f.From)

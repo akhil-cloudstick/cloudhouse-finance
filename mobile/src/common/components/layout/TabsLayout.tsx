@@ -6,6 +6,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
 import { Dimensions, Easing, View } from "react-native";
+import { PRIMARY_ROUTES, swipe } from "@/common/components/ui/swipeStore";
+import { useTabSwipe } from "@/common/hooks/use-tab-swipe";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { C, HeaderHost, HeaderHostContext, PillButton, PTabBar, ShellContext, type ShellActions, Spinner, toast, Txt } from "@/common/components/ui";
 import { NoAccess } from "@/common/components/NoAccess";
@@ -15,6 +17,7 @@ import { ProfileSheet } from "./ProfileSheet";
 import { RemindersModal } from "./RemindersModal";
 import { SearchModal } from "./SearchModal";
 import { GoldRateModal } from "./GoldRateModal";
+import type { LoanDraft } from "@/modules/loans/types/loan-types";
 import { CreateLoanSheet } from "@/common/components/CreateLoanSheet";
 import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -145,20 +148,29 @@ export default function TabsLayout() {
   useTenantModuleGuard();
   useRoutePermissionGuard();
   usePagePrefetch();
+  const swipeHandlers = useTabSwipe();
   const [open, setOpen] = useState<SheetName>(null);
   const close = useCallback(() => setOpen(null), []);
   const [collectLoanId, setCollectLoanId] = useState<number | null>(null);
   // A customer picked from their own page, for the New Loan sheet to start with.
   const [newLoanCustomer, setNewLoanCustomer] = useState<Customer | null>(null);
+  const [newLoanDraft, setNewLoanDraft] = useState<LoanDraft | null>(null);
   const closeCollect = useCallback(() => setCollectLoanId(null), []);
   const actions = useMemo<ShellActions>(
     () => ({
       openNewLoan: () => {
         setNewLoanCustomer(null);
+        setNewLoanDraft(null);
+        setOpen("newLoan");
+      },
+      openNewLoanDraft: (draft: LoanDraft) => {
+        setNewLoanCustomer(null);
+        setNewLoanDraft(draft);
         setOpen("newLoan");
       },
       openNewLoanFor: (customer: Customer) => {
         setNewLoanCustomer(customer);
+        setNewLoanDraft(null);
         setOpen("newLoan");
       },
       openMore: () => setOpen("more"),
@@ -174,14 +186,16 @@ export default function TabsLayout() {
   return (
     <ShellContext.Provider value={actions}>
       <HeaderHostContext.Provider value>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} collapsable={false} {...swipeHandlers}>
       <Tabs
+        // Keep every page mounted and attached: the swipe shows a neighbour before it is focused.
+        detachInactiveScreens={false}
         tabBar={(props) => <PTabBar {...props} />}
         // Back walks the pages visited (so a page opened from a quick link
         // returns to where it was opened), rather than jumping to Dashboard.
         backBehavior="history"
         screenLayout={({ route, children }) => <RouteGate route={route.name}>{children}</RouteGate>}
-        screenOptions={{
+        screenOptions={({ route }) => ({
           headerShown: false,
           sceneStyle: { backgroundColor: "transparent" },
           // A tab keeps its stack when left, so Back can return to the exact
@@ -189,24 +203,28 @@ export default function TabsLayout() {
           // openPage() (Shell.tsx) switches tabs and resets a tab's stack in
           // one dispatch, so a hidden tab is never rendered mid-flight with
           // stale content to freeze in place — every tab can freeze on blur.
-          freezeOnBlur: true,
+          freezeOnBlur: false,
           // Slide only — no opacity (Android redraws elevation shadows under
           // an animating opacity, which made edges flash).
-          sceneStyleInterpolator: ({ current }) => ({
-            sceneStyle: {
-              transform: [
-                { translateX: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [-SCREEN_W, 0, SCREEN_W] }) },
-              ],
-            },
-          }),
+          // The four primary pages are placed from swipe.pos alone: page i
+          // sits at (i - pos) widths, so a tap, a finger swipe and the tab
+          // bar all share one position. Other pages keep the navigator slide.
+          sceneStyleInterpolator: ({ current }) => {
+            const i = PRIMARY_ROUTES.indexOf(route.name);
+            const x =
+              i >= 0
+                ? swipe.pos.interpolate({ inputRange: [i - 1, i, i + 1], outputRange: [SCREEN_W, 0, -SCREEN_W] })
+                : current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [-SCREEN_W, 0, SCREEN_W] });
+            return { sceneStyle: { transform: [{ translateX: x }] } };
+          },
           transitionSpec: { animation: "timing", config: { duration: 220, easing: Easing.out(Easing.cubic) } },
-        }}
+        })}
       >
         {/* --- tab bar destinations --- */}
-        <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
+        <Tabs.Screen name="dashboard" options={{ title: "Dashboard", lazy: false }} />
         <Tabs.Screen name="customers" options={{ title: "Customers", lazy: false }} />
         <Tabs.Screen name="loans" options={{ title: "Loans", lazy: false }} />
-        <Tabs.Screen name="schemes" options={{ title: "Schemes" }} />
+        <Tabs.Screen name="schemes" options={{ title: "Schemes", lazy: false }} />
 
         {/* --- reachable from the More sheet --- */}
         <Tabs.Screen name="auctions" options={{ title: "Auctions", href: null }} />
@@ -224,7 +242,6 @@ export default function TabsLayout() {
         <Tabs.Screen name="employees" options={{ title: "Employees", href: null }} />
         <Tabs.Screen name="branches" options={{ title: "Branches", href: null }} />
         <Tabs.Screen name="roles" options={{ title: "Roles & Permissions", href: null }} />
-        <Tabs.Screen name="settings" options={{ title: "Settings", href: null }} />
         <Tabs.Screen name="billing" options={{ title: "Billing & Plan", href: null }} />
       </Tabs>
       {/* One header above every page — see Screen in Shell.tsx. */}
@@ -233,7 +250,7 @@ export default function TabsLayout() {
       </View>
       </HeaderHostContext.Provider>
 
-      <CreateLoanSheet visible={open === "newLoan"} onClose={close} initialCustomer={newLoanCustomer} />
+      <CreateLoanSheet visible={open === "newLoan"} onClose={close} initialCustomer={newLoanCustomer} initialDraft={newLoanDraft} />
       <MoreSheet visible={open === "more"} onClose={close} onGoldRate={() => setOpen("gold")} />
       <SearchModal visible={open === "search"} onClose={close} />
       <GoldRateModal visible={open === "gold"} onClose={close} />

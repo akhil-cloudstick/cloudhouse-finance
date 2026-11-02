@@ -115,7 +115,7 @@ export function PersonalLoansPage() {
         * shape (title + search + filter chips + paginated table), so they
         * should not drift apart vertically. Keep them in step. */}
       <div className="page-h">
-        <div><h1>Personal Loans</h1><p>Small unsecured cash loans, repaid daily/weekly/monthly</p></div>
+        <div><h1>Personal Loans</h1></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan # or customer…" title="Searches: loan number, customer name, customer code" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
@@ -151,6 +151,7 @@ export function PersonalLoansPage() {
       <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
         <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
       </div>
       </div>

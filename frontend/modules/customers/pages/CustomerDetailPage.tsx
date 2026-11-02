@@ -333,7 +333,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
         loans={cLoans}
         onPicked={(pickedLoan: LoanView, type: "Extension" | "Release") => {
           if (type === "Extension") {
-            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => { }} />);
+            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => { }} />, true);
           } else {
             openModal(<RequestReleaseModalContent loan={pickedLoan} onSaved={() => { }} />);
           }
@@ -366,7 +366,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
               <Icon name="gear" /> Actions <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
             {actionsMenuOpen && (
-              <div className="docs-dd-menu" role="menu">
+              <div className="docs-dd-menu fit" role="menu">
                 {canUpdateCustomers && (
                   <a href="#" title="Edit Customer" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openEditCustomer(); }}>
                     <Icon name="edit" /><span className="tx">Edit Customer</span>

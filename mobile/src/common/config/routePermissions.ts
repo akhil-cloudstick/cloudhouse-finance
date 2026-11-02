@@ -42,7 +42,6 @@ export const ROUTE_PERMISSIONS: Record<string, readonly PermissionRef[]> = {
   employees: [["Employee_Management", "can_view_employee_module"]],
   branches: [["Branch_Management", "can_view_branch_module"]],
   roles: [["Role_Management", "can_view_role_and_permission_module"]],
-  settings: [["Settings_Management", "can_view_setting_module"]],
   billing: [["Billing", "can_manage_billing"]],
 };
 

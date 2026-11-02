@@ -777,6 +777,28 @@ h3,
   height: 15px
 }
 
+.gs-results a .gs-del {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-content: center;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--red);
+  border-radius: 6px;
+  opacity: .65;
+  cursor: pointer;
+  transition: background .12s, opacity .12s;
+}
+
+.gs-results a .gs-del:hover {
+  background: var(--red-bg);
+  opacity: 1;
+}
+
 .gs-results a .tx {
   flex: 1;
   min-width: 0
@@ -947,6 +969,22 @@ h3,
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* `.fit`: the menu is exactly as wide as its trigger button, and a label longer than that ends in "…"
+ * (the item's title shows it in full on hover). */
+.docs-dd-menu.fit {
+  left: 0;
+  right: 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.docs-dd-menu.fit a .tx {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Side picker under a Documents item (Print Slip → Normal print / eSign): a small
@@ -4815,6 +4853,41 @@ table.tbl {
   }
 }
 
+/* Right-hand column beside the KPI cards: the summary date on top, the tabs
+ * at the bottom, stretched to the cards' height. Below 1400px both share
+ * one right-aligned line under the cards, wrapping on phones. */
+.cash-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  align-self: stretch;
+  gap: 10px;
+  margin-left: auto
+}
+
+.cash-date-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px
+}
+
+@media (max-width: 1400px) {
+  .cash-side {
+    width: 100%;
+    flex-basis: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end
+  }
+
+  .cash-side .cash-tabs-row {
+    width: auto;
+    flex-basis: auto
+  }
+}
+
 .tabs button {
   font: inherit;
   font-size: 12.5px;
@@ -6196,7 +6269,21 @@ table.tbl {
  * (the ledger gets the wider share, it has seven columns) and stack — as before — below the same
  * width/height boundary `.pl-detail-grid` uses. Both tables are paged, so rows size to their content
  * and the cards never shrink below it. */
-.inv-detail-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
+.inv-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
+/* The payout schedule's due dates and Mark Paid stay on one line instead of breaking mid-date. */
+.inv-schedule-tbl td:nth-child(2),.inv-schedule-tbl .btn{white-space:nowrap}
+/* Side by side, each card has half the width: narrower amount columns, tighter cell gaps and header tracking keep
+ * the ledger's Balance inside the card; anything still too wide scrolls sideways rather than being clipped. */
+@media (min-width: 1101px) {
+  .inv-detail-grid{--ledger-amt-w:104px;--ledger-bal-w:132px}
+  .inv-detail-grid .tbl th,.inv-detail-grid .tbl td{padding-left:10px;padding-right:10px}
+  .inv-detail-grid .tbl th{letter-spacing:.1em}
+  .inv-detail-grid .tbl th:first-child,.inv-detail-grid .tbl td:first-child{padding-left:16px}
+  .inv-detail-grid .tbl th:last-child,.inv-detail-grid .tbl td:last-child{padding-right:16px}
+  .inv-detail-grid .tbl.ledger-amt th.num:last-child,.inv-detail-grid .tbl.ledger-amt td.num:last-child{padding-right:30px}
+  .inv-detail-grid .tbl.ledger-amt td.num:last-child .ledger-info{right:8px}
+  .inv-detail-grid .tbl-wrap{overflow-x:auto}
+}
 .inv-detail-grid > .card{flex-shrink:0;min-height:auto;margin-bottom:0}
 .inv-detail-grid .tbl{min-width:0}
 .inv-detail-grid .tbl-wrap{max-height:none}
@@ -8320,6 +8407,167 @@ table.tbl {
   background: var(--brand-pale);
 }
 
+/* Request Extension / Review Extension (RequestExtensionModalContent, ExtensionReviewModalContent): the
+ * Record Payment layout (form + receipt panel) at a narrower width, since the form side is short. The panel is
+ * wider than Record Payment's so the new due date sits on one line. */
+.modal.wide:has(.ext-modal-bd) {
+  max-width: 760px
+}
+
+.ext-modal-bd .pay-layout {
+  grid-template-columns: minmax(0, 1fr) 290px;
+}
+
+.ext-modal-bd .pay-r-big {
+  white-space: nowrap;
+}
+
+/* Release Complete (ReleaseCompleteModalContent): the payment receipt panel used as the summary's header — it
+ * scrolls with the body rather than sticking. */
+.modal.wide:has(.rel-done-bd) {
+  max-width: 640px
+}
+
+/* The ornaments table fits the modal instead of keeping the base `.tbl` min-width:640px and scrolling sideways. */
+.rel-done-bd .tbl {
+  min-width: 0;
+}
+
+/* Tighter column gaps so all five columns sit inside the modal; the base `.tbl` pads cells 14px a side. */
+.rel-done-bd .tbl th,
+.rel-done-bd .tbl td {
+  padding-left: 8px;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+
+.rel-done-bd .tbl th:first-child,
+.rel-done-bd .tbl td:first-child {
+  padding-left: 12px;
+  white-space: normal;
+}
+
+.rel-done-bd .tbl th:last-child,
+.rel-done-bd .tbl td:last-child {
+  padding-right: 12px;
+}
+
+.pay-receipt.rel-done-hero {
+  position: static;
+}
+
+/* No divider rule above this section. */
+.ext-modal-bd .pay-sec.ext-sec-plain {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+/* "Interest must be cleared first" — the one thing blocking the extension, with its Pay button. */
+.ext-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--red) 30%, transparent);
+  border-radius: 10px;
+  background: var(--red-bg);
+}
+
+.ext-block-tx {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--nav-ink);
+}
+
+.ext-block-tx b {
+  color: var(--red);
+  font-size: 12.5px;
+}
+
+/* Current → new due date pair; the arrow icon is the shared arrowUp turned to point right. */
+.ext-dates {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+
+.ext-dates > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ext-dates > div:last-child {
+  text-align: right;
+}
+
+.ext-dates span {
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ext-dates b {
+  font-variant-numeric: tabular-nums;
+  color: var(--nav-ink);
+  white-space: nowrap;
+}
+
+.ext-dates > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--brand);
+  transform: rotate(90deg);
+}
+
+.ext-dates-lg {
+  margin-top: 10px;
+  padding: 14px 16px;
+  background: var(--brand-faint);
+}
+
+.ext-dates-lg b {
+  font-size: 16px;
+}
+
+.ext-review-hero {
+  margin-bottom: 14px;
+}
+
+.ext-review-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  font-size: 13px;
+}
+
+.ext-review-grid span {
+  color: var(--muted);
+}
+
+.ext-review-grid b {
+  text-align: right;
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .ext-modal-bd .pay-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pay-receipt {
   position: sticky;
   top: 0;
@@ -9721,4 +9969,46 @@ table.tbl.lockers-tbl {
   table.tbl.tbl-cards:not(.loans-tbl) td {
     overflow-wrap: anywhere;
   }
+}
+
+/* New Loan: the ornament list keeps a fixed height — about five rows — and scrolls inside
+ * itself, so adding ornaments never stretches the form. On shorter windows the cap shrinks
+ * with the viewport, so the list starts scrolling sooner instead of pushing the page. */
+.orn-table-view {
+  max-height: min(310px, 45vh);
+  overflow-y: auto;
+}
+.orn-table-view thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card, #fff);
+}
+.orn-cards-view {
+  max-height: min(430px, 55vh);
+  overflow-y: auto;
+}
+
+/* One height for a search box, the filter button and the buttons beside them in a toolbar. The
+ * !important beats inline heights some search inputs still carry. */
+.search .inp,
+.cash-filter-row .search .inp {
+  height: 34px !important;
+}
+.dp > button[aria-label="Filters"],
+.hd:has(.search) .btn.sm,
+.page-h .search ~ .btn {
+  height: 34px;
+  box-sizing: border-box;
+}
+
+/* The ornament list still scrolls (wheel, touch, keys) but without a visible scrollbar. */
+.orn-table-view,
+.orn-cards-view {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.orn-table-view::-webkit-scrollbar,
+.orn-cards-view::-webkit-scrollbar {
+  display: none;
 }

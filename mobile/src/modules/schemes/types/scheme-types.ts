@@ -18,6 +18,8 @@ export type Scheme = {
   durationMonths: number;
   ltvPercent: number;
   interestMethod?: string;
+  /** How interest is accrued: each day, or once per month. Backend default is daily. */
+  accrualBasis?: AccrualBasis;
   penalRate?: number;
   conditions?: string;
   isActive: boolean;
@@ -31,6 +33,8 @@ export type Scheme = {
   updatedAt: string;
 };
 
+export type AccrualBasis = "daily" | "monthly";
+
 export type SchemeInput = {
   name: string;
   branchId: number;
@@ -40,6 +44,7 @@ export type SchemeInput = {
   durationMonths: number;
   ltvPercent: number;
   interestMethod?: string;
+  accrualBasis?: AccrualBasis;
   penalRate?: number;
   conditions?: string;
   isActive?: boolean;

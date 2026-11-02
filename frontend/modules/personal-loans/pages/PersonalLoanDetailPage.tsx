@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBalanceInHand } from "@/common/hooks/use-balance-in-hand";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
@@ -43,7 +42,7 @@ const BOND_LANG_OPTIONS: { value: PersonalLoanBondLang; label: string; native: s
 /* Due date of the last installment — the schedule is paged, so it is derived the
  * same way the backend builds it (generateScheduleFrom: one step per installment from the opened date). */
 function finalDueDate(loan: BackendPersonalLoan): string {
-  const m = /^(d{4})-(d{2})-(d{2})/.exec(loan.openedDate || "");
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(loan.openedDate || "");
   if (!m || !(loan.tenureCount > 0)) return "—";
   const d = new Date(+m[1], +m[2] - 1, +m[3]);
   if (loan.frequency === "Monthly") d.setMonth(d.getMonth() + loan.tenureCount);
@@ -87,7 +86,8 @@ function usePagedTable<T>(fetchPage: (page: number, size: number) => Promise<{ i
   }, [fetchPage, cards, size]);
 
   useEffect(() => { setPage(1); }, [resetKey, cards]);
-  useEffect(() => { void load(page); }, [load, page]);
+  // resetKey is the loan id, 0 while a loan number is still being resolved — nothing to fetch yet (id 0 only 404s).
+  useEffect(() => { if (resetKey) void load(page); }, [load, page, resetKey]);
 
   // Guards against a NaN total (a stale/failed request, or a response
   // missing the field) ever propagating into "Page N of NaN" — and, via
@@ -114,7 +114,6 @@ function Pager({ page, totalPages, onChange, children }: PagerProps) {
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
-      <GoToPage page={page} totalPages={totalPages} onChange={onChange} />
       {children}
     </div>
   );
@@ -373,7 +372,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                         confirmLabel="Delete Loan"
                         busyLabel="Deleting…"
                         danger
-                        message={<>This deletes <strong>{loan.loanNumber}</strong> and reverses its disbursement in the cash book. It cannot be undone. A loan that still has payments, or that was renewed, cannot be deleted.</>}
+                        message={<>Delete <strong>{loan.loanNumber}</strong> and reverse its cash entry? This can&apos;t be undone.</>}
                         onConfirm={async () => {
                           await deletePersonalLoan(loan.id);
                           toast(`${loan.loanNumber} deleted`);
@@ -393,7 +392,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
       {downloadError && <div className="notice" style={{ marginBottom: 12 }}>{downloadError}</div>}
       <hr className="gold-rule" />
 
-      {pendingApproval && approvalChain.length > 0 && (
+      {pendingApproval && approvalChain.length > 1 && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="bd">
             <StageTracker stages={trackerLabels(workflow, "personal_loan", approvalChain)} currentIndex={approvalIndex} />
@@ -419,7 +418,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
         <div className="kpis-strip-item"><span className="l">Status</span><StatusChip status={loan.status} /></div>
         <div className="kpis-strip-item"><span className="l">Frequency</span><span className="v">{loan.frequency}</span></div>
         <div className="kpis-strip-item"><span className="l">Installment</span><span className="v">{fmt(loan.installmentAmount)}</span><span className="s">× {loan.tenureCount}</span></div>
-        <div className="kpis-strip-item"><span className="l">Due Date</span><span className="v">{finalDueDate(loan)}</span><span className="s">last installment</span></div>
+        <div className="kpis-strip-item"><span className="l">Due Date</span><span className="v">{finalDueDate(loan)}</span></div>
         <div className="kpis-strip-item"><span className="l">Grace Period</span><span className="v">{loan.gracePeriodDays > 0 ? `${loan.gracePeriodDays} days` : "None"}</span></div>
         <div className="kpis-strip-item"><span className="l">Penal Interest Rate</span><span className="v">{loan.penalInterestRate}%</span>{loan.penalFlatAmount > 0 && <span className="s">+ {fmt(loan.penalFlatAmount)} flat</span>}</div>
         <div className="kpis-strip-item"><span className="l">Total Paid</span><span className="v">{fmt(loan.totalPaid)}</span></div>

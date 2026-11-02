@@ -40,6 +40,6 @@ export const termsAndConditions: LegalDocumentSource = {
     { heading: "9. Termination", body: ["We may suspend access for misuse or where the law requires. You can stop at any time; see Account Deletion."] },
     { heading: "10. Changes", body: ["We may update these terms. Continued use means you accept the updated terms."] },
     { heading: "11. Governing law", body: [`These terms are governed by the laws of India; disputes go to ${GOVERNING_COURTS}.`] },
-    { heading: "12. Contact", body: ["{{provider}}, {{address}}. Email {{email}}. Phone {{phone}}."] },
+    { heading: "12. Contact", body: ["{{provider}}. Phone {{phone}}."] },
   ],
 };

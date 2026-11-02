@@ -1,3 +1,4 @@
+import React from "react";
 import { Pressable, View } from "react-native";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
@@ -12,7 +13,7 @@ type CheckItemProps = {
 };
 
 /** .confirm-toggle-item / .gold-checkbox-item */
-export function CheckItem({
+export const CheckItem = React.memo(function CheckItem({
   checked,
   onPress,
   title,
@@ -28,4 +29,4 @@ export function CheckItem({
       </View>
     </Pressable>
   );
-}
+});

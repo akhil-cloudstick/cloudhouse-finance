@@ -1,6 +1,5 @@
   "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePersistedPage, usePersistedState, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useModal } from "@/common/components/ModalProvider";
@@ -175,8 +174,9 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
       <div className="bd">
         <div style={{ marginBottom: 14 }}>
           <StageTracker
-            stages={["Overdue", "Defaulted", ...AUCTION_STAGES.map((s) => AUCTION_STAGE_LABELS[s])]}
-            currentIndex={rec ? 2 + stageIndex : l.isDefaulted ? 2 : l.isOverdue ? 1 : 0}
+            // The auction path starts at Defaulted; a loan that is only overdue has not entered it yet.
+            stages={["Defaulted", ...AUCTION_STAGES.map((s) => AUCTION_STAGE_LABELS[s])]}
+            currentIndex={rec ? 1 + stageIndex : l.isDefaulted ? 0 : -1}
           />
         </div>
         <div className="kv">
@@ -246,10 +246,7 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
         {balanceDue && !decision && (
           <div className="notice" style={{ marginTop: 12 }}>
             <Icon name="shield" />
-            <span>
-              Balance due after auction — this loan has returned to normal collection. Record payments against it as usual;
-              the auction will close itself once the balance is cleared.
-            </span>
+            <span>Balance due after auction — collect it as a normal payment.</span>
           </div>
         )}
 
@@ -575,7 +572,6 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
               <button className="btn plain sm" disabled={activePage <= 1} onClick={() => setActivePage((p) => Math.max(1, p - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {activePage} of {activeTotalPages}</span>
               <button className="btn plain sm" disabled={activePage >= activeTotalPages} onClick={() => setActivePage((p) => Math.min(activeTotalPages, p + 1))}>Next ›</button>
-              <GoToPage page={activePage} totalPages={activeTotalPages} onChange={setActivePage} />
             </div>
           </>
         )
@@ -636,7 +632,6 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
               <button className="btn plain sm" disabled={conductedPage <= 1} onClick={() => changeConductedPage(Math.max(1, conductedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {conductedPage} of {conductedTotalPages}</span>
               <button className="btn plain sm" disabled={conductedPage >= conductedTotalPages} onClick={() => changeConductedPage(Math.min(conductedTotalPages, conductedPage + 1))}>Next ›</button>
-              <GoToPage page={conductedPage} totalPages={conductedTotalPages} onChange={changeConductedPage} />
               <div className="sp" />
               <span>Gold that was actually sold at auction, with what it realised and how the surplus or shortfall was resolved.</span>
             </div>
@@ -682,7 +677,6 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
               <button className="btn plain sm" disabled={closedPage <= 1} onClick={() => changeClosedPage(Math.max(1, closedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {closedPage} of {closedTotalPages}</span>
               <button className="btn plain sm" disabled={closedPage >= closedTotalPages} onClick={() => changeClosedPage(Math.min(closedTotalPages, closedPage + 1))}>Next ›</button>
-              <GoToPage page={closedPage} totalPages={closedTotalPages} onChange={changeClosedPage} />
             </div>
           </div>
         </>

@@ -11,7 +11,7 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { createExpense, saveEntryEdit, uploadReceipt } from "@/modules/cash/services/cashService";
-import { searchSelectableExpenseCategoriesPage, createExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
+import { searchSelectableExpenseCategoriesPage, createExpenseCategory, deleteExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
 import { type BackendExpenseCategory } from "@/modules/cash/types/expense-category-types";
 import { type EntryInfo } from "@/modules/cash/types/cash-types";
 import { PaymentBreakdownFields, newPaymentRow, paymentRowIssue, paymentRowsToInput, isBankMode, type PaymentIssue, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
@@ -170,6 +170,7 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
             placeholder="Search or add a category…"
             allowCreate
             onCreate={createExpenseCategory}
+            onDeleteItem={(c) => deleteExpenseCategory(c.id).then(() => { if (c.name === cat) { setCat(""); setCatRec(null); } toast(`Category "${c.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this category."); throw e; })}
           /><FieldError msg={fe.category} /></div></div>
         <div className="frow c2">
           <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} onWheel={(e) => e.currentTarget.blur()} /><FieldError msg={fe.amount} /></div>

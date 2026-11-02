@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useEffect, useState } from "react";
 import { brandRampHex, readCachedBrandColor, DEFAULT_BRAND_COLOR } from "@/common/config/theme";
 import { activeBusinessSlug } from "@/common/services/tenantSession";
@@ -436,7 +435,6 @@ export function DashboardPage() {
               <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={needsAttentionPage <= 1} onClick={() => setNeedsAttentionPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {needsAttentionPage} of {needsAttentionPages}</span>
               <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={needsAttentionPage >= needsAttentionPages} onClick={() => setNeedsAttentionPage((p) => Math.min(needsAttentionPages, p + 1))}>Next ›</button>
-              <GoToPage page={needsAttentionPage} totalPages={needsAttentionPages} onChange={setNeedsAttentionPage} />
             </div>
           </div>
         </div>
@@ -516,7 +514,6 @@ export function DashboardPage() {
                 <button className="btn plain sm" disabled={reminderPage <= 1} onClick={() => setReminderPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
                 <span style={{ fontSize: 12.5 }}>Page {reminderPage} of {reminderPages}</span>
                 <button className="btn plain sm" disabled={reminderPage >= reminderPages} onClick={() => setReminderPage((p) => Math.min(reminderPages, p + 1))}>Next ›</button>
-                <GoToPage page={reminderPage} totalPages={reminderPages} onChange={setReminderPage} />
               </div>
             )}
           </div>

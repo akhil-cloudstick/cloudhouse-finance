@@ -21,6 +21,7 @@ import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError } from "@/common/components/ui/FieldError";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { LedgerPaymentEditModalContent } from "@/modules/loans/components/LedgerPaymentEditModalContent";
+import { ReleaseCompleteModalContent } from "@/modules/loans/components/ReleaseCompleteModalContent";
 
 function localToday(): string {
   const n = new Date();
@@ -152,6 +153,23 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       if (fresh) setReq(fresh);
     } catch {
       /* keep the possibly-stale request rather than blocking the modal */
+    }
+  }
+
+  // After the release payment: with no approver, or only one, recording it also approves the release (backend
+  // advanceReleaseRequestStage). Rather than leave this screen sitting in its approved state, swap it for the one
+  // Release Complete summary. Runs after the payment popup has closed back to here, so openModal replaces this modal.
+  async function afterReleasePayment() {
+    try {
+      const [freshLoan, all] = await Promise.all([getLoan(request.loanNumericId), listLoanRequests({ loanId: request.loanNumericId })]);
+      const fresh = all.find((r) => r.id === req.id);
+      setLoan(freshLoan);
+      if (fresh) setReq(fresh);
+      if (fresh?.status === "Approved") {
+        openModal(<ReleaseCompleteModalContent request={fresh} loan={freshLoan} onSaved={onSaved} />, true);
+      }
+    } catch {
+      /* the screen's own refresh on remount still picks the change up */
     }
   }
 
@@ -416,7 +434,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         <button
           className="btn ghost sm"
           disabled={req.status !== "Pending" || !canDecide || !loan}
-          onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
+          onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
         >
           <Icon name="coin" /> Record Payment
         </button>
@@ -449,7 +467,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
                 : `At least ${neededText} must be paid (via Record Payment above) before this can be approved.`}
           </p>
         )}
-        {chain.length > 0 && (
+        {(chain.length > 1 || (chain.length === 1 && req.status === "Rejected")) && (
           <div style={{ marginTop: 14 }}>
             <StageTracker
               stages={trackerLabels(workflow, "loan_release", chain)}
@@ -459,7 +477,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           </div>
         )}
         {req.status === "Pending" && req.customerSawGold && paymentConditionMet && activeStage && (
-          <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> Awaiting {activeStage.role} approval ({stageName} stage).</p>
+          <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> Awaiting {activeStage.role} approval{chain.length > 1 ? ` (${stageName} stage)` : ""}.</p>
         )}
         {req.status === "Pending" && !activeStage && (
           <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> No release approval is configured — {flowOf(workflow, "loan_release")?.offBehavior}</p>

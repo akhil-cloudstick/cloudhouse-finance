@@ -20,6 +20,8 @@ type publishRequest struct {
 	K24   float64         `json:"k24"`
 	SetBy string          `json:"set_by" binding:"required"`
 	Rates map[int]float64 `json:"rates"`
+	// Fineness is the 22K/18K fineness % set in Auto mode (keys 22 / 18); omitted keys carry forward.
+	Fineness map[int]float64 `json:"fineness"`
 }
 
 type PublishInput struct {
@@ -29,6 +31,7 @@ type PublishInput struct {
 	SetBy       string
 	Designation string
 	Rates       map[int]float64
+	Fineness    map[int]float64
 }
 
 // GoldRateDay is one calendar day of rate history: the day's newest rate, plus every change made that day (newest first).
@@ -52,7 +55,7 @@ func (req publishRequest) toInput() (PublishInput, error) {
 		date = parsed
 	}
 	if len(req.Rates) > 0 {
-		return PublishInput{Date: date, Rates: req.Rates, SetBy: req.SetBy}, nil
+		return PublishInput{Date: date, Rates: req.Rates, Fineness: req.Fineness, SetBy: req.SetBy}, nil
 	}
 	karat := req.Karat
 	rate := req.Rate
@@ -104,6 +107,14 @@ func findGoldRateByID(ctx context.Context, id uint) (*commonModels.GoldRate, err
 }
 
 func goldRateValidate(in PublishInput) error {
+	for k, f := range in.Fineness {
+		if k != 22 && k != 18 {
+			return NewBadRequest("fineness can only be set for 22K or 18K")
+		}
+		if f <= 0 || f > 100 {
+			return NewBadRequest("fineness must be above 0% and at most 100%")
+		}
+	}
 	if len(in.Rates) > 0 {
 		for k, r := range in.Rates {
 			if k != 24 && k != 22 && k != 18 {
@@ -145,6 +156,13 @@ func SaveGoldRate(ctx context.Context, in PublishInput) (*commonModels.GoldRate,
 	}
 	if prev, err := FindLatest(ctx); err == nil {
 		rec.K24, rec.K22, rec.K18 = prev.K24, prev.K22, prev.K18
+		rec.Fineness22, rec.Fineness18 = prev.Fineness22, prev.Fineness18
+	}
+	if f, ok := in.Fineness[22]; ok {
+		rec.Fineness22 = RoundDecimal2(f)
+	}
+	if f, ok := in.Fineness[18]; ok {
+		rec.Fineness18 = RoundDecimal2(f)
 	}
 	if len(in.Rates) > 0 {
 		if r, ok := in.Rates[24]; ok {

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { recordPersonalLoanPayment } from "@/modules/personal-loans/services/personalLoanService";
 import { type BackendPersonalLoan } from "@/modules/personal-loans/types/personal-loan-types";
@@ -27,7 +27,10 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
   // installment) — the common case is collecting exactly one installment,
   // so the field starts pre-filled with that rather than empty; staff can
   // still edit it for a partial/extra payment.
-  const defaultAmount = Math.min(loan.installmentAmount, loan.outstandingAmount);
+  // Whole rupees, as the backend holds the payment to — a loan saved before
+  // rounding can still owe paise (1234.60).
+  const outstanding = roundRupee(loan.outstandingAmount);
+  const defaultAmount = roundRupee(Math.min(loan.installmentAmount, outstanding));
   const [amount, setAmount] = useState(defaultAmount > 0 ? String(defaultAmount) : "");
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
@@ -46,7 +49,7 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
     // Every problem is shown at once, each under its own field.
     const errors: Record<string, string> = {};
     if (!amt || amt <= 0) errors.amount = "Please enter the amount collected.";
-    else if (amt > loan.outstandingAmount + 0.01) errors.amount = `Amount cannot exceed the outstanding balance of ${fmt(loan.outstandingAmount)}.`;
+    else if (roundRupee(amt) > outstanding + 0.01) errors.amount = `Amount cannot exceed the outstanding balance of ${fmt(outstanding)}.`;
     if (!balanced) errors.split = "The payment breakdown must add up to the amount collected.";
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
@@ -76,10 +79,9 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
     <>
       <div className="hd"><h3>Collect Payment — {loan.loanNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="notice" style={{ marginBottom: 16 }}>
-          Outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong>
-          <br />
-          Balance after payment: <strong>{fmt(Math.max(0, loan.outstandingAmount - amt))}</strong>
+        <div className="notice" style={{ marginBottom: 16, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <span>Outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></span>
+          <span>Balance after payment: <strong>{fmt(Math.max(0, loan.outstandingAmount - amt))}</strong></span>
         </div>
         <div className="frow">
           <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} max={loan.outstandingAmount} placeholder={`e.g. ${defaultAmount}`} value={amount} onChange={(e) => { setAmount(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>

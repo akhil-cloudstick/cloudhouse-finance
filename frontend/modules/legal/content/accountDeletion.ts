@@ -12,8 +12,8 @@ export const accountDeletion: LegalDocumentSource = {
     {
       heading: "How to request deletion",
       body: [
-        { only: "customer", text: `Email {{email}} from your registered address, or call {{phone}}, with your name, your registered mobile number and the subject “Delete my account”. We verify your identity and reply within ${DELETION_REPLY_DAYS} days.` },
-        { only: "staff", text: "Ask your business administrator, or email {{email}}, to disable your login. We verify the request before acting." },
+        { only: "customer", text: `Call {{phone}} with your name, your registered mobile number and the subject “Delete my account”. We verify your identity and reply within ${DELETION_REPLY_DAYS} days.` },
+        { only: "staff", text: "Staff accounts are created and managed by your business administrator on the web app, not inside this app. Ask your administrator, or call {{phone}}, to disable your login. We verify the request before acting." },
         "Uninstalling the app does not delete your account.",
       ],
     },
@@ -21,7 +21,6 @@ export const accountDeletion: LegalDocumentSource = {
       heading: "What is deleted",
       list: [
         "Your profile details and sign-in credentials.",
-        "Device tokens and notification preferences.",
         "Uploaded photos and documents that are not needed for a legal record.",
       ],
     },

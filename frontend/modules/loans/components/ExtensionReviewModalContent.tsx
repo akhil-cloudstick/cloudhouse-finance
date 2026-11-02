@@ -4,18 +4,20 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
-import { canActAtStage, chainFor, stageByPending, trackerLabels } from "@/common/services/approvalWorkflowService";
+import { canActAtStage, chainFor, isFinalStage, stageByPending } from "@/common/services/approvalWorkflowService";
 import { StageTracker } from "@/common/components/StageTracker";
 import { Icon } from "@/common/components/Icon";
-import { fmt, fmtDate } from "@/common/utils/format";
+import { fmt, fmtW, fmtDate, addMonthsISO } from "@/common/utils/format";
 import { approveExtensionRequest, getLoan } from "@/modules/loans/services/loanService";
-import { type PaymentView, type RequestView, type LoanView } from "@/modules/loans/types/loan-types";
+import { type RequestView, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModalContent";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { singleFlight } from "@/common/utils/singleFlight";
 
 type ExtensionReviewModalContentProps = { request: RequestView; onSaved: () => void };
+
+const STATUS_CHIP: Record<RequestView["status"], string> = { Pending: "amber", Approved: "green", Rejected: "red" };
 
 /* Staff review screen for a pending Extension request — shown from
  * Requests.tsx's "Review" button, mirroring ReleaseReviewModal's pattern.
@@ -39,16 +41,9 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
   const [req, setReq] = useState(request);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  // The interest/penal-interest arrears that had to be cleared before this
-  // request could even be logged (see CreateExtensionRequest's
-  // ErrExtensionNeedsPayment) isn't stored on the request itself — it's
-  // just whatever payment(s) the loan's own ledger shows around
-  // req.requestedAt. Fetched here (not carried on RequestView) so this
-  // modal always reflects the loan's real payment history rather than a
-  // snapshot that could drift from it.
-  const [clearingPayments, setClearingPayments] = useState<PaymentView[] | null>(null);
-  // Fetched purely to hand to PaymentModalContent if Approve gets bounced
-  // for still-unpaid arrears — see needsPayment below.
+  // The loan's current due date and interest for the right-hand panel, and
+  // what PaymentModalContent needs if Approve gets bounced for still-unpaid
+  // arrears — see needsPayment below.
   const [loan, setLoan] = useState<LoanView | null>(null);
   // Reveals the Record Payment prompt only after ApproveExtensionRequest
   // actually refuses with ErrExtensionNeedsPayment — hidden otherwise, same
@@ -60,22 +55,6 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
     getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
   }, [request.loanNumericId]);
 
-  useEffect(() => {
-    let cancelled = false;
-    getLoan(req.loanNumericId)
-      .then((loan) => {
-        if (cancelled) return;
-        const cutoff = req.requestedAt.slice(0, 10);
-        const relevant = loan.payments
-          .filter((p) => (p.interestApplied > 0.01 || p.penalInterestApplied > 0.01) && p.paidOn <= cutoff)
-          .sort((a, b) => (a.paidOn < b.paidOn ? 1 : -1));
-        setClearingPayments(relevant.slice(0, 3));
-      })
-      .catch(() => { /* best-effort — the review still works without this context */ });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [req.loanNumericId, req.requestedAt]);
-
   // Looked up in this business's configured chain — a request parked on a
   // stage that has since been switched off still resolves (and stays on the
   // tracker via chainFor), since it can still be acted on there.
@@ -85,6 +64,15 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
   const stageIndex = stageKey ? chain.findIndex((s) => s.key === stageKey) : chain.length;
   const requiredRole = stageView?.role ?? null;
   const canActOnStage = canActAtStage({ role, isSystem }, stageView);
+  // Approving at the last stage is what moves the due date, so there the button just says Extend.
+  const finalStage = !!stageKey && isFinalStage(workflow, "loan_extension", stageKey);
+
+  const months = req.requestedExtensionMonths ?? 0;
+  // A pending request has not moved the due date yet, so the new one is the loan's due + the months. A decided one
+  // just shows the loan's due date today — working back from it would be wrong after any later extension.
+  const pending = req.status === "Pending";
+  const dueAfter = loan ? (pending ? addMonthsISO(loan.due, months) : loan.due) : "";
+  const arrears = loan ? loan.outstandingInterest + loan.outstandingPenalInterest : 0;
 
   async function decide(action: "Approved" | "Rejected", remarks = "") { return singleFlight("modal:extensionreview:decide", async () => {
     if (!stageKey) return;
@@ -110,7 +98,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
         // were when this request was raised. Reveal the Record Payment
         // prompt instead of just showing the raw error.
         setNeedsPayment(true);
-        setErr("Outstanding interest/penal interest must be paid before this extension can be approved — record a payment below, then try approving again.");
+        setErr("Outstanding interest/penal interest must be paid before this extension can be approved — record a payment, then try approving again.");
       } else {
         setErr(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
       }
@@ -143,78 +131,94 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
     );
   }
 
+  // Opens on "Interest only", prefilled with exactly the arrears that block the approval.
+  function openPayment() {
+    if (!loan) return;
+    openChildModal(
+      <PaymentModalContent
+        loan={loan}
+        initialMode="Interest"
+        onSaved={() => { setNeedsPayment(false); setErr(""); getLoan(request.loanNumericId).then(setLoan); }}
+      />,
+      true
+    );
+  }
+
   return (
     <>
       <div className="hd">
         <h3>Review Extension — {req.loanNumber}</h3>
         <button className="x" onClick={closeModal}>×</button>
       </div>
-      <div className="bd bd-scroll">
-        <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
-          <div className="i">
-            <div className="k">Requested Extension</div>
-            <div className="v">{req.requestedExtensionMonths ?? "—"} month(s)</div>
+      <div className="bd bd-scroll ext-modal-bd">
+        <div className="pay-layout">
+          <div className="pay-form">
+            {needsPayment && loan && (
+              <div className="ext-block">
+                <div className="ext-block-tx">
+                  <b>Interest must be cleared first</b>
+                  <span>{fmt(arrears)} is outstanding — record it, then approve again.</span>
+                </div>
+                <button className="btn sm" onClick={openPayment}><Icon name="coin" /> Pay {fmt(arrears)}</button>
+              </div>
+            )}
+            <div className="pay-sec">
+              <div className="pay-sec-t">Request <span className={`chip ${STATUS_CHIP[req.status]}`} style={{ marginLeft: 6 }}>{req.status}</span></div>
+              <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                <div className="i"><div className="k">Extend By</div><div className="v">{months ? `${months} month${months === 1 ? "" : "s"}` : "—"}</div></div>
+                <div className="i"><div className="k">Requested On</div><div className="v">{fmtDate(req.requestedAt)}</div></div>
+                <div className="i"><div className="k">Customer</div><div className="v">{req.customerName}</div></div>
+                <div className="i"><div className="k">Gold Pledged</div><div className="v">{loan ? fmtW(loan.totalNetWeight) : "—"}</div></div>
+                {req.detail && <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Note</div><div className="v">{req.detail}</div></div>}
+                {req.status === "Rejected" && req.remarks && <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Reason Rejected</div><div className="v">{req.remarks}</div></div>}
+              </div>
+            </div>
+
+            {/* No tracker when the flow has no stages at all (an extension
+              * raised then was applied on creation); a single approver shows
+              * only the "Awaiting" line, so nothing is left once approved. */}
+            {(chain.length > 1 || (chain.length === 1 && req.status !== "Approved")) && (
+              <div className="pay-sec">
+                <div className="pay-sec-t">Approval</div>
+                <StageTracker
+                  stages={chain.map((s) => s.label)}
+                  currentIndex={stageIndex}
+                  terminal={req.status === "Rejected" ? "Rejected" : undefined}
+                />
+                {pending && stageKey && (
+                  <p className="notice" style={{ marginTop: 12 }}>
+                    <Icon name="clock" /> {canActOnStage ? "Awaiting your" : "Awaiting"} {requiredRole} approval
+                  </p>
+                )}
+              </div>
+            )}
           </div>
-          <div className="i">
-            <div className="k">Requested</div>
-            <div className="v">{fmtDate(req.requestedAt)}</div>
-          </div>
+
+          <aside className="pay-receipt">
+            <div className="pay-r-cap">{pending ? "New due date" : "Loan due date"}</div>
+            <div className="pay-r-big">{dueAfter ? fmtDate(dueAfter) : "—"}</div>
+            <div className="pay-r-cap">{pending ? (loan && months ? `+${months} month${months === 1 ? "" : "s"} from ${fmtDate(loan.due)}` : "") : req.status === "Approved" ? "Extension applied" : "Extension not applied"}</div>
+
+            {pending && loan && (
+              <>
+                <div className="pay-r-h pay-r-div">Interest</div>
+                <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Outstanding</span><b>{fmt(arrears)}</b></div>
+                {arrears > 0.01
+                  ? <div className="pay-r-warn">Must be paid before the extension can be approved.</div>
+                  : <div className="pay-r-ok"><Icon name="check" /> Interest is clear</div>}
+              </>
+            )}
+          </aside>
         </div>
-        {clearingPayments && clearingPayments.length > 0 && (
-          <div className="notice" style={{ marginBottom: 14 }}>
-            <Icon name="check" /> Interest paid to clear arrears before this request:
-            <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
-              {clearingPayments.map((p) => (
-                <li key={p.id}>
-                  {fmtDate(p.paidOn)} — {fmt(p.interestApplied)}{p.penalInterestApplied > 0.01 ? ` + ${fmt(p.penalInterestApplied)} penal` : ""} via {p.method}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* No tracker when the flow has no stages at all (an extension
-          * raised then was applied on creation). */}
-        {chain.length > 0 && (
-          <StageTracker
-            stages={trackerLabels(workflow, "loan_extension", chain)}
-            currentIndex={stageIndex}
-            terminal={req.status === "Rejected" ? "Rejected" : undefined}
-          />
-        )}
-
-        {req.status === "Pending" && stageKey && (
-          <p className="notice" style={{ marginTop: 12 }}>
-            <Icon name="clock" /> {canActOnStage ? "Awaiting your" : "Awaiting"} {requiredRole} approval
-          </p>
-        )}
-        {needsPayment && loan && (
-          <div style={{ marginTop: 12 }}>
-            <label className="f">Record Payment</label>
-            <p className="ccheck-hint" style={{ marginBottom: 8 }}>Clear the outstanding interest/penal interest, then try Approve again.</p>
-            <button
-              className="btn ghost sm"
-              onClick={() => openChildModal(
-                <PaymentModalContent
-                  loan={loan}
-                  onSaved={() => { setNeedsPayment(false); setErr(""); getLoan(request.loanNumericId).then(setLoan); }}
-                />,
-                true
-              )}
-            >
-              <Icon name="coin" /> Record Payment
-            </button>
-          </div>
-        )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+        <span className="pay-ft-msg">{err}</span>
         <button className="btn ghost" onClick={closeModal}>Close</button>
-        {req.status === "Pending" && stageKey && canActOnStage && canDecide && (
+        {pending && stageKey && canActOnStage && canDecide && (
           <>
             <button className="btn danger" disabled={saving} onClick={promptReject}>Reject</button>
             <button className="btn" disabled={saving} onClick={() => decide("Approved")}>
-              <Icon name="check" /> Approve ({stageView?.label ?? stageKey})
+              <Icon name="check" /> {finalStage ? "Extend" : `Approve (${stageView?.label ?? stageKey})`}
             </button>
           </>
         )}

@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { useModal } from "@/common/components/ModalProvider";
@@ -313,7 +312,6 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
             <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => changePledgedPage(Math.max(1, pledgedPage - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
             <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => changePledgedPage(Math.min(pledgedTotalPages, pledgedPage + 1))}>Next ›</button>
-            <GoToPage page={pledgedPage} totalPages={pledgedTotalPages} onChange={changePledgedPage} />
           </div>
           {/* <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div> */}
         </div>
@@ -365,7 +363,6 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
             <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => changeHistoryPage(Math.max(1, historyPage - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
             <button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => changeHistoryPage(Math.min(historyTotalPages, historyPage + 1))}>Next ›</button>
-            <GoToPage page={historyPage} totalPages={historyTotalPages} onChange={changeHistoryPage} />
           </div>
         </div>
       )}

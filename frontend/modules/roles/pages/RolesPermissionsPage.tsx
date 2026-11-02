@@ -165,7 +165,7 @@ export function RolesPermissionsPage() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  // Brief "Changes saved" confirmation beside Save after a successful save.
+  // Save briefly reads "Saved" after a successful save.
   const [justSaved, setJustSaved] = useState(false);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
@@ -440,9 +440,6 @@ export function RolesPermissionsPage() {
             <>
               <button className="btn ghost" onClick={() => setAll(true)} disabled={saving}>Grant all</button>
               <button className="btn ghost" onClick={() => setAll(false)} disabled={saving}>Revoke all</button>
-              {justSaved && (
-                <span className="save-msg" role="status"><Icon name="check" /> Changes saved</span>
-              )}
               <button
                 className={`btn save-btn${justSaved ? " saved" : ""}`}
                 onClick={save}

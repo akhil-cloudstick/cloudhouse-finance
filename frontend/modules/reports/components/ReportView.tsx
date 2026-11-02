@@ -1,6 +1,6 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
+import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { TableSearch } from "@/common/components/ui/TableSearch";
@@ -233,12 +233,7 @@ export function ReportView({ config, onBack }: ReportViewProps) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {config.searchable !== false && <TableSearch value={q} onChange={setQ} placeholder="Search report…" searches={columns.map((c) => c.label.toLowerCase()).join(", ")} />}
             <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
-            <button className="btn ghost sm" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-              <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
-            </button>
-            <button className="btn sm" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-              <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
-            </button>
+            <ExportMenu busy={exporting} onExport={handleExport} />
           </div>
         </div>
         <div className="tbl-wrap">
@@ -272,7 +267,6 @@ export function ReportView({ config, onBack }: ReportViewProps) {
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-          <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       </div>
     </>

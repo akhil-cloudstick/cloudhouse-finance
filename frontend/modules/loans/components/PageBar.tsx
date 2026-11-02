@@ -1,5 +1,4 @@
 "use client";
-import { GoToPage } from "@/common/components/ui/GoToPage";
 
 
 
@@ -14,7 +13,6 @@ export function PageBar({ page, total, pageSize, onChange, children }: PageBarPr
       <button className="btn plain sm" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {pages}</span>
       <button className="btn plain sm" disabled={page >= pages} onClick={() => onChange(Math.min(pages, page + 1))}>Next ›</button>
-      <GoToPage page={page} totalPages={pages} onChange={onChange} />
       {children}
     </div>
   );

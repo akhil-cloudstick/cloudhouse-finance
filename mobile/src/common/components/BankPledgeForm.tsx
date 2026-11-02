@@ -38,6 +38,8 @@ type BankPledgeFormProps = {
   error: string | null;
   onSubmit: () => void;
   submitting: boolean;
+  /** Extra gate from the caller (e.g. at least one ornament picked). */
+  extraReady?: boolean;
 };
 
 /** One re-pledge form, shared by the loan detail's Bank Pledge sheet
@@ -54,11 +56,12 @@ export function BankPledgeForm({
   error,
   onSubmit,
   submitting,
+  extraReady = true,
 }: BankPledgeFormProps) {
   const set = <K extends keyof BankPledgeFormValue>(k: K, v: BankPledgeFormValue[K]) => onChange({ ...value, [k]: v });
 
   const cashIn = value.cash === "CashIn";
-  const canSave = !!(fixedLoan ?? value.loan) && !!value.bankName && Number(value.amount) > 0 && !!value.pledgeDate && (!cashIn || !!value.payment?.ready);
+  const canSave = !!(fixedLoan ?? value.loan) && !!value.bankName && Number(value.amount) > 0 && !!value.pledgeDate && (!cashIn || !!value.payment?.ready) && extraReady;
 
   return (
     <>

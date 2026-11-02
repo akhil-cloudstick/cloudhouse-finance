@@ -78,6 +78,15 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
   const pickedOrnaments = available.filter((o) => picked.has(o.id));
   const pickedNet = pickedOrnaments.reduce((s, o) => s + o.netWeight, 0);
   const pickedValue = pickedOrnaments.reduce((s, o) => s + o.goldValue, 0);
+  // Shown inside the ornament box itself, live, rather than at the foot of the form after a click.
+  const ornamentsMsg = available.length === 0
+    ? "Every ornament on this loan is already pledged or released."
+    : pickedOrnaments.length === 0 ? "Select at least one ornament to pledge." : "";
+  // UPI / Bank Transfer money has to say which bank it reached.
+  const splitBankMissing = cashTreatment === "CashIn" && split.upiAmount + split.bankTransferAmount > 0 && !receivedBankId;
+  // Every mandatory field filled — the Repledge button stays disabled until this holds.
+  const ready = !!bank.trim() && +amt > 0 && !!date && pickedOrnaments.length > 0
+    && (cashTreatment !== "CashIn" || (Math.abs(remaining) < 0.01 && !splitBankMissing));
 
   async function save() { return singleFlight("modal:repledge:save", async () => {
     setErr(""); setFe({});
@@ -87,10 +96,11 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
     if (!date) errors["date"] ??= "Please select the pledge date.";
     const amount = +amt;
     if (!amount || amount <= 0) errors["amount"] ??= "Please enter the pledged amount.";
-    if (pickedOrnaments.length === 0) { setErr("Select at least one ornament to pledge."); return; }
+    if (pickedOrnaments.length === 0) return;
     // Everything still free and nothing pledged yet = the usual whole-loan pledge.
     const wholeLoan = pledgedIds.size === 0 && pickedOrnaments.length === available.length;
     if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the pledged amount.";
+    if (splitBankMissing) errors["split"] ??= "Select the bank the money came through.";
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     try {
@@ -127,7 +137,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
       <div className="hd"><h3>Repledge Gold to Bank — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll repledge-modal-bd">
         {loan.ornaments.length > 0 && (
-          <section className="rp-sec">
+          <section className={"rp-sec" + (ornamentsMsg ? " has-err" : "")}>
             <div className="rp-sec-h">
               <span>Gold being pledged</span>
               <span className="rp-sec-meta">{pickedOrnaments.length} of {loan.ornaments.length} item{loan.ornaments.length > 1 ? "s" : ""} selected · {fmtW(pickedNet)} net</span>
@@ -168,6 +178,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
                 </tr></tfoot>
               )}
             </table></div>
+            <FieldError msg={ornamentsMsg} />
           </section>
         )}
 
@@ -191,6 +202,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
                   getLabel={(b) => b.name}
                   getId={(b) => String(b.id)}
                   placeholder="Search for a registered bank…"
+                  portal
                 /><FieldError msg={fe.bank} /></div>
               <div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
               <div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
@@ -210,6 +222,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder="Search for a registered bank…"
+                portal
               /><FieldError msg={fe.bank} /></div>
             <div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
             <div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
@@ -267,7 +280,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Repledge to Bank"}</button>
+        <button className="btn" onClick={save} disabled={saving || !ready} title={ready ? undefined : "Fill in every field marked * and select at least one ornament"}><Icon name="check" /> {saving ? "Saving…" : "Repledge to Bank"}</button>
       </div>
     </>
   );

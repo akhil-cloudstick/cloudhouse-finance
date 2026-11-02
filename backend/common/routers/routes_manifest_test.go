@@ -432,6 +432,8 @@ var routeManifest = map[string]routeSpec{
 	"GET /api/v1/users/:user_id/investments/:id/statement/pdf":                            probe("id=investments"),
 	"POST /api/v1/users/:user_id/investments/:id/add-cash":                                probe("id=investments"),
 	"POST /api/v1/users/:user_id/investments/:id/withdraw":                                probe("id=investments"),
+	"POST /api/v1/users/:user_id/investments/:id/close":                                   probe("id=investments"),
+	"DELETE /api/v1/users/:user_id/investments/:id/delete":                                probe("id=investments"),
 	"PATCH /api/v1/users/:user_id/investments/:id/ledger/:entry_id":                       probe("id=investments"),
 	"DELETE /api/v1/users/:user_id/investments/:id/ledger/:entry_id":                      probe("id=investments"),
 	"GET /api/v1/public/branding":                                                         public("host-resolved login branding — the business is picked from the Host header, which may only narrow, never authorise (see tenant.FindByAppURL)"),

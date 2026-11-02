@@ -23,6 +23,7 @@ import { isFlowOff, stageByKey, canActAtStage, useApprovalWorkflow } from "@/com
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
+import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { ErrorText } from "@/common/components/ErrorText";
 
 const DECISION_LABELS: Record<string, string> = {
@@ -68,6 +69,7 @@ export function AuctionSheet({
   const ok = () => {
     setError(null);
     invalidateLoan(qc, l.id);
+    qc.invalidateQueries({ queryKey: ["auctionHistory"] });
   };
   const onError = (e: unknown) => setError(apiErr(e));
   const id = l.id;
@@ -75,9 +77,28 @@ export function AuctionSheet({
   const eligible = useMutation({ mutationFn: () => markAuctionEligible(id), onSuccess: ok, onError });
   const notice = useMutation({ mutationFn: () => issueAuctionNotice(id), onSuccess: ok, onError });
   const schedule = useMutation({ mutationFn: () => scheduleAuction(id, auctionDate, referenceNumber.trim() || undefined), onSuccess: ok, onError });
-  const sale = useMutation({ mutationFn: () => recordAuctionSale(id, Number(saleAmount), expenses ? Number(expenses) : undefined), onSuccess: ok, onError });
+  // Sale proceeds land in the modes/bank staff pick; a surplus refund goes out in ONE mode (the backend stores a
+  // single mode and bank for it). Without these the server books everything as cash.
+  const [salePay, setSalePay] = useState<SplitPayment | null>(null);
+  const [refundPay, setRefundPay] = useState<SplitPayment | null>(null);
+  const sale = useMutation({
+    mutationFn: () =>
+      recordAuctionSale(
+        id,
+        Number(saleAmount),
+        expenses ? Number(expenses) : undefined,
+        salePay ? { cashAmount: salePay.split.cashAmount, upiAmount: salePay.split.upiAmount, bankTransferAmount: salePay.split.bankTransferAmount, bankId: salePay.bankId } : undefined
+      ),
+    onSuccess: ok,
+    onError,
+  });
+  const refundModes = refundPay
+    ? ([refundPay.split.cashAmount > 0 && "Cash", refundPay.split.upiAmount > 0 && "UPI", refundPay.split.bankTransferAmount > 0 && "Bank Transfer"].filter(Boolean) as string[])
+    : [];
+  const refundMode = disposition === "RefundedToCustomer" && refundModes.length === 1 ? refundModes[0] : undefined;
+  const refundOk = disposition !== "RefundedToCustomer" || (!!refundPay?.ready && !!refundMode && (refundMode === "Cash" || !!refundPay.bankId));
   const settle = useMutation({
-    mutationFn: () => settleAuction(id, disposition as AuctionSurplusDisposition, dispositionRemarks.trim() || undefined),
+    mutationFn: () => settleAuction(id, disposition as AuctionSurplusDisposition, dispositionRemarks.trim() || undefined, refundMode, refundMode ? refundPay?.bankId : undefined),
     onSuccess: () => {
       setDisposition("");
       setDispositionRemarks("");
@@ -129,7 +150,7 @@ export function AuctionSheet({
             <Txt style={{ fontSize: 12.5, color: C.muted }}>Eligible for auction — your role can&apos;t mark it, though.</Txt>
           )
         ) : (
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>Not eligible for auction.</Txt>
+          null
         )
       ) : (
         <>
@@ -181,11 +202,7 @@ export function AuctionSheet({
             </>
           ) : null}
 
-          {balanceDue && !decisionReq ? (
-            <NoticeBanner>
-              Balance due after auction — this loan has returned to normal collection. Record payments against it as usual; the auction will close itself once the balance is cleared.
-            </NoticeBanner>
-          ) : null}
+          {balanceDue && !decisionReq ? <NoticeBanner>Balance due after auction — collect it as a normal payment.</NoticeBanner> : null}
 
           {!frozen && aw("can_issue_auction_notice") && rec.stage === "AuctionEligible" ? (
             <>
@@ -205,10 +222,12 @@ export function AuctionSheet({
 
           {!frozen && aw("can_record_auction_sale") && rec.stage === "AuctionScheduled" ? (
             <>
+              <ResultBox k="Auction amount (debt to cover)" v={inr(l.totalOutstandingBalance ?? 0)} />
               <TextField label="Sale amount" keyboardType="decimal-pad" value={saleAmount} onChangeText={setSaleAmount} placeholder="0" />
               <TextField label="Auction expenses" keyboardType="decimal-pad" value={expenses} onChangeText={setExpenses} placeholder="0" />
+              <SplitPaymentInput total={Math.max(0, Number(saleAmount) || 0)} onChange={setSalePay} bankLabel="Bank (account proceeds landed in)" />
               <ErrorText>{error}</ErrorText>
-              <PrimaryButton label="Record Sale" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(Number(saleAmount) > 0)} />
+              <PrimaryButton label="Record Sale" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(Number(saleAmount) > 0) || !salePay?.ready} />
             </>
           ) : null}
 
@@ -232,6 +251,12 @@ export function AuctionSheet({
                       labels={{ RefundedToCustomer: "Refund to customer", RecordedAsIncome: "Record as income" }}
                     />
                   </Field>
+                  {disposition === "RefundedToCustomer" ? (
+                    <>
+                      <SplitPaymentInput total={rec.surplusPayableAmount ?? Math.max(rec.surplusShortfall ?? 0, 0)} onChange={setRefundPay} bankLabel="Bank (account it is paid from)" />
+                      {refundPay && refundModes.length > 1 ? <ErrorText>Refund the surplus in one payment mode — Cash, UPI or Bank Transfer.</ErrorText> : null}
+                    </>
+                  ) : null}
                   <TextField
                     label={`Remarks${disposition === "RecordedAsIncome" ? " *" : ""}`}
                     value={dispositionRemarks}
@@ -243,7 +268,7 @@ export function AuctionSheet({
                     label="Settle"
                     onPress={() => settle.mutate()}
                     loading={settle.isPending}
-                    disabled={!disposition || (disposition === "RecordedAsIncome" && !dispositionRemarks.trim())}
+                    disabled={!disposition || (disposition === "RecordedAsIncome" && !dispositionRemarks.trim()) || !refundOk}
                   />
                 </>
               ) : !balanceDue && !frozen ? (

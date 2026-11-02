@@ -17,6 +17,7 @@ import { searchBanksPage, createBank } from "@/modules/banks/services/bankServic
 import { type BackendBank } from "@/modules/banks/types/bank-types";
 import { searchCashSourcesPage, createCashSource, isLoanSource } from "@/modules/cash/services/cashSourceService";
 import { type BackendCashSource } from "@/modules/cash/types/cash-source-types";
+import { deleteCategoryById } from "@/modules/cash/services/categoryService";
 import { EXPENSE_CATEGORIES_CHANGED } from "@/modules/cash/services/expenseCategoryService";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { Select } from "@/common/components/ui/Select";
@@ -280,6 +281,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         placeholder="Search or add a category…"
         allowCreate
         onCreate={createCashSource}
+        onDeleteItem={(c) => deleteCategoryById(c.id).then(() => { if (c.name === source) setSourceRec(null); toast(`Category "${c.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this category."); throw e; })}
       /><FieldError msg={fe.category} /></div>
   );
   const modeField = (

@@ -133,7 +133,7 @@ export function BankModalContent({ bank: b, onSaved }: BankModalContentProps) {
           <div className={fe.ifsc ? "has-err" : undefined}><label className="f">IFSC</label>
             <input className="inp" placeholder="e.g. HDFC0001234" value={ifsc} onChange={(e) => onIfscChange(e.target.value)} maxLength={20} autoComplete="off" /><FieldError msg={fe.ifsc} /></div>
           <div className={fe.accountNo ? "has-err" : undefined}><label className="f">Account No.</label>
-            <input className="inp" placeholder="Account number" value={accountNo} onChange={(e) => setAccountNo(e.target.value)} maxLength={40} autoComplete="off" /><FieldError msg={fe.accountNo} /></div>
+            <input className="inp" placeholder="Account number" inputMode="numeric" value={accountNo} onChange={(e) => setAccountNo(e.target.value.replace(/\D/g, ""))} maxLength={18} autoComplete="off" /><FieldError msg={fe.accountNo} /></div>
         </div>
         <div className="frow"><div className={fe.phone ? "has-err" : undefined}><label className="f">Phone</label>
           <input className="inp" type="tel" inputMode="numeric" placeholder="10-digit phone" value={phone} onChange={(e) => onPhoneChange(e.target.value)} maxLength={10} autoComplete="off" /><FieldError msg={fe.phone} /></div></div>

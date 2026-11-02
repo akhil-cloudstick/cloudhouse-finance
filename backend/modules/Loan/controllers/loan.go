@@ -407,7 +407,7 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	}
 	recalculateTotals(rec, ornaments)
 	rec.ServiceChargeAmount = computeServiceChargeAmount(rec.ServiceChargeType, rec.ServiceChargeValue, in.PrincipalAmount)
-	finalPrincipal := in.PrincipalAmount
+	finalPrincipal := common.RoundMoney(in.PrincipalAmount)
 	if rec.ServiceChargeMode == commonModels.ServiceChargeModeAddedToPrincipal && rec.ServiceChargeAmount > 0 {
 		finalPrincipal = common.RoundMoney(in.PrincipalAmount + rec.ServiceChargeAmount)
 	}
@@ -632,8 +632,9 @@ func updateLoanFields(ctx context.Context, loanID uint, in UpdateLoanInput) (*mo
 		if *in.PrincipalAmount <= 0 {
 			return nil, common.NewBadRequest("principal amount must be greater than zero")
 		}
-		delta := *in.PrincipalAmount - l.PrincipalAmount
-		l.PrincipalAmount = *in.PrincipalAmount
+		newPrincipal := common.RoundMoney(*in.PrincipalAmount)
+		delta := newPrincipal - l.PrincipalAmount
+		l.PrincipalAmount = newPrincipal
 		l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount + delta)
 		if l.OutstandingAmount < 0 {
 			l.OutstandingAmount = 0
@@ -1343,7 +1344,7 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	}
 	if f.OnlyDefaulted {
 		q = q.Where("loans.status NOT IN ?", notDefaultableStatuses).
-			Where("loans.due_date < ?", time.Now().AddDate(0, 0, -defaultedAfterDays))
+			Where("loans.due_date < ?", startOfDay(time.Now()).AddDate(0, 0, -defaultedAfterDays))
 	}
 	if f.Servicing != "" {
 		notIn, dueBefore, dueFrom := servicingCandidates(f.Servicing, time.Now())
@@ -1361,7 +1362,7 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		// An Auctioned loan stays a case while its sale is not concluded (a surplus still to be settled).
 		q = q.Where("(loans.status IN ?) OR (loans.status NOT IN ? AND loans.due_date < ?) OR (loans.status = ? AND EXISTS (SELECT 1 FROM auction_records ar WHERE ar.loan_id = loans.id AND ar.stage NOT IN ?))",
 			[]string{models.StatusAuctionEligible, models.StatusAuctionedBalanceDue},
-			notDefaultableStatuses, time.Now().AddDate(0, 0, -defaultedAfterDays),
+			notDefaultableStatuses, startOfDay(time.Now()).AddDate(0, 0, -defaultedAfterDays),
 			models.StatusAuctioned, []string{models.AuctionStageSettled, models.AuctionStageWithdrawn})
 	}
 	return q

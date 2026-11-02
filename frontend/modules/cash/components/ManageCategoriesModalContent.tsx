@@ -7,11 +7,23 @@ import { Icon } from "@/common/components/Icon";
 import { ApiError } from "@/common/services/httpClient";
 import { searchSelectableExpenseCategoriesPage, deleteExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
 import { type BackendExpenseCategory } from "@/modules/cash/types/expense-category-types";
+import { searchCategoriesPage, deleteCategoryById } from "@/modules/cash/services/categoryService";
+import { type CategoryType } from "@/modules/cash/types/category-types";
+
+/* Expense Register categories live in their own list; Credit, Debit and Self Transfer share one table. */
+type Kind = "register" | CategoryType;
+const KINDS: { key: Kind; label: string }[] = [
+  { key: "register", label: "Expenses" },
+  { key: "cash_in", label: "Credit" },
+  { key: "expense", label: "Debit" },
+  { key: "self_transfer", label: "Self transfer" },
+];
 
 /* Lists the expense categories that can be picked on the expense form and lets staff delete
  * one that is no longer wanted. The system categories (Auction, Bank Pledge Release) are not
  * listed, and the server refuses a category that ledger entries still use, saying how many. */
-export function ManageCategoriesModalContent() {
+export function ManageCategoriesModalContent({ initialKind = "register" }: { initialKind?: Kind } = {}) {
+  const [kind, setKind] = useState<Kind>(initialKind);
   const { closeModal } = useModal();
   const toast = useToast();
   const [items, setItems] = useState<BackendExpenseCategory[]>([]);
@@ -24,18 +36,22 @@ export function ManageCategoriesModalContent() {
 
   const load = useCallback((p: number) => {
     setLoading(true);
-    searchSelectableExpenseCategoriesPage("", p)
+    const fetchPage = kind === "register"
+      ? searchSelectableExpenseCategoriesPage("", p)
+      : searchCategoriesPage(kind)("", p);
+    fetchPage
       .then((res) => { setItems(res.items); setHasMore(res.hasMore); setPage(p); setErr(""); })
       .catch(() => setErr("Could not load the categories — try again."))
       .finally(() => setLoading(false));
-  }, []);
-  useEffect(() => { load(0); }, [load]);
+  }, [kind]);
+  useEffect(() => { setConfirmId(null); load(0); }, [load]);
 
   async function remove(c: BackendExpenseCategory) {
     setBusyId(c.id);
     setErr("");
     try {
-      await deleteExpenseCategory(c.id);
+      if (kind === "register") await deleteExpenseCategory(c.id);
+      else await deleteCategoryById(c.id);
       toast(`Category "${c.name}" deleted`);
       setConfirmId(null);
       // Step back a page if that was the last row of this one.
@@ -52,6 +68,11 @@ export function ManageCategoriesModalContent() {
     <>
       <div className="hd"><h3>Manage Categories</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {KINDS.map((k) => (
+            <button key={k.key} type="button" className={`btn sm ${kind === k.key ? "" : "ghost"}`} onClick={() => { setKind(k.key); setErr(""); }}>{k.label}</button>
+          ))}
+        </div>
         {err && <div className="err" style={{ marginBottom: 10 }}>{err}</div>}
         {loading ? <div className="empty compact">Loading…</div> : items.length === 0 ? <div className="empty compact">No categories.</div> : (
           <div className="tbl-wrap"><table className="tbl">

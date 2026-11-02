@@ -10,6 +10,15 @@ import { Field } from "./Field";
 import { s, isoToPretty } from "./formHelpers";
 import { PrimaryButton } from "./PrimaryButton";
 
+// An empty field opens on today's month (always fresh, so a screen left open overnight is still right); only when
+// today lies outside min/max is the nearest allowed month used, so the grid is never entirely disabled.
+function startMonth(min?: string, max?: string) {
+  const t = new Date();
+  const iso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  const pick = max && iso > max ? max : min && iso < min ? min : null;
+  return pick ? new Date(+pick.slice(0, 4), +pick.slice(5, 7) - 1, 1) : new Date(t.getFullYear(), t.getMonth(), 1);
+}
+
 type DateFieldProps = {
   label?: string;
   value?: string;
@@ -31,7 +40,7 @@ export function DateField({
 }: DateFieldProps) {
   const [open, setOpen] = useState(false);
   const [pickYear, setPickYear] = useState(false);
-  const init = value ? new Date(+value.slice(0, 4), +value.slice(5, 7) - 1, 1) : new Date();
+  const init = value ? new Date(+value.slice(0, 4), +value.slice(5, 7) - 1, 1) : startMonth(min, max);
   const [cursor, setCursor] = useState(new Date(init.getFullYear(), init.getMonth(), 1));
   const thisYear = new Date().getFullYear();
   const minYear = min ? +min.slice(0, 4) : thisYear - 100;
@@ -49,7 +58,7 @@ export function DateField({
     <Field label={label}>
       <Pressable
         onPress={() => {
-          const base = value ? new Date(+value.slice(0, 4), +value.slice(5, 7) - 1, 1) : new Date();
+          const base = value ? new Date(+value.slice(0, 4), +value.slice(5, 7) - 1, 1) : startMonth(min, max);
           setCursor(new Date(base.getFullYear(), base.getMonth(), 1));
           setPickYear(false);
           Keyboard.dismiss();

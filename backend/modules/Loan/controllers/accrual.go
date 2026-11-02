@@ -775,8 +775,12 @@ func interestToDate(ctx context.Context, l *models.Loan) (interest, penal float6
 
 func enrichLoan(ctx context.Context, l *models.Loan) {
 	accrued, accruedPenal := interestToDate(ctx, l)
-	l.OutstandingInterest = clampMoney(accrued - l.InterestPaid)
-	l.OutstandingPenalInterest = clampMoney(accruedPenal - l.PenalInterestPaid)
+	// loans saved before whole-rupee rounding can still hold paise (21769.86); every figure shown is whole rupees,
+	// the same ones allocatePayment works to, so the amount the screen offers is one the payment accepts
+	l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount)
+	l.OutstandingProcessingFee = common.RoundMoney(l.OutstandingProcessingFee)
+	l.OutstandingInterest = clampMoney(common.RoundMoney(accrued - l.InterestPaid))
+	l.OutstandingPenalInterest = clampMoney(common.RoundMoney(accruedPenal - l.PenalInterestPaid))
 	l.TotalOutstandingBalance = l.OutstandingAmount + l.OutstandingInterest + l.OutstandingPenalInterest + l.OutstandingProcessingFee
 	l.SettlementAmount = l.TotalOutstandingBalance
 	var totalPaid float64

@@ -27,6 +27,9 @@ export function StageTracker({
       </div>
     );
   }
+  // A single-approver chain has no progress to show — callers show an
+  // "Awaiting … approval" line instead.
+  if (stages.length <= 1) return null;
   return (
     <div className="track">
       {stages.map((s, i) => (

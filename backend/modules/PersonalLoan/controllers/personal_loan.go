@@ -622,7 +622,10 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 			return common.NewConflict("loan is not active")
 		}
 		amount := common.RoundMoney(in.Amount)
-		if amount > rec.OutstandingAmount+epsilon {
+		// the amount is whole rupees, so the balance it is held to must be too: a loan saved before rounding can owe
+		// 1234.60, and the ₹1,235 that clears it would otherwise be rejected as exceeding it
+		outstanding := common.RoundMoney(rec.OutstandingAmount)
+		if amount > outstanding+epsilon {
 			return common.NewBadRequest("payment amount exceeds the outstanding balance")
 		}
 		if err := common.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, amount); err != nil {
@@ -631,7 +634,7 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 		if (in.UpiAmount > 0 || in.BankTransferAmount > 0 || in.ChequeAmount > 0) && in.BankID == nil {
 			return common.NewBadRequest("bank is required when the payment breakdown includes UPI, Bank Transfer, or Cheque")
 		}
-		newOutstanding := common.RoundMoney(rec.OutstandingAmount - amount)
+		newOutstanding := common.RoundMoney(outstanding - amount)
 		if newOutstanding < 0 {
 			newOutstanding = 0
 		}

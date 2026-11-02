@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { TableSearch } from "@/common/components/ui/TableSearch";
@@ -40,7 +39,6 @@ function Pager({ page, total, pageSize, onChange, cards, children }: PagerProps)
       {!cards && <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>}
       {!cards && <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>}
       {!cards && <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>}
-      {!cards && <GoToPage page={page} totalPages={totalPages} onChange={onChange} />}
       {children}
     </div>
   );
@@ -251,7 +249,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
               ) : (() => {
                 // The balance comes from the server — a true running balance over the
                 // whole filtered ledger, so the newest row equals the Net above.
-                return items.map((r) => {
+                return items.map((r, i) => {
                   // A gold-loan reference ("LN-00047") gets a clickable link
                   // to that loan — #loan/:loanNumber resolves it directly.
                   // A personal-loan ("PL-00012") or investment ("INV-00003")
@@ -273,7 +271,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                     r.description.match(/—\s*(PL-\S+)\s*$/i)?.[1] ||
                     null;
                   return (
-                  <tr key={`${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
+                  <tr key={`${r.type}-${r.id}-${r.method}-${i}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
                     <td data-label="Date">{fmtDate(r.d)}</td>
                     <td data-label="Ref No">
                       {loanRef ? (

@@ -6,6 +6,11 @@ import {
   BtnRow2,
   C,
   FabMenu,
+  GroupedFilter,
+  emptyGroupedFilter,
+  gfDate,
+  type GFSection,
+  type GroupedFilterValue,
   Field,
   FlatHeader,
   Input,
@@ -23,6 +28,7 @@ import {
 import { invalidateBankPledgeViews } from "@/modules/bank-pledges/components/bankPledgeViews";
 import { BanksSheet } from "@/modules/bank-pledges/components/BanksSheet";
 import { AddBankPledgeSheet } from "@/modules/bank-pledges/components/AddBankPledgeSheet";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { listBankPledgedLoansPage, listBankPledgeHistoryPage, releaseBankPledge, voidBankPledge } from "@/modules/bank-pledges/services/bankPledgeService";
@@ -41,6 +47,7 @@ const TABS = ["active", "history"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { active: "Active", history: "History" };
 
+const FILTER_SECTIONS: GFSection[] = [{ kind: "date", key: "date", label: "Pledge date" }];
 const or = (v?: string | null) => (v && v.trim() ? v : "—");
 const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 const cashLabel = (t?: string) => (t === "CashIn" ? "Cash Added" : "Record Only");
@@ -71,8 +78,12 @@ export default function BankPledgeScreen() {
   const [voidReason, setVoidReason] = useState("");
   const [voidError, setVoidError] = useState<string | null>(null);
 
-  const active = useServerList<Loan>({ key: ["bankPledges", "active"], fetchPage: (p) => listBankPledgedLoansPage(p), enabled: tab === "active" });
-  const history = useServerList<BankPledgeHistoryRow>({ key: ["bankPledges", "history"], fetchPage: (p) => listBankPledgeHistoryPage(p), enabled: tab === "history" });
+  // Pledge date range — the same from/to the web filter sends, for both tabs.
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("bankPledges:filters", emptyGroupedFilter());
+  const { from, to } = gfDate(fv, "date");
+  const filters = { from: from || undefined, to: to || undefined };
+  const active = useServerList<Loan, typeof filters>({ key: ["bankPledges", "active"], filters, fetchPage: (p) => listBankPledgedLoansPage(p), enabled: tab === "active" });
+  const history = useServerList<BankPledgeHistoryRow, typeof filters>({ key: ["bankPledges", "history"], filters, fetchPage: (p) => listBankPledgeHistoryPage(p), enabled: tab === "history" });
 
   const release = useMutation({
     mutationFn: (t: PledgeTarget) =>
@@ -100,6 +111,9 @@ export default function BankPledgeScreen() {
   const header = (
     <>
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={TAB_LABELS} />
+      <View style={{ paddingHorizontal: 18, paddingTop: 10 }}>
+        <GroupedFilter title="Filter pledges" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+      </View>
     </>
   );
 

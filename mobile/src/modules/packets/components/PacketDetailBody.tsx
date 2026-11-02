@@ -88,7 +88,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   const status = p.status;
   const loanStatus = p.loan?.status ?? "";
   const isAuctioned = AUCTIONED_LOAN.includes(loanStatus);
-  const movementLocked = isAuctioned || loanStatus === "Closed" || loanStatus === "Rejected";
+  const movementLocked = isAuctioned || loanStatus === "Closed" || loanStatus === "Rejected" || loanStatus === "Pending Approval";
 
   // Rail shows only the stages this packet can pass through: the bank detour
   // only once it's been pledged, the legacy stage only if used.

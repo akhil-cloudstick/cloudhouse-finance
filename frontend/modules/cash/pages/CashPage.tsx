@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { TableSearch } from "@/common/components/ui/TableSearch";
@@ -142,9 +141,9 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
   const [movementsQ, setMovementsQ] = usePersistedState("cash:q", "");
   const [expensesQ, setExpensesQ] = usePersistedState("cash:expenses-q", "");
   const [goldSalesQ, setGoldSalesQ] = usePersistedState("cash:gold-sales-q", "");
-  const [expCategory, setExpCategory] = usePersistedState("cash:expenses-category", "");
-  const [expMode, setExpMode] = usePersistedState("cash:expenses-mode", "");
-  const [expStatus, setExpStatus] = usePersistedState("cash:expenses-status", "");
+  const [expCategory, setExpCategory] = usePersistedState<string[]>("cash:expenses-categories", []);
+  const [expMode, setExpMode] = usePersistedState<string[]>("cash:expenses-modes", []);
+  const [expStatus, setExpStatus] = usePersistedState<string[]>("cash:expenses-statuses", []);
   const [expFrom, setExpFrom] = usePersistedState("cash:expenses-from", "");
   const [expTo, setExpTo] = usePersistedState("cash:expenses-to", "");
   const [salesFrom, setSalesFrom] = usePersistedState("cash:gold-sales-from", "");
@@ -159,7 +158,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
     getExpense(id)
       .then((e) => {
         pendingExpenseFocus.current = id;
-        setExpCategory(""); setExpMode(""); setExpStatus("");
+        setExpCategory([]); setExpMode([]); setExpStatus([]);
         setExpFrom(e.d); setExpTo(e.d);
         setExpensesPage(1);
       })
@@ -198,6 +197,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
   const [movementsCustomerIds, setMovementsCustomerIds] = usePersistedState<string[]>("cash:customers", []);
   // The Mode section of the Ledger filter: Cash / UPI / Bank Transfer.
   const [movementsModes, setMovementsModes] = usePersistedState<string[]>("cash:modes", []);
+  const [movementsCategories, setMovementsCategories] = usePersistedState<string[]>("cash:categories", []);
   const [allBranches, setAllBranches] = useState<BranchView[]>([]);
   const [downloadingMovements, setDownloadingMovements] = useState(false);
   const [downloadingExpenses, setDownloadingExpenses] = useState(false);
@@ -246,30 +246,32 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
         { value: "Bank Transfer", label: "Bank Transfer" },
       ],
     },
+    { key: "category", label: "Category", kind: "static", searchHint: "Searches: category name", options: Object.keys(categoryIdByName).sort().map((v) => ({ value: v, label: v })) },
     { key: "__date", label: "Date", kind: "date" },
   ];
   const filterOptions = (values: string[]) => values.map((v) => ({ value: v, label: v }));
   const expensesFilterCategories: FilterCategory[] = [
-    { key: "category", label: "Category", kind: "static", singleSelect: true, options: filterOptions(Object.keys(categoryIdByName).sort()) },
-    { key: "mode", label: "Mode", kind: "static", singleSelect: true, options: filterOptions(["Cash", "UPI", "Bank Transfer"]) },
-    { key: "status", label: "Status", kind: "static", singleSelect: true, options: filterOptions(["Pending", "Approved", "Rejected"]) },
+    { key: "category", label: "Category", kind: "static", options: filterOptions(Object.keys(categoryIdByName).sort()) },
+    { key: "mode", label: "Mode", kind: "static", options: filterOptions(["Cash", "UPI", "Bank Transfer"]) },
+    { key: "status", label: "Status", kind: "static", options: filterOptions(["Pending", "Approved", "Rejected"]) },
     { key: "__date", label: "Date", kind: "date" },
   ];
   const expensesFilterValue: FilterValue = {
-    category: expCategory ? [expCategory] : [],
-    mode: expMode ? [expMode] : [],
-    status: expStatus ? [expStatus] : [],
+    category: expCategory,
+    mode: expMode,
+    status: expStatus,
     __dateFrom: expFrom || undefined,
     __dateTo: expTo || undefined,
   };
   const goldSalesFilterCategories: FilterCategory[] = [{ key: "__date", label: "Date", kind: "date" }];
   const goldSalesFilterValue: FilterValue = { __dateFrom: salesFrom || undefined, __dateTo: salesTo || undefined };
-  const expenseListFilters = { search: expensesSearch || undefined, category: expCategory || undefined, mode: expMode || undefined, status: expStatus || undefined, from: expFrom || undefined, to: expTo || undefined };
+  const expenseListFilters = { search: expensesSearch || undefined, category: expCategory.length ? expCategory : undefined, mode: expMode.length ? expMode : undefined, status: expStatus.length ? expStatus : undefined, from: expFrom || undefined, to: expTo || undefined };
   const movementsFilterValue: FilterValue = {
     branch: movementsBranchIds,
     customer: movementsCustomerIds,
     type: movementsTypes,
     mode: movementsModes,
+    category: movementsCategories,
     __dateFrom: movementsFrom || undefined,
     __dateTo: movementsTo || undefined,
   };
@@ -290,6 +292,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
       customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
       types: movementsTypes.length ? movementsTypes : undefined,
       modes: movementsModes.length ? movementsModes : undefined,
+      categoryNames: movementsCategories.length ? movementsCategories : undefined,
       search: movementsSearch || undefined,
     }).then(({ items, hasMore, total, totalDebit, totalCredit, pageBalance, rowBalances }) => {
       setMovements(items);
@@ -319,7 +322,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes, movementsSearch, expensesSearch, goldSalesSearch, expCategory, expMode, expStatus, expFrom, expTo, salesFrom, salesTo]);
+  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes, movementsCategories, movementsSearch, expensesSearch, goldSalesSearch, expCategory, expMode, expStatus, expFrom, expTo, salesFrom, salesTo]);
 
   useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0 && idsReady, [movements]);
   useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0 && idsReady, [expenses]);
@@ -383,6 +386,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
         customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
         types: movementsTypes.length ? movementsTypes : undefined,
         modes: movementsModes.length ? movementsModes : undefined,
+        categoryNames: movementsCategories.length ? movementsCategories : undefined,
         search: movementsSearch || undefined,
       });
     } catch {
@@ -429,11 +433,6 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
       </div>
       <hr className="gold-rule rule-sm" />
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "0 0 10px" }}>
-        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Summary for</span>
-        <div style={{ width: 170 }}><DatePicker value={today} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} /></div>
-        {!isToday && <button type="button" className="btn plain sm" onClick={() => setSummaryDate("")}>Today</button>}
-      </div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
         <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
           <Kpi l={`Opening Cash (${dayLabel})`} v={fmt(summary?.openingCash || 0)} s="carried forward" />
@@ -481,6 +480,12 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
           />
         </div>
 
+        {/* Summary date sits top-right, in the space the KPI cards leave above the tabs. */}
+        <div className="cash-side">
+        <div className="cash-date-filter">
+          {!isToday && <button type="button" className="btn plain sm" onClick={() => setSummaryDate("")}>Today</button>}
+          <div style={{ width: 170 }}><DatePicker value={today} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} /></div>
+        </div>
         <div className="tabs cash-tabs-row" style={{ flexShrink: 0, marginBottom: 0 }}>
           <button
             className={activeCashTab === "movements" ? "on" : ""}
@@ -500,6 +505,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
           >
             Gold Sales
           </button>
+        </div>
         </div>
       </div>
 
@@ -521,10 +527,16 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
                   setMovementsBranchIds(nextBranchIds);
                   setMovementsCustomerIds(Array.isArray(next.customer) ? next.customer : []);
                   setMovementsModes(Array.isArray(next.mode) ? next.mode : []);
+                  setMovementsCategories(Array.isArray(next.category) ? next.category : []);
                   setMovementsPage(1);
                 }}
                 hideChips
               />
+            {canUpdateCash && (
+              <button className="btn ghost sm" onClick={() => openModal(<ManageCategoriesModalContent initialKind="cash_in" />)} title="Delete categories you no longer use">
+                <Icon name="edit" /> Categories
+              </button>
+            )}
               {canExport && (
                 <button className="btn ghost sm" onClick={downloadMovements} disabled={downloadingMovements} title="Download every row matching the current filters">
                   <Icon name="download" /> {downloadingMovements ? "Preparing…" : "Download"}
@@ -552,7 +564,6 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
               * just the current page rather than a fabricated "of N". */}
             {!cards && <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>}
             {!cards && <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>}
-            {!cards && <GoToPage page={movementsPage} totalPages={movementsTotalPages} onChange={setMovementsPage} />}
             <FooterTotals aligned items={[
               { value: movementSums.debit, color: "var(--red)" },
               { value: movementSums.credit, color: "var(--green)" },
@@ -571,9 +582,9 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
               categories={expensesFilterCategories}
               value={expensesFilterValue}
               onChange={(next) => {
-                setExpCategory(Array.isArray(next.category) ? next.category[0] || "" : "");
-                setExpMode(Array.isArray(next.mode) ? next.mode[0] || "" : "");
-                setExpStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+                setExpCategory(Array.isArray(next.category) ? next.category : []);
+                setExpMode(Array.isArray(next.mode) ? next.mode : []);
+                setExpStatus(Array.isArray(next.status) ? next.status : []);
                 setExpFrom(next.__dateFrom || "");
                 setExpTo(next.__dateTo || "");
               }}
@@ -622,7 +633,6 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
             {!cards && <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>}
             {!cards && <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>}
             {!cards && <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>}
-            {!cards && <GoToPage page={expensesPage} totalPages={expensesTotalPages} onChange={setExpensesPage} />}
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}></span>
             <FooterTotals items={[{ label: "Total", value: expenseSum, color: "var(--red)" }]} />
           </div>
@@ -662,7 +672,6 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
             {!cards && <button className="btn plain sm" disabled={goldSalesPage <= 1} onClick={() => setGoldSalesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>}
             {!cards && <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>}
             {!cards && <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>}
-            {!cards && <GoToPage page={goldSalesPage} totalPages={goldSalesTotalPages} onChange={setGoldSalesPage} />}
             <span
               title="Sold amount automatically books into Cash-in-Hand as a cash-in movement"
               style={{ fontSize: 12.5, color: "var(--muted)", flex: "1 1 0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}

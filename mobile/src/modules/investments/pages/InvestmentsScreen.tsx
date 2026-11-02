@@ -505,6 +505,7 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
     qc.invalidateQueries({ queryKey: ["investmentLedger", id] });
     qc.invalidateQueries({ queryKey: ["investmentSchedule", id] });
     qc.invalidateQueries({ queryKey: ["investments"] });
+    for (const key of ["investmentTransactions", "ledger", "cash-summary", "cash-movements"]) qc.invalidateQueries({ queryKey: [key] });
   };
 
   async function printStatement() {

@@ -50,16 +50,17 @@ export function BanksPage() {
       <div className="page-h">
         <div><h1>Bank Management</h1><p>Add, edit and manage the banks used for re-pledging gold, split payments and the Party Transactions ledger</p></div>
         <div className="sp" />
+        <TableSearch value={q} onChange={setQ} placeholder="Search banks…" searches="bank name, bank branch, IFSC, account no., phone, business branch" />
         {canCreate && <button className="btn" onClick={() => openModal(<BankModalContent onSaved={reload} />)}><Icon name="plus" /> Add Bank</button>}
       </div>
       <hr className="gold-rule" />
-      {bankBalance !== null && (
-        <div className="kpis" style={{ marginBottom: 16 }}>
-          <div className="kpi"><div className="l">Net Bank Balance</div><div className="v" style={{ color: balanceColor(bankBalance) }}>{fmtBalance(bankBalance)}</div></div>
-        </div>
-      )}
-      <div style={{ margin: "0 0 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <TableSearch value={q} onChange={setQ} placeholder="Search banks…" searches="bank name, bank branch, IFSC, account no., phone, business branch" />
+      {/* The net balance card and the filter share one row: card on the left, filter on the right. */}
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+        {bankBalance !== null ? (
+          <div className="kpis" style={{ margin: 0 }}>
+            <div className="kpi"><div className="l">Net Bank Balance</div><div className="v" style={{ color: balanceColor(bankBalance) }}>{fmtBalance(bankBalance)}</div></div>
+          </div>
+        ) : <span />}
         {filterCategories.length > 0 && (
           <FilterPanel
             categories={filterCategories}

@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
@@ -158,11 +157,11 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
 
   // One grouped filter for Type and Status (single choice each).
   const filterCategories: FilterCategory[] = [
-    { key: "type", label: "Type", kind: "static", singleSelect: true, options: TYPE_OPTIONS },
-    { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUS_OPTIONS },
+    { key: "type", label: "Type", kind: "static", options: TYPE_OPTIONS },
+    { key: "status", label: "Status", kind: "static", options: STATUS_OPTIONS },
     { key: "__date", label: "Requested date", kind: "date" as const },
   ];
-  const filterValue: FilterValue = { type: type ? [type] : [], status: status ? [status] : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
+  const filterValue: FilterValue = { type: type ? type.split(",") : [], status: status ? status.split(",") : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
 
   function refreshAfterSave() {
     refresh();
@@ -182,8 +181,8 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
             categories={filterCategories}
             value={filterValue}
             onChange={(next) => {
-              setType(Array.isArray(next.type) ? next.type[0] || "" : "");
-              setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+              setType(Array.isArray(next.type) ? next.type.join(",") : "");
+              setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
               setFromDate(next.__dateFrom || "");
               setToDate(next.__dateTo || "");
               setPage(1);
@@ -285,8 +284,8 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-          <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
         </div>
         {/* <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div> */}
       </div>

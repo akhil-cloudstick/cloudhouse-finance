@@ -363,7 +363,7 @@ export function useLedgerList({ kind, ledgerRef, onCategoryName, focus, enabled 
               {totalRows.map(([k, v, color], i) => (
                 <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, paddingVertical: 9, ...(i > 0 ? { borderTopWidth: 1, borderTopColor: C.line } : null) }}>
                   <Txt style={{ fontSize: 12.5, color: C.muted }}>{k}</Txt>
-                  <Txt style={{ fontSize: 12.5, fontWeight: "700", color }}>{inr(v)}</Txt>
+                  <Txt style={{ fontSize: 12.5, fontWeight: "700", color, flexShrink: 1, textAlign: "right" }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(v)}</Txt>
                 </View>
               ))}
             </View>

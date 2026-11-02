@@ -1,6 +1,5 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { Icon } from "@/common/components/Icon";
@@ -35,6 +34,7 @@ const PACKET_STATUS_OPTIONS = [
   { value: "Released", label: "Released" },
   { value: "Returned", label: "Returned" },
   { value: "Auctioned", label: "Auctioned" },
+  { value: "Rejected", label: "Rejected" },
 ];
 
 /* Ported from legacy/app.js's `renderPackets()`. Now reads real data from
@@ -107,7 +107,7 @@ export function PacketsPage() {
     {
       key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search: string, p: number) =>
-        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined }, 20).then((res) => ({
+        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined, customerType: "Borrower" }, 20).then((res) => ({
           items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
           hasMore: res.hasMore,
         })),
@@ -268,7 +268,7 @@ export function PacketsPage() {
                   // The loan's own outcome overrides the packet's own
                   // (possibly stale) workflow stage once the gold has been
                   // sold — same override PacketDetail.tsx applies.
-                  const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.loanStatus === "Closed" ? "Released" : p.status;
+                  const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.loanStatus === "Rejected" ? "Rejected" : p.loanStatus === "Closed" ? "Released" : p.status;
                   return (
                     <tr key={p.id} className="click" onClick={() => { navigate(`packet/${p.code}`); }}>
                       <td data-label="Packet Code"><a href={routeHref(`packet/${p.code}`)} className="id" onClick={cellLink(`packet/${p.code}`)}>{p.code}</a></td>
@@ -288,8 +288,8 @@ export function PacketsPage() {
           <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-            <GoToPage page={page} totalPages={totalPages} onChange={setPage} />
           </div>
         </div>
         {canViewLockers && <div className="card tbl-card tbl-card-fill" style={cards && cardTab !== "lockers" ? { display: "none" } : undefined}>
@@ -301,7 +301,7 @@ export function PacketsPage() {
               style={{ height: 31, paddingTop: 0, paddingBottom: 0, fontSize: 13 }}
               value={lockerLookup}
               onChange={(e) => setLockerLookup(e.target.value)}
-              placeholder="Search loan, packet or locker no."
+              placeholder="Search locker, loan, packet or customer"
               title="Searches: locker code, packet code, loan number of packets stored in the locker"
             /></div>
             <FilterPanel
@@ -342,7 +342,6 @@ export function PacketsPage() {
             <button className="btn plain sm" disabled={lockerPageClamped <= 1} onClick={() => setLockerPage(Math.max(1, lockerPageClamped - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {lockerPageClamped} of {lockerTotalPages}</span>
             <button className="btn plain sm" disabled={lockerPageClamped >= lockerTotalPages} onClick={() => setLockerPage(Math.min(lockerTotalPages, lockerPageClamped + 1))}>Next ›</button>
-            <GoToPage page={lockerPageClamped} totalPages={lockerTotalPages} onChange={setLockerPage} />
           </div>
         </div>}
       </div>

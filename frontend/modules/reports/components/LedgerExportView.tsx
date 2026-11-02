@@ -1,6 +1,6 @@
 "use client";
 
-import { GoToPage } from "@/common/components/ui/GoToPage";
+import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { TableSearch } from "@/common/components/ui/TableSearch";
@@ -49,7 +49,6 @@ function Pager({ page, total, pageSize, onChange, cards }: PagerProps) {
       <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
-      <GoToPage page={page} totalPages={totalPages} onChange={onChange} />
     </div>
   );
 }
@@ -207,14 +206,7 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
             <TableSearch value={q} onChange={setQ} placeholder="Search date, ref no, party, bank, amount…" searches="date, ref no, particulars, mode, bank, party, debit, credit" />
             <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips hideClearAll />
             {canExport && (
-              <>
-                <button className="btn ghost sm" disabled={exporting} onClick={() => onDownload("pdf")}>
-                  <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
-                </button>
-                <button className="btn sm" disabled={exporting} onClick={() => onDownload("xlsx")}>
-                  <Icon name="download" /> {exporting ? "Exporting…" : "Export Excel"}
-                </button>
-              </>
+              <ExportMenu busy={exporting ? "pdf" : null} onExport={onDownload} />
             )}
           </div>
         </div>

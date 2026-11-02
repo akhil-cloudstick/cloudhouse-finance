@@ -1,5 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
+import { presentFile } from "@/common/utils/presentFile";
 import { API_BASE_URL, apiUrl, ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 
@@ -48,9 +48,5 @@ export async function downloadSchemeStatement(
   filters: StatementFilters
 ): Promise<void> {
   const uri = await downloadToCache(schemeId, format, filters);
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: mimeTypeFor(format), dialogTitle: "Scheme statement" });
-  } else {
-    throw new Error(`Saved to ${uri} — sharing isn't available on this device.`);
-  }
+  await presentFile(uri, { mimeType: mimeTypeFor(format), title: "Scheme statement" });
 }

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pressable, View } from "react-native";
-import { C, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt } from "@/common/components/ui";
+import { AsyncSelect, C, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt } from "@/common/components/ui";
+import { useShowBranch } from "@/common/hooks/use-branch-switch";
+import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { UploadField } from "@/common/components/UploadField";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { createCustomer, updateCustomer } from "@/modules/customers/services/customerService";
@@ -65,6 +67,10 @@ export function CustomerFormSheet({
   const qc = useQueryClient();
   const { employee } = useAuth();
   const editing = !!customer;
+  // Same rule as the web form: the Branch picker is for cross-branch roles on a multi-branch plan, and is
+  // required there (the app has no global branch selector).
+  const showBranch = useShowBranch() && !editing;
+  const [branch, setBranch] = useState<{ id: number; name: string } | null>(null);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -97,6 +103,7 @@ export function CustomerFormSheet({
     const c = customer;
     const x = (c ?? {}) as CustomerExtras;
     setName(c?.name ?? "");
+    setBranch(null);
     setPhone(c?.phone ?? "");
     setDob(isoDate(c?.dob));
     setAddress(c?.address ?? "");
@@ -122,7 +129,7 @@ export function CustomerFormSheet({
 
   const phoneOk = /^\d{10}$/.test(phone.trim());
   const aadhaarOk = !aadhaar || /^\d{12}$/.test(aadhaar);
-  const canSave = !!name.trim() && phoneOk && aadhaarOk;
+  const canSave = !!name.trim() && phoneOk && aadhaarOk && (!showBranch || !!branch);
 
   const save = useMutation({
     mutationFn: () => {
@@ -131,7 +138,7 @@ export function CustomerFormSheet({
         phone: phone.trim(),
         dob: dob.trim() || undefined,
         address: address.trim() || undefined,
-        branchId: customer ? customer.branchId : employee!.branchId,
+        branchId: customer ? customer.branchId : branch?.id ?? employee!.branchId,
         pan: pan.trim().toUpperCase() || undefined,
         aadhaar: aadhaar.trim() || undefined,
         nomineeName: nomineeName.trim() || undefined,
@@ -172,13 +179,29 @@ export function CustomerFormSheet({
 
   return (
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Customer" : "Register Customer"} maxHeightPct={88}>
+      <SectionTitle flush>Personal Details</SectionTitle>
       <Field label="Full Name *">
         <Input placeholder="Customer's full name" value={name} onChangeText={setName} />
       </Field>
       <Field label="Mobile Number *">
         <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => setPhone(digits(t))} />
       </Field>
+      {showBranch ? (
+        <AsyncSelect<{ id: number; name: string; code?: string }>
+          label="Branch *"
+          placeholder="Select branch…"
+          queryKey={["branches", "register-customer"]}
+          fetcher={async (q) => (await listBranchesPage({ q: q || undefined, active: true, limit: 20, offset: 0 })).items ?? []}
+          selectedLabel={branch?.name ?? ""}
+          onSelect={(b) => setBranch({ id: b.id, name: b.name })}
+          keyOf={(b) => b.id}
+          renderItem={(b) => ({ title: b.name, sub: b.code })}
+        />
+      ) : null}
       <DateField label="Date of Birth" value={dob} onChange={(v) => { setDob(v); setAge(ageOf(v)); }} max={todayISO()} clearable />
+      <Field label="Age">
+        <Input placeholder="Auto from date of birth" editable={false} value={ageOf(dob) || age} />
+      </Field>
       <Field label="Address">
         <Input placeholder="Full address" value={address} onChangeText={setAddress} />
       </Field>
@@ -199,7 +222,7 @@ export function CustomerFormSheet({
       {!aadhaarOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>Aadhaar must be 12 digits.</Txt> : null}
 
       <SectionTitle flush style={{ marginTop: 16 }}>
-        {editing ? "Documents" : "Documents (optional)"}
+        Documents
       </SectionTitle>
       <UploadField label="Customer Photograph" value={photoUrl} onChange={setPhotoUrl} allowPdf={false} emptyText="Tap to add photo" />
       <UploadField label="Identity Proof" value={identityProofUrl} onChange={setIdentityProofUrl} />
@@ -207,7 +230,7 @@ export function CustomerFormSheet({
       <UploadField label="Supporting KYC Document" value={kycDocumentUrl} onChange={setKycDocumentUrl} />
 
       <SectionTitle flush style={{ marginTop: 16 }}>
-        Nominee Information (optional)
+        Nominee (optional)
       </SectionTitle>
       <Field label="Nominee Name">
         <Input placeholder="Full name" value={nomineeName} onChangeText={setNomineeName} />
@@ -216,7 +239,7 @@ export function CustomerFormSheet({
         <Field label="Relation">
           <Input placeholder="e.g. Spouse, Son" value={nomineeRelation} onChangeText={setNomineeRelation} />
         </Field>
-        <Field label="Nominee Mobile">
+        <Field label="Nominee Mobile Number">
           <Input placeholder="10-digit number" keyboardType="number-pad" maxLength={10} value={nomineePhone} onChangeText={(t) => setNomineePhone(digits(t))} />
         </Field>
       </FieldRow>
@@ -229,11 +252,8 @@ export function CustomerFormSheet({
       </Pressable>
       {showMore ? (
         <>
-          <Field label="Age">
-            <Input placeholder="Age" keyboardType="number-pad" maxLength={3} value={age} onChangeText={(t) => setAge(digits(t))} />
-          </Field>
-          <Field label="Father's Name">
-            <Input placeholder="e.g. Ravi Varma" value={fatherName} onChangeText={setFatherName} />
+          <Field label="Guardian Name">
+            <Input placeholder="e.g. Ravi Varma" value={fatherName} onChangeText={(t) => setFatherName(t.replace(/\d/g, ""))} />
           </Field>
           <FieldRow>
             <Field label="District">

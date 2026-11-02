@@ -126,6 +126,8 @@ export type CashMovementFilters = {
   branchIds?: string[];
   customerIds?: string[];
   types?: CashMovementCategory[];
+  // Credit / Debit / Self Transfer category names — the Ledger filter's Category section.
+  categoryNames?: string[];
   // Cash / UPI / Bank Transfer — the Ledger filter's Mode section.
   modes?: string[];
   search?: string;

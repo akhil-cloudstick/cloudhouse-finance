@@ -35,7 +35,7 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
   // Personal loan / investment crumbs show their number (PL-00003, INV-00003); an id link looks it up.
   const [refNumber, setRefNumber] = useState("");
   useEffect(() => {
-    if ((route !== "personalloan" && route !== "investment") || !arg || !/^d+$/.test(arg)) { setRefNumber(""); return; }
+    if ((route !== "personalloan" && route !== "investment") || !arg || !/^\d+$/.test(arg)) { setRefNumber(""); return; }
     let cancelled = false;
     const lookup = route === "personalloan"
       ? getPersonalLoan(Number(arg)).then((l) => l.loanNumber)
@@ -60,7 +60,7 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
       : (route === "loan" || route === "packet") && arg
         ? arg
         : (route === "personalloan" || route === "investment") && arg
-          ? (/^d+$/.test(arg) ? refNumber : arg) || TITLES[route]
+          ? (/^\d+$/.test(arg) ? refNumber : arg) || TITLES[route]
           : TITLES[route] || "Dashboard";
   // The crumb links back to the section it drills down from (e.g. a
   // personal loan's detail page links to the Personal Loans list) — routes

@@ -20,7 +20,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 
 const INTEREST_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", "Multiple interest"] as const;
 const FILTER_SECTIONS: GFSection[] = [
-  { kind: "static", key: "method", label: "Interest method", options: INTEREST_METHODS.map((m) => ({ value: m, label: m })) },
+  { kind: "static", key: "method", label: "Interest method", options: INTEREST_METHODS.filter((m) => m !== "Compound monthly").map((m) => ({ value: m, label: m })) },
   { kind: "static", key: "status", label: "Status", options: [{ value: "Active", label: "Active" }, { value: "Inactive", label: "Inactive" }] },
 ];
 
@@ -115,6 +115,7 @@ export default function SchemesScreen() {
                 { k: "Penal rate", v: sc.penalRate != null ? `${sc.penalRate}% p.a.` : "—" },
                 { k: "Conditions", v: sc.conditions || "—" },
                 ...(sc.interestMethod ? [{ k: "Interest method", v: sc.interestMethod }] : []),
+                ...(sc.accrualBasis ? [{ k: "Accrual method", v: sc.accrualBasis === "monthly" ? "Monthly" : "Daily" }] : []),
                 ...(charge ? [{ k: "Service charge", v: charge }] : []),
               ]}
               actions={[

@@ -15,7 +15,7 @@ import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-swit
 import { searchBanksPage, createBank } from "@/modules/banks/services/bankService";
 import { type BackendBank } from "@/modules/banks/types/bank-types";
 import { isLoanSource } from "@/modules/cash/services/cashSourceService";
-import { searchCategoriesPage, createCategory } from "@/modules/cash/services/categoryService";
+import { searchCategoriesPage, createCategory, deleteCategoryById } from "@/modules/cash/services/categoryService";
 import { type BackendCategory } from "@/modules/cash/types/category-types";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { Select } from "@/common/components/ui/Select";
@@ -215,6 +215,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
               placeholder="Search or add a category…"
               allowCreate
               onCreate={createCategory("self_transfer")}
+              onDeleteItem={(c) => deleteCategoryById(c.id).then(() => { if (c.name === category) setCatRec(null); toast(`Category "${c.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this category."); throw e; })}
             /><FieldError msg={fe.category} /></div>
         </div>
         <div className="frow c2">

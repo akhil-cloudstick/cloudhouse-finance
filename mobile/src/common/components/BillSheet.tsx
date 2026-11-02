@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Image, View } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
+import { presentFile } from "@/common/utils/presentFile";
 import { C, PrimaryButton, Sheet, Txt, toast } from "@/common/components/ui";
 import { API_ORIGIN } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
@@ -55,8 +55,7 @@ async function shareUpload(path: string) {
   const url = uploadUrl(path);
   const res = await FileSystem.downloadAsync(url, target, { headers: token && isOwnUrl(url) ? { Authorization: `Bearer ${token}` } : {} });
   if (res.status < 200 || res.status >= 300) throw new Error("The bill could not be loaded.");
-  if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn't available on this device.");
-  await Sharing.shareAsync(res.uri, { dialogTitle: "Bill" });
+  await presentFile(res.uri, { mimeType: ext === "pdf" ? "application/pdf" : undefined, title: "Bill" });
 }
 
 type BillSheetProps = { path: string | null; onClose: () => void; /** What is being viewed (e.g. "Identity proof"); shown as the sheet title. */ title?: string };
