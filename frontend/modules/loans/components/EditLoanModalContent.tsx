@@ -6,7 +6,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { PurityPicker } from "@/common/components/PurityPicker";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { rateForPurityFull } from "@/common/utils/purity";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
@@ -63,6 +63,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   const [principal, setPrincipal] = useState(String(loan.principal));
   const [rows, setRows] = useState<OrnRow[]>(loan.ornaments.map(toRow));
   const [overallPhoto, setOverallPhoto] = useState(loan.overallPhotoUrl);
+  const [additionalInfo, setAdditionalInfo] = useState(loan.additionalInfo || "");
   const [err, setErr] = useState("");
   const [fe, setFe] = useState<Record<string, string>>({});
   // Row-level message: which ornament row (index into `rows`) it is about.
@@ -78,7 +79,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   }
   // Gross/Less drive Net (gross − less); typing Net directly back-fills Less — same as New Loan.
   const w3 = (n: number) => String(Math.round(Math.max(0, n) * 1000) / 1000);
-  const wOk = (v: string) => /^d*.?d{0,3}$/.test(v);
+  const wOk = (v: string) => /^\d*\.?\d{0,3}$/.test(v);
   function setGross(i: number, v: string) {
     if (!wOk(v)) return;
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, gross: v, net: v === "" ? "" : w3(+v - (+r.less || 0)) } : r)));
@@ -140,7 +141,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   // Rounded to paise like the backend's common.RoundMoney — the raw float can
   // carry hidden digits past the two shown, which made the exact eligible
   // amount typed into Principal fail the "cannot exceed" check.
-  const eligibleLoanAmount = Math.round(((totalGoldValue * schemeLtv) / 100) * 100) / 100;
+  const eligibleLoanAmount = roundRupee(((totalGoldValue * schemeLtv) / 100));
 
   // Mirrors the backend's own materialChange check in Service.UpdateLoan —
   // scheme or principal differing from what's on file is what triggers
@@ -164,7 +165,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   const serviceCharge = loan.serviceChargeType === "Percent"
     ? Math.round(newSanctioned * (loan.serviceChargeValue ?? 0)) / 100
     : loan.serviceChargeAmount;
-  const payout = Math.round((newSanctioned - serviceCharge) * 100) / 100;
+  const payout = roundRupee((newSanctioned - serviceCharge));
   const payoutLines: SplitPaymentLine[] | undefined = disbursement ? [
     disbursement.cashAmount > 0 && { mode: "Cash" as const, amount: String(disbursement.cashAmount) },
     disbursement.upiAmount > 0 && { mode: "UPI" as const, amount: String(disbursement.upiAmount), bankId: disbursement.bankId ?? undefined, bankName: disbursement.bankName },
@@ -222,8 +223,10 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 
   async function save() { return singleFlight("modal:editloan:save", async () => {
     setErr(""); setFe({}); setRowErr(null);
-    if (!(+principal > 0)) { fail("principal", "Please enter a valid principal amount."); return; }
-    if (!activeRows.length) { fail("ornaments", "A loan must have at least one ornament."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!(+principal > 0)) errors["principal"] ??= "Please enter a valid principal amount.";
+    if (!activeRows.length) errors["ornaments"] ??= "A loan must have at least one ornament.";
     const incomplete = activeRows.find((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0));
     if (incomplete) {
       const missing = [!incomplete.name.trim() && "name", !(+incomplete.gross > 0) && "gross weight", !(+incomplete.net > 0) && "net weight"].filter(Boolean).join(", ");
@@ -236,10 +239,8 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     // Amount field above, not a stale pre-edit figure — the backend
     // recomputes and enforces this independently on save too, but this
     // gives immediate feedback consistent with what's already on screen.
-    if (Math.round(+principal * 100) / 100 > eligibleLoanAmount) {
-      fail("principal", `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`);
-      return;
-    }
+    if (roundRupee(+principal) > eligibleLoanAmount) errors["principal"] ??= `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`;
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     if (showBranch && branchChanged && hasPacket && packetLocker && !lockerSel) {
       setErr("Choose a locker in the new branch for the gold."); return;
@@ -303,6 +304,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
         schemeId: schemeId !== loan.schemeId ? Number(schemeId) : undefined,
         principalAmount: +principal !== loan.principal ? +principal : undefined,
         overallPhotoUrl: overallPhoto !== loan.overallPhotoUrl ? overallPhoto : undefined,
+        additionalInfo: additionalInfo.trim() !== (loan.additionalInfo || "").trim() ? additionalInfo.trim() : undefined,
         ...goldChoicesOf(activeDeps, chosenDeps),
         ...(activeFollowing.length ? { adjustFollowing: activeFollowing.map((f) => ({ id: f.id, amount: +(follow[f.id] ?? f.current) || 0 })) } : {}),
         ...(showBranch && branchChanged ? { branchId: +branchSel } : {}),
@@ -500,6 +502,8 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
         <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
           Total net weight: {fmt(activeRows.reduce((s, r) => s + (+r.net || 0) * (+r.qty || 1), 0)).replace("₹", "")}g · eligible amount updates on save
         </p>
+        <label className="f" htmlFor="edit-additional-info" style={{ marginTop: 10 }}>Additional Information</label>
+        <textarea id="edit-additional-info" className="inp" rows={3} maxLength={2000} placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChange={(e) => setAdditionalInfo(e.target.value)} style={{ resize: "vertical", width: "100%" }} />
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       {/* The sticky-within-`.modal-bg` treatment this used to declare inline

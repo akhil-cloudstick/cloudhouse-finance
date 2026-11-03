@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -132,7 +133,7 @@ export function BranchesPage() {
         </p>
       )}
       {branches !== null && (branches.length > 0 || !!q.trim()) && (
-        <div style={{ margin: "0 0 12px" }}>
+        <div style={{ margin: "0 0 12px", display: "flex", justifyContent: "flex-end" }}>
           <TableSearch value={q} onChange={setQ} placeholder="Search branches…" searches="branch name, code, address, phone, status" />
         </div>
       )}
@@ -140,6 +141,7 @@ export function BranchesPage() {
         <div className="card tbl-rounded">
           <div className="tbl-wrap">
             <table className="tbl">
+              <TableCols widths={[18, 9, 33, 14, 12, 8]} />
               <thead>
                 <tr><th>Branch</th><th>Code</th><th>Address</th><th>Phone</th><th>Status</th><th></th></tr>
               </thead>

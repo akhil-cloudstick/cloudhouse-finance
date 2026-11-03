@@ -16,12 +16,13 @@ import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { listPacketsPage, getPacketByCode } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { navigate, routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 // Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
 const NO_BRANCHES: string[] = [];
@@ -34,6 +35,7 @@ const PACKET_STATUS_OPTIONS = [
   { value: "Released", label: "Released" },
   { value: "Returned", label: "Returned" },
   { value: "Auctioned", label: "Auctioned" },
+  { value: "Rejected", label: "Rejected" },
 ];
 
 /* Ported from legacy/app.js's `renderPackets()`. Now reads real data from
@@ -72,7 +74,7 @@ export function PacketsPage() {
   const [error, setError] = useState("");
   const [lookup, setLookup] = useState("");
   const [lookupErr, setLookupErr] = useState("");
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePersistedPage("packets");
   const [total, setTotal] = useState(0);
   const [lockerPage, setLockerPage] = useState(1);
   // Card mode shows one table at a time; these tabs switch between them.
@@ -106,7 +108,7 @@ export function PacketsPage() {
     {
       key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search: string, p: number) =>
-        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined }, 20).then((res) => ({
+        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined, customerType: "Borrower" }, 20).then((res) => ({
           items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
           hasMore: res.hasMore,
         })),
@@ -184,7 +186,7 @@ export function PacketsPage() {
   useEffect(() => { loadPackets(); }, [page, statusKey, branchKey, customerKey, q, pageSize]);
   // A new search term always starts back at page 1 — otherwise a filter
   // typed while sitting on page 3 can land on an empty page.
-  useEffect(() => { setPage(1); }, [q]);
+  useResetPageOnChange(setPage, [q]);
 
   async function onLookup(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== "Enter") return;
@@ -251,7 +253,7 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center tbl-cards">
+            <table className="tbl tbl-center tbl-cards"><TableCols widths={[14, 11, 28, 8, 11, 14, 14]} />
               <thead>
                 <tr><th>Packet Code</th><th>Loan</th><th>Customer</th><th className="num">Items</th><th className="num">Weight</th><th>Locker</th><th>Status</th></tr>
               </thead>
@@ -267,7 +269,7 @@ export function PacketsPage() {
                   // The loan's own outcome overrides the packet's own
                   // (possibly stale) workflow stage once the gold has been
                   // sold — same override PacketDetail.tsx applies.
-                  const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.loanStatus === "Closed" ? "Released" : p.status;
+                  const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.loanStatus === "Rejected" ? "Rejected" : p.loanStatus === "Closed" ? "Released" : p.status;
                   return (
                     <tr key={p.id} className="click" onClick={() => { navigate(`packet/${p.code}`); }}>
                       <td data-label="Packet Code"><a href={routeHref(`packet/${p.code}`)} className="id" onClick={cellLink(`packet/${p.code}`)}>{p.code}</a></td>
@@ -287,6 +289,7 @@ export function PacketsPage() {
           <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
@@ -299,7 +302,7 @@ export function PacketsPage() {
               style={{ height: 31, paddingTop: 0, paddingBottom: 0, fontSize: 13 }}
               value={lockerLookup}
               onChange={(e) => setLockerLookup(e.target.value)}
-              placeholder="Search loan, packet or locker no."
+              placeholder="Search locker, loan, packet or customer"
               title="Searches: locker code, packet code, loan number of packets stored in the locker"
             /></div>
             <FilterPanel
@@ -314,7 +317,7 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center lockers-tbl tbl-cards">
+            <table className="tbl tbl-center lockers-tbl tbl-cards"><TableCols widths={[40, ...(showBranch ? [20] : []), 20, 20]} />
               <thead>
                 <tr><th>Locker</th>{showBranch && <th>Branch</th>}<th className="num">Packets</th><th>Status</th></tr>
               </thead>

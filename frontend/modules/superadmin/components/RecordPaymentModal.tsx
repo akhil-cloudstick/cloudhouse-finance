@@ -43,14 +43,11 @@ export function RecordPaymentModal({
     setError(null);
     setFe({});
     const rupees = Number(amount);
-    if (!Number.isFinite(rupees) || rupees <= 0) {
-      fail("amount", "Enter an amount greater than zero.");
-      return;
-    }
-    if (!paidOn) {
-      fail("paidOn", "Enter the date the payment was made.");
-      return;
-    }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!Number.isFinite(rupees) || rupees <= 0) errors["amount"] ??= "Enter an amount greater than zero.";
+    if (!paidOn) errors["paidOn"] ??= "Enter the date the payment was made.";
+    if (Object.keys(errors).length) { setFe(errors); return; }
     setSubmitting(true);
     try {
       await recordPayment(business.id, {

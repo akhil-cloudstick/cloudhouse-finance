@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 /* Ledger → ledger drill-down memory.
  *
@@ -177,6 +177,10 @@ export function ledgerFocusTarget(scope: string): { key: string } | { date: stri
  * on screen. ready should flip true when the rows have rendered, and deps
  * re-run it when the visible rows change (page/filter). */
 export function useLedgerFocus(scope: string, ready: boolean, deps: unknown[] = []) {
+  // The row already scrolled to on this page. A background refresh of the
+  // ledger re-renders the same row; scrolling again would drag the user back
+  // every time they scroll away, so a given row is focused only once.
+  const handled = useRef("");
   useEffect(() => {
     if (!ready || typeof window === "undefined") return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -200,6 +204,9 @@ export function useLedgerFocus(scope: string, ready: boolean, deps: unknown[] = 
         }
       }
       if (!row) return;
+      const signature = `${path}|${row.dataset.ledgerKey ?? ""}`;
+      if (handled.current === signature) return;
+      handled.current = signature;
       row.classList.add(FOCUS_CLASS);
       row.scrollIntoView({ block: "center", behavior: "smooth" });
       // The highlight fades after 10 seconds.

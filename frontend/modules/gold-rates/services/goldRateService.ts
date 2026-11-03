@@ -1,14 +1,19 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
-import { rateForKarat } from "@/common/utils/purity";
+import { rateForKarat, finenessFromRate } from "@/common/utils/purity";
 import type { BackendGoldRate, GoldRateView, GoldRatePublishInput } from "@/modules/gold-rates/types/gold-rate-types";
 
 function toView(r: BackendGoldRate): GoldRateView {
+  const k22 = r.k22 > 0 ? r.k22 : rateForKarat(r.k24, 22);
+  const k18 = r.k18 > 0 ? r.k18 : rateForKarat(r.k24, 18);
   return {
     id: String(r.id),
     date: r.date ? r.date.slice(0, 10) : "",
     k24: r.k24,
-    k22: r.k22 > 0 ? r.k22 : rateForKarat(r.k24, 22),
-    k18: r.k18 > 0 ? r.k18 : rateForKarat(r.k24, 18),
+    k22,
+    k18,
+    // Rows from before fineness was stored fall back to what their rates imply.
+    fineness22: r.fineness22 && r.fineness22 > 0 ? r.fineness22 : finenessFromRate(r.k24, k22, 22),
+    fineness18: r.fineness18 && r.fineness18 > 0 ? r.fineness18 : finenessFromRate(r.k24, k18, 18),
     setBy: r.setBy,
     setByDesignation: r.setByDesignation || "",
     createdAt: r.createdAt || "",
@@ -74,11 +79,12 @@ export async function publishGoldRate(input: GoldRatePublishInput): Promise<Gold
   return toView(rec);
 }
 
-/* Publishes every changed karat as ONE history row (keys 24/22/18). */
-export async function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string): Promise<GoldRateView> {
+/* Publishes every changed karat as ONE history row (keys 24/22/18). `fineness` (keys 22/18) saves the Auto-mode
+ * fineness with it; omitted, the last one carries forward. */
+export async function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string, fineness?: Partial<Record<22 | 18, number>>, date?: string): Promise<GoldRateView> {
   const rec = await apiFetch<BackendGoldRate>("/gold-rates", {
     method: "POST",
-    body: JSON.stringify({ rates, setBy }),
+    body: JSON.stringify({ rates, setBy, ...(fineness ? { fineness } : {}), ...(date ? { date } : {}) }),
   });
   return toView(rec);
 }

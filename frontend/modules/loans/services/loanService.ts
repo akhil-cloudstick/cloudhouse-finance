@@ -2,6 +2,7 @@ import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } fr
 import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
 import { printPdfJob } from "@/common/utils/print";
+import { roundRupee } from "@/common/utils/format";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import type { OrnamentRequestInput, CreateLoanInput, BackendOrnament, BackendLoanPayment, BackendBankPledgeRecord, BackendLoan, OrnamentView, PaymentView, BankPledgeView, LoanView, BackendCustomerOrnamentRow, CustomerOrnamentRowView, BackendCustomerPaymentRow, CustomerPaymentRowView, BackendCustomerBankPledgeRow, CustomerBankPledgeRowView, SaveDraftInput, BackendLoanDraft, IndemnityBondEsignStart, EsignWitnessInput, IndemnityBondDeliverBy, IndemnityBondEsignCheck, LoanFilters, PurityTestInput, SanctionStage, ApprovalStageRecord, ApprovalInput, UpdateLoanInput, PaymentInput, TopUpInput, LoanTopUpView, TopUpApprovalInput, BankPledgeInput, BankPledgeCashTreatment, BankPledgeRecordView, AuctionStage, AuctionSettlementStatus, AuctionSurplusDisposition, AuctionDecisionStatus, AuctionDecisionRequestView, AuctionRecordView, BackendAuctionDecisionRequest, BackendAuctionRecord, BackendCustomerAuctionRow, CustomerAuctionRowView, BackendConcludedAuctionRow, ConcludedAuctionRowView, LoanLedgerEntry, LoanLedgerPage, LoanLedgerQuery, BackendLoanLedgerEntry, BackendLoanRequest, RequestView, LoanRequestFilters, LoanRiskLevel, LoanRiskRow, LoanRiskCounts, ChecklistInput, ReleasePaymentInput, ReleaseApprovalInput, ExtensionApprovalInput, IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types";
 
@@ -91,6 +92,14 @@ export function toCustomerBankPledgeRowView(p: BackendCustomerBankPledgeRow): Cu
   return { ...toBankPledgeView(p), loanId: p.loanId, loanNumber: p.loanNumber };
 }
 
+/** The calendar day (YYYY-MM-DD) an ISO timestamp falls on in the viewer's timezone. */
+function localDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function toView(l: BackendLoan): LoanView {
   return {
     id: l.loanNumber,
@@ -109,6 +118,8 @@ export function toView(l: BackendLoan): LoanView {
     schemePenal: l.schemePenalRate || 0,
     opened: l.openedDate ? l.openedDate.slice(0, 10) : "",
     due: l.dueDate ? l.dueDate.slice(0, 10) : "",
+    // The closing moment is a timestamp; show the calendar day the user saw, not its UTC day.
+    closed: l.closedAt ? localDay(l.closedAt) : "",
     additionalInfo: l.additionalInfo || "",
     overallPhotoUrl: l.overallPhotoUrl || "",
     totalNetWeight: l.totalNetWeight,
@@ -315,14 +326,17 @@ const LOAN_PAGE_SIZE = 10;
 export async function searchLoansPage(
   q: string,
   page: number,
-  opts?: { excludeBankPledged?: boolean }
+  opts?: { excludeBankPledged?: boolean; customerId?: number; status?: string[]; limit?: number }
 ): Promise<{ items: LoanView[]; hasMore: boolean }> {
+  const pageSize = opts?.limit ?? LOAN_PAGE_SIZE;
   const params = new URLSearchParams({
     q,
-    limit: String(LOAN_PAGE_SIZE),
-    offset: String(page * LOAN_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String(page * pageSize),
   });
   if (opts?.excludeBankPledged) params.set("excludeBankPledged", "true");
+  if (opts?.customerId) params.set("customerId", String(opts.customerId));
+  if (opts?.status?.length) params.set("status", opts.status.join(","));
   const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean }>(`/loans?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }
@@ -559,12 +573,15 @@ export const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
 export async function listBankPledgeHistoryPage(
   page: number,
   limit?: number,
-  query?: string
+  query?: string,
+  range?: { from?: string; to?: string }
 ): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const offset = (page - 1) * pageSize;
   const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
   if (query) params.set("q", query);
+  if (range?.from) params.set("from", range.from);
+  if (range?.to) params.set("to", range.to);
   const res = await apiFetch<{ items: (BackendBankPledgeRecord & { loanNumber?: string; customerName?: string })[] | null; hasMore: boolean; total?: number }>(
     `/loans/bank-pledges/history?${params.toString()}`
   );
@@ -651,9 +668,10 @@ export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView 
     auctionReferenceNumber: r.auctionReferenceNumber,
     saleAmount: r.saleAmount,
     auctionExpenses: r.auctionExpenses,
-    surplusShortfall: r.surplusShortfall,
-    surplusPayableAmount: r.surplusPayableAmount ?? 0,
+    surplusShortfall: roundRupee(r.surplusShortfall),
+    surplusPayableAmount: roundRupee(r.surplusPayableAmount ?? 0),
     surplusDisposition: r.surplusDisposition || "",
+    surplusRemarks: r.surplusRemarks || "",
     finalSettlementStatus: r.finalSettlementStatus,
     notices: (r.notices || []).map((n) => ({ id: n.id, issuedAt: n.issuedAt.slice(0, 10), method: n.method, remarks: n.remarks })),
     events: (r.events || []).map((e) => ({
@@ -668,8 +686,8 @@ export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView 
       auctionRecordId: d.auctionRecordId,
       loanId: d.loanId,
       kind: d.kind,
-      amountPaid: d.amountPaid,
-      outstandingAtRequest: d.outstandingAtRequest,
+      amountPaid: roundRupee(d.amountPaid),
+      outstandingAtRequest: roundRupee(d.outstandingAtRequest),
       status: d.status,
       decidedByRole: d.decidedByRole || "",
       decisionRemarks: d.decisionRemarks || "",
@@ -752,7 +770,7 @@ export async function getAuctionHistory(loanId: number): Promise<AuctionRecordVi
 }
 
 function toLedgerEntry(e: BackendLoanLedgerEntry): LoanLedgerEntry {
-  const base = { key: e.key, date: e.date, amount: e.amount, part: e.part, component: e.component, mode: e.mode, accruing: e.accruing };
+  const base = { key: e.key, date: e.date, amount: e.amount, part: e.part, component: e.component, mode: e.mode, accruing: e.accruing, paidThrough: e.paidThrough };
   const auction = e.auction ? toAuctionRecordView(e.auction) : null;
   switch (e.kind) {
     case "sanction":
@@ -809,7 +827,8 @@ export async function listConcludedAuctionsPage(
   hasSale: boolean,
   limit?: number,
   q?: string,
-  stages?: string[]
+  stages?: string[],
+  outcome?: "surplus" | "shortfall" | ""
 ): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
@@ -819,6 +838,7 @@ export async function listConcludedAuctionsPage(
   });
   if (q && q.trim()) params.set("q", q.trim());
   if (stages && stages.length) params.set("stage", stages.join(","));
+  if (outcome) params.set("outcome", outcome);
   const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean; total?: number }>(
     `/loans/auctions/concluded?${params}`
   );
@@ -832,8 +852,8 @@ export async function listPendingAuctionDecisions(): Promise<AuctionDecisionRequ
     auctionRecordId: d.auctionRecordId,
     loanId: d.loanId,
     kind: d.kind,
-    amountPaid: d.amountPaid,
-    outstandingAtRequest: d.outstandingAtRequest,
+    amountPaid: roundRupee(d.amountPaid),
+    outstandingAtRequest: roundRupee(d.outstandingAtRequest),
     status: d.status,
     decidedByRole: d.decidedByRole || "",
     decisionRemarks: d.decisionRemarks || "",
@@ -892,7 +912,7 @@ function toRequestView(r: BackendLoanRequest): RequestView {
 export async function listLoanRequests(filters?: LoanRequestFilters): Promise<RequestView[]> {
   const params = new URLSearchParams();
   if (filters?.status) params.set("status", filters.status);
-  if (filters?.loanId) params.set("loanId", String(filters.loanId));
+  if (filters?.loanId) params.set("loan_id", String(filters.loanId));
   const qs = params.toString();
   const rec = await apiFetch<BackendLoanRequest[]>(`/loans/requests${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toRequestView);
@@ -913,9 +933,11 @@ export async function listLoanRequestsPage(
     offset: String((page - 1) * pageSize),
   });
   if (filters?.status) params.set("status", filters.status);
-  if (filters?.loanId) params.set("loanId", String(filters.loanId));
+  if (filters?.loanId) params.set("loan_id", String(filters.loanId));
   if (filters?.type) params.set("type", filters.type);
   if (filters?.q) params.set("q", filters.q);
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
   const rec = await apiFetch<{ items: BackendLoanRequest[]; hasMore: boolean; total?: number }>(`/loans/requests?${params}`);
   return { items: (rec?.items || []).map(toRequestView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -950,7 +972,7 @@ export const LOAN_RISK_PAGE_SIZE = 15;
 export async function listLoanRiskAssessmentPage(
   page: number,
   limit?: number,
-  filters?: { status?: string; riskLevel?: LoanRiskLevel; fromDate?: string; toDate?: string; q?: string }
+  filters?: { status?: string; riskLevel?: string; fromDate?: string; toDate?: string; q?: string }
 ): Promise<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }> {
   const pageSize = limit ?? LOAN_RISK_PAGE_SIZE;
   const params = new URLSearchParams({
@@ -958,7 +980,7 @@ export async function listLoanRiskAssessmentPage(
     offset: String((page - 1) * pageSize),
   });
   if (filters?.status) params.set("status", filters.status);
-  if (filters?.riskLevel) params.set("riskLevel", filters.riskLevel);
+  if (filters?.riskLevel) params.set("risk_level", filters.riskLevel);
   if (filters?.fromDate) params.set("from", filters.fromDate);
   if (filters?.toDate) params.set("to", filters.toDate);
   if (filters?.q?.trim()) params.set("search", filters.q.trim());

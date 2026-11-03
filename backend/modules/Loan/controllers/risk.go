@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,9 +37,10 @@ type LoanRiskRow struct {
 }
 
 type RiskAssessmentFilter struct {
-	Status      string
+	// Statuses and RiskLevels each match any of their values; empty means no restriction (all eligible statuses).
+	Statuses    []string
 	BranchScope *uint
-	RiskLevel   RiskLevel
+	RiskLevels  []RiskLevel
 	OpenedFrom  *time.Time
 	OpenedTo    *time.Time
 	Query       string
@@ -73,8 +75,8 @@ func listLoanRiskAssessment(ctx context.Context, f RiskAssessmentFilter) (*RiskA
 		OpenedFrom:  f.OpenedFrom,
 		OpenedTo:    f.OpenedTo,
 	}
-	if f.Status != "" {
-		lf.Status = f.Status
+	if len(f.Statuses) > 0 {
+		lf.StatusIn = f.Statuses
 	} else {
 		lf.StatusIn = riskEligibleStatuses
 	}
@@ -104,7 +106,7 @@ func listLoanRiskAssessment(ctx context.Context, f RiskAssessmentFilter) (*RiskA
 			continue
 		}
 		counts[level]++
-		if f.RiskLevel != "" && level != f.RiskLevel {
+		if len(f.RiskLevels) > 0 && !slices.Contains(f.RiskLevels, level) {
 			continue
 		}
 		rows = append(rows, LoanRiskRow{
@@ -158,22 +160,28 @@ func riskLevelAllowed(v string) bool {
 
 func ListRiskAssessment(c echo.Context) error {
 	ctx := auth.RequestContext(c)
-	status := c.QueryParam("status")
-	riskLevel := c.QueryParam("risk_level")
-	page, limit, offset := common.PageParams(c)
-	if status != "" && !riskStatusAllowed(status) {
-		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid status"})
+	// Both filters take one value or a comma-separated list.
+	statuses := splitCSV(c.QueryParam("status"))
+	var riskLevels []RiskLevel
+	for _, v := range splitCSV(c.QueryParam("risk_level")) {
+		if !riskLevelAllowed(v) {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid risk_level"})
+		}
+		riskLevels = append(riskLevels, RiskLevel(v))
 	}
-	if riskLevel != "" && !riskLevelAllowed(riskLevel) {
-		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid risk_level"})
+	page, limit, offset := common.PageParams(c)
+	for _, s := range statuses {
+		if !riskStatusAllowed(s) {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid status"})
+		}
 	}
 	from, to, ok := parseOpenedRange(c)
 	if !ok {
 		return nil
 	}
 	f := RiskAssessmentFilter{
-		Status:      status,
-		RiskLevel:   RiskLevel(riskLevel),
+		Statuses:    statuses,
+		RiskLevels:  riskLevels,
 		BranchScope: auth.GetBranchScope(c),
 		OpenedFrom:  from,
 		OpenedTo:    to,

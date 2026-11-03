@@ -1,8 +1,11 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
+import { useApprovalWorkflow } from "@/common/providers/AuthProvider";
+import { isFlowOff } from "@/common/services/approvalWorkflowService";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
 import { createReleaseRequest, getLoan, listLoanRequests } from "@/modules/loans/services/loanService";
@@ -33,6 +36,10 @@ type RequestReleaseModalContentProps = { loan: LoanView; onSaved: () => void };
 export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: RequestReleaseModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
+  // With no release approver configured there is no request to wait on — the release completes once the checklist
+  // is done and the payment recorded — so the button just says "Release".
+  const { config: workflow } = useApprovalWorkflow();
+  const noApprover = isFlowOff(workflow, "loan_release");
 
   // The caller's `loan` prop can be stale by the time this modal actually
   // opens — LoanDetail.tsx only re-fetches on an explicit action, and
@@ -155,6 +162,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
         </div>
         <div className={ornamentsErr ? "has-err" : undefined}>
         <div className="tbl-wrap rel-orn-wrap"><table className="tbl">
+          <TableCols widths={["36px", 34, 14, 14, 18, 14]} />
           <thead><tr><th style={{ width: 36 }}></th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th><th></th></tr></thead>
           <tbody>
             {pledged.map((o) => {
@@ -196,7 +204,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" disabled={selected.size === 0 || saving} onClick={save}>
-          <Icon name="check" /> {saving ? "Saving…" : "Log Request"}
+          <Icon name="check" /> {saving ? "Saving…" : noApprover ? "Release" : "Log Request"}
         </button>
       </div>
     </>

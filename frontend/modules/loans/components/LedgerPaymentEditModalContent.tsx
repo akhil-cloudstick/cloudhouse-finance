@@ -16,6 +16,7 @@ import { InterestChangesTable } from "@/modules/loans/components/InterestChanges
 import { GoldReleaseDependents } from "@/modules/loans/components/GoldReleaseDependents";
 import { editLedgerPayment, deleteLedgerPayment, type LedgerPaymentEditPreview } from "@/modules/loans/services/loanService";
 import { type PaymentView, type DiscountKind, DISCOUNT_KIND_LABELS } from "@/modules/loans/types/loan-types";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 const CASH_TYPES = ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement"];
 
@@ -175,7 +176,7 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, linkedDiscou
         {preview && (
           <div style={{ marginTop: 12 }}>
             <label className="f">What changes on the loan (as of its last entry)</label>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap"><table className="tbl"><TableCols widths={[40, 30, 30]} />
               <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
               <tbody>
                 {changedRow("Principal owed", preview.before.principal, preview.after.principal)}

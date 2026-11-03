@@ -104,6 +104,7 @@ func TestProjectAccrual_NoDailyProrationPastFirstMonth(t *testing.T) {
 		DueDate:              from.AddDate(1, 0, 0),
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 		SchemePenalRate:      sch.PenalRate,
 	}
 	for _, days := range []int{1, 12, 29} {
@@ -133,6 +134,7 @@ func TestProjectAccrual_FirstMonthIsChargedOnceItsPeriodIsOver(t *testing.T) {
 		DueDate:              opened.AddDate(1, 0, 0),
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 		SchemePenalRate:      sch.PenalRate,
 	}
 	// nothing is charged ahead of time, so viewing the loan mid-month saves nothing
@@ -170,6 +172,7 @@ func TestProjectAccrual_TopUpDuringFirstMonthSplitsDaily(t *testing.T) {
 		DueDate:              opened.AddDate(1, 0, 0),
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 	}
 	topUps := []models.LoanTopUp{{Amount: 50_000, OccurredOn: topUpDate}}
 	monthEnd := addMonths(opened, 1)
@@ -202,6 +205,7 @@ func TestProjectAccrual_TopUpAfterFirstMonthUsesOrdinaryAccrual(t *testing.T) {
 		DueDate:              opened.AddDate(1, 0, 0),
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 	}
 	topUps := []models.LoanTopUp{{Amount: 50_000, OccurredOn: anchor.AddDate(0, 0, 5)}}
 	i, _, _ := projectAccrual(l, anchor.AddDate(0, 1, 0), topUps)
@@ -219,6 +223,7 @@ func TestProjectAccrual_FlatMonthlyChargesOffPrincipalNotOutstanding(t *testing.
 		DueDate:              from.AddDate(1, 0, 0),
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 		SchemePenalRate:      sch.PenalRate,
 	}
 	i, _, _ := projectAccrual(l, from.AddDate(0, 1, 0), nil)
@@ -235,6 +240,7 @@ func TestProjectAccrual_RemainderSurvivesRepeatedReads(t *testing.T) {
 		DueDate:              from.AddDate(1, 0, 0),
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 		SchemePenalRate:      sch.PenalRate,
 	}
 	for day := 1; day <= 90; day++ {
@@ -255,6 +261,7 @@ func TestProjectAccrual_CompoundChargesInterestOnUnpaidInterest(t *testing.T) {
 		DueDate:              from.AddDate(1, 0, 0),
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 		SchemePenalRate:      sch.PenalRate,
 	}
 	i, _, anchor := projectAccrual(l, from.AddDate(0, 3, 0), nil)
@@ -280,6 +287,7 @@ func TestProjectAccrual_MonthEndClampsInsteadOfOverflowing(t *testing.T) {
 		DueDate:              from.AddDate(1, 0, 0),
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 		SchemePenalRate:      sch.PenalRate,
 	}
 	iMidCycle, _, _ := projectAccrual(l, time.Date(2026, 2, 27, 0, 0, 0, 0, time.UTC), nil)
@@ -302,6 +310,7 @@ func TestProjectAccrual_PenalCountsWholeOverdueMonthsOnce(t *testing.T) {
 		DueDate:              due,
 		SchemeInterestRate:   sch.InterestRate,
 		SchemeInterestMethod: sch.InterestMethod,
+		SchemeAccrualBasis:   commonModels.AccrualBasisMonthly,
 		SchemePenalRate:      sch.PenalRate,
 	}
 	i, p, anchor := projectAccrual(l, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), nil)

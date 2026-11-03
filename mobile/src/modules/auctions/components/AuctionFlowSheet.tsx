@@ -140,8 +140,14 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
     setDecisionRemarks("");
   }, [visible, loanId]);
 
-  function onOk() {
+  function onOk(data?: unknown) {
     setError(null);
+    // Take the new stage straight from the response so the sheet advances without waiting for the refetch.
+    const r = data as AuctionRecord | undefined;
+    if (r && typeof r === "object" && "stage" in r && r.stage !== "Settled" && r.stage !== "Withdrawn") {
+      qc.setQueryData(["auction", key], r);
+      setView(stepOf(r));
+    }
     qc.invalidateQueries({ queryKey: ["auction", key] });
     qc.invalidateQueries({ queryKey: ["loan", key] });
     qc.invalidateQueries({ queryKey: ["loans"] });
@@ -149,7 +155,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
   }
   const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : "Could not complete that action.");
 
-  const eligible = useMutation({ mutationFn: () => markAuctionEligible(loanId), onSuccess: onOk, onError });
+  const eligible = useMutation({ mutationFn: () => markAuctionEligible(loanId), onSuccess: (d) => onOk(d), onError });
   const notice = useMutation({
     // The notice endpoint stores free-text remarks; the notice type and
     // dates the prototype asks for are recorded there.
@@ -158,14 +164,14 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
         loanId,
         [noticeType, noticeDate ? `issued ${dmy(noticeDate)}` : null, deadline ? `respond by ${dmy(deadline)}` : null].filter(Boolean).join(" · ")
       ),
-    onSuccess: onOk,
+    onSuccess: (d) => onOk(d),
     onError,
   });
-  const schedule = useMutation({ mutationFn: () => scheduleAuction(loanId, auctionDate, reference.trim() || undefined), onSuccess: onOk, onError });
+  const schedule = useMutation({ mutationFn: () => scheduleAuction(loanId, auctionDate, reference.trim() || undefined), onSuccess: (d) => onOk(d), onError });
   const sale = useMutation({
     mutationFn: () =>
       recordAuctionSale(loanId, Number(saleAmount), expenses ? Number(expenses) : undefined, salePay ? { cashAmount: salePay.split.cashAmount, upiAmount: salePay.split.upiAmount, bankTransferAmount: salePay.split.bankTransferAmount, bankId: salePay.bankId } : undefined),
-    onSuccess: onOk,
+    onSuccess: (d) => onOk(d),
     onError,
   });
   // A surplus refund is paid in ONE mode (the backend records a single mode and bank for it).
@@ -181,7 +187,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
   const salePreview = saleNum - expNum - (loan?.totalOutstandingBalance ?? 0);
   const settle = useMutation({
     mutationFn: () => settleAuction(loanId, disposition, dispRemarks.trim() || undefined, refundMode, refundMode ? refundPay?.bankId : undefined),
-    onSuccess: onOk,
+    onSuccess: (d) => onOk(d),
     onError,
   });
   const decide = useMutation({
@@ -232,12 +238,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
               Case concluded
             </SectionTitle>
             <NoticeBanner>This loan&apos;s gold was already sold at auction — see Auction History for the outcome.</NoticeBanner>
-            {balanceDue ? (
-              <NoticeBanner>
-                Balance due after auction — this loan has returned to normal collection. Record payments against it as usual; the auction will close itself
-                once the balance is cleared.
-              </NoticeBanner>
-            ) : null}
+            {balanceDue ? <NoticeBanner>Balance due after auction — collect it as a normal payment.</NoticeBanner> : null}
           </>
         );
       return (
@@ -245,11 +246,11 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
           <SectionTitle flush style={{ marginTop: 16 }}>
             Step 1 · Mark Auction Eligible
           </SectionTitle>
-          <NoticeBanner>
-            {isDefaulted
-              ? `${customer} has been overdue for ${days} day${days === 1 ? "" : "s"} with interest still unpaid. Marking the loan Auction Eligible opens its auction case — the next step is issuing the notice.`
-              : "This loan is not eligible for auction — only a defaulted loan (over 90 days overdue with interest unpaid) can be."}
-          </NoticeBanner>
+          {isDefaulted ? (
+            <NoticeBanner>
+              {`${customer} is a defaulted loan. Marking it Auction Eligible opens its auction case — the next step is issuing the notice.`}
+            </NoticeBanner>
+          ) : null}
           {errText(frozen ? null : error)}
           {isDefaulted ? (
             canMarkEligible ? (
@@ -281,9 +282,6 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
             </>
           ) : (
             <>
-              <NoticeBanner>
-                Customer {customer} has been overdue for {days} day{days === 1 ? "" : "s"}. Issuing a notice starts the legal auction-eligibility clock.
-              </NoticeBanner>
               {noPerm}
               <Field label="Notice type">
                 <ThemeDropdown<string> value={noticeType} options={NOTICE_TYPES} onChange={setNoticeType} labelOf={(v) => v} />
@@ -291,7 +289,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
               <DateField label="Notice date" value={noticeDate} onChange={setNoticeDate} max={todayISO()} />
               <DateField label="Response deadline" value={deadline} onChange={setDeadline} min={noticeDate || undefined} clearable />
               {errText(frozen ? null : error)}
-              {can_("can_issue_auction_notice") ? <PrimaryButton label="Issue Notice & Continue--" onPress={() => notice.mutate()} loading={notice.isPending} /> : null}
+              {can_("can_issue_auction_notice") ? <PrimaryButton label="Issue Notice" onPress={() => notice.mutate()} loading={notice.isPending} /> : null}
             </>
           )}
         </>
@@ -328,7 +326,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
               {errText(frozen ? null : error)}
               <BtnRow2>
                 {backBtn}
-                {can_("can_schedule_auction") ? <PrimaryButton label="Schedule & Continue" onPress={() => schedule.mutate()} loading={schedule.isPending} disabled={!auctionDate} /> : null}
+                {can_("can_schedule_auction") ? <PrimaryButton label="Schedule" onPress={() => schedule.mutate()} loading={schedule.isPending} disabled={!auctionDate} /> : null}
               </BtnRow2>
             </>
           )}
@@ -359,6 +357,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
           ) : (
             <>
               {noPerm}
+              <ResultBox k="Auction amount (debt to cover)" v={inr(loan?.totalOutstandingBalance ?? 0)} />
               <Field label="Sale amount">
                 <Input value={saleAmount} onChangeText={(v) => setSaleAmount(v.replace(/[^0-9.]/g, ""))} placeholder="₹" keyboardType="decimal-pad" />
               </Field>
@@ -379,7 +378,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
               {errText(frozen ? null : error)}
               <BtnRow2>
                 {backBtn}
-                {can_("can_record_auction_sale") ? <PrimaryButton label="Record Sale & Continue" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(saleNum > 0) || expNum > saleNum || !salePay?.ready} /> : null}
+                {can_("can_record_auction_sale") ? <PrimaryButton label="Conduct" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(saleNum > 0) || expNum > saleNum || !salePay?.ready} /> : null}
               </BtnRow2>
             </>
           )}
@@ -433,7 +432,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
               {backBtn}
               {can_("can_settle_auction") ? (
                 <PrimaryButton
-                  label="Settle & Close Case"
+                  label="Settle"
                   onPress={() => settle.mutate()}
                   loading={settle.isPending}
                   disabled={(disposition === "RecordedAsIncome" && !dispRemarks.trim()) || !refundOk}

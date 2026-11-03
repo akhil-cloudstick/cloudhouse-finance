@@ -1,6 +1,9 @@
   "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePersistedPage, usePersistedState, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -15,8 +18,9 @@ import { SettleAuctionModalContent } from "@/modules/loans/components/SettleAuct
 import { RecordSaleModalContent } from "@/modules/loans/components/RecordSaleModalContent";
 import { ScheduleAuctionModalContent } from "@/modules/loans/components/ScheduleAuctionModalContent";
 import { IssueNoticeModalContent } from "@/modules/loans/components/IssueNoticeModalContent";
+import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { FilterPanel, type FilterCategory } from "@/common/components/ui/FilterPanel";
-import { getAuctionRecord, markAuctionEligible, listConcludedAuctionsPage, listLoans, pendingDecision, hasUndisposedSurplus, isActiveAuctionCase, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
+import { getAuctionRecord, getLoanByNumber, releaseBankPledge, markAuctionEligible, listConcludedAuctionsPage, listLoans, pendingDecision, hasUndisposedSurplus, isActiveAuctionCase, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type ConcludedAuctionRowView, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { useScrollPageSize } from "@/common/utils/responsive";
@@ -69,6 +73,7 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
   // before opening closes that window; a genuinely-stale case just makes
   // the button disappear on next render instead of opening a doomed modal.
   const [checkingRec, setCheckingRec] = useState(false);
+  const [releasingBank, setReleasingBank] = useState(false);
   async function openSettleModal() {
     setCheckingRec(true);
     try {
@@ -127,6 +132,35 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
   // While an escalation is open the pipeline is frozen server-side; hiding the
   // advance buttons keeps the UI honest instead of offering actions that 409.
   const frozen = !!decision;
+  // Gold sitting with a bank cannot be noticed, scheduled or sold; the server rejects it too.
+  const goldAtBank = l.bankPledgeStatus === "Bank Pledged";
+  const canReleaseFromBank = can("Bank_Pledge_Management", "can_update_bank_pledge");
+  // The list carries no pledge records, so fetch the loan to find the active one,
+  // then confirm and release it exactly as the loan page does.
+  async function doReleaseFromBank() {
+    setReleasingBank(true);
+    try {
+      const fresh = await getLoanByNumber(l.loanNumber);
+      const p = fresh.bankPledges.find((x) => x.status === "Active");
+      if (!p) { toast("No active bank pledge found for this loan."); onLoanChanged(); return; }
+      openModal(
+        <ReleasePledgeModalContent
+          bankName={p.bankName}
+          amount={p.pledgedAmount}
+          cashTreatment={p.cashTreatment}
+          onConfirm={async (payment) => {
+            await releaseBankPledge(fresh.numericId, p.id, payment);
+            toast("Bank pledge released");
+            onLoanChanged();
+          }}
+        />
+      );
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not load the bank pledge — try again.");
+    } finally {
+      setReleasingBank(false);
+    }
+  }
   const balanceDue = l.status === "Auctioned - Balance Due";
   // With an auction decision flow switched off, the backend raises no
   // decision request for that case — it records the outcome as already
@@ -142,8 +176,9 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
       <div className="bd">
         <div style={{ marginBottom: 14 }}>
           <StageTracker
-            stages={["Overdue", "Defaulted", ...AUCTION_STAGES.map((s) => AUCTION_STAGE_LABELS[s])]}
-            currentIndex={rec ? 2 + stageIndex : l.isDefaulted ? 2 : l.isOverdue ? 1 : 0}
+            // The auction path starts at Defaulted; a loan that is only overdue has not entered it yet.
+            stages={["Defaulted", ...AUCTION_STAGES.map((s) => AUCTION_STAGE_LABELS[s])]}
+            currentIndex={rec ? 1 + stageIndex : l.isDefaulted ? 0 : -1}
           />
         </div>
         <div className="kv">
@@ -213,10 +248,7 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
         {balanceDue && !decision && (
           <div className="notice" style={{ marginTop: 12 }}>
             <Icon name="shield" />
-            <span>
-              Balance due after auction — this loan has returned to normal collection. Record payments against it as usual;
-              the auction will close itself once the balance is cleared.
-            </span>
+            <span>Balance due after auction — collect it as a normal payment.</span>
           </div>
         )}
 
@@ -241,16 +273,24 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
           </button>
         )}
 
-        {!frozen && canAct && can("Auction_Workflow", "can_mark_loan_auction_eligible") && (rec === undefined ? null : !rec ? (
+        {goldAtBank && !frozen && (
+          <>
+            <span className="muted" style={{ fontSize: 12 }}>Gold is pledged to a bank — release it before continuing the auction.</span>
+            {canReleaseFromBank && (
+              <button className="btn sm" disabled={releasingBank} onClick={doReleaseFromBank}><Icon name="bank" /> {releasingBank ? "Loading…" : "Release from Bank"}</button>
+            )}
+          </>
+        )}
+        {!frozen && !goldAtBank && canAct && can("Auction_Workflow", "can_mark_loan_auction_eligible") && (rec === undefined ? null : !rec ? (
           <button className="btn sm" disabled={starting} onClick={doMarkEligible}><Icon name="gavel" /> {starting ? "Starting…" : "Mark Auction Eligible"}</button>
         ) : null)}
-        {!frozen && canAct && can("Auction_Workflow", "can_issue_auction_notice") && rec && (rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued") && (
+        {!frozen && !goldAtBank && canAct && can("Auction_Workflow", "can_issue_auction_notice") && rec && (rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued") && (
           <button className="btn sm" onClick={() => openModal(<IssueNoticeModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="doc" /> Issue Notice</button>
         )}
-        {!frozen && canAct && can("Auction_Workflow", "can_schedule_auction") && rec && rec.stage === "NoticeIssued" && (
+        {!frozen && !goldAtBank && canAct && can("Auction_Workflow", "can_schedule_auction") && rec && rec.stage === "NoticeIssued" && (
           <button className="btn sm" onClick={() => openModal(<ScheduleAuctionModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="clock" /> Schedule Auction</button>
         )}
-        {!frozen && canAct && can("Auction_Workflow", "can_record_auction_sale") && rec && rec.stage === "AuctionScheduled" && (
+        {!frozen && !goldAtBank && canAct && can("Auction_Workflow", "can_record_auction_sale") && rec && rec.stage === "AuctionScheduled" && (
           <button className="btn sm" onClick={() => openModal(<RecordSaleModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="gavel" /> Record Sale</button>
         )}
         {/* Settle is the surplus-disposition step, so it only applies when the
@@ -258,7 +298,9 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
         {!frozen && canAct && can("Auction_Workflow", "can_settle_auction") && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
           <button className="btn sm" disabled={checkingRec} onClick={openSettleModal}><Icon name="check" /> {checkingRec ? "Checking…" : "Settle Surplus"}</button>
         )}
-        {rec && (rec.stage === "Auctioned" || rec.stage === "Settled") && (
+        {/* The letter is the final notice, so it is available from the moment the notice
+          * is issued — not only after a sale date is set or the auction is over. */}
+        {rec && (rec.stage === "NoticeIssued" || rec.stage === "AuctionScheduled" || rec.stage === "Auctioned" || rec.stage === "Settled") && (
           <button className="btn sm ghost" onClick={() => printAuctionLetter(l, toast)}><Icon name="doc" /> Print Auction Letter</button>
         )}
       </div>
@@ -284,10 +326,16 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // client-side, see the comment on `allCases` below); History re-queries
   // the server on each edit (debounced), since its two sub-tables are real
   // paginated backend queries.
-  const [q, setQ] = useState(focusLoan || "");
+  // Search, status filter and page numbers are remembered, so opening a loan and pressing Back returns to the same view.
+  const [q, setQ] = usePersistedState("auctions:q", focusLoan || "");
+  // Arriving with a loan number (route argument) searches for it even when an older search is remembered.
+  useEffect(() => { if (focusLoan) setQ(focusLoan); }, [focusLoan]); // eslint-disable-line react-hooks/exhaustive-deps
   // Auction status (stage) filter, applied by the backend on both tabs.
-  const [stages, setStages] = useState<string[]>([]);
+  const [stages, setStages] = usePersistedState<string[]>("auctions:stages", []);
   const stagesKey = stages.join(",");
+  // History's own filter: only sales that left a surplus to settle, or fell short. Both ticked (or none) shows every sale.
+  const [outcomes, setOutcomes] = usePersistedState<string[]>("auctions:outcome", []);
+  const outcome = outcomes.length === 1 && (outcomes[0] === "surplus" || outcomes[0] === "shortfall") ? outcomes[0] : "";
   const ACTIVE_STAGE_VALUES = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"];
   const activeStages = stages.filter((s) => ACTIVE_STAGE_VALUES.includes(s));
   const activeStagesKey = activeStages.join(",");
@@ -321,7 +369,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // scroll (`more` raises pageSize, page stays 1). Above it, pageSize is fixed.
   const { cards, size: pageSize, more } = useScrollPageSize(15);
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
-  const [conductedPage, setConductedPage] = useState(1);
+  const [conductedPage, setConductedPage] = usePersistedPage("auctions:conducted");
   const [conductedHasMore, setConductedHasMore] = useState(false);
   const [conductedTotal, setConductedTotal] = useState(0);
   const [conductedLoading, setConductedLoading] = useState(false);
@@ -329,7 +377,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   const conductedTotalPages = Math.max(1, Math.ceil(conductedTotal / pageSize));
 
   const [closedWithoutSale, setClosedWithoutSale] = useState<ConcludedAuctionRowView[]>([]);
-  const [closedPage, setClosedPage] = useState(1);
+  const [closedPage, setClosedPage] = usePersistedPage("auctions:closed");
   const [closedHasMore, setClosedHasMore] = useState(false);
   const [closedTotal, setClosedTotal] = useState(0);
   const [closedLoading, setClosedLoading] = useState(false);
@@ -342,7 +390,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // client-side over LoansProvider's already-loaded list instead, the same
   // approach Loans.tsx uses for its own computed-flag tabs (Due Soon/
   // Overdue/Defaulted).
-  const [activePage, setActivePage] = useState(1);
+  const [activePage, setActivePage] = usePersistedPage("auctions:active");
 
   /* "Auctioned - Balance Due" is included so a loan whose sale fell short stays
    * visible here while its shortfall decision is outstanding — otherwise the
@@ -361,7 +409,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // The active-tab page must reset when the search narrows/widens the
   // result set, or a search that leaves fewer pages than the current one
   // would strand the viewer on a page that no longer exists.
-  useEffect(() => { setActivePage(1); }, [trimmedQ]);
+  useResetPageOnChange(setActivePage, [trimmedQ]);
   // Entering card mode drops back to page 1 — card mode only ever grows page 1.
   useEffect(() => {
     if (cards) { setActivePage(1); setConductedPage(1); setClosedPage(1); }
@@ -382,7 +430,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
     setConductedLoading(true);
     setConductedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize, query, stages);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize, query, [], outcome);
       setConducted(items);
       setConductedHasMore(hasMore);
       setConductedTotal(total);
@@ -391,13 +439,13 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
     } finally {
       setConductedLoading(false);
     }
-  }, [pageSize, stagesKey]);
+  }, [pageSize, outcome]);
 
   const loadClosed = useCallback(async (page: number, query: string) => {
     setClosedLoading(true);
     setClosedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize, query, stages);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize, query, []);
       setClosedWithoutSale(items);
       setClosedHasMore(hasMore);
       setClosedTotal(total);
@@ -406,7 +454,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
     } finally {
       setClosedLoading(false);
     }
-  }, [pageSize, stagesKey]);
+  }, [pageSize]);
 
   // A concluded auction is edited from its History row: the sale amount and expenses, the surplus settlement, the write-off.
   const canEditAuction = can("Loan_Management", "can_edit_ledger_entry");
@@ -426,8 +474,9 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
       kind="Auction · Sale"
       rows={[
         ["Loan", r.loanNumber], ["Customer", r.customerName], ["Auction date", fmtDate(r.auctionDate)],
-        ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"],
+        ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"], ["Net proceeds", fmt(r.saleAmount - (r.auctionExpenses || 0))],
         [r.surplusShortfall >= 0 ? "Surplus" : "Shortfall", fmt(Math.abs(r.surplusShortfall))], ["Outcome", AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]],
+        ...(r.surplusRemarks ? [["Settlement remarks", r.surplusRemarks] as [string, string]] : []),
       ]}
       description={<>Auction sale of {fmt(r.saleAmount)} less {fmt(r.auctionExpenses)} expenses.{r.surplusDisposition ? <><br />Surplus {r.surplusDisposition === "RefundedToCustomer" ? "refunded to the customer" : "kept as income"}.</> : null}</>}
       actions={actions}
@@ -453,36 +502,60 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // the "no results" hint below can point the viewer at Auction History
   // with an accurate count, rather than requiring them to already know to
   // switch tabs before the same search box finds a concluded case.
+  // The first run (page opened) loads the remembered pages; later runs (search, filter or size changed) start at page 1.
+  const historyMounted = useRef(false);
+  useEffect(() => () => { historyMounted.current = false; }, []);
   useEffect(() => {
+    const first = !historyMounted.current;
+    historyMounted.current = true;
     const handle = setTimeout(() => {
+      if (first) {
+        void loadConducted(conductedPage, q.trim());
+        void loadClosed(closedPage, q.trim());
+        return;
+      }
       setConductedPage(1);
       setClosedPage(1);
       void loadConducted(1, q.trim());
       void loadClosed(1, q.trim());
-    }, 300);
+    }, first ? 0 : 300);
     return () => clearTimeout(handle);
     // pageSize/cards: card mode grows pageSize on scroll, which must refetch
     // page 1 with the larger size (rows stay on screen meanwhile).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, pageSize, cards, stagesKey]);
+  }, [q, pageSize, cards, outcome]);
 
   return (
     <>
       <div className="page-h" >
         <div><h1>Auction Management</h1><p>Defaulted loans progressing through the regulated auction workflow</p> </div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, reference…" title="Searches: loan number, customer name, customer code · auction reference on the History tab only" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan no, customer, reference…" searches="loan number, customer name, customer code · auction reference on the History tab only" value={q} onChange={setQ} />
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <FilterPanel
-          categories={stageFilterCategories}
-          value={{ stage: stages }}
-          onChange={(next) => { setStages(Array.isArray(next.stage) ? next.stage : []); setActivePage(1); }}
-          hideChips
-          hideClearAll
-        />
-      </div>
+      {/* Each tab has its own filter: Active Cases filters by auction status, History by sale outcome. */}
+      {tab === "history" && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <FilterPanel
+            categories={[{ key: "outcome", label: "Sale Outcome", kind: "static", options: [{ value: "surplus", label: "Settle Surplus" }, { value: "shortfall", label: "Shortfall" }] }]}
+            value={{ outcome: outcomes }}
+            onChange={(next) => { setOutcomes(Array.isArray(next.outcome) ? next.outcome : []); setConductedPage(1); }}
+            hideChips
+            hideClearAll
+          />
+        </div>
+      )}
+      {tab === "active" && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <FilterPanel
+            categories={stageFilterCategories}
+            value={{ stage: stages }}
+            onChange={(next) => { setStages(Array.isArray(next.stage) ? next.stage : []); setActivePage(1); }}
+            hideChips
+            hideClearAll
+          />
+        </div>
+      )}
 
       {/* .tabs's own overflow-x:auto (app.css) clips the last pill's right
           edge/shadow the instant its content is even 1-2px wider than the
@@ -540,18 +613,20 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
              * stop the card spilling over the next one (see app.css). */}
             <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl tbl-center tbl-cards">
+                <TableCols widths={[9, 9, 9, 10, 9, 10, 11, 12, 10, 6]} />
                 <thead>
                   <tr>
                     <th>Loan</th><th>Auction Date</th><th>Reference</th>
                     <th className="num">Sale Amount</th><th className="num">Expenses</th>
-                    <th className="num">Surplus / Shortfall</th><th>Outcome</th><th></th>
+                    <th className="num">Net Proceeds</th>
+                    <th className="num">Surplus / Shortfall</th><th>Surplus Disposition</th><th>Outcome</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {conductedLoading && !(cards && conducted.length > 0) ? (
-                    <tr><td colSpan={8} className="empty">Loading…</td></tr>
+                    <tr><td colSpan={10} className="empty">Loading…</td></tr>
                   ) : conducted.length === 0 ? (
-                    <tr><td colSpan={8} className="empty">No auctions have been conducted yet.</td></tr>
+                    <tr><td colSpan={10} className="empty">No auctions have been conducted yet.</td></tr>
                   ) : conducted.map((r) => (
                     <tr key={r.id}>
                       <td data-label="Loan">{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
@@ -559,9 +634,11 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
                       <td data-label="Reference">{r.auctionReferenceNumber || "—"}</td>
                       <td className="num" data-label="Sale Amount">{fmt(r.saleAmount)}</td>
                       <td className="num" data-label="Expenses">{r.auctionExpenses ? fmt(r.auctionExpenses) : "—"}</td>
+                      <td className="num" data-label="Net Proceeds">{fmt(r.saleAmount - (r.auctionExpenses || 0))}</td>
                       <td className="num" data-label="Surplus / Shortfall" style={{ color: r.surplusShortfall >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
                         {r.surplusShortfall >= 0 ? "+" : "−"}{fmt(Math.abs(r.surplusShortfall))}
                       </td>
+                      <td data-label="Surplus Disposition">{r.surplusDisposition === "RefundedToCustomer" ? "Refunded to customer" : r.surplusDisposition === "RecordedAsIncome" ? "Kept as income" : "—"}</td>
                       <td data-label="Outcome"><span className="pill green">{AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]}</span></td>
                       <td style={{ width: 40, minWidth: 40 }}>
                         <span className="ledger-info" style={{ right: "50%", transform: "translate(50%, -50%)" }}><button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }} onClick={() => viewConducted(r)}><Icon name="info" /></button></span>
@@ -592,6 +669,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
              * settle at the same height instead of one dwarfing the other. */}
             <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl tbl-center tbl-cards">
+                <TableCols widths={[30, 35, 35]} />
                 <thead>
                   <tr><th>Loan</th><th>Marked Eligible</th><th>Outcome</th></tr>
                 </thead>

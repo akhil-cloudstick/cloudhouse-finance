@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "@/common/components/Icon";
 
 export type SearchPage<T> = { items: T[]; hasMore: boolean };
 
@@ -47,6 +48,9 @@ type SearchableSelectProps<T> = {
   // visually and functionally unchanged.
   onCreateNew?: () => void;
   createNewLabel?: string;
+  // Opt-in: shows an × on every row. Resolves once the item is deleted (the row then disappears);
+  // a rejection leaves the row in place, so the caller reports why (e.g. the item is still in use).
+  onDeleteItem?: (item: T) => Promise<void>;
   disabled?: boolean;
   /** Custom content for a dropdown row, in place of the plain bold
    * `getLabel(item)` text — e.g. a name plus a StatusChip instead of a
@@ -119,6 +123,7 @@ export function SearchableSelect<T>({
   onCreateNew,
   createNewLabel = "+ Add new",
   disabled,
+  onDeleteItem,
   renderOption,
   compact = false,
   compactMinWidth = 60,
@@ -491,6 +496,20 @@ export function SearchableSelect<T>({
           onClick={(e) => { e.preventDefault(); pick(item); }}
         >
           {renderOption ? renderOption(item) : <span className="tx">{renderLabel ? renderLabel(item) : <b>{getLabel(item)}</b>}</span>}
+          {onDeleteItem && (
+            <button
+              type="button"
+              className="gs-del"
+              tabIndex={-1}
+              title="Delete category"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDeleteItem(item).then(() => setItems((prev) => prev.filter((x) => getId(x) !== getId(item)))).catch(() => {});
+              }}
+            ><Icon name="x" style={{ width: 13, height: 13 }} /></button>
+          )}
         </a>
       ))}
       {loadingMore && <div className="gs-none">Loading more…</div>}

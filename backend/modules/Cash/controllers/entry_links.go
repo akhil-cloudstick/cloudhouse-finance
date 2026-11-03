@@ -60,11 +60,17 @@ func attachOtherEntry(ctx context.Context, m *models.CashMovement, info *entryIn
 		return true
 	case m.TransactionGroupID != "":
 		var pay struct {
-			ID             uint
-			PersonalLoanID uint
+			ID                                                      uint
+			PersonalLoanID                                          uint
+			Method                                                  string
+			Amount                                                  float64
+			CashAmount, UpiAmount, BankTransferAmount, ChequeAmount float64
 		}
-		if err := db.Table("personal_loan_payments").Select("id, personal_loan_id").Where("cash_transaction_group_id = ?", m.TransactionGroupID).Order("id").Limit(1).Scan(&pay).Error; err == nil && pay.ID != 0 {
+		if err := db.Table("personal_loan_payments").Select("id, personal_loan_id, method, amount, cash_amount, upi_amount, bank_transfer_amount, cheque_amount").Where("cash_transaction_group_id = ?", m.TransactionGroupID).Order("id").Limit(1).Scan(&pay).Error; err == nil && pay.ID != 0 {
 			info.LoanEntry, info.LoanID, info.LoanPaymentID = loanEntryPersonalPayment, pay.PersonalLoanID, pay.ID
+			if comps := personalSplitsForLoans(db, []uint{pay.PersonalLoanID})[pay.ID]; len(comps) > 0 {
+				info.Split = PersonalSplitLines(comps, pay.CashAmount, pay.UpiAmount, pay.BankTransferAmount, pay.ChequeAmount, pay.Method, pay.Amount)
+			}
 			return true
 		}
 		var pl struct{ ID uint }

@@ -5,6 +5,11 @@ import {
   AccRow,
   C,
   FlatHeader,
+  GroupedFilter,
+  emptyGroupedFilter,
+  gfValues,
+  type GFSection,
+  type GroupedFilterValue,
   PillTabs,
   Screen,
   SearchInput,
@@ -33,6 +38,24 @@ const HIST = ["conducted", "closed"] as const;
 type Hist = (typeof HIST)[number];
 const HIST_LABELS: Record<Hist, string> = { conducted: "Auctions Conducted", closed: "Closed Without Auction" };
 
+const AUCTION_STAGE_LABELS: Record<AuctionStage, string> = {
+  AuctionEligible: "Auction Eligible",
+  NoticeIssued: "Notice Issued",
+  AuctionScheduled: "Auction Scheduled",
+  Auctioned: "Auctioned",
+  Settled: "Settled",
+  Withdrawn: "Withdrawn",
+};
+const ACTIVE_STAGES: AuctionStage[] = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"];
+const ALL_STAGES: AuctionStage[] = [...ACTIVE_STAGES, "Settled", "Withdrawn"];
+// The "Auction Status" filter belongs to Active Cases only; History has its own Sale Outcome filter.
+const OUTCOME_SECTIONS: GFSection[] = [
+  { kind: "static", key: "outcome", label: "Sale Outcome", options: [{ value: "surplus", label: "Settle Surplus" }, { value: "shortfall", label: "Shortfall" }] },
+];
+const stageSections = (stages: AuctionStage[]): GFSection[] => [
+  { kind: "static", key: "stage", label: "Auction Status", options: stages.map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] })) },
+];
+
 function useOpenLoan() {
   return (id: number) => {
     openPage(`/loans/${id}`);
@@ -56,13 +79,18 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
 
   const [flowLoan, setFlowLoan] = useState<Loan | null>(null);
 
-  const list = useServerList<Loan, { auctionCase: string }>({
+  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  const stageCsv = gfValues(fv, "stage").join(",");
+  const list = useServerList<Loan, { auctionCase?: string; auction_stage?: string }>({
     key: ["loans", "auctions"],
-    filters: { auctionCase: "all" },
+    filters: stageCsv ? { auction_stage: stageCsv } : { auctionCase: "all" },
     fetchPage: (p) => listLoansPage(p),
   });
 
-  const caseSub = (l: Loan) => (l.status === "Auction Eligible" || l.status === "Auctioned - Balance Due" ? l.status : "Defaulted");
+  // Always hand the sheet the live row from the list (a snapshot would keep the pre-change status after a mutation).
+  const liveFlowLoan = flowLoan ? list.items.find((x) => x.id === flowLoan.id) ?? flowLoan : null;
+
+  const caseSub = (l: Loan) => (l.status === "Auction Eligible" || l.status === "Auctioned" || l.status === "Auctioned - Balance Due" ? l.status : "Defaulted");
 
   return (
     <>
@@ -74,7 +102,10 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
         header={
           <>
             {tabs}
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 14 }} />
+            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
+            <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
+              <GroupedFilter title="Filter cases" sections={stageSections(ACTIVE_STAGES)} value={fv} onChange={setFv} />
+            </View>
           </>
         }
         renderItem={(l, i) => (
@@ -82,7 +113,7 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
         )}
       />
 
-      <AuctionFlowSheet loan={flowLoan} visible={!!flowLoan} onClose={() => setFlowLoan(null)} />
+      <AuctionFlowSheet loan={liveFlowLoan} visible={!!flowLoan} onClose={() => setFlowLoan(null)} />
     </>
   );
 }
@@ -100,7 +131,8 @@ const NEXT_STEP: Partial<Record<AuctionStage, string>> = {
 
 function flowLabel(l: Loan, rec: AuctionRecord | null | undefined, loading: boolean): string {
   if (l.status === "Auctioned - Balance Due") return "View Auction";
-  if (l.status !== "Auction Eligible") return "Mark Auction Eligible";
+  // An Auctioned loan is still a case while its sale is unsettled: it has an auction record, so its next step is shown.
+  if (l.status !== "Auction Eligible" && l.status !== "Auctioned") return "Mark Auction Eligible";
   if (loading || !rec) return "Auction Flow";
   if (pendingDecision(rec)) return "Decision Pending";
   if (rec.stage === "Settled" || rec.stage === "Withdrawn") return "View Auction";
@@ -110,7 +142,7 @@ function flowLabel(l: Loan, rec: AuctionRecord | null | undefined, loading: bool
 type AuctionCaseRowProps = { loan: Loan; defaultOpen: boolean; sub: string; onView: () => void; onFlow: () => void };
 
 function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: AuctionCaseRowProps) {
-  const hasRecord = l.status === "Auction Eligible";
+  const hasRecord = l.status === "Auction Eligible" || l.status === "Auctioned";
   const auction = useQuery({ queryKey: ["auction", String(l.id)], queryFn: () => getAuction(l.id), enabled: hasRecord });
   const days = l.daysOverdue ?? 0;
   const overdue = !!l.isOverdue || days > 0;
@@ -139,9 +171,14 @@ type AuctionHistoryProps = { tabs: React.ReactNode };
 function AuctionHistory({ tabs }: AuctionHistoryProps) {
   const openLoan = useOpenLoan();
   const [hist, setHist] = useState<Hist>("conducted");
-  const list = useServerList<ConcludedAuctionRow, { hasSale: boolean }>({
+  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  // History's own filter, for the Auctions Conducted table only: sales that left a surplus to settle, or fell short.
+  // Both ticked (or none) shows every sale.
+  const picked = gfValues(fv, "outcome");
+  const outcome = hist === "conducted" && picked.length === 1 ? picked[0] : "";
+  const list = useServerList<ConcludedAuctionRow, { hasSale: boolean; outcome?: string }>({
     key: ["auctionHistory"],
-    filters: { hasSale: hist === "conducted" },
+    filters: { hasSale: hist === "conducted", ...(outcome ? { outcome } : {}) },
     fetchPage: async (p) => listConcludedAuctions(p),
   });
 
@@ -155,6 +192,11 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
         <>
           {tabs}
           <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
+          {hist === "conducted" ? (
+            <View style={{ paddingHorizontal: 18, paddingBottom: 10 }}>
+              <GroupedFilter title="Filter history" sections={OUTCOME_SECTIONS} value={fv} onChange={setFv} />
+            </View>
+          ) : null}
           <View style={{ paddingHorizontal: 18 }}>
             <SubTabs tabs={HIST} value={hist} onChange={setHist} labels={HIST_LABELS} />
           </View>

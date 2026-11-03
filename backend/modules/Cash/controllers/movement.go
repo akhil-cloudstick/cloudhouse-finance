@@ -63,6 +63,8 @@ type MovementFilter struct {
 	BranchIDs   []uint
 	CustomerIDs []uint
 	Categories  []string
+	// CategoryNames narrows the ledger to entries recorded under those Credit / Debit / Self Transfer categories.
+	CategoryNames []string
 	// Modes narrows the ledger to lines paid in Cash, UPI or Bank Transfer.
 	Modes []string
 }
@@ -190,10 +192,11 @@ func validModes(in []string) []string {
 
 func movementQueryFilter(c echo.Context) MovementFilter {
 	return MovementFilter{
-		BranchIDs:   parseUintCSV(c.QueryParam("branch_ids")),
-		CustomerIDs: parseUintCSV(c.QueryParam("customer_ids")),
-		Categories:  parseStringCSV(c.QueryParam("types")),
-		Modes:       validModes(parseStringCSV(c.QueryParam("modes"))),
+		BranchIDs:     parseUintCSV(c.QueryParam("branch_ids")),
+		CustomerIDs:   parseUintCSV(c.QueryParam("customer_ids")),
+		Categories:    parseStringCSV(c.QueryParam("types")),
+		CategoryNames: parseStringCSV(c.QueryParam("category_names")),
+		Modes:         validModes(parseStringCSV(c.QueryParam("modes"))),
 	}
 }
 
@@ -211,6 +214,15 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 	}
 	if len(filter.Modes) > 0 {
 		q = q.Where("mode IN ?", filter.Modes)
+	}
+	if len(filter.CategoryNames) > 0 {
+		// Credit entries keep the category in source; Debit and Self Transfer entries in purpose, prefixed.
+		var names []string
+		for _, n := range filter.CategoryNames {
+			n = strings.ToLower(strings.TrimSpace(n))
+			names = append(names, n, "expense — "+n, "self transfer — "+n)
+		}
+		q = q.Where("lower(source) IN ? OR lower(purpose) IN ?", names, names)
 	}
 	if !fromDate.IsZero() {
 		q = q.Where("occurred_on >= ?", fromDate)
@@ -948,10 +960,11 @@ func RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, inves
 	})
 }
 
-func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint) (uint, error) {
+func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint, remarks string) (uint, error) {
 	rec := &models.CashMovement{
 		Type:     "out",
 		Purpose:  "Auction surplus settlement — " + loanNumber,
+		Remarks:  strings.TrimSpace(remarks),
 		Amount:   amount,
 		Mode:     auctionMode(mode),
 		BankID:   bankID,
@@ -1157,7 +1170,7 @@ func netOfNewestRows(ctx context.Context, branchID *uint, fromDate, toDate time.
 
 // narrowsLedger reports whether a filter other than the date range hides rows from the ledger.
 func narrowsLedger(filter MovementFilter, search string) bool {
-	return len(filter.BranchIDs) > 0 || len(filter.CustomerIDs) > 0 || len(filter.Categories) > 0 || len(filter.Modes) > 0 || search != ""
+	return len(filter.BranchIDs) > 0 || len(filter.CustomerIDs) > 0 || len(filter.Categories) > 0 || len(filter.CategoryNames) > 0 || len(filter.Modes) > 0 || search != ""
 }
 
 // fullLedgerBalances is each row's balance in the whole (branch-scoped) ledger — every row booked up

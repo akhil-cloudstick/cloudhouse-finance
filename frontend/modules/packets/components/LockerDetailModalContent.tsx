@@ -14,6 +14,7 @@ import { listPackets } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { LockerModalContent } from "@/modules/packets/components/LockerModalContent";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 type LockerDetailModalContentProps = { locker: LockerView; canUpdate: boolean; canDelete?: boolean; onChanged: () => void };
 
@@ -81,7 +82,7 @@ export function LockerDetailModalContent({ locker, canUpdate, canDelete, onChang
           </div>
         </div>
         <div className="tbl-wrap">
-          <table className="tbl tbl-center tbl-cards" style={{ minWidth: 0 }}>
+          <table className="tbl tbl-center tbl-cards" style={{ minWidth: 0 }}><TableCols widths={[16, 16, 30, 14, 24]} />
             <thead><tr><th>Packet</th><th>Loan</th><th>Customer</th><th className="num">Weight</th><th>Status</th></tr></thead>
             <tbody>
               {packets === null && <tr><td colSpan={5} className="empty" style={{ color: "var(--muted)" }}>Loading packets…</td></tr>}

@@ -21,9 +21,15 @@ import { useFocusEffect } from "expo-router";
 // refetching 300 ms into that load cancelled and restarted it — the page
 // painted, then showed the buffering spinner and loaded a second time.
 // Later focuses never cancel a fetch that's still in flight either.
+//
+// A screen that was refreshed less than REFETCH_MIN_GAP_MS ago isn't refreshed again: swiping
+// back and forth across the tabs would otherwise refetch every page each time, and every result
+// re-renders its whole page — a 100-200 ms JS stall landing on the next swipe.
+const REFETCH_MIN_GAP_MS = 20_000;
 type Refetch = (opts?: { cancelRefetch?: boolean }) => unknown;
 export function useRefetchOnFocus(...refetches: Refetch[]) {
   const focusedOnce = useRef(false);
+  const lastFetch = useRef(0);
   const latest = useRef(refetches);
   useLayoutEffect(() => {
     latest.current = refetches;
@@ -32,12 +38,17 @@ export function useRefetchOnFocus(...refetches: Refetch[]) {
     useCallback(() => {
       if (!focusedOnce.current) {
         focusedOnce.current = true;
+        lastFetch.current = Date.now();
         return;
       }
+      if (Date.now() - lastFetch.current < REFETCH_MIN_GAP_MS) return;
       // Deferred a beat so the newly focused screen paints before N network
       // requests and their re-renders compete with it (tab switches felt
       // laggy). Cancelled if the screen loses focus first.
-      const t = setTimeout(() => latest.current.forEach((r) => r({ cancelRefetch: false })), 300);
+      const t = setTimeout(() => {
+        lastFetch.current = Date.now();
+        latest.current.forEach((r) => r({ cancelRefetch: false }));
+      }, 300);
       return () => clearTimeout(t);
     }, [])
   );

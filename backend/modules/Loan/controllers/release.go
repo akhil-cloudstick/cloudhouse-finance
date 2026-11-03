@@ -115,6 +115,12 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 	if l.Status == models.StatusPendingApproval {
 		return nil, common.NewBadRequest("this loan is still pending approval — extension or release can only be requested once it is approved and disbursed")
 	}
+	if isGoldSold(l.Status) {
+		return nil, common.NewBadRequest("this loan's gold has been auctioned — extension or release can no longer be requested")
+	}
+	if l.Status == models.StatusClosed || l.Status == models.StatusClosureRequested {
+		return nil, common.NewConflict("a release has already been approved for this loan — complete it instead of requesting another")
+	}
 	requestedBy := in.RequestedBy
 	if requestedBy == "" {
 		requestedBy = models.RequestedByStaff
@@ -601,6 +607,15 @@ func completeRelease(ctx context.Context, loanID uint, branchID *uint, employeeI
 	} else if a, err := findApprovedReleaseByLoanID(ctx, loanID); err == nil {
 		approved = a
 	}
+	// A partial release already handed over stays Approved forever; once every ornament it names is released it is
+	// spent and must not hijack a later (full) release, which would otherwise run as a no-op partial and leave the
+	// loan open with its own request still pending.
+	if approved != nil && approved.IsPartial && partialReleaseSpent(ctx, approved) {
+		if !paidInFull {
+			return nil, common.NewNotFound("this loan has no approved release request")
+		}
+		approved = nil
+	}
 	if approved != nil && approved.IsPartial {
 		return completePartialRelease(ctx, l, approved)
 	}
@@ -611,6 +626,8 @@ func completeRelease(ctx context.Context, loanID uint, branchID *uint, employeeI
 		log.Printf("packet gold-release movement failed for loan %d: %v", loanID, err)
 	}
 	l.Status = models.StatusClosed
+	closedAt := time.Now()
+	l.ClosedAt = &closedAt
 	if err := persistLoan(ctx, l); err != nil {
 		return nil, err
 	}
@@ -834,4 +851,25 @@ func CompleteRelease(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, rec)
+}
+
+// partialReleaseSpent reports whether every ornament a partial release names has already been handed back.
+func partialReleaseSpent(ctx context.Context, req *models.LoanRequest) bool {
+	if len(req.OrnamentSelections) == 0 {
+		return false
+	}
+	all, err := findAllByLoanID(ctx, req.LoanID)
+	if err != nil {
+		return false
+	}
+	selected := make(map[uint]bool, len(req.OrnamentSelections))
+	for _, sel := range req.OrnamentSelections {
+		selected[sel.OrnamentID] = true
+	}
+	for _, o := range all {
+		if selected[o.ID] && o.ReleasedAt == nil {
+			return false
+		}
+	}
+	return true
 }

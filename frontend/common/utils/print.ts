@@ -11,7 +11,7 @@
 import { BRAND, printBrand, printColors } from "@/common/config/brand";
 
 /** Escapes text interpolated into the print HTML strings. */
-const esc = (s: string) =>
+export const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** True on desktop browsers that can print a PDF/popup in place. Mobile and

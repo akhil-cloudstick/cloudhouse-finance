@@ -103,7 +103,7 @@ export const CUSTOMERS_TABLE_PAGE_SIZE = 10;
 export async function listCustomersPage(
   q: string,
   page: number,
-  filters?: { panStatus?: string; aadhaarStatus?: string; branchIds?: string[] },
+  filters?: { panStatus?: string; aadhaarStatus?: string; branchIds?: string[]; customerType?: string },
   limit?: number
 ): Promise<{ items: CustomerView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 9);
@@ -111,6 +111,7 @@ export async function listCustomersPage(
   if (filters?.panStatus) params.set("panStatus", filters.panStatus);
   if (filters?.aadhaarStatus) params.set("aadhaarStatus", filters.aadhaarStatus);
   if (filters?.branchIds?.length) params.set("branchIds", filters.branchIds.join(","));
+  if (filters?.customerType) params.set("customerType", filters.customerType);
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean; total?: number }>(`/customers?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -131,6 +132,14 @@ const CUSTOMER_PAGE_SIZE = 5;
  * (see backend/internal/customer/handler.go's List). */
 export async function searchCustomersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE) });
+  const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+}
+
+/* Same as searchCustomersPage, narrowed to Borrower customers — investors are kept to the Investments section, so
+ * loan pickers never offer them. */
+export async function searchBorrowersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE), customerType: "Borrower" });
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }

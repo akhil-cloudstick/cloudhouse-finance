@@ -1,6 +1,7 @@
 "use client";
 
 import { fmt } from "@/common/utils/format";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 export type FollowingEntryView = { id: number; paidOn: string; reference?: string; type?: string; current: number; suggested: number; needsChange?: boolean };
 
@@ -20,7 +21,7 @@ export function FollowingEntriesTable({ entries, values, onChange }: Props) {
         Nothing here changes unless you change it. Look at each payment and lower an amount if this edit means it should be different (0 removes it).
         {entries.some((f) => f.needsChange) ? " A payment marked in red no longer fits and has to be lowered before you can confirm." : ""}
       </p>
-      <div className="tbl-wrap"><table className="tbl">
+      <div className="tbl-wrap"><table className="tbl"><TableCols widths={[16, 44, 20, 20]} />
         <thead><tr><th>Date</th><th>Entry</th><th className="num">Now</th><th className="num">New amount</th></tr></thead>
         <tbody>
           {entries.map((f) => (

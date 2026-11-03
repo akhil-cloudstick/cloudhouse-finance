@@ -1,15 +1,21 @@
-import React, { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, View } from "react-native";
 import { HeroHeader } from "./HeroHeader";
-import { headerStore, HeroMorph, s, HeroMorphContext, setTallHeaderCheck } from "./shellContext";
+import { headerStore, HeroMorph, s, HeroMorphContext, setTallHeaderCheck, tabsRef, TitleTransitionContext } from "./shellContext";
+import { PRIMARY_ROUTES, swipe, whenSwipeSettled } from "./swipeStore";
 
 setTallHeaderCheck((node) => React.isValidElement(node) && node.type === HeroHeader);
 
 // Material "standard" curve: eases in and out, so the header neither jumps
 // off at the start nor stops dead at the end. Close to the page slide (220ms)
 // so the header and the page finish together.
-const HEADER_MS = 280;
-const HEADER_EASE = Easing.bezier(0.4, 0, 0.2, 1);
+// Whether the previous focused page was a primary tab (see HeaderHost).
+const track = { prev: true };
+const HEADER_MS = 170;
+// The hero finishes collapsing / opening after this fraction of the page slide, so it leads the
+// page instead of trailing it (and is already settled while the page's ease-out tail plays).
+const HERO_SWIPE_SPAN = 0.7;
+const HEADER_EASE = Easing.out(Easing.cubic);
 type HeroClipProps = {
   morph: HeroMorph;
   style?: object;
@@ -44,6 +50,35 @@ function HeroClip({
     </Animated.View>
   );
 }
+const TITLE_FADE_MS = 180;
+const textOf = (node: React.ReactNode) => {
+  const p = React.isValidElement(node) ? (node.props as { title?: string; subtitle?: string }) : {};
+  return { title: p.title ?? "", subtitle: p.subtitle };
+};
+
+/** When a page header's title changes (a swipe, a tab tap, a jump from the Dashboard, a blank
+ * placeholder filling in), only its title text cross-fades — the header itself stays put. */
+function TitleFade({ node }: { node: React.ReactNode }) {
+  const now = textOf(node);
+  const [cur, setCur] = useState(now);
+  const [prev, setPrev] = useState<typeof now | null>(null);
+  const [fade] = useState(() => new Animated.Value(1));
+  const [out] = useState(() => fade.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }));
+  if (cur.title !== now.title) {
+    setPrev(cur);
+    fade.setValue(0);
+  }
+  if (cur.title !== now.title || cur.subtitle !== now.subtitle) setCur(now);
+  useEffect(() => {
+    if (!prev) return;
+    Animated.timing(fade, { toValue: 1, duration: TITLE_FADE_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(({ finished }) => {
+      if (finished) setPrev(null);
+    });
+  }, [prev, fade]);
+  const value = useMemo(() => (prev ? { prev, fade, out } : null), [prev, fade, out]);
+  return <TitleTransitionContext.Provider value={value}>{node}</TitleTransitionContext.Provider>;
+}
+
 type Morph = { dir: "collapse"; hero: React.ReactNode } | { dir: "expand"; flat: React.ReactNode };
 /** Mounted once by app/(tabs)/_layout.tsx, after the navigator.
  *
@@ -68,7 +103,23 @@ export function HeaderHost() {
   const [flatNode, setFlatNode] = useState<React.ReactNode>(tall ? null : node);
   if (!tall && flatNode !== node) setFlatNode(node);
 
-  const [morph] = useState<HeroMorph>(() => ({ p: new Animated.Value(0), lift: new Animated.Value(0) }));
+  // p = timed + driven. Between two primary tabs the page position (swipe.pos)
+  // IS the hero's progress — the hero collapses and drops exactly with the
+  // page, whether swiped or tapped. Only transitions with a More page, which
+  // slides by the navigator's own clock, use the timed part.
+  const [timed] = useState(() => new Animated.Value(0));
+  const [morph] = useState<HeroMorph>(() => ({
+    p: Animated.add(timed, swipe.view.interpolate({ inputRange: [0, HERO_SWIPE_SPAN], outputRange: [0, 1], extrapolate: 'clamp' })),
+    lift: new Animated.Value(0),
+  }));
+  const focusedPrimary = () => {
+    const st = tabsRef.state;
+    return !!st && PRIMARY_ROUTES.includes(st.routes[st.index]?.name);
+  };
+  // With both heights known the hero's travel is fixed, so it can follow the page from the first frame of a swipe.
+  useEffect(() => {
+    if (heights.tall && heights.short) morph.lift.setValue(heights.tall - heights.short);
+  }, [heights, morph]);
   // The flat header fades in over the back half of a collapse (and out over
   // the front half of an expand).
   const [flatFade] = useState(() => morph.p.interpolate({ inputRange: [0.2, 0.75], outputRange: [0, 1], extrapolate: "clamp" }));
@@ -80,17 +131,18 @@ export function HeaderHost() {
   const [prevTall, setPrevTall] = useState(tall);
   if (prevTall !== tall) {
     setPrevTall(tall);
-    morph.p.stopAnimation();
+    timed.stopAnimation();
+    const driven = track.prev && focusedPrimary();
     if (!tall && heights.tall && heroNode) {
-      morph.p.setValue(0);
+      timed.setValue(0);
       if (heights.short) morph.lift.setValue(heights.tall - heights.short);
       setRunning({ dir: "collapse", hero: heroNode });
     } else if (tall && heights.tall && heights.short && flatNode) {
-      morph.p.setValue(1);
+      timed.setValue(driven ? 0 : 1);
       morph.lift.setValue(heights.tall - heights.short);
       setRunning({ dir: "expand", flat: flatNode });
     } else {
-      morph.p.setValue(tall ? 0 : 1);
+      timed.setValue(tall ? 0 : 1);
       setRunning(null);
     }
   }
@@ -105,40 +157,46 @@ export function HeaderHost() {
     // Starts once the incoming header has a height to aim for.
     if (!running || started.current === running) return;
     started.current = running;
+    const driven = track.prev && focusedPrimary();
+    track.prev = focusedPrimary();
     const lift = tall ? h - heights.short : heights.tall - h;
     morph.lift.setValue(Math.max(0, lift));
     const ran = running;
-    Animated.timing(morph.p, { toValue: tall ? 0 : 1, duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }).start(({ finished }) => {
+    if (driven) {
+      // The page position carries the hero; just retire the curtain once the slide is done.
+      timed.setValue(0);
+      // A slow drag keeps the curtain up until the slide has settled.
+      whenSwipeSettled(() => setTimeout(() => setRunning((cur) => (cur === ran ? null : cur)), 320));
+      return;
+    }
+    Animated.timing(timed, { toValue: tall ? 0 : 1, duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }).start(({ finished }) => {
       if (finished) setRunning((cur) => (cur === ran ? null : cur));
     });
   };
 
   return (
     <View style={s.headerHost} pointerEvents="box-none">
-      {tall ? (
-        <HeroClip key="tall" morph={morph} onLayout={onLayout}>
-          {node}
+      {/* Each header keeps one fixed slot whether it is the live one or the outgoing curtain,
+          so a swap never remounts it (a fresh header paints its gradient a frame late). */}
+      {tall || running?.dir === "collapse" ? (
+        <HeroClip
+          key="hero"
+          morph={morph}
+          style={tall ? undefined : s.headerCurtain}
+          pointerEvents={tall ? "box-none" : "none"}
+          onLayout={tall ? onLayout : undefined}
+        >
+          {tall ? node : running?.dir === "collapse" ? running.hero : null}
         </HeroClip>
-      ) : (
-        <>
-          {running?.dir === "collapse" ? (
-            <HeroClip morph={morph} style={s.headerCurtain} pointerEvents="none">
-              {running.hero}
-            </HeroClip>
-          ) : null}
-          <Animated.View
-            key="short"
-            pointerEvents="box-none"
-            style={{ opacity: running?.dir === "collapse" ? flatFade : 1 }}
-            onLayout={(e) => onLayout(e.nativeEvent.layout.height)}
-          >
-            {node}
-          </Animated.View>
-        </>
-      )}
-      {tall && running?.dir === "expand" ? (
-        <Animated.View pointerEvents="none" style={[s.headerCurtain, { opacity: flatFade }]}>
-          {running.flat}
+      ) : null}
+      {!tall || running?.dir === "expand" ? (
+        <Animated.View
+          key="flat"
+          pointerEvents={tall ? "none" : "box-none"}
+          style={[tall && s.headerCurtain, { opacity: tall || running?.dir === "collapse" ? flatFade : 1 }]}
+          onLayout={tall ? undefined : (e) => onLayout(e.nativeEvent.layout.height)}
+        >
+          {!tall ? <TitleFade node={node} /> : running?.dir === "expand" ? running.flat : null}
         </Animated.View>
       ) : null}
     </View>

@@ -11,7 +11,7 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { createExpense, saveEntryEdit, uploadReceipt } from "@/modules/cash/services/cashService";
-import { searchSelectableExpenseCategoriesPage, createExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
+import { searchSelectableExpenseCategoriesPage, createExpenseCategory, deleteExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
 import { type BackendExpenseCategory } from "@/modules/cash/types/expense-category-types";
 import { type EntryInfo } from "@/modules/cash/types/cash-types";
 import { PaymentBreakdownFields, newPaymentRow, paymentRowIssue, paymentRowsToInput, isBankMode, type PaymentIssue, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
@@ -103,13 +103,17 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
 
   async function save() { return singleFlight("modal:expense:save", async () => {
     setErr(""); setFe({}); setPayIssue(null);
-    if (!cat.trim()) { fail("category", "Please select a category."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!cat.trim()) errors["category"] ??= "Please select a category.";
     const amount = +amt;
-    if (!(amount > 0)) { fail("amount", "Please enter a valid amount."); return; }
-    if (!date) { fail("date", "Please select the date."); return; }
+    if (!(amount > 0)) errors["amount"] ??= "Please enter a valid amount.";
+    if (!date) errors["date"] ??= "Please select the date.";
     const issue = paymentRowIssue(payRows, amount);
     if (issue) { setErr(""); setFe({}); setPayIssue(issue); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    if (!branchId) return; // narrows branchId; the check above already reported it
 
     setSaving(true);
     try {
@@ -166,6 +170,7 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
             placeholder="Search or add a category…"
             allowCreate
             onCreate={createExpenseCategory}
+            onDeleteItem={(c) => deleteExpenseCategory(c.id).then(() => { if (c.name === cat) { setCat(""); setCatRec(null); } toast(`Category "${c.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this category."); throw e; })}
           /><FieldError msg={fe.category} /></div></div>
         <div className="frow c2">
           <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} onWheel={(e) => e.currentTarget.blur()} /><FieldError msg={fe.amount} /></div>

@@ -48,6 +48,7 @@ function movementFilterParams(filters?: CashMovementFilters): URLSearchParams {
   if (filters?.customerIds?.length) params.set("customerIds", filters.customerIds.join(","));
   if (filters?.types?.length) params.set("types", filters.types.join(","));
   if (filters?.modes?.length) params.set("modes", filters.modes.join(","));
+  if (filters?.categoryNames?.length) params.set("category_names", filters.categoryNames.join(","));
   if (filters?.search) params.set("search", filters.search);
   return params;
 }
@@ -110,10 +111,11 @@ export async function exportCashMovements(filters?: CashMovementFilters & { form
   await downloadFile(`/cash-movements/export${qs}`, `cash-movements.${format}`);
 }
 
-/* Downloads every expense-register row (branch-scoped server-side, same as
- * the table) as a PDF. */
-export async function exportExpenses(): Promise<void> {
-  await downloadFile("/expenses/export", "expense-register.pdf");
+/* Downloads every expense-register row matching the filters (branch-scoped
+ * server-side, same as the table) as a PDF. */
+export async function exportExpenses(filters?: ExpenseFilters): Promise<void> {
+  const qs = expenseFilterParams(filters).toString();
+  await downloadFile(`/expenses/export${qs ? `?${qs}` : ""}`, "expense-register.pdf");
 }
 
 export async function createCashMovement(input: CashMovementInput): Promise<CashMovementView> {
@@ -145,6 +147,11 @@ export async function updateMovementEntry(id: number, input: EntryUpdateInput): 
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+/* One expense, for opening the Expense Register on it (the dashboard's expense approval "Review"). */
+export async function getExpense(id: number): Promise<ExpenseView> {
+  return expenseToView(await apiFetch<BackendExpense>(`/expenses/${id}`));
 }
 
 /* The Expense Register's Edit form data for a pending or approved expense —
@@ -199,13 +206,24 @@ export async function listExpenses(): Promise<ExpenseView[]> {
 
 export const EXPENSES_PAGE_SIZE = 8;
 
-export async function listExpensesPage(page: number, limit?: number, search?: string): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number; totalAmount: number }> {
+export type ExpenseFilters = { search?: string; category?: string[]; mode?: string[]; status?: string[]; from?: string; to?: string };
+
+function expenseFilterParams(filters?: ExpenseFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters?.search) params.set("search", filters.search);
+  filters?.category?.forEach((v) => params.append("category", v));
+  filters?.mode?.forEach((v) => params.append("mode", v));
+  filters?.status?.forEach((v) => params.append("status", v));
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  return params;
+}
+
+export async function listExpensesPage(page: number, limit?: number, filters?: ExpenseFilters): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number; totalAmount: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
-  const params = new URLSearchParams({
-    limit: String(pageSize),
-    offset: String((page - 1) * pageSize),
-  });
-  if (search) params.set("search", search);
+  const params = expenseFilterParams(filters);
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
   const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean; total?: number; totalAmount?: number }>(`/expenses?${params}`);
   return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalAmount: rec?.totalAmount ?? 0 };
 }
@@ -359,6 +377,7 @@ export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
     paymentId: r.paymentId,
     personalLoanId: r.personalLoanId,
     loanAccrual: r.loanAccrual,
+    split: r.split,
   };
 }
 

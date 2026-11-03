@@ -67,13 +67,13 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
     const a = address.trim();
     const p = phone.trim();
 
-    if (n.length < 2 || !NAME_RE.test(n)) {
-      fail("name", "Please enter a valid branch name (letters only, at least 2 characters).");
-      return;
-    }
-    if (!code.trim()) { fail("code", "Please enter a branch code."); return; }
-    if (a.length < 3) { fail("address", "Please enter a branch address (at least 3 characters)."); return; }
-    if (p && !PHONE_RE.test(p)) { fail("phone", "Phone number must be exactly 10 digits."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (n.length < 2 || !NAME_RE.test(n)) errors["name"] ??= "Please enter a valid branch name (letters only, at least 2 characters).";
+    if (!code.trim()) errors["code"] ??= "Please enter a branch code.";
+    if (a.length < 3) errors["address"] ??= "Please enter a branch address (at least 3 characters).";
+    if (p && !PHONE_RE.test(p)) errors["phone"] ??= "Phone number must be exactly 10 digits.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     const input = { name: n, code: code.trim(), address: a, phone: p, isActive };
     setSaving(true);

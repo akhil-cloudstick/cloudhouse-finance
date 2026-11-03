@@ -1,5 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
+import { presentFile } from "@/common/utils/presentFile";
 import * as Print from "expo-print";
 import { API_BASE_URL, apiUrl, ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
@@ -28,11 +28,7 @@ async function downloadToCache(investmentId: number, investmentNumber: string, p
 // share sheet — same pattern as schemeStatement.ts's downloadSchemeStatement.
 export async function downloadInvestmentBondPdf(investmentId: number, investmentNumber: string): Promise<void> {
   const uri = await downloadToCache(investmentId, investmentNumber);
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Debenture Subscription Agreement" });
-  } else {
-    throw new Error(`Saved to ${uri} — sharing isn't available on this device.`);
-  }
+  await presentFile(uri, { mimeType: "application/pdf", title: "Debenture Subscription Agreement" });
 }
 
 // Opens the agreement in the OS's native print-preview dialog — same

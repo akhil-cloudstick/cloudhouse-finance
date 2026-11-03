@@ -1,11 +1,12 @@
-import { Image, Pressable, View } from "react-native";
+import { useContext } from "react";
+import { Animated, Image, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
 import { HEADER_LOGO } from "@/common/config/brand";
 import { HeroBackground } from "./HeroBackground";
-import { useShell, s } from "./shellContext";
+import { useShell, s, TitleTransitionContext } from "./shellContext";
 
 type HeaderIcon = { icon: string; onPress: () => void; label?: string; dot?: boolean };
 type FlatHeaderProps = {
@@ -30,6 +31,7 @@ export function FlatHeader({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { openProfile } = useShell();
+  const transition = useContext(TitleTransitionContext);
   return (
     <View style={[s.flatHeader, { paddingTop: insets.top + 12 }]}>
       <HeroBackground />
@@ -49,14 +51,28 @@ export function FlatHeader({
           <Image source={HEADER_LOGO} style={s.flatLogo} resizeMode="contain" />
         </Pressable>
         <View style={s.flatTitleBlock}>
-          <Txt style={s.flatTitle} numberOfLines={1}>
-            {title}
-          </Txt>
-          {subtitle ? (
-            <Txt style={s.flatSub} numberOfLines={1}>
-              {subtitle}
-            </Txt>
+          {transition ? (
+            <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: transition.out }]}>
+              <Txt style={s.flatTitle} numberOfLines={1}>
+                {transition.prev.title}
+              </Txt>
+              {transition.prev.subtitle ? (
+                <Txt style={s.flatSub} numberOfLines={1}>
+                  {transition.prev.subtitle}
+                </Txt>
+              ) : null}
+            </Animated.View>
           ) : null}
+          <Animated.View style={transition ? { opacity: transition.fade } : undefined}>
+            <Txt style={s.flatTitle} numberOfLines={1}>
+              {title}
+            </Txt>
+            {subtitle ? (
+              <Txt style={s.flatSub} numberOfLines={1}>
+                {subtitle}
+              </Txt>
+            ) : null}
+          </Animated.View>
         </View>
         <View style={s.flatIcons}>
           {icons.map((ic) => (

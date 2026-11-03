@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { previewRenewal, renewPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
@@ -64,11 +64,14 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
 
   async function save() {
     const tenureNum = +tenureCount || 0;
-    if (!principalNum || principalNum <= 0) { fail("principal", "Please enter the new principal amount."); return; }
-    if (!tenureNum || tenureNum <= 0) { fail("tenure", "Please enter the number of installments."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the new principal amount.";
+    if (!tenureNum || tenureNum <= 0) errors["tenure"] ??= "Please enter the number of installments.";
     const payout = preview?.disbursedAmount ?? 0;
-    if (payout > 0 && Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the cash paid to the customer."); return; }
-    if (payout > 0 && split.upiAmount + split.bankTransferAmount > 0 && !bankId) { fail("split", "Pick the bank the payout was made from."); return; }
+    if (payout > 0 && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the cash paid to the customer.";
+    if (payout > 0 && split.upiAmount + split.bankTransferAmount > 0 && !bankId) errors["split"] ??= "Pick the bank the payout was made from.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     setErr("");
     setFe({});
@@ -88,7 +91,7 @@ export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentPr
     }
   }
 
-  const installmentAmount = +tenureCount > 0 && principalNum > 0 ? Math.round((principalNum / +tenureCount) * 100) / 100 : 0;
+  const installmentAmount = +tenureCount > 0 && principalNum > 0 ? roundRupee((principalNum / +tenureCount)) : 0;
   const v = (n: number | undefined) => (preview && n !== undefined ? fmt(n) : "—");
 
   return (

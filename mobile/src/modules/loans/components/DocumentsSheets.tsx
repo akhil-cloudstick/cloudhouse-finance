@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Linking, Pressable, View } from "react-native";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Buffering, C, Field, FieldGrid, NoticeBanner, PIcon, PrimaryButton, SectionTitle, Sheet, SheetListItem, Txt } from "@/common/components/ui";
-import { checkIndemnityBondEsign, startIndemnityBondEsign } from "@/modules/loans/services/loanService";
+import { checkIndemnityBondEsign, listLoanRequests, startIndemnityBondEsign } from "@/modules/loans/services/loanService";
 import { type BondDeliverBy, type BondLang, type Loan } from "@/modules/loans/types/loan-types";
 import {
   printLabelAndSlipOnePage,
@@ -10,6 +10,7 @@ import {
   printPledgeSlip,
   printPledgeAgreementPdf,
   printReleaseAgreementPdf,
+  printPartialReleaseReceiptPdf,
   printStatement,
   pledgeAgreementLangs,
   RELEASE_AGREEMENT_LANGS,
@@ -44,6 +45,7 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
   const [error, setError] = useState<string | null>(null);
   const [bondOpen, setBondOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
+  const [partialOpen, setPartialOpen] = useState(false);
   const [esignOpen, setEsignOpen] = useState(false);
   const [esignLang, setEsignLang] = useState<BondLang>("en");
   // Step 2 of the Bond flow: which action the language is being picked for.
@@ -51,6 +53,13 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
   const bondLangs = pledgeAgreementLangs();
   const [notice, setNotice] = useState<string | null>(null);
   const { can } = useAuth();
+  // Approved partial releases each have their own receipt (web: partialReleases in LoanDetailPage).
+  const partialQ = useQuery({
+    queryKey: ["loan-partial-releases", l.id, l.ornaments?.length],
+    queryFn: () => listLoanRequests({ loanId: l.id, status: "Approved" }),
+    enabled: visible,
+  });
+  const partialReleases = (partialQ.data ?? []).filter((r) => r.type === "Release" && r.isPartial);
   const canSendEsign = can("Loan_Management", "can_update_loan");
   const canExport = can("Ledger_Export", "can_export_ledger");
 
@@ -147,6 +156,18 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             setBondOpen(true);
           }}
         />
+        {partialReleases.length > 0 ? (
+          <SheetListItem
+            icon="doc"
+            title="Partial Release Receipt"
+            sub={`${partialReleases.length} approved partial release${partialReleases.length > 1 ? "s" : ""}`}
+            onPress={() => {
+              setError(null);
+              onClose();
+              setPartialOpen(true);
+            }}
+          />
+        ) : null}
         {l.status === "Closed" ? (
           <SheetListItem
             icon="doc"
@@ -238,6 +259,28 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             </Pressable>
           );
         })}
+        <ErrorText>{error}</ErrorText>
+      </Sheet>
+
+      <Sheet visible={partialOpen} onClose={() => setPartialOpen(false)} title="Partial Release Receipt">
+        {partialReleases.map((pr, i) => (
+          <View key={pr.id}>
+            <SectionTitle flush style={{ marginTop: 8 }}>
+              {`Release ${i + 1}${pr.requestedAt ? ` · ${pr.requestedAt.slice(0, 10)}` : ""}`}
+            </SectionTitle>
+            {RELEASE_AGREEMENT_LANGS.map((lang: DocLang) => (
+              <PrimaryButton
+                key={lang}
+                label={`Download PDF — ${DOC_LANG_LABELS[lang]}`}
+                variant={lang === "en" ? "primary" : "outline"}
+                style={{ marginBottom: 10 }}
+                loading={busy === `partial-${pr.id}-${lang}`}
+                disabled={!!busy && busy !== `partial-${pr.id}-${lang}`}
+                onPress={() => run(`partial-${pr.id}-${lang}`, () => printPartialReleaseReceiptPdf(pr.id, lang), "Could not print the partial release receipt — try again.")}
+              />
+            ))}
+          </View>
+        ))}
         <ErrorText>{error}</ErrorText>
       </Sheet>
 

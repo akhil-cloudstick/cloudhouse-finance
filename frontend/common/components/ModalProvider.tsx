@@ -1,6 +1,6 @@
 "use client";
 
-import { cloneElement, createContext, isValidElement, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 
 type ModalContextValue = {
@@ -16,6 +16,21 @@ type ModalContextValue = {
 const ModalContext = createContext<ModalContextValue | null>(null);
 
 type ModalProviderProps = { children: React.ReactNode };
+
+// Keys that scroll a page, and how far (a fraction of the visible height, or a line).
+const SCROLL_KEYS: Record<string, { lines?: number; pages?: number; to?: "start" | "end" }> = {
+  ArrowDown: { lines: 1 }, ArrowUp: { lines: -1 },
+  PageDown: { pages: 1 }, PageUp: { pages: -1 },
+  Home: { to: "start" }, End: { to: "end" },
+};
+
+// The element of the open modal that actually scrolls: the body, else the box itself.
+function modalScroller(): HTMLElement | null {
+  const box = document.getElementById("modalBox");
+  if (!box) return null;
+  const candidates = [...box.querySelectorAll<HTMLElement>(".bd-scroll, .bd"), box];
+  return candidates.find((el) => el.scrollHeight > el.clientHeight + 1) ?? null;
+}
 
 /**
  * Ported from legacy/app.js's `openModal(html, wide)` / `closeModal()` and
@@ -92,7 +107,27 @@ export function ModalProvider({ children }: ModalProviderProps) {
   // finding and clicking that is enough to cover all of them without each
   // one wiring up its own key handler. See enterToSubmit.ts for the same
   // pattern used OUTSIDE a modal (full-page forms, per-card forms, …).
-  const onModalKeyDown = useMemo(() => makeEnterToSubmitHandler(".ft button.btn:not(.ghost):not(:disabled)"), []);
+  // While a modal is open the arrow / page keys scroll the modal's own body
+  // rather than the page behind it. Keys meant for a field (typing, a number
+  // spinner, a dropdown, a calendar) are left alone.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      const move = SCROLL_KEYS[e.key];
+      if (!move || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, [contenteditable='true'], [role='listbox'], [role='menu'], [role='grid'], .dp-pop")) return;
+      const el = modalScroller();
+      if (!el) { e.preventDefault(); return; }
+      e.preventDefault();
+      if (move.to) el.scrollTo({ top: move.to === "start" ? 0 : el.scrollHeight });
+      else el.scrollBy({ top: move.lines ? move.lines * 48 : (move.pages ?? 0) * el.clientHeight * 0.9 });
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const onModalKeyDown = useMemo(() => makeEnterToSubmitHandler(".ft button.btn:not(.ghost):not(.plain):not(:disabled)"), []);
 
   return (
     <ModalContext.Provider value={{ openModal, openChildModal, closeModal, closeAllModals }}>

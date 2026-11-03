@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { TableSearch } from "@/common/components/ui/TableSearch";
@@ -238,6 +239,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
         </div>
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="mode" data-ledger-page={page}>
+            <TableCols widths={[11, 11, 24, ...(mode !== "Cash" ? [12] : []), null, null, null]} />
             <thead>
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th>{mode !== "Cash" && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
@@ -249,7 +251,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
               ) : (() => {
                 // The balance comes from the server — a true running balance over the
                 // whole filtered ledger, so the newest row equals the Net above.
-                return items.map((r) => {
+                return items.map((r, i) => {
                   // A gold-loan reference ("LN-00047") gets a clickable link
                   // to that loan — #loan/:loanNumber resolves it directly.
                   // A personal-loan ("PL-00012") or investment ("INV-00003")
@@ -271,7 +273,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                     r.description.match(/—\s*(PL-\S+)\s*$/i)?.[1] ||
                     null;
                   return (
-                  <tr key={`${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
+                  <tr key={`${r.type}-${r.id}-${r.method}-${i}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
                     <td data-label="Date">{fmtDate(r.d)}</td>
                     <td data-label="Ref No">
                       {loanRef ? (

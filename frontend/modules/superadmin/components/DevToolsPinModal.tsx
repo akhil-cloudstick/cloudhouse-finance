@@ -40,14 +40,11 @@ export function DevToolsPinModal({ onClose }: DevToolsPinModalProps) {
     e.preventDefault();
     setError(null);
     setFe({});
-    if (!/^\d{4,6}$/.test(pin)) {
-      fail("pin", "PIN must be 4-6 digits.");
-      return;
-    }
-    if (!reason.trim()) {
-      fail("reason", "A reason is required.");
-      return;
-    }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!/^\d{4,6}$/.test(pin)) errors["pin"] ??= "PIN must be 4-6 digits.";
+    if (!reason.trim()) errors["reason"] ??= "A reason is required.";
+    if (Object.keys(errors).length) { setFe(errors); return; }
     setSubmitting(true);
     try {
       await setDevToolsPin(pin, reason);

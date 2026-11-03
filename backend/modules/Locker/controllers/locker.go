@@ -8,6 +8,7 @@ import (
 	packet "cloudhouse/backend/modules/Packet/controllers"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -107,8 +108,9 @@ func findLockersFiltered(ctx context.Context, f LockerFilter) ([]models.Locker, 
 	if f.Q != "" {
 		needle := "%" + f.Q + "%"
 		q = q.Where("(lockers.code ILIKE ? OR EXISTS (SELECT 1 FROM packets JOIN loans ON loans.id = packets.loan_id "+
+			"JOIN customers ON customers.id = loans.customer_id "+
 			"WHERE packets.current_locker_id = lockers.id AND packets.status = 'Locker Stored' "+
-			"AND (packets.code ILIKE ? OR loans.loan_number ILIKE ?)))", needle, needle, needle)
+			"AND (packets.code ILIKE ? OR loans.loan_number ILIKE ? OR customers.name ILIKE ?)))", needle, needle, needle, needle)
 	}
 	if f.ActiveOnly {
 		q = q.Where("lockers.is_active = ?", true)
@@ -262,6 +264,14 @@ func getLocker(ctx context.Context, id uint, branchID *uint) (*View, error) {
 	return &v, nil
 }
 
+// capacityHoldsPackets rejects a capacity smaller than the packets already stored.
+func capacityHoldsPackets(capacity, occupied int) error {
+	if capacity < occupied {
+		return common.NewBadRequest(fmt.Sprintf("capacity cannot be less than the %d packets already stored in this locker", occupied))
+	}
+	return nil
+}
+
 func updateLocker(ctx context.Context, id uint, in UpdateInput, branchID *uint) (*View, error) {
 	if err := validateLocker(ctx, in.Code, in.BranchID, in.Capacity); err != nil {
 		return nil, err
@@ -275,6 +285,13 @@ func updateLocker(ctx context.Context, id uint, in UpdateInput, branchID *uint) 
 	}
 	if existing, _ := findByCode(ctx, in.Code); existing != nil && existing.ID != id {
 		return nil, common.NewConflict("a locker with this code already exists")
+	}
+	occupied, err := packet.CountActivePackets(ctx, rec.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := capacityHoldsPackets(in.Capacity, occupied); err != nil {
+		return nil, err
 	}
 	rec.Code = in.Code
 	rec.BranchID = in.BranchID

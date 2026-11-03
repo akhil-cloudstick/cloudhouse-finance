@@ -23,6 +23,12 @@ export const BOND_LANG_OPTIONS: { value: BondLang; label: string; native: string
   { value: "ta", label: "Tamil", native: "அடகு ஒப்பந்தம்" },
 ];
 
+/* The release agreement (FORM 7) and the partial release receipt exist only in these two languages. */
+export const RELEASE_LANG_OPTIONS: { value: BondLang; label: string; native: string }[] = [
+  { value: "en", label: "English", native: "Release Agreement" },
+  { value: "ml", label: "Malayalam", native: "ഫോറം 7" },
+];
+
 /* bondLangOptionsFor narrows the catalogue to what this business has been
  * granted. English is always present — tenant.Tenant.HasLanguage guarantees
  * it server-side, and a picker with nothing in it would be worse than a

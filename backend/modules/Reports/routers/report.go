@@ -25,6 +25,7 @@ func ReportRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(reportPath+"/gold-release", reports.GoldReleaseReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/auctions", reports.AuctionsReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/expense-cashflow", reports.ExpenseCashflowReport, auth.Staff(perms.Read)...)
+	e.GET(reportPath+"/cash-ledger", reports.CashLedgerReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/kyc", reports.KYCReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/gold-rate-history", reports.GoldRateHistoryReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/employee-performance", reports.EmployeePerformanceReport, auth.Staff(perms.Read)...)

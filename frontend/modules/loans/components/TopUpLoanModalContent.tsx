@@ -109,8 +109,11 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
 
   async function save() { return singleFlight("modal:topuploan:save", async () => {
     setErr(""); setFe({});
-    if (!amt || amt <= 0) { fail("amount", "Please enter the top-up amount."); return; }
-    if (!balanced) { fail("payments", "The payment breakdown must add up to the amount."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!amt || amt <= 0) errors["amount"] ??= "Please enter the top-up amount.";
+    if (!balanced) errors["payments"] ??= "The payment breakdown must add up to the amount.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     if (hasArrears && settleMode === "require") {
       if (canUpdateLoans) openPayInterest();
       else { setFe({}); setErr("Interest must be paid before this top-up. Ask someone who can record loan payments."); }

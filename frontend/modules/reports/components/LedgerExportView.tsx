@@ -1,5 +1,7 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { TableSearch } from "@/common/components/ui/TableSearch";
@@ -205,19 +207,13 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
             <TableSearch value={q} onChange={setQ} placeholder="Search date, ref no, party, bank, amount…" searches="date, ref no, particulars, mode, bank, party, debit, credit" />
             <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips hideClearAll />
             {canExport && (
-              <>
-                <button className="btn ghost sm" disabled={exporting} onClick={() => onDownload("pdf")}>
-                  <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
-                </button>
-                <button className="btn sm" disabled={exporting} onClick={() => onDownload("xlsx")}>
-                  <Icon name="download" /> {exporting ? "Exporting…" : "Export Excel"}
-                </button>
-              </>
+              <ExportMenu busy={exporting ? "pdf" : null} onExport={onDownload} />
             )}
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-stack">
+            <TableCols widths={[10, 10, 26, 10, 12, 12, 12]} />
             <thead>
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>

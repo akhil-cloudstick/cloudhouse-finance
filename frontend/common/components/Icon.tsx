@@ -149,6 +149,9 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M10 11v6M14 11v6" />
     </>
   ),
+  x: (
+    <path d="M6 6l12 12M18 6L6 18" />
+  ),
   download: (
     <>
       <path d="M12 3v12M7 10l5 5 5-5" />

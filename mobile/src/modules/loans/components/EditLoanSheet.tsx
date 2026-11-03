@@ -1,19 +1,26 @@
 import React, { useEffect, useState } from "react";
+import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AsyncSelect, C, DashedButton, Field, FieldRow, Input, NoticeBanner, OrnamentCard, PrimaryButton, ResultBox, SectionTitle, Sheet, TextField, ThemeDropdown, Txt } from "@/common/components/ui";
+import { AsyncSelect, C, ChipToggle, DashedButton, Field, FieldRow, Input, NoticeBanner, OrnamentCard, PrimaryButton, ResultBox, SectionTitle, Sheet, TextField, ThemeDropdown, Txt } from "@/common/components/ui";
 import { useQuery } from "@tanstack/react-query";
 import { latestGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { rateForPurityFull } from "@/common/utils/purity";
-import { inr } from "@/common/utils/format";
-import { addOrnament, deleteOrnament, updateLoan, updateOrnament } from "@/modules/loans/services/loanService";
+import { inr, fmtDate } from "@/common/utils/format";
+import { addOrnament, addOrnamentImage, deleteOrnament, previewLoanEdit, updateLoanWithFlags, updateOrnament, type LoanEditDependent, type LoanEditFollowing, type LoanEditInterestChange } from "@/modules/loans/services/loanService";
 import { type OrnamentRequestInput, type Loan, type Ornament } from "@/modules/loans/types/loan-types";
 import { listActiveSchemes } from "@/modules/schemes/services/schemeService";
 import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import { OrnamentTypeField } from "@/common/components/OrnamentTypeField";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { ErrorText } from "@/common/components/ErrorText";
+import { UploadField } from "@/common/components/UploadField";
+import { useAuth } from "@/common/providers/AuthProvider";
+import { listBranchesPage } from "@/modules/branches/services/branchService";
+import { listLockersPage } from "@/modules/lockers/services/lockerService";
+import { listPackets } from "@/modules/packets/services/packetService";
+import type { Locker } from "@/modules/lockers/types/locker-types";
 
-type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean };
+type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean; photos: string[]; newPhotos: string[] };
 const PURITIES = ["24K", "23K", "22K", "21K", "20K", "18K", "16K", "14K"];
 
 const toRow = (o: Ornament): OrnRow => ({
@@ -23,6 +30,8 @@ const toRow = (o: Ornament): OrnRow => ({
   gross: String(o.grossWeight),
   net: String(o.netWeight),
   qty: String(o.quantity),
+  photos: (o.images ?? []).map((i) => i.imageUrl),
+  newPhotos: [],
 });
 
 type EditLoanSheetProps = { loan: Loan; visible: boolean; onClose: () => void };
@@ -37,6 +46,23 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
   const [principal, setPrincipal] = useState("");
   const [rows, setRows] = useState<OrnRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [overallPhoto, setOverallPhoto] = useState("");
+  const [additionalInfo, setAdditionalInfo] = useState("");
+  // Branch / locker: only for a role that may see every branch (backend enforces the same).
+  const { can } = useAuth();
+  const canMove = can("Branch_Management", "can_view_all_branches");
+  const [branch, setBranch] = useState<{ id: number; name: string } | null>(null);
+  const [locker, setLocker] = useState<Locker | null>(null);
+  const packets = useQuery({ queryKey: ["packets", "loan", l.id], queryFn: () => listPackets({ loanId: l.id }), enabled: visible && canMove });
+  const packetLockerId = packets.data?.[0]?.currentLockerId ?? null;
+  const hasPacket = (packets.data?.length ?? 0) > 0;
+  // Review step for a disbursed loan: what the edit would do to later payments / released gold, shown before saving.
+  const [reviewedFor, setReviewedFor] = useState<string | null>(null);
+  const [following, setFollowing] = useState<LoanEditFollowing[]>([]);
+  const [deps, setDeps] = useState<LoanEditDependent[]>([]);
+  const [interest, setInterest] = useState<LoanEditInterestChange[]>([]);
+  const [follow, setFollow] = useState<Record<number, string>>({});
+  const [chosenDeps, setChosenDeps] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!visible) return;
@@ -46,6 +72,11 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
     setPrincipal(String(l.principalAmount));
     setRows((l.ornaments ?? []).map(toRow));
     setError(null);
+    setReviewedFor(null);
+    setOverallPhoto(l.overallPhotoUrl ?? "");
+    setAdditionalInfo(l.additionalInfo ?? "");
+    setBranch(null);
+    setLocker(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
@@ -63,13 +94,39 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
   const capToEligible = (value: string) => (eligible > 0 && +value > eligible ? String(Math.floor(eligible)) : value);
   // Only a changed scheme or principal sends the loan back through the sanction chain (same as the backend).
   const triggersReapproval = schemeId !== l.schemeId || (+principal > 0 && +principal !== l.principalAmount);
+  const reviewKey = `${schemeId}|${principal}`;
+  const reviewing = reviewedFor === reviewKey;
+  const activeFollowing = reviewing ? following : [];
+  const activeDeps = reviewing ? deps : [];
   const save = useMutation({
     mutationFn: async () => {
       if (!(+principal > 0)) throw new Error("__v__Please enter a valid principal amount.");
       if (!active.length) throw new Error("__v__A loan must have at least one ornament.");
       if (active.some((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0))) throw new Error("__v__Every ornament needs a name, gross weight and net weight.");
       if (active.some((r) => +r.net > +r.gross)) throw new Error("__v__Net Wt cannot be greater than Gross Wt for any ornament.");
+      if (additionalInfo.trim().length > 2000) throw new Error("__v__Additional information cannot be longer than 2000 characters.");
+      const branchChanged = !!branch && branch.id !== l.branchId;
+      const lockerChanged = !!locker && locker.id !== packetLockerId;
+      if (canMove && branchChanged && hasPacket && packetLockerId && !locker) throw new Error("__v__Choose a locker in the new branch for the gold.");
       if (goldRate.data && eligible > 0 && +principal > eligible) throw new Error(`__v__Principal amount cannot exceed the eligible loan amount (${inr(Math.floor(eligible))}).`);
+      // A disbursed loan recalculated by a scheme / principal change is looked at first: nothing is saved until the
+      // staff member has seen the later payments it affects and pressed Save again (same as web).
+      const principalChanged = +principal !== l.principalAmount;
+      if (l.disbursementDate && (schemeId !== l.schemeId || principalChanged) && !reviewing) {
+        const probe = await previewLoanEdit(l.id, {
+          schemeId: schemeId !== l.schemeId ? schemeId : undefined,
+          principalAmount: principalChanged ? +principal : undefined,
+        });
+        if (probe.following.length || probe.dependents.length || probe.interestChanges.length) {
+          setFollowing(probe.following);
+          setDeps(probe.dependents);
+          setInterest(probe.interestChanges);
+          setFollow(Object.fromEntries(probe.following.map((f) => [f.id, String(f.current)])));
+          setChosenDeps(Object.fromEntries(probe.dependents.map((d) => [d.kind, true])));
+          setReviewedFor(reviewKey);
+          throw new Error("__review__");
+        }
+      }
       // Ornaments are saved BEFORE the loan: each call revalues its row and recalculates the loan's eligible amount, while
       // the loan update only checks the values already stored — so a principal raised together with new ornaments
       // would otherwise be refused against the old values (same order as web).
@@ -83,19 +140,34 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
         };
         if (r.removed) {
           if (r.id) await deleteOrnament(r.id);
-        } else if (r.id) await updateOrnament(r.id, input);
-        else await addOrnament(l.id, input);
+        } else if (r.id) {
+          await updateOrnament(r.id, input);
+          for (const url of r.newPhotos) await addOrnamentImage(r.id, url);
+        } else await addOrnament(l.id, { ...input, images: r.newPhotos });
       }
-      await updateLoan(l.id, {
-        schemeId: schemeId !== l.schemeId ? schemeId : undefined,
-        principalAmount: +principal !== l.principalAmount ? +principal : undefined,
-      });
+      await updateLoanWithFlags(
+        l.id,
+        {
+          schemeId: schemeId !== l.schemeId ? schemeId : undefined,
+          principalAmount: +principal !== l.principalAmount ? +principal : undefined,
+          overallPhotoUrl: overallPhoto !== (l.overallPhotoUrl ?? "") ? overallPhoto : undefined,
+          additionalInfo: additionalInfo.trim() !== (l.additionalInfo ?? "").trim() ? additionalInfo.trim() : undefined,
+          ...(canMove && branchChanged ? { branchId: branch!.id } : {}),
+          ...(canMove && hasPacket && lockerChanged ? { lockerId: locker!.id } : {}),
+        },
+        {
+          adjustFollowing: activeFollowing.length ? activeFollowing.map((f) => ({ id: f.id, amount: +(follow[f.id] ?? f.current) || 0 })) : undefined,
+          reversePacket: activeDeps.some((d) => d.kind === "packet") && !!chosenDeps.packet,
+          restorePartialRelease: activeDeps.some((d) => d.kind === "partial_release") && !!chosenDeps.partial_release,
+        }
+      );
     },
     onSuccess: () => {
       invalidateLoan(qc, l.id);
       onClose();
     },
     onError: (e) => {
+      if (e instanceof Error && e.message === "__review__") return;
       if (e instanceof Error && e.message.startsWith("__v__")) return setError(e.message.slice(5));
       setError(apiErr(e, "Could not save changes — try again."));
       // Part of the edit may have landed — refresh so the sheet reopens on the truth.
@@ -107,9 +179,17 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Edit Loan Details" maxHeightPct={90}>
-      {triggersReapproval ? <NoticeBanner>
-        Changing the scheme or principal amount requires re-approval before the loan is active again — saving will resubmit it through the sanction chain from its first enabled stage.
-      </NoticeBanner> : null}
+      {triggersReapproval ? (
+        l.disbursementDate ? (
+          <NoticeBanner>
+            This loan is already disbursed. Changing the scheme or principal applies immediately: interest is recalculated from the opening date and the loan's ledger and cash entries are rewritten. It is not sent for re-approval.
+          </NoticeBanner>
+        ) : (
+          <NoticeBanner>
+            Changing the scheme or principal amount requires re-approval before the loan is active again — saving will resubmit it through the sanction chain from its first enabled stage.
+          </NoticeBanner>
+        )
+      ) : null}
 
       <AsyncSelect<Scheme>
         label="Scheme"
@@ -127,6 +207,36 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
       />
       <ResultBox k="Eligible loan amount" v={eligible > 0 ? inr(Math.floor(eligible)) : "—"} />
       <TextField label={`Principal amount${eligible > 0 ? ` (max ${inr(Math.floor(eligible))})` : ""}`} keyboardType="decimal-pad" value={principal} onChangeText={(v) => setPrincipal(capToEligible(v))} />
+
+      {canMove ? (
+        <>
+          <AsyncSelect<{ id: number; name: string; code?: string }>
+            label="Branch"
+            placeholder="Search branch"
+            queryKey={["branches", "edit-loan"]}
+            fetcher={async (q) => (await listBranchesPage({ q: q || undefined, active: true, limit: 20, offset: 0 })).items ?? []}
+            selectedLabel={branch?.name ?? `Branch #${l.branchId}`}
+            onSelect={(b) => {
+              setBranch({ id: b.id, name: b.name });
+              setLocker(null);
+            }}
+            keyOf={(b) => b.id}
+            renderItem={(b) => ({ title: b.name, sub: b.code })}
+          />
+          {hasPacket ? (
+            <AsyncSelect<Locker>
+              label="Locker"
+              placeholder="Search locker code"
+              queryKey={["lockers", "edit-loan", branch?.id ?? l.branchId]}
+              fetcher={async (q) => (await listLockersPage({ branchId: branch?.id ?? l.branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+              selectedLabel={locker ? `${locker.code} (${locker.occupied}/${locker.capacity} packets)` : undefined}
+              onSelect={setLocker}
+              keyOf={(x) => x.id}
+              renderItem={(x) => ({ title: `${x.code} (${x.occupied}/${x.capacity} packets)`, sub: x.branch?.name })}
+            />
+          ) : null}
+        </>
+      ) : null}
 
       <SectionTitle flush style={{ marginTop: 14 }}>
         Ornaments
@@ -151,11 +261,69 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
                 <Input keyboardType="decimal-pad" value={r.net} onChangeText={(v) => upd(i, { net: v })} />
               </Field>
             </FieldRow>
+            {r.photos.length ? <Txt style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>{r.photos.length} saved photo{r.photos.length > 1 ? "s" : ""}</Txt> : null}
+            {r.newPhotos.map((url, k) => (
+              <UploadField key={`${i}-${k}-${url}`} label={`New photo ${k + 1}`} value={url} allowPdf={false}
+                onChange={(u) => upd(i, { newPhotos: u ? r.newPhotos.map((x, xi) => (xi === k ? u : x)) : r.newPhotos.filter((_, xi) => xi !== k) })} />
+            ))}
+            {r.photos.length + r.newPhotos.length < 5 ? (
+              <UploadField key={`${i}-add-${r.newPhotos.length}`} label="Add ornament photo" value="" allowPdf={false}
+                onChange={(u) => u && upd(i, { newPhotos: [...r.newPhotos, u] })} />
+            ) : null}
           </OrnamentCard>
         )
       )}
-      <DashedButton label="Add Ornament" onPress={() => setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", net: "", qty: "1" }])} />
+      <DashedButton label="Add Ornament" onPress={() => setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", net: "", qty: "1", photos: [], newPhotos: [] }])} />
       <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginBottom: 12 }}>Total net weight: {totalNet.toFixed(2)} g</Txt>
+
+      <UploadField label="Overall photo" value={overallPhoto} onChange={setOverallPhoto} allowPdf={false} />
+      <TextField label="Additional information" multiline maxLength={2000} placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChangeText={setAdditionalInfo} style={{ minHeight: 70 }} />
+
+      {reviewing && (activeFollowing.length || activeDeps.length || interest.length) ? (
+        <View style={{ marginBottom: 12 }}>
+          <NoticeBanner>Review what this change affects, then press Save Changes again to confirm. Nothing is saved yet.</NoticeBanner>
+          {activeFollowing.length ? (
+            <>
+              <SectionTitle flush>Later payments</SectionTitle>
+              {activeFollowing.map((f) => (
+                <View key={f.id} style={{ marginBottom: 8 }}>
+                  <Txt style={{ fontSize: 12, color: C.muted }}>
+                    {fmtDate(f.paidOn)} · {f.type ?? "Payment"}{f.reference ? ` · ${f.reference}` : ""} · now {inr(f.current)}
+                    {f.needsChange ? ` — no longer fits, can be at most ${inr(f.suggested)} (0 removes it)` : ""}
+                  </Txt>
+                  <Field label="Amount after this edit">
+                    <Input keyboardType="decimal-pad" value={follow[f.id] ?? String(f.current)} onChangeText={(v) => setFollow((m) => ({ ...m, [f.id]: v }))} />
+                  </Field>
+                </View>
+              ))}
+            </>
+          ) : null}
+          {activeDeps.length ? (
+            <>
+              <SectionTitle flush>This also affects the gold released for this loan</SectionTitle>
+              {activeDeps.map((d) => (
+                <View key={d.kind} style={{ marginBottom: 8 }}>
+                  <Txt style={{ fontSize: 12, color: C.muted }}>{d.description}</Txt>
+                  <Txt style={{ fontSize: 11.5, color: C.muted }}>{d.current} → {d.suggested}</Txt>
+                  {d.warning && chosenDeps[d.kind] ? <Txt style={{ fontSize: 11.5, color: C.red }}>{d.warning}</Txt> : null}
+                  <ChipToggle options={["Also update", "Leave as is"] as const} value={chosenDeps[d.kind] ? "Also update" : "Leave as is"} onChange={(v) => setChosenDeps((m) => ({ ...m, [d.kind]: v === "Also update" }))} />
+                </View>
+              ))}
+            </>
+          ) : null}
+          {interest.length ? (
+            <>
+              <SectionTitle flush>Interest worked out again</SectionTitle>
+              {interest.map((c) => (
+                <Txt key={c.on} style={{ fontSize: 12, color: C.muted }}>
+                  {fmtDate(c.on)}: interest {inr(c.interestBefore)} → {inr(c.interestAfter)}
+                  {c.penalBefore || c.penalAfter ? `, penal ${inr(c.penalBefore)} → ${inr(c.penalAfter)}` : ""}
+                </Txt>
+              ))}
+            </>
+          ) : null}
+        </View>
+      ) : null}
 
       <ErrorText>{error}</ErrorText>
       <PrimaryButton

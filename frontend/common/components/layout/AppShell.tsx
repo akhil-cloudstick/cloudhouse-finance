@@ -58,8 +58,8 @@ function LoadFailed() {
   const { refetchPermissions } = useAuth();
   return (
     <div className="notice" style={{ maxWidth: 480, margin: "48px auto" }}>
-      We couldn&apos;t load your permissions.
-      <button className="btn plain sm" style={{ marginLeft: 8 }} onClick={refetchPermissions}>Retry</button>
+      Something went wrong. Please try again after some time.
+      <button className="btn plain sm" style={{ marginLeft: 8 }} onClick={refetchPermissions}>Try again</button>
     </div>
   );
 }
@@ -145,7 +145,7 @@ function View({ route, arg }: ViewProps) {
     case "investment":
       return <InvestmentDetailPage id={arg} />;
     case "ledger":
-      return <CashPage />;
+      return <CashPage focusExpenseId={arg} />;
     case "auctions":
       return <AuctionsPage focusLoanNumber={arg} />;
     case "packets":

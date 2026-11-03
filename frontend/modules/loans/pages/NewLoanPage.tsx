@@ -11,8 +11,8 @@ import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { stageByPending } from "@/common/services/approvalWorkflowService";
 import { Icon } from "@/common/components/Icon";
-import { fmt, custOf, schemeOf, fmtDateTime } from "@/common/utils/format";
-import { uploadFile, searchCustomersPage, getCustomer } from "@/modules/customers/services/customerService";
+import { fmt, roundRupee, custOf, schemeOf, fmtDateTime } from "@/common/utils/format";
+import { uploadFile, searchBorrowersPage, getCustomer } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
 import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
@@ -33,7 +33,7 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/PurityPicker";
 import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
 import { OrnamentPhotoSlider } from "@/modules/loans/components/OrnamentPhotoSlider";
-import { rateForPurityFull, rateForFineness, finenessFromRate } from "@/common/utils/purity";
+import { rateForPurityFull, rateForFineness } from "@/common/utils/purity";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import { ApiError } from "@/common/services/httpClient";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
@@ -172,13 +172,18 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     setRateErr("");
     setRateSaving(true);
     try {
-      // 22K/18K follow the new 24K at the fineness the last published rates imply
-      // (the standard ratio when none), the same Auto rule the Set Gold Rate modal uses.
+      // 22K/18K follow the new 24K at the fineness last set in the Set Gold Rate
+      // modal's Auto mode (the standard ratio when none), which carries forward.
       await publishGoldRates({
         24: k24,
-        22: rateForFineness(k24, finenessFromRate(rates.k24, rates.k22, 22)),
-        18: rateForFineness(k24, finenessFromRate(rates.k24, rates.k18, 18)),
-      }, employee?.name || employee?.username || "Admin");
+        22: rateForFineness(k24, rates.fineness22),
+        18: rateForFineness(k24, rates.fineness18),
+      }, employee?.name || employee?.username || "Admin", {
+        // Pin the fineness explicitly so only the ₹ amounts change — otherwise a
+        // never-saved fineness gets re-derived from the rounded rates and drifts.
+        22: rates.fineness22,
+        18: rates.fineness18,
+      });
       refreshGoldRates();
       setRateR24("");
       toast("Gold rate published for today");
@@ -384,9 +389,9 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // The cap applies to the entered loan amount only — an AddedToPrincipal
   // charge is added on top of it and does not eat into the eligible amount
   // (see loan.Service.Create).
-  // Rounded to the paisa exactly as the backend's RoundMoney does, so the full
-  // eligible amount (e.g. 5,987.17) can be entered, not just its whole rupees.
-  const maxPrincipalEntry = Math.round(eligible * 100) / 100;
+  // Rounded to a whole rupee exactly as the backend's RoundMoney does (5.5 -> 6), so the full
+  // eligible amount can be entered and the server accepts it.
+  const maxPrincipalEntry = roundRupee(eligible);
   // Staff can reduce the disbursed principal below the ceiling, but never
   // raise it above — maxPrincipalEntry (eligible amount, minus any
   // AddedToPrincipal charge) is the hard cap a manual override may not
@@ -394,7 +399,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // full roundedEligible — defaulting to that when a charge applies would
   // prefill a figure that fails submission the moment the charge is added
   // on top).
-  const principal = principalOverride.trim() ? Math.min(Math.max(0, +principalOverride), maxPrincipalEntry) : maxPrincipalEntry;
+  const principal = principalOverride.trim() ? Math.min(Math.max(0, roundRupee(+principalOverride)), maxPrincipalEntry) : maxPrincipalEntry;
   // Set when a saved draft is being applied: that draft's own override
   // arrived together with its ornaments, so it is not stale and must survive
   // the reset this effect would otherwise perform. See applyDraft().
@@ -702,6 +707,10 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     if (branchId === "") { toast("Please select a branch"); return; }
 
     if (!(principal > 0)) { toast("Please enter a valid loan amount"); return; }
+    if (principalOverride.trim() && +principalOverride !== principal) {
+      setPrincipalOverride(String(principal));
+      toast(`Loan amount rounded off to ${fmt(principal)}`);
+    }
     if (!isTodaySet) {
       toast("Today's gold rate must be set before creating a loan.");
       setShakeRateBanner(false);
@@ -840,7 +849,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               <SearchableSelect<CustomerView>
                 value={custLabel}
                 onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} (${item.code})`); applyCustomerBranch(item); }}
-                fetchFn={searchCustomersPage}
+                fetchFn={searchBorrowersPage}
                 searchHint="Searches: customer name, customer code, phone"
                 getLabel={(c) => `${c.name} (${c.code})`}
                 /* Rendered as "Name (CUST-4)" plus a "Verified" badge, and
@@ -890,8 +899,11 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
-                disabled={!isCrossBranch || singleBranch || selectedBranchId != null || branches.length <= 1}
-              /></div>}
+                disabled={!isCrossBranch || singleBranch || selectedBranchId != null || branches.length <= 1 || !!custId}
+              />
+              {!!custId && isCrossBranch && !singleBranch && selectedBranchId == null && branches.length > 1 && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}></div>
+              )}</div>}
             {canViewLockers && <div><label className="f">Locker / Storage</label>
               {/* key={branchId}: SearchableSelect caches results per search
                 * term, so without remounting it kept showing the previous
@@ -1015,6 +1027,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                       getLabel={(t) => t.name}
                       getId={(t) => String(t.id)}
                       placeholder="Ornament type…"
+                      portal
                       allowCreate={canCreateOrnamentType}
                       onCreate={createOrnamentType}
                     />
@@ -1062,6 +1075,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                       getLabel={(t) => t.name}
                       getId={(t) => String(t.id)}
                       placeholder="Ornament type…"
+                      portal
                       allowCreate={canCreateOrnamentType}
                       onCreate={createOrnamentType}
                     />
@@ -1146,7 +1160,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               {(() => {
                 const hasCharge = !!sch;
                 const amount = +principalOverride || 0;
-                const charge = !sch || sch.serviceChargeType === "None" ? 0 : sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : (amount * sch.serviceChargeValue) / 100;
+                const charge = !sch || sch.serviceChargeType === "None" ? 0 : sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : roundRupee((amount * sch.serviceChargeValue) / 100);
                 const withheld = chargeMode === "WithheldFromPayout";
                 // AddedToPrincipal: the charge rides on top of the amount the
                 // customer receives; WithheldFromPayout: it comes off it.
@@ -1155,6 +1169,12 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 const row = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "5px 0" } as const;
                 return (
                   <>
+                    {/* The interest the customer will pay, shown up front so
+                        it's known before the loan is approved. */}
+                    <div style={row}>
+                      <span>Monthly premium{sch ? <small> ({sch.rate}% p.a.{sch.rateTiers?.length ? ", first tier" : ""})</small> : null}</span>
+                      <b>{sch ? fmt((loanPrincipal * sch.rate) / 100 / 12) : "—"}</b>
+                    </div>
                     {hasCharge && sch && (
                       <>
                         <div style={row}>
@@ -1229,6 +1249,15 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                             el.setSelectionRange(pos, pos);
                           });
                         }}
+                        onBlur={() => {
+                          // Paise aren't accepted on a loan amount: round to the whole rupee and say so.
+                          const typed = +principalOverride;
+                          if (principalOverride.trim() && Number.isFinite(typed) && typed !== roundRupee(typed)) {
+                            const rounded = Math.min(roundRupee(typed), maxPrincipalEntry);
+                            setPrincipalOverride(String(rounded));
+                            toast(`Loan amount rounded off to ${fmt(rounded)}`);
+                          }
+                        }}
                         style={{ flex: "0 0 120px", minWidth: 0, padding: "3px 8px", textAlign: "right", fontWeight: 600, color: "var(--brand-deep)", fontSize: 13.5 }}
                       />
                     </div>
@@ -1294,12 +1323,15 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               JWT), so this is a personal work-in-progress list, not a
               branch queue. */}
           {drafts.length > 0 && (
-            <div className="card gtop newloan-drafts"><div className="hd"><h3>Saved drafts</h3></div>
-              <div className="bd" style={{ fontSize: 13 }}>
-                <div className="search" style={{ marginBottom: 6 }}>
+            <div className="card gtop newloan-drafts">
+              <div className="hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <h3 style={{ whiteSpace: "nowrap" }}>Saved drafts</h3>
+                <div className="search" style={{ flex: "1 1 140px", minWidth: 0, maxWidth: 240 }}>
                   <Icon name="search" />
-                  <input className="inp" placeholder="Search by customer or scheme…" value={draftQ} onChange={(e) => setDraftQ(e.target.value)} />
+                  <input className="inp" placeholder="Search drafts…" value={draftQ} onChange={(e) => setDraftQ(e.target.value)} />
                 </div>
+              </div>
+              <div className="bd" style={{ fontSize: 13 }}>
                 {visibleDrafts.length === 0 && <div style={{ color: "var(--muted)", padding: "10px 0" }}>No drafts match your search.</div>}
                 {visibleDrafts.map((d) => (
                   <div

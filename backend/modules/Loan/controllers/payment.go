@@ -95,13 +95,13 @@ func validDiscountKind(kind string) bool {
 func allocateDiscountKind(l *models.Loan, amount float64, kind string) (penal, interest, principal float64, err error) {
 	switch kind {
 	case DiscountKindPenalInterest:
-		owed := clampMoney(l.AccruedPenalInterest - l.PenalInterestPaid)
+		owed := clampMoney(common.RoundMoney(l.AccruedPenalInterest - l.PenalInterestPaid))
 		if amount > owed+0.01 {
 			return 0, 0, 0, common.NewBadRequest(fmt.Sprintf("the penal interest discount cannot exceed the ₹%.2f of penal interest owed", owed))
 		}
 		return common.RoundMoney(amount), 0, 0, nil
 	case DiscountKindInterest:
-		owed := clampMoney(l.AccruedInterest - l.InterestPaid)
+		owed := clampMoney(common.RoundMoney(l.AccruedInterest - l.InterestPaid))
 		if amount > owed+0.01 {
 			return 0, 0, 0, common.NewBadRequest(fmt.Sprintf("the interest discount cannot exceed the ₹%.2f of interest owed", owed))
 		}
@@ -125,11 +125,12 @@ func applyDiscountTx(ctx context.Context, tx *gorm.DB, l *models.Loan, in Paymen
 	l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
 	l.InterestPaid = common.RoundMoney(l.InterestPaid + interest)
 	l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount - principal)
-	if l.OutstandingAmount < 0 {
+	// <= also catches -0, which a legacy 21769.86 cleared by a whole ₹21,770 rounds to
+	if l.OutstandingAmount <= 0 {
 		l.OutstandingAmount = 0
 	}
-	outstandingInterest := l.AccruedInterest - l.InterestPaid
-	outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
+	outstandingInterest := common.RoundMoney(l.AccruedInterest - l.InterestPaid)
+	outstandingPenal := common.RoundMoney(l.AccruedPenalInterest - l.PenalInterestPaid)
 	row := &models.LoanPayment{
 		LoanID:               l.ID,
 		Amount:               in.Discount,
@@ -285,13 +286,15 @@ func verifyAndRecordRazorpayPayment(ctx context.Context, loanID uint, in Razorpa
 
 func allocatePayment(l *models.Loan, paymentType string, amount float64, interestOverride *float64) (fee, penal, interest, principal float64, err error) {
 	const epsilon = 0.01
-	feeOutstanding := l.OutstandingProcessingFee
-	penalOutstanding := l.AccruedPenalInterest - l.PenalInterestPaid
-	interestOutstanding := l.AccruedInterest - l.InterestPaid
+	// whole rupees, as the loan screen shows them: a loan saved before rounding can owe 21769.86, and the ₹21,770
+	// on screen must clear it rather than be rejected for the 14 paise
+	feeOutstanding := common.RoundMoney(l.OutstandingProcessingFee)
+	penalOutstanding := common.RoundMoney(l.AccruedPenalInterest - l.PenalInterestPaid)
+	interestOutstanding := common.RoundMoney(l.AccruedInterest - l.InterestPaid)
 	if interestOverride != nil {
-		interestOutstanding = *interestOverride
+		interestOutstanding = common.RoundMoney(*interestOverride)
 	}
-	principalOutstanding := l.OutstandingAmount
+	principalOutstanding := common.RoundMoney(l.OutstandingAmount)
 	switch paymentType {
 	case models.PaymentTypePrincipal:
 		remaining := amount
@@ -387,6 +390,9 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")
 	}
+	if l.Status == models.StatusPendingApproval {
+		return nil, common.NewBadRequest("payments cannot be recorded until the loan is approved")
+	}
 	if in.Amount <= 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
 	}
@@ -467,15 +473,17 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 		l.PenalInterestPaid = common.RoundMoney(l.PenalInterestPaid + penal)
 		l.InterestPaid = common.RoundMoney(l.InterestPaid + interest)
 		l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount - principal)
-		if l.OutstandingAmount < 0 {
+		// <= also catches -0, which a legacy 21769.86 cleared by a whole ₹21,770 rounds to
+		if l.OutstandingAmount <= 0 {
 			l.OutstandingAmount = 0
 		}
 		if isCashPaymentType(in.Type) {
 			// any repayment sends a Multiple-interest loan back to its first rate
 			resetRateCycle(l, in.PaidOn)
 		}
-		outstandingInterest := l.AccruedInterest - l.InterestPaid
-		outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
+		// whole rupees, like allocatePayment: legacy paise left behind (0.30 of interest) must not keep a cleared loan open
+		outstandingInterest := common.RoundMoney(l.AccruedInterest - l.InterestPaid)
+		outstandingPenal := common.RoundMoney(l.AccruedPenalInterest - l.PenalInterestPaid)
 		if l.OutstandingAmount <= 0 && outstandingInterest <= 0.01 && outstandingPenal <= 0.01 &&
 			l.OutstandingProcessingFee <= 0.01 &&
 			(l.Status == models.StatusActive || l.Status == models.StatusDueSoon || l.Status == models.StatusOverdue) {

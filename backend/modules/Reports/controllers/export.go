@@ -31,7 +31,7 @@ func reportRows(ctx context.Context, key string, f models.Filter) (rows any, tot
 	case "personal-loans":
 		return call2(personalLoans(ctx, f))
 	case "loans-status":
-		return call2(loanStatus(ctx, f, ""))
+		return call2(loanStatus(ctx, f, f.Status))
 	case "interest-collection":
 		return call2(interestCollection(ctx, f))
 	case "outstanding-principal":
@@ -408,6 +408,10 @@ func ExportReport(c echo.Context) error {
 		exportFormG(c, f, format)
 		return nil
 	}
+	if key == "cash-ledger" {
+		exportCashLedger(c, f, format)
+		return nil
+	}
 	rows, _, err := reportRows(ctx, key, f)
 	if err != nil {
 		badRequest(c, err)
@@ -420,8 +424,21 @@ func ExportReport(c echo.Context) error {
 		return nil
 	}
 	headers, data := toTable(rows)
+	// Raw database ids mean nothing to the reader: every report row already carries the number or code staff see
+	// (loan number, packet code, customer code, employee code, investment number), so no *_id column is exported.
+	for _, col := range append([]string{}, headers...) {
+		if strings.HasSuffix(col, "_id") {
+			headers, data = dropColumn(headers, data, col)
+		}
+	}
+	// What staff know as the Investment ID is the investment number (INV-00001), so that column carries the name.
+	for i, h := range headers {
+		if h == "investment_number" {
+			headers[i] = "investment_id"
+		}
+	}
 	if _, single := auth.SingleBranchPin(c); single {
-		headers, data = dropColumn(headers, data, "branchName")
+		headers, data = dropColumn(headers, data, "branch_name")
 	}
 	filename := fmt.Sprintf("%s-%s.%s", key, time.Now().Format("20060102-150405"), format)
 	switch format {

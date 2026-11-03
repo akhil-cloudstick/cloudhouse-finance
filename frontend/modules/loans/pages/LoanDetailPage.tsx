@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -26,14 +27,14 @@ import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { ledgerFocusTarget, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
-import { getLoanByNumber, linkedDiscountOf, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF, startPledgeSlipEsign, checkPledgeSlipEsign } from "@/modules/loans/services/loanService";
-import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView, type EsignWitnessInput } from "@/modules/loans/types/loan-types";
+import { getLoanByNumber, linkedDiscountOf, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF, listLoanRequests, startPledgeSlipEsign, checkPledgeSlipEsign } from "@/modules/loans/services/loanService";
+import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView, type RequestView, type EsignWitnessInput } from "@/modules/loans/types/loan-types";
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
-import { openPrintWindow, openPrintableTab, brandHeader, canPrintInline, downloadBlob } from "@/common/utils/print";
+import { openPrintWindow, openPrintableTab, brandHeader, canPrintInline, downloadBlob, esc } from "@/common/utils/print";
 import { printColors, tenantLenderProfile } from "@/common/config/brand";
-import type { BondLang } from "@/modules/loans/utils/indemnityBond";
+import { RELEASE_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
 import { useBranding } from "@/common/providers/BrandingProvider";
@@ -188,6 +189,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   const [printingBond, setPrintingBond] = useState(false);
   const [printingStatement, setPrintingStatement] = useState(false);
   const [printingReleaseAgreement, setPrintingReleaseAgreement] = useState(false);
+  // Approved partial releases of this loan — each has its own receipt, listed in the Documents menu.
+  const [partialReleases, setPartialReleases] = useState<RequestView[]>([]);
+  const [printingPartialId, setPrintingPartialId] = useState<number | null>(null);
   // Indemnity bond Aadhaar eSign (Setu) — same "started, then poll" shape
   // CustomerDetail.tsx's DigiLocker Aadhaar-verify flow uses: "started"
   // means the customer's been sent the eSign URL and we're waiting for
@@ -236,6 +240,16 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // the header back to "Send Bond for eSign" — leaving no way to
   // poll the request already in flight, and inviting staff to start a
   // second one against the same bond.
+  const numericLoanId = loan?.numericId;
+  const releasedCount = loan?.ornaments?.length;
+  useEffect(() => {
+    if (!numericLoanId) return;
+    let cancelled = false;
+    listLoanRequests({ loanId: numericLoanId, status: "Approved" })
+      .then((rs) => { if (!cancelled) setPartialReleases(rs.filter((r) => r.type === "Release" && r.isPartial)); })
+      .catch(() => { if (!cancelled) setPartialReleases([]); });
+    return () => { cancelled = true; };
+  }, [numericLoanId, releasedCount]);
   useEffect(() => {
     if (loan?.indemnityBondSignStatus === "sign_initiated") setEsignStarted(true);
   }, [loan?.indemnityBondSignStatus]);
@@ -251,7 +265,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     // /loans request (e.g. refreshLoans() below, or a stale request from
     // a just-abandoned page). A single request has nothing to race with.
     getLoanByNumber(id)
-      .then(setLoan)
+      // A background poll that finds nothing new keeps the same object, so the
+      // page (and the ledger fetched off `loan`) is not needlessly refreshed.
+      .then((next) => setLoan((cur) => (isBackgroundRefresh && cur && JSON.stringify(cur) === JSON.stringify(next) ? cur : next)))
       .catch((e) => {
         // The 20s background poll below shares this function but must never
         // blank out a page that's already showing a valid loan — e.g. an
@@ -363,6 +379,10 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   // never disbursed) are both finished — nothing left to pay, extend,
   // release or edit.
   const isFinished = l.status === "Closed" || l.status === "Rejected";
+  // Once the gold is auctioned there is nothing left to extend or release.
+  const goldSold = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
+  // Paid off in full and waiting only for the gold to be released: nothing left to record.
+  const fullyPaid = l.status === "Closure Requested" && l.totalOutstandingBalance <= 0.01;
 
   // Opens the slide viewer over every photo of the ornament (one photo just
   // shows without the arrows/thumbnails).
@@ -750,13 +770,13 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         ${brandHeader("Statement of Account")}
         <table>
           <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${fmtToday()}</td></tr>
-          <tr><th>Debtor Name</th><td colspan="3">${c.name}</td></tr>
-          <tr><th>Debtor Address</th><td colspan="3">${c.address || "—"}</td></tr>
+          <tr><th>Debtor Name</th><td colspan="3">${esc(c.name)}</td></tr>
+          <tr><th>Debtor Address</th><td colspan="3">${esc(c.address || "—")}</td></tr>
           <tr><th>Amount of Loan</th><td>${fmt(l.principal)}</td><th>Amount in Words</th><td>${rupeesInWords(l.principal)}</td></tr>
           <tr><th>Date of Loan</th><td>${fmtDate(l.opened)}</td><th>Date of Maturity</th><td>${fmtDate(l.due)}</td></tr>
           <tr><th>Rate of Interest</th><td>${l.schemeRate}% p.a.</td><th>Status</th><td>${l.status}</td></tr>
-          <tr><th>Nature of Security</th><td colspan="3">${security}</td></tr>
-          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${l.additionalInfo}</td></tr>` : ""}
+          <tr><th>Nature of Security</th><td colspan="3">${esc(security)}</td></tr>
+          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${esc(l.additionalInfo)}</td></tr>` : ""}
         </table>
         <p><b>True account of the transaction with the debtor:</b></p>
         <table>
@@ -946,6 +966,50 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
     }
   }
 
+  async function printPartialReceiptDoc(r: RequestView, lang: "en" | "ml") { return singleFlight("loan:partial-receipt:"+r.id+":"+lang, async () => {
+    setPrintingPartialId(r.id);
+    try {
+      await downloadPartialReleaseReceiptPDF(r.id, lang);
+    } catch {
+      toast("Could not generate the partial release receipt — try again");
+    } finally {
+      setPrintingPartialId(null);
+    }
+  }); }
+
+  function openPartialReceiptPicker() {
+    openModal(
+      <EsignLanguageModalContent
+        loanNumber={l.id}
+        customerName={l.customerName}
+        title="Partial Release Receipt"
+        confirmLabel="🖨 Print Receipt"
+        languageLabel="Language"
+        options={RELEASE_LANG_OPTIONS}
+        choices={partialReleases.map((r, i) => ({ value: r.id, label: `Release ${i + 1} · ${r.requestedAt}` }))}
+        onConfirm={() => undefined}
+        onConfirmChoice={(lang, requestId) => {
+          const r = partialReleases.find((x) => x.id === requestId);
+          return r ? printPartialReceiptDoc(r, lang === "ml" ? "ml" : "en") : undefined;
+        }}
+      />
+    );
+  }
+
+  // One Release Agreement entry: the language is chosen here, like the bond, instead of two menu items.
+  function openReleaseAgreementPicker() {
+    openModal(
+      <EsignLanguageModalContent
+        loanNumber={l.id}
+        customerName={l.customerName}
+        title="Release Agreement"
+        confirmLabel="🖨 Print Agreement"
+        options={RELEASE_LANG_OPTIONS}
+        onConfirm={(lang) => printReleaseAgreementDoc(lang === "ml" ? "ml" : "en")}
+      />
+    );
+  }
+
   // One modal for the bond: pick the language, then either print it or — with the checkbox ticked
   // — choose the delivery channel and witnesses and send it for eSign. The checkbox is offered only
   // while the bond can still be sent (not already signed or out for signing).
@@ -1083,10 +1147,12 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               loan/accrual.go). isOverdue stays true — the term really has
               expired — so suppress the duplicate chip here, or a serviced
               loan would read "Active" and "Overdue" at the same time. Also
-              suppress when l.status is already "Overdue" itself, or the
-              title would show two identical "Overdue" chips. */}
-          {!l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
-          {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
+              suppress when l.status is already "Overdue" (or "Due Soon")
+              itself, or the title would show two identical chips. */}
+          {/* An auctioned loan's own status already says where it stands — no
+              extra Overdue / Due Soon chip beside it. */}
+          {!goldSold && !l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
+          {!goldSold && !l.isOverdue && l.isDueSoon && l.status !== "Due Soon" && <StatusChip status="Due Soon" />}
           </h1>
         </div>
         {/* Everything from here down is one right-aligned group rather than
@@ -1105,7 +1171,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
          * loan's own state and read more naturally leading. */}
         <div className="page-h-actions">
           {approvalButtons ? approvalButtons : (
-            !isFinished && canUpdateLoans && (
+            !isFinished && l.status !== "Pending Approval" && !fullyPaid && canUpdateLoans && (
               <button className="btn" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />, true)}><Icon name="coin" /> Record Payment</button>
             )
           )}
@@ -1138,12 +1204,12 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                       <Icon name="bank" /><span className="tx">Repledge to Bank</span>
                     </a>
                   )}
-                  {!isFinished && canUpdateLoans && (
-                    <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />); }}>
+                  {!isFinished && !goldSold && canUpdateLoans && (
+                    <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />, true); }}>
                       <Icon name="clock" /><span className="tx">Request Extension</span>
                     </a>
                   )}
-                  {!isFinished && canUpdateLoans && (
+                  {!isFinished && !goldSold && canUpdateLoans && (
                     <a href="#" title="Request Release" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestReleaseModalContent loan={l} onSaved={load} />); }}>
                       <Icon name="unlock" /><span className="tx">Request Release</span>
                     </a>
@@ -1178,13 +1244,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                           busyLabel="Deleting…"
                           message={
                             <>
-                              This permanently and irreversibly deletes loan <strong>{l.id}</strong>.
-                              <br /><br />
-                              Every record tied to it will be removed: payments, ornaments, approvals,
-                              extension/release requests, auctions, bank pledges, packets, reminders, and
-                              all of its ledger (cash &amp; bank) entries.
-                              <br /><br />
-                              This cannot be undone.
+                              Permanently deletes loan <strong>{l.id}</strong> and all its records
+                              (payments, ornaments, ledger entries, etc.). This cannot be undone.
                             </>
                           }
                           onConfirm={async () => {
@@ -1298,13 +1359,15 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
                   </a>
                 )}
+              {partialReleases.length > 0 && (
+                <a href="#" title="Partial Release Receipt" className={printingPartialId != null ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingPartialId != null) return; setDocsMenuOpen(false); openPartialReceiptPicker(); }}>
+                  <Icon name="unlock" /><span className="tx">{printingPartialId != null ? "Preparing…" : "Partial Release Receipt"}</span>
+                </a>
+              )}
               {l.status === "Closed" && (
                 <>
-                  <a href="#" title="Release Agreement (English)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("en"); }}>
-                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement (English)"}</span>
-                  </a>
-                  <a href="#" title="Release Agreement (Malayalam)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("ml"); }}>
-                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement (Malayalam)"}</span>
+                  <a href="#" title="Release Agreement" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); openReleaseAgreementPicker(); }}>
+                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement"}</span>
                   </a>
                 </>
               )}
@@ -1331,7 +1394,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
           {l.rejectionRemarks ? ` — ${l.rejectionRemarks}` : ""}. This loan was never disbursed.
         </div>
       )}
-      {pendingStage && (
+      {pendingStage && (sanctionChain.length > 1 || l.approvalWarning) && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="bd">
             <StageTracker
@@ -1443,6 +1506,15 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>}
               <div className="i"><div className="k">Opening Date</div><div className="v">{fmtDate(l.opened)}</div></div>
               <div className="i"><div className="k">Due Date</div><div className="v" style={l.isOverdue ? { color: "var(--red)" } : undefined}>{fmtDate(l.due)}{l.isOverdue ? ` · ${l.daysOverdue}d overdue` : ""}</div></div>
+              {l.status === "Closed" && l.closed && (
+                <div className="i"><div className="k">Closed On</div><div className="v">{fmtDate(l.closed)}</div></div>
+              )}
+              {l.additionalInfo && (
+                <div className="i" style={{ gridColumn: "1 / -1" }}>
+                  <div className="k">Additional Information</div>
+                  <div className="v" style={{ whiteSpace: "pre-wrap", fontWeight: 400 }}>{l.additionalInfo}</div>
+                </div>
+              )}
               {l.overallPhotoUrl && (
                 <div className="i" style={{ gridColumn: "1 / -1" }}>
                   <div className="k">Overall Photo</div>
@@ -1462,6 +1534,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               {canExport && <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>}
             </div>
             <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
+              <TableCols widths={[11, 11, 30, 9, null, null, null]} />
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {ledgerError ? (
@@ -1547,9 +1620,10 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                       if (entry.kind === "auction-surplus") {
                         const a = entry.row;
                         const refunded = a.surplusDisposition === "RefundedToCustomer";
-                        const note = refunded ? "Refunded to customer"
+                        const baseNote = refunded ? "Refunded to customer"
                           : a.surplusDisposition === "RecordedAsIncome" ? "Retained as income — no cash paid out"
                           : "Payable to customer — awaiting settlement";
+                        const note = a.surplusRemarks ? `${baseNote} · ${a.surplusRemarks}` : baseNote;
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td data-label="Date">{fmtDate(entry.date)}</td>
@@ -1618,6 +1692,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                       const firstPart = !part || part.index === 0;
                       // A repayment row split by what it paid (auction proceeds): this row is one component.
                       const component = entry.component;
+                      // the first line of a payment shown as one line per part carries its actions and breakdown
+                      const firstRow = firstPart && (!component || /-0$/.test(entry.key));
+                      const rowLabel = component && component !== p.type ? `${component} — ${p.type}` : (component || p.type);
                       // Interest/Principal/Partial/Full Settlement/Waiver all
                       // reduce what's owed (credit); an Adjustment can go
                       // either way depending on what it corrected — shown as a
@@ -1640,7 +1717,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                           <td data-label="Date">{fmtDate(p.paidOn)}</td>
                           <td data-label="Ref No">{p.reference || l.loanNumber}</td>
                           <td data-label="Particulars">
-                            {component ? `${component} — ${p.type}` : p.type}
+                            {rowLabel}
                             {p.bankId && part?.mode !== "Cash" && (
                               <div style={{ marginTop: 4 }}>
                                 <LedgerRefLink kind="bank" id={p.bankId} label={p.bankName || "Bank"} />
@@ -1653,18 +1730,18 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                           <td className="num" data-label="Balance">
                             {fmt(entry.balance)}
                             {infoIcon({
-                              title: component ? `${component} — ${p.type}` : p.type,
+                              title: rowLabel,
                               kind: "Credit · " + p.type,
-                              rows: [["Date", fmtDate(p.paidOn)], ["Amount", fmt(part ? part.amount : component ? entry.amount : p.amount)], ["Mode", isCash ? (entry.mode || part?.mode || p.method || "—") : "Non-cash"], ...(p.reference ? [["Reference", p.reference] as [string, React.ReactNode]] : []), ...(p.bankName ? [["Bank", p.bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(entry.balance)]],
+                              rows: [["Date", fmtDate(p.paidOn)], ["Amount", fmt(part ? part.amount : component ? entry.amount : p.amount)], ...(entry.paidThrough ? [["Interest paid up to", fmtDate(entry.paidThrough)] as [string, React.ReactNode]] : []), ["Mode", isCash ? (entry.mode || part?.mode || p.method || "—") : "Non-cash"], ...(p.reference ? [["Reference", p.reference] as [string, React.ReactNode]] : []), ...(p.bankName ? [["Bank", p.bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(entry.balance)]],
                               description: <>
-                                {component ? `${component} — ${p.type}` : p.type}
+                                {rowLabel}
                                 {part && <><br />Split {part.index + 1} of {part.count} · total {fmt(p.amount)}</>}
-      {firstPart && !component && breakdown && <><br />{breakdown}</>}
-                                {firstPart && p.processingFee > 0 && <><br /><span style={{ color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</span></>}
+      {firstRow && p.type !== "Auction Sale" && breakdown && <><br />{breakdown}</>}
+                                {firstRow && p.processingFee > 0 && <><br /><span style={{ color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</span></>}
                                 {firstPart && p.type === "Auction Sale" && entry.auction && <><br />{auctionBreakdown(entry.auction)}</>}
                                 {p.description && p.type !== "Discount" ? <><br />{p.description}</> : null}
                               </>,
-                              actions: firstPart && !component ? (
+                              actions: firstRow ? (
                                 p.type === "Auction Write-Off" ? [
                                   ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("write-off", "edit") }] : []),
                                   ...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openAuctionEdit("write-off", "delete") }] : []),
@@ -1700,6 +1777,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
             </div>
             {pledgeTab === "ornaments" && (
             <div className="tbl-wrap"><table className="tbl">
+              <TableCols widths={[24, 9, 8, 10, 10, 12, 9, 10]} />
               <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Gross</th><th className="num">Net</th><th className="num">Gold Value</th><th>Photo</th><th>Status</th></tr></thead>
               <tbody>
                 {l.ornaments.slice((ornamentsPage - 1) * PLEDGE_PAGE_SIZE, ornamentsPage * PLEDGE_PAGE_SIZE).map((o) => (
@@ -1807,6 +1885,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                   <h4 style={{ marginTop: 16, marginBottom: 8, fontSize: 13 }}>Pledge History</h4>
                   <div className="tbl-wrap">
                     <table className="tbl">
+                      <TableCols widths={[26, 18, 18, 14, 14, ...((canEditLedger || canDeleteLedger) && canUpdateBankPledges ? [10] : [])]} />
                       <thead>
                         <tr><th>Bank</th><th>Pledged On</th><th>Released On</th><th className="num">Amount</th><th>Status</th>{(canEditLedger || canDeleteLedger) && canUpdateBankPledges && <th></th>}</tr>
                       </thead>

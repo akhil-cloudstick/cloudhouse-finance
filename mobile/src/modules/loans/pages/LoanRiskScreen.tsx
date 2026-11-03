@@ -3,10 +3,10 @@ import React, { useState } from "react";
 import {
   AccRow,
   C,
+  ChipMultiSelect,
   DateField,
   Field,
   FieldRow,
-  FilterChipRow,
   FiltersBar,
   FlatHeader,
   PrimaryButton,
@@ -30,22 +30,23 @@ import { inr } from "@/common/utils/format";
 // (Service.ClassifyRisk); every filter and the search are backend params on
 // GET /loans/risk-assessment.
 
-const STATUS_FILTERS = ["All", ...RISK_STATUSES] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
+// Status and risk level each take any number of ticked values; none ticked means no restriction.
+const STATUS_FILTERS = RISK_STATUSES;
 
-const LEVEL_FILTERS = ["All", "Loss", "At Risk", "Safe"] as const;
+const LEVEL_FILTERS = ["Loss", "At Risk", "Safe"] as const;
 type LevelFilter = (typeof LEVEL_FILTERS)[number];
-const LEVEL_PARAM: Record<LevelFilter, LoanRiskLevel | undefined> = { All: undefined, Loss: "Loss", "At Risk": "AtRisk", Safe: "Safe" };
+const LEVEL_PARAM: Record<LevelFilter, LoanRiskLevel> = { Loss: "Loss", "At Risk": "AtRisk", Safe: "Safe" };
 
 const RISK_TONE: Record<LoanRiskLevel, ChipTone> = { Safe: "active", AtRisk: "due", Loss: "overdue" };
 const RISK_LABEL: Record<LoanRiskLevel, string> = { Safe: "Safe", AtRisk: "At Risk", Loss: "Loss" };
 
-type Filters = { status?: string; riskLevel?: LoanRiskLevel; from?: string; to?: string };
+// status and riskLevel are comma-separated lists (the server accepts one or several).
+type Filters = { status?: string; riskLevel?: string; from?: string; to?: string };
 type RiskPage = { items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts };
 
 export default function LoanRiskScreen() {
-  const [status, setStatus] = usePersistedState<StatusFilter>("loanrisk:status", "All");
-  const [level, setLevel] = usePersistedState<LevelFilter>("loanrisk:level", "All");
+  const [status, setStatus] = usePersistedState<string[]>("loanrisk:statuses", []);
+  const [level, setLevel] = usePersistedState<string[]>("loanrisk:levels", []);
   const [from, setFrom] = usePersistedState("loanrisk:from", "");
   const [to, setTo] = usePersistedState("loanrisk:to", "");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -54,8 +55,8 @@ export default function LoanRiskScreen() {
   const [counts, setCounts] = useState<LoanRiskCounts | null>(null);
 
   const filters: Filters = {
-    status: status === "All" ? undefined : status,
-    riskLevel: LEVEL_PARAM[level],
+    status: status.length ? status.join(",") : undefined,
+    riskLevel: level.length ? level.map((l) => LEVEL_PARAM[l as LevelFilter]).join(",") : undefined,
     from: from || undefined,
     to: to || undefined,
   };
@@ -69,8 +70,8 @@ export default function LoanRiskScreen() {
     },
   });
 
-  const activeCount = (status !== "All" ? 1 : 0) + (level !== "All" ? 1 : 0) + (from || to ? 1 : 0);
-  const summary = `${level === "All" ? "All levels" : level}${status !== "All" ? ` · ${status}` : ""} · ${list.total ?? list.items.length}`;
+  const activeCount = status.length + level.length + (from || to ? 1 : 0);
+  const summary = `${level.length ? level.join(", ") : "All levels"}${status.length ? ` · ${status.join(", ")}` : ""} · ${list.total ?? list.items.length}`;
 
   return (
     <Screen header={<FlatHeader title="Loan Risk" subtitle="Risk assessment across active loans" />}>
@@ -138,10 +139,10 @@ export default function LoanRiskScreen() {
 
       <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)} title="Filter Loan Risk" maxHeightPct={80}>
         <Field label="Risk level">
-          <FilterChipRow options={LEVEL_FILTERS} value={draft.level} onChange={(v) => setDraft((d) => ({ ...d, level: v }))} />
+          <ChipMultiSelect options={LEVEL_FILTERS} value={draft.level} onChange={(v) => setDraft((d) => ({ ...d, level: v }))} />
         </Field>
         <Field label="Loan status">
-          <FilterChipRow options={STATUS_FILTERS} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
+          <ChipMultiSelect options={STATUS_FILTERS} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
         </Field>
         <FieldRow>
           <DateField label="Opened from" value={draft.from} onChange={(v) => setDraft((d) => ({ ...d, from: v }))} clearable />

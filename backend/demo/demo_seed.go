@@ -915,6 +915,7 @@ func seedPurityStandards(ctx context.Context, rep *Report) error {
 func seedGoldRates(ctx context.Context, st *state, rep *Report) error {
 	last := len(goldRateFixtures) - 1
 	for i, k24 := range goldRateFixtures {
+		// 22K / 18K at the standard 91.6% / 75% fineness, saved the way the Set Gold Rate modal's Auto mode does.
 		if _, err := common.SaveGoldRate(ctx, common.PublishInput{
 			Date:        st.clk.daysAgo(last - i),
 			Karat:       24,

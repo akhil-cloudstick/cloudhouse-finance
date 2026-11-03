@@ -132,10 +132,15 @@ type CreateInput struct {
 type ListInput struct {
 	BranchID   *uint
 	CustomerID *uint
-	Status     string
-	Query      string
-	Limit      int
-	Offset     int
+	// CustomerIDs / PlanIDs narrow to any of several investors / plans (the list page's filters).
+	CustomerIDs []uint
+	PlanIDs     []uint
+	Status      string
+	Query       string
+	From        *time.Time
+	To          *time.Time
+	Limit       int
+	Offset      int
 }
 
 type MarkPayoutPaidInput struct {
@@ -178,12 +183,17 @@ type WithdrawInput struct {
 }
 
 type ListFilter struct {
-	BranchID   *uint
-	CustomerID *uint
-	Status     string
-	Query      string
-	Limit      int
-	Offset     int
+	BranchID    *uint
+	CustomerID  *uint
+	CustomerIDs []uint
+	PlanIDs     []uint
+	Status      string
+	Query       string
+	// From / To bound start_date; To is exclusive (the day after the chosen end date).
+	From   *time.Time
+	To     *time.Time
+	Limit  int
+	Offset int
 }
 
 type CalendarPayout struct {
@@ -297,7 +307,7 @@ func SaveInvestmentPlan(ctx context.Context, in PlanInput) (*models.InvestmentPl
 	rec := &models.InvestmentPlan{
 		Name:                in.Name,
 		InterestRateType:    in.InterestRateType,
-		InterestRatePercent: common.RoundMoney(in.InterestRatePercent),
+		InterestRatePercent: common.RoundDecimal2(in.InterestRatePercent),
 		PayoutFrequency:     in.PayoutFrequency,
 		TenureMonths:        in.TenureMonths,
 		MinPrincipal:        common.RoundMoney(in.MinPrincipal),
@@ -346,7 +356,7 @@ func updatePlan(ctx context.Context, id uint, in PlanInput) (*models.InvestmentP
 	rec.ProductType = productType
 	rec.Name = in.Name
 	rec.InterestRateType = in.InterestRateType
-	rec.InterestRatePercent = common.RoundMoney(in.InterestRatePercent)
+	rec.InterestRatePercent = common.RoundDecimal2(in.InterestRatePercent)
 	rec.PayoutFrequency = in.PayoutFrequency
 	rec.TenureMonths = in.TenureMonths
 	rec.MinPrincipal = common.RoundMoney(in.MinPrincipal)
@@ -511,12 +521,16 @@ func listInvestments(ctx context.Context, in ListInput) ([]models.Investment, bo
 		limit = 10
 	}
 	recs, total, err := findInvestments(ctx, ListFilter{
-		BranchID:   in.BranchID,
-		CustomerID: in.CustomerID,
-		Status:     in.Status,
-		Query:      in.Query,
-		Limit:      limit,
-		Offset:     in.Offset,
+		BranchID:    in.BranchID,
+		CustomerID:  in.CustomerID,
+		CustomerIDs: in.CustomerIDs,
+		PlanIDs:     in.PlanIDs,
+		Status:      in.Status,
+		Query:       in.Query,
+		From:        in.From,
+		To:          in.To,
+		Limit:       limit,
+		Offset:      in.Offset,
 	})
 	if err != nil {
 		return nil, false, 0, err
@@ -1111,6 +1125,19 @@ func lockByID(ctx context.Context, tx *gorm.DB, id uint, branchID *uint) (*model
 	return &rec, nil
 }
 
+// queryDayRange reads optional from/to YYYY-MM-DD query parameters as a local
+// [from, to) range, the end day inclusive. Either end is nil when absent or malformed.
+func queryDayRange(fromV, toV string) (from, to *time.Time) {
+	if t, err := time.ParseInLocation("2006-01-02", fromV, time.Local); err == nil {
+		from = &t
+	}
+	if t, err := time.ParseInLocation("2006-01-02", toV, time.Local); err == nil {
+		end := t.AddDate(0, 0, 1)
+		to = &end
+	}
+	return from, to
+}
+
 func findInvestments(ctx context.Context, f ListFilter) ([]models.Investment, int64, error) {
 	var recs []models.Investment
 	q := config.DB.
@@ -1121,8 +1148,27 @@ func findInvestments(ctx context.Context, f ListFilter) ([]models.Investment, in
 	if f.CustomerID != nil {
 		q = q.Where("investments.customer_id = ?", *f.CustomerID)
 	}
-	if f.Status != "" {
-		q = q.Where("investments.status = ?", f.Status)
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("investments.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.PlanIDs) > 0 {
+		q = q.Where("investments.plan_id IN ?", f.PlanIDs)
+	}
+	// Status is one value or a comma-separated list.
+	var statuses []string
+	for _, s := range strings.Split(f.Status, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			statuses = append(statuses, s)
+		}
+	}
+	if len(statuses) > 0 {
+		q = q.Where("investments.status IN ?", statuses)
+	}
+	if f.From != nil {
+		q = q.Where("investments.start_date >= ?", *f.From)
+	}
+	if f.To != nil {
+		q = q.Where("investments.start_date < ?", *f.To)
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
@@ -1381,13 +1427,18 @@ func ListInvestments(c echo.Context) error {
 	if limit == 0 {
 		page, limit = 1, 10
 	}
+	from, to := queryDayRange(c.QueryParam("from"), c.QueryParam("to"))
 	recs, _, total, err := listInvestments(ctx, ListInput{
-		BranchID:   branchID,
-		CustomerID: customerID,
-		Status:     c.QueryParam("status"),
-		Query:      c.QueryParam("search"),
-		Limit:      limit,
-		Offset:     offset,
+		BranchID:    branchID,
+		CustomerID:  customerID,
+		CustomerIDs: parseUintCSV(c.QueryParam("customer_ids")),
+		PlanIDs:     parseUintCSV(c.QueryParam("plan_ids")),
+		Status:      c.QueryParam("status"),
+		Query:       c.QueryParam("search"),
+		From:        from,
+		To:          to,
+		Limit:       limit,
+		Offset:      offset,
 	})
 	if err != nil {
 		return common.FailErr(c, err)

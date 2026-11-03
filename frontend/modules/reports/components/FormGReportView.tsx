@@ -1,5 +1,7 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/common/components/Icon";
@@ -175,12 +177,7 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
           />
         </div>
         <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
-        <button className="btn ghost sm" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-          <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
-        </button>
-        <button className="btn sm" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-          <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
-        </button>
+        <ExportMenu busy={exporting} onExport={handleExport} />
       </div>
       </div>
 
@@ -213,6 +210,7 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
             </p>
             <div className="tbl-wrap">
               <table className="tbl">
+                <TableCols widths={[50, 25, 25]} />
                 <thead><tr><th></th><th className="num">Count</th><th className="num">Amount (Rs.)</th></tr></thead>
                 <tbody>
                   <OverrideRow label="Outstanding at beginning of period" countKey="depositOpeningCount" amountKey="depositOpeningAmount" overrides={overrides} setOverride={setOverride} />
@@ -231,6 +229,7 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
             <h3 style={{ marginBottom: 8 }}>Section 4 — Financial Position</h3>
             <div className="tbl-wrap">
               <table className="tbl">
+                <TableCols widths={[70, 30]} />
                 <tbody>
                   <tr><td>Maximum amount outstanding on any day</td><td className="num">{fmt(stmt.section4FinancialPosition.maxOutstanding)}</td></tr>
                   <tr><td>Date on which maximum amount was outstanding</td><td className="num">{dt(stmt.section4FinancialPosition.maxOutstandingDate)}</td></tr>
@@ -281,6 +280,7 @@ function LoanTable({ title, rows }: LoanTableProps) {
       <h3 style={{ marginBottom: 8 }}>{title}</h3>
       <div className="tbl-wrap">
         <table className="tbl">
+          <TableCols widths={[35, 20, 20, 25]} />
           <thead>
             <tr>
               <th>Nature/Name of Loan</th>

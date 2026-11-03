@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { Fragment, useEffect, useState } from "react";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
@@ -127,6 +128,7 @@ export function GoldRatesPage() {
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-cards">
+            <TableCols widths={[20, 16, 16, 16, 32]} />
             <thead>
               <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g</th><th className="num">18K ₹/g</th><th>Published By</th></tr>
             </thead>
@@ -178,6 +180,7 @@ export function GoldRatesPage() {
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
         </div>
       </div>

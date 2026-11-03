@@ -7,7 +7,7 @@
     "icon": "./assets/cloudhouse.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.cloudhouse.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false

@@ -3,7 +3,8 @@ import { Keyboard, View } from "react-native";
 import { useIsFocused, useNavigation, useRoute } from "expo-router";
 import { Fade } from "./Fade";
 import { PHEADER_FADE } from "@/common/theme/layout";
-import { HeaderHostContext, headerStore, s } from "./shellContext";
+import { HeaderHostContext, headerStore, s, TabNameContext } from "./shellContext";
+import { blurredBySwipe } from "./swipeController";
 
 type ScreenProps = {
   header: React.ReactNode;
@@ -23,11 +24,12 @@ export function Screen({
 }: ScreenProps) {
   const hosted = useContext(HeaderHostContext);
   const routeKey = useRoute().key;
+  const tab = useContext(TabNameContext);
   const navigation = useNavigation();
   const focused = useIsFocused();
   // Every render, so the hosted header tracks the page's state.
   useLayoutEffect(() => {
-    if (hosted) headerStore.set(routeKey, header, focused);
+    if (hosted) headerStore.set(routeKey, header, focused, tab);
   });
   // The blur event still fires for a page that's frozen once hidden (it
   // can't re-render to report focused=false itself).
@@ -35,7 +37,7 @@ export function Screen({
     if (!hosted) return;
     // Leaving a page (tab, push, back) also closes a keyboard opened on it.
     const off = navigation.addListener("blur", () => {
-      Keyboard.dismiss();
+      if (!blurredBySwipe()) Keyboard.dismiss();
       headerStore.blur(routeKey);
     });
     return () => {

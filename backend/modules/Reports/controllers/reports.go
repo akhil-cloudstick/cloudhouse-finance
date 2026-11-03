@@ -89,6 +89,7 @@ func parseFilter(c echo.Context) (models.Filter, error) {
 		return models.Filter{}, errors.New("that branch is outside your current branch selection")
 	}
 	f.BranchID = branchID
+	f.Status = c.QueryParam("status")
 	f.Page = 1
 	if v := c.QueryParam("page"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -204,7 +205,7 @@ func LoansStatusReport(c echo.Context) error {
 		badRequest(c, err)
 		return nil
 	}
-	rows, totals, err := loanStatus(ctx, f, c.QueryParam("status"))
+	rows, totals, err := loanStatus(ctx, f, f.Status)
 	if err != nil {
 		reportError(c, err)
 		return nil

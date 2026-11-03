@@ -1,5 +1,6 @@
 "use client";
 
+import { roundRupee } from "@/common/utils/format";
 import { useEffect, useState } from "react";
 import { getBank } from "@/modules/banks/services/bankService";
 import { PaymentBreakdownFields, effectiveRows, newPaymentRow, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
@@ -55,15 +56,15 @@ export function sumSplitLines(lines: SplitPaymentLine[]): SplitAmounts {
     else if (l.mode === "Bank Transfer") split.bankTransferAmount += amt;
   }
   return {
-    cashAmount: Math.round(split.cashAmount * 100) / 100,
-    upiAmount: Math.round(split.upiAmount * 100) / 100,
-    bankTransferAmount: Math.round(split.bankTransferAmount * 100) / 100,
-    chequeAmount: Math.round(split.chequeAmount * 100) / 100,
+    cashAmount: roundRupee(split.cashAmount),
+    upiAmount: roundRupee(split.upiAmount),
+    bankTransferAmount: roundRupee(split.bankTransferAmount),
+    chequeAmount: roundRupee(split.chequeAmount),
   };
 }
 
 function splitTotal(s: SplitAmounts): number {
-  return Math.round((s.cashAmount + s.upiAmount + s.bankTransferAmount + s.chequeAmount) * 100) / 100;
+  return roundRupee((s.cashAmount + s.upiAmount + s.bankTransferAmount + s.chequeAmount));
 }
 
 type SplitPaymentInputProps = {
@@ -121,7 +122,7 @@ export function SplitPaymentInput({
     bankName: r.bankName,
   }));
   const split = sumSplitLines(lines);
-  const remaining = Math.round((totalAmount - splitTotal(split)) * 100) / 100;
+  const remaining = roundRupee((totalAmount - splitTotal(split)));
   const bankId = firstSelectedBankId(lines);
 
   // A saved entry hands over only a bank id: the names are looked up once so the bank shows instead of an empty field.

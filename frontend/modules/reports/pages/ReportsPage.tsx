@@ -9,6 +9,7 @@ import { fmt, fmtW, fmtDate } from "@/common/utils/format";
 import { FormGReportView } from "@/modules/reports/components/FormGReportView";
 import { ReportView, type ReportConfig } from "@/modules/reports/components/ReportView";
 import { LedgerExportView } from "@/modules/reports/components/LedgerExportView";
+import { CashLedgerReportView } from "@/modules/reports/components/CashLedgerReportView";
 import { getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollection, getOutstandingPrincipal, getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions, getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory, getEmployeePerformance, getCommunicationHistory, getBalanceSheet, getProfitAndLoss, exportReport, getDepositRegister, getInterestPayoutRegister, getMaturityRegister } from "@/modules/reports/services/reportsService";
 import { type StatementStyle } from "@/modules/reports/types/reports-types";
 import { useIsSmallScreen } from "@/common/utils/responsive";
@@ -100,7 +101,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "loans-status",
     fetchFn: getLoansStatus,
     rowKey: (r) => r.loanId,
-    extraFilter: { field: "status", label: "Status", options: ["Active", "Closed", "Pending Approval", "Auction Eligible"] },
+    extraFilter: { field: "status", label: "Status", options: ["Active", "Due Soon", "Overdue", "Defaulted", "Closed"] },
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },
@@ -345,6 +346,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     fetchFn: getEmployeePerformance,
     rowKey: (r) => r.employeeId,
     columns: [
+      { key: "employeeCode", label: "Employee ID", render: (r) => r.employeeCode || "—" },
       { key: "name", label: "Employee", render: (r) => r.name },
       { key: "role", label: "Role", render: (r) => r.role },
       { key: "branchName", label: "Branch", render: (r) => r.branchName },
@@ -428,7 +430,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     fetchFn: getDepositRegister,
     rowKey: (r) => r.investmentId,
     columns: [
-      { key: "investmentNumber", label: "Investment #", render: (r) => r.investmentNumber },
+      { key: "investmentNumber", label: "Investment ID", render: (r) => r.investmentNumber },
       { key: "customerName", label: "Investor", render: (r) => r.customerName },
       { key: "planName", label: "Plan", render: (r) => r.planName },
       { key: "branchName", label: "Branch", render: (r) => r.branchName },
@@ -450,7 +452,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     fetchFn: getInterestPayoutRegister,
     rowKey: (r) => `${r.investmentId}-${r.sequenceNo}`,
     columns: [
-      { key: "investmentNumber", label: "Investment #", render: (r) => r.investmentNumber },
+      { key: "investmentNumber", label: "Investment ID", render: (r) => r.investmentNumber },
       { key: "customerName", label: "Investor", render: (r) => r.customerName },
       { key: "sequenceNo", label: "#", render: (r) => r.sequenceNo },
       { key: "dueDate", label: "Due Date", render: (r) => dt(r.dueDate) },
@@ -472,7 +474,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     fetchFn: getMaturityRegister,
     rowKey: (r) => r.investmentId,
     columns: [
-      { key: "investmentNumber", label: "Investment #", render: (r) => r.investmentNumber },
+      { key: "investmentNumber", label: "Investment ID", render: (r) => r.investmentNumber },
       { key: "customerName", label: "Investor", render: (r) => r.customerName },
       { key: "branchName", label: "Branch", render: (r) => r.branchName },
       { key: "principalAmount", label: "Principal", numeric: true, render: (r) => fmt(r.principalAmount) },
@@ -510,6 +512,15 @@ const LEDGER_EXPORT_TILE = {
   icon: "coin",
 };
 
+/* Cash Ledger's own tile — like Form G, its month groups and running balance don't fit the
+ * generic Row/Totals ReportView, so it has its own CashLedgerReportView. */
+const CASH_LEDGER_TILE = {
+  id: "cash-ledger",
+  title: "Cash Ledger",
+  description: "Every cash movement loan-wise, with month totals and running balance",
+  icon: "coin",
+};
+
 /* Ported from legacy/app.js's `renderReports()` tile grid, now wired to
  * real backend/internal/reports endpoints. Clicking a tile swaps the grid
  * for that report's ReportView (filter bar + paginated table + totals +
@@ -532,9 +543,9 @@ export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }
   // refusing the underlying API call too (see internal/reports/routes.go).
   const visibleConfigs = REPORT_CONFIGS.filter((r) => !r.tenantModule || hasModule(r.tenantModule));
   // Which report is open lives in the URL, so a refresh or a pasted link lands on it.
-  const activeId = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE].find((r) => reportSlug(r.title) === slugFromUrl)?.id ?? null;
+  const activeId = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, CASH_LEDGER_TILE].find((r) => reportSlug(r.title) === slugFromUrl)?.id ?? null;
   const setActiveId = (id: string | null) => {
-    const tile = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE].find((r) => r.id === id);
+    const tile = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, CASH_LEDGER_TILE].find((r) => r.id === id);
     navigate("reports", tile ? reportSlug(tile.title) : undefined);
   };
   const [printingId, setPrintingId] = useState<string | null>(null);
@@ -546,11 +557,14 @@ export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }
   if (activeId === "ledger-export") {
     return <LedgerExportView onBack={() => setActiveId(null)} />;
   }
+  if (activeId === "cash-ledger") {
+    return <CashLedgerReportView onBack={() => setActiveId(null)} />;
+  }
   if (active) {
-    return <ReportView config={active} onBack={() => setActiveId(null)} />;
+    return <ReportView key={active.id} config={active} onBack={() => setActiveId(null)} />;
   }
 
-  async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE) { return singleFlight("reports:print:"+r.id, async () => {
+  async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE | typeof CASH_LEDGER_TILE) { return singleFlight("reports:print:"+r.id, async () => {
     e.stopPropagation();
     if (r.id === "ledger-export") { setActiveId("ledger-export"); return; }
     setPrintingId(r.id);
@@ -563,7 +577,7 @@ export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }
       // the date range), just with that 3-month default instead of
       // firstOfMonth().
       const range = r.id === "form-g" ? { from: subMonths(today(), 3), to: today() } : { from: firstOfMonth(), to: today() };
-      await exportReport(r.id === "form-g" ? "form-g" : (r as ReportConfig).exportKey, "pdf", range);
+      await exportReport(r.id === "form-g" || r.id === "cash-ledger" ? r.id : (r as ReportConfig).exportKey, "pdf", range);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Print failed.");
     } finally {
@@ -582,7 +596,7 @@ export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }
        * as its own divider line. */}
       <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>
-        {[...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE].map((r) => (
+        {[...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, CASH_LEDGER_TILE].map((r) => (
           <div className="card" style={{ cursor: "pointer", minHeight: 120, display: "flex", flexDirection: "column", position: "relative" }} key={r.id} onClick={() => setActiveId(r.id)}>
             <button
               className="btn ghost sm"

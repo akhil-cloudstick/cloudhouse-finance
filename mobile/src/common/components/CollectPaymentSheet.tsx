@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { C, DateField, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropdown, Txt } from "@/common/components/ui";
+import { C, ConfirmSheet, DateField, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropdown, Txt } from "@/common/components/ui";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { recordPayment } from "@/modules/loans/services/paymentService";
+import { getLoan } from "@/modules/loans/services/loanService";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { inr, todayISO } from "@/common/utils/format";
+import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { PAYMENT_TYPES, PAYMENT_TYPE_LABELS, apiErr, invalidateLoan, type PaymentType } from "./loanSheetKit";
 
@@ -18,21 +19,46 @@ import { ErrorText } from "./ErrorText";
 // them to the paisa.
 const money = (v: number) => (v > 0 ? String(Math.round(v * 100) / 100) : "");
 
-// Amount a payment type normally settles. "Both" (Partial) prefills interest + principal.
+// Amount a payment type normally settles. The server pays fee, penal, interest, then principal, so each type
+// prefills everything that sits ahead of its own bucket (same as the web PaymentModal's amountForMode).
 function autoAmount(l: Loan, t: PaymentType) {
+  const fee = l.outstandingProcessingFee ?? 0;
+  const penal = l.outstandingPenalInterest ?? 0;
+  const interest = l.outstandingInterest ?? 0;
+  const principal = l.outstandingAmount ?? 0;
   const v =
     t === "Partial"
-      ? (l.outstandingInterest ?? 0) + (l.outstandingAmount ?? 0)
+      ? l.settlementAmount ?? fee + penal + interest + principal
       : t === "Interest"
-      ? l.outstandingInterest
-      : t === "Penal Interest"
-        ? l.outstandingPenalInterest
-        : t === "Principal"
-          ? l.outstandingAmount
-          : t === "Full Settlement"
-            ? l.settlementAmount ?? l.totalOutstandingBalance
-            : undefined;
+        ? fee + penal + interest
+        : t === "Penal Interest"
+          ? fee + penal
+          : t === "Principal"
+            ? fee + principal
+            : t === "Full Settlement"
+              ? l.settlementAmount ?? l.totalOutstandingBalance
+              : undefined;
   return v != null ? money(v) : "";
+}
+
+// Where an amount lands, fee first then penal, interest, principal; mirrors the web PaymentModal's previewAllocation
+// (the server stays the authority). Shown on the confirm step so staff see the split before it is recorded.
+function previewAllocation(l: Loan, t: PaymentType, feeOwed: number, amount: number) {
+  if (t === "Full Settlement") {
+    return { fee: feeOwed, penal: l.outstandingPenalInterest ?? 0, interest: l.outstandingInterest ?? 0, principal: l.outstandingAmount ?? 0 };
+  }
+  let left = amount;
+  const take = (owed: number, allowed: boolean) => {
+    if (!allowed) return 0;
+    const n = Math.min(left, Math.max(0, owed));
+    left -= n;
+    return n;
+  };
+  const fee = take(feeOwed, true);
+  const penal = take(l.outstandingPenalInterest ?? 0, t !== "Principal");
+  const interest = take(l.outstandingInterest ?? 0, t === "Partial" || t === "Interest");
+  const principal = take(l.outstandingAmount ?? 0, t === "Partial" || t === "Principal");
+  return { fee, penal, interest, principal };
 }
 
 type CollectPaymentSheetProps = { loan: Loan; visible: boolean; onClose: () => void };
@@ -63,6 +89,8 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
   // Bumped on each open so the breakdown rows start fresh.
   const [openKey, setOpenKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Record Payment never posts straight away: Review opens a summary and only its Confirm records the payment.
+  const [confirming, setConfirming] = useState(false);
 
   // Fresh form each time the sheet opens.
   useEffect(() => {
@@ -78,8 +106,27 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
     setDiscountReason("");
     setDiscountKind("customer");
     setError(null);
+    setConfirming(false);
     interestTouched.current = false;
     setInterest(money(l.outstandingInterest ?? 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  // The loan handed in can be a whole accrual cycle old (opened from a list). Refetch on open so the prefilled
+  // interest and amount are what is owed now; skipped for any field staff have already typed in.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    getLoan(l.id)
+      .then((fresh) => {
+        if (cancelled) return;
+        if (!interestTouched.current) setInterest(money(fresh.outstandingInterest ?? 0));
+        if (!amountTouched.current) setAmount(autoAmount(fresh, "Interest"));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
@@ -115,15 +162,19 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
         ...(discountAmt > 0 ? { discount: discountAmt, discountReason: discountReason.trim(), discountMode, discountKind } : {}),
         ...(breakdown?.split ?? {}),
         bankId: breakdown?.bankId,
-        // The interest prefilled at open is the pre-discount figure; with a discount the server works interest out
-        // after it, so the prefill is only sent when hand-edited.
-        interestOverride: interest.trim() && !(discountAmt > 0 && !interestTouched.current) ? Number(interest) : undefined,
+        // Only a hand-edited interest is sent as an override. The untouched prefill may be stale (and is
+        // pre-discount), so the server works the interest out itself.
+        interestOverride: interest.trim() && interestTouched.current ? Number(interest) : undefined,
       }),
     onSuccess: () => {
+      setConfirming(false);
       invalidateLoan(qc, l.id);
       onClose();
     },
-    onError: (e) => setError(apiErr(e, "Could not record the payment — try again.")),
+    onError: (e) => {
+      setConfirming(false);
+      setError(apiErr(e, "Could not record the payment — try again."));
+    },
   });
 
   return (
@@ -219,19 +270,86 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
         {chargeAmt > 0 ? `Customer pays ${inr(amt)} (${inr(typedAmt)} + ${inr(chargeAmt)} charges). ` : "Charges are added on top of Amount. "}
         Leave interest blank to use the system figure{(l.outstandingPenalInterest ?? 0) > 0 ? ` (penal ${inr(l.outstandingPenalInterest)} outstanding)` : ""}.
       </Txt>
+      {/* Payment summary: what is owed, what this payment clears and what is left. Charges settle the fee bucket, not the loan. */}
+      {(() => {
+        const owed = l.totalOutstandingBalance ?? l.outstandingAmount ?? 0;
+        const after = Math.max(0, Math.round((owed - typedAmt - discountAmt) * 100) / 100);
+        const rows: [string, string, boolean?][] = [
+          ["Outstanding", inr(owed)],
+          ["This payment", inr(typedAmt)],
+          ...(discountAmt > 0 ? ([["Discount", inr(discountAmt)]] as [string, string][]) : []),
+          ["Balance after payment", inr(after), true],
+        ];
+        return (
+          <View style={{ backgroundColor: C.card, borderColor: C.line, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 12 }}>
+            {rows.map(([k, v, strong]) => (
+              <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
+                <Txt style={{ fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
+                <Txt style={{ fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
+              </View>
+            ))}
+          </View>
+        );
+      })()}
       <View style={{ marginBottom: 12 }}>
         <SplitPaymentInput key={openKey} total={amt} onChange={setBreakdown} />
       </View>
       <ErrorText>{overSettle ? `More than the full settlement — only ${inr(settleOwed)} is owed.` : error}</ErrorText>
       <PrimaryButton
-        label="Confirm Payment"
+        label={amt > 0 ? `Review ${inr(amt)}` : "Review Payment"}
         onPress={() => {
           setError(null);
-          pay.mutate();
+          setConfirming(true);
         }}
-        loading={pay.isPending}
         disabled={!(amt > 0) || overSettle || !date || !breakdown?.ready || discountMissingReason}
       />
+      {(() => {
+        const alloc = previewAllocation(l, type, (l.outstandingProcessingFee ?? 0) + chargeAmt, amt + discountAmt);
+        const applied: [string, number][] = [
+          ["Penal interest", alloc.penal],
+          ["Interest", alloc.interest],
+          ["Additional charges", alloc.fee],
+          ["Principal", alloc.principal],
+        ];
+        const paidBy: [string, number][] = breakdown
+          ? [
+              ["Cash", breakdown.split.cashAmount],
+              ["UPI", breakdown.split.upiAmount],
+              ["Bank Transfer", breakdown.split.bankTransferAmount],
+            ]
+          : [];
+        const row = (k: string, v: string, strong?: boolean) => (
+          <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
+            <Txt style={{ fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
+            <Txt style={{ fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
+          </View>
+        );
+        return (
+          <ConfirmSheet
+            visible={confirming}
+            onClose={() => !pay.isPending && setConfirming(false)}
+            title="Confirm Payment"
+            confirmLabel="Confirm Payment"
+            loading={pay.isPending}
+            onConfirm={() => pay.mutate()}
+            message={
+              <View>
+                <Txt style={{ fontSize: 12.5, color: C.muted, textAlign: "center" }}>Amount to be paid</Txt>
+                <Txt style={{ fontSize: 24, fontWeight: "700", textAlign: "center" }}>{inr(amt)}</Txt>
+                <Txt style={{ fontSize: 12, color: C.muted, textAlign: "center", marginBottom: 10 }}>{l.loanNumber}</Txt>
+                {row("Apply payment to", PAYMENT_TYPE_LABELS[type])}
+                {row("Payment date", dmy(date))}
+                {paidBy.filter(([, v]) => v > 0.001).map(([k, v]) => row(`Paid by ${k}`, inr(v)))}
+                <Txt style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>Applied as</Txt>
+                {applied.filter(([, v]) => v > 0.001).map(([k, v]) => row(k, inr(v)))}
+                {discountAmt > 0 ? row("Discount", inr(discountAmt)) : null}
+                {row("Amount paying", inr(amt), true)}
+                {discountAmt > 0 ? row("Total cleared on the loan", inr(amt + discountAmt)) : null}
+              </View>
+            }
+          />
+        );
+      })()}
     </Sheet>
   );
 }

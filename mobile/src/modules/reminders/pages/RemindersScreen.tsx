@@ -9,10 +9,12 @@ import {
   PIcon,
   Buffering,
   EmptyText,
+  FilterChipRow,
   Screen,
   SearchInput,
   SectionTitle,
   ServerFlatList,
+  Sheet,
   Txt,
   openPage,
   toast,
@@ -54,6 +56,7 @@ export default function RemindersScreen() {
   const [month, setMonth] = useState(() => new Date(+today.slice(0, 4), +today.slice(5, 7) - 1, 1));
   const [selected, setSelected] = useState(today);
   const [adding, setAdding] = useState(false);
+  const [picking, setPicking] = useState(false);
   const { can } = useAuth();
   const canCreate = can("Reminder_Management", "can_create_reminder");
   const canViewLoans = can("Loan_Management", "can_view_loan_module");
@@ -98,19 +101,31 @@ export default function RemindersScreen() {
     list.setSearch(v);
   };
 
-  function goMonth(delta: number) {
-    const d = new Date(y, m + delta, 1);
+  // Jump to any month: used by the prev/next buttons and by the month / year picker.
+  function goTo(year: number, monthIndex: number) {
+    const d = new Date(year, monthIndex, 1);
     setMonth(d);
     const first = isoOf(d.getFullYear(), d.getMonth(), 1);
     setSelected(today.slice(0, 7) === first.slice(0, 7) ? today : first);
   }
 
+  function goMonth(delta: number) {
+    goTo(y, m + delta);
+  }
+
+  const todayYear = +today.slice(0, 4);
+  const yearOptions = Array.from(new Set([...Array.from({ length: 21 }, (_, i) => todayYear - 10 + i), y]))
+    .sort((a, b) => a - b)
+    .map(String);
+
   const header = (
     <View>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 18 }}>
-        <Txt style={{ fontWeight: "700", fontSize: 14 }}>
-          {MONTHS[m]} {y}
-        </Txt>
+        <Pressable onPress={() => setPicking(true)} hitSlop={6} accessibilityRole="button" accessibilityLabel="Choose month and year">
+          <Txt style={{ fontWeight: "700", fontSize: 14 }}>
+            {MONTHS[m]} {y} ▾
+          </Txt>
+        </Pressable>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Pressable onPress={() => goMonth(-1)} hitSlop={4} accessibilityLabel="Previous month" style={navBtn}>
             <PIcon name="back" color={C.brandDeep} />
@@ -170,10 +185,16 @@ export default function RemindersScreen() {
                     ev={e}
                     first={i === 0}
                     showDate={searching}
-                    onPress={e.loanId && canViewLoans ? () => openPage(`/loans/${e.loanId}`) : undefined}
+                    onPress={
+                      e.loanId && canViewLoans
+                        ? () => openPage(`/loans/${e.loanId}`)
+                        : e.personalLoanId != null && canViewPersonalLoans
+                          ? () => openPage(`/personal-loans?id=${e.personalLoanId}&from=reminders`)
+                          : undefined
+                    }
                     onOpenLoan={
                       e.personalLoanId != null && canViewPersonalLoans
-                        ? () => openPage(`/personal-loans?id=${e.personalLoanId}`)
+                        ? () => openPage(`/personal-loans?id=${e.personalLoanId}&from=reminders`)
                         : undefined
                     }
                     onDone={e.reminderId != null && canUpdateReminder && e.status !== "Done" ? () => done.mutate(e.reminderId!) : undefined}
@@ -188,6 +209,20 @@ export default function RemindersScreen() {
         )}
       />
       <ReminderCreateSheet visible={adding} onClose={() => setAdding(false)} defaultDate={selected} />
+      <Sheet visible={picking} onClose={() => setPicking(false)} title="Go to month">
+        <SectionTitle>Month</SectionTitle>
+        <FilterChipRow
+          options={MONTHS}
+          value={MONTHS[m]}
+          onChange={(name) => { goTo(y, MONTHS.indexOf(name)); setPicking(false); }}
+        />
+        <SectionTitle>Year</SectionTitle>
+        <FilterChipRow
+          options={yearOptions}
+          value={String(y)}
+          onChange={(year) => { goTo(+year, m); setPicking(false); }}
+        />
+      </Sheet>
     </Screen>
   );
 }

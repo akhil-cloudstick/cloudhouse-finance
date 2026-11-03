@@ -15,6 +15,7 @@ import { editBankPledge, deleteBankPledge, type BankPledgeEditPreview } from "@/
 import { type BankPledgeCashTreatment } from "@/modules/loans/types/loan-types";
 import { searchBanksPage } from "@/modules/banks/services/bankService";
 import { type BackendBank } from "@/modules/banks/types/bank-types";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 // The fields of a pledge record the editor needs (a loan's pledge row and a history row both carry them).
 export type EditablePledge = {
@@ -251,7 +252,7 @@ function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "ed
       <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll ledger-edit-bd">
         <label className="f">{mode === "delete" ? "This record will be removed" : "What changes"}</label>
-        <div className="tbl-wrap"><table className="tbl">
+        <div className="tbl-wrap"><table className="tbl"><TableCols widths={[40, 30, 30]} />
           <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
           <tbody>
             {row("Bank", b.bankName, a ? a.bankName : "—")}

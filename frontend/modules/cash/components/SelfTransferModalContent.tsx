@@ -15,7 +15,7 @@ import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-swit
 import { searchBanksPage, createBank } from "@/modules/banks/services/bankService";
 import { type BackendBank } from "@/modules/banks/types/bank-types";
 import { isLoanSource } from "@/modules/cash/services/cashSourceService";
-import { searchCategoriesPage, createCategory } from "@/modules/cash/services/categoryService";
+import { searchCategoriesPage, createCategory, deleteCategoryById } from "@/modules/cash/services/categoryService";
 import { type BackendCategory } from "@/modules/cash/types/category-types";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { Select } from "@/common/components/ui/Select";
@@ -126,14 +126,18 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
   async function save() { return singleFlight("modal:selftransfer:save", async () => {
     const amount = +amt;
     setErr(""); setFe({});
-    if (!category) { fail("category", "Please select a category."); return; }
-    if (!(amount > 0)) { fail("amount", "Please enter a valid amount."); return; }
-    if (!date) { fail("date", "Please select the date."); return; }
-    if (!cashToBank && !fromBankId) { fail("fromBank", "Please select the From Bank."); return; }
-    if (loan && !loanReady) { fail("category", "This loan has no details recorded yet — add cash from it first."); return; }
-    if (!loan && !bankToCash && !toBankId) { fail("toBank", "Please select the To Bank."); return; }
-    if (!loan && !cashSide && toBankId === fromBankId) { fail("toBank", "From Bank and To Bank must be different."); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!category) errors["category"] ??= "Please select a category.";
+    if (!(amount > 0)) errors["amount"] ??= "Please enter a valid amount.";
+    if (!date) errors["date"] ??= "Please select the date.";
+    if (!cashToBank && !fromBankId) errors["fromBank"] ??= "Please select the From Bank.";
+    if (loan && !loanReady) errors["category"] ??= "This loan has no details recorded yet — add cash from it first.";
+    if (!loan && !bankToCash && !toBankId) errors["toBank"] ??= "Please select the To Bank.";
+    if (!loan && !cashSide && toBankId === fromBankId) errors["toBank"] ??= "From Bank and To Bank must be different.";
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    if (!branchId) return; // narrows branchId; the check above already reported it
 
     setSaving(true);
     try {
@@ -211,6 +215,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
               placeholder="Search or add a category…"
               allowCreate
               onCreate={createCategory("self_transfer")}
+              onDeleteItem={(c) => deleteCategoryById(c.id).then(() => { if (c.name === category) setCatRec(null); toast(`Category "${c.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this category."); throw e; })}
             /><FieldError msg={fe.category} /></div>
         </div>
         <div className="frow c2">

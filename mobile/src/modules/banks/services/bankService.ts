@@ -8,8 +8,8 @@ export function listBanks(q?: string) {
 // Page-scoped variant: passing `limit` flips the backend (bank/handler.go's
 // List) into the {items, hasMore} envelope — used by the paginated mobile
 // Bank Pledge directory (10/page, one API call per page).
-export function listBanksPage(params: { q?: string; limit: number; offset: number }) {
-  return apiRequest<{ items: Bank[]; hasMore: boolean }>("/banks", { params });
+export function listBanksPage(params: { q?: string; branchId?: string; limit: number; offset: number }) {
+  return apiRequest<{ items: Bank[]; hasMore: boolean; total?: number; totalBalance?: number }>("/banks", { params });
 }
 
 // Find-or-create, dedupes by name (case-insensitive) — 201 if new, 200 if

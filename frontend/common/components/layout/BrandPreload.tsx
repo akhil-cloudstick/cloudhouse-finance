@@ -53,9 +53,13 @@ const script = `
       var hl = apiBaseHost.split(".");
       if (hl.length >= 3 && /^[a-z0-9][a-z0-9-]*$/.test(hl[0])) desktopSlug = hl[0];
     } catch (e) { /* no NEXT_PUBLIC_API_BASE, or it's relative — not a desktop tenant build */ }
+    // An explicit ?b=<slug> (forgot/reset-password links) outranks the
+    // remembered business — mirrors activeBusinessSlug in tenantSession.ts.
+    var linked = (new URLSearchParams(location.search).get("b") || "").trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(linked)) linked = "";
     var slug = (first && /^[a-z0-9][a-z0-9-]*$/.test(first) && !reserved.test(first))
       ? first
-      : ((location.hostname === "wails.localhost" && desktopSlug) || localStorage.getItem("cloudhouse_active_business") || "default");
+      : (linked || (location.hostname === "wails.localhost" && desktopSlug) || localStorage.getItem("cloudhouse_active_business") || "default");
     var hex = localStorage.getItem(${JSON.stringify(BRAND_COLOR_KEY_PREFIX)} + slug) || ${JSON.stringify(DEFAULT_BRAND_COLOR)};
     var m = /^#?([0-9a-f]{6})$/i.exec(hex);
     // Not a bare return: the tab icon below must still be installed.

@@ -8,13 +8,13 @@ import {
   BtnRow2,
   C,
   Card,
+  ChipMultiSelect,
   ChipToggle,
   EmptyText,
   FabMenu,
   Field,
   FieldGrid,
   FieldRow,
-  FilterChipRow,
   FiltersBar,
   FlatHeader,
   Input,
@@ -39,7 +39,7 @@ import { listCustomers } from "@/modules/customers/services/customerService";
 import { ApiError } from "@/common/services/httpClient";
 import { addCashToInvestment, createInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
 import { InvestmentLedgerEditSheet } from "@/modules/investments/components/InvestmentLedgerEditSheet";
-import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InvestmentStatus, type InvestmentLedgerRow, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
+import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InvestmentLedgerRow, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { previewInvestmentBondPdf, previewInvestmentStatementPdf } from "@/modules/investments/utils/investmentBond";
 import { dmy, inr } from "@/common/utils/format";
@@ -51,12 +51,13 @@ import { isUserCancel, loadErrorText, userMessage } from "@/common/services/apiE
 // inv-addcash / inv-withdraw / inv-closerenew sheets. Search (INV no.,
 // investor name/code) and the status filter are backend params.
 
-const STATUS_FILTERS = ["All", "Active", "Matured", "Closed", "Renewed"] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
+// Any number of statuses can be ticked; none ticked means all investments.
+const STATUS_FILTERS = ["Active", "Matured", "Closed", "Renewed"] as const;
 const PAYMENT_MODES: PaymentMode[] = ["Cash", "UPI", "Bank Transfer", "Cheque"];
 const WITHDRAW_FROM = ["Interest", "Principal", "Both"] as const;
 
-type Filters = { status?: InvestmentStatus };
+// Comma-separated list of statuses (the server accepts one or several).
+type Filters = { status?: string };
 
 const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 const planLabel = (p: InvestmentPlan) => `${p.name} — ${p.interestRatePercent}% · ${p.engine === "Live" ? "Single payout" : p.payoutFrequency} · ${p.tenureMonths}mo`;
@@ -66,15 +67,15 @@ export default function InvestmentsScreen() {
   const canCreate = can("Investment_Management", "can_create_investment");
   const canUpdate = can("Investment_Management", "can_update_investment");
 
-  const [status, setStatus] = usePersistedState<StatusFilter>("investments:status", "All");
+  const [statuses, setStatuses] = usePersistedState<string[]>("investments:statuses", []);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [draft, setDraft] = useState<StatusFilter>("All");
+  const [draft, setDraft] = useState<string[]>([]);
 
   const [plansOpen, setPlansOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
 
-  const filters: Filters = { status: status === "All" ? undefined : status };
+  const filters: Filters = { status: statuses.length ? statuses.join(",") : undefined };
   const list = useServerList<Investment, Filters>({ key: ["investments", "list"], persistKey: "investments", filters, fetchPage: (p) => listInvestmentsPage(p) });
 
   return (
@@ -102,15 +103,15 @@ export default function InvestmentsScreen() {
         list={list}
         items={list.items}
         keyOf={(i) => String(i.id)}
-        emptyText={list.search || status !== "All" ? "No investments match your search." : "No investments yet."}
+        emptyText={list.search || statuses.length > 0 ? "No investments match your search." : "No investments yet."}
         header={
           <View style={{ paddingTop: 12 }}>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by investment ID or investor name" style={{ paddingBottom: 8 }} />
             <FiltersBar
-              count={status !== "All" ? 1 : 0}
-              summary={`${status === "All" ? "All investments" : status}${list.total != null ? ` · ${list.total}` : ""}`}
+              count={statuses.length}
+              summary={`${statuses.length ? statuses.join(", ") : "All investments"}${list.total != null ? ` · ${list.total}` : ""}`}
               onPress={() => {
-                setDraft(status);
+                setDraft(statuses);
                 setFilterOpen(true);
               }}
               style={{ marginTop: 0, marginBottom: 10 }}
@@ -136,12 +137,12 @@ export default function InvestmentsScreen() {
 
       <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Investments" maxHeightPct={55}>
         <Field label="Status">
-          <FilterChipRow options={STATUS_FILTERS} value={draft} onChange={setDraft} style={{ flexWrap: "wrap" }} />
+          <ChipMultiSelect options={STATUS_FILTERS} value={draft} onChange={setDraft} />
         </Field>
         <PrimaryButton
           label="Apply Filters"
           onPress={() => {
-            setStatus(draft);
+            setStatuses(draft);
             setFilterOpen(false);
           }}
         />
@@ -504,6 +505,7 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
     qc.invalidateQueries({ queryKey: ["investmentLedger", id] });
     qc.invalidateQueries({ queryKey: ["investmentSchedule", id] });
     qc.invalidateQueries({ queryKey: ["investments"] });
+    for (const key of ["investmentTransactions", "ledger", "cash-summary", "cash-movements"]) qc.invalidateQueries({ queryKey: [key] });
   };
 
   async function printStatement() {

@@ -1,12 +1,14 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModalContent";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
@@ -35,7 +37,7 @@ export function CustomersPage() {
   // Header count: all customers, independent of the search/filters below.
   const [allCount, setAllCount] = useState(0);
   useEffect(() => {
-    listCustomersPage("", 1, undefined, 1)
+    listCustomersPage("", 1, { customerType: "Borrower" }, 1)
       .then((res) => setAllCount(res.total))
       .catch(() => setAllCount(0));
   }, [version]);
@@ -52,13 +54,13 @@ export function CustomersPage() {
   const [q, setQ] = usePersistedState("customers:q", "");
   const [panStatus, setPanStatus] = usePersistedState("customers:pan", "");
   const [aadhaarStatus, setAadhaarStatus] = usePersistedState("customers:aadhaar", "");
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePersistedPage("customers");
   // One grouped filter: PAN and Aadhaar verification status (single choice each).
   const filterCategories: FilterCategory[] = [
-    { key: "pan", label: "PAN Verified", kind: "static", singleSelect: true, options: VERIFICATION_STATUS_OPTIONS },
-    { key: "aadhaar", label: "Aadhaar Verified", kind: "static", singleSelect: true, options: VERIFICATION_STATUS_OPTIONS },
+    { key: "pan", label: "PAN Verified", kind: "static", options: VERIFICATION_STATUS_OPTIONS },
+    { key: "aadhaar", label: "Aadhaar Verified", kind: "static", options: VERIFICATION_STATUS_OPTIONS },
   ];
-  const filterValue: FilterValue = { pan: panStatus ? [panStatus] : [], aadhaar: aadhaarStatus ? [aadhaarStatus] : [] };
+  const filterValue: FilterValue = { pan: panStatus ? panStatus.split(",") : [], aadhaar: aadhaarStatus ? aadhaarStatus.split(",") : [] };
   const [rows, setRows] = useState<CustomerView[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
@@ -66,13 +68,13 @@ export function CustomersPage() {
   const [error, setError] = useState("");
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  useEffect(() => { setPage(1); }, [q, panStatus, aadhaarStatus, pageSize]);
+  useResetPageOnChange(setPage, [q, panStatus, aadhaarStatus, pageSize]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     const handle = setTimeout(() => {
-      listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus }, pageSize)
+      listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus, customerType: "Borrower" }, pageSize)
         .then((res) => { if (!cancelled) { setRows(res.items); setHasMore(res.hasMore); setTotal(res.total); setError(""); } })
         .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load customers."); })
         .finally(() => { if (!cancelled) setLoading(false); });
@@ -85,7 +87,7 @@ export function CustomersPage() {
     // Re-run the current page's query rather than resetting to page 1, so
     // registering/editing a customer doesn't bounce the viewer's place.
     setPage((p) => p);
-    listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus })
+    listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus, customerType: "Borrower" })
       .then((res) => { setRows(res.items); setHasMore(res.hasMore); setTotal(res.total); setError(""); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customers."));
   }
@@ -95,7 +97,7 @@ export function CustomersPage() {
       <div className="page-h">
         <div><h1>Customers &amp; KYC</h1><p>{allCount} customers · PAN &amp; Aadhaar verification status</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" title="Searches: customer name, customer code, phone" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch value={q} onChange={setQ} placeholder="Search name, phone, ID…" searches="customer name, customer code, phone" />
         {canCreateCustomers && (
           <button className="btn" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refresh} />, true)}>
             <Icon name="plus" /> Register Customer
@@ -113,8 +115,8 @@ export function CustomersPage() {
           categories={filterCategories}
           value={filterValue}
           onChange={(next) => {
-            setPanStatus(Array.isArray(next.pan) ? next.pan[0] || "" : "");
-            setAadhaarStatus(Array.isArray(next.aadhaar) ? next.aadhaar[0] || "" : "");
+            setPanStatus(Array.isArray(next.pan) ? next.pan.join(",") : "");
+            setAadhaarStatus(Array.isArray(next.aadhaar) ? next.aadhaar.join(",") : "");
           }}
           hideChips
           hideClearAll
@@ -122,6 +124,7 @@ export function CustomersPage() {
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
       <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left tbl-cards">
+        <TableCols widths={[20, 14, ...(showBranch ? [12] : []), 11, 13, 11, 8, 8]} />
         <thead><tr><th>Customer</th><th>Contact</th>{showBranch && <th>Branch</th>}<th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>
           {loading && !(cards && rows.length > 0) ? (
@@ -146,6 +149,7 @@ export function CustomersPage() {
       <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
         <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
       </div>
       </div>

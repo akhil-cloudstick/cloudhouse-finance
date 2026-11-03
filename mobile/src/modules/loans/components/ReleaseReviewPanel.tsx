@@ -101,6 +101,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const [reference, setReference] = useState("");
   const [dueDate, setDueDate] = useState(request.paymentDueDate || "");
   // Language being fetched ("partial" for the partial-release receipt).
+  // One document row; the language options only open once it is tapped, like the bond.
+  const [pickingLang, setPickingLang] = useState(false);
   const [downloading, setDownloading] = useState<DocLang | `partial-${DocLang}` | null>(null);
   // Seed editable fields only when a different request arrives, so a
   // background refetch never stomps on what staff is typing.
@@ -181,10 +183,13 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     }
   }
 
+  // Optimistic: the tick shows on tap instead of after the save + refetch round trip; reverts if the save fails.
+  const [sawGold, setSawGold] = useState(!!request.customerSawGold);
+  useEffect(() => { setSawGold(!!request.customerSawGold); }, [request.customerSawGold]);
   const saveVerification = useMutation({
     mutationFn: (input: Parameters<typeof verifyReleaseChecklist>[1]) => verifyReleaseChecklist(request.id, input),
     onSuccess: onSaved,
-    onError: reportError,
+    onError: (err) => { setSawGold(!!request.customerSawGold); reportError(err); },
   });
 
   const amt = +amount || 0;
@@ -241,27 +246,24 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     <View>
       {request.status === "Approved" ? (
         <View style={{ marginBottom: 10 }}>
-          {request.isPartial
-            ? RELEASE_AGREEMENT_LANGS.map((lang, i) => (
+          <SheetListItem
+            first
+            icon="doc"
+            title={request.isPartial ? "Partial Release Receipt" : "Release Agreement"}
+            sub={pickingLang ? "Choose the language below" : request.isPartial ? "Download the partial-release receipt" : "Gold handed back to the customer"}
+            onPress={() => setPickingLang((v) => !v)}
+          />
+          {pickingLang
+            ? RELEASE_AGREEMENT_LANGS.map((lang) => (
                 <SheetListItem
                   key={lang}
-                  first={i === 0}
                   icon="doc"
-                  title={`Partial Release Receipt — ${DOC_LANG_LABELS[lang]}`}
-                  sub={downloading === `partial-${lang}` ? "Preparing…" : "Download the partial-release receipt"}
-                  onPress={() => downloadReleaseAgreement(lang, true)}
+                  title={DOC_LANG_LABELS[lang]}
+                  sub={downloading === (request.isPartial ? `partial-${lang}` : lang) ? "Preparing…" : `Download in ${DOC_LANG_LABELS[lang]}`}
+                  onPress={() => downloadReleaseAgreement(lang, !!request.isPartial)}
                 />
               ))
-            : RELEASE_AGREEMENT_LANGS.map((lang, i) => (
-                <SheetListItem
-                  key={lang}
-                  first={i === 0}
-                  icon="doc"
-                  title={`Release Agreement — ${DOC_LANG_LABELS[lang]}`}
-                  sub={downloading === lang ? "Preparing…" : "Gold handed back to the customer"}
-                  onPress={() => downloadReleaseAgreement(lang)}
-                />
-              ))}
+            : null}
         </View>
       ) : null}
 
@@ -319,12 +321,12 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
       <View style={sawGoldDisabled ? { opacity: 0.6 } : null}>
         <CheckItem
           variant="confirm"
-          checked={!!request.customerSawGold}
+          checked={sawGold}
           onPress={() => {
-            if (!sawGoldDisabled)
-              saveVerification.mutate({
-                customerSawGold: !request.customerSawGold,
-              });
+            if (sawGoldDisabled) return;
+            const next = !sawGold;
+            setSawGold(next);
+            saveVerification.mutate({ customerSawGold: next });
           }}
           title="Customer has seen the gold"
           sub="Required before this request can be approved"

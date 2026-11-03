@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,12 +85,15 @@ func FindByRole(ctx context.Context, roleName string) ([]commonModels.Employee, 
 	return out, err
 }
 
-func findEmployees(ctx context.Context, branchID *uint, search string, limit, offset int) ([]commonModels.Employee, int64, error) {
+func findEmployees(ctx context.Context, branchID *uint, role, search string, limit, offset int) ([]commonModels.Employee, int64, error) {
 	var employees []commonModels.Employee
 	q := config.DB.
 		WithContext(ctx).Preload("Branch").Order("id asc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if role != "" {
+		q = q.Where("role = ?", role)
 	}
 	if search != "" {
 		q = ApplySearch(q, search, "employees.name", "employees.code", "employees.phone", "employees.username", "employees.email", "employees.role",
@@ -349,8 +353,8 @@ func SaveEmployee(ctx context.Context, in EmployeeCreateInput, actorEmployeeID u
 	return FindEmployeeByID(ctx, rec.ID)
 }
 
-func listEmployees(ctx context.Context, branchID *uint, search string, limit, offset int) ([]commonModels.Employee, int64, error) {
-	return findEmployees(ctx, branchID, search, limit, offset)
+func listEmployees(ctx context.Context, branchID *uint, role, search string, limit, offset int) ([]commonModels.Employee, int64, error) {
+	return findEmployees(ctx, branchID, role, search, limit, offset)
 }
 
 func getEmployee(ctx context.Context, id uint, branchID *uint) (*commonModels.Employee, error) {
@@ -481,19 +485,39 @@ func CreateEmployee(c echo.Context) error {
 	return Success(c, http.StatusOK, rec)
 }
 
+// queryBranchFilter narrows the caller's branch scope by an optional single
+// branch_id query parameter. ok is false when the chosen branch is outside the
+// caller's current branch selection.
+func queryBranchFilter(c echo.Context) (branch *uint, ok bool) {
+	var requested *uint
+	if v := c.QueryParam("branch_id"); v != "" {
+		id, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		b := uint(id)
+		requested = &b
+	}
+	return auth.NarrowBranch(c, requested)
+}
+
 func ListEmployees(c echo.Context) error {
 	ctx := auth.RequestContext(c)
-	branchScope := auth.GetBranchScope(c)
+	branchScope, ok := queryBranchFilter(c)
+	if !ok {
+		return Fail(c, http.StatusBadRequest, "that branch is outside your current branch selection")
+	}
+	role := strings.TrimSpace(c.QueryParam("role"))
 	search := strings.TrimSpace(c.QueryParam("search"))
 	page, limit, offset := PageParams(c)
 	if limit > 0 {
-		rec, total, err := listEmployees(ctx, branchScope, search, limit, offset)
+		rec, total, err := listEmployees(ctx, branchScope, role, search, limit, offset)
 		if err != nil {
 			return FailErr(c, err)
 		}
 		return SuccessPage(c, page, limit, total, rec)
 	}
-	rec, _, err := listEmployees(ctx, branchScope, search, 0, 0)
+	rec, _, err := listEmployees(ctx, branchScope, role, search, 0, 0)
 	if err != nil {
 		return FailErr(c, err)
 	}

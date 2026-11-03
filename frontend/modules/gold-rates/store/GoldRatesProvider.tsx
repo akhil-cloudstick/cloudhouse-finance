@@ -5,8 +5,9 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { listGoldRates, getLatestGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { type GoldRateView } from "@/modules/gold-rates/types/gold-rate-types";
+import { finenessForKarat } from "@/common/utils/purity";
 
-const EMPTY_RATE: GoldRateView = { id: "", date: "", k24: 0, k22: 0, k18: 0, setBy: "—", setByDesignation: "", createdAt: "" };
+const EMPTY_RATE: GoldRateView = { id: "", date: "", k24: 0, k22: 0, k18: 0, fineness22: finenessForKarat(22), fineness18: finenessForKarat(18), setBy: "—", setByDesignation: "", createdAt: "" };
 
 type GoldRatesState = {
   latest: GoldRateView;

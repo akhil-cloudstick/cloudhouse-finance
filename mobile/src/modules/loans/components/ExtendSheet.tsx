@@ -7,6 +7,7 @@ import { dmy, inr } from "@/common/utils/format";
 import type { Loan, LoanRequest } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { ErrorText } from "@/common/components/ErrorText";
+import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
 
 type ExtendSheetProps = {
   loan: Loan;
@@ -32,6 +33,7 @@ export function ExtendSheet({
   const [monthsText, setMonthsText] = useState("1");
   const [detail, setDetail] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
   // Guards against a fast double-tap creating two duplicate requests (the
   // button's disabled state only lands on the next render).
   const submitting = useRef(false);
@@ -100,6 +102,10 @@ export function ExtendSheet({
           {penal > 0.01 ? ` + penal interest ${inr(penal)}` : ""} must be paid before an extension can be requested — use Collect Payment first.
         </WarningBanner>
       ) : null}
+      {blocked ? (
+        <PrimaryButton label={`Pay ${inr(oi + penal)} now`} variant="outline" onPress={() => setPaying(true)} />
+      ) : null}
+      <CollectPaymentSheet loan={l} visible={paying} onClose={() => { setPaying(false); invalidateLoan(qc, l.id); }} />
       <Field label="Current due date">
         <Input value={dmy(l.dueDate)} editable={false} />
       </Field>

@@ -16,6 +16,7 @@ export function TableSearch({ value, onChange, placeholder, searches }: Props) {
     <div className="search">
       <Icon name="search" />
       <input className="inp" placeholder={placeholder} title={`Searches: ${searches}`} value={value} onChange={(e) => onChange(e.target.value)} />
+      {value ? <button type="button" className="search-clear" aria-label="Clear search" title="Clear" onClick={() => onChange("")}><Icon name="x" /></button> : null}
     </div>
   );
 }

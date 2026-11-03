@@ -52,8 +52,11 @@ export function AddInvestmentCashModalContent({
   const balanced = Math.abs(remaining) < 0.01;
 
   async function save() { return singleFlight("modal:addinvestmentcash:save", async () => {
-    if (amountNum <= 0) { fail("amount", "Enter an amount greater than zero."); return; }
-    if (!balanced) { fail("split", "The payment breakdown must add up to the amount."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (amountNum <= 0) errors["amount"] ??= "Enter an amount greater than zero.";
+    if (!balanced) errors["split"] ??= "The payment breakdown must add up to the amount.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     setErr("");
     setFe({});

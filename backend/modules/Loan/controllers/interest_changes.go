@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	common "cloudhouse/backend/common/controllers"
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
 	"math"
@@ -72,4 +73,4 @@ func interestChanges(before, after map[string]accrualDay) []InterestChange {
 	return out
 }
 
-func round2(v float64) float64 { return math.Round(v*100) / 100 }
+func round2(v float64) float64 { return common.RoundMoney(v) }

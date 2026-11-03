@@ -101,7 +101,7 @@ export function BanksSheet({ visible, onClose }: BanksSheetProps) {
           <Input value={ifsc} onChangeText={(v) => setIfsc(v.toUpperCase())} autoCapitalize="characters" placeholder="e.g. HDFC0001234" />
         </Field>
         <Field label="Account number">
-          <Input value={accountNo} onChangeText={setAccountNo} placeholder="Branch account number" keyboardType="number-pad" />
+          <Input value={accountNo} onChangeText={(t) => setAccountNo(t.replace(/\D/g, ""))} maxLength={18} placeholder="Branch account number" keyboardType="number-pad" />
         </Field>
         <Field label="Phone">
           <Input value={phone} onChangeText={setPhone} placeholder="Bank contact number" keyboardType="phone-pad" />

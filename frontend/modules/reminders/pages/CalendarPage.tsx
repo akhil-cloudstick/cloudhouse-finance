@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type UIEvent } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
+import { Select } from "@/common/components/ui/Select";
 import { AddReminderModalContent } from "@/modules/reminders/components/AddReminderModalContent";
 import { completeReminder, deleteReminder, getCalendarEvents } from "@/modules/reminders/services/reminderService";
 import { type CalendarEvent } from "@/modules/reminders/types/reminder-types";
@@ -132,11 +133,16 @@ export function CalendarPage() {
     cells.push(week);
   }
 
-  function goMonth(delta: number) {
-    const d = new Date(year, month + delta, 1);
+  // Jump to any month: used by Prev/Next and by the month / year pickers.
+  function goTo(y: number, m: number) {
+    const d = new Date(y, m, 1);
     setYear(d.getFullYear());
     setMonth(d.getMonth());
     setSelectedDay(null);
+  }
+
+  function goMonth(delta: number) {
+    goTo(year, month + delta);
   }
 
   function goToday() {
@@ -219,9 +225,22 @@ export function CalendarPage() {
         <div className="card">
           {/* Month label with its small prev/next buttons right beside it, directly above the grid. */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px 0" }}>
-            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0 }} onClick={() => goMonth(-1)} aria-label="Previous month">‹</button>
-            <b style={{ fontSize: 14, minWidth: 120, textAlign: "center" }}>{fmtMonthYear(year, month)}</b>
-            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0 }} onClick={() => goMonth(1)} aria-label="Next month">›</button>
+            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0, height: 31 }} onClick={() => goMonth(-1)} aria-label="Previous month">‹</button>
+            <div style={{ width: 130 }}>
+              <Select
+                value={String(month)}
+                onChange={(v) => goTo(year, +v)}
+                options={Array.from({ length: 12 }, (_, m) => ({ value: String(m), label: new Date(2000, m, 1).toLocaleString("en-US", { month: "long" }) }))}
+              />
+            </div>
+            <div style={{ width: 100 }}>
+              <Select
+                value={String(year)}
+                onChange={(v) => goTo(+v, month)}
+                options={Array.from(new Set([...Array.from({ length: 21 }, (_, i) => today.getFullYear() - 10 + i), year])).sort((a, b) => a - b).map((y) => ({ value: String(y), label: String(y) }))}
+              />
+            </div>
+            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0, height: 31 }} onClick={() => goMonth(1)} aria-label="Next month">›</button>
             <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={goToday}>Today</button>
           </div>
           <div className="bd" style={{ padding: 10, overflowX: "auto" }}>
@@ -258,6 +277,10 @@ export function CalendarPage() {
           </div>
           <div className="ft">Click a day to see its full list of events and log a follow-up, promise-to-pay date, or custom reminder.</div>
         </div>
+        </div>
+
+        <div className="grid">
+          {selectedDay == null ? (
           <div className="card">
             <div className="hd"><h3>This Month at a Glance</h3></div>
             <div className="bd" style={{ paddingTop: 6 }}>
@@ -271,11 +294,12 @@ export function CalendarPage() {
               </ul>
             </div>
           </div>
-        </div>
-
-        <div className="grid">
+          ) : (
           <div className="card">
-            <div className="hd"><h3>{selectedDay != null ? fmtDate(toISODate(year, month, selectedDay)) : "Select a day"}</h3></div>
+            <div className="hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3>{fmtDate(toISODate(year, month, selectedDay))}</h3>
+              <button className="btn ghost sm" onClick={() => setSelectedDay(null)}>Month summary</button>
+            </div>
             <div className="bd no-scrollbar" style={{ paddingTop: 6, maxHeight: 420, overflowY: "auto" }} onScroll={onDayScroll}>
               {groupsOfDay.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "8px 0 12px" }}>
@@ -309,12 +333,12 @@ export function CalendarPage() {
                     <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />
                     </span>
-                    <span className="tx">
+                    <span className="tx" style={{ minWidth: 0, flex: 1 }}>
                       <b>{e.title}</b>
-                      <small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""}</small>
+                      <small style={{ display: "block", whiteSpace: "normal", overflowWrap: "anywhere" }}>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""}</small>
                     </span>
                     {e.reminderId != null && (
-                      <span className="rt" style={{ display: "flex", gap: 4 }}>
+                      <span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                         {canUpdateReminders && e.status !== "Done" && (
                           <button className="btn sm ghost" onClick={() => onComplete(e.reminderId!)}>Done</button>
                         )}
@@ -330,15 +354,8 @@ export function CalendarPage() {
                 ))}
               </ul>
             </div>
-            {selectedDay != null && canCreateReminders && (
-              <div className="ft">
-                <button className="btn ghost" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
-                  <Icon name="plus" /> Add Reminder for this day
-                </button>
-              </div>
-            )}
           </div>
-
+          )}
         </div>
       </div>
     </>

@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { TableSearch } from "@/common/components/ui/TableSearch";
@@ -204,6 +205,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
         </div>
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-stack" data-ledger-scope="branch" data-ledger-page={page}>
+            <TableCols widths={[12, 12, 34, 14, 14, 14]} />
             <thead>
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>

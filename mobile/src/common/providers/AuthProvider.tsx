@@ -109,9 +109,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       await saveBusinessCode(code);
       if (code) setBusinessCode(code);
       await saveToken(token);
-      setEmployee(emp);
-      setPermissionsLoaded(false);
+      // Permissions first, employee last: the root redirect fires on `employee`, and the tabs
+      // would otherwise open on the permissions spinner.
       await loadPermissions(emp);
+      setEmployee(emp);
       // The business code (and therefore its branding) may have just
       // changed, and the theme can now use the authenticated /branding
       // endpoint instead of the public one.
@@ -127,10 +128,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       await saveToken(token);
       // Set together (batched) so the root navigator never sees a business
       // with no employee, which would flash the login page before the dashboard.
-      setPermissionsLoaded(false);
+      await loadPermissions(emp);
       setBusinessCode(saved);
       setEmployee(emp);
-      await loadPermissions(emp);
       refreshBranding();
     },
     [loadPermissions, refreshBranding]

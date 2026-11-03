@@ -365,7 +365,7 @@ function CollectPaymentPicker({ visible, onClose }: CollectPaymentPickerProps) {
         label="Loan"
         placeholder="Search by loan number, customer name or ID"
         queryKey={["loans", "collect-picker"]}
-        fetcher={async (q) => (await listLoansPage({ q: q || undefined, status: "Active", limit: 20, offset: 0 })).items ?? []}
+        fetcher={async (q) => (await listLoansPage({ q: q || undefined, status: "Active,Due Soon,Overdue,Closure Requested,Auction Eligible", limit: 20, offset: 0 })).items ?? []}
         onSelect={(l) => {
           onClose();
           shell.openCollect(l.id);

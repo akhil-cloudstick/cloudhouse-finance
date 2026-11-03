@@ -44,6 +44,6 @@ export function useLoanRowEdit(row: { loanId?: number; paymentId?: number; type:
   ];
   return {
     actions,
-    sheet: open ? <LedgerPaymentEditSheet loanId={open.loan.id} loanStart={open.loan.disbursementDate} payment={open.payment} mode={open.mode} onClose={() => setOpen(null)} /> : null,
+    sheet: open ? <LedgerPaymentEditSheet loanId={open.loan.id} loanStart={open.loan.openedDate} payment={open.payment} mode={open.mode} onClose={() => setOpen(null)} /> : null,
   };
 }

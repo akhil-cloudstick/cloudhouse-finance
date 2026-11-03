@@ -1,6 +1,7 @@
 "use client";
 
 import { fmt, fmtDate } from "@/common/utils/format";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 export type InterestChangeView = { on: string; interestBefore: number; interestAfter: number; penalBefore: number; penalAfter: number };
 
@@ -13,7 +14,7 @@ export function InterestChangesTable({ changes }: { changes: InterestChangeView[
     <div style={{ marginTop: 14 }}>
       <label className="f">Interest worked out again</label>
       <p className="ccheck-hint" style={{ margin: "0 0 8px" }}>Worked out automatically from the edit — shown for checking, not editable.</p>
-      <div className="tbl-wrap"><table className="tbl">
+      <div className="tbl-wrap"><table className="tbl"><TableCols widths={[22, 26, 26, ...(anyPenal ? [13, 13] : [])]} />
         <thead><tr><th>Charged on</th><th className="num">Interest before</th><th className="num">Interest after</th>{anyPenal && <><th className="num">Penal before</th><th className="num">Penal after</th></>}</tr></thead>
         <tbody>
           {changes.map((c) => (

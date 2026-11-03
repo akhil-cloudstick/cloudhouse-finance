@@ -23,6 +23,7 @@ export function listLoansPage(params: {
   // Auction case buckets, computed server-side (replaces the old on-phone
   // isDefaulted filter): eligible | defaulted | auctioned_balance_due.
   auctionCase?: string;
+  auction_stage?: string; // comma-joined auction stages (sent snake_case as the backend reads it)
   bankPledgeStatus?: string;
   excludeBankPledged?: boolean;
   limit: number;
@@ -55,7 +56,7 @@ export function listLoanRiskAssessmentPage(params: {
   q?: string;
   status?: string;
   servicing?: string; // due_soon | overdue | defaulted
-  riskLevel?: LoanRiskLevel;
+  riskLevel?: string; // one level or a comma-separated list
   from?: string; // "YYYY-MM-DD", bounds openedDate
   to?: string;
   limit: number;
@@ -159,6 +160,8 @@ export function listLoanRequestsPage(params: {
   q?: string;
   type?: string;
   status?: string;
+  from?: string;
+  to?: string;
   loanId?: number;
   limit: number;
   offset: number;
@@ -341,4 +344,51 @@ export function listDrafts() {
 
 export function deleteDraft(draftId: number) {
   return apiRequest<void>(`/loans/drafts/${draftId}`, { method: "DELETE" });
+}
+
+// --- Edit Loan on a disbursed loan: dry-run preview + save with the chosen flags (mirrors web previewLoanEdit /
+// updateLoan's adjustFollowing / reversePacket / restorePartialRelease). The contract adapter does not rename
+// these keys, so they are spelled snake_case here and the response is read in either spelling.
+export type LoanEditFollowing = { id: number; paidOn: string; type?: string; reference?: string; current: number; suggested: number; needsChange?: boolean };
+export type LoanEditDependent = { kind: "packet" | "partial_release"; description: string; current: string; suggested: string; warning?: string };
+export type LoanEditInterestChange = { on: string; interestBefore: number; interestAfter: number; penalBefore: number; penalAfter: number };
+export type LoanEditPreview = { following: LoanEditFollowing[]; dependents: LoanEditDependent[]; interestChanges: LoanEditInterestChange[] };
+export type LoanEditFlags = {
+  adjustFollowing?: { id: number; amount: number }[];
+  reversePacket?: boolean;
+  restorePartialRelease?: boolean;
+};
+
+const editBody = (input: UpdateLoanInput, flags?: LoanEditFlags) => {
+  const { overallPhotoUrl, additionalInfo, branchId, lockerId, ...core } = input;
+  return {
+  ...core,
+  ...(overallPhotoUrl !== undefined ? { overall_photo_url: overallPhotoUrl } : {}),
+  ...(additionalInfo !== undefined ? { additional_info: additionalInfo } : {}),
+  ...(branchId !== undefined ? { branch_id: branchId } : {}),
+  ...(lockerId !== undefined ? { locker_id: lockerId } : {}),
+  ...(flags?.adjustFollowing?.length ? { adjust_following: flags.adjustFollowing } : {}),
+  ...(flags?.reversePacket ? { reverse_packet: true } : {}),
+  ...(flags?.restorePartialRelease ? { restore_partial_release: true } : {}),
+  };
+};
+
+export async function previewLoanEdit(loanId: number, input: UpdateLoanInput): Promise<LoanEditPreview> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r: any = await apiRequest<unknown>(`/loans/${loanId}?dry_run=true`, { method: "PATCH", body: editBody(input) });
+  return {
+    following: (r?.following ?? []).map((f: any) => ({ ...f, paidOn: f.paidOn ?? f.paid_on, needsChange: f.needsChange ?? f.needs_change })),
+    dependents: r?.dependents ?? [],
+    interestChanges: (r?.interestChanges ?? r?.interest_changes ?? []).map((c: any) => ({
+      on: c.on,
+      interestBefore: c.interestBefore ?? c.interest_before ?? 0,
+      interestAfter: c.interestAfter ?? c.interest_after ?? 0,
+      penalBefore: c.penalBefore ?? c.penal_before ?? 0,
+      penalAfter: c.penalAfter ?? c.penal_after ?? 0,
+    })),
+  };
+}
+
+export function updateLoanWithFlags(loanId: number, input: UpdateLoanInput, flags?: LoanEditFlags) {
+  return apiRequest<Loan>(`/loans/${loanId}`, { method: "PATCH", body: editBody(input, flags) });
 }

@@ -17,6 +17,7 @@ import { searchBanksPage, createBank } from "@/modules/banks/services/bankServic
 import { type BackendBank } from "@/modules/banks/types/bank-types";
 import { searchCashSourcesPage, createCashSource, isLoanSource } from "@/modules/cash/services/cashSourceService";
 import { type BackendCashSource } from "@/modules/cash/types/cash-source-types";
+import { deleteCategoryById } from "@/modules/cash/services/categoryService";
 import { EXPENSE_CATEGORIES_CHANGED } from "@/modules/cash/services/expenseCategoryService";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { Select } from "@/common/components/ui/Select";
@@ -167,12 +168,16 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   async function saveGoldSale() { return singleFlight("modal:addcash:saveGoldSale", async () => {
     const type = ornamentType.trim();
     const cost = +costAmount || 0;
-    if (!type) { fail("ornament", "Please enter the ornament type."); return; }
-    if (!(sold > 0)) { fail("amount", "Please enter a valid sold amount."); return; }
-    if (cost < 0) { fail("cost", "Cost amount cannot be negative."); return; }
-    if (!date) { fail("date", "Please select the date."); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
-    if (cost > 0 && costBankRequired && !costBankId) { fail("costBank", "Please select the bank the cost was paid from."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!type) errors["ornament"] ??= "Please enter the ornament type.";
+    if (!(sold > 0)) errors["amount"] ??= "Please enter a valid sold amount.";
+    if (cost < 0) errors["cost"] ??= "Cost amount cannot be negative.";
+    if (!date) errors["date"] ??= "Please select the date.";
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
+    if (cost > 0 && costBankRequired && !costBankId) errors["costBank"] ??= "Please select the bank the cost was paid from.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    if (!branchId) return; // narrows branchId; the check above already reported it
     const costPaid = cost > 0 ? { costMode, costBankId: costBankRequired ? +costBankId : undefined } : {};
 
     setSaving(true);
@@ -205,21 +210,25 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
 
   async function save() { return singleFlight("modal:addcash:save", async () => {
     setErr(""); setFe({}); setPayIssue(null);
-    if (!source) { fail("category", "Please select where the cash is coming from."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!source) errors["category"] ??= "Please select where the cash is coming from.";
     if (isGoldSale) {
-      if (edit && edit.kind !== "gold_sale") { fail("category", "A gold sale can't be recorded from here — pick another category."); return; }
-      if (!mode) { fail("mode", "Please select the mode of cash."); return; }
-      if (bankRequired && !bankId) { fail("bank", "Please select the bank."); return; }
-      if (!branchId) { fail("branch", "Please select a branch."); return; }
+      if (edit && edit.kind !== "gold_sale") errors["category"] ??= "A gold sale can't be recorded from here — pick another category.";
+      if (!mode) errors["mode"] ??= "Please select the mode of cash.";
+      if (bankRequired && !bankId) errors["bank"] ??= "Please select the bank.";
+      if (!branchId) errors["branch"] ??= "Please select a branch.";
+      if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
       await saveGoldSale();
       return;
     }
     const amount = +amt;
-    if (!(amount > 0)) { fail("amount", "Please enter a valid cash amount."); return; }
-    if (!date) { fail("date", "Please select the date."); return; }
-    const issue = paymentRowIssue(payRows, amount);
-    if (issue) { setErr(""); setFe({}); setPayIssue(issue); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    if (!(amount > 0)) errors["amount"] ??= "Please enter a valid cash amount.";
+    if (!date) errors["date"] ??= "Please select the date.";
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
+    const issue = Object.keys(errors).length ? null : paymentRowIssue(payRows, amount);
+    if (Object.keys(errors).length || issue) { setErr(""); setFe(errors); setPayIssue(issue); return; }
+    if (!source || !branchId) return; // narrows both; the checks above already reported them
 
     setSaving(true);
     try {
@@ -272,6 +281,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
         placeholder="Search or add a category…"
         allowCreate
         onCreate={createCashSource}
+        onDeleteItem={(c) => deleteCategoryById(c.id).then(() => { if (c.name === source) setSourceRec(null); toast(`Category "${c.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this category."); throw e; })}
       /><FieldError msg={fe.category} /></div>
   );
   const modeField = (

@@ -476,7 +476,7 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 					if oldMove != nil {
 						mode, when, mBank = oldMove.Mode, oldMove.OccurredOn, oldMove.BankID
 					}
-					id, err := cashbook.RecordAuctionSurplusCashOut(txCtx, loanID, l.LoanNumber, out.Surplus, l.BranchID, when, mode, mBank, l.CustomerID)
+					id, err := cashbook.RecordAuctionSurplusCashOut(txCtx, loanID, l.LoanNumber, out.Surplus, l.BranchID, when, mode, mBank, l.CustomerID, rec.SurplusRemarks)
 					if err != nil {
 						return fmt.Errorf("could not record the corrected surplus refund in Cash-in-Hand: %w", err)
 					}
@@ -750,7 +750,7 @@ func editAuctionSurplus(ctx context.Context, loanID uint, in *AuctionSurplusEdit
 				if mode != "" && mode != cashModels.CashModeCash && bankID == nil {
 					return common.NewBadRequest("bank is required when the refund is paid by UPI or Bank Transfer")
 				}
-				id, err := cashbook.RecordAuctionSurplusCashOut(txCtx, loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, when, mode, bankID, l.CustomerID)
+				id, err := cashbook.RecordAuctionSurplusCashOut(txCtx, loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, when, mode, bankID, l.CustomerID, rec.SurplusRemarks)
 				if err != nil {
 					return fmt.Errorf("could not record the corrected surplus refund in Cash-in-Hand: %w", err)
 				}

@@ -30,14 +30,11 @@ export function TierPriceModal({ tier, onClose, onDone }: TierPriceModalProps) {
     setError(null);
     setFe({});
     const value = Number(rupees);
-    if (!Number.isFinite(value) || value < 0) {
-      fail("price", "Enter a valid, non-negative amount.");
-      return;
-    }
-    if (!reason.trim()) {
-      fail("reason", "A reason is required.");
-      return;
-    }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!Number.isFinite(value) || value < 0) errors["price"] ??= "Enter a valid, non-negative amount.";
+    if (!reason.trim()) errors["reason"] ??= "A reason is required.";
+    if (Object.keys(errors).length) { setFe(errors); return; }
     setSubmitting(true);
     try {
       await setTierPrice(tier.id, Math.round(value * 100), reason);

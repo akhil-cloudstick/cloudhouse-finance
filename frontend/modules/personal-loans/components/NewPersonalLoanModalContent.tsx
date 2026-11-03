@@ -4,11 +4,11 @@ import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
-import { searchCustomersPage } from "@/modules/customers/services/customerService";
+import { searchBorrowersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModalContent";
@@ -23,7 +23,7 @@ import { firstStage, isFlowOff } from "@/common/services/approvalWorkflowService
  * backend recomputes and is the source of truth. */
 function computeInterest(principal: number, interestType: InterestType, value: number): number {
   const raw = interestType === "Percentage" ? (principal * value) / 100 : value;
-  return Math.round(raw * 100) / 100;
+  return roundRupee(raw);
 }
 
 // Server messages are put on the field they are about, by wording.
@@ -92,11 +92,11 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
   // becomes Principal+Interest instead.
   const disbursedAmount = fullDisbursement
     ? principalNum
-    : Math.round((principalNum - interestAmount) * 100) / 100;
+    : roundRupee((principalNum - interestAmount));
   const obligation = fullDisbursement
-    ? Math.round((principalNum + interestAmount) * 100) / 100
+    ? roundRupee((principalNum + interestAmount))
     : principalNum;
-  const installmentAmount = tenureNum > 0 ? Math.round((obligation / tenureNum) * 100) / 100 : 0;
+  const installmentAmount = tenureNum > 0 ? roundRupee((obligation / tenureNum)) : 0;
   // Disbursement is blocked until the branch has enough balance in hand.
   const balanceInHand = useBalanceInHand(customerBranchId);
   // With the personal_loan approval flow on, creating the loan only submits
@@ -178,7 +178,7 @@ export function NewPersonalLoanModalContent({ onSaved }: NewPersonalLoanModalCon
           <SearchableSelect<CustomerView>
             value={customerLabel}
             onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); clearFe("customer"); }}
-            fetchFn={searchCustomersPage}
+            fetchFn={searchBorrowersPage}
             searchHint="Searches: customer name, customer code, phone"
             getLabel={(c) => `${c.name} (${c.code})`}
             /* Same treatment as the gold-loan picker (NewLoan.tsx): name

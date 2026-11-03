@@ -8,6 +8,7 @@ import (
 	"cloudhouse/backend/modules/Loan/models"
 	packet "cloudhouse/backend/modules/Packet/controllers"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -92,6 +93,13 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 	// The gold must still be in the branch's custody to hand to a bank.
 	if !CanAcceptBankPledge(l.Status) {
 		return nil, bankPledgeRefusal(l.Status, "")
+	}
+	if rec, err := findAuctionActiveByLoanID(ctx, loanID); err == nil {
+		if err := auctionCaseBlocksBankPledge(rec.Stage); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
 	}
 	active, err := findActivePledges(ctx, loanID)
 	if err != nil {
@@ -353,8 +361,8 @@ func getBankPledgeHistory(ctx context.Context, loanID uint, branchID *uint) ([]m
 	return findBankPledgeHistoryByLoanID(ctx, loanID)
 }
 
-func listBankPledgeHistory(ctx context.Context, branchID *uint, query string, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
-	return findAllHistory(ctx, branchID, query, limit, offset)
+func listBankPledgeHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
+	return findAllHistory(ctx, branchID, query, from, to, limit, offset)
 }
 
 func listBankPledgesForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
@@ -494,7 +502,7 @@ func findBankPledgeHistoryByLoanID(ctx context.Context, loanID uint) ([]models.B
 	return pledges, err
 }
 
-func findAllHistory(ctx context.Context, branchID *uint, query string, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
+func findAllHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
 	var pledges []BankPledgeHistoryRow
 	q := config.DB.
 		WithContext(ctx).Model(&models.BankPledgeRecord{}).
@@ -513,6 +521,12 @@ func findAllHistory(ctx context.Context, branchID *uint, query string, limit, of
 			"loans.loan_number ILIKE ? OR bank_pledge_records.bank_name ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?",
 			like, like, like, like,
 		)
+	}
+	if from != nil {
+		q = q.Where("bank_pledge_records.pledge_date >= ?", startOfDay(*from))
+	}
+	if to != nil {
+		q = q.Where("bank_pledge_records.pledge_date < ?", startOfDay(*to).AddDate(0, 0, 1))
 	}
 	q = q.Order("bank_pledge_records.id desc")
 	var total int64
@@ -714,15 +728,19 @@ func ListBankPledgeHistory(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	branchID := auth.GetBranchScope(c)
 	query := c.QueryParam("search")
+	from, to, ok := parseOpenedRange(c)
+	if !ok {
+		return nil
+	}
 	page, limit, offset := common.PageParams(c)
 	if limit > 0 {
-		recs, total, err := listBankPledgeHistory(ctx, branchID, query, limit, offset)
+		recs, total, err := listBankPledgeHistory(ctx, branchID, query, from, to, limit, offset)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessPage(c, page, limit, total, recs)
 	}
-	recs, _, err := listBankPledgeHistory(ctx, branchID, query, 0, 0)
+	recs, _, err := listBankPledgeHistory(ctx, branchID, query, from, to, 0, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { BtnRow2, C, ConfirmSheet, PrimaryButton, ReviewWarning, SheetFooter, Stepper, TextField, Txt, toast } from "@/common/components/ui";
@@ -55,9 +55,18 @@ export function ApprovalChainPanel({
   const canActOnStage = !!stage && canDecide && canActAtStage(employee, stage);
   const finalAction = flowOf(wf, flow)?.finalAction;
 
+  // Synchronous double-tap guard: `run.isPending` only flips after the next render, so two quick taps could both send.
+  const inFlight = useRef(false);
   const run = useMutation({
-    mutationFn: ({ action, note }: { action: "Approved" | "Rejected"; note: string }) =>
-      decide({ stage: stage!.key, action, remarks: note.trim() || undefined }),
+    mutationFn: async ({ action, note }: { action: "Approved" | "Rejected"; note: string }) => {
+      if (inFlight.current) throw new ApiError(0, "Already submitting — please wait.", undefined);
+      inFlight.current = true;
+      try {
+        return await decide({ stage: stage!.key, action, remarks: note.trim() || undefined });
+      } finally {
+        inFlight.current = false;
+      }
+    },
     onSuccess: (_d, v) => {
       setRemarks("");
       setConfirmReject(false);

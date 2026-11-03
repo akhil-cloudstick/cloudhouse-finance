@@ -6,7 +6,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
-import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/common/utils/purity";
+import { rateForFineness, FINENESS_24K } from "@/common/utils/purity";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -73,16 +73,19 @@ export function RateModalContent() {
 
   const [mode, setMode] = useState<Mode>("auto");
 
+  // The day the rate is published for — today unless another day is picked; the same rate may be saved for any day.
+  const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const [rateDate, setRateDate] = useState(todayStr());
+
   const [rate24, setRate24] = useState(String(latest.k24 || ""));
 
   const [rate22, setRate22] = useState(String(latest.k22 || ""));
-  // Fineness isn't stored — restore what the last published rates imply
-  // (rate ÷ 24K) rather than the standard ratio, so a custom fineness set
-  // earlier is still showing when the modal is reopened.
-  const [fineness22, setFineness22] = useState(String(finenessFromRate(latest.k24, latest.k22, 22)));
+  // The fineness last set in Auto mode is stored with the rate, so a custom
+  // fineness is still showing when the modal is reopened.
+  const [fineness22, setFineness22] = useState(String(latest.fineness22));
 
   const [rate18, setRate18] = useState(String(latest.k18 || ""));
-  const [fineness18, setFineness18] = useState(String(finenessFromRate(latest.k24, latest.k18, 18)));
+  const [fineness18, setFineness18] = useState(String(latest.fineness18));
 
   const [err, setErr] = useState("");
   // Validation messages, each shown under the rate it is about; `err` keeps the ones that fit no field.
@@ -101,17 +104,17 @@ export function RateModalContent() {
 
   function setAuto() {
     setMode("auto");
-    const f22 = finenessFromRate(latest.k24, latest.k22, 22);
-    const f18 = finenessFromRate(latest.k24, latest.k18, 18);
+    const f22 = latest.fineness22;
+    const f18 = latest.fineness18;
     setFineness22(String(f22));
     setFineness18(String(f18));
 
     let base24 = +rate24;
     if (!(base24 > 0) && +rate22 > 0) {
-      base24 = Math.round((+rate22 / f22) * 100);
+      base24 = Math.round((+rate22 / f22) * FINENESS_24K);
     }
     if (!(base24 > 0) && +rate18 > 0) {
-      base24 = Math.round((+rate18 / f18) * 100);
+      base24 = Math.round((+rate18 / f18) * FINENESS_24K);
     }
     if (!(base24 > 0)) {
       base24 = ref24;
@@ -203,31 +206,30 @@ export function RateModalContent() {
     // row's setBy (that was e.g. "Auto (GoldAPI)" from the background sync).
     const setBy = employee?.name || employee?.username || "Admin";
     setErr(""); setFe({});
-    if (!(+rate24 > 0)) { fail("rate24", "The 24K rate must be greater than zero."); return; }
-    if (!(+rate22 > 0)) { fail("rate22", "The 22K rate must be greater than zero."); return; }
-    if (!(+rate18 > 0)) { fail("rate18", "The 18K rate must be greater than zero."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!(+rate24 > 0)) errors["rate24"] ??= "The 24K rate must be greater than zero.";
+    if (!(+rate22 > 0)) errors["rate22"] ??= "The 22K rate must be greater than zero.";
+    if (!(+rate18 > 0)) errors["rate18"] ??= "The 18K rate must be greater than zero.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
-    // Only karats that actually changed from the latest published row get
-    // published — publishing an untouched karat would still be harmless
-    // (the backend carries it forward unchanged either way) but would
-    // create a needless extra history row for a value that didn't move.
-    const jobs: { karat: 24 | 22 | 18; rate: number }[] = [];
-    if (Math.round(+rate24) !== Math.round(latest.k24 || 0)) jobs.push({ karat: 24, rate: +rate24 });
-    if (Math.round(+rate22) !== Math.round(latest.k22 || 0)) jobs.push({ karat: 22, rate: +rate22 });
-    if (Math.round(+rate18) !== Math.round(latest.k18 || 0)) jobs.push({ karat: 18, rate: +rate18 });
-
-    if (jobs.length === 0) {
-      setErr("Nothing has changed from today's published rates.");
-      return;
-    }
+    if (!rateDate) { fail("date", "Pick the date this rate is for."); return; }
+    // Auto mode saves its fineness so a 24K-only publish (New Gold Loan page) derives 22K/18K the same way.
+    const fineness = mode === "auto" && +fineness22 > 0 && +fineness18 > 0 ? { 22: +fineness22, 18: +fineness18 } : undefined;
+    // All three rates are published for the chosen day, even when they equal the latest row.
+    const jobs: { karat: 24 | 22 | 18; rate: number }[] = [
+      { karat: 24, rate: +rate24 },
+      { karat: 22, rate: +rate22 },
+      { karat: 18, rate: +rate18 },
+    ];
 
     setErr("");
     setSaving(true);
     try {
-      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy);
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, fineness, rateDate);
       refresh();
       closeModal();
-      toast(`${jobs.map((j) => `${j.karat}K`).join(", ")} rate${jobs.length > 1 ? "s" : ""} published for today`);
+      toast(rateDate === todayStr() ? "Gold rates published for today" : `Gold rates published for ${rateDate}`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
     } finally {
@@ -237,8 +239,13 @@ export function RateModalContent() {
 
   return (
     <>
-      <div className="hd"><h3>Set Today&apos;s Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>Set Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
+        <div style={{ marginBottom: 14 }}>
+          <label className="f" style={{ marginBottom: 2 }}>Rate date</label>
+          <input className="inp" type="date" style={{ width: 170 }} value={rateDate} onChange={(e) => { setRateDate(e.target.value); clearFe("date"); }} />
+          <FieldError msg={fe.date} />
+        </div>
         <div className="tabs" style={{ marginBottom: 14 }}>
           <button className={mode === "auto" ? "on" : ""} onClick={setAuto}>Auto</button>
           <button className={mode === "manual" ? "on" : ""} onClick={setManual}>Manual</button>

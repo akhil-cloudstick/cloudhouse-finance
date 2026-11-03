@@ -1,12 +1,14 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage } from "@/common/hooks/use-persisted-state";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF } from "@/modules/loans/services/loanService";
 import { type RequestView } from "@/modules/loans/types/loan-types";
@@ -25,6 +27,8 @@ const TYPE_OPTIONS = [
 import { ReleaseReviewModalContent } from "@/modules/loans/components/ReleaseReviewModalContent";
 import { ExtensionReviewModalContent } from "@/modules/loans/components/ExtensionReviewModalContent";
 import { routeHref } from "@/common/services/appRoutes";
+import { EsignLanguageModalContent } from "@/modules/loans/components/EsignLanguageModalContent";
+import { RELEASE_LANG_OPTIONS } from "@/modules/loans/utils/indemnityBond";
 import { fmtDate } from "@/common/utils/format";
 import { singleFlight } from "@/common/utils/singleFlight";
 
@@ -39,7 +43,12 @@ import { singleFlight } from "@/common/utils/singleFlight";
  * date out (Extension) or moves it to "Closure Requested" (Release).
  * Which stages each chain has is per-business configuration (Roles &
  * Permissions → Approval Workflow). */
-export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } = {}) {
+// The dashboard tiles open this page with a reserved route argument instead of a loan number.
+const PENDING_PRESETS: Record<string, string> = { "pending-extension": "extension", "pending-release": "release" };
+
+export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: string } = {}) {
+  const presetType = routeArg ? PENDING_PRESETS[routeArg] : undefined;
+  const focusLoanNumber = presetType ? undefined : routeArg;
   const { openModal } = useModal();
   const { refresh: refreshLoans } = useLoans();
   // Without "can update loan" the review modal opens read-only (its
@@ -53,22 +62,22 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   const [reqs, setReqs] = useState<RequestView[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePersistedPage("requests");
   const [total, setTotal] = useState(0);
   const [status, setStatus] = usePersistedState("requests:status", "");
   const [type, setType] = usePersistedState("requests:type", "");
+  const [fromDate, setFromDate] = usePersistedState("requests:from", "");
+  const [toDate, setToDate] = usePersistedState("requests:to", "");
   // `qInput` is what's typed; `q` is the debounced value that drives the
   // server query, so each keystroke doesn't fire a request.
   const [qInput, setQInput] = useState(focusLoanNumber || "");
   const [q, setQ] = useState(focusLoanNumber || "");
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
-  const [downloadMenuId, setDownloadMenuId] = useState<number | null>(null);
 
   // Lets an Approved release row's document be re-downloaded right from
   // this list, without navigating to Loan Detail first — same generator
   // LoanDetail.tsx's own Documents menu uses.
   async function downloadReleaseAgreement(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:release-agreement:"+r.id+":"+lang, async () => {
-    setDownloadMenuId(null);
     setDownloadingId(r.id);
     try {
       const loan = await getLoanByNumber(r.loanNumber);
@@ -84,7 +93,6 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // than the loan (the receipt lists only what THIS request released), same
   // Approved-only gate as the full-release FORM 7 agreement above.
   async function downloadPartialReceipt(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:partial-receipt:"+r.id+":"+lang, async () => {
-    setDownloadMenuId(null);
     setDownloadingId(r.id);
     try {
       await downloadPartialReleaseReceiptPDF(r.id, lang);
@@ -100,11 +108,11 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // page-change effect below and after a decision/review-save, so an admin
   // working through page 3 isn't bounced back to page 1 every time.
   const refresh = useCallback(() => {
-    listLoanRequestsPage(page, { status: status || undefined, type: type || undefined, q: q || undefined }, pageSize)
+    listLoanRequestsPage(page, { status: status || undefined, type: type || undefined, q: q || undefined, from: fromDate || undefined, to: toDate || undefined }, pageSize)
       .then((res) => { setReqs(res.items); setTotal(res.total); })
       .catch(() => { setReqs([]); setTotal(0); })
       .finally(() => setLoading(false));
-  }, [page, status, type, q, pageSize]);
+  }, [page, status, type, q, fromDate, toDate, pageSize]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -113,6 +121,14 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // type filter would hide them), and open the review straight away when
   // there is exactly one.
   const focusHandled = useRef(false);
+  // Arrived from a dashboard Extension / Gold Release tile: that type's Pending list.
+  useEffect(() => {
+    if (!presetType) return;
+    setStatus("Pending");
+    setType(presetType);
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetType]);
   useEffect(() => {
     if (!focusLoanNumber) return;
     setStatus("Pending");
@@ -143,10 +159,11 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
 
   // One grouped filter for Type and Status (single choice each).
   const filterCategories: FilterCategory[] = [
-    { key: "type", label: "Type", kind: "static", singleSelect: true, options: TYPE_OPTIONS },
-    { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUS_OPTIONS },
+    { key: "type", label: "Type", kind: "static", options: TYPE_OPTIONS },
+    { key: "status", label: "Status", kind: "static", options: STATUS_OPTIONS },
+    { key: "__date", label: "Requested date", kind: "date" as const },
   ];
-  const filterValue: FilterValue = { type: type ? [type] : [], status: status ? [status] : [] };
+  const filterValue: FilterValue = { type: type ? type.split(",") : [], status: status ? status.split(",") : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
 
   function refreshAfterSave() {
     refresh();
@@ -158,7 +175,7 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
       <div className="page-h">
         <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests </p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, phone…" title="Searches: loan number, customer name, customer code, phone" value={qInput} onChange={(e) => setQInput(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
@@ -166,8 +183,10 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
             categories={filterCategories}
             value={filterValue}
             onChange={(next) => {
-              setType(Array.isArray(next.type) ? next.type[0] || "" : "");
-              setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+              setType(Array.isArray(next.type) ? next.type.join(",") : "");
+              setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
+              setFromDate(next.__dateFrom || "");
+              setToDate(next.__dateTo || "");
               setPage(1);
             }}
             hideChips
@@ -176,7 +195,8 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
         </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl tbl-cards">
+          <table className="tbl tbl-cards tbl-center">
+            <TableCols widths={[10, 10, 20, 28, 10, 10, 12]} />
             <thead>
               <tr><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
             </thead>
@@ -241,38 +261,20 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
                           style={{ padding: "6px 10px", display: "inline-flex", alignItems: "center" }}
                           title={downloadingId === r.id ? "Preparing…" : "Download Release Agreement"}
                           disabled={downloadingId === r.id}
-                          onClick={() => setDownloadMenuId((cur) => (cur === r.id ? null : r.id))}
+                          onClick={() => openModal(
+                            <EsignLanguageModalContent
+                              loanNumber={r.loanNumber}
+                              customerName={r.customerName}
+                              title={r.isPartial ? "Partial Release Receipt" : "Release Agreement"}
+                              confirmLabel="🖨 Download"
+                              options={RELEASE_LANG_OPTIONS}
+                              onConfirm={(lang) => (r.isPartial ? downloadPartialReceipt(r, lang === "ml" ? "ml" : "en") : downloadReleaseAgreement(r, lang === "ml" ? "ml" : "en"))}
+                            />
+                          )}
                           tabIndex={r.type === "Release" && r.status === "Approved" ? 0 : -1}
                         >
                           <Icon name="download" />
                         </button>
-                        {downloadMenuId === r.id && (
-                          <div className="docs-dd-menu" style={{ minWidth: 170, right: 0 }}>
-                            {/* A partial release never produces the FORM 7 full-release
-                                agreement (the loan stays open) — only its own Partial
-                                Release Receipt, listing just the ornaments this
-                                request released — see DownloadPartialReleaseReceiptPDF. */}
-                            {r.isPartial ? (
-                              <>
-                                <a href="#" onClick={(e) => { e.preventDefault(); downloadPartialReceipt(r, "en"); }}>
-                                  <Icon name="doc" /><span className="tx">Partial Receipt — English</span>
-                                </a>
-                                <a href="#" onClick={(e) => { e.preventDefault(); downloadPartialReceipt(r, "ml"); }}>
-                                  <Icon name="doc" /><span className="tx">Partial Receipt — Malayalam</span>
-                                </a>
-                              </>
-                            ) : (
-                              <>
-                                <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "en"); }}>
-                                  <Icon name="doc" /><span className="tx">English</span>
-                                </a>
-                                <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "ml"); }}>
-                                  <Icon name="doc" /><span className="tx">Malayalam</span>
-                                </a>
-                              </>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </td>
@@ -285,6 +287,7 @@ export function RequestsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
         </div>
         {/* <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div> */}

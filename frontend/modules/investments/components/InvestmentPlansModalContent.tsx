@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { ApiError } from "@/common/services/httpClient";
@@ -58,6 +59,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
+  const [planQ, setPlanQ] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<CreatePlanInput>(emptyForm);
@@ -81,8 +83,13 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
 
   useEffect(() => { void refresh(); }, []);
 
-  const shownPlans = plans.slice(0, page * PAGE_SIZE);
-  const hasMore = shownPlans.length < plans.length;
+  // Plans are all loaded already, so the search is applied here (name, type, frequency, status).
+  const needle = planQ.trim().toLowerCase();
+  const matchingPlans = needle
+    ? plans.filter((p) => [p.name, p.interestRateType, p.payoutFrequency, p.isActive ? "active" : "inactive", p.productType].some((v) => String(v ?? "").toLowerCase().includes(needle)))
+    : plans;
+  const shownPlans = matchingPlans.slice(0, page * PAGE_SIZE);
+  const hasMore = shownPlans.length < matchingPlans.length;
 
   function onWrapScroll() {
     const el = wrapRef.current;
@@ -121,17 +128,20 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
   }
 
   async function save() {
-    if (!form.name.trim()) { fail("name", "Please enter a plan name."); return; }
-    if (form.interestRatePercent < 0) { fail("rate", "Interest rate must not be negative."); return; }
-    if (form.tenureMonths <= 0) { fail("tenure", "Tenure must be greater than zero."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!form.name.trim()) errors["name"] ??= "Please enter a plan name.";
+    if (form.interestRatePercent < 0) errors["rate"] ??= "Interest rate must not be negative.";
+    if (form.tenureMonths <= 0) errors["tenure"] ??= "Tenure must be greater than zero.";
     // The tenure/frequency divisibility rule only applies to Fixed Payout
     // plans (whose payout schedule steps in whole calendar-month periods) —
     // Single Payout plans accrue continuously and pay out once at maturity,
     // with nothing to divide evenly.
     if (form.engine === "Schedule") {
       const stepMonths = form.payoutFrequency === "Yearly" ? 12 : form.payoutFrequency === "Quarterly" ? 3 : 1;
-      if (form.tenureMonths % stepMonths !== 0) { fail("tenure", `Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`); return; }
+      if (form.tenureMonths % stepMonths !== 0) errors["tenure"] ??= `Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`;
     }
+    if (Object.keys(errors).length) { setFormErr(""); setFe(errors); return; }
 
     setSaving(true);
     setFormErr("");
@@ -160,27 +170,29 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
       <div className="bd">
         {editingId === null ? (
           <>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <input className="inp" style={{ maxWidth: 260 }} placeholder="Search plans…" aria-label="Search plans" value={planQ} onChange={(e) => { setPlanQ(e.target.value); setPage(1); }} />
               <button className="btn sm" onClick={startCreate}>+ New Plan</button>
             </div>
             {error && <div className="notice">{error}</div>}
-            <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl">
+            <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl tbl-cards-sm tbl-compact">
+              <TableCols widths={[20, 10, 8, 12, 8, 14, 12, 10, 6]} />
               <thead><tr><th>Name</th><th>Type</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {loading ? (
                   <tr><td colSpan={9} className="empty compact">Loading…</td></tr>
-                ) : plans.length === 0 ? (
-                  <tr><td colSpan={9} className="empty compact">No plans yet.</td></tr>
+                ) : matchingPlans.length === 0 ? (
+                  <tr><td colSpan={9} className="empty compact">{plans.length === 0 ? "No plans yet." : "No plans match your search."}</td></tr>
                 ) : shownPlans.map((p) => (
                   <tr key={p.id} className="click" onClick={() => startEdit(p)}>
                     <td>{p.name}<div className="sub">{p.interestRateType}</div></td>
-                    <td>{p.productType === "Bond" ? <span className="chip info">Bond</span> : "Deposit"}</td>
-                    <td className="num">{p.interestRatePercent}%</td>
-                    <td>{p.payoutFrequency}</td>
-                    <td className="num">{p.tenureMonths}mo</td>
-                    <td className="num">{fmt(p.minPrincipal)}</td>
-                    <td>{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
-                    <td><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
+                    <td data-label="Type">{p.productType === "Bond" ? <span className="chip info">Bond</span> : "Deposit"}</td>
+                    <td className="num" data-label="Rate">{p.interestRatePercent}%</td>
+                    <td data-label="Frequency">{p.payoutFrequency}</td>
+                    <td className="num" data-label="Tenure">{p.tenureMonths}mo</td>
+                    <td className="num" data-label="Min Principal">{fmt(p.minPrincipal)}</td>
+                    <td data-label="Payout">{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
+                    <td data-label="Status"><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
                     <td><button className="btn plain sm" onClick={(e) => { e.stopPropagation(); startEdit(p); }}>Edit</button></td>
                   </tr>
                 ))}
@@ -188,7 +200,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
             </table></div>
             {!loading && plans.length > 0 && (
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
-                Showing {shownPlans.length} of {plans.length}{hasMore ? " — scroll for more" : ""}
+                Showing {shownPlans.length} of {matchingPlans.length}{hasMore ? " — scroll for more" : ""}
               </div>
             )}
           </>

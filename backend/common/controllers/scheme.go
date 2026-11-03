@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -22,7 +23,7 @@ type schemeRequest struct {
 	InterestMethod     string                  `json:"interest_method"`
 	PenalRate          float64                 `json:"penal_rate"`
 	AccrualBasis       string                  `json:"accrual_basis"`
-	Conditions        string                  `json:"conditions"`
+	Conditions         string                  `json:"conditions"`
 	IsActive           bool                    `json:"is_active"`
 	RateTiers          []commonModels.RateTier `json:"rate_tiers"`
 	MinimumDays        int                     `json:"minimum_days"`
@@ -45,7 +46,7 @@ type SchemeCreateInput struct {
 	InterestMethod     string
 	PenalRate          float64
 	AccrualBasis       string
-	Conditions        string
+	Conditions         string
 	IsActive           bool
 	RateTiers          []commonModels.RateTier
 	MinimumDays        int
@@ -89,16 +90,33 @@ func insertScheme(ctx context.Context, s *commonModels.Scheme) error {
 		WithContext(ctx).Create(s).Error
 }
 
-func findSchemes(ctx context.Context, query string, methods []string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
+// schemeSearchSQL matches the name or code as text, and the LTV, interest rate or duration only when the search is
+// exactly that number ("75" or "75%"). Matching those columns as text made "8" return every scheme with an 8 in
+// its rate (e.g. 18%).
+const schemeSearchSQL = "(name ILIKE ? OR code ILIKE ? OR ltv_percent = ? OR interest_rate = ? OR duration_months = ?)"
+
+// schemeNumber reads a search like "75" or "75 %" as a number; anything else gives -1, which no scheme column holds.
+func schemeNumber(query string) float64 {
+	n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(query), "%")), 64)
+	if err != nil || n < 0 {
+		return -1
+	}
+	return n
+}
+
+func findSchemes(ctx context.Context, query string, methods []string, active *bool, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
 	var schemes []commonModels.Scheme
 	q := config.DB.
 		WithContext(ctx).Preload("Branch").Order("id asc")
 	if query != "" {
 		like := "%" + query + "%"
-		q = q.Where("name ILIKE ? OR code ILIKE ? OR CAST(interest_rate AS TEXT) ILIKE ? OR CAST(ltv_percent AS TEXT) ILIKE ? OR CAST(duration_months AS TEXT) ILIKE ?", like, like, like, like, like)
+		q = q.Where(schemeSearchSQL, like, like, schemeNumber(query), schemeNumber(query), schemeNumber(query))
 	}
 	if len(methods) > 0 {
 		q = q.Where("interest_method IN ?", methods)
+	}
+	if active != nil {
+		q = q.Where("is_active = ?", *active)
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
@@ -119,7 +137,8 @@ func findActive(ctx context.Context, query string, branchID *uint, limit, offset
 	q := config.DB.
 		WithContext(ctx).Where("is_active = ?", true).Order("id asc")
 	if query != "" {
-		q = q.Where("name ILIKE ? OR code ILIKE ?", "%"+query+"%", "%"+query+"%")
+		like := "%" + query + "%"
+		q = q.Where(schemeSearchSQL, like, like, schemeNumber(query), schemeNumber(query), schemeNumber(query))
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
@@ -324,7 +343,7 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 		InterestMethod:     in.InterestMethod,
 		PenalRate:          in.PenalRate,
 		AccrualBasis:       accrualBasisOrDefault(in.AccrualBasis),
-		RateTiers:         in.RateTiers,
+		RateTiers:          in.RateTiers,
 		MinimumDays:        in.MinimumDays,
 		Conditions:         in.Conditions,
 		IsActive:           in.IsActive,
@@ -338,8 +357,8 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 	return rec, nil
 }
 
-func listSchemes(ctx context.Context, query string, methods []string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
-	return findSchemes(ctx, query, methods, branchID, limit, offset)
+func listSchemes(ctx context.Context, query string, methods []string, active *bool, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
+	return findSchemes(ctx, query, methods, active, branchID, limit, offset)
 }
 
 func listActive(ctx context.Context, query string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
@@ -501,14 +520,26 @@ func ListSchemes(c echo.Context) error {
 			methods = append(methods, m)
 		}
 	}
+	var active *bool
+	switch strings.ToLower(strings.TrimSpace(c.QueryParam("status"))) {
+	case "":
+	case "active":
+		v := true
+		active = &v
+	case "inactive":
+		v := false
+		active = &v
+	default:
+		return Fail(c, http.StatusBadRequest, "status must be Active or Inactive")
+	}
 	if limit == 0 {
-		rec, _, err := listSchemes(ctx, c.QueryParam("search"), methods, branchID, 0, 0)
+		rec, _, err := listSchemes(ctx, c.QueryParam("search"), methods, active, branchID, 0, 0)
 		if err != nil {
 			return FailErr(c, err)
 		}
 		return SuccessAll(c, rec)
 	}
-	rec, total, err := listSchemes(ctx, c.QueryParam("search"), methods, branchID, limit, offset)
+	rec, total, err := listSchemes(ctx, c.QueryParam("search"), methods, active, branchID, limit, offset)
 	if err != nil {
 		return FailErr(c, err)
 	}

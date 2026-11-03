@@ -227,10 +227,10 @@ function EmployeeDetailSheet({
               first={!canUpdate}
               icon="shield"
               title="Role permissions"
-              sub={`What a ${e.role} can do`}
+              sub={`What ${/^[aeiou]/i.test(e.role) ? "an" : "a"} ${e.role} can do`}
               onPress={() => {
                 onClose();
-                openPage("/roles");
+                openPage(`/roles?role=${encodeURIComponent(e.role)}`);
               }}
             />
           ) : null}
