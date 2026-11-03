@@ -69,7 +69,10 @@ export function buildDocument(doc: LegalDoc, audience: LegalAudience, provider: 
       heading: s.heading,
       body: visible(s.body, audience, t),
       list: visible(s.list, audience, t),
-      table: s.table,
+      table: s.table && {
+        head: s.table.head,
+        rows: s.table.rows.flatMap((r) => (Array.isArray(r) ? [r] : r.only === audience ? [r.row] : [])),
+      },
     })),
   };
 }

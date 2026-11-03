@@ -920,6 +920,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/reports/auctions` | `GET /api/v1/users/:user_id/reports/auctions` |
 | `GET /api/v1/reports/balance-sheet` | `GET /api/v1/users/:user_id/reports/balance-sheet` |
 | `GET /api/v1/reports/bank-pledge` | `GET /api/v1/users/:user_id/reports/bank-pledge` |
+| `GET /api/v1/reports/cash-ledger` | `GET /api/v1/users/:user_id/reports/cash-ledger` |
 | `GET /api/v1/reports/communication-history` | `GET /api/v1/users/:user_id/reports/communication-history` |
 | `GET /api/v1/reports/disbursement` | `GET /api/v1/users/:user_id/reports/disbursement` |
 | `GET /api/v1/reports/employee-performance` | `GET /api/v1/users/:user_id/reports/employee-performance` |

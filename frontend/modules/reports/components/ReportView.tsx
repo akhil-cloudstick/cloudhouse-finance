@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { BackLink } from "@/common/components/ui/BackLink";
@@ -238,6 +239,7 @@ export function ReportView({ config, onBack }: ReportViewProps) {
         </div>
         <div className="tbl-wrap">
           <table className="tbl tbl-cards tbl-center">
+            <TableCols widths={columns.map((c) => (c.numeric ? 12 : null))} />
             <thead>
               <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
             </thead>

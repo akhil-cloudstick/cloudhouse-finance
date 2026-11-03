@@ -178,7 +178,12 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
         24: k24,
         22: rateForFineness(k24, rates.fineness22),
         18: rateForFineness(k24, rates.fineness18),
-      }, employee?.name || employee?.username || "Admin");
+      }, employee?.name || employee?.username || "Admin", {
+        // Pin the fineness explicitly so only the ₹ amounts change — otherwise a
+        // never-saved fineness gets re-derived from the rounded rates and drifts.
+        22: rates.fineness22,
+        18: rates.fineness18,
+      });
       refreshGoldRates();
       setRateR24("");
       toast("Gold rate published for today");

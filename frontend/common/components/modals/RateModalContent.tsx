@@ -73,6 +73,10 @@ export function RateModalContent() {
 
   const [mode, setMode] = useState<Mode>("auto");
 
+  // The day the rate is published for — today unless another day is picked; the same rate may be saved for any day.
+  const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const [rateDate, setRateDate] = useState(todayStr());
+
   const [rate24, setRate24] = useState(String(latest.k24 || ""));
 
   const [rate22, setRate22] = useState(String(latest.k22 || ""));
@@ -107,10 +111,10 @@ export function RateModalContent() {
 
     let base24 = +rate24;
     if (!(base24 > 0) && +rate22 > 0) {
-      base24 = Math.round((+rate22 / f22) * 100);
+      base24 = Math.round((+rate22 / f22) * FINENESS_24K);
     }
     if (!(base24 > 0) && +rate18 > 0) {
-      base24 = Math.round((+rate18 / f18) * 100);
+      base24 = Math.round((+rate18 / f18) * FINENESS_24K);
     }
     if (!(base24 > 0)) {
       base24 = ref24;
@@ -209,33 +213,23 @@ export function RateModalContent() {
     if (!(+rate18 > 0)) errors["rate18"] ??= "The 18K rate must be greater than zero.";
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
-    // Only karats that actually changed from the latest published row get
-    // published — publishing an untouched karat would still be harmless
-    // (the backend carries it forward unchanged either way) but would
-    // create a needless extra history row for a value that didn't move.
-    const jobs: { karat: 24 | 22 | 18; rate: number }[] = [];
-    if (Math.round(+rate24) !== Math.round(latest.k24 || 0)) jobs.push({ karat: 24, rate: +rate24 });
-    if (Math.round(+rate22) !== Math.round(latest.k22 || 0)) jobs.push({ karat: 22, rate: +rate22 });
-    if (Math.round(+rate18) !== Math.round(latest.k18 || 0)) jobs.push({ karat: 18, rate: +rate18 });
+    if (!rateDate) { fail("date", "Pick the date this rate is for."); return; }
     // Auto mode saves its fineness so a 24K-only publish (New Gold Loan page) derives 22K/18K the same way.
-    // A fineness change alone still publishes, so the new fineness is kept.
     const fineness = mode === "auto" && +fineness22 > 0 && +fineness18 > 0 ? { 22: +fineness22, 18: +fineness18 } : undefined;
-    if (jobs.length === 0 && fineness && (fineness[22] !== latest.fineness22 || fineness[18] !== latest.fineness18)) {
-      jobs.push({ karat: 24, rate: +rate24 });
-    }
-
-    if (jobs.length === 0) {
-      setErr("Nothing has changed from today's published rates.");
-      return;
-    }
+    // All three rates are published for the chosen day, even when they equal the latest row.
+    const jobs: { karat: 24 | 22 | 18; rate: number }[] = [
+      { karat: 24, rate: +rate24 },
+      { karat: 22, rate: +rate22 },
+      { karat: 18, rate: +rate18 },
+    ];
 
     setErr("");
     setSaving(true);
     try {
-      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, fineness);
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, fineness, rateDate);
       refresh();
       closeModal();
-      toast(`${jobs.map((j) => `${j.karat}K`).join(", ")} rate${jobs.length > 1 ? "s" : ""} published for today`);
+      toast(rateDate === todayStr() ? "Gold rates published for today" : `Gold rates published for ${rateDate}`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
     } finally {
@@ -245,8 +239,13 @@ export function RateModalContent() {
 
   return (
     <>
-      <div className="hd"><h3>Set Today&apos;s Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>Set Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
+        <div style={{ marginBottom: 14 }}>
+          <label className="f" style={{ marginBottom: 2 }}>Rate date</label>
+          <input className="inp" type="date" style={{ width: 170 }} value={rateDate} onChange={(e) => { setRateDate(e.target.value); clearFe("date"); }} />
+          <FieldError msg={fe.date} />
+        </div>
         <div className="tabs" style={{ marginBottom: 14 }}>
           <button className={mode === "auto" ? "on" : ""} onClick={setAuto}>Auto</button>
           <button className={mode === "manual" ? "on" : ""} onClick={setManual}>Manual</button>

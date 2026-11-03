@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBalanceInHand } from "@/common/hooks/use-balance-in-hand";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
@@ -455,6 +456,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
             <>
               {schedule.error && schedule.items.length > 0 && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
               <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center tbl-cards">
+                <TableCols widths={[10, 35, 30, 25]} />
                 <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Status</th></tr></thead>
                 <tbody>
                   {schedule.loading ? (
@@ -482,6 +484,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
             <>
               {history.error && history.items.length > 0 && <div className="notice" style={{ margin: 14 }}>{history.error}</div>}
               <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center tbl-cards">
+                <TableCols widths={[25, 45, 30]} />
                 <thead><tr><th>Date</th><th>Event</th><th className="num">Amount</th></tr></thead>
                 <tbody>
                   {history.loading ? (
@@ -514,6 +517,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
           </div>
           {payments.error && <div className="notice" style={{ margin: 14 }}>{payments.error}</div>}
           <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt">
+            <TableCols widths={["112px", "108px", null, "88px", null, null, null]} />
             <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
             <tbody>
               {payments.loading ? (

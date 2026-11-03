@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { ApiError } from "@/common/services/httpClient";
@@ -174,7 +175,8 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
               <button className="btn sm" onClick={startCreate}>+ New Plan</button>
             </div>
             {error && <div className="notice">{error}</div>}
-            <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl">
+            <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl tbl-cards-sm tbl-compact">
+              <TableCols widths={[20, 10, 8, 12, 8, 14, 12, 10, 6]} />
               <thead><tr><th>Name</th><th>Type</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {loading ? (
@@ -184,13 +186,13 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
                 ) : shownPlans.map((p) => (
                   <tr key={p.id} className="click" onClick={() => startEdit(p)}>
                     <td>{p.name}<div className="sub">{p.interestRateType}</div></td>
-                    <td>{p.productType === "Bond" ? <span className="chip info">Bond</span> : "Deposit"}</td>
-                    <td className="num">{p.interestRatePercent}%</td>
-                    <td>{p.payoutFrequency}</td>
-                    <td className="num">{p.tenureMonths}mo</td>
-                    <td className="num">{fmt(p.minPrincipal)}</td>
-                    <td>{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
-                    <td><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
+                    <td data-label="Type">{p.productType === "Bond" ? <span className="chip info">Bond</span> : "Deposit"}</td>
+                    <td className="num" data-label="Rate">{p.interestRatePercent}%</td>
+                    <td data-label="Frequency">{p.payoutFrequency}</td>
+                    <td className="num" data-label="Tenure">{p.tenureMonths}mo</td>
+                    <td className="num" data-label="Min Principal">{fmt(p.minPrincipal)}</td>
+                    <td data-label="Payout">{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
+                    <td data-label="Status"><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
                     <td><button className="btn plain sm" onClick={(e) => { e.stopPropagation(); startEdit(p); }}>Edit</button></td>
                   </tr>
                 ))}

@@ -14,11 +14,17 @@ export const disclaimer: LegalDocumentSource = {
     },
     {
       heading: "Our role",
-      body: ["{{provider}} supplies the software. The loan itself is offered by the lender who gave it to you, and {{provider}} is not a party to that loan unless your agreement says so."],
+      body: [
+        { only: "customer", text: "{{provider}} supplies the software. The loan itself is offered by the lender who gave it to you, and {{provider}} is not a party to that loan unless your agreement says so." },
+        { only: "staff", text: "{{app}} is an internal tool for authorised employees and field agents of {{provider}}. It records information for the lender; decisions on loans and valuations remain with the lender." },
+      ],
     },
     {
       heading: "Third-party services",
-      body: ["Links to payment, KYC or e-sign services are governed by those parties' own terms."],
+      body: [
+        { only: "customer", text: "Links to payment, KYC or e-sign services are governed by those parties' own terms." },
+        { only: "staff", text: "The app does not process payments." },
+      ],
     },
   ],
 };

@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -132,6 +133,7 @@ export function PersonalLedgerEditModalContent({ loanId, entry: p, bankId: saved
           <div style={{ marginTop: 12 }}>
             <label className="f">What changes on the loan</label>
             <div className="tbl-wrap"><table className="tbl">
+              <TableCols widths={[40, 30, 30]} />
               <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
               <tbody>
                 <tr><td>Outstanding</td><td className="num">{fmt(preview.before.outstanding)}</td><td className="num" style={{ fontWeight: 600 }}>{fmt(preview.after.outstanding)}</td></tr>

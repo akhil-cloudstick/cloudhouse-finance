@@ -11,7 +11,9 @@ let heroGradId = 0;
 /** The Dashboard hero's gradient — linear-gradient(135deg, nav 0%, nav2
  * 55%, brand 100%) — used behind every page header (and the status bar
  * area above it) so the whole app wears the same colour on top. */
-export function HeroBackground() {
+// Memoised: it takes no props, and every header re-render (each page re-publishes its header on
+// every render) would otherwise re-render the whole SVG tree for nothing.
+export const HeroBackground = React.memo(function HeroBackground() {
   const id = React.useMemo(() => `heroGrad${++heroGradId}`, []);
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -27,4 +29,4 @@ export function HeroBackground() {
       </Svg>
     </View>
   );
-}
+});

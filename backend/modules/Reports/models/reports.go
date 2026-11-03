@@ -271,6 +271,26 @@ type ExpenseCashflowTotals struct {
 	NetCashflow        float64 `json:"net_cashflow"`
 }
 
+// CashLedgerRow is one line of the Cash Ledger report: a cash movement, or — Total — the subtotal
+// closing one month. Particulars is the gold loan as "00144/26" (number / year opened), blank for
+// a movement that isn't a gold loan's.
+type CashLedgerRow struct {
+	Date        string  `json:"date"`
+	Month       string  `json:"month"`
+	Particulars string  `json:"particulars"`
+	Debit       float64 `json:"debit"`
+	Credit      float64 `json:"credit"`
+	Balance     float64 `json:"balance"`
+	Total       bool    `json:"total"`
+}
+
+type CashLedgerTotals struct {
+	OpeningBalance float64 `json:"opening_balance"`
+	TotalDebit     float64 `json:"total_debit"`
+	TotalCredit    float64 `json:"total_credit"`
+	ClosingBalance float64 `json:"closing_balance"`
+}
+
 type KYCRow struct {
 	CustomerID    uint   `json:"customer_id"`
 	Code          string `json:"code"`
@@ -299,6 +319,7 @@ type GoldRateHistoryTotals struct {
 
 type EmployeePerformanceRow struct {
 	EmployeeID     uint    `json:"employee_id"`
+	EmployeeCode   string  `json:"employee_code"`
 	Name           string  `json:"name"`
 	Role           string  `json:"role"`
 	BranchName     string  `json:"branch_name"`

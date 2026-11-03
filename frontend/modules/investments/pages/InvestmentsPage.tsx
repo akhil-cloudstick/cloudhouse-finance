@@ -1,5 +1,7 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/common/components/Icon";
@@ -117,7 +119,7 @@ export function InvestmentsPage() {
       <div className="page-h">
         <div><h1>Investments</h1><p>Investor deposits, interest payout schedules and maturity</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search investment # or investor…" title="Searches: investment number, investor name, investor code" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch placeholder="Search investment # or investor…" searches="investment number, investor name, investor code" value={q} onChange={setQ} />
         {canUpdate && <button className="btn ghost" onClick={() => openModal(<InvestorsModalContent />, true)}><Icon name="user" /> Investors</button>}
         {canUpdate && <button className="btn ghost" onClick={openPlans}>Manage Plans</button>}
         {canCreate && <button className="btn" onClick={openNewInvestment}><Icon name="plus" /> New Investment</button>}
@@ -145,6 +147,7 @@ export function InvestmentsPage() {
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
       <div className="tbl-wrap tbl-scroll" ref={wrapRef}><table className="tbl tbl-center tbl-cards">
+        <TableCols widths={[40, 15, 10, 17, 18]} />
         <thead><tr><th>Investment / Investor</th><th className="num">Principal</th><th>Rate</th><th>Maturity</th><th>Status</th></tr></thead>
         <tbody>
           {loading && !(cards && investments.length > 0) ? (

@@ -129,7 +129,13 @@ export function CustomerFormSheet({
 
   const phoneOk = /^\d{10}$/.test(phone.trim());
   const aadhaarOk = !aadhaar || /^\d{12}$/.test(aadhaar);
-  const canSave = !!name.trim() && phoneOk && aadhaarOk && (!showBranch || !!branch);
+  const panOk = !pan.trim() || /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan.trim().toUpperCase());
+  // A server message about one field is shown under that field, not at the bottom of the sheet.
+  const serverPanErr = error && /\bpan\b/i.test(error) ? error : null;
+  const serverAadhaarErr = !serverPanErr && error && /aadhaar/i.test(error) ? error : null;
+  const serverPhoneErr = !serverPanErr && !serverAadhaarErr && error && /^(?!.*nominee).*(phone|mobile)/i.test(error) ? error : null;
+  const bottomError = serverPanErr || serverAadhaarErr || serverPhoneErr ? null : error;
+  const canSave = !!name.trim() && phoneOk && aadhaarOk && panOk && (!showBranch || !!branch);
 
   const save = useMutation({
     mutationFn: () => {
@@ -184,7 +190,8 @@ export function CustomerFormSheet({
         <Input placeholder="Customer's full name" value={name} onChangeText={setName} />
       </Field>
       <Field label="Mobile Number *">
-        <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => setPhone(digits(t))} />
+        <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => { setPhone(digits(t)); setError(null); }} />
+        {serverPhoneErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{serverPhoneErr}</Txt> : null}
       </Field>
       {showBranch ? (
         <AsyncSelect<{ id: number; name: string; code?: string }>
@@ -207,7 +214,7 @@ export function CustomerFormSheet({
       </Field>
       <FieldRow>
         <Field label="PAN Number">
-          <Input placeholder="ABCDE1234F" autoCapitalize="characters" maxLength={10} value={pan} onChangeText={setPan} />
+          <Input placeholder="ABCDE1234F" autoCapitalize="characters" maxLength={10} value={pan} onChangeText={(t) => { setPan(t); setError(null); }} />
         </Field>
         <Field label="Aadhaar Number">
           <Input
@@ -219,7 +226,10 @@ export function CustomerFormSheet({
           />
         </Field>
       </FieldRow>
+      {!panOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>PAN must look like ABCDE1234F.</Txt> : null}
+      {serverPanErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>{serverPanErr}</Txt> : null}
       {!aadhaarOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>Aadhaar must be 12 digits.</Txt> : null}
+      {serverAadhaarErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>{serverAadhaarErr}</Txt> : null}
 
       <SectionTitle flush style={{ marginTop: 16 }}>
         Documents
@@ -277,7 +287,7 @@ export function CustomerFormSheet({
         </>
       ) : null}
 
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+      {bottomError ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{bottomError}</Txt> : null}
       <PrimaryButton label={editing ? "Save Changes" : "Register Customer"} onPress={() => save.mutate()} loading={save.isPending} disabled={!canSave} />
     </Sheet>
   );

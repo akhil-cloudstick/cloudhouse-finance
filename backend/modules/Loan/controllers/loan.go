@@ -468,7 +468,7 @@ func listLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) 
 		enrichLoan(ctx, &loans[i])
 	}
 	if f.OnlyDefaulted {
-		loans, total = pageKept(loans, limit, offset, func(l *models.Loan) bool { return l.IsDefaulted })
+		loans, total = pageKept(loans, limit, offset, func(l *models.Loan) bool { return l.IsDefaulted && AvailableForAuction(l) })
 	} else if f.AllAuctionCases {
 		loans, total = pageKept(loans, limit, offset, isAuctionCase)
 	} else if len(f.ServicingIn) > 0 {

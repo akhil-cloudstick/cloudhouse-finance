@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useModal } from "@/common/components/ModalProvider";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { type LedgerRowView } from "@/modules/cash/types/cash-types";
@@ -37,6 +38,7 @@ export function RowInfoModalContent({ row }: RowInfoModalContentProps) {
           <>
             <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Paid towards</h4>
             <div className="tbl-wrap"><table className="tbl">
+              <TableCols widths={[35, 35, 30]} />
               <thead><tr><th>Part</th><th>Mode</th><th className="num">Amount</th></tr></thead>
               <tbody>
                 {row.split.map((ln, i) => (

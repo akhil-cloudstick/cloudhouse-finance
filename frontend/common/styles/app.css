@@ -3143,14 +3143,13 @@ button.fi-trigger {
   overflow-y: auto;
 }
 
-/* Auto layout sizes each column to its content, and the min-width keeps the
- * table the same shape on every screen — a narrow right column scrolls the
- * table sideways (.tbl-wrap's overflow-x:auto above) instead of squeezing
- * equal fixed-width columns until dates and "Particulars" broke mid-word. */
+/* Each table sets its own column proportions (<TableCols>), and the min-width
+ * keeps them readable on a narrow right column: below it the table scrolls
+ * sideways (.tbl-wrap's overflow-x:auto above) instead of squeezing the
+ * columns until dates and "Particulars" broke mid-word. */
 .cust-360 .tbl {
-  table-layout: auto;
   width: 100%;
-  min-width: 0
+  min-width: 560px
 }
 
 /* Grid items default to min-width:auto, so the right column refused to
@@ -4388,12 +4387,20 @@ label.f {
   z-index: 1
 }
 
+/* Fixed layout: a column's width comes from the table's <TableCols> (or its header cell's CSS
+ * width), never from the rows on screen, so the columns hold still whatever data a page, filter or
+ * refresh brings. A value longer than its column wraps inside the cell instead of widening it. */
 table.tbl {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13.5px;
-  min-width: 640px
+  min-width: 640px;
+  table-layout: fixed
+}
+
+table.tbl td {
+  overflow-wrap: anywhere
 }
 
 .tbl {
@@ -4619,7 +4626,11 @@ table.tbl {
  * Edit column was clipped (scrollbars are hidden, so it looked cut off).
  * Tighter cell padding + no forced min-width lets it fit at any width. */
 .tbl.plans-tbl {
-  min-width: 0
+  min-width: 640px
+}
+
+.modal .tbl-wrap.tbl-scroll-paged {
+  overflow-x: auto;
 }
 
 .tbl.plans-tbl th,
@@ -5147,6 +5158,41 @@ table.tbl {
   padding-left: 34px
 }
 
+/* The clear (×) button inside a search box, vertically centred at its right edge. */
+.search .search-clear {
+  position: absolute;
+  right: 20px;
+  top: calc(50% - 2px);
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 50%
+}
+
+.search .search-clear:hover {
+  color: var(--ink);
+  background: var(--brand-faint)
+}
+
+.search .search-clear svg {
+  position: static;
+  transform: none;
+  width: 13px;
+  height: 13px
+}
+
+.search:has(.search-clear) input {
+  padding-right: 46px
+}
+
 .search svg {
   position: absolute;
   left: 11px;
@@ -5649,13 +5695,16 @@ table.tbl {
 .mini-list .tx b {
   font-weight: 600;
   font-size: 13.5px;
-  color: var(--nav-ink)
+  color: var(--nav-ink);
+  overflow-wrap: anywhere
 }
 
 .mini-list .tx small {
   display: block;
   color: var(--muted);
-  font-size: 11.5px
+  font-size: 11.5px;
+  white-space: normal;
+  overflow-wrap: anywhere
 }
 
 .mini-list .rt {
@@ -6269,9 +6318,9 @@ table.tbl {
  * (the ledger gets the wider share, it has seven columns) and stack — as before — below the same
  * width/height boundary `.pl-detail-grid` uses. Both tables are paged, so rows size to their content
  * and the cards never shrink below it. */
-.inv-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
-/* The payout schedule's due dates and Mark Paid stay on one line instead of breaking mid-date. */
-.inv-schedule-tbl td:nth-child(2),.inv-schedule-tbl .btn{white-space:nowrap}
+.inv-detail-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
+/* The payout schedule's due dates, and a Pending chip with its Mark Paid, stay on one line. */
+.inv-schedule-tbl td:nth-child(2),.inv-schedule-tbl td:nth-child(5),.inv-schedule-tbl .btn{white-space:nowrap}
 /* Side by side, each card has half the width: narrower amount columns, tighter cell gaps and header tracking keep
  * the ledger's Balance inside the card; anything still too wide scrolls sideways rather than being clipped. */
 @media (min-width: 1101px) {
@@ -10012,3 +10061,72 @@ table.tbl.lockers-tbl {
 .orn-cards-view::-webkit-scrollbar {
   display: none;
 }
+
+/* ── Very narrow windows: opt-in `.tbl-cards-sm` tables (used inside modals)
+ * turn into one card per row, using each cell's data-label. ── */
+@media (max-width: 860px) {
+  .modal .tbl-wrap.tbl-scroll-paged { overflow-x: hidden; }
+  .modal .tbl-wrap:has(> table.tbl-cards-sm) { border: 0; background: none; box-shadow: none; border-radius: 0; }
+  table.tbl.tbl-cards-sm tr:has(> td[colspan]) { padding: 0; border: 0; background: none; }
+  table.tbl.tbl-cards-sm td[colspan] { background: none !important; padding: 0; border: 0; }
+  table.tbl.tbl-cards-sm { display: block; width: 100%; min-width: 0; }
+  table.tbl.tbl-cards-sm thead { display: none; }
+  table.tbl.tbl-cards-sm tbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 8px 0; }
+  table.tbl.tbl-cards-sm tr {
+    display: block;
+    min-width: 0;
+    padding: 4px 12px;
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .5);
+  }
+  table.tbl.tbl-cards-sm td,
+  table.tbl.tbl-cards-sm td.num {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    padding: 6px 0;
+    text-align: right;
+    background: none;
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  table.tbl.tbl-cards-sm td:last-child { border-bottom: 0; }
+  table.tbl.tbl-cards-sm td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+  }
+  table.tbl.tbl-cards-sm td:first-child { display: block; text-align: left; }
+  table.tbl.tbl-cards-sm td:first-child::before { display: none; }
+  /* Expand chevron sits in the card's top-right corner. */
+  table.tbl.tbl-cards-sm tr { position: relative; }
+  table.tbl.tbl-cards-sm td.td-chev {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    padding: 0;
+    border: 0;
+    width: auto;
+  }
+  table.tbl.tbl-cards-sm td.td-chev::before { display: none; }
+  table.tbl.tbl-cards-sm td[colspan] { display: block; text-align: left; }
+  table.tbl.tbl-cards-sm td[colspan]::before { display: none; }
+  table.tbl.tbl-cards-sm tr:has(> td.empty) { border: 0; background: none; }
+}
+
+/* Shorter rows for the tables inside modals (investors, plans). */
+.tbl.tbl-compact td { padding-top: 6px; padding-bottom: 6px; }
+.tbl.tbl-compact th { padding-top: 8px; padding-bottom: 8px; }
+.tbl.tbl-compact td .sub { margin-top: 0; line-height: 1.2; }
+
+/* Scrolls without a visible scrollbar (an investor's investments inside the Investors modal). */
+.inv-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.inv-scroll::-webkit-scrollbar { display: none; }

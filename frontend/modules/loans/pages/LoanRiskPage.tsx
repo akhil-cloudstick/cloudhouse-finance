@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useCallback, useEffect, useState } from "react";
 import { fmt } from "@/common/utils/format";
@@ -159,6 +160,7 @@ export function LoanRiskPage() {
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-cards">
+            <TableCols widths={[22, 11, 12, 10, 13, 10, 12]} />
             <thead>
               <tr>
                 <th>Loan / Customer</th>

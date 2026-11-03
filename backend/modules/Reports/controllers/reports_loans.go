@@ -79,11 +79,11 @@ func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.L
 	}
 	var totals models.LoanStatusTotals
 	type statusCount struct {
-		Status string
+		Status string `gorm:"column:effective_status"`
 		Count  int
 	}
 	var counts []statusCount
-	if err := newBase().Select(effective+" as status, count(*) as count", defaultedBefore).Group("1").Scan(&counts).Error; err != nil {
+	if err := newBase().Select(effective+" as effective_status, count(*) as count", defaultedBefore).Group("effective_status").Scan(&counts).Error; err != nil {
 		return nil, models.LoanStatusTotals{}, err
 	}
 	for _, c := range counts {

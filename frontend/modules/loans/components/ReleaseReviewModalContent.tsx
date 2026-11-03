@@ -28,6 +28,7 @@ function localToday(): string {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
 }
 import { releaseAmountNeeded } from "@/modules/loans/utils/releaseAmount";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
 // no-buffer check ApproveReleaseRequest re-runs at Manager/Management
@@ -330,7 +331,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         {req.isPartial && loan && (
           <div style={{ marginBottom: 14 }}>
             <label className="f">Selected Ornaments — {req.ornamentIds.length} of {loan.ornaments.filter((o) => !o.releasedAt).length}</label>
-            <div className="tbl-wrap rel-orn-wrap"><table className="tbl">
+            <div className="tbl-wrap rel-orn-wrap"><table className="tbl"><TableCols widths={[40, 18, 18, 24]} />
               <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
               <tbody>
                 {loan.ornaments.filter((o) => req.ornamentIds.includes(o.id)).map((o) => (

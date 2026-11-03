@@ -490,6 +490,12 @@ export default function LoanDetailScreen() {
             <SectionTitle>Loan details</SectionTitle>
             <Card>
               <FieldGrid items={detailItems} />
+              {l.additionalInfo ? (
+                <>
+                  <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 10 }}>Additional information</Txt>
+                  <Txt style={{ fontSize: 13, color: C.ink, marginTop: 2 }}>{l.additionalInfo}</Txt>
+                </>
+              ) : null}
               {l.overallPhotoUrl ? (
                 <>
                   <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 10 }}>Loan photo</Txt>

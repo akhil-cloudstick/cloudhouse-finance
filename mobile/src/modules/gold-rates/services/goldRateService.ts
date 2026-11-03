@@ -28,6 +28,6 @@ export function publishGoldRate(input: { date?: string; karat: 24 | 22 | 18; rat
 
 // Publishes every changed karat as ONE history row (keys 24/22/18) — same as web's
 // publishGoldRates; the backend carries any karat left out forward unchanged.
-export function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string) {
-  return apiRequest<GoldRate>("/gold-rates", { method: "POST", body: { rates, setBy } });
+export function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string, date?: string) {
+  return apiRequest<GoldRate>("/gold-rates", { method: "POST", body: { rates, setBy, ...(date ? { date } : {}) } });
 }

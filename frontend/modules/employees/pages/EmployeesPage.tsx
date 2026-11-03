@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
@@ -143,6 +144,7 @@ export function EmployeesPage() {
         <div className="card tbl-card tbl-card-fill tbl-rounded">
           <div className="tbl-wrap">
             <table className="tbl tbl-center col1-left tbl-tight emp-tbl tbl-cards">
+              <TableCols widths={[20, 12, ...(showBranch ? [11] : []), 11, 11, 11, 11, 10]} />
               <thead>
                 <tr><th>Employee</th><th>Role</th>{showBranch && <th>Branch</th>}<th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th>Action</th></tr>
               </thead>

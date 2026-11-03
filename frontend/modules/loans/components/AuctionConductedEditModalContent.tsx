@@ -16,6 +16,7 @@ import {
   type AppliedAuctionDependent, type AuctionDependent, type AuctionEditPreview, type AuctionSaleCurrent,
 } from "@/modules/loans/services/loanService";
 import { type ConcludedAuctionRowView } from "@/modules/loans/types/loan-types";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 type Props = {
   auction: ConcludedAuctionRowView;
@@ -256,7 +257,7 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
             )}
             {[preview.before, preview.after].some((x) => x.principal || x.interest || x.penalInterest || x.total) || preview.before.status !== preview.after.status ? (<>
             <label className="f">What changes on the loan (as of its last entry)</label>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap"><table className="tbl"><TableCols widths={[40, 30, 30]} />
               <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
               <tbody>
                 {row("Principal owed", preview.before.principal, preview.after.principal)}

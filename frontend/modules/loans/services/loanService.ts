@@ -827,7 +827,8 @@ export async function listConcludedAuctionsPage(
   hasSale: boolean,
   limit?: number,
   q?: string,
-  stages?: string[]
+  stages?: string[],
+  outcome?: "surplus" | "shortfall" | ""
 ): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
@@ -837,6 +838,7 @@ export async function listConcludedAuctionsPage(
   });
   if (q && q.trim()) params.set("q", q.trim());
   if (stages && stages.length) params.set("stage", stages.join(","));
+  if (outcome) params.set("outcome", outcome);
   const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean; total?: number }>(
     `/loans/auctions/concluded?${params}`
   );

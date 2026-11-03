@@ -137,13 +137,14 @@ func employeePerformance(ctx context.Context, f models.Filter) ([]models.Employe
 	from, to := dateRange(f)
 	type empRow struct {
 		EmployeeID uint
+		Code       string
 		Name       string
 		Role       string
 		BranchName string
 	}
 	eq := config.DB.
 		WithContext(ctx).Table("employees e").
-		Select("e.id as employee_id, e.name, e.role, b.name as branch_name").
+		Select("e.id as employee_id, e.code, e.name, e.role, b.name as branch_name").
 		Joins("LEFT JOIN branches b ON b.id = e.branch_id").
 		Where("e.deleted_at IS NULL")
 	if f.BranchID != nil {
@@ -207,6 +208,7 @@ func employeePerformance(ctx context.Context, f models.Filter) ([]models.Employe
 	for _, e := range emps {
 		row := models.EmployeePerformanceRow{
 			EmployeeID:     e.EmployeeID,
+			EmployeeCode:   e.Code,
 			Name:           e.Name,
 			Role:           e.Role,
 			BranchName:     e.BranchName,

@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { useModal } from "@/common/components/ModalProvider";
@@ -22,18 +23,43 @@ function InvestorInvestments({ customerId, from, to }: InvestorInvestmentsProps)
   const { closeModal } = useModal();
   const [items, setItems] = useState<BackendInvestment[] | null>(null);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // A new investor or date range starts again from the first 10.
+  useEffect(() => { setPage(1); setItems(null); }, [customerId, from, to]);
 
   useEffect(() => {
     let live = true;
-    listInvestmentsPage({ page: 1, customerId: Number(customerId), from: from || undefined, to: to || undefined, pageSize: 50 })
-      .then((res) => { if (live) setItems(res?.items || []); })
-      .catch((e) => { if (live) setError(e instanceof ApiError ? e.message : "Could not load investments."); });
+    setLoadingMore(true);
+    listInvestmentsPage({ page, customerId: Number(customerId), from: from || undefined, to: to || undefined, pageSize: PAGE_SIZE })
+      .then((res) => {
+        if (!live) return;
+        setItems((cur) => (page === 1 ? res?.items || [] : [...(cur || []), ...(res?.items || [])]));
+        setHasMore(!!res?.hasMore);
+      })
+      .catch((e) => { if (live) setError(e instanceof ApiError ? e.message : "Could not load investments."); })
+      .finally(() => { if (live) setLoadingMore(false); });
     return () => { live = false; };
-  }, [customerId, from, to]);
+  }, [customerId, from, to, page]);
+
+  // The next 10 load as this list is scrolled to its end; a batch too short to overflow keeps loading.
+  function onScroll() {
+    const el = wrapRef.current;
+    if (hasMore && !loadingMore && el && el.scrollHeight - el.scrollTop - el.clientHeight < 32) setPage((p) => p + 1);
+  }
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (hasMore && !loadingMore && el && el.scrollHeight <= el.clientHeight) setPage((p) => p + 1);
+  }, [items, hasMore, loadingMore]);
 
   if (error) return <div className="notice">{error}</div>;
   return (
-    <table className="tbl tbl-center" style={{ margin: "4px 0 8px" }}>
+    <div ref={wrapRef} onScroll={onScroll} className="inv-scroll" style={{ maxHeight: 240, overflowY: "auto" }}>
+    <table className="tbl tbl-center tbl-cards-sm tbl-compact" style={{ margin: "4px 0 8px" }}>
+      <TableCols widths={[18, 20, 14, 16, 16, 16]} />
       <thead><tr><th>Investment</th><th>Plan</th><th className="num">Principal</th><th>Start</th><th>Maturity</th><th>Status</th></tr></thead>
       <tbody>
         {items === null ? (
@@ -42,16 +68,17 @@ function InvestorInvestments({ customerId, from, to }: InvestorInvestmentsProps)
           <tr><td colSpan={6} className="empty compact">{from || to ? "No investments in this date range." : "No investments yet."}</td></tr>
         ) : items.map((i) => (
           <tr key={i.id} className="click" onClick={() => { closeModal(); navigate("investment/" + (i.investmentNumber || i.id)); }}>
-            <td><span className="id">{i.investmentNumber}</span></td>
-            <td>{i.plan?.name || "—"}</td>
-            <td className="num">{fmt(i.principalAmount)}</td>
-            <td>{fmtDate(i.startDate)}</td>
-            <td>{fmtDate(i.maturityDate)}</td>
-            <td><StatusChip status={i.status} /></td>
+            <td data-label="Investment"><span className="id">{i.investmentNumber}</span></td>
+            <td data-label="Plan">{i.plan?.name || "—"}</td>
+            <td className="num" data-label="Principal">{fmt(i.principalAmount)}</td>
+            <td data-label="Start">{fmtDate(i.startDate)}</td>
+            <td data-label="Maturity">{fmtDate(i.maturityDate)}</td>
+            <td data-label="Status"><StatusChip status={i.status} /></td>
           </tr>
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 
@@ -65,9 +92,9 @@ export function InvestorsModalContent() {
   const [investors, setInvestors] = useState<CustomerView[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const investorKey = investorIds.join(",");
   // Loading until the request for the current filter + page has answered.
   const reqKey = `${investorKey}|${page}`;
@@ -88,13 +115,14 @@ export function InvestorsModalContent() {
   useEffect(() => {
     let live = true;
     const load = investorIds.length
-      ? Promise.all(investorIds.map((id) => getCustomer(id))).then((items) => ({ items, hasMore: false }))
+      ? Promise.all(investorIds.map((id) => getCustomer(id))).then((items) => ({ items, hasMore: false, total: items.length }))
       : listCustomersPage("", page, { customerType: "Investor" }, PAGE_SIZE);
     load
       .then((res) => {
         if (!live) return;
-        setInvestors((cur) => (page === 1 || investorIds.length ? res.items : [...cur, ...res.items]));
+        setInvestors(res.items);
         setHasMore(res.hasMore);
+        setTotal(res.total);
         setError("");
       })
       .catch((e) => { if (live) setError(e instanceof ApiError ? e.message : "Could not load investors."); })
@@ -103,10 +131,8 @@ export function InvestorsModalContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- investorIds is tracked by its joined key
   }, [investorKey, page]);
 
-  function onWrapScroll() {
-    const el = wrapRef.current;
-    if (hasMore && !loading && el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) setPage((p) => p + 1);
-  }
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  function goTo(p: number) { setOpenId(null); setPage(p); }
 
   return (
     <>
@@ -126,7 +152,8 @@ export function InvestorsModalContent() {
           />
         </div>
         {error && <div className="notice">{error}</div>}
-        <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl">
+        <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged"><table className="tbl tbl-cards-sm tbl-compact">
+          <TableCols widths={[45, 25, 20, 10]} />
           <thead><tr><th>Investor</th><th>Phone</th><th>Branch</th><th style={{ width: 40 }}></th></tr></thead>
           <tbody>
             {loading && investors.length === 0 ? (
@@ -138,6 +165,12 @@ export function InvestorsModalContent() {
             ))}
           </tbody>
         </table></div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+          <button className="btn plain sm" disabled={page <= 1 || loading} onClick={() => goTo(page - 1)}>‹ Prev</button>
+          <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+          <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "investor" : "investors"}</span>
+          <button className="btn plain sm" disabled={!hasMore || loading} onClick={() => goTo(page + 1)}>Next ›</button>
+        </div>
       </div>
     </>
   );
@@ -150,9 +183,9 @@ function InvestorRows({ investor, open, onToggle, from, to }: InvestorRowsProps)
     <>
       <tr className="click" onClick={onToggle} aria-expanded={open}>
         <td><span className="id">{investor.code}</span><span className="sub">{investor.name}</span></td>
-        <td>{investor.phone || "—"}</td>
-        <td>{investor.branchName || "—"}</td>
-        <td><Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .15s" }} /></td>
+        <td data-label="Phone">{investor.phone || "—"}</td>
+        <td data-label="Branch">{investor.branchName || "—"}</td>
+        <td className="td-chev"><Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .15s" }} /></td>
       </tr>
       {open && (
         <tr><td colSpan={4} style={{ background: "var(--brand-faint)" }}>

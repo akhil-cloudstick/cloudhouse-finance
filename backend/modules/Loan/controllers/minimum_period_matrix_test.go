@@ -50,6 +50,9 @@ func matrixLoan(method string, minimum int, principal float64) *models.Loan {
 	if method == commonModels.InterestMethodMultiple {
 		l.SchemeRateTiers = []commonModels.RateTier{{Days: 30, Rate: 12}, {Days: 60, Rate: 24}, {Days: 0, Rate: 36}}
 	}
+	if method != commonModels.InterestMethodMultiple {
+		l.SchemeAccrualBasis = commonModels.AccrualBasisMonthly
+	}
 	return l
 }
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { useModal } from "@/common/components/ModalProvider";
@@ -240,7 +242,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
       <div className="page-h">
         <div><h1>Bank &amp; Gold Re-Pledge</h1><p>Customer gold re-pledged with external banks</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, bank, customer…" title="Searches: loan number, customer name, customer code · bank name on the History tab only" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan no, bank, customer…" searches="loan number, customer name, customer code · bank name on the History tab only" value={q} onChange={setQ} />
         {canViewBanks && <button className="btn ghost" onClick={() => openModal(<BanksModalContent />, true)}><Icon name="bank" /> Banks</button>}
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
@@ -271,6 +273,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           {pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
           <div className="tbl-wrap">
             <table className="tbl tbl-cards tbl-center">
+              <TableCols widths={[9, 20, 14, 9, 12, 8, 10, 10, 8]} />
               <thead>
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th>Due</th><th></th></tr>
               </thead>
@@ -321,6 +324,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           {historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
           <div className="tbl-wrap">
             <table className="tbl tbl-cards tbl-center">
+              <TableCols widths={[9, 20, 14, 12, 8, 10, 10, 9, 8]} />
               <thead>
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th><th></th></tr>
               </thead>

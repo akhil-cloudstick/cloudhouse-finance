@@ -48,7 +48,10 @@ const AUCTION_STAGE_LABELS: Record<AuctionStage, string> = {
 };
 const ACTIVE_STAGES: AuctionStage[] = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"];
 const ALL_STAGES: AuctionStage[] = [...ACTIVE_STAGES, "Settled", "Withdrawn"];
-// Same "Auction Status" filter as the web page; the backend applies it on both tabs.
+// The "Auction Status" filter belongs to Active Cases only; History has its own Sale Outcome filter.
+const OUTCOME_SECTIONS: GFSection[] = [
+  { kind: "static", key: "outcome", label: "Sale Outcome", options: [{ value: "surplus", label: "Settle Surplus" }, { value: "shortfall", label: "Shortfall" }] },
+];
 const stageSections = (stages: AuctionStage[]): GFSection[] => [
   { kind: "static", key: "stage", label: "Auction Status", options: stages.map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] })) },
 ];
@@ -169,10 +172,13 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
   const openLoan = useOpenLoan();
   const [hist, setHist] = useState<Hist>("conducted");
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
-  const stageCsv = gfValues(fv, "stage").join(",");
-  const list = useServerList<ConcludedAuctionRow, { hasSale: boolean; stage?: string }>({
+  // History's own filter, for the Auctions Conducted table only: sales that left a surplus to settle, or fell short.
+  // Both ticked (or none) shows every sale.
+  const picked = gfValues(fv, "outcome");
+  const outcome = hist === "conducted" && picked.length === 1 ? picked[0] : "";
+  const list = useServerList<ConcludedAuctionRow, { hasSale: boolean; outcome?: string }>({
     key: ["auctionHistory"],
-    filters: { hasSale: hist === "conducted", ...(stageCsv ? { stage: stageCsv } : {}) },
+    filters: { hasSale: hist === "conducted", ...(outcome ? { outcome } : {}) },
     fetchPage: async (p) => listConcludedAuctions(p),
   });
 
@@ -186,9 +192,11 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
         <>
           {tabs}
           <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
-          <View style={{ paddingHorizontal: 18, paddingBottom: 10 }}>
-            <GroupedFilter title="Filter history" sections={stageSections(ALL_STAGES)} value={fv} onChange={setFv} />
-          </View>
+          {hist === "conducted" ? (
+            <View style={{ paddingHorizontal: 18, paddingBottom: 10 }}>
+              <GroupedFilter title="Filter history" sections={OUTCOME_SECTIONS} value={fv} onChange={setFv} />
+            </View>
+          ) : null}
           <View style={{ paddingHorizontal: 18 }}>
             <SubTabs tabs={HIST} value={hist} onChange={setHist} labels={HIST_LABELS} />
           </View>

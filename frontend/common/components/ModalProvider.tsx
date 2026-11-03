@@ -127,7 +127,7 @@ export function ModalProvider({ children }: ModalProviderProps) {
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const onModalKeyDown = useMemo(() => makeEnterToSubmitHandler(".ft button.btn:not(.ghost):not(:disabled)"), []);
+  const onModalKeyDown = useMemo(() => makeEnterToSubmitHandler(".ft button.btn:not(.ghost):not(.plain):not(:disabled)"), []);
 
   return (
     <ModalContext.Provider value={{ openModal, openChildModal, closeModal, closeAllModals }}>

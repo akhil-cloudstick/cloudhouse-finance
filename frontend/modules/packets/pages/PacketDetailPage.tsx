@@ -18,6 +18,7 @@ import { type PacketView, type MovementView } from "@/modules/packets/types/pack
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 /* Hardcoded actor id — this codebase has no auth/session yet, so every
  * staff-attributed action across the app (loan approvals, payments) uses
@@ -191,7 +192,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
         <div className="card gtop">
           <div className="hd"><h3>Contents of the Packet — {p.itemCount} item(s) · {fmtW(p.totalWeight)}{p.items.some((it) => it.released) ? ` · ${p.items.filter((it) => it.released).length} released` : ""}</h3></div>
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl"><TableCols widths={[20, 10, 11, 11, 7, 14, 27]} />
               <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Gross (g)</th><th className="num">Net (g)</th><th className="num">Qty</th><th className="num">Gold Value</th><th>Remarks</th></tr></thead>
               <tbody>
                 {p.items.length === 0 && <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No ornaments recorded on this loan.</td></tr>}
@@ -218,7 +219,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
         <div className="card">
           <div className="hd"><h3>Movement History</h3></div>
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl"><TableCols widths={[16, 17, 17, 14, 16, 20]} />
               <thead><tr><th>Date/Time</th><th>From</th><th>To</th><th>Locker</th><th>Employee</th><th>Remarks</th></tr></thead>
               <tbody>
                 {movements.length === 0 && <tr><td colSpan={6} style={{ color: "var(--muted)" }}>No movements yet.</td></tr>}

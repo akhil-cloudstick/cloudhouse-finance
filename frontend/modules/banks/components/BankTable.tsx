@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useRef, useState } from "react";
 import { usePersistedPage } from "@/common/hooks/use-persisted-state";
 import { useScrollPageSize } from "@/common/utils/responsive";
@@ -131,6 +132,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
     <div className={`card tbl-card tbl-card-fill${inModal ? " tbl-flat tbl-scroll-paged" : " tbl-rounded"}`}>
       <div className="tbl-wrap" ref={wrapRef} onScroll={inModal ? onWrapScroll : undefined}>
         <table className={`tbl tbl-center${inModal ? "" : " tbl-cards"}`}>
+          <TableCols widths={[18, ...(showBranch ? [14] : []), 16, ...(!inModal ? [11] : []), ...(!inModal ? [14] : []), ...(inModal ? [14, 14] : [12]), 6]} />
           <thead>
             <tr><th>Bank</th>{showBranch && <th>Business branch</th>}<th>Bank branch</th>{!inModal && <th>IFSC</th>}{!inModal && <th>Account No.</th>}{inModal
               ? <><th className="num">Active pledges</th><th className="num">Pledged amount</th></>

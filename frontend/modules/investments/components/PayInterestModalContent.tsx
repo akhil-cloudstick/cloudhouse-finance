@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useMemo, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -127,6 +128,7 @@ export function PayInterestModalContent({ investmentId, investmentNumber, onSave
             </div>
             <div style={{ marginTop: 10, maxHeight: 150, overflowY: "auto", overflowX: "hidden" }}>
               <table className="tbl tbl-center" style={{ width: "100%", minWidth: 0 }}>
+                <TableCols widths={[10, 35, 40, 15]} />
                 <thead><tr><th>#</th><th>Due</th><th className="num">Interest</th><th></th></tr></thead>
                 <tbody>
                   {months.map((m, i) => (

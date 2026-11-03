@@ -176,6 +176,10 @@ export function activeBusinessSlug(): string | null {
   const fromHost = businessSlugFromHost();
   if (fromHost) return fromHost;
   if (typeof window === "undefined") return null;
+  // An explicit ?b=<slug> (forgot/reset-password links) beats the remembered
+  // business, or those pages brand as whichever tenant was last used here.
+  const linked = new URLSearchParams(window.location.search).get("b")?.trim().toLowerCase();
+  if (linked && isValidSlug(linked)) return linked;
   const remembered = window.localStorage.getItem(ACTIVE_BUSINESS_KEY);
   return remembered && isValidSlug(remembered) ? remembered : null;
 }

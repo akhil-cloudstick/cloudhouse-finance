@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useMemo, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -143,6 +144,7 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
               <span className="rp-sec-meta">{pickedOrnaments.length} of {loan.ornaments.length} item{loan.ornaments.length > 1 ? "s" : ""} selected · {fmtW(pickedNet)} net</span>
             </div>
             <div className="tbl-wrap rp-tbl"><table className="tbl tbl-tight">
+              <TableCols widths={[4, 34, 14, 10, 16, 22]} />
               <thead><tr><th></th><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Net Wt</th><th className="num">Value</th></tr></thead>
               <tbody>
                 {loan.ornaments.map((o, i) => (

@@ -19,7 +19,8 @@ import { Select } from "@/common/components/ui/Select";
 import { rateForPurityString } from "@/common/utils/purity";
 import { listExpenses, getCashSummary } from "@/modules/cash/services/cashService";
 import { type ExpenseView, type CashSummary } from "@/modules/cash/types/cash-types";
-import { getCalendarEventsPage } from "@/modules/reminders/services/reminderService";
+import { getCalendarEventsPage, completeReminder, deleteReminder } from "@/modules/reminders/services/reminderService";
+import { useToast } from "@/common/components/ToastProvider";
 import { type CalendarEvent } from "@/modules/reminders/types/reminder-types";
 import { listLoanRequests, getInterestCollected, isActiveAuctionCase } from "@/modules/loans/services/loanService";
 import { type RequestView } from "@/modules/loans/types/loan-types";
@@ -145,6 +146,9 @@ export function DashboardPage() {
   const canViewLoans = can("Loan_Management", "can_view_loan_module");
   const canViewCash = can("Cash_Management", "can_view_cash_module");
   const canViewReminders = can("Reminder_Management", "can_view_reminder_module");
+  const canUpdateReminders = can("Reminder_Management", "can_update_reminder");
+  const canDeleteReminders = can("Reminder_Management", "can_delete_reminder");
+  const toast = useToast();
   const { latest } = useGoldRates();
   const { openModal } = useModal();
 
@@ -248,6 +252,7 @@ export function DashboardPage() {
   const [reminderPage, setReminderPage] = useState(1);
   const [reminderPageItems, setReminderPageItems] = useState<CalendarEvent[]>([]);
   const [reminderTotal, setReminderTotal] = useState(0);
+  const [reminderReload, setReminderReload] = useState(0);
   useEffect(() => {
     if (!canViewReminders) return;
     const from = new Date().toISOString().slice(0, 10);
@@ -255,7 +260,18 @@ export function DashboardPage() {
     getCalendarEventsPage(from, to, reminderPage, REMINDERS_PAGE_SIZE)
       .then((res) => { setReminderPageItems(res.events); setReminderTotal(res.totalCount); })
       .catch(() => { setReminderPageItems([]); setReminderTotal(0); });
-  }, [reminderPage, canViewReminders]);
+  }, [reminderPage, canViewReminders, reminderReload]);
+  async function reminderAction(run: () => Promise<unknown>, done: string) {
+    try {
+      await run();
+      toast(done);
+      // A page emptied by this action steps back one so it never shows "No pending reminders" mid-list.
+      if (reminderPageItems.length === 1 && reminderPage > 1) setReminderPage((p) => p - 1);
+      else setReminderReload((n) => n + 1);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not update the reminder.");
+    }
+  }
   const reminderPages = Math.max(1, Math.ceil(reminderTotal / REMINDERS_PAGE_SIZE));
 
   const [calcW, setCalcW] = useState("10");
@@ -505,6 +521,13 @@ export function DashboardPage() {
                       : e.personalLoanId == null && e.loanNumber && canOpen("loan")
                         ? <span className="rt"><a className="btn sm ghost" href={routeHref(`loan/${e.loanNumber}`)}>Open</a></span>
                         : null}
+                    {/* Manual reminders (Follow-Up / Promise-to-Pay / Custom) can be finished or removed right here. */}
+                    {e.reminderId != null && (canUpdateReminders || canDeleteReminders) && (
+                      <span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {canUpdateReminders && e.status !== "Done" && <button className="btn sm ghost" onClick={() => void reminderAction(() => completeReminder(e.reminderId!), "Reminder marked done.")}>Done</button>}
+                        {canDeleteReminders && <button className="btn sm ghost" onClick={() => void reminderAction(() => deleteReminder(e.reminderId!), "Reminder deleted.")}>Delete</button>}
+                      </span>
+                    )}
                   </li>
                 )) : <li><span className="tx"><small>No pending reminders.</small></span></li>}
               </ul>

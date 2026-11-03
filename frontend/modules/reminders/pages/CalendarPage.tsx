@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type UIEvent } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
+import { Select } from "@/common/components/ui/Select";
 import { AddReminderModalContent } from "@/modules/reminders/components/AddReminderModalContent";
 import { completeReminder, deleteReminder, getCalendarEvents } from "@/modules/reminders/services/reminderService";
 import { type CalendarEvent } from "@/modules/reminders/types/reminder-types";
@@ -225,12 +226,20 @@ export function CalendarPage() {
           {/* Month label with its small prev/next buttons right beside it, directly above the grid. */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px 0" }}>
             <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0, height: 31 }} onClick={() => goMonth(-1)} aria-label="Previous month">‹</button>
-            <select className="inp" aria-label="Month" style={{ width: 112, padding: "2px 6px", height: 31 }} value={month} onChange={(e) => goTo(year, +e.target.value)}>
-              {Array.from({ length: 12 }, (_, m) => <option key={m} value={m}>{new Date(2000, m, 1).toLocaleString("en-US", { month: "long" })}</option>)}
-            </select>
-            <select className="inp" aria-label="Year" style={{ width: 84, padding: "2px 6px", height: 31 }} value={year} onChange={(e) => goTo(+e.target.value, month)}>
-              {Array.from(new Set([...Array.from({ length: 21 }, (_, i) => today.getFullYear() - 10 + i), year])).sort((a, b) => a - b).map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
+            <div style={{ width: 130 }}>
+              <Select
+                value={String(month)}
+                onChange={(v) => goTo(year, +v)}
+                options={Array.from({ length: 12 }, (_, m) => ({ value: String(m), label: new Date(2000, m, 1).toLocaleString("en-US", { month: "long" }) }))}
+              />
+            </div>
+            <div style={{ width: 100 }}>
+              <Select
+                value={String(year)}
+                onChange={(v) => goTo(+v, month)}
+                options={Array.from(new Set([...Array.from({ length: 21 }, (_, i) => today.getFullYear() - 10 + i), year])).sort((a, b) => a - b).map((y) => ({ value: String(y), label: String(y) }))}
+              />
+            </div>
             <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0, height: 31 }} onClick={() => goMonth(1)} aria-label="Next month">›</button>
             <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={goToday}>Today</button>
           </div>
@@ -324,12 +333,12 @@ export function CalendarPage() {
                     <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />
                     </span>
-                    <span className="tx">
+                    <span className="tx" style={{ minWidth: 0, flex: 1 }}>
                       <b>{e.title}</b>
-                      <small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""}</small>
+                      <small style={{ display: "block", whiteSpace: "normal", overflowWrap: "anywhere" }}>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""}</small>
                     </span>
                     {e.reminderId != null && (
-                      <span className="rt" style={{ display: "flex", gap: 4 }}>
+                      <span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                         {canUpdateReminders && e.status !== "Done" && (
                           <button className="btn sm ghost" onClick={() => onComplete(e.reminderId!)}>Done</button>
                         )}

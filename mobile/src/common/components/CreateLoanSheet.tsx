@@ -27,7 +27,7 @@ import {
 import { UploadField } from "./UploadField";
 import { ErrorText } from "./ErrorText";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { listCustomers } from "@/modules/customers/services/customerService";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listLockersPage } from "@/modules/lockers/services/lockerService";
 import { listActiveSchemes } from "@/modules/schemes/services/schemeService";
@@ -370,7 +370,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         label="Customer"
         placeholder="Search existing customer by name, ID or phone"
         queryKey={["customers", "picker"]}
-        fetcher={(q) => listCustomers(q || undefined)}
+        pagedFetcher={(q, page) => listCustomersPage({ q: q || undefined, ...page })}
         selectedLabel={customer ? `${customer.name} · ${customer.code ?? ""}` : undefined}
         onClear={() => setCustomer(null)}
         onSelect={(c) => {

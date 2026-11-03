@@ -7,6 +7,7 @@ import { fmt, fmtW, fmtDate } from "@/common/utils/format";
 import { linkedDiscountOf } from "@/modules/loans/services/loanService";
 import { type LoanView, type RequestView } from "@/modules/loans/types/loan-types";
 import { LedgerPaymentEditModalContent } from "@/modules/loans/components/LedgerPaymentEditModalContent";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 type ReleaseCompleteModalContentProps = { request: RequestView; loan: LoanView; onSaved: () => void };
 
@@ -68,7 +69,7 @@ export function ReleaseCompleteModalContent({ request: req, loan, onSaved }: Rel
         </div>
 
         <label className="f">Ornaments Released — {ornaments.length}</label>
-        <div className="tbl-wrap rel-orn-wrap"><table className="tbl tbl-tight">
+        <div className="tbl-wrap rel-orn-wrap"><table className="tbl tbl-tight"><TableCols widths={[34, 16, 10, 18, 22]} />
           <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Net Wt</th><th className="num">Gold Value</th></tr></thead>
           <tbody>
             {ornaments.map((o) => (

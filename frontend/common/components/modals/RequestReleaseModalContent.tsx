@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -161,6 +162,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
         </div>
         <div className={ornamentsErr ? "has-err" : undefined}>
         <div className="tbl-wrap rel-orn-wrap"><table className="tbl">
+          <TableCols widths={["36px", 34, 14, 14, 18, 14]} />
           <thead><tr><th style={{ width: 36 }}></th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th><th></th></tr></thead>
           <tbody>
             {pledged.map((o) => {

@@ -1,5 +1,7 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
@@ -173,7 +175,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
       <div className="page-h">
         <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests </p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, phone…" title="Searches: loan number, customer name, customer code, phone" value={qInput} onChange={(e) => setQInput(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
@@ -194,6 +196,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-cards tbl-center">
+            <TableCols widths={[10, 10, 20, 28, 10, 10, 12]} />
             <thead>
               <tr><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
             </thead>

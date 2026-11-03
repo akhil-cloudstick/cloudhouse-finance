@@ -81,10 +81,10 @@ export async function publishGoldRate(input: GoldRatePublishInput): Promise<Gold
 
 /* Publishes every changed karat as ONE history row (keys 24/22/18). `fineness` (keys 22/18) saves the Auto-mode
  * fineness with it; omitted, the last one carries forward. */
-export async function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string, fineness?: Partial<Record<22 | 18, number>>): Promise<GoldRateView> {
+export async function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string, fineness?: Partial<Record<22 | 18, number>>, date?: string): Promise<GoldRateView> {
   const rec = await apiFetch<BackendGoldRate>("/gold-rates", {
     method: "POST",
-    body: JSON.stringify({ rates, setBy, ...(fineness ? { fineness } : {}) }),
+    body: JSON.stringify({ rates, setBy, ...(fineness ? { fineness } : {}), ...(date ? { date } : {}) }),
   });
   return toView(rec);
 }

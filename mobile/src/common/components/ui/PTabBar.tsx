@@ -11,8 +11,9 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { useKeyboardVisible } from "@/common/hooks/use-keyboard-visible";
 import { routeAllowed } from "@/common/config/routePermissions";
 import { useMoreRows } from "@/common/components/layout/moreRows";
-import { tabsRef, useShell, focusTab, s, coverStore } from "./shellContext";
-import { PRIMARY_ROUTES, swipe } from "./swipeStore";
+import { tabsRef, useShell, focusTab, s, coverStore, headerStore } from "./shellContext";
+import { PRIMARY_ROUTES, showPage, swipe, tabLit, tabScale } from "./swipeStore";
+import { dropPendingFocus, leftOnDetail, scheduleStaleRootReset } from "./swipeController";
 
 function NavCover() {
   const phase = useSyncExternalStore(coverStore.subscribe, coverStore.get, coverStore.get);
@@ -47,6 +48,7 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
   useLayoutEffect(() => {
     tabsRef.nav = navigation;
     tabsRef.state = state;
+    scheduleStaleRootReset();
   });
   const keyboardUp = useKeyboardVisible();
   const insets = useSafeAreaInsets();
@@ -76,25 +78,38 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
       // A More page slid over the primary pages: park them off-screen once it has landed.
       const t = setTimeout(() => {
         swipe.pos.setValue(-5);
+        swipe.page = -5;
         parked.current = true;
       }, 260);
       return () => clearTimeout(t);
     }
     if (parked.current) {
       parked.current = false;
+      swipe.page = activeIdx;
       swipe.pos.setValue(activeIdx);
     } else if (!swipe.active) {
-      Animated.timing(swipe.pos, { toValue: activeIdx, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+      showPage(activeIdx);
     }
   }, [activeIdx]);
-  // 1 while tab i is the (fractional) active one, fading out a full tab away.
-  const lit = (i: number) => swipe.pos.interpolate({ inputRange: [i - 1, i, i + 1], outputRange: [0, 1, 0], extrapolate: "clamp" });
 
   function go(name: string) {
     const route = state.routes.find((r) => r.name === name);
     if (!route) return;
-    if (route.name !== navRoute) setPressed(route.name);
-    requestAnimationFrame(() => navigateTo(route));
+    // A tap overrides a swipe whose tab focus is still waiting (see swipeController).
+    const swipedTo = dropPendingFocus();
+    if (route.name !== navRoute) {
+      setPressed(route.name);
+      // The title changes with the tap, not when the page finishes rendering.
+      if (PRIMARY_ROUTES.includes(route.name)) headerStore.preview(route.name);
+    } else if (swipedTo >= 0 && PRIMARY_ROUTES.includes(route.name)) {
+      // A swipe moved off this (still focused) tab: bring the pages back to it.
+      headerStore.preview(route.name);
+      showPage(PRIMARY_ROUTES.indexOf(route.name));
+    }
+    // A tab still on a detail page is swapped for its list right away, so the list is what
+    // slides in; otherwise navigation follows on the next frame (see `pressed` above).
+    if (route.name !== navRoute && leftOnDetail(route)) navigateTo(route);
+    else requestAnimationFrame(() => navigateTo(route));
   }
 
   function navigateTo(route: (typeof state.routes)[number]) {
@@ -103,10 +118,11 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
     // Always land on the tab's root list (a deep push, or a page opened
     // from another tab, can leave the nested stack parked on a detail).
     const nested = route.state;
-    if (nested?.type === "stack" && nested.routes?.[0]?.name !== "index") {
-      // Opened via openPage(): the stack holds only a detail page, and its
-      // key in this state may be stale (see focusTab). Swap it for the list
-      // and focus the tab in one step, through the tabs navigator itself.
+    if (nested?.type === "stack" && (nested.routes?.[0]?.name !== "index" || (route.name !== navRoute && leftOnDetail(route)))) {
+      // The tab is on a detail page (opened via openPage(), whose stack key in this state may
+      // be stale — see focusTab — or pushed from its list). Swap the stack for a fresh list
+      // and focus the tab in one step, through the tabs navigator itself, so the old detail
+      // never shows first.
       focusTab(navigation, state, state.routes.indexOf(route), { stack: { name: "index" } });
       if (route.name === navRoute) setPressed(null);
       return;
@@ -140,10 +156,10 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
                 <Animated.View
                   style={[
                     s.tabFabIc,
-                    { transform: [{ scale: swipe.pos.interpolate({ inputRange: [i - 1, i, i + 1], outputRange: [1, 1.06, 1], extrapolate: "clamp" }) }] },
+                    { transform: [{ scale: tabScale[i] }] },
                   ]}
                 >
-                  <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 26, backgroundColor: C.brand, opacity: lit(i) }]} />
+                  <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 26, backgroundColor: C.brand, opacity: tabLit[i] }]} />
                   <PIcon name={t.icon} color="#fff" />
                 </Animated.View>
               </Pressable>
@@ -152,15 +168,15 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
           return (
             <Pressable key={t.route} style={s.tab} onPressIn={() => go(t.route)} accessibilityLabel={t.label}>
               <View style={s.tabIc}>
-                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcActive, { opacity: lit(i) }]} />
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcActive, { opacity: tabLit[i] }]} />
                 <PIcon name={t.icon} color={C.muted} />
-                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcOverlay, { opacity: lit(i) }]}>
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcOverlay, { opacity: tabLit[i] }]}>
                   <PIcon name={t.icon} color={C.brandDeep} />
                 </Animated.View>
               </View>
               <View>
                 <Txt style={s.tabLbl}>{t.label}</Txt>
-                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: lit(i) }]}>
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: tabLit[i] }]}>
                   <Txt style={[s.tabLbl, s.tabLblActive]}>{t.label}</Txt>
                 </Animated.View>
               </View>

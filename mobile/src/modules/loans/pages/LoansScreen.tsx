@@ -60,7 +60,7 @@ export function loanRowDetails(l: Loan) {
   return [
     { k: "Gold weight", v: weight },
     { k: "Opened on", v: dmy(l.openedDate) },
-    { k: "Next due", v: due === today ? "Today" : dmy(l.dueDate) },
+    { k: "End date", v: dmy(l.dueDate) },
     ...common,
   ];
 }

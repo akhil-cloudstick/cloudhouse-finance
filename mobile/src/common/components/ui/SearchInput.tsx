@@ -36,11 +36,11 @@ export function SearchInput({
         allowFontScaling={false}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={textStyle([s.search, focused && { borderColor: C.brand }, !!value && { paddingRight: 40 }], false)}
+        style={textStyle([s.search, focused && { borderColor: C.brand }, !!value && { paddingRight: 44 }], false)}
       />
       {value ? (
         <Pressable
-          style={{ position: "absolute", right: 10, top: 0, bottom: 0, width: 28, alignItems: "center", justifyContent: "center" }}
+          style={{ position: "absolute", right: 28, top: 0, bottom: 10, width: 28, alignItems: "center", justifyContent: "center" }}
           hitSlop={8}
           onPress={() => onChangeText("")}
           accessibilityLabel="Clear search"

@@ -1,25 +1,29 @@
 import { useMemo } from "react";
-import { Dimensions, PanResponder } from "react-native";
-import { swipeCanStart, swipeEnd, swipeUpdate } from "@/common/components/ui/swipeController";
+import { Animated } from "react-native";
+import { State, type HandlerStateChangeEvent, type PanGestureHandlerEventPayload } from "react-native-gesture-handler";
+import { swipeBegin, swipeEnd, swipeStart, swipeTouchEnd } from "@/common/components/ui/swipeController";
+import { swipe } from "@/common/components/ui/swipeStore";
 import { routeAllowed } from "@/common/config/routePermissions";
 import { useAuth } from "@/common/providers/AuthProvider";
 
 /** Horizontal pan across the primary tabs: both pages and the tab bar follow the finger.
- * Spread the result on the wrapper View. It captures the drag before children
- * (a horizontal filter row would otherwise claim every forward swipe). */
+ * Spread the result on a <PanGestureHandler> wrapping the tabs. The finger's travel is
+ * written to swipe.dragPx natively, so the drag never waits on the JS thread. */
 export function useTabSwipe() {
   const { can } = useAuth();
-  const width = Dimensions.get("window").width;
 
   return useMemo(() => {
     const allowed = (r: string) => routeAllowed(r, can);
-    const horizontal = (dx: number, dy: number) => Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 2;
-    return PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_e, g) => horizontal(g.dx, g.dy) && swipeCanStart(g.dx, allowed),
-      onPanResponderMove: (_e, g) => swipeUpdate(g.dx, width, allowed),
-      onPanResponderRelease: (_e, g) => swipeEnd(g.vx * 1000),
-      onPanResponderTerminate: (_e, g) => swipeEnd(g.vx * 1000),
-      onPanResponderTerminationRequest: () => false,
-    }).panHandlers;
-  }, [can, width]);
+    return {
+      activeOffsetX: [-10, 10] as [number, number],
+      failOffsetY: [-16, 16] as [number, number],
+      onGestureEvent: Animated.event([{ nativeEvent: { translationX: swipe.dragPx } }], { useNativeDriver: true }),
+      onHandlerStateChange: ({ nativeEvent: e }: HandlerStateChangeEvent<PanGestureHandlerEventPayload>) => {
+        if (e.state === State.BEGAN) swipeBegin(allowed);
+        else if (e.state === State.ACTIVE) swipeStart(e.velocityX);
+        else if (e.oldState === State.ACTIVE) swipeEnd(e.translationX, e.velocityX);
+        else if (e.state === State.END || e.state === State.FAILED || e.state === State.CANCELLED) swipeTouchEnd();
+      },
+    };
+  }, [can]);
 }

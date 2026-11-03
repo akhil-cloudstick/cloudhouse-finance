@@ -1,5 +1,7 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
@@ -194,7 +196,7 @@ export function LoansPage() {
       <div className="page-h" >
         <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" title="Searches: loan number, customer name, customer code" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan ID or customer…" searches="loan number, customer name, customer code" value={q} onChange={setQ} />
         {canCreateLoans && <a className="btn" href={routeHref("newloan")}><Icon name="plus" /> New Gold Loan</a>}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
@@ -218,6 +220,7 @@ export function LoansPage() {
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
       <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center loans-tbl tbl-cards">
+        <TableCols widths={[22, 16, 14, 12, 12, 12, 12]} />
         <thead><tr><th>Loan / Customer</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
         <tbody>
           {loading && !(cards && rows.length > 0) ? (

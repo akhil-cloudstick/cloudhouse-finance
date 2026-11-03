@@ -35,6 +35,7 @@ import { useBankPledgeEntryActions } from "@/modules/loans/components/useBankPle
 import { ExpenseRow } from "@/modules/cash/components/ExpenseRow";
 import { EditEntryModalContent } from "@/modules/cash/components/EditEntryModalContent";
 import { GoldSaleRow } from "@/modules/cash/components/GoldSaleRow";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 // Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
 const NO_BRANCHES: string[] = [];
@@ -484,7 +485,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
         <div className="cash-side">
         <div className="cash-date-filter">
           {!isToday && <button type="button" className="btn plain sm" onClick={() => setSummaryDate("")}>Today</button>}
-          <div style={{ width: 170 }}><DatePicker value={today} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} /></div>
+          <DatePicker value={today} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} />
         </div>
         <div className="tabs cash-tabs-row" style={{ flexShrink: 0, marginBottom: 0 }}>
           <button
@@ -546,6 +547,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack ledger-nowrap ledger-amt" data-ledger-scope="cash-movements" data-ledger-page={movementsPage}>
+              <TableCols widths={[11, 11, 30, 9, null, null, null]} />
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {!idsReady
@@ -604,6 +606,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-expenses" data-ledger-page={expensesPage}>
+              <TableCols widths={[12, 22, 13, 11, ...(showBranch ? [14] : []), 12, 8, 8]} />
               <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th>{showBranch && <th>Branch</th>}<th>Status</th><th style={{ textAlign: "center" }}>Edit</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
               <tbody>
                 {!idsReady
@@ -659,6 +662,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
             </span>          </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy">
+              <TableCols widths={[10, 14, 11, 11, 11, 9, 11, ...(showBranch ? [10] : []), 13]} />
               <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Mode</th><th>Bank</th>{showBranch && <th>Branch</th>}<th>Remarks</th></tr></thead>
               <tbody>
                 {goldSales.length

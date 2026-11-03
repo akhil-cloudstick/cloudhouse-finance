@@ -5,8 +5,9 @@ import { syncPersistedSection } from "@/common/hooks/use-persisted-state";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
-import { Dimensions, Easing, View } from "react-native";
-import { PRIMARY_ROUTES, swipe } from "@/common/components/ui/swipeStore";
+import { Animated, Dimensions, Easing, View } from "react-native";
+import { PanGestureHandler } from "react-native-gesture-handler";
+import { PRIMARY_ROUTES, pageShift } from "@/common/components/ui/swipeStore";
 import { useTabSwipe } from "@/common/hooks/use-tab-swipe";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { C, HeaderHost, HeaderHostContext, PillButton, PTabBar, ShellContext, type ShellActions, Spinner, toast, Txt } from "@/common/components/ui";
@@ -21,7 +22,7 @@ import type { LoanDraft } from "@/modules/loans/types/loan-types";
 import { CreateLoanSheet } from "@/common/components/CreateLoanSheet";
 import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { setPagePrefetch } from "@/common/components/ui/shellContext";
+import { setPagePrefetch, TabNameContext } from "@/common/components/ui/shellContext";
 import { getLoan } from "@/modules/loans/services/loanService";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { routeEnabled } from "@/common/config/tenantModules";
@@ -76,7 +77,7 @@ function RouteGate({ route, children }: RouteGateProps) {
     );
   }
   if (!routeAllowed(route, can)) return <NoAccess />;
-  return children;
+  return <TabNameContext.Provider value={route}>{children}</TabNameContext.Provider>;
 }
 
 function PermissionsFailedBanner() {
@@ -141,6 +142,40 @@ function usePagePrefetch() {
   }, [qc]);
 }
 
+// The navigator's props live at module level so a re-render of TabsLayout (every tab change
+// re-renders it, via useSegments) hands React Navigation the same functions instead of new ones,
+// which made it re-process every page's options.
+type TabsProps = React.ComponentProps<typeof Tabs>;
+
+const renderTabBar: NonNullable<TabsProps["tabBar"]> = (props) => <PTabBar {...props} />;
+
+const renderScreenLayout: NonNullable<TabsProps["screenLayout"]> = ({ route, children }) => <RouteGate route={route.name}>{children}</RouteGate>;
+
+const tabScreenOptions: NonNullable<TabsProps["screenOptions"]> = ({ route }) => ({
+  headerShown: false,
+  sceneStyle: { backgroundColor: "transparent" },
+  // A tab keeps its stack when left, so Back can return to the exact
+  // page; tapping the tab in the bar resets it to the module root.
+  // openPage() (Shell.tsx) switches tabs and resets a tab's stack in
+  // one dispatch, so a hidden tab is never rendered mid-flight with
+  // stale content to freeze in place — every tab can freeze on blur.
+  freezeOnBlur: false,
+  // Slide only — no opacity (Android redraws elevation shadows under
+  // an animating opacity, which made edges flash).
+  // The four primary pages are placed from swipe.pos alone: page i
+  // sits at (i - pos) widths, so a tap, a finger swipe and the tab
+  // bar all share one position. Other pages keep the navigator slide.
+  sceneStyleInterpolator: ({ current }) => {
+    const i = PRIMARY_ROUTES.indexOf(route.name);
+    const x =
+      i >= 0
+        ? pageShift[i]
+        : current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [-SCREEN_W, 0, SCREEN_W] });
+    return { sceneStyle: { transform: [{ translateX: x }] } };
+  },
+  transitionSpec: { animation: "timing", config: { duration: 220, easing: Easing.out(Easing.cubic) } },
+});
+
 export default function TabsLayout() {
   // Before any screen below reads its remembered filters: entering a different
   // section clears them (see usePersistedState.ts).
@@ -186,39 +221,18 @@ export default function TabsLayout() {
   return (
     <ShellContext.Provider value={actions}>
       <HeaderHostContext.Provider value>
-      <View style={{ flex: 1 }} collapsable={false} {...swipeHandlers}>
+      <PanGestureHandler {...swipeHandlers}>
+      {/* Animated.View: the gesture's native event is attached to this view. */}
+      <Animated.View style={{ flex: 1 }} collapsable={false}>
       <Tabs
         // Keep every page mounted and attached: the swipe shows a neighbour before it is focused.
         detachInactiveScreens={false}
-        tabBar={(props) => <PTabBar {...props} />}
+        tabBar={renderTabBar}
         // Back walks the pages visited (so a page opened from a quick link
         // returns to where it was opened), rather than jumping to Dashboard.
         backBehavior="history"
-        screenLayout={({ route, children }) => <RouteGate route={route.name}>{children}</RouteGate>}
-        screenOptions={({ route }) => ({
-          headerShown: false,
-          sceneStyle: { backgroundColor: "transparent" },
-          // A tab keeps its stack when left, so Back can return to the exact
-          // page; tapping the tab in the bar resets it to the module root.
-          // openPage() (Shell.tsx) switches tabs and resets a tab's stack in
-          // one dispatch, so a hidden tab is never rendered mid-flight with
-          // stale content to freeze in place — every tab can freeze on blur.
-          freezeOnBlur: false,
-          // Slide only — no opacity (Android redraws elevation shadows under
-          // an animating opacity, which made edges flash).
-          // The four primary pages are placed from swipe.pos alone: page i
-          // sits at (i - pos) widths, so a tap, a finger swipe and the tab
-          // bar all share one position. Other pages keep the navigator slide.
-          sceneStyleInterpolator: ({ current }) => {
-            const i = PRIMARY_ROUTES.indexOf(route.name);
-            const x =
-              i >= 0
-                ? swipe.pos.interpolate({ inputRange: [i - 1, i, i + 1], outputRange: [SCREEN_W, 0, -SCREEN_W] })
-                : current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [-SCREEN_W, 0, SCREEN_W] });
-            return { sceneStyle: { transform: [{ translateX: x }] } };
-          },
-          transitionSpec: { animation: "timing", config: { duration: 220, easing: Easing.out(Easing.cubic) } },
-        })}
+        screenLayout={renderScreenLayout}
+        screenOptions={tabScreenOptions}
       >
         {/* --- tab bar destinations --- */}
         <Tabs.Screen name="dashboard" options={{ title: "Dashboard", lazy: false }} />
@@ -247,7 +261,8 @@ export default function TabsLayout() {
       {/* One header above every page — see Screen in Shell.tsx. */}
       <HeaderHost />
       <PermissionsFailedBanner />
-      </View>
+      </Animated.View>
+      </PanGestureHandler>
       </HeaderHostContext.Provider>
 
       <CreateLoanSheet visible={open === "newLoan"} onClose={close} initialCustomer={newLoanCustomer} initialDraft={newLoanDraft} />

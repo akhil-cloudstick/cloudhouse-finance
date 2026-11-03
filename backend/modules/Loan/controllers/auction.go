@@ -104,7 +104,31 @@ func canDecideAuction(ctx context.Context, roleID uint, flow string) bool {
 
 func isAuctionCase(l *models.Loan) bool {
 	// Auctioned loans only get this far when the query found an unconcluded case for them.
-	return l.Status == models.StatusAuctionEligible || l.Status == models.StatusAuctionedBalanceDue || l.Status == models.StatusAuctioned || l.IsDefaulted
+	return l.Status == models.StatusAuctionEligible || l.Status == models.StatusAuctionedBalanceDue || l.Status == models.StatusAuctioned || (l.IsDefaulted && AvailableForAuction(l))
+}
+
+// AvailableForAuction is false while any of the loan's gold is pledged to a bank: it is not in the
+// branch's hands, so a defaulted loan is not an auction candidate until the bank releases it.
+func AvailableForAuction(l *models.Loan) bool {
+	return l.BankPledgeStatus != models.BankPledgeStatusPledged
+}
+
+// goldAtBankRefusal stops an auction step (`step`, e.g. "continuing the auction") while the loan is
+// marked Bank Pledged or an active pledge record still holds some of its ornaments.
+func goldAtBankRefusal(bankPledgeStatus string, activePledges int64, step string) error {
+	if bankPledgeStatus == models.BankPledgeStatusPledged || activePledges > 0 {
+		return common.NewBadRequest("this loan's gold is pledged to a bank; release it from the bank before " + step)
+	}
+	return nil
+}
+
+// auctionCaseBlocksBankPledge refuses handing gold to a bank while it is committed to an open
+// auction case — otherwise the case would carry on (scheduled, even sold) with the gold at the bank.
+func auctionCaseBlocksBankPledge(stage string) error {
+	if IsActiveAuctionStage(stage) {
+		return common.NewBadRequest("this loan has an auction case in progress; its gold cannot be pledged to a bank until the case is closed")
+	}
+	return nil
 }
 
 func resolveAuctionAfterPayment(ctx context.Context, l *models.Loan, p *models.LoanPayment) bool {
@@ -257,8 +281,8 @@ func getAuctionHistory(ctx context.Context, loanID uint, branchID *uint) ([]mode
 	return findAuctionHistoryByLoanID(ctx, loanID)
 }
 
-func listConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, stages []string, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
-	return findAllConcluded(ctx, branchID, hasSale, stages, query, limit, offset)
+func listConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, stages []string, outcome, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+	return findAllConcluded(ctx, branchID, hasSale, stages, outcome, query, limit, offset)
 }
 
 func listPendingAuctionDecisions(ctx context.Context, branchID *uint) ([]models.AuctionDecisionRequest, error) {
@@ -279,10 +303,11 @@ func requireGoldInHand(ctx context.Context, loanID uint) error {
 	if err != nil {
 		return common.NewNotFound("loan not found")
 	}
-	if l.BankPledgeStatus == models.BankPledgeStatusPledged {
-		return common.NewBadRequest("this loan's gold is pledged to a bank; release it from the bank before continuing the auction")
+	active, err := countActivePledgesTx(config.DB.WithContext(ctx), loanID)
+	if err != nil {
+		return err
 	}
-	return nil
+	return goldAtBankRefusal(l.BankPledgeStatus, active, "continuing the auction")
 }
 
 func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
@@ -299,8 +324,12 @@ func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, ac
 	accrueAndSave(
 		ctx, l)
 	enrichLoan(ctx, l)
-	if l.BankPledgeStatus == models.BankPledgeStatusPledged {
-		return nil, common.NewBadRequest("this loan's gold is pledged to a bank; release it from the bank before marking it auction-eligible")
+	active, err := countActivePledgesTx(config.DB.WithContext(ctx), loanID)
+	if err != nil {
+		return nil, err
+	}
+	if err := goldAtBankRefusal(l.BankPledgeStatus, active, "marking it auction-eligible"); err != nil {
+		return nil, err
 	}
 	if !l.IsDefaulted {
 		return nil, common.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
@@ -978,7 +1007,7 @@ func findAuctionHistoryByLoanID(ctx context.Context, loanID uint) ([]models.Auct
 	return records, err
 }
 
-func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, stages []string, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, stages []string, outcome, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
 	var rows []ConcludedAuctionRow
 	q := preloadAuctionDetail(config.DB.
 		WithContext(ctx)).Model(&models.AuctionRecord{}).
@@ -991,6 +1020,13 @@ func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, stages
 	}
 	if len(stages) > 0 {
 		q = q.Where("auction_records.stage IN ?", stages)
+	}
+	// outcome narrows a sale to the ones that left a surplus to settle, or fell short of what was owed.
+	switch outcome {
+	case "surplus":
+		q = q.Where("auction_records.surplus_shortfall > 0")
+	case "shortfall":
+		q = q.Where("auction_records.surplus_shortfall < 0")
 	}
 	if hasSale != nil {
 		if *hasSale {
@@ -1026,6 +1062,8 @@ func FindScheduledForCalendar(ctx context.Context) ([]ScheduledAuctionCalendarRo
 		Joins("JOIN loans ON loans.id = auction_records.loan_id").
 		Joins("JOIN customers ON customers.id = loans.customer_id").
 		Where("auction_records.stage = ? AND auction_records.auction_date IS NOT NULL", models.AuctionStageScheduled).
+		// gold that has gone to a bank is not going under the hammer on that date
+		Where("loans.bank_pledge_status <> ?", models.BankPledgeStatusPledged).
 		Find(&rows).Error
 	return rows, err
 }
@@ -1205,14 +1243,15 @@ func ListConcludedAuctions(c echo.Context) error {
 		hasSale = &b
 	}
 	stages := splitCSV(c.QueryParam("stage"))
+	outcome := strings.ToLower(strings.TrimSpace(c.QueryParam("outcome")))
 	if limit > 0 {
-		rec, total, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, stages, query, limit, offset)
+		rec, total, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, stages, outcome, query, limit, offset)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessPage(c, page, limit, total, rec)
 	}
-	recs, _, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, stages, query, 0, 0)
+	recs, _, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, stages, outcome, query, 0, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

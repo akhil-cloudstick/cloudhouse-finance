@@ -194,6 +194,7 @@ func normalLoan(opened time.Time) *models.Loan {
 	l := multipleLoan(opened, 0)
 	l.SchemeInterestMethod = "Monthly simple interest"
 	l.SchemeRateTiers = nil
+	l.SchemeAccrualBasis = commonModels.AccrualBasisMonthly
 	return l
 }
 

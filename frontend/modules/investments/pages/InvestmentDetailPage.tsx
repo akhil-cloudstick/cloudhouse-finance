@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -401,6 +402,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         </div>
         {ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
         <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="investment-ledger">
+          <TableCols widths={["112px", "108px", null, "88px", null, null, null]} />
           <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
           <tbody>
             {ledgerLoading ? (
@@ -464,22 +466,25 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
           <div className="hd"><h3>Interest Payout Schedule</h3></div>
           {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
           <div className="tbl-wrap"><table className="tbl tbl-center tbl-cards inv-schedule-tbl">
-            <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th><th></th></tr></thead>
+            <TableCols widths={[9, 22, 18, 21, 30]} />
+            <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
               {schedule.loading ? (
-                <tr><td colSpan={6} className="empty compact">Loading…</td></tr>
+                <tr><td colSpan={5} className="empty compact">Loading…</td></tr>
               ) : schedule.items.length === 0 ? (
-                <tr><td colSpan={6} className="empty compact">No payouts scheduled.</td></tr>
+                <tr><td colSpan={5} className="empty compact">No payouts scheduled.</td></tr>
               ) : schedule.items.map((p) => (
                 <tr key={p.id}>
                   <td data-label="#">{p.sequenceNo}</td>
                   <td data-label="Due Date">{fmtDate(p.dueDate)}</td>
                   <td data-label="Amount" className="num">{fmt(p.amount)}</td>
                   <td data-label="Type">{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
-                  <td data-label="Status"><StatusChip status={p.status} /></td>
-                  <td>
+                  {/* Mark Paid sits beside its Pending chip rather than in a column of its own, which
+                      stood empty once every payout was paid. */}
+                  <td data-label="Status">
+                    <StatusChip status={p.status} />
                     {canUpdate && p.status === "Pending" && (
-                      <button className="btn plain sm" onClick={() => openMarkPaid(p)}>Mark Paid</button>
+                      <button className="btn plain sm" style={{ marginLeft: 6 }} onClick={() => openMarkPaid(p)}>Mark Paid</button>
                     )}
                   </td>
                 </tr>

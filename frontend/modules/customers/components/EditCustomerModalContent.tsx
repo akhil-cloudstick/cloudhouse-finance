@@ -7,6 +7,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Select } from "@/common/components/ui/Select";
 import { FileInput } from "@/common/components/ui/FileInput";
+import { SafeImage } from "@/common/components/ui/SafeImage";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { Icon } from "@/common/components/Icon";
 import { updateCustomer, uploadFile } from "@/modules/customers/services/customerService";
@@ -24,6 +25,14 @@ const SERVER_FIELDS: Record<string, RegExp> = {
 };
 
 type EditCustomerModalContentProps = { customer: CustomerView; onSaved?: () => void };
+
+/* The file already on record, shown under its upload field so staff can see what is there before replacing it. */
+function CurrentDoc({ url }: { url: string }) {
+  if (/\.pdf(\?|$)/i.test(url)) {
+    return <a href={url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 6, fontSize: 12.5 }}>View current document (PDF)</a>;
+  }
+  return <SafeImage src={url} alt="Current file" title="Open full size" onClick={() => window.open(url, "_blank", "noopener")} style={{ display: "block", marginTop: 6, maxHeight: 90, maxWidth: "100%", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", objectFit: "cover" }} />;
+}
 
 /* Edit counterpart to RegisterCustomerModal.tsx's create form, wired to the
  * PUT /api/v1/customers/:id update that already existed in customersApi.ts
@@ -181,12 +190,12 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
 
         <label className="f" style={{ marginTop: 6 }}>Documents</label>
         <div className="frow c3">
-          <div><label className="f">Customer Photograph {customer.photoUrl && <a href={customer.photoUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" camera /></div>
-          <div><label className="f">Identity Proof {customer.identityProofUrl && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera /></div>
-          <div><label className="f">Address Proof {customer.addressProofUrl && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera /></div>
+          <div><label className="f">Customer Photograph {customer.photoUrl && <a href={customer.photoUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" camera />{customer.photoUrl && !photoFile && <CurrentDoc url={customer.photoUrl} />}</div>
+          <div><label className="f">Identity Proof {customer.identityProofUrl && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.identityProofUrl && !identityProofFile && <CurrentDoc url={customer.identityProofUrl} />}</div>
+          <div><label className="f">Address Proof {customer.addressProofUrl && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.addressProofUrl && !addressProofFile && <CurrentDoc url={customer.addressProofUrl} />}</div>
         </div>
         <div className="frow c3">
-          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera /></div>
+          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.kycDocumentUrl && !kycDocFile && <CurrentDoc url={customer.kycDocumentUrl} />}</div>
         </div>
 
         <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>

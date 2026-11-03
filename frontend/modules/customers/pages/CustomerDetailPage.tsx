@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
@@ -635,6 +636,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
               * without re-running any of the fetches above. */}
             <div hidden={activeTable !== 0} className={activeTable === 0 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 20, 17, 15, 15, 11, 10]} />
                   <thead><tr><th>Loan</th><th>Scheme</th><th className="th-opened-due">Opened / <span className="th-due-part">Due</span></th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
                   <tbody>
                     {loanPager.items.length === 0 ? (
@@ -647,6 +649,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 1} className={activeTable === 1 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 30, 14, 20, 24]} />
                   <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
                   <tbody>
                     {ornamentPager.items.length === 0 ? (
@@ -667,6 +670,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 2} className={activeTable === 2 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 14, 20, 28, 26]} />
                   <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
                   <tbody>
                     {paymentPager.items.length === 0 ? (
@@ -687,6 +691,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 3} className={activeTable === 3 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 28, 22, 20, 18]} />
                   <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
                   <tbody>
                     {bankPledgePager.items.length === 0 ? (
@@ -707,6 +712,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 4} className={activeTable === 4 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 22, 22, 22, 22]} />
                   <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
                   <tbody>
                     {!canViewAuctions ? (
@@ -729,6 +735,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 5} className={activeTable === 5 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[13, 11, 24, 14, 13, 13, 12]} />
                   <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
                   <tbody>
                     {!canViewCash ? (

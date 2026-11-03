@@ -8,6 +8,7 @@ import (
 	"cloudhouse/backend/modules/Loan/models"
 	packet "cloudhouse/backend/modules/Packet/controllers"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -92,6 +93,13 @@ func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPle
 	// The gold must still be in the branch's custody to hand to a bank.
 	if !CanAcceptBankPledge(l.Status) {
 		return nil, bankPledgeRefusal(l.Status, "")
+	}
+	if rec, err := findAuctionActiveByLoanID(ctx, loanID); err == nil {
+		if err := auctionCaseBlocksBankPledge(rec.Stage); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
 	}
 	active, err := findActivePledges(ctx, loanID)
 	if err != nil {

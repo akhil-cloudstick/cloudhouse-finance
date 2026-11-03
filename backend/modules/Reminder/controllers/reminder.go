@@ -450,6 +450,25 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 	if err != nil {
 		return nil, 0, err
 	}
+	// Loan numbers for reminders that are about a specific loan.
+	loanNumbers := map[uint]string{}
+	var loanIDs []uint
+	for _, r := range reminders {
+		if r.LoanID != nil {
+			loanIDs = append(loanIDs, *r.LoanID)
+		}
+	}
+	if len(loanIDs) > 0 {
+		var lns []struct {
+			ID         uint
+			LoanNumber string
+		}
+		if err := config.DB.WithContext(ctx).Table("loans").Select("id, loan_number").Where("id IN ?", loanIDs).Scan(&lns).Error; err == nil {
+			for _, l := range lns {
+				loanNumbers[l.ID] = l.LoanNumber
+			}
+		}
+	}
 	for _, r := range reminders {
 		// A completed reminder is finished work: it must not keep showing on the calendar.
 		if r.Status == "Done" {
@@ -470,6 +489,7 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 			Title:        fmt.Sprintf("%s — %s", r.Type, r.Customer.Name),
 			Detail:       r.Note,
 			LoanID:       r.LoanID,
+			LoanNumber:   loanNumbers[derefUint(r.LoanID)],
 			CustomerID:   &custID,
 			CustomerName: r.Customer.Name,
 			CustomerCode: r.Customer.Code,
@@ -725,4 +745,11 @@ func GetReminderCalendar(c echo.Context) error {
 		return common.Success(c, http.StatusOK, echo.Map{"events": events, "total_count": total})
 	}
 	return common.Success(c, http.StatusOK, events)
+}
+
+func derefUint(p *uint) uint {
+	if p == nil {
+		return 0
+	}
+	return *p
 }

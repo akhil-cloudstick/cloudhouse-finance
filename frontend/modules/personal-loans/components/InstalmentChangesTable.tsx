@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { fmt, fmtDate } from "@/common/utils/format";
 
 export type InstalmentChangeView = { sequenceNo: number; dueDate: string; paidBefore: number; paidAfter: number; statusBefore: string; statusAfter: string };
@@ -13,6 +14,7 @@ export function InstalmentChangesTable({ changes }: { changes: InstalmentChangeV
       <label className="f">Instalments worked out again</label>
       <p className="ccheck-hint" style={{ margin: "0 0 8px" }}>Worked out automatically from the edit — shown for checking, not editable.</p>
       <div className="tbl-wrap"><table className="tbl">
+        <TableCols widths={[8, 22, 25, 25, 20]} />
         <thead><tr><th>#</th><th>Due</th><th className="num">Paid before</th><th className="num">Paid after</th><th>Status</th></tr></thead>
         <tbody>
           {changes.map((c) => (

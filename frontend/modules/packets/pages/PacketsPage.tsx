@@ -22,6 +22,7 @@ import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/respons
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { navigate, routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 // Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
 const NO_BRANCHES: string[] = [];
@@ -252,7 +253,7 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center tbl-cards">
+            <table className="tbl tbl-center tbl-cards"><TableCols widths={[14, 11, 28, 8, 11, 14, 14]} />
               <thead>
                 <tr><th>Packet Code</th><th>Loan</th><th>Customer</th><th className="num">Items</th><th className="num">Weight</th><th>Locker</th><th>Status</th></tr>
               </thead>
@@ -316,7 +317,7 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center lockers-tbl tbl-cards">
+            <table className="tbl tbl-center lockers-tbl tbl-cards"><TableCols widths={[40, ...(showBranch ? [20] : []), 20, 20]} />
               <thead>
                 <tr><th>Locker</th>{showBranch && <th>Branch</th>}<th className="num">Packets</th><th>Status</th></tr>
               </thead>

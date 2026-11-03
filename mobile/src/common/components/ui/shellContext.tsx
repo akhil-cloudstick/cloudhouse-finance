@@ -52,6 +52,11 @@ const BLANK_HEADER = <FlatHeader title="" />;
 export type HeroMorph = { p: Animated.AnimatedAddition<number>; lift: Animated.Value };
 export const HeroMorphContext = createContext<HeroMorph | null>(null);
 
+/** Set by HeaderHost while a flat header's title is changing: the outgoing text and the 0 → 1
+ * fade (`out` is its mirror). FlatHeader cross-fades just its title block with it. */
+export type TitleTransition = { prev: { title: string; subtitle?: string }; fade: Animated.Value; out: Animated.AnimatedInterpolation<number> };
+export const TitleTransitionContext = createContext<TitleTransition | null>(null);
+
 // ---------------------------------------------------------------------------
 // Screen + scroller
 // ---------------------------------------------------------------------------
@@ -109,13 +114,27 @@ export const coverStore = {
   },
 };
 
-type HeaderEntry = { node: React.ReactNode; focused: boolean; seq: number };
+/** Which tab (route name) a page belongs to, so its header can be found before the page is focused. */
+export const TabNameContext = createContext("");
+
+type HeaderEntry = { node: React.ReactNode; focused: boolean; seq: number; tab: string };
 const headerEntries = new Map<string, HeaderEntry>();
 const headerListeners = new Set<() => void>();
 let headerSeq = 0;
 let headerPending = false;
 let headerSnapshot: React.ReactNode = null;
 let headerHoldTimer: ReturnType<typeof setTimeout> | null = null;
+// The tab whose header preview() put up ahead of its focus ("" when none), and the safety timer.
+let previewTab = "";
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+// Covers the swipe's deferred tab focus (swipeController's FOCUS_IDLE_MS after the slide settles).
+// A real focus change ends the hold at once (endPreview), so this is only a safety net.
+const PREVIEW_HOLD_MS = 8000;
+function endPreview() {
+  previewTab = "";
+  if (previewTimer) clearTimeout(previewTimer);
+  previewTimer = null;
+}
 // How long the outgoing header is held for a page that never reports focus
 // (one not built on <Screen>) before giving up and blanking. Same budget as
 // the NavCover's own safety timeout.
@@ -129,6 +148,12 @@ function publishHeader() {
   let best: HeaderEntry | null = null;
   for (const e of headerEntries.values()) if (e.focused && (!best || e.seq > best.seq)) best = e;
   if (!headerPending && best) {
+    // A previewed tab's header stays up until that tab takes focus — the page being left is
+    // still "focused" for a moment and re-publishes on every render, which flipped the title back.
+    if (previewTab) {
+      if (best.tab !== previewTab) return;
+      previewTab = "";
+    }
     if (headerHoldTimer) clearTimeout(headerHoldTimer);
     headerHoldTimer = null;
     headerSnapshot = best.node;
@@ -166,14 +191,16 @@ function publishHeader() {
 }
 export const headerStore = {
   get: () => headerSnapshot,
-  set: (key: string, node: React.ReactNode, focused: boolean) => {
+  set: (key: string, node: React.ReactNode, focused: boolean, tab = "") => {
     const prev = headerEntries.get(key);
     const gained = focused && !prev?.focused;
     if (gained) {
       if (headerPending) coverStore.end();
       headerPending = false;
+      // A page really took focus: whatever preview was up has served its purpose.
+      endPreview();
     }
-    headerEntries.set(key, { node, focused, seq: gained ? ++headerSeq : (prev?.seq ?? 0) });
+    headerEntries.set(key, { node, focused, tab, seq: gained ? ++headerSeq : (prev?.seq ?? 0) });
     publishHeader();
   },
   blur: (key: string) => {
@@ -188,9 +215,27 @@ export const headerStore = {
   /** A page switch is under way: hold the current header until the next page
    * takes focus (see publishHeader). */
   pending: () => {
+    endPreview();
     headerPending = true;
     coverStore.begin();
     publishHeader();
+  },
+  /** Show a primary tab's header now, from the copy its (already mounted) page last
+   * published, instead of waiting for that page to take focus. */
+  preview: (routeName: string) => {
+    let e: HeaderEntry | undefined;
+    for (const x of headerEntries.values()) if (x.tab === routeName && (!e || x.seq > e.seq)) e = x;
+    if (!e) return;
+    previewTab = routeName;
+    if (previewTimer) clearTimeout(previewTimer);
+    // Never hold a preview for a tab that doesn't end up focused: let the focused page's header back.
+    previewTimer = setTimeout(() => {
+      endPreview();
+      publishHeader();
+    }, PREVIEW_HOLD_MS);
+    if (headerSnapshot === e.node) return;
+    headerSnapshot = e.node;
+    headerListeners.forEach((l) => l());
   },
   subscribe: (l: () => void) => {
     headerListeners.add(l);
@@ -335,6 +380,18 @@ function navigateTo(path: string) {
 }
 
 /**
+ * A tab route's params without the nested navigation they carry. Opening a page inside a tab
+ * (router.push('/loans/288')) leaves `{ screen: "[id]", params: { id } }` on the tab route; a
+ * stack handed a new state keeps those, and a freshly mounted stack follows them — re-opening
+ * that old detail right after the tab was reset to its list.
+ */
+export function withoutNestedTarget(params: object | undefined) {
+  if (!params) return params;
+  const { screen: _screen, params: _params, initial: _initial, state: _state, path: _path, ...rest } = params as Record<string, unknown>;
+  return rest;
+}
+
+/**
  * Focus a tab and, optionally, set its stack to a single screen — all in one
  * RESET of the TABS navigator's own state.
  *
@@ -366,6 +423,7 @@ export function focusTab(
       return {
         ...r,
         key: nextKey,
+        params: withoutNestedTarget(r.params),
         state: { type: "stack" as const, key: `direct-stack-${n}`, index: 0, routes: [{ key: `direct-${n}`, ...change.stack }] },
       };
     }

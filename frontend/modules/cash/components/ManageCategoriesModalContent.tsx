@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -76,6 +77,7 @@ export function ManageCategoriesModalContent({ initialKind = "register" }: { ini
         {err && <div className="err" style={{ marginBottom: 10 }}>{err}</div>}
         {loading ? <div className="empty compact">Loading…</div> : items.length === 0 ? <div className="empty compact">No categories.</div> : (
           <div className="tbl-wrap"><table className="tbl">
+            <TableCols widths={[62, 38]} />
             <tbody>
               {items.map((c) => (
                 <tr key={c.id}>

@@ -11,6 +11,7 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { searchCustomersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
+import { getLoanByNumber } from "@/modules/loans/services/loanService";
 import { createReminder } from "@/modules/reminders/services/reminderService";
 import { type ReminderView } from "@/modules/reminders/types/reminder-types";
 import { fmtDate } from "@/common/utils/format";
@@ -60,6 +61,19 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
     if (!customerId) errors["customer"] ??= "Please select a customer.";
     if (!dueDate) errors["dueDate"] ??= "Please choose a due date.";
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    // The loan is typed by its number (LN-00012); the reminder stores the loan's own id.
+    let resolvedLoanId: number | null = null;
+    const typedLoan = loanId.trim();
+    if (typedLoan) {
+      try {
+        const found = await getLoanByNumber(typedLoan.toUpperCase());
+        if (found.customerId !== customerId) { fail("loan", "This loan belongs to a different customer."); return; }
+        resolvedLoanId = found.numericId;
+      } catch {
+        fail("loan", "No loan found with this number.");
+        return;
+      }
+    }
     if (!employee) { setErr("You must be signed in to log a reminder."); return; }
 
     setSaving(true);
@@ -68,7 +82,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
     try {
       const rec = await createReminder({
         customerId: Number(customerId),
-        loanId: loanId ? Number(loanId) : null,
+        loanId: resolvedLoanId,
         type,
         dueDate,
         note: note.trim(),
@@ -123,7 +137,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
         <div className="frow">
           <div className={fe.loan ? "has-err" : undefined}>
             <label className="f">Loan Number (optional)</label>
-            <input className="inp" placeholder="Numeric loan id, if this reminder is about a specific loan" value={loanId} onChange={(e) => { setLoanId(e.target.value.replace(/\D/g, "")); clearFe("loan"); }} />
+            <input className="inp" placeholder="e.g. LN-00012, if this reminder is about a specific loan" value={loanId} onChange={(e) => { setLoanId(e.target.value); clearFe("loan"); }} />
             <FieldError msg={fe.loan} />
           </div>
         </div>

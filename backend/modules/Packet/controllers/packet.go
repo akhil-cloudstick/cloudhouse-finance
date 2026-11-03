@@ -169,8 +169,10 @@ func findPackets(ctx context.Context, f Filter) ([]models.Packet, int64, error) 
 				conds = append(conds, "packets.loan_id IN (SELECT id FROM loans WHERE status = ?)")
 				args = append(args, loanModels.StatusRejected)
 			case models.StatusReleased:
-				conds = append(conds, "(packets.status = ? AND packets.loan_id NOT IN (SELECT id FROM loans WHERE status = ?))")
-				args = append(args, models.StatusReleased, loanModels.StatusRejected)
+				// Released means handed back to the customer: a rejected loan's packet and a sold (auctioned) loan's
+				// packet each have their own filter and are left out here.
+				conds = append(conds, "(packets.status = ? AND packets.loan_id NOT IN (SELECT id FROM loans WHERE status IN ?))")
+				args = append(args, models.StatusReleased, []string{loanModels.StatusRejected, loanModels.StatusAuctioned, loanModels.StatusAuctionedBalanceDue})
 			default:
 				plain = append(plain, st)
 			}

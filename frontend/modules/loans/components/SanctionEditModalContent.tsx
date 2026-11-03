@@ -15,6 +15,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { editLoanDisbursement, type LedgerPaymentEditPreview } from "@/modules/loans/services/loanService";
 import { type PaymentView } from "@/modules/loans/types/loan-types";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 type Props = {
   loanId: number;
@@ -132,7 +133,7 @@ export function SanctionEditModalContent({ loanId, sanctionedAmount, serviceChar
         {preview && (
           <div style={{ marginTop: 12 }}>
             <label className="f">What changes on the loan (as of its last entry)</label>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap"><table className="tbl"><TableCols widths={[40, 30, 30]} />
               <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
               <tbody>
                 {changedRow("Principal owed", preview.before.principal, preview.after.principal)}

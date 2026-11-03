@@ -1627,6 +1627,12 @@ const ROUTES: [string, string, string, string][] = [
  ],
  [
   "GET",
+  "/reports/cash-ledger",
+  "GET",
+  "/users/:user_id/reports/cash-ledger"
+ ],
+ [
+  "GET",
   "/reports/communication-history",
   "GET",
   "/users/:user_id/reports/communication-history"

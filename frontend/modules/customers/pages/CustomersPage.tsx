@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
@@ -7,6 +8,7 @@ import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModalContent";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
@@ -95,7 +97,7 @@ export function CustomersPage() {
       <div className="page-h">
         <div><h1>Customers &amp; KYC</h1><p>{allCount} customers · PAN &amp; Aadhaar verification status</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" title="Searches: customer name, customer code, phone" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch value={q} onChange={setQ} placeholder="Search name, phone, ID…" searches="customer name, customer code, phone" />
         {canCreateCustomers && (
           <button className="btn" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refresh} />, true)}>
             <Icon name="plus" /> Register Customer
@@ -122,6 +124,7 @@ export function CustomersPage() {
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
       <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left tbl-cards">
+        <TableCols widths={[20, 14, ...(showBranch ? [12] : []), 11, 13, 11, 8, 8]} />
         <thead><tr><th>Customer</th><th>Contact</th>{showBranch && <th>Branch</th>}<th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>
           {loading && !(cards && rows.length > 0) ? (

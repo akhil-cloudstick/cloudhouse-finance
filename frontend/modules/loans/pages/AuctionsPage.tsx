@@ -1,5 +1,7 @@
   "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePersistedPage, usePersistedState, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useModal } from "@/common/components/ModalProvider";
@@ -71,6 +73,7 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
   // before opening closes that window; a genuinely-stale case just makes
   // the button disappear on next render instead of opening a doomed modal.
   const [checkingRec, setCheckingRec] = useState(false);
+  const [releasingBank, setReleasingBank] = useState(false);
   async function openSettleModal() {
     setCheckingRec(true);
     try {
@@ -132,7 +135,6 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
   // Gold sitting with a bank cannot be noticed, scheduled or sold; the server rejects it too.
   const goldAtBank = l.bankPledgeStatus === "Bank Pledged";
   const canReleaseFromBank = can("Bank_Pledge_Management", "can_update_bank_pledge");
-  const [releasingBank, setReleasingBank] = useState(false);
   // The list carries no pledge records, so fetch the loan to find the active one,
   // then confirm and release it exactly as the loan page does.
   async function doReleaseFromBank() {
@@ -331,6 +333,9 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // Auction status (stage) filter, applied by the backend on both tabs.
   const [stages, setStages] = usePersistedState<string[]>("auctions:stages", []);
   const stagesKey = stages.join(",");
+  // History's own filter: only sales that left a surplus to settle, or fell short. Both ticked (or none) shows every sale.
+  const [outcomes, setOutcomes] = usePersistedState<string[]>("auctions:outcome", []);
+  const outcome = outcomes.length === 1 && (outcomes[0] === "surplus" || outcomes[0] === "shortfall") ? outcomes[0] : "";
   const ACTIVE_STAGE_VALUES = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"];
   const activeStages = stages.filter((s) => ACTIVE_STAGE_VALUES.includes(s));
   const activeStagesKey = activeStages.join(",");
@@ -425,7 +430,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
     setConductedLoading(true);
     setConductedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize, query, stages);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize, query, [], outcome);
       setConducted(items);
       setConductedHasMore(hasMore);
       setConductedTotal(total);
@@ -434,13 +439,13 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
     } finally {
       setConductedLoading(false);
     }
-  }, [pageSize, stagesKey]);
+  }, [pageSize, outcome]);
 
   const loadClosed = useCallback(async (page: number, query: string) => {
     setClosedLoading(true);
     setClosedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize, query, stages);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize, query, []);
       setClosedWithoutSale(items);
       setClosedHasMore(hasMore);
       setClosedTotal(total);
@@ -449,7 +454,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
     } finally {
       setClosedLoading(false);
     }
-  }, [pageSize, stagesKey]);
+  }, [pageSize]);
 
   // A concluded auction is edited from its History row: the sale amount and expenses, the surplus settlement, the write-off.
   const canEditAuction = can("Loan_Management", "can_edit_ledger_entry");
@@ -471,6 +476,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
         ["Loan", r.loanNumber], ["Customer", r.customerName], ["Auction date", fmtDate(r.auctionDate)],
         ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"], ["Net proceeds", fmt(r.saleAmount - (r.auctionExpenses || 0))],
         [r.surplusShortfall >= 0 ? "Surplus" : "Shortfall", fmt(Math.abs(r.surplusShortfall))], ["Outcome", AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]],
+        ...(r.surplusRemarks ? [["Settlement remarks", r.surplusRemarks] as [string, string]] : []),
       ]}
       description={<>Auction sale of {fmt(r.saleAmount)} less {fmt(r.auctionExpenses)} expenses.{r.surplusDisposition ? <><br />Surplus {r.surplusDisposition === "RefundedToCustomer" ? "refunded to the customer" : "kept as income"}.</> : null}</>}
       actions={actions}
@@ -517,25 +523,39 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
     // pageSize/cards: card mode grows pageSize on scroll, which must refetch
     // page 1 with the larger size (rows stay on screen meanwhile).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, pageSize, cards, stagesKey]);
+  }, [q, pageSize, cards, outcome]);
 
   return (
     <>
       <div className="page-h" >
         <div><h1>Auction Management</h1><p>Defaulted loans progressing through the regulated auction workflow</p> </div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, reference…" title="Searches: loan number, customer name, customer code · auction reference on the History tab only" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan no, customer, reference…" searches="loan number, customer name, customer code · auction reference on the History tab only" value={q} onChange={setQ} />
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <FilterPanel
-          categories={stageFilterCategories}
-          value={{ stage: stages }}
-          onChange={(next) => { setStages(Array.isArray(next.stage) ? next.stage : []); setActivePage(1); }}
-          hideChips
-          hideClearAll
-        />
-      </div>
+      {/* Each tab has its own filter: Active Cases filters by auction status, History by sale outcome. */}
+      {tab === "history" && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <FilterPanel
+            categories={[{ key: "outcome", label: "Sale Outcome", kind: "static", options: [{ value: "surplus", label: "Settle Surplus" }, { value: "shortfall", label: "Shortfall" }] }]}
+            value={{ outcome: outcomes }}
+            onChange={(next) => { setOutcomes(Array.isArray(next.outcome) ? next.outcome : []); setConductedPage(1); }}
+            hideChips
+            hideClearAll
+          />
+        </div>
+      )}
+      {tab === "active" && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <FilterPanel
+            categories={stageFilterCategories}
+            value={{ stage: stages }}
+            onChange={(next) => { setStages(Array.isArray(next.stage) ? next.stage : []); setActivePage(1); }}
+            hideChips
+            hideClearAll
+          />
+        </div>
+      )}
 
       {/* .tabs's own overflow-x:auto (app.css) clips the last pill's right
           edge/shadow the instant its content is even 1-2px wider than the
@@ -593,6 +613,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
              * stop the card spilling over the next one (see app.css). */}
             <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl tbl-center tbl-cards">
+                <TableCols widths={[9, 9, 9, 10, 9, 10, 11, 12, 10, 6]} />
                 <thead>
                   <tr>
                     <th>Loan</th><th>Auction Date</th><th>Reference</th>
@@ -648,6 +669,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
              * settle at the same height instead of one dwarfing the other. */}
             <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl tbl-center tbl-cards">
+                <TableCols widths={[30, 35, 35]} />
                 <thead>
                   <tr><th>Loan</th><th>Marked Eligible</th><th>Outcome</th></tr>
                 </thead>

@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -1146,10 +1147,12 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               loan/accrual.go). isOverdue stays true — the term really has
               expired — so suppress the duplicate chip here, or a serviced
               loan would read "Active" and "Overdue" at the same time. Also
-              suppress when l.status is already "Overdue" itself, or the
-              title would show two identical "Overdue" chips. */}
-          {!l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
-          {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
+              suppress when l.status is already "Overdue" (or "Due Soon")
+              itself, or the title would show two identical chips. */}
+          {/* An auctioned loan's own status already says where it stands — no
+              extra Overdue / Due Soon chip beside it. */}
+          {!goldSold && !l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
+          {!goldSold && !l.isOverdue && l.isDueSoon && l.status !== "Due Soon" && <StatusChip status="Due Soon" />}
           </h1>
         </div>
         {/* Everything from here down is one right-aligned group rather than
@@ -1241,13 +1244,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                           busyLabel="Deleting…"
                           message={
                             <>
-                              This permanently and irreversibly deletes loan <strong>{l.id}</strong>.
-                              <br /><br />
-                              Every record tied to it will be removed: payments, ornaments, approvals,
-                              extension/release requests, auctions, bank pledges, packets, reminders, and
-                              all of its ledger (cash &amp; bank) entries.
-                              <br /><br />
-                              This cannot be undone.
+                              Permanently deletes loan <strong>{l.id}</strong> and all its records
+                              (payments, ornaments, ledger entries, etc.). This cannot be undone.
                             </>
                           }
                           onConfirm={async () => {
@@ -1536,6 +1534,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               {canExport && <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>}
             </div>
             <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
+              <TableCols widths={[11, 11, 30, 9, null, null, null]} />
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {ledgerError ? (
@@ -1778,6 +1777,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
             </div>
             {pledgeTab === "ornaments" && (
             <div className="tbl-wrap"><table className="tbl">
+              <TableCols widths={[24, 9, 8, 10, 10, 12, 9, 10]} />
               <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Gross</th><th className="num">Net</th><th className="num">Gold Value</th><th>Photo</th><th>Status</th></tr></thead>
               <tbody>
                 {l.ornaments.slice((ornamentsPage - 1) * PLEDGE_PAGE_SIZE, ornamentsPage * PLEDGE_PAGE_SIZE).map((o) => (
@@ -1885,6 +1885,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                   <h4 style={{ marginTop: 16, marginBottom: 8, fontSize: 13 }}>Pledge History</h4>
                   <div className="tbl-wrap">
                     <table className="tbl">
+                      <TableCols widths={[26, 18, 18, 14, 14, ...((canEditLedger || canDeleteLedger) && canUpdateBankPledges ? [10] : [])]} />
                       <thead>
                         <tr><th>Bank</th><th>Pledged On</th><th>Released On</th><th className="num">Amount</th><th>Status</th>{(canEditLedger || canDeleteLedger) && canUpdateBankPledges && <th></th>}</tr>
                       </thead>
