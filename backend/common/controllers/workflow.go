@@ -310,6 +310,11 @@ func loadWorkflow(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	if config.IsDemoRun(ctx) {
+		// The demo seed must produce the same data in every business, so it runs on the default approval
+		// setup rather than this business's own saved chains (which the reset leaves untouched).
+		modes, chains, settings = nil, nil, nil
+	}
 	roles, err := listRoles(ctx)
 	if err != nil {
 		return nil, err

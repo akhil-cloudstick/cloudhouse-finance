@@ -1,0 +1,56 @@
+# Auto-deploy for the three client sites on Shared Server 2, and the daily CTFI data sync.
+# Every job runs on our own runner (tag shared-server-2-gold), so no GitLab CI minutes are used.
+# The runner can only call /usr/local/bin/gold-autodeploy, which rebuilds and restarts ONLY the site of the
+# branch that was pushed, keeps the live site running if the build fails, and rolls back if it is unhealthy.
+#
+#   push / merge to Develop        -> cloudhouse  (cloudhousefinance.com)
+#   push / merge to ctfi-develop   -> ctfi        (ctfidev.cloudhousefinance.com)
+#   push / merge to ambika-develop -> ambika      (ambika.cloudhousefinance.com)
+#   schedule with SYNC_JOB=ctfi    -> copy ctfidev data into cloudhouse business "ctfi"
+#
+# Keep this file identical on all three branches.
+
+stages: [deploy]
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SYNC_JOB == "ctfi"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $SYNC_JOB == "ctfi"'
+    - if: '$CI_COMMIT_BRANCH =~ /^(Develop|ctfi-develop|ambika-develop)$/ && $CI_PIPELINE_SOURCE =~ /^(push|web)$/'
+
+sync-ctfi-data:
+  stage: deploy
+  tags: [shared-server-2-gold]
+  variables: { GIT_STRATEGY: none }
+  rules:
+    - if: '$SYNC_JOB == "ctfi"'
+  script:
+    - sudo /usr/local/bin/gold-autodeploy sync-ctfi
+
+.deploy:
+  stage: deploy
+  tags: [shared-server-2-gold]
+  variables: { GIT_STRATEGY: none }   # nothing to clone: the server updates its own project folder
+  script:
+    - sudo /usr/local/bin/gold-autodeploy "$PROJECT" "$CI_COMMIT_SHA"
+
+deploy-cloudhouse:
+  extends: .deploy
+  variables: { PROJECT: cloudhouse }
+  resource_group: cloudhouse
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "Develop" && $SYNC_JOB != "ctfi"'
+
+deploy-ctfi:
+  extends: .deploy
+  variables: { PROJECT: ctfi }
+  resource_group: ctfi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "ctfi-develop" && $SYNC_JOB != "ctfi"'
+
+deploy-ambika:
+  extends: .deploy
+  variables: { PROJECT: ambika }
+  resource_group: ambika
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "ambika-develop" && $SYNC_JOB != "ctfi"'

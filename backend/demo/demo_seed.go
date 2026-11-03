@@ -6,6 +6,7 @@ import (
 	"cloudhouse/backend/config"
 	cash "cloudhouse/backend/modules/Cash/controllers"
 	cashModels "cloudhouse/backend/modules/Cash/models"
+	dashboard "cloudhouse/backend/modules/Dashboard/controllers"
 	dashboardModels "cloudhouse/backend/modules/Dashboard/models"
 	investment "cloudhouse/backend/modules/Investment/controllers"
 	loan "cloudhouse/backend/modules/Loan/controllers"
@@ -110,21 +111,21 @@ var notificationFixtures = []struct {
 	Delivered, Read   bool
 	DaysAgo           int
 }{
-	{"LoanSanctioned", "Loan sanctioned", "Your gold loan has been sanctioned and disbursed.", true, true, 30},
-	{"PaymentRecorded", "Payment received", "We have received your payment. Thank you.", true, true, 25},
-	{"LoanDueSoon", "Loan due soon", "Your gold loan is due in 7 days.", true, true, 20},
-	{"PaymentRecorded", "Payment received", "We have received your interest payment.", true, true, 18},
-	{"LoanSanctioned", "Loan sanctioned", "Your gold loan has been sanctioned.", true, true, 15},
-	{"LoanOverdue", "Loan overdue", "Your gold loan is now overdue. Please settle at the earliest.", true, true, 12},
-	{"LoanDueSoon", "Loan due soon", "Your gold loan is due in 3 days.", true, false, 10},
-	{"PaymentRecorded", "Payment received", "Part payment received against your loan.", true, false, 8},
-	{"ExtensionApproved", "Extension approved", "Your extension request has been approved.", true, false, 6},
-	{"ReleaseApproved", "Release approved", "Your gold release request has been approved.", true, false, 5},
-	{"AuctionNotice", "Auction notice", "A statutory auction notice has been issued for your loan.", false, false, 4},
-	{"AuctionScheduled", "Auction scheduled", "The auction of your pledged gold has been scheduled.", false, false, 3},
-	{"LoanOverdue", "Loan overdue", "Your gold loan remains overdue.", false, false, 2},
-	{"PaymentRecorded", "Payment received", "Payment received against your personal loan.", false, false, 1},
-	{"InterestPayout", "Interest paid out", "Your monthly interest payout has been processed.", false, false, 1},
+	{"loan_sanction", "Loan sanctioned", "Your gold loan has been sanctioned and disbursed.", true, true, 30},
+	{"payment", "Payment received", "We have received your payment. Thank you.", true, true, 25},
+	{"loan_due_soon", "Loan due soon", "Your gold loan is due in 7 days.", true, true, 20},
+	{"payment", "Payment received", "We have received your interest payment.", true, true, 18},
+	{"loan_sanction", "Loan sanctioned", "Your gold loan has been sanctioned.", true, true, 15},
+	{"loan_overdue", "Loan overdue", "Your gold loan is now overdue. Please settle at the earliest.", true, true, 12},
+	{"loan_due_soon", "Loan due soon", "Your gold loan is due in 3 days.", true, false, 10},
+	{"payment", "Payment received", "Part payment received against your loan.", true, false, 8},
+	{"extension_request", "Extension approved", "Your extension request has been approved.", true, false, 6},
+	{"release_request", "Release approved", "Your gold release request has been approved.", true, false, 5},
+	{"auction_notice", "Auction notice", "A statutory auction notice has been issued for your loan.", false, false, 4},
+	{"auction_event", "Auction scheduled", "The auction of your pledged gold has been scheduled.", false, false, 3},
+	{"loan_overdue", "Loan overdue", "Your gold loan remains overdue.", false, false, 2},
+	{"payment", "Payment received", "Payment received against your personal loan.", false, false, 1},
+	{"investment_interest_payout", "Interest paid out", "Your monthly interest payout has been processed.", false, false, 1},
 }
 
 var commlogFixtures = []struct {
@@ -162,7 +163,7 @@ var packetMovePlans = []packetMovePlan{
 	{13, []string{packetModels.StatusLockerStored}},
 	{14, []string{packetModels.StatusLockerStored}},
 	{15, []string{packetModels.StatusLockerStored}},
-	{16, []string{packetModels.StatusLockerStored, packetModels.StatusReleased}},
+	{16, []string{packetModels.StatusLockerStored}},
 	{17, []string{packetModels.StatusLockerStored}},
 	{18, []string{packetModels.StatusLockerStored}},
 	{19, []string{packetModels.StatusLockerStored}},
@@ -191,32 +192,39 @@ var pledgePlans = []pledgePlan{
 	{41, 9, 71000, 28, loanModels.BankPledgeCashTreatmentRecordOnly, false},
 }
 
+// Every payment is dated on or after its loan opened and is sized from what was owed on its own date
+// (loan.OwedAsOf), the way the payment screen sizes it. Discounts are given with a payment, the way staff
+// enter them now (a standalone Waiver/Discount row can no longer be entered).
 var paymentPlans = []paymentPlan{
-	{6, loanModels.PaymentTypeInterest, 0.6, 25, "Monthly interest"},
-	{7, loanModels.PaymentTypeInterest, 0.5, 20, "Monthly interest"},
-	{8, loanModels.PaymentTypeInterest, 0.7, 15, "Monthly interest"},
-	{9, loanModels.PaymentTypeInterest, 0.4, 30, "Monthly interest"},
-	{10, loanModels.PaymentTypeInterest, 0.8, 22, "Monthly interest"},
-	{11, loanModels.PaymentTypeInterest, 0.5, 18, "Monthly interest"},
-	{12, loanModels.PaymentTypeInterest, 0.6, 12, "Monthly interest"},
-	{13, loanModels.PaymentTypeInterest, 0.9, 40, "Monthly interest"},
-	{14, loanModels.PaymentTypeInterest, 0.5, 28, "Monthly interest"},
-	{15, loanModels.PaymentTypeInterest, 0.6, 26, "Monthly interest"},
-	{16, loanModels.PaymentTypeInterest, 0.7, 24, "Monthly interest"},
-	{7, loanModels.PaymentTypePrincipal, 0.2, 10, "Part principal repayment"},
-	{9, loanModels.PaymentTypePrincipal, 0.25, 14, "Part principal repayment"},
-	{11, loanModels.PaymentTypePrincipal, 0.15, 8, "Part principal repayment"},
-	{12, loanModels.PaymentTypePrincipal, 0.2, 6, "Part principal repayment"},
-	{13, loanModels.PaymentTypePrincipal, 0.3, 16, "Part principal repayment"},
-	{15, loanModels.PaymentTypePrincipal, 0.1, 9, "Part principal repayment"},
-	{17, loanModels.PaymentTypePartial, 0.15, 5, "Part payment towards dues"},
-	{18, loanModels.PaymentTypePartial, 0.2, 7, "Part payment towards dues"},
-	{19, loanModels.PaymentTypePartial, 0.1, 11, "Part payment towards dues"},
-	{17, loanModels.PaymentTypeWaiver, 0.3, 3, "Penal interest waived by management"},
-	{18, loanModels.PaymentTypeWaiver, 0.4, 4, "Penal interest waived by management"},
-	{19, loanModels.PaymentTypeDiscount, 0.2, 2, "Goodwill discount"},
-	{13, loanModels.PaymentTypeDiscount, 0.1, 5, "Goodwill discount"},
-	{29, loanModels.PaymentTypeFullSettlement, 1.0, 1, "Loan closed in full"},
+	{loanIdx: 6, kind: loanModels.PaymentTypeInterest, fraction: 0.6, daysAgo: 12, description: "Monthly interest"},
+	{loanIdx: 7, kind: loanModels.PaymentTypeInterest, fraction: 0.5, daysAgo: 20, description: "Monthly interest", mode: "UPI"},
+	{loanIdx: 8, kind: loanModels.PaymentTypeInterest, fraction: 0.7, daysAgo: 15, description: "Monthly interest"},
+	{loanIdx: 9, kind: loanModels.PaymentTypeInterest, fraction: 0.4, daysAgo: 30, description: "Monthly interest"},
+	{loanIdx: 10, kind: loanModels.PaymentTypeInterest, fraction: 0.8, daysAgo: 22, description: "Monthly interest", mode: "Bank Transfer"},
+	{loanIdx: 11, kind: loanModels.PaymentTypeInterest, fraction: 0.5, daysAgo: 18, description: "Monthly interest"},
+	{loanIdx: 12, kind: loanModels.PaymentTypeInterest, fraction: 0.6, daysAgo: 12, description: "Monthly interest", mode: "UPI"},
+	{loanIdx: 13, kind: loanModels.PaymentTypeInterest, fraction: 0.9, daysAgo: 40, description: "Monthly interest"},
+	{loanIdx: 14, kind: loanModels.PaymentTypeInterest, fraction: 0.5, daysAgo: 28, description: "Monthly interest"},
+	{loanIdx: 15, kind: loanModels.PaymentTypeInterest, fraction: 0.6, daysAgo: 26, description: "Monthly interest"},
+	{loanIdx: 16, kind: loanModels.PaymentTypeInterest, fraction: 0.7, daysAgo: 24, description: "Monthly interest"},
+	{loanIdx: 7, kind: loanModels.PaymentTypePrincipal, fraction: 0.2, daysAgo: 10, description: "Part principal repayment"},
+	{loanIdx: 9, kind: loanModels.PaymentTypePrincipal, fraction: 0.25, daysAgo: 14, description: "Part principal repayment", mode: "Bank Transfer"},
+	{loanIdx: 11, kind: loanModels.PaymentTypePrincipal, fraction: 0.15, daysAgo: 8, description: "Part principal repayment"},
+	{loanIdx: 12, kind: loanModels.PaymentTypePrincipal, fraction: 0.2, daysAgo: 6, description: "Part principal repayment"},
+	{loanIdx: 13, kind: loanModels.PaymentTypePrincipal, fraction: 0.3, daysAgo: 16, description: "Part principal repayment"},
+	{loanIdx: 15, kind: loanModels.PaymentTypePrincipal, fraction: 0.1, daysAgo: 9, description: "Part principal repayment", mode: "UPI"},
+	{loanIdx: 17, kind: loanModels.PaymentTypePartial, fraction: 0.15, daysAgo: 5, description: "Part payment towards dues"},
+	{loanIdx: 18, kind: loanModels.PaymentTypePartial, fraction: 0.2, daysAgo: 7, description: "Part payment towards dues"},
+	{loanIdx: 19, kind: loanModels.PaymentTypePartial, fraction: 0.1, daysAgo: 11, description: "Part payment towards dues"},
+	{loanIdx: 17, kind: loanModels.PaymentTypeInterest, fraction: 0.5, daysAgo: 3, description: "Interest received",
+		discountKind: "penal_interest", discountFraction: 0.3, discountReason: "Penal interest waived by management"},
+	{loanIdx: 18, kind: loanModels.PaymentTypeInterest, fraction: 0.5, daysAgo: 4, description: "Interest received",
+		discountKind: "penal_interest", discountFraction: 0.4, discountReason: "Penal interest waived by management"},
+	{loanIdx: 19, kind: loanModels.PaymentTypePartial, fraction: 0.1, daysAgo: 2, description: "Part payment towards dues",
+		discountKind: "customer", discountFraction: 0.02, discountReason: "Goodwill discount"},
+	{loanIdx: 13, kind: loanModels.PaymentTypeInterest, fraction: 0.5, daysAgo: 5, description: "Interest received",
+		discountKind: "interest", discountFraction: 0.1, discountReason: "Goodwill discount on interest"},
+	{loanIdx: 29, kind: loanModels.PaymentTypeFullSettlement, fraction: 1.0, daysAgo: 1, description: "Loan closed in full"},
 }
 
 var personalLoanFixtures = []personalLoanFixture{
@@ -270,6 +278,12 @@ type paymentPlan struct {
 	fraction    float64
 	daysAgo     int
 	description string
+	mode        string // "" or Cash, UPI, Bank Transfer
+	// discountKind ("customer", "interest", "penal_interest") gives a discount of discountFraction of that
+	// bucket with the payment, on the same date.
+	discountKind     string
+	discountFraction float64
+	discountReason   string
 }
 
 type personalLoanFixture struct {
@@ -335,6 +349,9 @@ func seedBranches(ctx context.Context, st *state, rep *Report) error {
 		}
 		if f.Active {
 			st.branchIDs = append(st.branchIDs, b.ID)
+		} else if err := config.BaseDB.WithContext(ctx).Model(&commonModels.Branch{}).
+			Where("id = ?", b.ID).Update("is_active", false).Error; err != nil {
+			return fmt.Errorf("close branch %q: %w", f.Name, err)
 		}
 	}
 	rep.created("branches", len(branchFixtures)+1)
@@ -375,6 +392,9 @@ func seedCustomers(ctx context.Context, st *state, rep *Report) error {
 			NomineeName:     f.NomineeName,
 			NomineeRelation: f.NomineeRelation,
 			NomineePhone:    f.Phone,
+			FatherName:      customerFathers[i%len(customerFathers)],
+			Place:           f.Village,
+			PinCode:         customerPins[i%len(customerPins)],
 			Age:             intPtr(f.Age),
 			DOB:             st.clk.today.AddDate(-f.Age, 0, 0),
 		}
@@ -417,6 +437,11 @@ func seedCustomers(ctx context.Context, st *state, rep *Report) error {
 	rep.created("customers", len(customerFixtures))
 	return nil
 }
+
+var customerFathers = []string{"Chandran Pillai", "Muhammed Kutty", "Mathew Joseph", "Rajan Menon", "Abdul Rahman", "Sasi Kumar",
+	"Gopala Pillai", "Thomas Varghese", "Hamza Haji", "Raman Nair", "Varkey Mathai", "Subramania Iyer"}
+
+var customerPins = []string{"680306", "680307", "683572", "683542", "676101", "680664", "688524", "686691", "679577", "680101", "686661", "678003"}
 
 func seedUploads(ctx context.Context, st *state, rep *Report) error {
 	for i := 0; i < 10; i++ {
@@ -573,21 +598,12 @@ func seedLoanRequests(ctx context.Context, st *state, rep *Report) error {
 			continue
 		}
 		loanID := st.loanIDs[idx]
-		l, err := loan.GetLoan(ctx, loanID, nil)
-		if err != nil {
-			return fmt.Errorf("read loan index %d before extension request: %w", idx, err)
-		}
-		if amount := payableAmount(l, loanModels.PaymentTypeInterest, 1.0); amount > 0 {
-			if _, err := loan.SaveLoanPayment(ctx, loanID, loan.PaymentInput{
-				Amount:               amount,
-				Type:                 loanModels.PaymentTypeInterest,
-				PaidOn:               st.clk.daysAgo(1),
-				ReceivedByEmployeeID: &st.keep.adminID,
-				Method:               "Cash",
-				Description:          "Interest cleared before requesting extension",
-			}); err != nil {
-				return fmt.Errorf("clear interest before extension request on loan index %d: %w", idx, err)
-			}
+		if _, err := recordPayment(ctx, st, loanID, paymentPlan{
+			kind:        loanModels.PaymentTypeInterest,
+			fraction:    1.0,
+			description: "Interest cleared before requesting extension",
+		}, st.clk.today, n); err != nil {
+			return fmt.Errorf("clear interest before extension request on loan index %d: %w", idx, err)
 		}
 		req, err := loan.SaveExtensionRequest(ctx, loanID, loan.ExtensionRequestInput{
 			Months:      3,
@@ -757,6 +773,14 @@ func seedLoans(ctx context.Context, st *state, rep *Report) error {
 			Ornaments:       ornamentsFor(i, p.principal),
 			AdditionalInfo:  "Demo record",
 		}
+		if len(st.employeeIDs) > 4 {
+			// the two loan operators take turns keying loans in
+			k := 3 + i%2
+			in.CreatedByEmployeeID, in.CreatedByName = st.employeeIDs[k], employeeFixtures[k].Name
+		}
+		if len(st.uploadKeys) > 0 {
+			in.OverallPhotoURL = st.uploadKeys[i%len(st.uploadKeys)]
+		}
 		l, err := loan.SaveLoan(ctx, in)
 		if err != nil {
 			return fmt.Errorf("create loan %d: %w", i+1, err)
@@ -835,16 +859,18 @@ func seedMasters(ctx context.Context, st *state, rep *Report) error {
 		return err
 	}
 	for _, f := range bankFixtures {
-		if _, _, err := common.FindBankOrCreate(ctx, common.BankCreateInput{
+		b, _, err := common.FindBankOrCreate(ctx, common.BankCreateInput{
 			Name:      f.Name,
 			BranchID:  st.branchIDs[0],
 			Branch:    f.Branch,
 			Ifsc:      f.Ifsc,
 			AccountNo: f.AccountNo,
 			Phone:     f.Phone,
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("create bank %q: %w", f.Name, err)
 		}
+		st.bankIDs = append(st.bankIDs, b.ID)
 	}
 	rep.created("banks", len(bankFixtures))
 	for _, name := range ornamentTypeFixtures {
@@ -891,10 +917,12 @@ func seedGoldRates(ctx context.Context, st *state, rep *Report) error {
 	for i, k24 := range goldRateFixtures {
 		// 22K / 18K at the standard 91.6% / 75% fineness, saved the way the Set Gold Rate modal's Auto mode does.
 		if _, err := common.SaveGoldRate(ctx, common.PublishInput{
-			Date:     st.clk.daysAgo(last - i),
-			Rates:    map[int]float64{24: k24, 22: math.Round(k24 * 91.6 / 100), 18: math.Round(k24 * 75 / 100)},
-			Fineness: map[int]float64{22: 91.6, 18: 75},
-			SetBy:    "Admin",
+			Date:        st.clk.daysAgo(last - i),
+			Karat:       24,
+			Rate:        k24,
+			SetBy:       "Admin",
+			Designation: "Branch Manager",
+			Rates:       map[int]float64{24: k24, 22: math.Round(k24 * 0.916), 18: math.Round(k24 * 0.75)},
 		}); err != nil {
 			return fmt.Errorf("publish gold rate for %s: %w", st.clk.daysAgo(last-i).Format("2006-01-02"), err)
 		}
@@ -919,7 +947,7 @@ func sameDay(a, b time.Time) bool {
 
 func seedSchemes(ctx context.Context, st *state, rep *Report) error {
 	for i, f := range schemeFixtures {
-		s, err := common.SaveScheme(ctx, common.SchemeCreateInput{
+		in := common.SchemeCreateInput{
 			Name:           f.Name,
 			BranchID:       st.branchIDs[i%len(st.branchIDs)],
 			InterestRate:   f.InterestRate,
@@ -928,7 +956,15 @@ func seedSchemes(ctx context.Context, st *state, rep *Report) error {
 			InterestMethod: f.InterestMethod,
 			PenalRate:      f.PenalRate,
 			IsActive:       f.Active,
-		})
+			AccrualBasis:   schemeAccrualBasis(i),
+			Conditions:     "Interest is payable monthly. Pledged gold is returned on full settlement.",
+		}
+		if i == 7 {
+			in.ServiceChargeType = commonModels.ServiceChargeTypeFlat
+			in.ServiceChargeValue = 250
+			in.ServiceChargeMode = commonModels.ServiceChargeModeAddedToPrincipal
+		}
+		s, err := common.SaveScheme(ctx, in)
 		if err != nil {
 			return fmt.Errorf("create scheme %q: %w", f.Name, err)
 		}
@@ -938,6 +974,14 @@ func seedSchemes(ctx context.Context, st *state, rep *Report) error {
 	}
 	rep.created("schemes", len(schemeFixtures))
 	return nil
+}
+
+// schemeAccrualBasis charges the flat-monthly schemes by the calendar month, the rest by the day.
+func schemeAccrualBasis(i int) string {
+	if schemeFixtures[i].InterestMethod == "Flat monthly" {
+		return commonModels.AccrualBasisMonthly
+	}
+	return commonModels.AccrualBasisDaily
 }
 
 func seedCashAndExpenses(ctx context.Context, st *state, rep *Report) error {
@@ -953,6 +997,21 @@ func seedCashAndExpenses(ctx context.Context, st *state, rep *Report) error {
 		}
 	}
 	rep.created("opening cash balances", balances)
+	for _, branchID := range st.branchIDs {
+		id := branchID
+		if _, err := cash.SaveMovement(ctx, cash.RecordMovementInput{
+			Type:       "in",
+			Source:     "Capital",
+			Mode:       cashModels.CashModeCash,
+			Amount:     3000000,
+			BranchID:   &id,
+			OccurredOn: st.clk.daysAgo(500),
+			Remarks:    "Opening capital introduced",
+			Manual:     true,
+		}, nil); err != nil {
+			return fmt.Errorf("record opening capital for branch %d: %w", branchID, err)
+		}
+	}
 	for i, f := range cashMovementFixtures {
 		branchID := st.branchIDs[i%len(st.branchIDs)]
 		if f.Bank != "" {
@@ -968,15 +1027,26 @@ func seedCashAndExpenses(ctx context.Context, st *state, rep *Report) error {
 				DurationMonths:  &months,
 			}
 		}
+		var bankID *uint
+		if f.Bank != "" {
+			id, err := seededBankID(st, f.Bank)
+			if err != nil {
+				return err
+			}
+			bankID = &id
+		}
 		if _, err := cash.SaveMovement(ctx, cash.RecordMovementInput{
 			Type:       f.Type,
 			Source:     f.Source,
 			Purpose:    f.Purpose,
 			Mode:       f.Mode,
 			Bank:       f.Bank,
+			BankID:     bankID,
 			Amount:     f.Amount,
 			BranchID:   &branchID,
 			OccurredOn: st.clk.daysAgo(f.DaysAgo),
+			Remarks:    "Demo entry",
+			Manual:     true,
 		}, loanSource); err != nil {
 			return fmt.Errorf("record cash movement %d: %w", i+1, err)
 		}
@@ -984,9 +1054,9 @@ func seedCashAndExpenses(ctx context.Context, st *state, rep *Report) error {
 	rep.created("cash movements", len(cashMovementFixtures))
 	expenseIDs := make([]uint, 0, len(expenseFixtures))
 	pending := make([]bool, 0, len(expenseFixtures))
-	var payingBankIDs []uint
-	if err := config.BaseDB.WithContext(ctx).Table("banks").Where("tenant_id = ? AND name = ?", st.tenantID, "State Bank of India").Limit(1).Pluck("id", &payingBankIDs).Error; err != nil || len(payingBankIDs) == 0 {
-		return fmt.Errorf("find the paying bank for expenses: %v", err)
+	payingBankID, err := seededBankID(st, "State Bank of India")
+	if err != nil {
+		return err
 	}
 	for i, f := range expenseFixtures {
 		var receipt string
@@ -996,7 +1066,7 @@ func seedCashAndExpenses(ctx context.Context, st *state, rep *Report) error {
 		branchID := st.branchIDs[i%len(st.branchIDs)]
 		var fromBankID *uint
 		if f.Mode != "Cash" {
-			branchID, fromBankID = st.branchIDs[0], &payingBankIDs[0]
+			branchID, fromBankID = st.branchIDs[0], &payingBankID
 		}
 		e, err := cash.SaveExpense(ctx, cash.RecordExpenseInput{
 			OccurredOn:   st.clk.daysAgo(2 + i*2),
@@ -1032,6 +1102,16 @@ func seedCashAndExpenses(ctx context.Context, st *state, rep *Report) error {
 		}
 	}
 	return nil
+}
+
+// seededBankID is the id of the bank seeded from the bankFixtures entry with this name.
+func seededBankID(st *state, name string) (uint, error) {
+	for i, f := range bankFixtures {
+		if f.Name == name && i < len(st.bankIDs) {
+			return st.bankIDs[i], nil
+		}
+	}
+	return 0, fmt.Errorf("bank %q was not seeded", name)
 }
 
 func seedReminders(ctx context.Context, st *state, rep *Report) error {
@@ -1107,6 +1187,7 @@ func seedCommsAndAudit(ctx context.Context, st *state, rep *Report) error {
 		rec := commonModels.CommunicationLog{
 			RecipientName:  cf.Name,
 			RecipientPhone: cf.Phone,
+			ChatID:         common.NormalizeChatID(cf.Phone),
 			Channel:        commonModels.ChannelWhatsApp,
 			TriggerType:    f.Trigger,
 			MessageBody:    f.Body,
@@ -1137,12 +1218,21 @@ func seedCommsAndAudit(ctx context.Context, st *state, rep *Report) error {
 		{"employee_updated", "Divya Pillai", "Branch reassigned"},
 	}
 	for i, a := range branchAudits {
+		entityType, entityID := "branch", st.branchIDs[i%len(st.branchIDs)]
+		if a.action == "employee_updated" {
+			entityType = "employee"
+			for k, f := range employeeFixtures {
+				if f.Name == a.name && k < len(st.employeeIDs) {
+					entityID = st.employeeIDs[k]
+				}
+			}
+		}
 		e := commonModels.Entry{
 			ActorEmployeeID: st.keep.adminID,
 			ActorName:       "Admin",
 			Action:          a.action,
-			EntityType:      "branch",
-			EntityID:        st.branchIDs[i%len(st.branchIDs)],
+			EntityType:      entityType,
+			EntityID:        entityID,
 			EntityName:      a.name,
 			Detail:          a.detail,
 			CreatedAt:       st.clk.daysAgo(20 - i),
@@ -1159,8 +1249,12 @@ func seedCommsAndAudit(ctx context.Context, st *state, rep *Report) error {
 func seedSnapshots(ctx context.Context, st *state, rep *Report) error {
 	n := 0
 	for i := 13; i >= 0; i-- {
+		if i == 0 {
+			break
+		}
+		d := st.clk.daysAgo(i)
 		s := dashboardModels.Snapshot{
-			Date:                 st.clk.daysAgo(i),
+			Date:                 time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, d.Location()),
 			ActiveCount:          18 + (13 - i),
 			OverdueCount:         3 + (13-i)/3,
 			PendingApprovalCount: 6 - (13-i)/5,
@@ -1172,35 +1266,10 @@ func seedSnapshots(ctx context.Context, st *state, rep *Report) error {
 		}
 		n++
 	}
-	rep.created("dashboard snapshots", n)
-	return nil
-}
-
-func seedSequences(ctx context.Context, st *state, rep *Report) error {
-	kinds := map[string]struct{ table, column string }{
-		"loan":     {"loans", "loan_number"},
-		"customer": {"customers", "code"},
-		"employee": {"employees", "code"},
-		"packet":   {"packets", "code"},
-		"scheme":   {"schemes", "code"},
+	if err := dashboard.CaptureDailySnapshot(ctx); err != nil {
+		return fmt.Errorf("capture today's dashboard snapshot: %w", err)
 	}
-	for kind, src := range kinds {
-		var highest uint64
-		row := config.BaseDB.WithContext(ctx).
-			Table(src.table).
-			Where("tenant_id = ?", st.tenantID).
-			Select("COALESCE(MAX(NULLIF(regexp_replace(" + src.column + ", '[^0-9]', '', 'g'), '')::bigint), 0)").
-			Row()
-		if err := row.Scan(&highest); err != nil {
-			continue
-		}
-		if highest == 0 {
-			continue
-		}
-		if err := common.SeedSequenceFrom(config.BaseDB, st.tenantID, kind, highest); err != nil {
-			return fmt.Errorf("seed %s sequence: %w", kind, err)
-		}
-	}
+	rep.created("dashboard snapshots", n+1)
 	return nil
 }
 
@@ -1221,7 +1290,16 @@ func seedPacketsAndPledges(ctx context.Context, st *state, rep *Report) error {
 		}
 		f := bankFixtures[p.bankIdx]
 		due := st.clk.daysAhead(120)
+		var ornamentIDs []uint
+		if orns, err := loan.FindByLoanID(ctx, st.loanIDs[p.loanIdx]); err == nil {
+			for _, o := range orns {
+				ornamentIDs = append(ornamentIDs, o.ID)
+			}
+		}
+		bankID := st.bankIDs[p.bankIdx]
 		if _, err := loan.SaveBankPledge(ctx, st.loanIDs[p.loanIdx], nil, loan.BankPledgeInput{
+			BankID:            &bankID,
+			OrnamentIDs:       ornamentIDs,
 			BankName:          f.Name,
 			PledgedAmount:     p.amount,
 			PledgeDate:        st.clk.daysAgo(p.daysAgo),
@@ -1236,11 +1314,15 @@ func seedPacketsAndPledges(ctx context.Context, st *state, rep *Report) error {
 		}
 		pledges++
 		if p.releaseAfter {
-			n, err := walkPacket(ctx, st, p.loanIdx, []string{packetModels.StatusReturned}, 0)
-			if err != nil {
-				return err
+			var pledgeID uint
+			if err := config.BaseDB.WithContext(ctx).Table("bank_pledge_records").
+				Where("loan_id = ? AND tenant_id = ?", st.loanIDs[p.loanIdx], st.tenantID).
+				Order("id DESC").Limit(1).Pluck("id", &pledgeID).Error; err != nil || pledgeID == 0 {
+				return fmt.Errorf("find the bank pledge on loan index %d: %v", p.loanIdx, err)
 			}
-			moves += n
+			if _, err := loan.ReleasePledge(ctx, st.loanIDs[p.loanIdx], pledgeID, loan.BankPledgeReleaseInput{}, &actor, "Administrator"); err != nil {
+				return fmt.Errorf("release bank pledge on loan index %d: %w", p.loanIdx, err)
+			}
 		}
 	}
 	rep.created("bank pledges", pledges)
@@ -1293,9 +1375,8 @@ func walkPacket(ctx context.Context, st *state, loanIdx int, hops []string, lock
 }
 
 func seedPayments(ctx context.Context, st *state, rep *Report) error {
-	actor := st.keep.adminID
 	n := 0
-	for _, p := range paymentPlans {
+	for i, p := range paymentPlans {
 		if p.loanIdx >= len(st.loanIDs) {
 			continue
 		}
@@ -1304,57 +1385,158 @@ func seedPayments(ctx context.Context, st *state, rep *Report) error {
 				"payment plan targets auction-pool loan index %d: this would clear its arrears and make the auctions step fail with ErrLoanNotDefaulted",
 				p.loanIdx)
 		}
-		id := st.loanIDs[p.loanIdx]
-		l, err := loan.GetLoan(ctx, id, nil)
+		ok, err := recordPayment(ctx, st, st.loanIDs[p.loanIdx], p, st.clk.daysAgo(p.daysAgo), i)
 		if err != nil {
-			return fmt.Errorf("read loan index %d before payment: %w", p.loanIdx, err)
+			return fmt.Errorf("record %s payment on loan index %d: %w", p.kind, p.loanIdx, err)
 		}
-		amount := payableAmount(l, p.kind, p.fraction)
-		if amount < 1 {
-			continue
+		if ok {
+			n++
 		}
-		if _, err := loan.SaveLoanPayment(ctx, id, loan.PaymentInput{
-			Amount:               amount,
-			Type:                 p.kind,
-			PaidOn:               st.clk.daysAgo(p.daysAgo),
-			ReceivedByEmployeeID: &actor,
-			Method:               "Cash",
-			Description:          p.description,
-		}); err != nil {
-			return fmt.Errorf("record %s payment of %.2f on loan index %d: %w", p.kind, amount, p.loanIdx, err)
-		}
-		n++
 	}
 	rep.created("loan payments", n)
 	return nil
 }
 
-func payableAmount(l *loanModels.Loan, kind string, fraction float64) float64 {
+// recordPayment sizes a payment from what the loan owed on paidOn and records it through the real payment
+// path, with the cash split the payment screen sends (and a discount when the plan gives one).
+func recordPayment(ctx context.Context, st *state, loanID uint, p paymentPlan, paidOn time.Time, seq int) (bool, error) {
+	fee, penal, interest, principal, err := loan.OwedAsOf(ctx, loanID, paidOn)
+	if err != nil {
+		return false, err
+	}
+	in := loan.PaymentInput{
+		Type:                 p.kind,
+		PaidOn:               paidOn,
+		ReceivedByEmployeeID: &st.keep.adminID,
+		Description:          p.description,
+		CheckDateWindow:      true,
+	}
+	if p.discountKind != "" {
+		var base float64
+		switch p.discountKind {
+		case loan.DiscountKindPenalInterest:
+			base = penal
+		case loan.DiscountKindInterest:
+			base = interest
+		default:
+			base = penal + interest + principal
+		}
+		if d := math.Floor(base * p.discountFraction); d >= 1 {
+			in.Discount, in.DiscountKind, in.DiscountReason, in.DiscountMode = d, p.discountKind, p.discountReason, "Cash"
+			switch p.discountKind {
+			case loan.DiscountKindPenalInterest:
+				penal -= d
+			case loan.DiscountKindInterest:
+				interest -= d
+			default:
+				// a customer discount falls through penal interest, interest, then principal
+				for _, b := range []*float64{&penal, &interest, &principal} {
+					take := math.Min(d, *b)
+					*b -= take
+					d -= take
+				}
+			}
+		}
+	}
 	var ceiling float64
-	switch kind {
-	case loanModels.PaymentTypeInterest, loanModels.PaymentTypeWaiver, loanModels.PaymentTypeDiscount:
-		ceiling = l.OutstandingInterest + l.OutstandingPenalInterest
+	switch p.kind {
+	case loanModels.PaymentTypeInterest:
+		ceiling = fee + penal + interest
 	case loanModels.PaymentTypePenalInterest:
-		ceiling = l.OutstandingPenalInterest
+		ceiling = fee + penal
 	case loanModels.PaymentTypePrincipal:
-		ceiling = l.OutstandingAmount
-	case loanModels.PaymentTypeFullSettlement:
-		// Must be the entire balance: a Full Settlement short of the total is refused outright.
-		ceiling = l.OutstandingAmount + l.OutstandingInterest +
-			l.OutstandingPenalInterest + l.OutstandingProcessingFee
+		ceiling = fee + principal
 	default:
-		ceiling = l.OutstandingAmount + l.OutstandingInterest +
-			l.OutstandingPenalInterest + l.OutstandingProcessingFee
+		ceiling = fee + penal + interest + principal
 	}
-	if ceiling <= 0 {
-		return 0
+	amount := math.Floor(ceiling * p.fraction)
+	if p.fraction >= 1 {
+		// a Full Settlement has to cover the balance exactly, so it is never rounded down
+		amount = math.Round(ceiling*100) / 100
 	}
-	amount := ceiling * fraction
-	// A Full Settlement has to cover the balance exactly, so it is never rounded down.
-	if fraction >= 1 {
-		return math.Round(ceiling*100) / 100
+	if amount < 1 {
+		return false, nil
 	}
-	return math.Floor(amount)
+	in.Amount = amount
+	switch p.mode {
+	case "UPI", "Bank Transfer":
+		if len(st.bankIDs) == 0 {
+			return false, fmt.Errorf("no banks seeded for a %s payment", p.mode)
+		}
+		bankID := st.bankIDs[seq%len(st.bankIDs)]
+		in.BankID = &bankID
+		if p.mode == "UPI" {
+			in.UpiAmount = amount
+		} else {
+			in.BankTransferAmount = amount
+		}
+	default:
+		in.CashAmount = amount
+	}
+	if _, err := loan.SaveLoanPayment(ctx, loanID, in); err != nil {
+		return false, fmt.Errorf("%.2f on %s: %w", amount, paidOn.Format("2006-01-02"), err)
+	}
+	return true, nil
+}
+
+// topUpPlans tops up two running loans; any interest owed is deducted from the top-up payout.
+var topUpPlans = []struct {
+	loanIdx int
+	amount  float64
+	daysAgo int
+}{
+	{16, 10000, 2},
+	{18, 15000, 1},
+}
+
+func seedTopUps(ctx context.Context, st *state, rep *Report) error {
+	n := 0
+	for _, p := range topUpPlans {
+		if p.loanIdx >= len(st.loanIDs) {
+			continue
+		}
+		loanID := st.loanIDs[p.loanIdx]
+		if _, err := loan.TopUp(ctx, loanID, loan.TopUpInput{
+			Amount:               p.amount,
+			CashAmount:           p.amount,
+			OccurredOn:           st.clk.daysAgo(p.daysAgo),
+			SettleInterest:       "deduct",
+			ReceivedByEmployeeID: st.keep.adminID,
+		}); err != nil {
+			return fmt.Errorf("top up loan index %d: %w", p.loanIdx, err)
+		}
+		ups, err := loan.ListLoanTopUps(ctx, loanID)
+		if err != nil {
+			return fmt.Errorf("read top-ups of loan index %d: %w", p.loanIdx, err)
+		}
+		for _, u := range ups {
+			cur := u.ApprovalStage
+			for cur != "" {
+				key, ok, err := requestStageKey(ctx, common.FlowLoanTopUp, cur, cur)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					break
+				}
+				next, err := loan.ApproveTopUpRequest(ctx, u.ID, loan.TopUpApprovalInput{
+					Stage:           key,
+					Action:          loanModels.ApprovalStageApproved,
+					ActorEmployeeID: st.keep.adminID,
+					ActorRole:       "Administrator",
+					ActorRoleID:     st.adminRoleID,
+					Remarks:         "Demo approval",
+				})
+				if err != nil {
+					return fmt.Errorf("approve top-up on loan index %d: %w", p.loanIdx, err)
+				}
+				cur = next.ApprovalStage
+			}
+		}
+		n++
+	}
+	rep.created("loan top-ups", n)
+	return nil
 }
 
 func seedPersonalLoans(ctx context.Context, st *state, rep *Report) error {
@@ -1400,22 +1582,29 @@ func seedPersonalLoans(ctx context.Context, st *state, rep *Report) error {
 			payments++
 		}
 	}
-	rep.created("personal loan payments", payments)
-	if len(ids) >= 12 {
-		terminal := map[uint]string{
-			ids[9]:  personalLoanModels.StatusClosed,
-			ids[10]: personalLoanModels.StatusClosed,
-			ids[11]: "Defaulted",
+	// two loans are paid off in full, which closes them the way a real final receipt does
+	for _, i := range []int{9, 10} {
+		if i >= len(ids) {
+			continue
 		}
-		for id, status := range terminal {
-			if err := config.BaseDB.WithContext(ctx).
-				Model(&personalLoanModels.PersonalLoan{}).
-				Where("id = ?", id).
-				Update("status", status).Error; err != nil {
-				return fmt.Errorf("set personal loan %d status: %w", id, err)
-			}
+		var pl personalLoanModels.PersonalLoan
+		if err := config.BaseDB.WithContext(ctx).First(&pl, ids[i]).Error; err != nil {
+			return fmt.Errorf("read personal loan %d: %w", i+1, err)
 		}
+		if pl.OutstandingAmount < 1 {
+			continue
+		}
+		if _, err := personalLoan.SavePersonalLoanPayment(ctx, ids[i], nil, personalLoan.PaymentInput{
+			Amount:               pl.OutstandingAmount,
+			ReceivedByEmployeeID: &st.keep.adminID,
+			CashAmount:           pl.OutstandingAmount,
+			Description:          "Final receipt — loan closed",
+		}); err != nil {
+			return fmt.Errorf("close personal loan %d: %w", i+1, err)
+		}
+		payments++
 	}
+	rep.created("personal loan payments", payments)
 	return nil
 }
 
@@ -1435,18 +1624,30 @@ func seedInvestments(ctx context.Context, st *state, rep *Report) error {
 		}
 		if f.Active {
 			st.planIDs = append(st.planIDs, p.ID)
+		} else if err := config.BaseDB.WithContext(ctx).Table("investment_plans").
+			Where("id = ?", p.ID).Update("is_active", false).Error; err != nil {
+			return fmt.Errorf("retire investment plan %q: %w", f.Name, err)
 		}
 	}
 	rep.created("investment plans", len(investmentPlanFixtures))
 	if len(st.planIDs) == 0 {
 		return fmt.Errorf("no active investment plans to invest into")
 	}
+	var investors []uint
+	for i, f := range customerFixtures {
+		if f.Investor && i < len(st.customerIDs) {
+			investors = append(investors, st.customerIDs[i])
+		}
+	}
+	if len(investors) == 0 {
+		investors = st.customerIDs
+	}
 	ids := make([]uint, 0, 12)
 	for i := 0; i < 12; i++ {
 		principal := float64(500000 + i*100000)
 		inv, err := investment.SaveInvestment(ctx, investment.CreateInput{
 			BranchID:            st.branchIDs[i%len(st.branchIDs)],
-			CustomerID:          st.customerIDs[i%len(st.customerIDs)],
+			CustomerID:          investors[i%len(investors)],
 			PlanID:              st.planIDs[i%len(st.planIDs)],
 			PrincipalAmount:     principal,
 			StartDate:           st.clk.monthsAgo(i % 10),
@@ -1458,14 +1659,6 @@ func seedInvestments(ctx context.Context, st *state, rep *Report) error {
 		ids = append(ids, inv.ID)
 	}
 	rep.created("investments", len(ids))
-	crossCtx := config.AllowCrossTenant(ctx)
-	for _, table := range []string{"investment_plans", "investments", "investment_payouts"} {
-		if err := config.BaseDB.WithContext(crossCtx).
-			Exec("UPDATE "+table+" SET tenant_id = ? WHERE tenant_id = 0 OR tenant_id IS NULL", st.tenantID).
-			Error; err != nil {
-			return fmt.Errorf("stamp tenant on %s: %w", table, err)
-		}
-	}
 	paid := 0
 	for i := 0; i < 4 && i < len(ids); i++ {
 		payouts, _, err := investment.FindPayoutSchedule(ctx, ids[i], nil, 12, 0)
