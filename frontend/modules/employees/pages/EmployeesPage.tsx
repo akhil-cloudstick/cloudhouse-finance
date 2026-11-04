@@ -49,10 +49,11 @@ export function EmployeesPage() {
     listActiveBranches().then(setBranches).catch(() => {});
   }, []);
   const filterCategories: FilterCategory[] = [
-    ...(roleNames.length ? [{ key: "role", label: "Role", kind: "static" as const, singleSelect: true, options: roleNames.map((r) => ({ value: r, label: r })) }] : []),
-    ...(showBranch && branches.length ? [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, options: branches.map((b) => ({ value: String(b.id), label: b.name })) }] : []),
+    ...(roleNames.length ? [{ key: "role", label: "Role", kind: "static" as const, options: roleNames.map((r) => ({ value: r, label: r })) }] : []),
+    ...(showBranch && branches.length ? [{ key: "branch", label: "Branch", kind: "static" as const, options: branches.map((b) => ({ value: String(b.id), label: b.name })) }] : []),
   ];
-  const filterValue: FilterValue = { role: roleFilter ? [roleFilter] : [], branch: branchFilter ? [branchFilter] : [] };
+  // Several picks are kept comma-joined, the form the API takes them in.
+  const filterValue: FilterValue = { role: roleFilter ? roleFilter.split(",") : [], branch: branchFilter ? branchFilter.split(",") : [] };
   const [page, setPage] = usePersistedPage("employees");
   const [total, setTotal] = useState(0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -132,8 +133,8 @@ export function EmployeesPage() {
               categories={filterCategories}
               value={filterValue}
               onChange={(next) => {
-                setRoleFilter(Array.isArray(next.role) ? next.role[0] || "" : "");
-                setBranchFilter(Array.isArray(next.branch) ? next.branch[0] || "" : "");
+                setRoleFilter(Array.isArray(next.role) ? next.role.join(",") : "");
+                setBranchFilter(Array.isArray(next.branch) ? next.branch.join(",") : "");
               }}
               hideChips
             />

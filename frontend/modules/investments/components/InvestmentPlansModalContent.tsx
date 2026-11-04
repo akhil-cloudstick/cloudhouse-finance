@@ -7,7 +7,9 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Select } from "@/common/components/ui/Select";
-import { createInvestmentPlan, updateInvestmentPlan, listInvestmentPlans } from "@/modules/investments/services/investmentService";
+import { createInvestmentPlan, updateInvestmentPlan, listInvestmentPlans, deleteInvestmentPlan } from "@/modules/investments/services/investmentService";
+import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
+import { useAuth } from "@/common/providers/AuthProvider";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { type BackendInvestmentPlan, type CreatePlanInput, type InterestRateType, type PayoutFrequency, type Engine } from "@/modules/investments/types/investment-types";
 
@@ -48,7 +50,8 @@ type InvestmentPlansModalContentProps = { onChanged: () => void };
  * for one plan at a time, inline in the same modal rather than a second
  * nested modal. */
 export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalContentProps) {
-  const { closeModal } = useModal();
+  const { closeModal, openChildModal } = useModal();
+  const canDelete = useAuth().can("Investment_Management", "can_delete_investment");
 
   // Scroll-paginated: 10 plans shown at a time, the next 10 revealed as the
   // height-capped table is scrolled to its end. The plan list is one small
@@ -127,6 +130,20 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
     setFe({});
   }
 
+  // Returning from the confirm remounts this modal, which reloads the list.
+  function confirmDelete(p: BackendInvestmentPlan) {
+    openChildModal(
+      <ConfirmModalContent
+        title="Delete Plan"
+        confirmLabel="Delete Plan"
+        busyLabel="Deleting…"
+        danger
+        message={<>Delete the plan <strong>{p.name}</strong>? A plan already used by an investment can&apos;t be deleted — mark it inactive instead.</>}
+        onConfirm={async () => { await deleteInvestmentPlan(p.id); onChanged(); }}
+      />
+    );
+  }
+
   async function save() {
     // Every problem is shown at once, each beside its own field.
     const errors: Record<string, string> = {};
@@ -176,7 +193,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
             </div>
             {error && <div className="notice">{error}</div>}
             <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl tbl-cards-sm tbl-compact">
-              <TableCols widths={[20, 10, 8, 12, 8, 14, 12, 10, 6]} />
+              <TableCols widths={[19, 9, 7, 11, 8, 13, 12, 10, canDelete ? "150px" : "76px"]} />
               <thead><tr><th>Name</th><th>Type</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {loading ? (
@@ -193,7 +210,10 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
                     <td className="num" data-label="Min Principal">{fmt(p.minPrincipal)}</td>
                     <td data-label="Payout">{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
                     <td data-label="Status"><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
-                    <td><button className="btn plain sm" onClick={(e) => { e.stopPropagation(); startEdit(p); }}>Edit</button></td>
+                    <td className="tbl-acts" style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn plain sm" onClick={(e) => { e.stopPropagation(); startEdit(p); }}>Edit</button>
+                      {canDelete && <button className="btn plain sm" style={{ color: "var(--red)" }} onClick={(e) => { e.stopPropagation(); confirmDelete(p); }}>Delete</button>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

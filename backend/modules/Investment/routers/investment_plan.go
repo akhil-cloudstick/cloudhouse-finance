@@ -16,5 +16,6 @@ func InvestmentPlanRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(investmentPlanPath, investment.ListInvestmentPlans, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPlanPath+"/:id", investment.GetInvestmentPlan, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.PATCH(investmentPlanPath+"/:id/update", investment.UpdateInvestmentPlan, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
+	e.DELETE(investmentPlanPath+"/:id/delete", investment.DeleteInvestmentPlan, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Delete)...)
 	return e
 }

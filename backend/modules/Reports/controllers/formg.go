@@ -147,8 +147,8 @@ func goldLoansAdvanced(ctx context.Context, f models.Filter, from, to time.Time)
 		Where("opened_date >= ? AND opened_date < ?", from, to).
 		Where("approval_stage = ?", "Approved").
 		Where("deleted_at IS NULL")
-	if f.BranchID != nil {
-		q = q.Where("branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("branch_id IN ?", f.BranchIDs)
 	}
 	err := q.Scan(&out).Error
 	return out, err
@@ -163,8 +163,8 @@ func personalLoansAdvanced(ctx context.Context, f models.Filter, from, to time.T
 		// A loan still awaiting (or refused) approval never disbursed anything.
 		Where("status NOT IN ?", []string{"Pending Approval", "Rejected"}).
 		Where("deleted_at IS NULL")
-	if f.BranchID != nil {
-		q = q.Where("branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("branch_id IN ?", f.BranchIDs)
 	}
 	err := q.Scan(&out).Error
 	return out, err
@@ -178,8 +178,8 @@ func goldLoansRedeemed(ctx context.Context, f models.Filter, from, to time.Time)
 		Where("status = ?", "Closed").
 		Where("updated_at >= ? AND updated_at < ?", from, to).
 		Where("deleted_at IS NULL")
-	if f.BranchID != nil {
-		q = q.Where("branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("branch_id IN ?", f.BranchIDs)
 	}
 	err := q.Scan(&out).Error
 	return out, err
@@ -193,8 +193,8 @@ func personalLoansRedeemed(ctx context.Context, f models.Filter, from, to time.T
 		Where("status = ?", "Closed").
 		Where("closed_at >= ? AND closed_at < ?", from, to).
 		Where("deleted_at IS NULL")
-	if f.BranchID != nil {
-		q = q.Where("branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("branch_id IN ?", f.BranchIDs)
 	}
 	err := q.Scan(&out).Error
 	return out, err
@@ -251,8 +251,8 @@ func loanSpansForMaxOutstanding(ctx context.Context, f models.Filter, from, to t
 		Where("opened_date < ?", to).
 		Where("status <> ? OR updated_at >= ?", "Closed", from).
 		Where("deleted_at IS NULL")
-	if f.BranchID != nil {
-		gq = gq.Where("branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		gq = gq.Where("branch_id IN ?", f.BranchIDs)
 	}
 	if err := gq.Scan(&goldRows).Error; err != nil {
 		return nil, err
@@ -279,8 +279,8 @@ func loanSpansForMaxOutstanding(ctx context.Context, f models.Filter, from, to t
 		Where("status <> ? OR closed_at IS NULL OR closed_at >= ?", "Closed", from).
 		Where("status NOT IN ?", []string{"Pending Approval", "Rejected"}).
 		Where("deleted_at IS NULL")
-	if f.BranchID != nil {
-		pq = pq.Where("branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		pq = pq.Where("branch_id IN ?", f.BranchIDs)
 	}
 	if err := pq.Scan(&personalRows).Error; err != nil {
 		return nil, err
@@ -298,8 +298,8 @@ func formGBranches(ctx context.Context, f models.Filter) ([]FormGBranch, error) 
 	var out []FormGBranch
 	q := config.DB.
 		WithContext(ctx).Table("branches").Select("name, address").Where("deleted_at IS NULL")
-	if f.BranchID != nil {
-		q = q.Where("id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("id IN ?", f.BranchIDs)
 	} else {
 		q = q.Where("is_active = ?", true)
 	}

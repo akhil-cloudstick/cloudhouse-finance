@@ -27,8 +27,8 @@ func expenseCashflow(ctx context.Context, f models.Filter) ([]models.ExpenseCash
 		Where("m.occurred_on >= ? AND m.occurred_on < ?", from, to).
 		Where("m.expense_id IS NULL").
 		Group("date(m.occurred_on), b.name, m.branch_id, m.type")
-	if f.BranchID != nil {
-		mq = mq.Where("m.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		mq = mq.Where("m.branch_id IN ?", f.BranchIDs)
 	}
 	var movements []movementRow
 	if err := mq.Scan(&movements).Error; err != nil {
@@ -49,8 +49,8 @@ func expenseCashflow(ctx context.Context, f models.Filter) ([]models.ExpenseCash
 		Where("e.mode = ?", "Cash").
 		Where("e.status = ?", "Approved").
 		Group("date(e.occurred_on), b.name, e.branch_id")
-	if f.BranchID != nil {
-		eq = eq.Where("e.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		eq = eq.Where("e.branch_id IN ?", f.BranchIDs)
 	}
 	var expenses []expenseRow
 	if err := eq.Scan(&expenses).Error; err != nil {
@@ -114,8 +114,8 @@ func kycReport(ctx context.Context, f models.Filter) ([]models.KYCRow, models.KY
 		Select("c.id as customer_id, c.code, c.name, c.phone, c.kyc_status, c.pan_status, c.aadhaar_status").
 		Where("c.deleted_at IS NULL").
 		Order("c.name asc")
-	if f.BranchID != nil {
-		q = q.Where("c.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("c.branch_id IN ?", f.BranchIDs)
 	}
 	var rows []models.KYCRow
 	if err := q.Scan(&rows).Error; err != nil {
@@ -147,8 +147,8 @@ func employeePerformance(ctx context.Context, f models.Filter) ([]models.Employe
 		Select("e.id as employee_id, e.code, e.name, e.role, b.name as branch_name").
 		Joins("LEFT JOIN branches b ON b.id = e.branch_id").
 		Where("e.deleted_at IS NULL")
-	if f.BranchID != nil {
-		eq = eq.Where("e.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		eq = eq.Where("e.branch_id IN ?", f.BranchIDs)
 	}
 	var emps []empRow
 	if err := eq.Scan(&emps).Error; err != nil {

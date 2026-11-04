@@ -726,6 +726,9 @@ h3,
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
+  /* .btn's letter-spacing would add space after the digit and push it off-center. */
+  letter-spacing: 0;
+  text-indent: 0;
 }
 
 .gs-results .gs-grp {
@@ -4073,6 +4076,11 @@ input[type="number"] {
   width: 100%
 }
 
+/* Keeps the Scheme row's implicit grid column at the card's width; a long scheme label otherwise widened it past the card edge. */
+.calc-card .frow:not(.c2) {
+  grid-template-columns: minmax(0, 1fr)
+}
+
 .calc-card input.inp {
   height: 40px
 }
@@ -6074,6 +6082,14 @@ table.tbl td {
 
 .tbl td.tbl-acts > * + * {
   margin-left: 6px;
+}
+
+.tbl.tbl-center td.tbl-acts {
+  text-align: center;
+}
+
+.tbl td.tbl-acts > a + a {
+  margin-left: 14px;
 }
 
 .tbl-ibtn {
@@ -9078,7 +9094,8 @@ html.has-titlebar .modal-bg {
     padding-right: 0;
   }
 
-  .tbl-stack td.ledger-ref {
+  /* Two classes on .tbl so it outranks `.tbl.ledger-amt td.ledger-ref{max-width:96px}` (≤1500px). */
+  .tbl.tbl-stack td.ledger-ref {
     max-width: none;
   }
 
@@ -9264,6 +9281,16 @@ html.has-titlebar .modal-bg {
 }
 .loan-risk-page .kpis-compact .kpi {
   height: 84px;
+  width: 168px;
+}
+
+/* A floor under the table so it always shows several rows; the page scrolls instead of squeezing it. */
+.loan-risk-page > .tbl-card-fill {
+  min-height: 360px;
+}
+
+.page:has(> .page-fill.loan-risk-page) {
+  overflow-y: auto;
 }
 .loan-risk-page .kpis-compact + .filter-wrap,
 .loan-risk-page .loan-risk-bar {
@@ -9348,6 +9375,33 @@ table.tbl.loans-tbl {
 /* Lockers table (Packets & Lockers page): fits its narrow column. */
 table.tbl.lockers-tbl {
   min-width: 0;
+}
+
+/* Lockers card header: the search gives up width so the filter button stays inside the card. */
+.card .hd .search.lockers-search {
+  flex: 1 1 auto;
+  min-width: 0
+}
+
+/* Packets table: loan numbers and packet codes stay on one line; branch names break between words only. */
+table.tbl.packets-tbl td:nth-child(-n+2),
+table.tbl.lockers-tbl td {
+  overflow-wrap: normal;
+  word-break: normal
+}
+
+table.tbl.packets-tbl td:nth-child(-n+2) {
+  white-space: nowrap
+}
+
+/* Headers wrap onto two lines rather than clipping when these side-by-side cards get narrow. */
+table.tbl.packets-tbl th,
+table.tbl.lockers-tbl th {
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  padding-left: 8px;
+  padding-right: 8px
 }
 
 /* ── Narrow windows: opt-in `.tbl-cards` tables become a 2-column grid of
@@ -9455,11 +9509,11 @@ table.tbl.lockers-tbl {
   table.tbl.tbl-cards tbody { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Packets & Lockers: once the two cards stack (<=1060px) each takes its own
- * natural height (table still capped by .tbl-wrap's max-height) instead of
- * sharing one squeezed 1fr row, which made them overlap. */
-@media (max-width: 1060px) {
+/* Packets & Lockers: below 1300px the two cards are too narrow side by side, so they stack, each at its own
+ * natural height (table still capped by .tbl-wrap's max-height) instead of sharing one squeezed 1fr row. */
+@media (max-width: 1300px) {
   .grid.packets-grid {
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
     grid-auto-rows: auto;
     align-items: start;
@@ -9716,6 +9770,8 @@ table.tbl.lockers-tbl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
     padding: 10px;
+    /* width:100% plus this padding otherwise overflows the wrap and clips the right-hand card. */
+    box-sizing: border-box;
   }
   .tbl-stack tr {
     margin-bottom: 0;
@@ -10146,4 +10202,18 @@ table.tbl.lockers-tbl {
 .top .user:hover .av.av-offline,
 .top .user[aria-expanded="true"] .av.av-offline {
   box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--red);
+}
+
+/* Big screens only (1560px and wider, the app's own small-screen width): Loan Risk and Ledger
+   get wider KPI cards and more room between the cards and the table. */
+@media (min-width: 1560px) {
+  .loan-risk-page .gold-rule { margin-bottom: 16px; }
+  .loan-risk-page .loan-risk-bar { margin-bottom: 20px !important; }
+  .loan-risk-page .kpis.kpis-compact { gap: 16px; }
+  .loan-risk-page .kpis-compact .kpi { width: 220px; height: 92px; }
+
+  .cash-kpi-row { gap: 16px !important; margin-bottom: 20px !important; }
+  /* The 980px basis keeps the date and tabs beside the cards from the same width as before. */
+  .cash-kpi-row > .kpis.kpis-money { flex: 1 1 980px; min-width: 0; max-width: none !important; gap: 16px; }
+  .cash-kpi-row > .cash-side { flex: 0 0 auto; }
 }

@@ -12,17 +12,17 @@ export function GoldSaleRow({ g }: GoldSaleRowProps) {
   const showBranch = useShowBranch();
   return (
     <tr>
-      <td>{fmtDate(g.d)}</td>
-      <td>{g.ornamentType}</td>
-      <td className="num">{fmt(g.soldAmount)}</td>
-      <td className="num">{fmt(g.costAmount)}{g.costMode && g.costAmount > 0 && <div style={{ fontSize: 11, color: "var(--muted)" }}>paid by {g.costMode}</div>}</td>
-      <td className="num" style={{ color: g.profit >= 0 ? "var(--green)" : "var(--red)" }}>
+      <td data-label="Date">{fmtDate(g.d)}</td>
+      <td data-label="Ornament Type">{g.ornamentType}</td>
+      <td className="num" data-label="Sold For">{fmt(g.soldAmount)}</td>
+      <td className="num" data-label="Cost">{fmt(g.costAmount)}{g.costMode && g.costAmount > 0 && <div style={{ fontSize: 11, color: "var(--muted)" }}>paid by {g.costMode}</div>}</td>
+      <td className="num" data-label="Profit / Loss" style={{ color: g.profit >= 0 ? "var(--green)" : "var(--red)" }}>
         {g.profit >= 0 ? "+" : "−"}{fmt(Math.abs(g.profit))}
       </td>
-      <td>{modeCellFor(g.mode)}</td>
-      <td>{g.bankId ? <LedgerRefLink kind="bank" id={g.bankId} label={g.bankName || "Bank"} /> : "—"}</td>
-      {showBranch && <td>{g.branch}</td>}
-      <td>{g.remarks || "—"}</td>
+      <td data-label="Mode">{modeCellFor(g.mode)}</td>
+      <td data-label="Bank">{g.bankId ? <LedgerRefLink kind="bank" id={g.bankId} label={g.bankName || "Bank"} /> : "—"}</td>
+      {showBranch && <td data-label="Branch">{g.branch}</td>}
+      <td data-label="Remarks">{g.remarks || "—"}</td>
     </tr>
   );
 }

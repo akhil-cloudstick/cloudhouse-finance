@@ -28,8 +28,8 @@ func profitAndLoss(ctx context.Context, f models.Filter) ([]models.ProfitLossRow
 			COALESCE(SUM(p.penal_interest_applied), 0) as penal`).
 		Joins("LEFT JOIN loans l ON l.id = p.loan_id").
 		Where("p.paid_on >= ? AND p.paid_on < ?", from, to)
-	if f.BranchID != nil {
-		iq = iq.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		iq = iq.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := iq.Scan(&it).Error; err != nil {
 		return nil, models.ProfitLossTotals{}, err
@@ -42,8 +42,8 @@ func profitAndLoss(ctx context.Context, f models.Filter) ([]models.ProfitLossRow
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
 		Where("r.surplus_disposition = ?", "RecordedAsIncome").
 		Where("r.auction_date >= ? AND r.auction_date < ?", from, to)
-	if f.BranchID != nil {
-		oq = oq.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		oq = oq.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := oq.Scan(&oi).Error; err != nil {
 		return nil, models.ProfitLossTotals{}, err
@@ -54,8 +54,8 @@ func profitAndLoss(ctx context.Context, f models.Filter) ([]models.ProfitLossRow
 		Select("COALESCE(SUM(e.amount), 0) as value").
 		Where("e.status = ?", "Approved").
 		Where("e.occurred_on >= ? AND e.occurred_on < ?", from, to)
-	if f.BranchID != nil {
-		eq = eq.Where("e.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		eq = eq.Where("e.branch_id IN ?", f.BranchIDs)
 	}
 	if err := eq.Scan(&oe).Error; err != nil {
 		return nil, models.ProfitLossTotals{}, err
@@ -69,8 +69,8 @@ func profitAndLoss(ctx context.Context, f models.Filter) ([]models.ProfitLossRow
 		Joins("LEFT JOIN loans l ON l.id = p.loan_id").
 		Where("p.type = ?", "Discount").
 		Where("p.paid_on >= ? AND p.paid_on < ?", from, to)
-	if f.BranchID != nil {
-		dq = dq.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		dq = dq.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := dq.Scan(&da).Error; err != nil {
 		return nil, models.ProfitLossTotals{}, err

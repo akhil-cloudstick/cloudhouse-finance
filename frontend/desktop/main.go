@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 
 	"cloudhouse/desktop/update"
 
@@ -94,7 +95,15 @@ func assetOptions() *assetserver.Options {
 // The window has no native frame; the page draws its own title bar (DesktopTitleBar.tsx).
 const framelessWindow = true
 
+var nonIDChars = regexp.MustCompile(`[^a-z0-9]+`)
+
+// One lock per business, so two different tenants' apps can still run side by side.
+func instanceID() string {
+	return "cloudhouse-finance-" + nonIDChars.ReplaceAllString(strings.ToLower(windowTitle), "-")
+}
+
 func main() {
+	update.WaitForPreviousInstance(os.Args[1:])
 	update.CleanupOld()
 	if framelessWindow {
 		roundWindowCorners(windowTitle)
@@ -118,6 +127,10 @@ func main() {
 		Frameless:                framelessWindow,
 		AssetServer:              assetOptions(),
 		OnStartup:                app.startup,
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               instanceID(),
+			OnSecondInstanceLaunch: app.onSecondInstanceLaunch,
+		},
 		Bind:                     []any{app},
 	})
 	if err != nil {

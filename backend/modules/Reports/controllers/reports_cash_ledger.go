@@ -72,9 +72,15 @@ func ledgerParticulars(loan int, openedYear map[int]int) string {
 }
 
 // buildCashLedger turns the movements of the period (ledger order, oldest first) into the
-// report's rows. `opening` is the balance in hand before the first of them; `loan` (0 = all)
-// keeps only that loan's rows, the balance still counting every movement.
-func buildCashLedger(opening float64, moves []ledgerMovement, openedYear map[int]int, loan int) ([]models.CashLedgerRow, models.CashLedgerTotals) {
+// report's rows. `opening` is the balance in hand before the first of them; `loans` (none or 0 = all)
+// keeps only those loans' rows, the balance still counting every movement.
+func buildCashLedger(opening float64, moves []ledgerMovement, openedYear map[int]int, loans ...int) ([]models.CashLedgerRow, models.CashLedgerTotals) {
+	only := map[int]bool{}
+	for _, l := range loans {
+		if l != 0 {
+			only[l] = true
+		}
+	}
 	totals := models.CashLedgerTotals{OpeningBalance: opening}
 	var rows []models.CashLedgerRow
 	balance := opening
@@ -107,7 +113,7 @@ func buildCashLedger(opening float64, moves []ledgerMovement, openedYear map[int
 		balance = common.RoundDecimal2(balance)
 		monthEnd = balance
 		ref := ledgerLoanNumber(m.Purpose)
-		if loan != 0 && ref != loan {
+		if len(only) > 0 && !only[ref] {
 			continue
 		}
 		rows = append(rows, models.CashLedgerRow{
@@ -132,8 +138,8 @@ func cashLedger(ctx context.Context, f models.Filter, loanQuery string) ([]model
 	from, to := dateRange(f)
 	scoped := func() *gorm.DB {
 		q := config.DB.WithContext(ctx).Table("cash_movements")
-		if f.BranchID != nil {
-			q = q.Where("branch_id = ?", *f.BranchID)
+		if len(f.BranchIDs) > 0 {
+			q = q.Where("branch_id IN ?", f.BranchIDs)
 		}
 		return q
 	}
@@ -157,7 +163,12 @@ func cashLedger(ctx context.Context, f models.Filter, loanQuery string) ([]model
 	if err != nil {
 		return nil, models.CashLedgerTotals{}, err
 	}
-	rows, totals := buildCashLedger(common.RoundDecimal2(opening), moves, openedYear, ledgerLoanQuery(loanQuery))
+	// loanQuery may name several loans, comma-separated.
+	var loans []int
+	for _, part := range strings.Split(loanQuery, ",") {
+		loans = append(loans, ledgerLoanQuery(part))
+	}
+	rows, totals := buildCashLedger(common.RoundDecimal2(opening), moves, openedYear, loans...)
 	return rows, totals, nil
 }
 

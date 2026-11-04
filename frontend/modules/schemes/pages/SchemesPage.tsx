@@ -39,7 +39,8 @@ export function SchemesPage() {
   const [q, setQ] = usePersistedState("schemes:q", "");
   const [methods, setMethods] = usePersistedState<string[]>("schemes:methods", []);
   const [statuses, setStatuses] = usePersistedState<string[]>("schemes:status", []);
-  const status = statuses[0];
+  // Both Active and Inactive picked is the same as no status filter.
+  const status = statuses.length === 1 ? statuses[0] : undefined;
 
   const filterCategories: FilterCategory[] = [
     {
@@ -47,7 +48,7 @@ export function SchemesPage() {
       options: SCHEME_METHODS.map((m) => ({ value: m, label: m })),
     },
     {
-      key: "status", label: "Status", kind: "static", singleSelect: true,
+      key: "status", label: "Status", kind: "static",
       options: [{ value: "Active", label: "Active" }, { value: "Inactive", label: "Inactive" }],
     },
   ];

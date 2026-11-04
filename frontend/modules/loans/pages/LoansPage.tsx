@@ -115,7 +115,7 @@ export function LoansPage() {
         branchId: branchIds.map(Number),
         customerId: customerIds.map(Number),
         schemeId: schemeIds.map(Number),
-        bankPledgeStatus: pledgeStatuses[0],
+        bankPledgeStatus: pledgeStatuses,
         from: fromDate || undefined,
         to: toDate || undefined,
         page,
@@ -167,7 +167,7 @@ export function LoansPage() {
         })),
     },
     {
-      key: "pledge", label: "Pledge Status", kind: "static" as const, singleSelect: true, searchHint: "Filters by bank pledge status",
+      key: "pledge", label: "Pledge Status", kind: "static" as const, searchHint: "Filters by bank pledge status",
       options: PLEDGE_STATUSES.map((v) => ({ value: v, label: v })),
     },
     { key: "__date", label: "Date", kind: "date" as const },

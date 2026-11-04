@@ -253,7 +253,7 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center tbl-cards"><TableCols widths={[14, 11, 28, 8, 11, 14, 14]} />
+            <table className="tbl tbl-center tbl-cards packets-tbl"><TableCols widths={[15, 12, 20, 8, 10, 11, 24]} />
               <thead>
                 <tr><th>Packet Code</th><th>Loan</th><th>Customer</th><th className="num">Items</th><th className="num">Weight</th><th>Locker</th><th>Status</th></tr>
               </thead>
@@ -297,7 +297,7 @@ export function PacketsPage() {
           <div className="hd">
             <h3>Lockers</h3>
             <div className="sp" />
-            <div className="search" style={{ maxWidth: 240 }}><Icon name="search" /><input
+            <div className="search lockers-search" style={{ maxWidth: 240 }}><Icon name="search" /><input
               className="inp"
               style={{ height: 31, paddingTop: 0, paddingBottom: 0, fontSize: 13 }}
               value={lockerLookup}
@@ -317,7 +317,7 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center lockers-tbl tbl-cards"><TableCols widths={[40, ...(showBranch ? [20] : []), 20, 20]} />
+            <table className="tbl tbl-center lockers-tbl tbl-cards"><TableCols widths={showBranch ? [24, 30, 22, 24] : [34, 30, 36]} />
               <thead>
                 <tr><th>Locker</th>{showBranch && <th>Branch</th>}<th className="num">Packets</th><th>Status</th></tr>
               </thead>

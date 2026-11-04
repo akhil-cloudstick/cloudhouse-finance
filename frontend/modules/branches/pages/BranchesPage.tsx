@@ -140,27 +140,25 @@ export function BranchesPage() {
       {branches !== null && (branches.length > 0 || !!q.trim()) && (
         <div className="card tbl-rounded">
           <div className="tbl-wrap">
-            <table className="tbl">
-              <TableCols widths={[18, 9, 33, 14, 12, 8]} />
+            <table className="tbl tbl-center tbl-cards">
+              <TableCols widths={[16, 10, 24, 12, 10, "200px"]} />
               <thead>
                 <tr><th>Branch</th><th>Code</th><th>Address</th><th>Phone</th><th>Status</th><th></th></tr>
               </thead>
               <tbody>
                 {branches.map((b) => (
                   <tr key={b.id}>
-                    <td><b>{b.name}</b></td>
-                    <td>{b.code || "—"}</td>
-                    <td>{b.address}</td>
-                    <td>{b.phone || "—"}</td>
-                    <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: 12 }}>
-                        {canViewBranchLedger && <a href={routeHref("ledger-branch", b.id)}>Ledger</a>}
-                        {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
-                        {canUpdateBranches && b.isActive && (
-                          <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
-                        )}
-                      </div>
+                    <td data-label="Branch"><b>{b.name}</b></td>
+                    <td data-label="Code">{b.code || "—"}</td>
+                    <td data-label="Address">{b.address}</td>
+                    <td data-label="Phone">{b.phone || "—"}</td>
+                    <td data-label="Status">{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
+                    <td className="tbl-acts">
+                      {canViewBranchLedger && <a href={routeHref("ledger-branch", b.id)}>Ledger</a>}
+                      {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
+                      {canUpdateBranches && b.isActive && (
+                        <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
+                      )}
                     </td>
                   </tr>
                 ))}

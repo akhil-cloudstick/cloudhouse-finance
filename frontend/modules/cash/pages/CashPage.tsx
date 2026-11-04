@@ -5,7 +5,6 @@ import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
-import { ManageCategoriesModalContent } from "@/modules/cash/components/ManageCategoriesModalContent";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtDate, localToday } from "@/common/utils/format";
@@ -434,7 +433,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
       </div>
       <hr className="gold-rule rule-sm" />
 
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
+      <div className="cash-kpi-row" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
         <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
           <Kpi l={`Opening Cash (${dayLabel})`} v={fmt(summary?.openingCash || 0)} s="carried forward" />
           {/* Backend's `collections` is every cash-in movement for the day —
@@ -533,11 +532,6 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
                 }}
                 hideChips
               />
-            {canUpdateCash && (
-              <button className="btn ghost sm" onClick={() => openModal(<ManageCategoriesModalContent initialKind="cash_in" />)} title="Delete categories you no longer use">
-                <Icon name="edit" /> Categories
-              </button>
-            )}
               {canExport && (
                 <button className="btn ghost sm" onClick={downloadMovements} disabled={downloadingMovements} title="Download every row matching the current filters">
                   <Icon name="download" /> {downloadingMovements ? "Preparing…" : "Download"}
@@ -592,11 +586,6 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
               }}
               hideChips
             />
-            {canUpdateCash && (
-              <button className="btn ghost sm" onClick={() => openModal(<ManageCategoriesModalContent />)} title="Delete categories you no longer use">
-                <Icon name="edit" /> Categories
-              </button>
-            )}
             {canExport && (
               <button className="btn ghost sm" onClick={downloadExpenses} disabled={downloadingExpenses} title="Download every expense row">
                 <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
@@ -661,7 +650,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
               Total profit {fmt(goldSales.reduce((s, g) => s + g.profit, 0))}
             </span>          </div>
           <div className="tbl-wrap tbl-scroll">
-            <table className="tbl tbl-center tbl-roomy">
+            <table className="tbl tbl-center tbl-roomy tbl-stack ledger-nowrap">
               <TableCols widths={[10, 14, 11, 11, 11, 9, 11, ...(showBranch ? [10] : []), 13]} />
               <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Mode</th><th>Bank</th>{showBranch && <th>Branch</th>}<th>Remarks</th></tr></thead>
               <tbody>

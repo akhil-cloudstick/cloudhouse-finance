@@ -13,6 +13,8 @@ import { getCustomer, listCustomersPage } from "@/modules/customers/services/cus
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { listInvestmentsPage } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment } from "@/modules/investments/types/investment-types";
+import { CreateInvestorModalContent } from "@/modules/investments/components/CreateInvestorModalContent";
+import { useAuth } from "@/common/providers/AuthProvider";
 
 const PAGE_SIZE = 10;
 
@@ -85,7 +87,8 @@ function InvestorInvestments({ customerId, from, to }: InvestorInvestmentsProps)
 /* Every investor, each opening to the investments they hold. Filtered by investor name and by the investments'
  * start date; more investors load as the list is scrolled. */
 export function InvestorsModalContent() {
-  const { closeModal } = useModal();
+  const { closeModal, openChildModal } = useModal();
+  const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
   const [investorIds, setInvestorIds] = useState<string[]>([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -138,7 +141,8 @@ export function InvestorsModalContent() {
     <>
       <div className="hd"><h3>Investors</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          {canCreateCustomer && <button className="btn sm" onClick={() => openChildModal(<CreateInvestorModalContent onCreated={() => closeModal()} />)}>+ New Investor</button>}
           <FilterPanel
             categories={filterCategories}
             value={filterValue}

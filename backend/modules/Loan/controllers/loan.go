@@ -157,6 +157,8 @@ type LoanFilter struct {
 	OpenedTo           *time.Time
 	ExcludeBankPledged bool
 	BankPledgeStatus   string
+	// Set instead of BankPledgeStatus when more than one pledge status is picked.
+	BankPledgeStatuses []string
 	DueToday           bool
 	OnlyDefaulted      bool
 	Servicing          string
@@ -1341,6 +1343,9 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if f.BankPledgeStatus != "" {
 		q = q.Where("loans.bank_pledge_status = ?", f.BankPledgeStatus)
 	}
+	if len(f.BankPledgeStatuses) > 0 {
+		q = q.Where("loans.bank_pledge_status IN ?", f.BankPledgeStatuses)
+	}
 	if f.DueToday {
 		today := startOfDay(time.Now())
 		q = q.Where("loans.status IN ?", openServicingStatuses).
@@ -1528,7 +1533,11 @@ func ListLoans(c echo.Context) error {
 		}
 	}
 	f.ExcludeBankPledged = c.QueryParam("exclude_bank_pledged") == "true"
-	f.BankPledgeStatus = c.QueryParam("bank_pledge_status")
+	if pledge := splitCSV(c.QueryParam("bank_pledge_status")); len(pledge) > 1 {
+		f.BankPledgeStatuses = pledge
+	} else {
+		f.BankPledgeStatus = c.QueryParam("bank_pledge_status")
+	}
 	if ids := parseUintCSV(c.QueryParam("branch_id")); len(ids) == 1 {
 		f.BranchID = ids[0]
 	} else {

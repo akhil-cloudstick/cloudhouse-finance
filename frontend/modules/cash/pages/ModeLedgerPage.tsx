@@ -95,7 +95,8 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
   const branchIds = showBranchFilter && Array.isArray(filters.branch) ? filters.branch : [];
   const typeValues = Array.isArray(filters.type) ? filters.type : [];
   const bankValues = Array.isArray(filters.bank) ? filters.bank : [];
-  const bankId = bankValues.length ? Number(bankValues[0]) : undefined;
+  // Several banks go to the API comma-joined; a string also keeps the effect deps stable.
+  const bankId = bankValues.length ? bankValues.join(",") : undefined;
 
   useEffect(() => {
     listActiveBranches().then(setBranches).catch(() => {});
@@ -180,7 +181,6 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
           label: "Bank",
           kind: "async" as const,
           searchHint: "Searches: bank name",
-          singleSelect: true,
           fetchOptions: (search: string, p: number) =>
             searchBanksPage(search, p - 1).then((res) => ({
               items: res.items.map((b: BackendBank) => ({ value: String(b.id), label: b.branch ? `${b.name} — ${b.branch}` : b.name })),

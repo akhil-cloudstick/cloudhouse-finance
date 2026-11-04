@@ -257,13 +257,34 @@ export function FilterPanel({
     // internal scroller, needed for its infinite-scroll pagination) must
     // NOT count — the capture-phase listener sees that scroll too, so it's
     // excluded by checking the event target is outside the popover itself.
-    function onScroll(e: Event) {
-      if (panelRef.current && e.target instanceof Node && panelRef.current.contains(e.target)) return;
-      setOpen(false);
+    // Only a scroll the user starts closes it. Picking an option can reload the page's table, and
+    // the shorter content clamps the scroll position: the popover then stays put, so the option
+    // under the pointer does not move.
+    const inPanel = (t: EventTarget | null) => !!panelRef.current && t instanceof Node && panelRef.current.contains(t);
+    let userScrollUntil = 0;
+    function markUserScroll(e: Event) {
+      if (!inPanel(e.target)) userScrollUntil = Date.now() + 700;
     }
+    const SCROLL_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "]);
+    function onKeyDown(e: KeyboardEvent) {
+      if (SCROLL_KEYS.has(e.key)) markUserScroll(e);
+    }
+    function onScroll(e: Event) {
+      if (inPanel(e.target)) return;
+      if (Date.now() <= userScrollUntil) setOpen(false);
+    }
+    const passive: AddEventListenerOptions = { capture: true, passive: true };
+    window.addEventListener("wheel", markUserScroll, passive);
+    window.addEventListener("touchmove", markUserScroll, passive);
+    window.addEventListener("mousedown", markUserScroll, true);
+    window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", updatePos);
     return () => {
+      window.removeEventListener("wheel", markUserScroll, passive);
+      window.removeEventListener("touchmove", markUserScroll, passive);
+      window.removeEventListener("mousedown", markUserScroll, true);
+      window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", updatePos);
     };

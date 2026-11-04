@@ -9,7 +9,7 @@
 export type ReportFilters = {
   from?: string; // "YYYY-MM-DD"
   to?: string; // "YYYY-MM-DD"
-  branchId?: number;
+  branchId?: number | string; // one id, or several comma-joined
   page?: number;
   pageSize?: number;
   search?: string; // matched server-side against every field of a row

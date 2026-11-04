@@ -920,37 +920,37 @@ func listCashModeLedger(ctx context.Context, branchID *uint, branchIDs []uint, s
 	return listModeLedger(ctx, "Cash", nil, branchID, branchIDs, nil, search, fromDate, toDate, limit, offset)
 }
 
-func listModeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, types []string, search string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+func listModeLedger(ctx context.Context, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, types []string, search string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
-		return modeLedger(ctx, mode, bankID, branchID, branchIDs, from, to)
+		return modeLedger(ctx, mode, bankIDs, branchID, branchIDs, from, to)
 	}
 	keep := withLedgerSearch(func(rows []ledgerSourceRow) []ledgerSourceRow { return filterLedgerRowsByType(rows, types) }, search)
 	// The mode ledgers span the whole cash book: cache their closed years' totals.
 	tenantID, _ := config.TenantFromContext(ctx)
-	key := fmt.Sprintf("mode|%d|%s|%s|%s|%v|%v|%s", tenantID, mode, uintKey(bankID), uintKey(branchID), branchIDs, types, strings.ToLower(strings.TrimSpace(search)))
+	key := fmt.Sprintf("mode|%d|%s|%s|%s|%v|%v|%s", tenantID, mode, fmt.Sprint(bankIDs), uintKey(branchID), branchIDs, types, strings.ToLower(strings.TrimSpace(search)))
 	return paginateLedgerWindowedCached(ctx, key, modeLedgerFingerprint, fetch, keep, fromDate, toDate, limit, offset)
 }
 
-func modeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func modeLedger(ctx context.Context, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	db := config.DB.
 		WithContext(ctx)
 	var rows []ledgerSourceRow
-	cmRows, err := scanCashMovementsForModeLedger(db, mode, bankID, branchID, branchIDs, fromDate, toDate)
+	cmRows, err := scanCashMovementsForModeLedger(db, mode, bankIDs, branchID, branchIDs, fromDate, toDate)
 	if err != nil {
 		return nil, err
 	}
 	rows = append(rows, cmRows...)
-	lpRows, err := scanLoanPaymentsForModeLedger(db, mode, bankID, branchID, branchIDs, fromDate, toDate)
+	lpRows, err := scanLoanPaymentsForModeLedger(db, mode, bankIDs, branchID, branchIDs, fromDate, toDate)
 	if err != nil {
 		return nil, err
 	}
 	rows = append(rows, lpRows...)
-	plpRows, err := scanPersonalLoanPaymentsForModeLedger(db, mode, bankID, branchID, branchIDs, fromDate, toDate)
+	plpRows, err := scanPersonalLoanPaymentsForModeLedger(db, mode, bankIDs, branchID, branchIDs, fromDate, toDate)
 	if err != nil {
 		return nil, err
 	}
 	rows = append(rows, plpRows...)
-	gsRows, err := scanGoldSalesForModeLedger(db, mode, bankID, branchID, branchIDs, fromDate, toDate)
+	gsRows, err := scanGoldSalesForModeLedger(db, mode, bankIDs, branchID, branchIDs, fromDate, toDate)
 	if err != nil {
 		return nil, err
 	}
@@ -977,7 +977,7 @@ const movementNotShownByPaymentSQL = `(m.source IS DISTINCT FROM 'Collection' OR
 	WHERE m.transaction_group_id <> '' AND lp.cash_transaction_group_id = m.transaction_group_id
 	AND lp.cash_amount + lp.upi_amount + lp.bank_transfer_amount + lp.cheque_amount > 0)))`
 
-func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID              uint
 		OccurredOn      time.Time
@@ -1002,8 +1002,8 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankID *uint, bran
 		Where("m.mode = ?", mode).
 		Where(movementNotShownByPaymentSQL).
 		Where("m.source IS DISTINCT FROM ?", "GoldSale")
-	if bankID != nil {
-		q = q.Where("m.bank_id = ?", *bankID)
+	if len(bankIDs) > 0 {
+		q = q.Where("m.bank_id IN ?", bankIDs)
 	}
 	q = applyBranchScope(q, "m.branch_id", branchID, branchIDs)
 	if !fromDate.IsZero() {
@@ -1044,7 +1044,7 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankID *uint, bran
 	return out, nil
 }
 
-func scanLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func scanLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID                                                                            uint
 		LoanID                                                                        uint
@@ -1078,8 +1078,8 @@ func scanLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branc
 		// an auction payment saved before it kept its modes has no split on the row: it is matched here and
 		// given the sale's modes below
 		Where("("+modePaymentFilter(mode)+" OR (p.type = 'Auction Sale' AND p.cash_amount + p.upi_amount + p.bank_transfer_amount + p.cheque_amount = 0))", mode)
-	if bankID != nil {
-		q = q.Where("p.bank_id = ?", *bankID)
+	if len(bankIDs) > 0 {
+		q = q.Where("p.bank_id IN ?", bankIDs)
 	}
 	q = applyBranchScope(q, "l.branch_id", branchID, branchIDs)
 	if !fromDate.IsZero() {
@@ -1133,7 +1133,7 @@ func scanLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branc
 	return onlyMode(out, mode), nil
 }
 
-func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID                 uint
 		PersonalLoanID     uint
@@ -1161,8 +1161,8 @@ func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uin
 		Joins("LEFT JOIN customers c ON c.id = pl.customer_id").
 		Joins("LEFT JOIN banks bk ON bk.id = p.bank_id").
 		Where(modePaymentFilter(mode), mode)
-	if bankID != nil {
-		q = q.Where("p.bank_id = ?", *bankID)
+	if len(bankIDs) > 0 {
+		q = q.Where("p.bank_id IN ?", bankIDs)
 	}
 	q = applyBranchScope(q, "pl.branch_id", branchID, branchIDs)
 	if !fromDate.IsZero() {
@@ -1202,7 +1202,7 @@ func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankID *uin
 	return onlyMode(out, mode), nil
 }
 
-func scanGoldSalesForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func scanGoldSalesForModeLedger(db *gorm.DB, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID           uint
 		SoldOn       time.Time
@@ -1216,8 +1216,8 @@ func scanGoldSalesForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID
 		Select(`g.id, g.sold_on, g.ornament_type, g.mode, g.sold_amount, g.bank_id, bk.name as bank_name`).
 		Joins("LEFT JOIN banks bk ON bk.id = g.bank_id").
 		Where("g.mode = ?", mode)
-	if bankID != nil {
-		q = q.Where("g.bank_id = ?", *bankID)
+	if len(bankIDs) > 0 {
+		q = q.Where("g.bank_id IN ?", bankIDs)
 	}
 	q = applyBranchScope(q, "g.branch_id", branchID, branchIDs)
 	if !fromDate.IsZero() {

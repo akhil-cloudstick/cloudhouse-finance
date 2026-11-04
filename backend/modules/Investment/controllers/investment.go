@@ -1380,6 +1380,37 @@ func GetInvestmentPlan(c echo.Context) error {
 	return common.Success(c, http.StatusOK, rec)
 }
 
+func DeleteInvestmentPlan(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	if err := deletePlan(ctx, id); err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"deleted": true})
+}
+
+// deletePlan refuses a plan any investment still points at, since that investment's terms come from it.
+func deletePlan(ctx context.Context, id uint) error {
+	rec, err := findPlanByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return common.NewNotFound("investment plan not found")
+		}
+		return err
+	}
+	var used int64
+	if err := config.DB.WithContext(ctx).Model(&models.Investment{}).Where("plan_id = ?", rec.ID).Count(&used).Error; err != nil {
+		return err
+	}
+	if used > 0 {
+		return common.NewConflict(fmt.Sprintf("This plan is used by %d investment(s) and can't be deleted — mark it inactive instead.", used))
+	}
+	return config.DB.WithContext(ctx).Delete(rec).Error
+}
+
 func CreateInvestment(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	var req createRequest

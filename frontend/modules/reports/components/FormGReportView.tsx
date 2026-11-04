@@ -47,7 +47,8 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
   // branch) or while the global branch selector already scopes the page.
   const showBranchFilter = useShowBranchFilter();
   const showBranch = useShowBranch();
-  const [branchId, setBranchId] = useState<number>(0);
+  // One branch id, or several comma-joined.
+  const [branchId, setBranchId] = useState("");
   // Default range is the LAST 3 MONTHS, not the firstOfMonth()/today() every
   // other report defaults to — per the client's requirement for this one
   // report only (see subMonths below).
@@ -96,16 +97,16 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
 
   // One grouped filter: Branch and Date (the Quick Range shortcut stays beside it).
   const filterCategories: FilterCategory[] = [
-    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     { key: "__date", label: "Date", kind: "date" as const },
   ];
   const filterValue: FilterValue = {
-    branch: branchId ? [String(branchId)] : [],
+    branch: branchId ? branchId.split(",") : [],
     __dateFrom: from || undefined,
     __dateTo: to || undefined,
   };
   function onFilterChange(next: FilterValue) {
-    setBranchId(Array.isArray(next.branch) && next.branch[0] ? Number(next.branch[0]) : 0);
+    setBranchId(Array.isArray(next.branch) ? next.branch.join(",") : "");
     setFrom(next.__dateFrom || subMonths(today(), 3));
     setTo(next.__dateTo || today());
   }

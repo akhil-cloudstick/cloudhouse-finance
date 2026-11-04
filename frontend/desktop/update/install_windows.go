@@ -1,9 +1,6 @@
 package update
 
-import (
-	"os"
-	"os/exec"
-)
+import "os"
 
 func swapAndRelaunch(staged string) error {
 	exe, err := os.Executable()
@@ -19,7 +16,7 @@ func swapAndRelaunch(staged string) error {
 		os.Rename(old, exe)
 		return err
 	}
-	return exec.Command(exe).Start()
+	return relaunch(exe)
 }
 
 // CleanupOld removes the previous binary left behind by the last install.
