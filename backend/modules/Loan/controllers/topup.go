@@ -348,8 +348,12 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 		// (not netted off the payout), booked in the same mode and bank.
 		deducted := common.RoundMoney(in.Amount - cashOut)
 		txCtx := cashbook.WithTx(ctx, tx)
-		if _, _, err := cashbook.RecordLoanTopUpCashOut(txCtx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, occurredOn, l.CustomerID, in.BankID); err != nil {
+		_, topUpGroupID, err := cashbook.RecordLoanTopUpCashOut(txCtx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, occurredOn, l.CustomerID, in.BankID)
+		if err != nil {
 			return fmt.Errorf("could not record the top-up in Cash-in-Hand, top-up not saved: %w", err)
+		}
+		if err := tx.WithContext(ctx).Model(&models.LoanTopUp{}).Where("id = ?", topUp.ID).Update("cash_transaction_group_id", topUpGroupID).Error; err != nil {
+			return err
 		}
 		if deducted > 0.01 {
 			_, groupID, err := cashbook.RecordLoanPaymentCashIn(txCtx, l.ID, l.LoanNumber, deducted, intCash, intUpi, intBank, 0, l.BranchID, occurredOn, "Interest (top-up settlement)", l.CustomerID, in.BankID)
@@ -443,8 +447,7 @@ func findLoanTopUpByLoanID(ctx context.Context, loanID uint) ([]models.LoanTopUp
 
 func findLoanTopUpActiveByLoanID(ctx context.Context, loanID uint) ([]models.LoanTopUp, error) {
 	var recs []models.LoanTopUp
-	err := config.DB.
-		WithContext(ctx).Where("loan_id = ? AND status = ?", loanID, models.TopUpStatusActive).Order("occurred_on desc, id desc").Find(&recs).Error
+	err := replayDB(ctx).Where("loan_id = ? AND status = ?", loanID, models.TopUpStatusActive).Order("occurred_on desc, id desc").Find(&recs).Error
 	return recs, err
 }
 

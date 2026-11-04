@@ -8,6 +8,8 @@ import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { shareLoanStatementPdf } from "@/common/utils/ledgerExport";
 import { dmy, inr } from "@/common/utils/format";
 import type { Loan, LoanTopUp } from "@/modules/loans/types/loan-types";
+import { LedgerPaymentEditSheet } from "@/modules/loans/components/LedgerPaymentEditSheet";
+import { TopUpEditSheet } from "@/modules/loans/components/TopUpEditSheet";
 
 type Payment = NonNullable<Loan["payments"]>[number];
 
@@ -29,7 +31,14 @@ type Entry = {
   kind?: string;
   /** A memo row (auction sale / surplus) — shown for the record, not a debit or credit of its own. */
   memo?: string;
+  /** The payment or discount behind a row that can be edited or deleted (set on a split payment's first row only). */
+  editable?: Payment;
+  /** The top-up behind a row (set on a split top-up's first row only) — it can be edited or deleted. */
+  editableTopUp?: LoanTopUp;
 };
+
+// Payment rows the server can recalculate the loan around.
+const EDITABLE_TYPES = ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement", "Discount"];
 
 const PAGE = 10;
 
@@ -177,6 +186,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
       method: modes || undefined,
       reference: t.reference || undefined,
       split: [{ k: "Eligible at top-up", v: inr(t.eligibleAmountAtTopUp) }],
+      editableTopUp: reversed ? undefined : t,
     };
     const parts = splitParts(t);
     if (parts.length === 0) rows.push(topUp);
@@ -188,6 +198,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
         debit: pt.amount,
         method: pt.mode,
         split: pt.index === 0 ? topUp.split : [],
+        editableTopUp: pt.index === 0 ? topUp.editableTopUp : undefined,
       });
     }
   }
@@ -216,6 +227,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
       method: method || undefined,
       reference: p.reference || undefined,
       split,
+      editable: EDITABLE_TYPES.includes(p.type) ? p : undefined,
     };
     const parts = nonCash ? [] : splitParts(p);
     if (parts.length === 0) rows.push(payment);
@@ -231,6 +243,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
         method: pt.mode,
         // The allocation breakdown is the whole payment's — shown once.
         split: pt.index === 0 ? split : [],
+        editable: pt.index === 0 ? payment.editable : undefined,
       });
     }
   }
@@ -279,7 +292,13 @@ type LoanLedgerProps = { loan: Loan; topUps: LoanTopUp[] };
  * Debit/Credit chip, opening to the web table's columns plus the split. The
  * Type / Date filter, the Debit / Credit totals and Download match web's. */
 export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
-  const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
+  const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
+  // Editing/deleting a ledger entry recalculates the loan from its first day, so each has its own grant.
+  const canEdit = can("Loan_Management", "can_edit_ledger_entry");
+  const canDelete = can("Loan_Management", "can_delete_ledger_entry");
+  const [editing, setEditing] = useState<{ payment: Payment; mode: "edit" | "delete" } | null>(null);
+  const [editingTopUp, setEditingTopUp] = useState<{ topUp: LoanTopUp; mode: "edit" | "delete" } | null>(null);
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const kinds = gfValues(fv, "kind");
   const { from, to } = gfDate(fv, "date");
@@ -342,13 +361,15 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
     <View style={{ paddingHorizontal: 18 }}>
       {toolbar}
       {totals && (totals.totalDebit != null || totals.totalCredit != null) ? (
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>
-            Total Debit <Txt style={{ fontWeight: "700", color: C.red }}>{inr(totals.totalDebit ?? 0)}</Txt>
-          </Txt>
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>
-            Total Credit <Txt style={{ fontWeight: "700", color: C.green }}>{inr(totals.totalCredit ?? 0)}</Txt>
-          </Txt>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Txt style={{ fontSize: 12.5, color: C.muted }}>Total Debit</Txt>
+            <Txt style={{ fontSize: 14, fontWeight: "700", color: C.red }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(totals.totalDebit ?? 0)}</Txt>
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Txt style={{ fontSize: 12.5, color: C.muted }}>Total Credit</Txt>
+            <Txt style={{ fontSize: 14, fontWeight: "700", color: C.green }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(totals.totalCredit ?? 0)}</Txt>
+          </View>
         </View>
       ) : null}
       {hidden > 0 ? <AccBtn label={`Show ${Math.min(PAGE, hidden)} earlier (${hidden} more)`} onPress={() => setShown((s) => s + PAGE)} style={{ marginBottom: 10 }} /> : null}
@@ -378,10 +399,26 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
               status={chip.label}
               statusTone={chip.tone}
               details={details}
+              actions={
+                (e.editable || e.editableTopUp) && (canEdit || canDelete)
+                  ? [
+                      ...(canEdit ? [{ label: "Edit", onPress: () => (e.editable ? setEditing({ payment: e.editable, mode: "edit" as const }) : setEditingTopUp({ topUp: e.editableTopUp!, mode: "edit" as const })) }] : []),
+                      ...(canDelete ? [{ label: "Delete", danger: true, onPress: () => (e.editable ? setEditing({ payment: e.editable, mode: "delete" as const }) : setEditingTopUp({ topUp: e.editableTopUp!, mode: "delete" as const })) }] : []),
+                    ]
+                  : undefined
+              }
             />
           );
         })}
       </AccGroup>
+      <LedgerPaymentEditSheet
+        loanId={loan.id}
+        loanStart={loan.openedDate}
+        payment={editing?.payment ?? null}
+        mode={editing?.mode ?? "edit"}
+        onClose={() => setEditing(null)}
+      />
+      <TopUpEditSheet loanId={loan.id} loanStart={loan.openedDate} topUp={editingTopUp?.topUp ?? null} mode={editingTopUp?.mode ?? "edit"} onClose={() => setEditingTopUp(null)} />
     </View>
   );
 }

@@ -7,6 +7,7 @@ import { fmt } from "@/common/utils/format";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError } from "@/common/components/ui/FieldError";
+import { PledgeDetailsGrid, type PledgeDetailsGridProps } from "@/modules/loans/components/PledgeDetailsModalContent";
 
 export type ReleasePayment = SplitAmounts & { bankId?: number };
 
@@ -14,6 +15,8 @@ type ReleasePledgeModalContentProps = {
   bankName: string;
   amount: number;
   cashTreatment: string;
+  /* When given, the pledge's interest / due date / etc. show above the confirmation. */
+  details?: PledgeDetailsGridProps;
   onConfirm: (payment: ReleasePayment | undefined) => Promise<void>;
 };
 
@@ -25,6 +28,7 @@ export function ReleasePledgeModalContent({
   bankName,
   amount,
   cashTreatment,
+  details,
   onConfirm,
 }: ReleasePledgeModalContentProps) {
   const { closeModal } = useModal();
@@ -55,6 +59,7 @@ export function ReleasePledgeModalContent({
     <>
       <div className="hd"><h3>Release Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
+        {details && <PledgeDetailsGrid {...details} />}
         <p style={{ fontSize: 13.5, marginBottom: 12 }}>
           Release the gold pledged to <strong>{bankName}</strong> for <strong>{fmt(amount)}</strong>?
           {cashIn ? " Choose how the amount is paid back to the bank." : " No cash movement will be created — this pledge was recorded only."}

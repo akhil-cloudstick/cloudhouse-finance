@@ -5,6 +5,7 @@ import {
   readToken,
   resolveActiveSlug,
 } from "@/common/services/tenantSession";
+import { setReachable } from "@/common/offline/network";
 import { branchHeader, SELECTED_BRANCH_HEADER } from "@/common/services/branchSelection";
 import { fromApi, toApi } from "@/common/services/apiContract";
 import { branchScoped, cacheable, recall, remember } from "@/common/offline/readCache";
@@ -25,7 +26,7 @@ export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.
 /* Thin fetch wrapper for the Go backend (Gin, `/api/v1/...`). In production
  * the backend serves the built frontend from the same origin, so requests
  * can go to a relative `/api/v1` path. In dev (`next dev` on its own port)
- * point NEXT_PUBLIC_API_BASE at the backend, e.g. http://localhost:8080/api/v1.
+ * point NEXT_PUBLIC_API_BASE at the backend, e.g. http://localhost:8090/api/v1.
  */
 
 export const API_BASE = isDevelopment ? DEV_URL : PROD_URL;
@@ -69,9 +70,14 @@ export async function quietly<T>(fn: () => Promise<T>): Promise<T> {
 
 async function networkFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
-    return await fetch(url, init);
+    const res = await fetch(url, init);
+    setReachable(true); // any answer, even an error status, means the server is there
+    return res;
   } catch (e) {
-    if (e instanceof TypeError) throw new ApiError("Couldn't reach the server. Check your connection and try again.", 0);
+    if (e instanceof TypeError) {
+      setReachable(false);
+      throw new ApiError("Couldn't reach the server. Check your connection and try again.", 0);
+    }
     throw e;
   }
 }

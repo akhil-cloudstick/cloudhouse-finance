@@ -65,11 +65,15 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
 
   async function save() { return singleFlight("modal:locker:save", async () => {
     const trimmedCode = code.trim().toUpperCase();
-    if (!trimmedCode) { fail("code", "Locker code is required."); return; }
-    if (!CODE_RE.test(trimmedCode)) { fail("code", "Locker code may only contain letters, numbers and hyphens."); return; }
-    if (branchId === "") { fail("branch", "Please select a branch."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!trimmedCode) errors["code"] ??= "Locker code is required.";
+    if (!CODE_RE.test(trimmedCode)) errors["code"] ??= "Locker code may only contain letters, numbers and hyphens.";
+    if (branchId === "") errors["branch"] ??= "Please select a branch.";
     const capacity = parseInt(cap, 10);
-    if (!capacity || capacity <= 0) { fail("capacity", "Capacity must be greater than zero."); return; }
+    if (!capacity || capacity <= 0) errors["capacity"] ??= "Capacity must be greater than zero.";
+    if (locker && capacity < locker.occupied) errors["capacity"] ??= `Capacity cannot be less than the ${locker.occupied} packets already stored in this locker.`;
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     setSaving(true);
     setErr("");
@@ -100,7 +104,7 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
       <div className="bd bd-scroll">
         <div className="frow c2">
           <div className={fe.code ? "has-err" : undefined}><label className="f">Locker Code *</label><input className="inp" placeholder="e.g. LKR-B2" value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); clearFe("code"); }} /><FieldError msg={fe.code} /></div>
-          <div className={fe.capacity ? "has-err" : undefined}><label className="f">Capacity (packets) *</label><input className="inp" type="number" min={1} value={cap} onChange={(e) => { setCap(e.target.value); clearFe("capacity"); }} /><FieldError msg={fe.capacity} /></div>
+          <div className={fe.capacity ? "has-err" : undefined}><label className="f">Capacity (packets) *</label><input className="inp" type="number" min={Math.max(1, locker?.occupied ?? 1)} value={cap} onChange={(e) => { setCap(e.target.value); clearFe("capacity"); }} /><FieldError msg={fe.capacity} /></div>
         </div>
         {showBranch && (
           <div className="frow"><div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>

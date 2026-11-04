@@ -11,7 +11,7 @@
 import { BRAND, printBrand, printColors } from "@/common/config/brand";
 
 /** Escapes text interpolated into the print HTML strings. */
-const esc = (s: string) =>
+export const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** True on desktop browsers that can print a PDF/popup in place. Mobile and
@@ -162,6 +162,31 @@ export function brandHeader(docTitle?: string): string {
   </header>`;
 }
 
+/* Script appended to every printable tab: print once loaded, close afterwards. */
+const SELF_PRINT_SCRIPT = `<script>window.addEventListener("load",function(){setTimeout(function(){try{window.focus();window.print()}catch(e){}},400)});window.addEventListener("afterprint",function(){window.close()});</script>`;
+
+/* Opens a printable HTML document in its own tab and prints it from there.
+ *
+ * The tab is opened with noopener from a blob: URL rather than window.open("")
+ * + document.write. A document.write popup keeps its opener, so both live in
+ * one browser process, and window.print() in the popup freezes the opener too:
+ * the whole app (the Documents menu included) went dead until the print dialog
+ * closed, and no second document could be opened meanwhile. A noopener tab is
+ * its own browsing context, so the app stays usable while a print dialog is up.
+ * (noopener means window.open returns null even on success, so a popup block
+ * cannot be detected here.) The object URL is revoked late so the tab can load. */
+export function openPrintableTab(html: string): void {
+  const url = URL.createObjectURL(new Blob([html.replace("</body>", SELF_PRINT_SCRIPT + "</body>")], { type: "text/html" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 120_000);
+}
+
 export function openPrintWindow(title: string, body: string, onBlocked: (msg: string) => void) {
   // Resolved per call, not at module load: the colour belongs to whichever
   // business is signed in, and this module is imported once for all of them.
@@ -207,16 +232,6 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
     downloadBlob(new Blob([html], { type: "text/html" }), `${title.replace(/[\\/:*?"<>|]+/g, "-")}.html`);
     return;
   }
-  const w = window.open("", "_blank");
-  if (!w) {
-    onBlocked("Popup blocked — please allow popups for this site to print");
-    return;
-  }
-  w.document.write(html);
-  w.document.close();
-  // Close the preview once the print dialog is dismissed (Print or Cancel).
-  w.addEventListener("afterprint", () => w.close());
-  setTimeout(() => {
-    try { w.focus(); w.print(); } catch { /* ignore */ }
-  }, 400);
+  void onBlocked;
+  openPrintableTab(html);
 }

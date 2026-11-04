@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { SchemeModalContent, SCHEME_METHODS } from "@/modules/schemes/components/SchemeModalContent";
 import { SchemeStatementModalContent } from "@/modules/schemes/components/SchemeStatementModalContent";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
@@ -37,14 +38,20 @@ export function SchemesPage() {
 
   const [q, setQ] = usePersistedState("schemes:q", "");
   const [methods, setMethods] = usePersistedState<string[]>("schemes:methods", []);
+  const [statuses, setStatuses] = usePersistedState<string[]>("schemes:status", []);
+  const status = statuses[0];
 
   const filterCategories: FilterCategory[] = [
     {
       key: "method", label: "Interest Method", kind: "static", searchHint: "Searches: interest calculation method",
       options: SCHEME_METHODS.map((m) => ({ value: m, label: m })),
     },
+    {
+      key: "status", label: "Status", kind: "static", singleSelect: true,
+      options: [{ value: "Active", label: "Active" }, { value: "Inactive", label: "Inactive" }],
+    },
   ];
-  const filterValue: FilterValue = { method: methods };
+  const filterValue: FilterValue = { method: methods, status: statuses };
 
   // Backend search: re-queried (debounced) on every search/filter change, and
   // paged — the next batch loads as the grid is scrolled to its end. A stale
@@ -58,7 +65,7 @@ export function SchemesPage() {
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
     try {
-      const res = await listSchemesPage({ q: q.trim() || undefined, methods }, 0, SCHEMES_PAGE_SIZE);
+      const res = await listSchemesPage({ q: q.trim() || undefined, methods, status }, 0, SCHEMES_PAGE_SIZE);
       if (seq !== loadSeq.current) return;
       pageRef.current = 0;
       setSchemes(res.items);
@@ -68,13 +75,13 @@ export function SchemesPage() {
       if (seq !== loadSeq.current) return;
       setError(e instanceof Error ? e.message : "Failed to load schemes.");
     }
-  }, [q, methods]);
+  }, [q, methods, status]);
 
   const loadMore = useCallback(async () => {
     const seq = loadSeq.current;
     setLoadingMore(true);
     try {
-      const res = await listSchemesPage({ q: q.trim() || undefined, methods }, pageRef.current + 1, SCHEMES_PAGE_SIZE);
+      const res = await listSchemesPage({ q: q.trim() || undefined, methods, status }, pageRef.current + 1, SCHEMES_PAGE_SIZE);
       if (seq !== loadSeq.current) return;
       pageRef.current += 1;
       setSchemes((prev) => [...(prev || []), ...res.items]);
@@ -84,7 +91,7 @@ export function SchemesPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [q, methods]);
+  }, [q, methods, status]);
 
   useEffect(() => {
     const handle = setTimeout(load, 300);
@@ -129,7 +136,7 @@ export function SchemesPage() {
       <div className="page-h" >
         <div><h1>Loan Schemes</h1><p>Interest rates, tenure, LTV and calculation rules per scheme</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search scheme, rate, LTV, duration…" title="Searches: scheme name, scheme code, interest rate %, LTV %, duration (months)" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch value={q} onChange={setQ} placeholder="Search scheme, rate, LTV, duration…" searches="scheme name, scheme code, interest rate %, LTV %, duration (months)" />
         {canCreateSchemes && <button className="btn" onClick={() => openModal(<SchemeModalContent onSaved={onSaved} />)}><Icon name="plus" /> New Scheme</button>}
       </div>
       {/* Explicit small-screen margin (matches Loans.tsx's own hr override)
@@ -145,7 +152,10 @@ export function SchemesPage() {
         <FilterPanel
           categories={filterCategories}
           value={filterValue}
-          onChange={(next) => setMethods(Array.isArray(next.method) ? next.method : [])}
+          onChange={(next) => {
+            setMethods(Array.isArray(next.method) ? next.method : []);
+            setStatuses(Array.isArray(next.status) ? next.status : []);
+          }}
           hideChips
           hideClearAll
           size="md"
@@ -161,7 +171,7 @@ export function SchemesPage() {
       )}
       {schemes !== null && schemes.length === 0 && !error && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>
-          {q.trim() || methods.length ? "No schemes match your search." : "No loan schemes yet. Click \"New Scheme\" to create one."}
+          {q.trim() || methods.length || statuses.length ? "No schemes match your search." : "No loan schemes yet. Click \"New Scheme\" to create one."}
         </p>
       )}
       {/* Fixed 300px columns (auto-fill, not auto-fill/minmax's usual

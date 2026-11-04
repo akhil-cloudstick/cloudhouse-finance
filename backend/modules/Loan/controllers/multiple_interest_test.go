@@ -4,6 +4,7 @@ import (
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/modules/Loan/models"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 )
@@ -193,6 +194,7 @@ func normalLoan(opened time.Time) *models.Loan {
 	l := multipleLoan(opened, 0)
 	l.SchemeInterestMethod = "Monthly simple interest"
 	l.SchemeRateTiers = nil
+	l.SchemeAccrualBasis = commonModels.AccrualBasisMonthly
 	return l
 }
 
@@ -277,11 +279,11 @@ func TestMultipleInterest_CatchUpIsSavedAsOneRowPerPeriod(t *testing.T) {
 		}
 		sum += r.Interest
 	}
-	nearly(t, sum, interest, "the period rows add up to the interest charged")
+	nearly(t, sum, math.Round(interest), "the period rows add up to the interest charged, in whole rupees")
 	// the first row carries the re-price of the first 30 days (12% -> 18%) plus its own 30 days at 18%, and, at day 120,
 	// its half of the re-price of the 90 days charged so far (18% -> 24%), shared with the day-90 row by days
-	nearly(t, rows[0].Interest, interestFor(157_453, 6, opened, l.LastAccrualDate)+interestFor(157_453, 18, l.LastAccrualDate, wantDates[0])+interestFor(157_453, 6, opened, wantDates[1])/2, "first row")
-	nearly(t, rows[1].Interest, interestFor(157_453, 18, wantDates[0], wantDates[1])+interestFor(157_453, 6, opened, wantDates[1])/2, "second row")
+	nearly(t, rows[0].Interest, math.Round(interestFor(157_453, 6, opened, l.LastAccrualDate)+interestFor(157_453, 18, l.LastAccrualDate, wantDates[0])+interestFor(157_453, 6, opened, wantDates[1])/2), "first row (whole rupees)")
+	nearly(t, rows[1].Interest, math.Round(interestFor(157_453, 18, wantDates[0], wantDates[1])+interestFor(157_453, 6, opened, wantDates[1])/2), "second row (whole rupees)")
 }
 
 // When the loan steps up a rate, every month already charged is restated at the new rate, not only the month being

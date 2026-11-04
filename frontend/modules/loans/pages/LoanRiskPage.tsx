@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useCallback, useEffect, useState } from "react";
 import { fmt } from "@/common/utils/format";
@@ -10,6 +11,7 @@ import { useScrollPageSize } from "@/common/utils/responsive";
 import { listLoanRiskAssessmentPage, RISK_STATUSES, LOAN_RISK_PAGE_SIZE } from "@/modules/loans/services/loanService";
 import { type LoanRiskRow, type LoanRiskLevel, type LoanRiskCounts } from "@/modules/loans/types/loan-types";
 import { routeHref } from "@/common/services/appRoutes";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 
 const RISK_CHIP: Record<LoanRiskLevel, string> = { Safe: "green", AtRisk: "amber", Loss: "red" };
 const RISK_LABEL: Record<LoanRiskLevel, string> = { Safe: "Safe", AtRisk: "At Risk", Loss: "Loss" };
@@ -46,28 +48,35 @@ export function LoanRiskPage() {
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [status, setStatus] = usePersistedState("loanrisk:status", "");
-  const [riskLevel, setRiskLevel] = usePersistedState<LoanRiskLevel | "">("loanrisk:risk", "");
+  const [riskLevel, setRiskLevel] = usePersistedState("loanrisk:risk", "");
   const [fromDate, setFromDate] = usePersistedState("loanrisk:from", "");
   const [toDate, setToDate] = usePersistedState("loanrisk:to", "");
 
   // One grouped filter: Status, Risk level (single choice each) and the
   // opened-date range.
   const filterCategories: FilterCategory[] = [
-    { key: "status", label: "Status", kind: "static", singleSelect: true, options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
-    { key: "risk", label: "Risk", kind: "static", singleSelect: true, options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
+    { key: "status", label: "Status", kind: "static", options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
+    { key: "risk", label: "Risk", kind: "static", options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
     { key: "__date", label: "Opened Date", kind: "date" },
   ];
   const filterValue: FilterValue = {
-    status: status ? [status] : [],
-    risk: riskLevel ? [riskLevel] : [],
+    status: status ? status.split(",") : [],
+    risk: riskLevel ? riskLevel.split(",") : [],
     __dateFrom: fromDate || undefined,
     __dateTo: toDate || undefined,
   };
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  // The typed search, and the value sent to the server once typing pauses.
+  const [q, setQ] = usePersistedState("loan-risk:q", "");
+  const [sentQ, setSentQ] = useState(q);
+  useEffect(() => {
+    const handle = setTimeout(() => setSentQ(q), q === sentQ ? 0 : 300);
+    return () => clearTimeout(handle);
+  }, [q, sentQ]);
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [status, riskLevel, fromDate, toDate]);
+  useEffect(() => { setPage(1); }, [status, riskLevel, fromDate, toDate, sentQ]);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -76,6 +85,7 @@ export function LoanRiskPage() {
       riskLevel: riskLevel || undefined,
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
+      q: sentQ,
     })
       .then(({ items, hasMore, total, counts }) => {
         setRows(items);
@@ -89,7 +99,7 @@ export function LoanRiskPage() {
         setError(e instanceof ApiError ? e.message : "Could not load the risk assessment — a gold rate may not be published yet.");
       })
       .finally(() => setLoading(false));
-  }, [page, status, riskLevel, fromDate, toDate, pageSize]);
+  }, [page, status, riskLevel, fromDate, toDate, sentQ, pageSize]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -118,9 +128,9 @@ export function LoanRiskPage() {
             style={{
               cursor: "pointer",
               textAlign: "left",
-              border: riskLevel === level ? `1px solid var(--${RISK_CHIP[level]})` : undefined,
+              border: riskLevel.split(",").includes(level) ? `1px solid var(--${RISK_CHIP[level]})` : undefined,
             }}
-            onClick={() => setRiskLevel((cur) => (cur === level ? "" : level))}
+            onClick={() => setRiskLevel((cur) => { const set = cur ? cur.split(",") : []; return (set.includes(level) ? set.filter((x) => x !== level) : [...set, level]).join(","); })}
             title={`Show only ${RISK_LABEL[level]} loans`}
           >
             <div className="l">{RISK_LABEL[level]}</div>
@@ -130,12 +140,13 @@ export function LoanRiskPage() {
           </button>
         ))}
       </div>
+      <TableSearch value={q} onChange={setQ} placeholder="Search loans…" searches="loan no., customer, status, risk, amounts, weight, gold value" />
       <FilterPanel
         categories={filterCategories}
         value={filterValue}
         onChange={(next) => {
-          setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
-          setRiskLevel((Array.isArray(next.risk) ? next.risk[0] || "" : "") as LoanRiskLevel | "");
+          setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
+          setRiskLevel(Array.isArray(next.risk) ? next.risk.join(",") : "");
           setFromDate(next.__dateFrom || "");
           setToDate(next.__dateTo || "");
         }}
@@ -149,6 +160,7 @@ export function LoanRiskPage() {
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-cards">
+            <TableCols widths={[22, 11, 12, 10, 13, 10, 12]} />
             <thead>
               <tr>
                 <th>Loan / Customer</th>
@@ -191,6 +203,7 @@ export function LoanRiskPage() {
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
           <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
         </div>
         {/* <div className="ft">Red = gold, sold today, would not cover the principal · Orange = covered by less than a 10% margin · Green = comfortably covered</div> */}

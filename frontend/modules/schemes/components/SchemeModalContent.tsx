@@ -10,14 +10,16 @@ import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { createScheme, updateScheme } from "@/modules/schemes/services/schemeService";
-import { type SchemeView, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
+import { type AccrualBasis, type SchemeView, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
 import { Select } from "@/common/components/ui/Select";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { singleFlight } from "@/common/utils/singleFlight";
 
 const DEFAULT_DURATION_MONTHS = 12;
 export const MULTIPLE_INTEREST = "Multiple interest";
-export const SCHEME_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", MULTIPLE_INTEREST];
+// "Compound monthly" is unused for now — hidden from new choices; a scheme already on it still shows it.
+const COMPOUND_MONTHLY = "Compound monthly";
+export const SCHEME_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", MULTIPLE_INTEREST];
 const METHODS = SCHEME_METHODS;
 type TierDraft = { days: string; rate: string };
 const EMPTY_TIERS: TierDraft[] = [{ days: "", rate: "" }, { days: "", rate: "" }];
@@ -45,7 +47,11 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   name: /name/i,
 };
 const METHOD_OPTIONS = METHODS.map((m) => ({ value: m, label: m }));
-const STATUS_OPTIONS = [{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }];
+const ACCRUAL_OPTIONS: { value: AccrualBasis; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "monthly", label: "Monthly" },
+];
+const STATUS_OPTIONS =[{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }];
 const CHARGE_TYPE_OPTIONS: { value: ServiceChargeType; label: string }[] = [
   { value: "None", label: "No service charge" },
   { value: "Flat", label: "Flat amount (₹)" },
@@ -71,6 +77,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
   const [tiers, setTiers] = useState<TierDraft[]>(
     s?.rateTiers?.length ? s.rateTiers.map((t, i, a) => ({ days: i === a.length - 1 ? "" : String(t.days), rate: String(t.rate) })) : EMPTY_TIERS
   );
+  const [accrualBasis, setAccrualBasis] = useState<AccrualBasis>(s?.accrualBasis || "daily");
   const [minDays, setMinDays] = useState(String(s ? s.minimumDays || 0 : 30));
   const isMultiple = method === MULTIPLE_INTEREST;
   const [penal, setPenal] = useState(s ? String(s.penal) : "");
@@ -83,9 +90,12 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
   const { singleBranch, hasModule } = useBranding();
   // "Multiple interest" is a module the superadmin switches on per business;
   // a scheme already on it keeps the option so it can still be edited.
-  const methodOptions = hasModule("multiple_interest") || s?.method === MULTIPLE_INTEREST
-    ? METHOD_OPTIONS
-    : METHOD_OPTIONS.filter((o) => o.value !== MULTIPLE_INTEREST);
+  const methodOptions = [
+    ...(hasModule("multiple_interest") || s?.method === MULTIPLE_INTEREST
+      ? METHOD_OPTIONS
+      : METHOD_OPTIONS.filter((o) => o.value !== MULTIPLE_INTEREST)),
+    ...(s?.method === COMPOUND_MONTHLY ? [{ value: COMPOUND_MONTHLY, label: COMPOUND_MONTHLY }] : []),
+  ];
   // Single-branch plan: no branch is ever shown — the field is not rendered.
   const showBranch = useShowBranch();
   // Locked (and defaulted) to the global branch selection when one is
@@ -124,24 +134,24 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
     const tIssue = isMultiple ? tiersIssue(tiers) : null;
     // Multiple interest: the scheme's headline rate is the first step's rate.
     const r = isMultiple ? parseFloat(tiers[0]?.rate) : parseFloat(rate);
-    if (n.length < 3) { fail("name", "Please enter a scheme name."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (n.length < 3) errors["name"] ??= "Please enter a scheme name.";
     if (tIssue) { fail(tIssue.row === null ? "tiers" : `tier${tIssue.row}`, tIssue.message); return; }
-    if (!(r > 0)) { fail("rate", "Please enter a valid interest rate."); return; }
-    if (!(d > 0)) { fail("duration", "Please enter a valid loan duration in months."); return; }
-    if (!(l >= 1 && l <= 100)) { fail("ltv", "LTV must be between 1 and 100%."); return; }
-    if (!(p >= 0 && p <= 60)) { fail("penal", "Please enter penal charges between 0 and 60% per annum."); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
+    if (!(r > 0)) errors["rate"] ??= "Please enter a valid interest rate.";
+    if (!(d > 0)) errors["duration"] ??= "Please enter a valid loan duration in months.";
+    if (!(l >= 1 && l <= 100)) errors["ltv"] ??= "LTV must be between 1 and 100%.";
+    if (!(p >= 0 && p <= 60)) errors["penal"] ??= "Please enter penal charges between 0 and 60% per annum.";
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
     const cv = chargeType === "None" ? 0 : parseFloat(chargeValue);
-    if (chargeType !== "None" && !(cv >= 0 && (chargeType !== "Percent" || cv <= 100))) {
-      fail("charge", chargeType === "Percent" ? "Percentage charge must be between 0 and 100." : "Please enter a valid flat charge amount.");
-      return;
-    }
+    if (chargeType !== "None" && !(cv >= 0 && (chargeType !== "Percent" || cv <= 100))) errors["charge"] ??= chargeType === "Percent" ? "Percentage charge must be between 0 and 100." : "Please enter a valid flat charge amount.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     const rateTiers = isMultiple
       ? tiers.map((t, i) => ({ days: i === tiers.length - 1 ? 0 : parseInt(t.days, 10), rate: parseFloat(t.rate) }))
       : [];
     const input = {
-      name: n, rate: r, rateTiers, minimumDays: parseInt(minDays, 10) || 0, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active, branchId: branchId as number,
+      name: n, rate: r, rateTiers, minimumDays: parseInt(minDays, 10) || 0, durationMonths: d, ltv: l, penal: p, accrualBasis, method, cond: cond.trim(), active, branchId: branchId as number,
       serviceChargeType: chargeType, serviceChargeValue: cv,
     };
     setSaving(true);
@@ -165,6 +175,10 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
   const statusField = (
     <div><label className="f">Status</label>
       <Select options={STATUS_OPTIONS} value={active ? "1" : "0"} onChange={(v) => setActive(v === "1")} /></div>
+  );
+  const accrualField = (
+    <div><label className="f">Accrual Method</label>
+      <Select options={ACCRUAL_OPTIONS} value={accrualBasis} onChange={(v) => setAccrualBasis(v as AccrualBasis)} /></div>
   );
   const penalField = (
     <div className={fe.penal ? "has-err" : undefined}><label className="f">Penal Charges (% p.a.) *</label>
@@ -216,10 +230,16 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
           <div><label className="f">Minimum Period (days)</label><input className="inp" inputMode="numeric" value={minDays} onChange={(e) => setMinDays(cleanNum(e.target.value, false))} /></div>
         </div>
         {!isMultiple && (
-          <div className="frow c2 scheme-frow">
-            <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" inputMode="decimal" placeholder="12.5" value={rate} onChange={(e) => { setRate(cleanNum(e.target.value, true)); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
-            {penalField}
-          </div>
+          <>
+            <div className="frow c2 scheme-frow">
+              <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" inputMode="decimal" placeholder="12.5" value={rate} onChange={(e) => { setRate(cleanNum(e.target.value, true)); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
+              {accrualField}
+            </div>
+            <div className="frow c2 scheme-frow">
+              {penalField}
+              <div />
+            </div>
+          </>
         )}
         {isMultiple && (
           <div className={fe.tiers ? "has-err scheme-frow" : "scheme-frow"} style={{ marginBottom: 12 }}>
@@ -255,8 +275,8 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
         )}
         {isMultiple && (
           <div className="frow c2 scheme-frow">
+            {accrualField}
             {penalField}
-            <div />
           </div>
         )}
         <div className="scheme-sec">Charges &amp; status</div>

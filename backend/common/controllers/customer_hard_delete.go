@@ -21,10 +21,22 @@ type LoanHardDeleter interface {
 	HardDeleteLoan(ctx context.Context, loanID uint) error
 }
 
-func errCustomerHasActiveLoans(loanNumbers []string) error {
+// CustomerDependentLister reports records outside the gold loans (personal loans, investments)
+// that still point at a customer, as readable lines such as "Personal loan PL-00001 (Active)".
+type CustomerDependentLister func(ctx context.Context, customerID uint) ([]string, error)
+
+var customerDependentListers []CustomerDependentLister
+
+// RegisterCustomerDependents lets a module declare what it keeps against a customer, so a
+// delete can name everything in the way instead of failing on a database constraint.
+func RegisterCustomerDependents(l CustomerDependentLister) {
+	customerDependentListers = append(customerDependentListers, l)
+}
+
+func errCustomerHasLinkedRecords(items []string) error {
 	return NewConflict(fmt.Sprintf(
-		"Cannot delete this customer — the following loan(s) are still active: %s. Close or delete them first.",
-		strings.Join(loanNumbers, ", "),
+		"Cannot delete this customer — it still has: %s. Close or delete these first.",
+		strings.Join(items, "; "),
 	))
 }
 
@@ -44,11 +56,18 @@ func hardDeleteCustomer(ctx context.Context, id uint) error {
 	var blocking []string
 	for _, l := range loans {
 		if l.Status != "Closed" && l.Status != "Rejected" && l.Status != "Auctioned" {
-			blocking = append(blocking, l.Number)
+			blocking = append(blocking, fmt.Sprintf("Gold loan %s (%s)", l.Number, l.Status))
 		}
 	}
+	for _, list := range customerDependentListers {
+		items, err := list(ctx, id)
+		if err != nil {
+			return err
+		}
+		blocking = append(blocking, items...)
+	}
 	if len(blocking) > 0 {
-		return errCustomerHasActiveLoans(blocking)
+		return errCustomerHasLinkedRecords(blocking)
 	}
 	for _, l := range loans {
 		if err := HardDeleteLoan(ctx, l.ID); err != nil {

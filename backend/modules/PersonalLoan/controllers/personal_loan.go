@@ -118,8 +118,10 @@ type ListInput struct {
 	Status     string
 	Frequency  string
 	Query      string
-	Limit      int
-	Offset     int
+	// From / To bound the loan's opened date (inclusive days).
+	From, To *time.Time
+	Limit    int
+	Offset   int
 }
 
 type PaymentInput struct {
@@ -173,6 +175,7 @@ type ListFilter struct {
 	Status     string
 	Frequency  string
 	Query      string
+	From, To   *time.Time
 	Limit      int
 	Offset     int
 }
@@ -285,7 +288,7 @@ func SavePersonalLoan(ctx context.Context, in CreateInput) (*models.PersonalLoan
 		CreatedByEmployeeID:            in.CreatedByEmployeeID,
 		PrincipalAmount:                obligation,
 		InterestType:                   in.InterestType,
-		InterestValue:                  common.RoundMoney(in.InterestValue),
+		InterestValue:                  common.RoundDecimal2(in.InterestValue),
 		InterestAmount:                 interestAmount,
 		DisbursedAmount:                disbursed,
 		DisbursementCashAmount:         dCash,
@@ -325,7 +328,7 @@ func SavePersonalLoan(ctx context.Context, in CreateInput) (*models.PersonalLoan
 		if err := activateTx(ctx, tx, rec, now); err != nil {
 			return err
 		}
-		return recordDisbursement(cashbook.WithTx(ctx, tx), rec, now)
+		return recordDisbursement(ctx, tx, rec, now)
 	})
 	if err != nil {
 		return nil, err
@@ -349,11 +352,13 @@ func activateTx(ctx context.Context, tx *gorm.DB, rec *models.PersonalLoan, now 
 
 // recordDisbursement books the loan's disbursement in the cash book. It runs inside the transaction that
 // saves the loan (the context carries it), so a failed cash line means the loan is not created either.
-func recordDisbursement(ctx context.Context, rec *models.PersonalLoan, now time.Time) error {
-	if _, _, err := cashbook.RecordLoanDisbursementCashOut(ctx, rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.DisbursementCashAmount, rec.DisbursementUpiAmount, rec.DisbursementBankTransferAmount, rec.DisbursementChequeAmount, rec.BranchID, now, rec.CustomerID, rec.DisbursementBankID); err != nil {
+func recordDisbursement(ctx context.Context, tx *gorm.DB, rec *models.PersonalLoan, now time.Time) error {
+	_, groupID, err := cashbook.RecordLoanDisbursementCashOut(cashbook.WithTx(ctx, tx), rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.DisbursementCashAmount, rec.DisbursementUpiAmount, rec.DisbursementBankTransferAmount, rec.DisbursementChequeAmount, rec.BranchID, now, rec.CustomerID, rec.DisbursementBankID)
+	if err != nil {
 		return fmt.Errorf("could not record the disbursement in Cash-in-Hand, loan not saved: %w", err)
 	}
-	return nil
+	rec.DisbursementCashGroupID = groupID
+	return tx.WithContext(ctx).Model(&models.PersonalLoan{}).Where("id = ?", rec.ID).Update("disbursement_cash_group_id", groupID).Error
 }
 
 func approveLoan(ctx context.Context, id uint, branchID *uint, in ApprovalInput) (*models.PersonalLoan, error) {
@@ -405,7 +410,7 @@ func approveLoan(ctx context.Context, id uint, branchID *uint, in ApprovalInput)
 			if err := activateTx(ctx, tx, rec, now); err != nil {
 				return err
 			}
-			return recordDisbursement(cashbook.WithTx(ctx, tx), rec, now)
+			return recordDisbursement(ctx, tx, rec, now)
 		}
 		return nil
 	})
@@ -537,6 +542,8 @@ func listPersonalLoans(ctx context.Context, in ListInput) ([]models.PersonalLoan
 		Status:     in.Status,
 		Frequency:  in.Frequency,
 		Query:      in.Query,
+		From:       in.From,
+		To:         in.To,
 		Limit:      limit,
 		Offset:     in.Offset,
 	})
@@ -615,7 +622,10 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 			return common.NewConflict("loan is not active")
 		}
 		amount := common.RoundMoney(in.Amount)
-		if amount > rec.OutstandingAmount+epsilon {
+		// the amount is whole rupees, so the balance it is held to must be too: a loan saved before rounding can owe
+		// 1234.60, and the ₹1,235 that clears it would otherwise be rejected as exceeding it
+		outstanding := common.RoundMoney(rec.OutstandingAmount)
+		if amount > outstanding+epsilon {
 			return common.NewBadRequest("payment amount exceeds the outstanding balance")
 		}
 		if err := common.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, amount); err != nil {
@@ -624,7 +634,7 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 		if (in.UpiAmount > 0 || in.BankTransferAmount > 0 || in.ChequeAmount > 0) && in.BankID == nil {
 			return common.NewBadRequest("bank is required for UPI, transfer or cheque")
 		}
-		newOutstanding := common.RoundMoney(rec.OutstandingAmount - amount)
+		newOutstanding := common.RoundMoney(outstanding - amount)
 		if newOutstanding < 0 {
 			newOutstanding = 0
 		}
@@ -670,8 +680,12 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 		if err := allocatePaymentToInstallments(ctx, tx, rec.ID, amount); err != nil {
 			return err
 		}
-		if _, _, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), rec.ID, rec.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, rec.BranchID, paidOn, "Personal Loan Payment", rec.CustomerID, in.BankID); err != nil {
+		_, groupID, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), rec.ID, rec.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, rec.BranchID, paidOn, "Personal Loan Payment", rec.CustomerID, in.BankID)
+		if err != nil {
 			return fmt.Errorf("could not record the payment in Cash-in-Hand, payment not saved: %w", err)
+		}
+		if err := tx.WithContext(ctx).Model(&models.PersonalLoanPayment{}).Where("id = ?", payment.ID).Update("cash_transaction_group_id", groupID).Error; err != nil {
+			return err
 		}
 		result = rec
 		return nil
@@ -839,7 +853,7 @@ func renewLoan(ctx context.Context, loanID uint, branchID *uint, in RenewInput) 
 			CreatedByEmployeeID: in.CreatedByEmployeeID,
 			PrincipalAmount:     principal,
 			InterestType:        in.InterestType,
-			InterestValue:       common.RoundMoney(in.InterestValue),
+			InterestValue:       common.RoundDecimal2(in.InterestValue),
 			InterestAmount:      interestAmount,
 			DisbursedAmount:     disbursed,
 			Frequency:           in.Frequency,
@@ -1002,6 +1016,32 @@ func splitCSV(s string) []string {
 	return out
 }
 
+// statusFilterClause turns the status filter values into one WHERE clause. "Renewed"
+// is not a stored status: a renewed loan is stored as Closed with the loan that
+// replaced it recorded, so it is matched on that link, and plain "Closed" leaves
+// those out so a loan is never listed under both.
+func statusFilterClause(vals []string) (string, []any) {
+	var parts []string
+	var args []any
+	var plain []string
+	for _, v := range vals {
+		switch v {
+		case "Renewed":
+			parts = append(parts, "personal_loans.renewed_to_loan_id IS NOT NULL")
+		case models.StatusClosed:
+			parts = append(parts, "(personal_loans.status = ? AND personal_loans.renewed_to_loan_id IS NULL)")
+			args = append(args, models.StatusClosed)
+		default:
+			plain = append(plain, v)
+		}
+	}
+	if len(plain) > 0 {
+		parts = append(parts, "personal_loans.status IN ?")
+		args = append(args, plain)
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
 func findPersonalLoans(ctx context.Context, f ListFilter) ([]models.PersonalLoan, int64, error) {
 	var recs []models.PersonalLoan
 	q := config.DB.
@@ -1013,10 +1053,17 @@ func findPersonalLoans(ctx context.Context, f ListFilter) ([]models.PersonalLoan
 		q = q.Where("personal_loans.customer_id = ?", *f.CustomerID)
 	}
 	if vals := splitCSV(f.Status); len(vals) > 0 {
-		q = q.Where("personal_loans.status IN ?", vals)
+		clause, args := statusFilterClause(vals)
+		q = q.Where(clause, args...)
 	}
 	if vals := splitCSV(f.Frequency); len(vals) > 0 {
 		q = q.Where("personal_loans.frequency IN ?", vals)
+	}
+	if f.From != nil {
+		q = q.Where("personal_loans.opened_date >= ?", startOfLocalDay(*f.From))
+	}
+	if f.To != nil {
+		q = q.Where("personal_loans.opened_date < ?", startOfLocalDay(*f.To).AddDate(0, 0, 1))
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
@@ -1183,6 +1230,22 @@ func CreatePersonalLoan(c echo.Context) error {
 	return common.Success(c, http.StatusOK, rec)
 }
 
+// queryDay reads a YYYY-MM-DD query parameter, nil when absent or malformed.
+func queryDay(v string) *time.Time {
+	if v == "" {
+		return nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
+func startOfLocalDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
 func ListPersonalLoans(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	branchID := auth.GetBranchScope(c)
@@ -1197,12 +1260,15 @@ func ListPersonalLoans(c echo.Context) error {
 	if limit == 0 {
 		page, limit = 1, defaultPageSize
 	}
+	from, to := queryDay(c.QueryParam("from")), queryDay(c.QueryParam("to"))
 	recs, _, total, err := listPersonalLoans(ctx, ListInput{
 		BranchID:   branchID,
 		CustomerID: customerID,
 		Status:     c.QueryParam("status"),
 		Frequency:  c.QueryParam("frequency"),
 		Query:      c.QueryParam("search"),
+		From:       from,
+		To:         to,
 		Limit:      limit,
 		Offset:     offset,
 	})

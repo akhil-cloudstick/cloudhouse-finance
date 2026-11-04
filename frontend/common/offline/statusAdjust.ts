@@ -274,8 +274,8 @@ export async function adjustMovements(path: string, body: string | null): Promis
     const lockerId = p.currentLockerId as number | null;
     env = { success: true, data: [{ id: 0, packetId: id, fromStatus: "", toStatus: p.status, lockerId, actorEmployeeId: 0, remarks: lockerId ? "Locker assigned at packet creation" : "", createdAt: p.createdAt }] };
   } else {
-    if (!body) return body;
-    env = parse(body);
+    // a packet whose history was never kept shows only what this PC has done with it, so it can still be moved
+    env = body ? parse(body) : { success: true, data: [] };
   }
   if (!env || !Array.isArray(env.data) || !id) return body;
   const mine = (await movements()).filter((m) => m.packetId === id);

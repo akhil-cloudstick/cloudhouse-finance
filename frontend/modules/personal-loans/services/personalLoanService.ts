@@ -1,5 +1,6 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError, quietly } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { queueWrite } from "@/common/offline/queueWrite";
 import { currentActor } from "@/common/offline/actor";
 import { localRequestId } from "@/common/offline/requestRef";
 import { branchHeader } from "@/common/services/branchSelection";
@@ -70,7 +71,10 @@ async function queuePersonalLoan(input: CreatePersonalLoanInput, hint: CreatePer
 }
 
 export function approvePersonalLoan(id: number, input: PersonalLoanApprovalInput): Promise<BackendPersonalLoan> {
-  return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}/approve`, { method: "POST", body: JSON.stringify(input) });
+  const path = `/personal-loans/${id}/approve`;
+  return queueWrite("POST", path, input, undefined as unknown as BackendPersonalLoan, () =>
+    apiFetch<BackendPersonalLoan>(path, { method: "POST", body: JSON.stringify(input) })
+  ).then((r) => r ?? getPersonalLoan(id));
 }
 
 export async function listPersonalLoanApprovals(id: number): Promise<PersonalLoanApprovalRecord[]> {
@@ -91,6 +95,8 @@ export function listPersonalLoansPage(params: {
   frequency?: string; // one value or a comma-separated list
   customerId?: number;
   status?: string; // one value or a comma-separated list
+  from?: string; // YYYY-MM-DD, bounds the opened date (inclusive)
+  to?: string; // YYYY-MM-DD, bounds the opened date (inclusive)
   pageSize?: number;
 }): Promise<{ items: BackendPersonalLoan[]; hasMore: boolean; total: number }> {
   const pageSize = params.pageSize || PERSONAL_LOANS_TABLE_PAGE_SIZE;
@@ -102,7 +108,18 @@ export function listPersonalLoansPage(params: {
   if (params.frequency) query.set("frequency", params.frequency);
   if (params.customerId) query.set("customerId", String(params.customerId));
   if (params.status) query.set("status", params.status);
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
   return apiFetch<{ items: BackendPersonalLoan[]; hasMore: boolean; total: number }>(`/personal-loans?${query}`);
+}
+
+/* Deletes a personal loan and reverses its disbursement in the cash book. The backend refuses
+ * a loan that still has payments or is part of a renewal, answering with the reason. */
+export async function deletePersonalLoan(id: number): Promise<void> {
+  const path = `/personal-loans/${id}`;
+  await queueWrite("DELETE", path, undefined, undefined, async () => {
+    await apiFetch<unknown>(path, { method: "DELETE" });
+  });
 }
 
 export function getPersonalLoan(id: number): Promise<BackendPersonalLoan> {
@@ -151,7 +168,10 @@ export function recordPersonalLoanPayment(
     description?: string;
   }
 ): Promise<BackendPersonalLoan> {
-  return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}/payments`, { method: "POST", body: JSON.stringify(input) });
+  const path = `/personal-loans/${id}/payments`;
+  return queueWrite("POST", path, input, undefined as unknown as BackendPersonalLoan, () =>
+    apiFetch<BackendPersonalLoan>(path, { method: "POST", body: JSON.stringify(input) })
+  ).then((r) => r ?? getPersonalLoan(id));
 }
 
 export function previewRenewal(id: number, input: RenewInput): Promise<RenewalPreview> {
@@ -159,7 +179,10 @@ export function previewRenewal(id: number, input: RenewInput): Promise<RenewalPr
 }
 
 export function renewPersonalLoan(id: number, input: RenewInput): Promise<RenewResult> {
-  return apiFetch<RenewResult>(`/personal-loans/${id}/renew`, { method: "POST", body: JSON.stringify(input) });
+  const path = `/personal-loans/${id}/renew`;
+  return queueWrite("POST", path, input, { renewed: true } as unknown as RenewResult, () =>
+    apiFetch<RenewResult>(path, { method: "POST", body: JSON.stringify(input) })
+  );
 }
 
 export function listPersonalLoansForCustomer(customerId: number): Promise<BackendPersonalLoan[]> {
@@ -190,4 +213,62 @@ export async function downloadPersonalLoanBond(loanId: number, lang: PersonalLoa
 
     return res.blob();
   }, undefined, `personal-loan-bond-${loanId}.pdf`);
+}
+
+/* --- Ledger edit / delete -------------------------------------------------
+ * Editing or deleting a payment recalculates the loan balances, instalments and
+ * status on the server in one transaction. dryRun asks for the before/after figures
+ * without saving. The disbursement can be edited (date, payment breakdown) but not
+ * deleted or re-amounted. */
+import type { InstalmentChangeView } from "@/modules/personal-loans/components/InstalmentChangesTable";
+export type PersonalLedgerSummary = { outstanding: number; totalPaid: number; status: string };
+/* A later payment that no longer fits once an earlier one is edited: what it can still be (0 = it would be removed). */
+export type PersonalFollowingEntry = { id: number; paidOn: string; reference?: string; current: number; suggested: number; needsChange?: boolean };
+export type PersonalLedgerEditPreview = { before: PersonalLedgerSummary; after: PersonalLedgerSummary; dryRun: boolean; following?: PersonalFollowingEntry[]; instalmentChanges?: InstalmentChangeView[] };
+export type EditPersonalPaymentInput = {
+  paidOn?: string;
+  amount?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
+  reference?: string;
+  description?: string;
+  reason?: string;
+  adjustFollowing?: { id: number; amount: number }[]; // the amounts chosen for the later payments that no longer fit
+};
+export type EditPersonalDisbursementInput = {
+  disbursedAt?: string;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
+  reason?: string;
+};
+
+export function editPersonalLoanPayment(loanId: number, paymentId: number, input: EditPersonalPaymentInput, dryRun = false): Promise<PersonalLedgerEditPreview> {
+  const path = `/personal-loans/${loanId}/payments/${paymentId}`;
+  if (dryRun) return apiFetch<PersonalLedgerEditPreview>(`${path}?dry_run=true`, { method: "PATCH", body: JSON.stringify(input) });
+  return queueWrite("PATCH", path, input, { dryRun: false } as unknown as PersonalLedgerEditPreview, () =>
+    apiFetch<PersonalLedgerEditPreview>(path, { method: "PATCH", body: JSON.stringify(input) })
+  );
+}
+
+export function deletePersonalLoanPayment(loanId: number, paymentId: number, dryRun = false, reason?: string): Promise<PersonalLedgerEditPreview> {
+  const path = `/personal-loans/${loanId}/payments/${paymentId}`;
+  const qs = new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) });
+  if (dryRun) return apiFetch<PersonalLedgerEditPreview>(`${path}?${qs}`, { method: "DELETE" });
+  return queueWrite("DELETE", reason ? `${path}?${qs}` : path, undefined, { dryRun: false } as unknown as PersonalLedgerEditPreview, () =>
+    apiFetch<PersonalLedgerEditPreview>(`${path}?${qs}`, { method: "DELETE" })
+  );
+}
+
+export function editPersonalLoanDisbursement(loanId: number, input: EditPersonalDisbursementInput, dryRun = false): Promise<PersonalLedgerEditPreview> {
+  const path = `/personal-loans/${loanId}/disbursement`;
+  if (dryRun) return apiFetch<PersonalLedgerEditPreview>(`${path}?dry_run=true`, { method: "PATCH", body: JSON.stringify(input) });
+  return queueWrite("PATCH", path, input, { dryRun: false } as unknown as PersonalLedgerEditPreview, () =>
+    apiFetch<PersonalLedgerEditPreview>(path, { method: "PATCH", body: JSON.stringify(input) })
+  );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { useModal } from "@/common/components/ModalProvider";
@@ -7,16 +9,21 @@ import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW, fmtDate } from "@/common/utils/format";
-import { releaseBankPledge, voidBankPledge, listBankPledgeHistoryPage, listLoansPage, CASH_TREATMENT_LABELS } from "@/modules/loans/services/loanService";
-import { type BankPledgeRecordView, type LoanView } from "@/modules/loans/types/loan-types";
+import { releaseBankPledge, listBankPledgeHistoryPage, listLoansPage, CASH_TREATMENT_LABELS } from "@/modules/loans/services/loanService";
+import { type BankPledgeRecordView, type BankPledgeView, type LoanView } from "@/modules/loans/types/loan-types";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModalContent";
 import { SelectLoanForRepledgeModalContent } from "@/common/components/modals/SelectLoanForRepledgeModalContent";
 import { BanksModalContent } from "@/modules/banks/components/BanksModalContent";
 import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
+import { BankPledgeEditModalContent, type EditablePledge } from "@/modules/loans/components/BankPledgeEditModalContent";
+import { PledgeDetailsModalContent } from "@/modules/loans/components/PledgeDetailsModalContent";
+import { LoanLedgerInfoModalContent } from "@/modules/loans/components/LoanLedgerInfoModalContent";
 import { ApiError } from "@/common/services/httpClient";
 import { ENTRIES_SENT_EVENT } from "@/common/offline/live";
 import { useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
+import { usePersistedPage, usePersistedState } from "@/common/hooks/use-persisted-state";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
@@ -34,7 +41,7 @@ type BankPledgePageProps = { focusLoanNumber?: string };
  * where, for how much, or who released it. */
 export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   const { error, refresh } = useLoans();
-  const { openModal, closeModal } = useModal();
+  const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
   const { can } = useAuth();
   const canOpen = useCanOpenRoute();
   const toast = useToast();
@@ -52,13 +59,20 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   // customer name — seeded from the route arg when arriving via a
   // "#bankpledge/LN-00013"-style link (see ReleaseReviewModal.tsx's
   // gold-still-pledged warning), same pattern as Auctions.tsx's own search.
-  const [q, setQ] = useState(focusLoanNumber || "");
+  // Remembered, so opening a loan and pressing Back returns to the same search and pages.
+  const [q, setQ] = usePersistedState("bankpledge:q", focusLoanNumber || "");
+  // Arriving with a loan number (route argument) searches for it even when an older search is remembered.
+  useEffect(() => { if (focusLoanNumber) setQ(focusLoanNumber); }, [focusLoanNumber]); // eslint-disable-line react-hooks/exhaustive-deps
   const trimmedQ = q.trim();
-  const [releasingId, setReleasingId] = useState<number | null>(null);
+  // The date range bounds the pledge date on both tabs.
+  const [fromDate, setFromDate] = usePersistedState("bankpledge:from", "");
+  const [toDate, setToDate] = usePersistedState("bankpledge:to", "");
+  const filterCategories: FilterCategory[] = [{ key: "__date", label: "Pledge date", kind: "date" }];
+  const filterValue: FilterValue = { __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
   const [history, setHistory] = useState<BankPledgeRecordView[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPage, setHistoryPage] = usePersistedPage("bankpledge:history");
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyTotal, setHistoryTotal] = useState(0);
   const historyTotalPages = Math.max(1, Math.ceil(historyTotal / pageSize));
@@ -70,17 +84,23 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   const [pledged, setPledged] = useState<LoanView[]>([]);
   const [pledgedLoading, setPledgedLoading] = useState(true);
   const [pledgedError, setPledgedError] = useState("");
-  const [pledgedPage, setPledgedPage] = useState(1);
+  const [pledgedPage, setPledgedPage] = usePersistedPage("bankpledge:pledged");
   const [pledgedHasMore, setPledgedHasMore] = useState(false);
   const [pledgedTotal, setPledgedTotal] = useState(0);
   const pledgedTotalPages = Math.max(1, Math.ceil(pledgedTotal / pageSize));
 
-  const canVoid = canUpdatePledges;
+  // Correcting or erasing a pledge rewrites its ledger lines, so it takes the ledger edit/delete permissions too.
+  const canEditPledge = canUpdatePledges && can("Loan_Management", "can_edit_ledger_entry");
+  const canErasePledge = canUpdatePledges && can("Loan_Management", "can_delete_ledger_entry");
+  // The editors open on top of the View popup; saving one closes both and reloads the lists.
+  function openPledgeEditor(loanId: number, p: EditablePledge, mode: "edit" | "delete") {
+    openChildModal(<BankPledgeEditModalContent loanId={loanId} pledge={p} mode={mode} onSaved={() => { refreshAll(); closeAllModals(); }} />, true);
+  }
   const loadPledged = useCallback(async (page: number, query: string) => {
     setPledgedLoading(true);
     setPledgedError("");
     try {
-      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", q: query || undefined, page, limit: pageSize });
+      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", q: query || undefined, from: fromDate || undefined, to: toDate || undefined, page, limit: pageSize });
       setPledged(res.items);
       setPledgedHasMore(res.hasMore);
       setPledgedTotal(res.total);
@@ -89,13 +109,13 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
     } finally {
       setPledgedLoading(false);
     }
-  }, [pageSize]);
+  }, [pageSize, fromDate, toDate]);
 
   const loadHistory = useCallback(async (page: number, query: string) => {
     setHistoryLoading(true);
     setHistoryError("");
     try {
-      const res = await listBankPledgeHistoryPage(page, pageSize, query || undefined);
+      const res = await listBankPledgeHistoryPage(page, pageSize, query || undefined, { from: fromDate || undefined, to: toDate || undefined });
       setHistory(res.items);
       setHistoryHasMore(res.hasMore);
       setHistoryTotal(res.total);
@@ -104,7 +124,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
     } finally {
       setHistoryLoading(false);
     }
-  }, [pageSize]);
+  }, [pageSize, fromDate, toDate]);
 
   // Both tabs' data is kept in sync with the search box regardless of which
   // one is open — a loan that's already been released/voided drops out of
@@ -112,18 +132,28 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   // found via History; querying both unconditionally (debounced, and on
   // mount since trimmedQ starts truthy when arriving via focusLoanNumber)
   // means switching tabs never shows stale results for whatever's typed.
+  // The first run (page opened) loads the remembered pages; later runs (search, filter or size changed) start at page 1.
+  const listsMounted = useRef(false);
+  useEffect(() => () => { listsMounted.current = false; }, []);
   useEffect(() => {
+    const first = !listsMounted.current;
+    listsMounted.current = true;
     const handle = setTimeout(() => {
+      if (first) {
+        void loadPledged(pledgedPage, trimmedQ);
+        void loadHistory(historyPage, trimmedQ);
+        return;
+      }
       setPledgedPage(1);
       setHistoryPage(1);
       void loadPledged(1, trimmedQ);
       void loadHistory(1, trimmedQ);
-    }, 300);
+    }, first ? 0 : 300);
     return () => clearTimeout(handle);
     // pageSize/cards: card mode grows pageSize on scroll, which must refetch
     // page 1 with the larger size (rows stay on screen meanwhile).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trimmedQ, pageSize, cards]);
+  }, [trimmedQ, pageSize, cards, fromDate, toDate]);
 
   function changePledgedPage(page: number) {
     setPledgedPage(page);
@@ -167,28 +197,57 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
   /* Release now asks first. It moves cash (for a CashIn pledge) and changes
    * where the gold physically is, which is too consequential for a single
    * unconfirmed click — the old version fired immediately. */
-  function confirmRelease(loanId: number, pledgeId: number, bankName: string, amount: number, treatment: string) {
-    openModal(
+  function detailsFor(l: LoanView, pledge: BankPledgeView) {
+    const names = pledge.ornamentIds.length ? l.ornaments.filter((o) => pledge.ornamentIds.includes(o.id)).map((o) => o.name) : [];
+    return { loanNumber: l.id, customerName: l.customerName, pledge, ornamentNames: names };
+  }
+
+  function viewDetails(l: LoanView, pledge: BankPledgeView, treatment: string) {
+    openModal(<PledgeDetailsModalContent {...detailsFor(l, pledge)} actions={[
+      ...(canUpdatePledges ? [{ label: "Release", run: () => confirmRelease(l, pledge, treatment) }] : []),
+      ...(canEditPledge ? [{ label: "Edit", icon: "edit" as const, run: () => openPledgeEditor(l.numericId, pledge, "edit") }] : []),
+      ...(canErasePledge ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openPledgeEditor(l.numericId, pledge, "delete") }] : []),
+    ]} />);
+  }
+
+  // A history row's View popup: its details, and Edit / Delete while the record is still in force.
+  function viewRecord(r: BankPledgeRecordView) {
+    const editable = { ...r, bankId: r.bankId ?? null };
+    openModal(<LoanLedgerInfoModalContent
+      title="Re-Pledge Details"
+      kind={r.status === "Voided" ? "Deleted" : r.status}
+      rows={[
+        ["Loan", r.loanNumber || `#${r.loanId}`], ["Customer", r.customerName || "—"], ["Bank", r.bankName || "—"],
+        ["Pledged amount", fmt(r.pledgedAmount)], ["Interest rate", r.bankInterestRate ? `${r.bankInterestRate}% p.m.` : "—"],
+        ["Pledged on", fmtDate(r.pledgeDate)], ["Released on", r.releaseDate ? fmtDate(r.releaseDate) : "—"],
+        ["Due date", r.bankPledgeDueDate ? fmtDate(r.bankPledgeDueDate) : "—"], ["Reference no.", r.referenceNumber || "—"],
+        ["Cash treatment", CASH_TREATMENT_LABELS[r.cashTreatment === "CashIn" ? "CashIn" : "RecordOnly"]],
+      ]}
+      description={<>{r.ornamentNames && r.ornamentNames.length ? r.ornamentNames.join(", ") : "All ornaments"}{r.status === "Voided" && r.voidReason ? <><br />{r.voidReason}</> : null}</>}
+      actions={r.status === "Voided" ? [] : [
+        ...(canEditPledge ? [{ label: "Edit", icon: "edit" as const, run: () => openPledgeEditor(r.loanId, editable, "edit") }] : []),
+        ...(canErasePledge ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openPledgeEditor(r.loanId, editable, "delete") }] : []),
+      ]}
+    />);
+  }
+
+  function confirmRelease(l: LoanView, pledge: BankPledgeView, treatment: string) {
+    const loanId = l.numericId;
+    const pledgeId = pledge.id;
+    openChildModal(
       <ReleasePledgeModalContent
-        bankName={bankName}
-        amount={amount}
+        bankName={pledge.bankName}
+        amount={pledge.pledgedAmount}
         cashTreatment={treatment}
+        details={detailsFor(l, pledge)}
         onConfirm={async (payment) => {
-          setReleasingId(pledgeId);
-          try {
-            await releaseBankPledge(loanId, pledgeId, payment);
-            refreshAll();
-            toast("Bank pledge released");
-          } finally {
-            setReleasingId(null);
-          }
+          await releaseBankPledge(loanId, pledgeId, payment);
+          refreshAll();
+          closeAllModals();
+          toast("Bank pledge released");
         }}
       />
     );
-  }
-
-  function confirmVoid(rec: BankPledgeRecordView) {
-    openModal(<VoidPledgeModalContent rec={rec} onDone={() => { refreshAll(); toast("Pledge entry deleted"); }} />);
   }
 
   return (
@@ -196,7 +255,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
       <div className="page-h">
         <div><h1>Bank &amp; Gold Re-Pledge</h1><p>Customer gold re-pledged with external banks</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, bank, customer…" title="Searches: loan number, customer name, customer code · bank name on the History tab only" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan no, bank, customer…" searches="loan number, customer name, customer code · bank name on the History tab only" value={q} onChange={setQ} />
         {canViewBanks && <button className="btn ghost" onClick={() => openModal(<BanksModalContent />, true)}><Icon name="bank" /> Banks</button>}
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
@@ -208,68 +267,54 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <FilterPanel
+          categories={filterCategories}
+          value={filterValue}
+          onChange={(next) => {
+            setFromDate(next.__dateFrom || "");
+            setToDate(next.__dateTo || "");
+          }}
+          hideChips
+          hideClearAll
+        />
+      </div>
+
       {tab === "active" ? (
         <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Re-Pledged Loans</h3></div>
           {pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
           <div className="tbl-wrap">
-            <table className="tbl tbl-cards">
+            <table className="tbl tbl-cards tbl-center">
+              <TableCols widths={[9, 20, 14, 9, 12, 8, 10, 10, 8]} />
               <thead>
-                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th className="col-act"></th></tr>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th>Due</th><th></th></tr>
               </thead>
               <tbody>
                 {pledgedLoading && !(cards && pledged.length > 0) ? (
-                  <tr><td colSpan={8} className="empty">Loading…</td></tr>
+                  <tr><td colSpan={9} className="empty">Loading…</td></tr>
                 ) : pledged.length === 0 ? (
-                  <tr><td colSpan={8} className="empty">No loans currently bank-pledged.</td></tr>
-                ) : pledged.map((l) => {
-                  const active = l.bankPledges.find((p) => !p.isReleased);
-                  const treatment = active?.cashTreatment ?? "CashIn";
+                  <tr><td colSpan={9} className="empty">No loans currently bank-pledged.</td></tr>
+                ) : pledged.flatMap((l) => l.bankPledges.filter((p) => p.status === "Active").map((p) => ({ l, p }))).map(({ l, p: active }) => {
+                  const treatment = active.cashTreatment ?? "CashIn";
+                  // A pledge with no ornament list covers the whole loan.
+                  const covered = active.ornamentIds.length ? l.ornaments.filter((o) => active.ornamentIds.includes(o.id)).map((o) => o.name) : [];
                   return (
-                    <tr key={l.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
+                    <tr key={l.id + "-" + active.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
                       <td data-label="Loan">{canOpen("loan") ? <a href={routeHref(`loan/${l.id}`)}>{l.id}</a> : l.id}</td>
                       <td data-label="Customer">{l.customerName}</td>
                       <td data-label="Bank">{active?.bankName || "—"}</td>
-                      <td className="num" data-label="Weight">{fmtW(l.totalNetWeight)}</td>
+                      <td className="num" data-label="Weight">
+                        {fmtW(active.ornamentIds.length ? active.pledgedNetWeight : l.totalNetWeight)}
+                        <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{covered.length ? covered.join(", ") : "All ornaments"}</div>
+                      </td>
                       <td className="num" data-label="Pledged Amount">{active ? fmt(active.pledgedAmount) : "—"}</td>
                       <td data-label="Cash"><CashTreatmentBadge treatment={treatment} /></td>
                       <td data-label="Pledged On">{fmtDate(active?.pledgeDate)}</td>
-                      <td className="col-act" style={{ whiteSpace: "nowrap" }}>
+                      <td data-label="Due">{active.bankPledgeDueDate ? fmtDate(active.bankPledgeDueDate) : "—"}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
                         {active && (
-                          <>
-                            {canUpdatePledges && <button
-                              className="btn ghost sm"
-                              disabled={releasingId === active.id}
-                              onClick={() => confirmRelease(l.numericId, active.id, active.bankName, active.pledgedAmount, treatment)}
-                            >
-                              {releasingId === active.id ? "Releasing…" : "Release"}
-                            </button>}
-                            {canVoid && (
-                              <button
-                                className="btn ghost sm"
-                                style={{ marginLeft: 6 }}
-                                title="Cancel the repledge"
-                                onClick={() => confirmVoid({
-                                  id: active.id,
-                                  loanId: l.numericId,
-                                  bankName: active.bankName,
-                                  pledgedAmount: active.pledgedAmount,
-                                  pledgeDate: active.pledgeDate,
-                                  releaseDate: null,
-                                  bankPledgeDueDate: null,
-                                  bankInterestRate: 0,
-                                  referenceNumber: "",
-                                  cashTreatment: treatment,
-                                  status: "Active",
-                                  voidedAt: null,
-                                  voidReason: "",
-                                  events: [],
-                                })}
-                              >
-                                Delete
-                              </button>
-                            )}
-                          </>
+                          <button className="btn ghost sm" onClick={() => viewDetails(l, active, treatment)}>View</button>
                         )}
                       </td>
                     </tr>
@@ -291,20 +336,24 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           <div className="hd"><h3>Re-Pledge History</h3></div>
           {historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
           <div className="tbl-wrap">
-            <table className="tbl tbl-cards">
+            <table className="tbl tbl-cards tbl-center">
+              <TableCols widths={[9, 20, 14, 12, 8, 10, 10, 9, 8]} />
               <thead>
-                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th></tr>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th><th></th></tr>
               </thead>
               <tbody>
                 {historyLoading && !(cards && history.length > 0) ? (
-                  <tr><td colSpan={8} className="empty">Loading…</td></tr>
+                  <tr><td colSpan={9} className="empty">Loading…</td></tr>
                 ) : history.length === 0 ? (
-                  <tr><td colSpan={8} className="empty">No re-pledge records yet.</td></tr>
+                  <tr><td colSpan={9} className="empty">No re-pledge records yet.</td></tr>
                 ) : history.map((r) => (
                   <tr key={r.id}>
                     <td data-label="Loan">{r.loanNumber ? (canOpen("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber) : `#${r.loanId}`}</td>
                     <td data-label="Customer">{r.customerName || "—"}</td>
-                    <td data-label="Bank">{r.bankName}</td>
+                    <td data-label="Bank">
+                      {r.bankName}
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.ornamentNames && r.ornamentNames.length ? r.ornamentNames.join(", ") : "All ornaments"}</div>
+                    </td>
                     <td className="num" data-label="Amount">{fmt(r.pledgedAmount)}</td>
                     <td data-label="Cash"><CashTreatmentBadge treatment={r.cashTreatment} /></td>
                     <td data-label="Pledged">{fmtDate(r.pledgeDate)}</td>
@@ -316,6 +365,9 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
                       {r.status === "Voided" && r.voidReason && (
                         <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{r.voidReason}</div>
                       )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn ghost sm" onClick={() => viewRecord(r)}>View</button>
                     </td>
                   </tr>
                 ))}
@@ -346,56 +398,5 @@ function CashTreatmentBadge({ treatment }: CashTreatmentBadgeProps) {
     <span className={`pill ${isCash ? "green" : ""}`} title={isCash ? "The bank's advance was added to Cash-in-Hand" : "Recorded as a re-pledge record only — no cash effect"}>
       {CASH_TREATMENT_LABELS[isCash ? "CashIn" : "RecordOnly"]}
     </span>
-  );
-}
-
-type VoidPledgeModalContentProps = { rec: BankPledgeRecordView; onDone: () => void };
-
-function VoidPledgeModalContent({ rec, onDone }: VoidPledgeModalContentProps) {
-  const { closeModal } = useModal();
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-
-  async function submit() {
-    if (!reason.trim()) { setErr("Please state why this pledge entry is being deleted."); return; }
-    setBusy(true);
-    try {
-      await voidBankPledge(rec.loanId, rec.id, reason.trim());
-      closeModal();
-      onDone();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not delete the pledge entry — try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <div className="hd"><h3>Delete Repledge Record</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
-        {/* .notice is display:flex — keep the text in one child element. */}
-        <div className="notice" style={{ marginBottom: 14 }}>
-          <Icon name="shield" />
-          <span>
-            Cancel Pledge Entry — this undoes a re-pledge of <strong>{fmt(rec.pledgedAmount)}</strong> to <strong>{rec.bankName}</strong> entered in error.
-            {rec.cashTreatment === "CashIn"
-              ? ` A compensating cash-out of ${fmt(rec.pledgedAmount)} will be booked, since the original added cash to the till.`
-              : " No cash will move — this pledge was recorded only."}
-            {" "}The record stays visible in history for audit. To fix a wrong cash treatment, delete this entry and create a fresh re-pledge. Use Release instead if the gold is actually being returned from the bank.
-          </span>
-        </div>
-        <div className="frow"><div>
-          <label className="f">Reason *</label>
-          <input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="why this record is being cancelled" maxLength={255} />
-        </div></div>
-      </div>
-      <div className="ft">
-          {err && <span className="ft-err" role="alert">{err}</span>}
-        <button className="btn ghost" onClick={closeModal} disabled={busy}>Cancel</button>
-        <button className="btn danger" onClick={submit} disabled={busy}>{busy ? "Deleting…" : "Delete Entry"}</button>
-      </div>
-    </>
   );
 }

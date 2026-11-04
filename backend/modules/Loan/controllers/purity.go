@@ -61,7 +61,7 @@ func rateForPurity(gr *commonModels.GoldRate, purity string) (float64, error) {
 			return math.Round(gr.K24 * float64(*karat) / 24), nil
 		}
 	case fineness != nil:
-		return math.Round(gr.K24 * *fineness / 100), nil
+		return math.Round(gr.K24 * *fineness / 99.9), nil // fineness ÷ 24K fineness (99.9) × K24, as the Set Gold Rate modal defines it
 	default:
 		return 0, common.NewBadRequest("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
 	}

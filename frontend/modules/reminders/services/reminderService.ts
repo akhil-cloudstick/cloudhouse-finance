@@ -1,5 +1,6 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { queueWrite } from "@/common/offline/queueWrite";
 import { currentActor } from "@/common/offline/actor";
 import type { BackendReminder, ReminderView, CreateReminderInput, UpdateReminderInput, ReminderFilters, CalendarEvent } from "@/modules/reminders/types/reminder-types";
 
@@ -41,20 +42,22 @@ export async function createReminder(input: CreateReminderInput): Promise<Remind
 }
 
 export async function updateReminder(id: number, input: UpdateReminderInput): Promise<ReminderView> {
-  const rec = await apiFetch<BackendReminder>(`/reminders/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(input),
-  });
-  return toView(rec);
+  const path = `/reminders/${id}`;
+  return queueWrite("PUT", path, input, { id, ...input } as unknown as ReminderView, async () =>
+    toView(await apiFetch<BackendReminder>(path, { method: "PUT", body: JSON.stringify(input) }))
+  );
 }
 
 export async function completeReminder(id: number): Promise<ReminderView> {
-  const rec = await apiFetch<BackendReminder>(`/reminders/${id}/complete`, { method: "PUT" });
-  return toView(rec);
+  const path = `/reminders/${id}/complete`;
+  return queueWrite("PUT", path, undefined, { id, status: "Done" } as unknown as ReminderView, async () =>
+    toView(await apiFetch<BackendReminder>(path, { method: "PUT" }))
+  );
 }
 
 export async function deleteReminder(id: number): Promise<void> {
-  await apiFetch<void>(`/reminders/${id}`, { method: "DELETE" });
+  const path = `/reminders/${id}`;
+  await queueWrite("DELETE", path, undefined, undefined, () => apiFetch<void>(path, { method: "DELETE" }));
 }
 
 export async function listReminders(filters?: ReminderFilters): Promise<ReminderView[]> {

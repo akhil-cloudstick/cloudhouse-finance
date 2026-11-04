@@ -63,6 +63,8 @@ type MovementFilter struct {
 	BranchIDs   []uint
 	CustomerIDs []uint
 	Categories  []string
+	// CategoryNames narrows the ledger to entries recorded under those Credit / Debit / Self Transfer categories.
+	CategoryNames []string
 	// Modes narrows the ledger to lines paid in Cash, UPI or Bank Transfer.
 	Modes []string
 }
@@ -190,10 +192,11 @@ func validModes(in []string) []string {
 
 func movementQueryFilter(c echo.Context) MovementFilter {
 	return MovementFilter{
-		BranchIDs:   parseUintCSV(c.QueryParam("branch_ids")),
-		CustomerIDs: parseUintCSV(c.QueryParam("customer_ids")),
-		Categories:  parseStringCSV(c.QueryParam("types")),
-		Modes:       validModes(parseStringCSV(c.QueryParam("modes"))),
+		BranchIDs:     parseUintCSV(c.QueryParam("branch_ids")),
+		CustomerIDs:   parseUintCSV(c.QueryParam("customer_ids")),
+		Categories:    parseStringCSV(c.QueryParam("types")),
+		CategoryNames: parseStringCSV(c.QueryParam("category_names")),
+		Modes:         validModes(parseStringCSV(c.QueryParam("modes"))),
 	}
 }
 
@@ -211,6 +214,15 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 	}
 	if len(filter.Modes) > 0 {
 		q = q.Where("mode IN ?", filter.Modes)
+	}
+	if len(filter.CategoryNames) > 0 {
+		// Credit entries keep the category in source; Debit and Self Transfer entries in purpose, prefixed.
+		var names []string
+		for _, n := range filter.CategoryNames {
+			n = strings.ToLower(strings.TrimSpace(n))
+			names = append(names, n, "expense — "+n, "self transfer — "+n)
+		}
+		q = q.Where("lower(source) IN ? OR lower(purpose) IN ?", names, names)
 	}
 	if !fromDate.IsZero() {
 		q = q.Where("occurred_on >= ?", fromDate)
@@ -236,7 +248,15 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 	}
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ?", like, like, like)
+		// Text columns, the party's name, the date (DD-MM-YYYY or ISO) and the
+		// amount ("5,000" and "5000" both find 5000.00).
+		amount := searchAmountLike(search)
+		q = q.Where(
+			"purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ? OR mode ILIKE ? OR remarks ILIKE ?"+
+				" OR party_customer_id IN (SELECT id FROM customers WHERE name ILIKE ?)"+
+				" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ?"+
+				" OR CAST(amount AS TEXT) LIKE ?",
+			like, like, like, like, like, like, like, like, amount)
 	}
 	return q
 }
@@ -940,10 +960,11 @@ func RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, inves
 	})
 }
 
-func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint) (uint, error) {
+func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint, remarks string) (uint, error) {
 	rec := &models.CashMovement{
 		Type:     "out",
 		Purpose:  "Auction surplus settlement — " + loanNumber,
+		Remarks:  strings.TrimSpace(remarks),
 		Amount:   amount,
 		Mode:     auctionMode(mode),
 		BankID:   bankID,
@@ -1149,7 +1170,7 @@ func netOfNewestRows(ctx context.Context, branchID *uint, fromDate, toDate time.
 
 // narrowsLedger reports whether a filter other than the date range hides rows from the ledger.
 func narrowsLedger(filter MovementFilter, search string) bool {
-	return len(filter.BranchIDs) > 0 || len(filter.CustomerIDs) > 0 || len(filter.Categories) > 0 || len(filter.Modes) > 0 || search != ""
+	return len(filter.BranchIDs) > 0 || len(filter.CustomerIDs) > 0 || len(filter.Categories) > 0 || len(filter.CategoryNames) > 0 || len(filter.Modes) > 0 || search != ""
 }
 
 // fullLedgerBalances is each row's balance in the whole (branch-scoped) ledger — every row booked up
@@ -1657,7 +1678,7 @@ func GetCashLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCashModeLedger(ctx, branchID, branchIDs, fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCashModeLedger(ctx, branchID, branchIDs, strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1691,7 +1712,7 @@ func GetModeLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listModeLedger(ctx, mode, bankID, branchID, branchIDs, parseStringCSV(c.QueryParam("types")), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listModeLedger(ctx, mode, bankID, branchID, branchIDs, parseStringCSV(c.QueryParam("types")), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1746,7 +1767,7 @@ func ListMovementsByCustomer(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCombinedLedgerByCustomer(ctx, customerID, loanNumbersFromQuery(c), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCombinedLedgerByCustomer(ctx, customerID, loanNumbersFromQuery(c), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1772,7 +1793,7 @@ func GetBankLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCombinedLedgerByBank(ctx, bankID, splitCSV(c.QueryParam("modes")), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCombinedLedgerByBank(ctx, bankID, splitCSV(c.QueryParam("modes")), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1934,7 +1955,7 @@ func ExportMovements(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	filter := movementQueryFilter(c)
-	rows, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, "", exportMaxRows+1, 0)
+	rows, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, strings.TrimSpace(c.QueryParam("search")), exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -2194,4 +2215,13 @@ func RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string
 		return 0, "", common.NewBadRequest("payment breakdown is required")
 	}
 	return firstID, groupID, nil
+}
+
+// DeleteCollectionByGroup removes the Collection cash lines a loan payment booked under groupID, so a corrected
+// payment can book its own (or none, when the payment is deleted).
+func DeleteCollectionByGroup(ctx context.Context, groupID string) error {
+	if groupID == "" {
+		return nil
+	}
+	return cashDB(ctx).Where("transaction_group_id = ? AND source = ?", groupID, "Collection").Delete(&models.CashMovement{}).Error
 }

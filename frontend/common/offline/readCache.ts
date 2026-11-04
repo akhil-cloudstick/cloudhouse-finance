@@ -10,7 +10,7 @@
 import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
 import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjust";
 import { adjustLatestRate, adjustRateHistory } from "./goldRateAdjust";
-import { adjustExpenses, adjustGoldSales, adjustLedger, LEDGER_PATH } from "./ledgerAdjust";
+import { adjustExpenses, adjustGoldSales, adjustLedger, adjustPartyLedger, LEDGER_PATH, PARTY_PATH } from "./ledgerAdjust";
 import { adjustPersonalLoans } from "./personalLoanAdjust";
 import { adjustInvestmentPlans, adjustInvestments } from "./investmentAdjust";
 import { adjustCalendar, adjustReminders } from "./reminderAdjust";
@@ -32,7 +32,26 @@ const FILTERS: { params: string[]; fields: string[] }[] = [
   { params: ["lockerId", "locker_id"], fields: ["currentLockerId", "lockerId"] },
   { params: ["loanId", "loan_id"], fields: ["loanId"] },
   { params: ["frequency"], fields: ["frequency"] },
+  { params: ["branchIds"], fields: ["branchId"] },
+  { params: ["customerIds"], fields: ["customerId", "partyCustomerId"] },
+  { params: ["types", "kinds"], fields: ["type", "kind"] },
+  { params: ["modes", "mode", "method"], fields: ["mode", "paymentMode", "method"] },
+  { params: ["category", "category_names"], fields: ["category", "categoryName"] },
+  { params: ["bankId"], fields: ["bankId"] },
+  { params: ["schemeId"], fields: ["schemeId"] },
+  { params: ["auctionStage", "stage"], fields: ["auctionStage", "stage", "approvalStage"] },
+  { params: ["servicing"], fields: ["servicing"] },
+  { params: ["bankPledgeStatus"], fields: ["bankPledgeStatus"] },
+  { params: ["risk_level"], fields: ["riskLevel", "risk_level"] },
+  { params: ["outcome"], fields: ["outcome"] },
 ];
+// date range filters: the first of these fields a row carries is compared (as yyyy-mm-dd) with from/to
+const DATE_FIELDS = ["occurredOn", "date", "paymentDate", "disbursedOn", "createdAt", "occurredAt"];
+
+/* Every value asked for under any of the names; a name may be repeated (?status=a&status=b) or comma-separated. */
+function wanted(qs: URLSearchParams, names: string[]): string[] {
+  return names.flatMap((n) => qs.getAll(n)).flatMap((v) => v.split(",")).map((v) => v.trim().toLowerCase()).filter(Boolean);
+}
 
 let enabled = false;
 let opening: Promise<void> | null = null;
@@ -203,20 +222,37 @@ function reshape(cachedBody: string, path: string): string {
   if (!all) return cachedBody;
   // the screens page with offset (or with page, 1-based)
   const offset = qs.has("offset") ? Math.max(0, Number(qs.get("offset")) || 0) : (Math.max(1, Number(qs.get("page") ?? "1") || 1) - 1) * limit;
-  const q = (qs.get("q") ?? "").trim().toLowerCase();
+  // the pages send the search text as q or as search; every word typed must appear somewhere in the row
+  const words = (qs.get("q") || qs.get("search") || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const dayFrom = (qs.get("from") || qs.get("fromDate") || "").slice(0, 10);
+  const dayTo = (qs.get("to") || qs.get("toDate") || "").slice(0, 10);
   // simple filters, applied when the rows carry the field (a value may be a comma-separated list, as a branch picker sends)
-  const active = FILTERS.map((f) => ({ f, want: f.params.map((p) => qs.get(p)).find((v) => v) })).filter((x) => x.want);
+  const active = FILTERS.map((f) => ({ f, want: wanted(qs, f.params) })).filter((x) => x.want.length > 0);
   const filtered = all.filter((r) => {
     const row = r as Record<string, unknown>;
-    return active.every(({ f, want }) => {
+    const okFields = active.every(({ f, want }) => {
       const have = f.fields.map((k) => row[k]).find((v) => v !== undefined);
       if (have === undefined) return true; // the rows do not carry this field, so it cannot be applied
       if (typeof have !== "string" && typeof have !== "number") return false; // e.g. a packet that is in no locker
-      return String(want).split(",").some((w) => w.trim().toLowerCase() === String(have).toLowerCase());
+      return want.includes(String(have).toLowerCase());
     });
+    if (!okFields) return false;
+    if (dayFrom || dayTo) {
+      const d = DATE_FIELDS.map((k) => row[k]).find((v) => typeof v === "string") as string | undefined;
+      if (d) {
+        const day = d.slice(0, 10);
+        if ((dayFrom && day < dayFrom) || (dayTo && day > dayTo)) return false;
+      }
+    }
+    return true;
   });
-  const rows = q ? filtered.filter((r) => JSON.stringify(r).toLowerCase().includes(q)) : filtered;
-  const narrowed = q !== "" || rows.length !== all.length;
+  const rows = words.length
+    ? filtered.filter((r) => {
+        const text = JSON.stringify(r).toLowerCase();
+        return words.every((w) => text.includes(w));
+      })
+    : filtered;
+  const narrowed = words.length > 0 || rows.length !== all.length;
   // no paging asked for: the whole list, narrowed by the filters (a loan's pending requests, say). Without this the
   // newest copy of the endpoint was returned whole, so another loan's request looked like this loan's.
   if (!(limit > 0)) {
@@ -245,6 +281,8 @@ export async function recall(path: string, view: string): Promise<string | null>
   // The ledgers (Cash, UPI / Bank Transfer / Cheque, a bank's, an expense category's) list what this PC has entered since the
   // last answer. A category made on this PC has no answer at all, so this runs before the "nothing kept" check below.
   if (LEDGER_PATH.test(path)) return adjustLedger(path, body);
+  // the ledger of one bank, customer or branch
+  if (PARTY_PATH.test(path)) return adjustPartyLedger(path, body);
   // The packets of loans made on this PC exist only here until the loan is sent, so they are listed (and opened) even
   // when no packet answer was ever kept; movements waiting to be sent are applied to the rest.
   if (/\/packets\/-?\d+\/movements/.test(path)) return adjustMovements(path, body);
@@ -281,8 +319,11 @@ async function recallCopy(path: string, view: string): Promise<string | null> {
 
 /* A single record (a bank's own page) that was never opened online is cut out of the list it belongs to. */
 async function oneFromList(emp: number, path: string, view: string): Promise<string | null> {
-  const m = /^(\/users\/\d+\/[a-z-]+)\/(\d+)(\?.*)?$/.exec(path);
+  // a record opened by its code (a packet's page) is found in the same list by that code
+  const byCode = /^(\/users\/\d+\/[a-z-]+)\/by-code\/([^/?]+)(\?.*)?$/.exec(path);
+  const m = byCode ?? /^(\/users\/\d+\/[a-z-]+)\/(\d+)(\?.*)?$/.exec(path);
   if (!m) return null;
+  const wanted = byCode ? decodeURIComponent(m[2]) : "";
   for (const kind of ["*", "big", "paged"] as Kind[]) {
     const hit = await read(familyKey(emp, m[1], view, kind));
     if (!hit) continue;
@@ -290,7 +331,7 @@ async function oneFromList(emp: number, path: string, view: string): Promise<str
       const env = JSON.parse(hit.body) as Envelope;
       const data = env.data as unknown;
       const rows = Array.isArray(data) ? data : Array.isArray((data as { items?: unknown[] } | undefined)?.items) ? (data as { items: unknown[] }).items : [];
-      const row = rows.find((r) => (r as { id?: unknown }).id === Number(m[2]));
+      const row = rows.find((r) => (byCode ? (r as { code?: unknown }).code === wanted : (r as { id?: unknown }).id === Number(m[2])));
       if (row) return JSON.stringify({ success: true, data: row });
     } catch {
       /* a copy that cannot be read has nothing to give */

@@ -8,6 +8,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// DefaultedAfterDays is how many days past its due date a loan must be before it counts as defaulted.
+// Defaulted is derived from the due date, not stored as a status; the loan list and the reports share this.
+const DefaultedAfterDays = 90
+
 const (
 	StatusPendingApproval     = "Pending Approval"
 	StatusActive              = "Active"
@@ -45,46 +49,50 @@ var BankPledgeIneligibleStatuses = []string{
 
 type Loan struct {
 	config.TenantScoped
-	ID                       uint                    `json:"id" gorm:"primaryKey"`
+	ID                   uint                    `json:"id" gorm:"primaryKey"`
 	UUID                     string                  `json:"uuid" gorm:"type:uuid;default:gen_random_uuid()"`
-	LoanNumber               string                  `json:"loan_number" gorm:"index;size:20"`
-	BranchID                 uint                    `json:"branch_id" gorm:"not null"`
-	Branch                   commonModels.Branch     `json:"branch" gorm:"foreignKey:BranchID"`
-	CustomerID               uint                    `json:"customer_id" gorm:"not null"`
-	Customer                 commonModels.Customer   `json:"customer" gorm:"foreignKey:CustomerID"`
-	SchemeID                 uint                    `json:"scheme_id" gorm:"not null"`
-	Scheme                   commonModels.Scheme     `json:"scheme" gorm:"foreignKey:SchemeID"`
-	SchemeCode               string                  `json:"scheme_code" gorm:"size:20"`
-	SchemeInterestRate       float64                 `json:"scheme_interest_rate"`
-	SchemeDurationMonths     int                     `json:"scheme_duration_months"`
-	SchemeLTVPercent         float64                 `json:"scheme_ltv_percent"`
-	SchemeInterestMethod     string                  `json:"scheme_interest_method" gorm:"size:80"`
-	SchemePenalRate          float64                 `json:"scheme_penal_rate"`
-	SchemeRateTiers          []commonModels.RateTier `json:"scheme_rate_tiers" gorm:"serializer:json;type:text"`
-	SchemeMinimumDays        int                     `json:"scheme_minimum_days" gorm:"not null;default:0"`
-	RateTierLevel            int                     `json:"rate_tier_level" gorm:"not null;default:0"`
-	ArrearsSince             *time.Time              `json:"arrears_since"`
-	ServiceChargeType        string                  `json:"service_charge_type" gorm:"size:10"`
-	ServiceChargeValue       float64                 `json:"service_charge_value" gorm:"type:numeric(16,2);default:0"`
-	ServiceChargeMode        string                  `json:"service_charge_mode" gorm:"size:20"`
-	ServiceChargeAmount      float64                 `json:"service_charge_amount" gorm:"type:numeric(16,2);default:0"`
-	CreatedByEmployeeID      *uint                   `json:"created_by_employee_id"`
-	CreatedByName            string                  `json:"created_by_name" gorm:"size:120"`
-	OpenedDate               time.Time               `json:"opened_date" gorm:"not null"`
-	DueDate                  time.Time               `json:"due_date" gorm:"not null"`
-	AdditionalInfo           string                  `json:"additional_info" gorm:"size:2000"`
-	OverallPhotoURL          string                  `json:"overall_photo_url" gorm:"size:512"`
-	TotalNetWeight           float64                 `json:"total_net_weight"`
-	TotalGoldValue           float64                 `json:"total_gold_value" gorm:"type:numeric(16,2);default:0"`
-	EligibleLoanAmount       float64                 `json:"eligible_loan_amount" gorm:"type:numeric(16,2);default:0"`
-	PrincipalAmount          float64                 `json:"principal_amount" gorm:"not null;type:numeric(16,2)"`
-	OutstandingAmount        float64                 `json:"outstanding_amount" gorm:"not null;type:numeric(16,2)"`
-	OutstandingProcessingFee float64                 `json:"outstanding_processing_fee" gorm:"type:numeric(16,2);default:0"`
-	AccruedInterest          float64                 `json:"accrued_interest" gorm:"type:numeric(16,2);default:0"`
-	InterestPaid             float64                 `json:"interest_paid" gorm:"type:numeric(16,2);default:0"`
-	AccruedPenalInterest     float64                 `json:"accrued_penal_interest" gorm:"type:numeric(16,2);default:0"`
-	PenalInterestPaid        float64                 `json:"penal_interest_paid" gorm:"type:numeric(16,2);default:0"`
-	LastAccrualDate          time.Time               `json:"last_accrual_date"`
+	LoanNumber           string                  `json:"loan_number" gorm:"index;size:20"`
+	BranchID             uint                    `json:"branch_id" gorm:"not null"`
+	Branch               commonModels.Branch     `json:"branch" gorm:"foreignKey:BranchID"`
+	CustomerID           uint                    `json:"customer_id" gorm:"not null"`
+	Customer             commonModels.Customer   `json:"customer" gorm:"foreignKey:CustomerID"`
+	SchemeID             uint                    `json:"scheme_id" gorm:"not null"`
+	Scheme               commonModels.Scheme     `json:"scheme" gorm:"foreignKey:SchemeID"`
+	SchemeCode           string                  `json:"scheme_code" gorm:"size:20"`
+	SchemeInterestRate   float64                 `json:"scheme_interest_rate"`
+	SchemeDurationMonths int                     `json:"scheme_duration_months"`
+	SchemeLTVPercent     float64                 `json:"scheme_ltv_percent"`
+	SchemeInterestMethod string                  `json:"scheme_interest_method" gorm:"size:80"`
+	SchemePenalRate      float64                 `json:"scheme_penal_rate"`
+	SchemeRateTiers      []commonModels.RateTier `json:"scheme_rate_tiers" gorm:"serializer:json;type:text"`
+	SchemeMinimumDays    int                     `json:"scheme_minimum_days" gorm:"not null;default:0"`
+	SchemeAccrualBasis   string                  `json:"scheme_accrual_basis" gorm:"size:10;not null;default:'daily'"`
+	RateTierLevel        int                     `json:"rate_tier_level" gorm:"not null;default:0"`
+	ArrearsSince         *time.Time              `json:"arrears_since"`
+	ServiceChargeType    string                  `json:"service_charge_type" gorm:"size:10"`
+	ServiceChargeValue   float64                 `json:"service_charge_value" gorm:"type:numeric(16,2);default:0"`
+	ServiceChargeMode    string                  `json:"service_charge_mode" gorm:"size:20"`
+	ServiceChargeAmount  float64                 `json:"service_charge_amount" gorm:"type:numeric(16,2);default:0"`
+	CreatedByEmployeeID  *uint                   `json:"created_by_employee_id"`
+	CreatedByName        string                  `json:"created_by_name" gorm:"size:120"`
+	OpenedDate           time.Time               `json:"opened_date" gorm:"not null"`
+	DueDate              time.Time               `json:"due_date" gorm:"not null"`
+	// ClosedAt is when the loan was closed (gold released, or written off at auction).
+	// Nil for open loans and for loans closed before this was recorded.
+	ClosedAt                 *time.Time `json:"closed_at"`
+	AdditionalInfo           string     `json:"additional_info" gorm:"size:2000"`
+	OverallPhotoURL          string     `json:"overall_photo_url" gorm:"size:512"`
+	TotalNetWeight           float64    `json:"total_net_weight"`
+	TotalGoldValue           float64    `json:"total_gold_value" gorm:"type:numeric(16,2);default:0"`
+	EligibleLoanAmount       float64    `json:"eligible_loan_amount" gorm:"type:numeric(16,2);default:0"`
+	PrincipalAmount          float64    `json:"principal_amount" gorm:"not null;type:numeric(16,2)"`
+	OutstandingAmount        float64    `json:"outstanding_amount" gorm:"not null;type:numeric(16,2)"`
+	OutstandingProcessingFee float64    `json:"outstanding_processing_fee" gorm:"type:numeric(16,2);default:0"`
+	AccruedInterest          float64    `json:"accrued_interest" gorm:"type:numeric(16,2);default:0"`
+	InterestPaid             float64    `json:"interest_paid" gorm:"type:numeric(16,2);default:0"`
+	AccruedPenalInterest     float64    `json:"accrued_penal_interest" gorm:"type:numeric(16,2);default:0"`
+	PenalInterestPaid        float64    `json:"penal_interest_paid" gorm:"type:numeric(16,2);default:0"`
+	LastAccrualDate          time.Time  `json:"last_accrual_date"`
 	// PriorAccruals are the interest rows already saved since the unpaid-days count began, loaded while a
 	// Multiple-interest loan is being charged so a rate step can restate them; never sent or stored.
 	PriorAccruals              []LoanAccrual      `json:"-" gorm:"-"`

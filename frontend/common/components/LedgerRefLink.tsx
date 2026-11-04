@@ -4,7 +4,7 @@ import { navigate, routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
 type LedgerRefLinkProps = {
-  kind: "loan" | "personalloan" | "investment" | "customer" | "bank" | "category";
+  kind: "loan" | "personalloan" | "investment" | "customer" | "bank" | "category" | "auction";
   id: number | string;
   label: string;
 };
@@ -29,12 +29,14 @@ export function LedgerRefLink({
     : kind === "investment" ? "investment"
     : kind === "customer" ? "ledger-customer"
     : kind === "category" ? "ledger-category"
+    : kind === "auction" ? "auctions"
     : "ledger-bank";
   // A chip to a page this role can't open is just its label, not a link.
-  if (!canOpen(route)) return <span className={`ledger-ref-chip ledger-ref-chip-${kind}`}>{label}</span>;
+  if (!canOpen(route)) return <span className={`ledger-ref-chip ledger-ref-chip-${kind}`} title={label}>{label}</span>;
   return (
     <a
       href={routeHref(route, id)}
+      title={label}
       className={`ledger-ref-chip ledger-ref-chip-${kind}`}
       onClick={(e) => {
         e.stopPropagation();

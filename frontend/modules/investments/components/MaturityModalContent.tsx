@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt, fmtDate } from "@/common/utils/format";
+import { fmt, fmtDate, roundRupee } from "@/common/utils/format";
 import { Select } from "@/common/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
@@ -41,7 +41,7 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   const [saving, setSaving] = useState(false);
   // A live-engine investment is paid out in full when it is closed, so the close asks how.
   const isLive = investment.engine === "Live";
-  const payable = Math.round(((investment.outstandingPrincipal || 0) + (investment.outstandingInterest || 0)) * 100) / 100;
+  const payable = roundRupee(((investment.outstandingPrincipal || 0) + (investment.outstandingInterest || 0)));
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
@@ -55,14 +55,17 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   const principalNum = +principal || 0;
 
   async function save() {
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
     if (action === "Renew") {
-      if (!planId) { fail("plan", "Please select an investment plan for the renewed investment."); return; }
-      if (!principalNum || principalNum <= 0) { fail("principal", "Please enter the principal amount for the renewed investment."); return; }
+      if (!planId) errors["plan"] ??= "Please select an investment plan for the renewed investment.";
+      if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the principal amount for the renewed investment.";
     }
     if (isLive && action === "Close") {
-      if (Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the amount payable."); return; }
-      if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { fail("split", "Pick the bank the payout was made from."); return; }
+      if (Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the amount payable.";
+      if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) errors["split"] ??= "Pick the bank the payout was made from.";
     }
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     setErr("");
     setFe({});

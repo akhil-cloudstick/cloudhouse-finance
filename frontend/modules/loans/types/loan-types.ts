@@ -86,6 +86,8 @@ export type BackendLoanPayment = {
   paidOn: string;
   receivedByEmployeeId: number;
   description: string;
+  discountKind?: string; // Discount rows: customer / interest / penal_interest
+  linkedPaymentId?: number; // a discount: the payment it was given together with
   /* Derived/display-only — the single mode's name when exactly one split
    * amount below is non-zero, "Split" when more than one is. */
   method: string;
@@ -122,11 +124,22 @@ export type BackendBankPledgeRecord = {
   bankInterestRate: number;
   referenceNumber: string;
   createdAt: string;
+  /* Ornaments this pledge covers; empty/absent = the loan's whole gold. */
+  ornamentIds?: number[] | null;
+  ornamentNames?: string[] | null;
 
   /* Added with the cash-treatment toggle. Optional here because this same type
    * is used for pledges embedded in a loan response, where older serialized
    * payloads may not carry them — see toBankPledgeView for the defaults. */
   cashTreatment?: BankPledgeCashTreatment;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number | null;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number | null;
   status?: "Active" | "Released" | "Voided";
   voidedAt?: string | null;
   voidReason?: string;
@@ -168,6 +181,7 @@ export type BackendLoan = {
   schemePenalRate: number;
   openedDate: string;
   dueDate: string;
+  closedAt?: string | null;
   additionalInfo?: string;
   overallPhotoUrl?: string;
   totalNetWeight: number;
@@ -256,6 +270,8 @@ export type PaymentView = {
   paidOn: string; // "YYYY-MM-DD"
   receivedByEmployeeId: number;
   description: string;
+  discountKind?: string; // Discount rows: customer / interest / penal_interest
+  linkedPaymentId?: number; // a discount: the payment it was given together with
   method: string;
   cashAmount: number;
   upiAmount: number;
@@ -283,6 +299,8 @@ export type BankPledgeView = {
   pledgedGrossWeight: number;
   pledgedNetWeight: number;
   isReleased: boolean;
+  /* Ornaments this pledge covers; empty = the loan's whole gold. */
+  ornamentIds: number[];
   bankInterestRate: number;
   referenceNumber: string;
   /* Whether this pledge put the bank's advance into Cash-in-Hand. Determines
@@ -291,6 +309,15 @@ export type BankPledgeView = {
   cashTreatment: BankPledgeCashTreatment;
   status: "Active" | "Released" | "Voided";
   voidReason: string;
+  /* How the pledge was received / its release paid (for the edit form). */
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  receivedBankId: number | null;
+  releaseCashAmount: number;
+  releaseUpiAmount: number;
+  releaseBankTransferAmount: number;
+  releaseBankId: number | null;
 };
 export type LoanView = {
   id: string; // loanNumber, or PENDING-xxxxxxxx until the server numbers a loan made offline
@@ -310,6 +337,8 @@ export type LoanView = {
   schemePenal: number;
   opened: string; // "YYYY-MM-DD"
   due: string;
+  /** YYYY-MM-DD the loan was closed, "" while open (or closed before this was recorded). */
+  closed: string;
   additionalInfo: string;
   overallPhotoUrl: string;
   totalNetWeight: number;
@@ -333,6 +362,8 @@ export type LoanView = {
   disbursedAmount: number;
   serviceChargeMode: string;
   serviceChargeAmount: number;
+  serviceChargeType?: string;
+  serviceChargeValue?: number;
   disbursementDate: string | null;
   bankPledgeStatus: string;
   isDueSoon: boolean;
@@ -458,7 +489,8 @@ export type LoanFilters = {
   branchId?: number | number[];
   customerId?: number | number[];
   bankPledgeStatus?: string;
-  schemeId?: number;
+  schemeId?: number | number[];
+  auctionStage?: string | string[]; // latest auction record at any of these stages
   from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
   to?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
 };
@@ -517,7 +549,17 @@ export type ApprovalInput = {
  * doc comment) — scheme and/or principal amount, either independently.
  * Ornaments themselves go through the existing addOrnament/updateOrnament/
  * deleteOrnament calls below, one ornament at a time, not through this. */
-export type UpdateLoanInput = { schemeId?: number | string; principalAmount?: number; overallPhotoUrl?: string };
+export type UpdateLoanInput = {
+  schemeId?: number | string; principalAmount?: number; overallPhotoUrl?: string; additionalInfo?: string; // additionalInfo: "" clears it
+  // how the payout of a loan already paid out was made
+  cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; bankId?: number;
+  // the loan's branch and the locker for its gold — only for a role that may see every branch
+  branchId?: number; lockerId?: number;
+  // the amounts chosen for later payments that no longer fit once the loan is recalculated
+  adjustFollowing?: { id: number; amount: number }[];
+  // what a release did that the edit undoes: the gold packet, a partial release
+  reversePacket?: boolean; restorePartialRelease?: boolean;
+};
 // employeeId is NOT sent — the backend derives the receiving employee's
 // identity from the authenticated JWT, never the request body (see
 // platform.ActorFromContext).
@@ -529,6 +571,12 @@ export type PaymentInput = {
   type: "Interest" | "Penal Interest" | "Principal" | "Partial" | "Full Settlement" | string;
   processingFee?: number; // extra charge collected alongside amount — never applied to penal/interest/principal
   paidOn: string;
+  // A write-off taken off the loan on the same date. amount stays what the customer actually pays.
+  discount?: number;
+  // What the discount is given against: a customer discount (the default), or interest / penal interest only.
+  discountKind?: DiscountKind;
+  discountReason?: string;
+  discountMode?: string;
   cashAmount?: number;
   upiAmount?: number;
   bankTransferAmount?: number;
@@ -565,6 +613,13 @@ export type TopUpInput = {
   // against the loan, but gets less cash out).
   settleInterest?: "require" | "deduct";
 };
+export type DiscountKind = "customer" | "interest" | "penal_interest";
+export const DISCOUNT_KIND_LABELS: Record<DiscountKind, string> = {
+  customer: "Custom discount",
+  interest: "Interest",
+  penal_interest: "Penal interest",
+};
+
 export type LoanTopUpView = {
   id: number;
   amount: number;
@@ -583,6 +638,7 @@ export type LoanTopUpView = {
   // "Approved"/"Rejected" once decided, "" when paid out with no chain.
   approvalStage: string;
   settleInterest: string;
+  bankId?: number | null;
   createdAt: string;
 };
 /* One decision on a pending top-up — stage is the stage KEY
@@ -613,6 +669,8 @@ export type BankPledgeInput = {
   bankTransferAmount?: number;
   chequeAmount?: number;
   receivedBankId?: number;
+  /* Pledge only these ornaments; omit to pledge the whole loan's gold. */
+  ornamentIds?: number[];
 };
 export type BankPledgeCashTreatment = "CashIn" | "RecordOnly";
 /* --- Bank re-pledge history ---------------------------------------------
@@ -649,6 +707,17 @@ export type BankPledgeRecordView = {
   voidedAt: string | null;
   voidReason: string;
   events: BankPledgeEventView[];
+  bankId?: number | null;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number | null;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number | null;
+  /* Pledged ornaments' names; empty = the whole loan's gold. */
+  ornamentNames?: string[];
 };
 export type AuctionStage = (typeof AUCTION_STAGES)[number] | "Withdrawn";
 export type AuctionSettlementStatus =
@@ -715,6 +784,8 @@ export type AuctionRecordView = {
    * so without this the customer's share would silently sit in branch cash. */
   surplusPayableAmount: number;
   surplusDisposition: AuctionSurplusDisposition | "";
+  /** Notes entered when the surplus was settled ("" if none). */
+  surplusRemarks: string;
   finalSettlementStatus: AuctionSettlementStatus;
   notices: AuctionNoticeView[];
   events: AuctionEventView[];
@@ -752,6 +823,7 @@ export type BackendAuctionRecord = {
   surplusShortfall: number;
   surplusPayableAmount?: number;
   surplusDisposition?: AuctionSurplusDisposition | "";
+  surplusRemarks?: string;
   finalSettlementStatus: AuctionSettlementStatus;
   notices: { id: number; issuedAt: string; method: string; remarks: string }[] | null;
   events?: BackendAuctionEvent[] | null;
@@ -775,7 +847,7 @@ export type ConcludedAuctionRowView = AuctionRecordView & { loanNumber: string; 
 export type LoanLedgerPart = { mode: string; amount: number; index: number; count: number };
 // component names what a split repayment row was applied to (e.g. an auction's proceeds).
 // accruing marks interest worked out up to the day the ledger is opened and not saved yet.
-type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string; accruing?: boolean };
+type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string; accruing?: boolean; paidThrough?: string };
 export type LoanLedgerEntry =
   | (LedgerEntryBase & { kind: "sanction"; balance: number; payment: PaymentView | null })
   | (LedgerEntryBase & { kind: "payment"; balance: number; row: PaymentView; auction: AuctionRecordView | null })
@@ -810,6 +882,8 @@ export type BackendLoanLedgerEntry = {
   component?: string;
   mode?: string;
   accruing?: boolean;
+  // the date the loan's interest is paid up to once this payment is counted (YYYY-MM-DD)
+  paidThrough?: string;
   payment?: BackendLoanPayment;
   topUp?: LoanTopUpView;
   auction?: BackendAuctionRecord;
@@ -904,6 +978,9 @@ export type LoanRequestFilters = {
   type?: string;
   /* Server-side search: loan number, customer name / code / phone. */
   q?: string;
+  /* YYYY-MM-DD bounds on the requested date (inclusive). */
+  from?: string;
+  to?: string;
 };
 /* Gold-value risk assessment — mirrors backend/internal/loan/service.go's
  * LoanRiskRow exactly. Compares each open loan's principal against what its
@@ -962,6 +1039,10 @@ export type ReleasePaymentInput = {
   reference?: string;
   interestOverride?: number;
   dueDate?: string;
+  paidOn?: string; // YYYY-MM-DD; omitted = today
+  discountReason?: string; // required by the API when discount > 0
+  discountMode?: string; // Cash / UPI / Bank Transfer / Cheque
+  discountKind?: DiscountKind; // what the discount is given against
 };
 // employeeId is NOT sent — see platform.ActorFromContext's doc comment.
 // stage is the release flow's stage KEY ("Manager"/"Management") — which of

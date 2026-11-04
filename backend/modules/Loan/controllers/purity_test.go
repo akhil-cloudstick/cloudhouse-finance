@@ -55,5 +55,5 @@ func TestRateForPurity_NonStandardPurityAlwaysDerivesOffK24(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	nearly(t, got, 6595, "91.6%% derived")
+	nearly(t, got, 6602, "91.6% ÷ 99.9% × K24")
 }

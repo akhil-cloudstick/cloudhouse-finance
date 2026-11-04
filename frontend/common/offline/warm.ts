@@ -94,7 +94,7 @@ const REPORTS = [
   "form-g",
 ];
 
-type Row = { id?: number; code?: string; status?: string };
+type Row = { id?: number; code?: string; status?: string; engine?: string };
 
 /* The rows of a list answer, whether the server sent a bare list or a page of {items}. */
 function rowsOf(json: unknown): Row[] {
@@ -107,6 +107,13 @@ async function idsOf(path: string, max: number): Promise<number[]> {
   return rowsOf(await warmJson(path))
     .slice(0, max)
     .map((r) => r.id as number);
+}
+
+/* Investments (id, engine) — the transactions list exists only for live-accrual ones; the server answers 400 for the rest. */
+async function investmentsOf(max: number): Promise<{ id: number; live: boolean }[]> {
+  return rowsOf(await warmJson(`/investments?${ALL}`))
+    .slice(0, max)
+    .map((r) => ({ id: r.id as number, live: r.engine === "Live" }));
 }
 
 /* A packet's details page reads the packet and its movements, so those are kept for each packet as well. */
@@ -141,12 +148,12 @@ async function warmPersonalLoans(): Promise<void> {
 
 /* The detail page of an investment: the investment, its ledger, schedule, transactions and pending interest. */
 async function warmInvestments(): Promise<void> {
-  for (const id of await idsOf(`/investments?${ALL}`, 40)) {
+  for (const { id, live } of await investmentsOf(40)) {
     await warmGet(`/investments/${id}`);
     await warmGet(`/investments/${id}/ledger`);
     await warmGet(`/investments/${id}/ledger?${PER_RECORD}`);
     await warmGet(`/investments/${id}/schedule?${PER_RECORD}`);
-    await warmGet(`/investments/${id}/transactions?${PER_RECORD}`);
+    if (live) await warmGet(`/investments/${id}/transactions?${PER_RECORD}`);
     await warmGet(`/investments/${id}/pending-interest`);
   }
 }
@@ -163,9 +170,9 @@ async function warmLedgers(): Promise<void> {
     .filter((id): id is number => typeof id === "number" && id > 0)
     .slice(0, 1000);
   for (const id of customers) await warmGet(`/cash-movements/transactions/customer/${id}?${ALL}`);
-  // each expense category's ledger, and the ledger of each payment mode (the Cash one is in PATHS)
+  // each expense category's ledger, and the ledger of each payment mode the server has one for (the Cash one is in PATHS)
   for (const id of await idsOf("/expense-categories", 60)) await warmGet(`/expense-categories/${id}/ledger?${ALL}`);
-  for (const mode of ["UPI", "Bank Transfer", "Cheque"]) await warmGet(`/cash-movements/mode-ledger?mode=${encodeURIComponent(mode)}&${ALL}`);
+  for (const mode of ["UPI", "Bank Transfer"]) await warmGet(`/cash-movements/mode-ledger?mode=${encodeURIComponent(mode)}&${ALL}`);
 }
 
 /* The auction case of each open loan (Active tab) and every case ever opened against it (History), and its bank
@@ -178,6 +185,21 @@ async function warmAuctions(): Promise<void> {
     await warmGet(`/loans/${l.id}/auction?optional=1`);
     await warmGet(`/loans/${l.id}/auction/history`);
     await warmGet(`/loans/${l.id}/bank-pledge/history`);
+  }
+}
+
+/* The History tables' edit screens read the sale of each concluded case (what was sold, for how much, the surplus), so it is kept
+ * for each case, along with the case's own history. */
+async function warmConcludedAuctions(): Promise<void> {
+  for (const hasSale of ["true", "false"]) {
+    const json = (await warmJson(`/loans/auctions/concluded?${ALL}&hasSale=${hasSale}`)) as { data?: unknown } | null;
+    const data = json?.data;
+    const rows = (Array.isArray(data) ? data : Array.isArray((data as { items?: unknown[] } | undefined)?.items) ? (data as { items: unknown[] }).items : []) as { loanId?: number }[];
+    for (const r of rows.slice(0, 60)) {
+      if (!r.loanId || r.loanId <= 0) continue;
+      await warmGet(`/loans/${r.loanId}/auction/sale`);
+      await warmGet(`/loans/${r.loanId}/auction/history`);
+    }
   }
 }
 
@@ -255,6 +277,7 @@ export async function warmReadCache(force = false): Promise<void> {
         await warmInvestments();
         await warmLedgers();
         await warmAuctions();
+        await warmConcludedAuctions();
         await warmBranches();
         await warmPictures();
         lastHeavy = Date.now();

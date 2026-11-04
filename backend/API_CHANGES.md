@@ -101,6 +101,16 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `aadhaarLast4` | `aadhaar_last4` |
 | `aadhaarStatus` | `aadhaar_status` |
 | `accentColor` | `accent_color` |
+| `interestChanges` | `interest_changes` |
+| `penalBefore` | `penal_before` |
+| `penalAfter` | `penal_after` |
+| `instalmentChanges` | `instalment_changes` |
+| `paidBefore` | `paid_before` |
+| `paidAfter` | `paid_after` |
+| `statusBefore` | `status_before` |
+| `statusAfter` | `status_after` |
+| `adjustFollowing` | `adjust_following` |
+| `accrualBasis` | `accrual_basis` |
 | `accountNo` | `account_no` |
 | `accruedInterest` | `accrued_interest` |
 | `accruedOn` | `accrued_on` |
@@ -369,6 +379,7 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `newCustomers` | `new_customers` |
 | `newDueDate` | `new_due_date` |
 | `newLoan` | `new_loan` |
+| `needsChange` | `needs_change` |
 | `newPassword` | `new_password` |
 | `nomineeName` | `nominee_name` |
 | `nomineePhone` | `nominee_phone` |
@@ -480,6 +491,7 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `rejectedByEmployeeId` | `rejected_by_employee_id` |
 | `rejectedByName` | `rejected_by_name` |
 | `rejectionRemarks` | `rejection_remarks` |
+| `restorePartialRelease` | `restore_partial_release` |
 | `relatedEntityId` | `related_entity_id` |
 | `relatedEntityType` | `related_entity_type` |
 | `relatedLoanId` | `related_loan_id` |
@@ -742,6 +754,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/customer/ws` | = |
 | `GET /api/v1/customers` | `GET /api/v1/users/:user_id/customers` |
 | `POST /api/v1/customers` | `POST /api/v1/users/:user_id/customers` |
+| `GET /api/v1/customers/by-code/:code` | `GET /api/v1/users/:user_id/customers/by-code/:code` |
 | `GET /api/v1/customers/:id` | `GET /api/v1/users/:user_id/customers/:id` |
 | `PUT /api/v1/customers/:id` | `PATCH /api/v1/users/:user_id/customers/:id/update` |
 | `GET /api/v1/customers/:id/aadhaar-full` | `GET /api/v1/users/:user_id/customers/:id/aadhaar-full` |
@@ -832,6 +845,8 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/loans/:id/ledger` | `GET /api/v1/users/:user_id/loans/:id/ledger` |
 | `POST /api/v1/loans/:id/ornaments` | `POST /api/v1/users/:user_id/loans/:id/ornaments` |
 | `POST /api/v1/loans/:id/payments` | `POST /api/v1/users/:user_id/loans/:id/payments` |
+| `PATCH /api/v1/loans/:id/payments/:payment_id` | `PATCH /api/v1/users/:user_id/loans/:id/payments/:payment_id` |
+| `DELETE /api/v1/loans/:id/payments/:payment_id` | `DELETE /api/v1/users/:user_id/loans/:id/payments/:payment_id` |
 | `GET /api/v1/loans/:id/pledge-slip` | `GET /api/v1/users/:user_id/loans/:id/pledge-slip` |
 | `GET /api/v1/loans/:id/release-agreement/pdf` | `GET /api/v1/users/:user_id/loans/:id/release-agreement/pdf` |
 | `POST /api/v1/loans/:id/release-request` | `POST /api/v1/users/:user_id/loans/:id/release-request` |
@@ -905,6 +920,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/reports/auctions` | `GET /api/v1/users/:user_id/reports/auctions` |
 | `GET /api/v1/reports/balance-sheet` | `GET /api/v1/users/:user_id/reports/balance-sheet` |
 | `GET /api/v1/reports/bank-pledge` | `GET /api/v1/users/:user_id/reports/bank-pledge` |
+| `GET /api/v1/reports/cash-ledger` | `GET /api/v1/users/:user_id/reports/cash-ledger` |
 | `GET /api/v1/reports/communication-history` | `GET /api/v1/users/:user_id/reports/communication-history` |
 | `GET /api/v1/reports/disbursement` | `GET /api/v1/users/:user_id/reports/disbursement` |
 | `GET /api/v1/reports/employee-performance` | `GET /api/v1/users/:user_id/reports/employee-performance` |

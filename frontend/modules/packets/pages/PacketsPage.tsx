@@ -16,12 +16,13 @@ import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { listPacketsPage, getPacketByCode, pendingLabel } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { navigate, routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 // Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
 const NO_BRANCHES: string[] = [];
@@ -33,6 +34,8 @@ const PACKET_STATUS_OPTIONS = [
   { value: "Bank Pledged", label: "Bank Pledged" },
   { value: "Released", label: "Released" },
   { value: "Returned", label: "Returned" },
+  { value: "Auctioned", label: "Auctioned" },
+  { value: "Rejected", label: "Rejected" },
 ];
 
 /* Ported from legacy/app.js's `renderPackets()`. Now reads real data from
@@ -60,6 +63,7 @@ export function PacketsPage() {
   const canViewLockers = can("Locker_Management", "can_view_locker_module");
   const canCreateLockers = can("Locker_Management", "can_create_locker");
   const canUpdateLockers = can("Locker_Management", "can_update_locker");
+  const canDeleteLockers = can("Locker_Management", "can_delete_locker");
 
   const basePageSize = useResponsivePageSize(15, 15);
   // Card mode (<=1100px): scroll-to-load replaces Prev/Next on both tables.
@@ -70,7 +74,7 @@ export function PacketsPage() {
   const [error, setError] = useState("");
   const [lookup, setLookup] = useState("");
   const [lookupErr, setLookupErr] = useState("");
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePersistedPage("packets");
   const [total, setTotal] = useState(0);
   const [lockerPage, setLockerPage] = useState(1);
   // Card mode shows one table at a time; these tabs switch between them.
@@ -87,6 +91,12 @@ export function PacketsPage() {
   const [savedLockerBranchIds, setLockerBranchIds] = usePersistedState<string[]>("lockers:branches", []);
   const lockerBranchIds = showBranchFilter ? savedLockerBranchIds : NO_BRANCHES;
   const [lockerStatuses, setLockerStatuses] = usePersistedState<string[]>("lockers:statuses", []);
+  const [lockerLookup, setLockerLookup] = useState("");
+  const [lockerQ, setLockerQ] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setLockerQ(lockerLookup.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [lockerLookup]);
   const [branches, setBranches] = useState<BranchView[]>([]);
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
   const branchOptions = branches.map((b) => ({ value: String(b.id), label: b.name }));
@@ -98,7 +108,7 @@ export function PacketsPage() {
     {
       key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search: string, p: number) =>
-        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined }, 20).then((res) => ({
+        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined, customerType: "Borrower" }, 20).then((res) => ({
           items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
           hasMore: res.hasMore,
         })),
@@ -118,7 +128,7 @@ export function PacketsPage() {
   const statusKey = statuses.join(",");
   const branchKey = branchIds.join(",");
   const customerKey = customerIds.join(",");
-  const lockerFilterKey = lockerBranchIds.join(",") + "|" + lockerStatuses.join(",");
+  const lockerFilterKey = lockerBranchIds.join(",") + "|" + lockerStatuses.join(",") + "|" + lockerQ;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const lockerTotalPages = Math.max(1, Math.ceil(lockers.length / basePageSize));
   const lockerPageClamped = Math.min(lockerPage, lockerTotalPages);
@@ -146,7 +156,7 @@ export function PacketsPage() {
   async function loadLockers() {
     if (!canViewLockers) return;
     try {
-      setLockers(await listLockers({ branchId: lockerBranchIds.map(Number), status: lockerStatuses }));
+      setLockers(await listLockers({ branchId: lockerBranchIds.map(Number), status: lockerStatuses, q: lockerQ || undefined }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load lockers.");
     }
@@ -176,7 +186,7 @@ export function PacketsPage() {
   useEffect(() => { loadPackets(); }, [page, statusKey, branchKey, customerKey, q, pageSize]);
   // A new search term always starts back at page 1 — otherwise a filter
   // typed while sitting on page 3 can land on an empty page.
-  useEffect(() => { setPage(1); }, [q]);
+  useResetPageOnChange(setPage, [q]);
 
   async function onLookup(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== "Enter") return;
@@ -243,7 +253,7 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center tbl-cards">
+            <table className="tbl tbl-center tbl-cards"><TableCols widths={[14, 11, 28, 8, 11, 14, 14]} />
               <thead>
                 <tr><th>Packet Code</th><th>Loan</th><th>Customer</th><th className="num">Items</th><th className="num">Weight</th><th>Locker</th><th>Status</th></tr>
               </thead>
@@ -259,7 +269,7 @@ export function PacketsPage() {
                   // The loan's own outcome overrides the packet's own
                   // (possibly stale) workflow stage once the gold has been
                   // sold — same override PacketDetail.tsx applies.
-                  const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.loanStatus === "Closed" ? "Released" : p.status;
+                  const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.loanStatus === "Rejected" ? "Rejected" : p.loanStatus === "Closed" ? "Released" : p.status;
                   return (
                     <tr key={p.id} className="click" onClick={() => { navigate(`packet/${p.code}`); }}>
                       <td data-label="Packet Code"><a href={routeHref(`packet/${p.code}`)} className="id" onClick={cellLink(`packet/${p.code}`)}>{pendingLabel(p.code)}</a></td>
@@ -279,6 +289,7 @@ export function PacketsPage() {
           <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
@@ -286,6 +297,14 @@ export function PacketsPage() {
           <div className="hd">
             <h3>Lockers</h3>
             <div className="sp" />
+            <div className="search" style={{ maxWidth: 240 }}><Icon name="search" /><input
+              className="inp"
+              style={{ height: 31, paddingTop: 0, paddingBottom: 0, fontSize: 13 }}
+              value={lockerLookup}
+              onChange={(e) => setLockerLookup(e.target.value)}
+              placeholder="Search locker, loan, packet or customer"
+              title="Searches: locker code, packet code, loan number of packets stored in the locker"
+            /></div>
             <FilterPanel
               categories={lockerFilterCategories}
               value={lockerFilterValue}
@@ -298,18 +317,18 @@ export function PacketsPage() {
             />
           </div>
           <div className="tbl-wrap">
-            <table className="tbl tbl-center lockers-tbl tbl-cards">
+            <table className="tbl tbl-center lockers-tbl tbl-cards"><TableCols widths={[40, ...(showBranch ? [20] : []), 20, 20]} />
               <thead>
                 <tr><th>Locker</th>{showBranch && <th>Branch</th>}<th className="num">Packets</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {lockers.length === 0 && (
                   <tr><td colSpan={showBranch ? 4 : 3} style={{ color: "var(--muted)" }}>
-                    {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}
+                    {packets === null && !error ? "Loading lockers…" : (lockerQ ? "No lockers match your search." : "No lockers added yet.")}
                   </td></tr>
                 )}
                 {pagedLockers.map((l) => (
-                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} onChanged={load} />, true)}>
+                  <tr key={l.id} className="click" onClick={() => openModal(<LockerDetailModalContent key={l.id} locker={l} canUpdate={canUpdateLockers} canDelete={canDeleteLockers} onChanged={load} />, true)}>
                     <td data-label="Locker"><span className="id">{l.code}</span></td>
                     {showBranch && <td data-label="Branch">{l.branchName}</td>}
                     <td className="num" data-label="Packets">{l.occupied} / {l.capacity}</td>

@@ -15,6 +15,11 @@ type ExtensionRequestInput struct {
 	Months      int
 	Detail      string
 	RequestedBy string
+	// The staff member raising it. When their role is the chain's first approver, that first stage is approved
+	// as part of raising it (zero for customer and demo requests, which never self-approve).
+	ActorEmployeeID uint
+	ActorRole       string
+	ActorRoleID     uint
 }
 
 type ExtensionApprovalInput struct {
@@ -42,6 +47,9 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 	}
 	if l.Status == models.StatusPendingApproval {
 		return nil, common.NewBadRequest("loan is not approved yet")
+	}
+	if isGoldSold(l.Status) {
+		return nil, common.NewBadRequest("this loan's gold has been auctioned — extension or release can no longer be requested")
 	}
 	accrueAndSave(
 		ctx, l)
@@ -83,6 +91,22 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 			return nil, err
 		}
 		notifyExtensionApproved(ctx, l, req)
+	} else if in.ActorRoleID != 0 && common.CanAct(ctx, in.ActorRoleID, common.FlowLoanExtension, first.Key) {
+		// The requester approves the first stage themselves — asking them to approve their own request again
+		// on the next screen is a step with no second pair of eyes. Goes through the ordinary approval, so the
+		// audit row, the next-stage move (or the extension itself on a one-stage chain) and the customer
+		// message are the same as a separate Approve click. Should it be refused the request just stays at
+		// the first stage, as it would have without this.
+		if approved, err := ApproveExtensionRequest(ctx, req.ID, nil, ExtensionApprovalInput{
+			Stage:           first.Key,
+			Action:          models.ApprovalStageApproved,
+			ActorEmployeeID: in.ActorEmployeeID,
+			ActorRole:       in.ActorRole,
+			ActorRoleID:     in.ActorRoleID,
+			Remarks:         "Approved by the requester when raising it",
+		}); err == nil {
+			return approved, nil
+		}
 	}
 	return findLoanRequestByID(ctx, req.ID)
 }
@@ -234,10 +258,14 @@ func CreateExtensionRequest(c echo.Context) error {
 	if err := common.BindJSON(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
+	actorEmployeeID, actorRole, actorRoleID := auth.ActorFromContext(c)
 	rec, err := SaveExtensionRequest(ctx, loanID, ExtensionRequestInput{
-		Months:      req.Months,
-		Detail:      req.Detail,
-		RequestedBy: req.RequestedBy,
+		Months:          req.Months,
+		Detail:          req.Detail,
+		RequestedBy:     req.RequestedBy,
+		ActorEmployeeID: actorEmployeeID,
+		ActorRole:       actorRole,
+		ActorRoleID:     actorRoleID,
 	})
 	if err != nil {
 		return common.FailErr(c, err)

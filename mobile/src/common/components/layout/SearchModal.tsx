@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
+import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { C, EmptyText, FilterChipRow, Hit, PIcon, ServerFlatList, TopModal, Txt, openPage } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listLoansPage } from "@/modules/loans/services/loanService";
@@ -47,12 +47,12 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
   const custList = useServerList<Customer>({
     key: ["search", "customers"],
     fetchPage: (p) => listCustomersPage(p),
-    enabled: opened && scope === "Customers",
+    enabled: opened && (scope === "Customers" || (scope === "All" && canOpen("/customers"))),
   });
   const schemeList = useServerList<Scheme>({
     key: ["search", "schemes"],
     fetchPage: (p) => listSchemesPage(p),
-    enabled: opened && scope === "Scheme",
+    enabled: opened && (scope === "Scheme" || (scope === "All" && canOpen("/schemes") && canOpen("/loans"))),
   });
   const [text, setText] = useState("");
   useEffect(() => {
@@ -70,6 +70,40 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
     openPage(path);
   };
 
+  // "All" shows the best few matches from each place the user can open, instead of loans only.
+  const ALL_PER_SECTION = 4;
+  const showCustomers = canOpen("/customers");
+  const showSchemes = canOpen("/schemes") && canOpen("/loans");
+  const allCustomers = showCustomers ? custList.items.slice(0, ALL_PER_SECTION) : [];
+  const allLoans = loanList.items.slice(0, ALL_PER_SECTION);
+  const allSchemes = showSchemes ? schemeList.items.slice(0, ALL_PER_SECTION) : [];
+  const allLoading = loanList.isLoading || (showCustomers && custList.isLoading) || (showSchemes && schemeList.isLoading);
+  const sectionLabel = { fontSize: 12, color: C.muted, marginTop: 10, marginBottom: 4 } as const;
+  const allBody = (
+    <ScrollView keyboardShouldPersistTaps="handled" style={{ paddingHorizontal: 16 }}>
+      {allCustomers.length > 0 && <Txt style={sectionLabel}>Customers</Txt>}
+      {allCustomers.map((c) => (
+        <Hit key={`c${c.id}`} name={c.name} meta={`${c.code ?? ""} · ${c.phone ?? ""}`} tag="Customer" onPress={() => go(`/customers/${c.id}`)} />
+      ))}
+      {allLoans.length > 0 && <Txt style={sectionLabel}>Loans</Txt>}
+      {allLoans.map((l) => (
+        <Hit
+          key={`l${l.id}`}
+          name={l.customer?.name ?? `Customer #${l.customerId}`}
+          meta={`${l.loanNumber}${l.customer?.code ? ` · ${l.customer.code}` : ""}`}
+          tag={l.scheme?.name}
+          onPress={() => go(`/loans/${l.id}`)}
+        />
+      ))}
+      {allSchemes.length > 0 && <Txt style={sectionLabel}>Schemes</Txt>}
+      {allSchemes.map((sc) => (
+        <Hit key={`s${sc.id}`} name={sc.name} meta={`${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
+      ))}
+      {!allLoading && allCustomers.length + allLoans.length + allSchemes.length === 0 ? <EmptyText>No results match your search.</EmptyText> : null}
+      {allCustomers.length + allLoans.length + allSchemes.length > 0 ? <Txt style={{ ...sectionLabel, textAlign: "center" }}>Pick a category above to see more.</Txt> : null}
+    </ScrollView>
+  );
+
   const body = !scope ? (
     <EmptyText>You don&apos;t have permission to search customers, loans or schemes.</EmptyText>
   ) :
@@ -83,6 +117,8 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
         keyOf={(c) => `c${c.id}`}
         renderItem={(c) => <Hit name={c.name} meta={`${c.code ?? ""} · ${c.phone ?? ""}`} tag="Customer" onPress={() => go(`/customers/${c.id}`)} />}
       />
+    ) : scope === "All" ? (
+      allBody
     ) : scope === "Scheme" ? (
       <ServerFlatList
         list={schemeList}
@@ -129,9 +165,15 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
             allowFontScaling={false}
             style={s.searchInput}
           />
-          <View style={s.searchIc} pointerEvents="none">
-            <PIcon name="search" color={C.muted} />
-          </View>
+          {text ? (
+            <Pressable style={s.searchIc} hitSlop={10} onPress={() => setText("")} accessibilityLabel="Clear search">
+              <PIcon name="close" color={C.muted} size={14} />
+            </Pressable>
+          ) : (
+            <View style={s.searchIc} pointerEvents="none">
+              <PIcon name="search" color={C.muted} />
+            </View>
+          )}
         </View>
         <Pressable onPress={onClose} hitSlop={10}>
           <Txt style={s.cancel}>Cancel</Txt>

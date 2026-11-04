@@ -49,20 +49,21 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
   async function save() { return singleFlight("auction-modal:save:4", async () => {
     if (submittingRef.current) return;
     setErr(""); setFe({});
-    if (!disposition) { fail("disposition", "Please choose what happens to the surplus."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!disposition) errors["disposition"] ??= "Please choose what happens to the surplus.";
     // Retaining a customer's money needs a stated reason — enforced server-side
     // too, so this is a courtesy check rather than the control.
-    if (disposition === "RecordedAsIncome" && !remarks.trim()) {
-      fail("remarks", "Please state why the surplus is being retained.");
-      return;
-    }
+    if (disposition === "RecordedAsIncome" && !remarks.trim()) errors["remarks"] ??= "Please state why the surplus is being retained.";
     let mode: string | undefined;
     if (disposition === "RefundedToCustomer") {
-      if (Math.abs(remaining) >= 0.01) { fail("payments", "The payment breakdown must add up to the surplus."); return; }
+      if (Math.abs(remaining) >= 0.01) errors["payments"] ??= "The payment breakdown must add up to the surplus.";
       mode = singleSplitMode(split) ?? undefined;
-      if (!mode) { fail("payments", "Refund the surplus in one payment mode — Cash, UPI or Bank Transfer."); return; }
-      if (mode !== "Cash" && !bankId) { fail("payments", "Pick the bank the refund was paid from."); return; }
+      if (!mode) errors["payments"] ??= "Refund the surplus in one payment mode — Cash, UPI or Bank Transfer.";
+      else if (mode !== "Cash" && !bankId) errors["payments"] ??= "Pick the bank the refund was paid from.";
     }
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    if (!disposition) return; // narrows disposition; the check above already reported it
     submittingRef.current = true;
     setSaving(true);
     try {

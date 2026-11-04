@@ -7,7 +7,7 @@
  * Only the first page of a list that is not narrowed to one transaction is changed, as in cashAdjust.ts. */
 
 import { offlineStore } from "@/common/services/desktopBridge";
-import { pendingMoney, purposeOf, queryOf, round2, whenOf, type Pending } from "./cashAdjust";
+import { movementRows, pendingMoney, purposeOf, queryOf, round2, whenOf, type Pending } from "./cashAdjust";
 import { listLocal } from "./localCopy";
 import type { OutboxEntry } from "./types";
 
@@ -257,4 +257,80 @@ export async function adjustGoldSales(path: string, body: string): Promise<strin
     totals.totalProfit += sold - cost;
   }
   return mergeTable(path, body, rows, totals);
+}
+
+/* ---- the ledgers of one bank, one customer and one branch (the "transactions" pages) ---- */
+
+export const PARTY_PATH = /\/cash-movements\/transactions\/(bank|customer|branch)\/(\d+)(\?|$)/;
+
+/* The waiting entries that belong to this party are listed at the top of its first page, newest first, and the totals move
+ * with them. A page after the first, or a search, is left as the server gave it. `body` is null when no answer was ever kept. */
+export async function adjustPartyLedger(path: string, body: string | null): Promise<string | null> {
+  if (body === null) return null;
+  const m = PARTY_PATH.exec(path);
+  if (!m) return body;
+  const qs = queryOf(path);
+  if (leftAlone(qs)) return body;
+  let env: Env;
+  try {
+    env = JSON.parse(body) as Env;
+  } catch {
+    return body;
+  }
+  const kind = m[1];
+  const id = Number(m[2]);
+  const page = env.data as Page | undefined;
+  if (!page || Array.isArray(page) || !Array.isArray(page.items)) return body;
+  const modes = csv(qs, "modes").map((x) => x.toLowerCase());
+  const pending = (await pendingMoney(kind === "branch" ? id : 0))
+    .filter((p) => inDates(p, qs))
+    .map((p) => {
+      if (kind === "customer") return p.customerId === id ? p : null;
+      if (kind === "branch") return p.branchId === id ? p : null;
+      const parts = p.parts.filter((x) => x.bankId === id);
+      return parts.length ? { ...p, parts } : null;
+    })
+    .filter((p): p is Pending => p !== null)
+    .map((p) => (modes.length ? { ...p, parts: p.parts.filter((x) => modes.includes(x.mode.toLowerCase())) } : p))
+    .filter((p) => p.parts.length > 0);
+  if (!pending.length) return body;
+  const limit = Number(qs.get("limit") ?? "0") || 0;
+  const items = page.items;
+
+  if (kind === "customer") {
+    // ledger rows, each with the balance after it
+    const rows: Row[] = [];
+    let n = 0;
+    for (const p of pending) for (const part of p.parts) rows.push(ledgerRow(p, (n += 1), part.mode, part.amount, part.bankId, part.bankName));
+    let balance = Number(items[0]?.runningBalance) || 0;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      balance += (rows[i].debitOrCredit === "debit" ? -1 : 1) * Number(rows[i].amount);
+      rows[i].runningBalance = round2(balance);
+    }
+    const debit = rows.filter((r) => r.debitOrCredit === "debit").reduce((s, r) => s + Number(r.amount), 0);
+    const credit = rows.filter((r) => r.debitOrCredit === "credit").reduce((s, r) => s + Number(r.amount), 0);
+    page.items = limit > 0 ? [...rows, ...items].slice(0, limit) : [...rows, ...items];
+    page.total = (page.total ?? items.length) + rows.length;
+    if (limit > 0) page.hasMore = page.total > limit;
+    page.totalDebit = round2((Number(page.totalDebit) || 0) + debit);
+    page.totalCredit = round2((Number(page.totalCredit) || 0) + credit);
+    return JSON.stringify(env);
+  }
+
+  // a bank's or a branch's rows are cash movements, with in / out totals
+  const rows = movementRows(pending);
+  const totals = (page as { totals?: { totalIn: number; totalOut: number; net: number; inCount: number; outCount: number } }).totals;
+  page.items = limit > 0 ? [...rows, ...items].slice(0, limit) : [...rows, ...items];
+  page.total = (page.total ?? items.length) + rows.length;
+  if (limit > 0) page.hasMore = page.total > limit;
+  if (totals) {
+    const inRows = rows.filter((r) => r.type === "in");
+    const outRows = rows.filter((r) => r.type === "out");
+    totals.totalIn = round2(totals.totalIn + inRows.reduce((s, r) => s + Number(r.amount), 0));
+    totals.totalOut = round2(totals.totalOut + outRows.reduce((s, r) => s + Number(r.amount), 0));
+    totals.net = round2(totals.totalIn - totals.totalOut);
+    totals.inCount += inRows.length;
+    totals.outCount += outRows.length;
+  }
+  return JSON.stringify(env);
 }

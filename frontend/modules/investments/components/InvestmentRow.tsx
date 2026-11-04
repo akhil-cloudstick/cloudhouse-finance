@@ -9,7 +9,7 @@ type InvestmentRowProps = { investment: BackendInvestment };
 
 export function InvestmentRow({ investment }: InvestmentRowProps) {
   return (
-    <tr className="click" onClick={() => { navigate("investment/" + investment.id); }}>
+    <tr className="click" onClick={() => { navigate("investment/" + (investment.investmentNumber || investment.id)); }}>
       <td data-label="Investment / Investor"><span className="id">{investment.investmentNumber}</span><span className="sub">{investment.customer?.name}</span></td>
       <td className="num" data-label="Principal">{fmt(investment.principalAmount)}</td>
       <td data-label="Rate">{investment.interestRatePercent}% {investment.payoutFrequency}</td>

@@ -265,7 +265,7 @@ func releaseAgreementDataForLoan(ctx context.Context, l *models.Loan) ReleaseAgr
 		CustomerAddress: l.Customer.Address,
 		BorrowedDate:    l.OpenedDate,
 		BorrowedAmount:  l.PrincipalAmount,
-		ReturnedDate:    time.Now(),
+		ReturnedDate:    loanClosedOn(ctx, l),
 		ReturnedAmount:  l.TotalPaid,
 		TotalInterest:   l.InterestPaid + l.PenalInterestPaid,
 		Ornaments:       ornaments,

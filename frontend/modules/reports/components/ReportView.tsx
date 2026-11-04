@@ -1,8 +1,12 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { BackLink } from "@/common/components/ui/BackLink";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useEffect, useMemo, useState } from "react";
+import { usePersistedPage, usePersistedState, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { Icon } from "@/common/components/Icon";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { useToast } from "@/common/components/ToastProvider";
@@ -61,6 +65,9 @@ export type ReportConfig<Row = any, Totals = any> = {
   // exist either (the backend refuses the API calls too — see
   // internal/reports/routes.go).
   tenantModule?: string;
+  // false for the printed statements (Balance Sheet, P&L): dropping rows
+  // from a statement would leave it unbalanced, so they get no search box.
+  searchable?: boolean;
 };
 
 function firstOfMonth(): string {
@@ -84,11 +91,22 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   // Single-branch plan: the Branch column is dropped from every report.
   const showBranch = useShowBranch();
   const columns = showBranch ? config.columns : config.columns.filter((c) => c.key !== "branchName");
-  const [branchId, setBranchId] = useState<number>(0);
-  const [from, setFrom] = useState(config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
-  const [to, setTo] = useState(today());
-  const [extraValue, setExtraValue] = useState("");
-  const [page, setPage] = useState(1);
+  // Each report remembers its filters, search and page, so opening a loan from a row and pressing Back returns to
+  // the same view (ReportsPage keys this component by report, so the keys below are read for the right report).
+  const memo = `reports:${config.id}`;
+  const [branchId, setBranchId] = usePersistedState<number>(`${memo}:branch`, 0);
+  const [from, setFrom] = usePersistedState(`${memo}:from`, config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
+  const [to, setTo] = usePersistedState(`${memo}:to`, today());
+  const [extraValue, setExtraValue] = usePersistedState(`${memo}:extra`, "");
+  const [page, setPage] = usePersistedPage(memo);
+  const [q, setQ] = usePersistedState(`${memo}:q`, "");
+  // The box updates instantly; the server is only asked once typing pauses. Starts at the remembered search, so
+  // reopening the report does not look like a changed search (which would send it back to page 1).
+  const [search, setSearch] = useState(() => q.trim());
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
 
   const [result, setResult] = useState<ReportResult<any, any> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,16 +120,17 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   const filters: ReportFilters = useMemo(() => {
     const f: ReportFilters = { from, to, page, pageSize };
     if (branchId) f.branchId = branchId;
+    if (search) f.search = search;
     if (config.extraFilter && extraValue) {
       if (config.extraFilter.field === "status") f.status = extraValue;
       else f.triggerType = extraValue;
     }
     return f;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, branchId, extraValue, page, pageSize, config.id]);
+  }, [from, to, branchId, extraValue, search, page, pageSize, config.id]);
 
   // Reset to page 1 whenever a filter (other than page itself) changes.
-  useEffect(() => { setPage(1); }, [from, to, branchId, extraValue, pageSize, config.id]);
+  useResetPageOnChange(setPage, [from, to, branchId, extraValue, search, pageSize, config.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -213,17 +232,14 @@ export function ReportView({ config, onBack }: ReportViewProps) {
           <h3>{config.title}</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {config.searchable !== false && <TableSearch value={q} onChange={setQ} placeholder="Search report…" searches={columns.map((c) => c.label.toLowerCase()).join(", ")} />}
             <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
-            <button className="btn ghost sm" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-              <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
-            </button>
-            <button className="btn sm" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-              <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
-            </button>
+            <ExportMenu busy={exporting} onExport={handleExport} />
           </div>
         </div>
         <div className="tbl-wrap">
-          <table className="tbl tbl-cards">
+          <table className="tbl tbl-cards tbl-center">
+            <TableCols widths={columns.map((c) => (c.numeric ? 12 : null))} />
             <thead>
               <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
             </thead>

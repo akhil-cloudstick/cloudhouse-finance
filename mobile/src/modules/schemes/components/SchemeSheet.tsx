@@ -5,7 +5,7 @@ import { C, ChipToggle, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropd
 import { useAuth } from "@/common/providers/AuthProvider";
 import { BranchField, useOwnBranch } from "@/modules/cash/components/EntryFormParts";
 import { createScheme, toggleSchemeActive, updateScheme } from "@/modules/schemes/services/schemeService";
-import { type SchemeInput, type Scheme, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
+import { type AccrualBasis, type SchemeInput, type Scheme, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
 import { ApiError } from "@/common/services/httpClient";
 import { TENANT_MODULES } from "@/common/config/tenantModules";
 import { useTheme } from "@/common/theme/ThemeProvider";
@@ -56,6 +56,9 @@ function ladderExample(tiers: TierDraft[]): number {
 const CHARGE_TYPES = ["None", "Flat", "Percent"] as const satisfies readonly ServiceChargeType[];
 const CHARGE_TYPE_LABELS: Record<ServiceChargeType, string> = { None: "None", Flat: "Flat amount", Percent: "Percentage" };
 const STATUSES = ["Active", "Inactive"] as const;
+// Same two choices as the web scheme form's Accrual Method.
+const ACCRUALS = ["daily", "monthly"] as const;
+const ACCRUAL_LABELS: Record<AccrualBasis, string> = { daily: "Daily", monthly: "Monthly" };
 
 export const num = (t: string) => t.replace(/[^0-9.]/g, "");
 
@@ -68,9 +71,12 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   // "Multiple interest" is switched on per business from the superadmin console;
   // a scheme already on it keeps the option so it can still be edited.
   const { hasModule } = useTheme();
-  const methods = hasModule(TENANT_MODULES.multipleInterest) || scheme?.interestMethod === "Multiple interest"
-    ? [...METHODS]
-    : METHODS.filter((m) => m !== "Multiple interest");
+  // "Compound monthly" is unused for now — hidden from new choices; a scheme already on it keeps the option (like web).
+  const methods = METHODS.filter(
+    (m) =>
+      (m !== "Multiple interest" || hasModule(TENANT_MODULES.multipleInterest) || scheme?.interestMethod === m) &&
+      (m !== "Compound monthly" || scheme?.interestMethod === m)
+  );
   // Branch picker — only for a role that can see every branch (hidden otherwise, like web); the scheme then
   // belongs to the user's own branch.
   const [branch, setBranch] = useOwnBranch(null);
@@ -83,6 +89,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const isMultiple = method === "Multiple interest";
   const [tiers, setTiers] = useState<TierDraft[]>(EMPTY_TIERS);
   const [minDays, setMinDays] = useState("0");
+  const [accrualBasis, setAccrualBasis] = useState<AccrualBasis>("daily");
   const [penalRate, setPenalRate] = useState("");
   const [conditions, setConditions] = useState("");
   // New schemes default to Active (web SchemeModal parity; backend defaults false).
@@ -101,6 +108,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
     setMethod(sc && (METHODS as readonly string[]).includes(sc.interestMethod ?? "") ? (sc.interestMethod as Method) : METHODS[0]);
     setTiers(sc?.rateTiers?.length ? sc.rateTiers.map((t, i, a) => ({ days: i === a.length - 1 ? "" : String(t.days), rate: String(t.rate) })) : EMPTY_TIERS);
     setMinDays(sc ? String(sc.minimumDays || 0) : "30");
+    setAccrualBasis(sc?.accrualBasis === "monthly" ? "monthly" : "daily");
     setPenalRate(sc?.penalRate != null ? String(sc.penalRate) : "");
     setConditions(sc?.conditions ?? "");
     setStatus(!sc || sc.isActive ? "Active" : "Inactive");
@@ -123,6 +131,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         durationMonths: Number(durationMonths),
         ltvPercent: Number(ltvPercent),
         interestMethod: method,
+        accrualBasis,
         penalRate: penalRate ? Number(penalRate) : undefined,
         conditions: conditions.trim() || undefined,
         // Edit keeps the stored flag in the PUT and flips it through the
@@ -188,10 +197,13 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         <Field label="Interest calculation">
           <ThemeDropdown<Method> value={method} options={methods} onChange={setMethod} labelOf={(m) => METHOD_LABELS[m]} />
         </Field>
-        <Field label="Penal charges (p.a)">
-          <Input placeholder="e.g. 24" keyboardType="decimal-pad" value={penalRate} onChangeText={(t) => setPenalRate(num(t))} />
+        <Field label="Accrual method">
+          <ThemeDropdown<AccrualBasis> value={accrualBasis} options={[...ACCRUALS]} onChange={setAccrualBasis} labelOf={(a) => ACCRUAL_LABELS[a]} />
         </Field>
       </FieldRow>
+      <Field label="Penal charges (p.a)">
+        <Input placeholder="e.g. 24" keyboardType="decimal-pad" value={penalRate} onChangeText={(t) => setPenalRate(num(t))} />
+      </Field>
       {isMultiple ? (
         <Field>
           <Txt style={{ fontSize: 11.5, fontWeight: "700", color: C.muted, textTransform: "uppercase", marginBottom: 6 }}>Rate ladder</Txt>

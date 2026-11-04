@@ -14,8 +14,14 @@ export type BackendGoldRate = {
   k24: number;
   k22: number;
   k18: number;
+  /* 22K/18K fineness % last set in Auto mode; 0 on rows from before it was stored. */
+  fineness22?: number;
+  fineness18?: number;
   setBy: string;
+  setByDesignation?: string;
   createdAt: string;
+  /* Only on the day-grouped listing: every change made that day, newest first. */
+  entries?: BackendGoldRate[];
 };
 /* UI-facing shape — field names match what GoldRates.common/components/modals/RateModalContent.tsx/
  * Topbar.modules/loans/pages/NewLoanPage.tsx/Dashboard.tsx already expect from the old
@@ -31,7 +37,15 @@ export type GoldRateView = {
   k24: number;
   k22: number;
   k18: number;
+  /* The 22K/18K fineness % set in Auto mode — the stored value, or for older rows what the rates imply. */
+  fineness22: number;
+  fineness18: number;
   setBy: string;
+  setByDesignation: string;
+  /* Time the rate was published (ISO) — tells a day's changes apart. */
+  createdAt: string;
+  /* Day-grouped listing only: all changes of that day, newest first. */
+  entries?: GoldRateView[];
 };
 /* karat: which single column this publish is setting (24, 22, or 18) —
  * Manual mode types `rate` directly for the chosen karat; Auto mode

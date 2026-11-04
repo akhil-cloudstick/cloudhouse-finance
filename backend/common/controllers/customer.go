@@ -18,6 +18,8 @@ import (
 )
 
 var customerPhoneRe = regexp.MustCompile(`^\d{10}$`)
+var customerPANRe = regexp.MustCompile(`^[A-Z]{5}\d{4}[A-Z]$`)
+var customerAadhaarRe = regexp.MustCompile(`^\d{12}$`)
 
 type customerRequest struct {
 	Name              string `json:"name" binding:"required"`
@@ -180,8 +182,14 @@ func findCustomers(ctx context.Context, f CustomerFilter) ([]commonModels.Custom
 	q := config.DB.
 		WithContext(ctx).Preload("Branch").Order("id asc")
 	if f.Query != "" {
-		like := "%" + f.Query + "%"
-		q = q.Where("name ILIKE ? OR code ILIKE ? OR phone ILIKE ?", like, like, like)
+		if IsDigitQuery(f.Query) {
+			// A number finds a customer by ID or by the start of a phone number — not by
+			// digits that merely occur somewhere inside a phone number or code.
+			q = q.Where("("+NumericPrefixSQL("code")+" OR phone LIKE ?)", NumericPrefixArg(f.Query), f.Query+"%")
+		} else {
+			like := "%" + f.Query + "%"
+			q = q.Where("(name ILIKE ? OR code ILIKE ? OR phone ILIKE ?)", like, like, f.Query+"%")
+		}
 	}
 	if f.BranchID != nil {
 		q = q.Where("branch_id = ?", *f.BranchID)
@@ -214,6 +222,15 @@ func FindCustomerByID(ctx context.Context, id uint) (*commonModels.Customer, err
 	var c commonModels.Customer
 	if err := config.DB.
 		WithContext(ctx).Preload("Branch").First(&c, id).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func findCustomerByCode(ctx context.Context, code string) (*commonModels.Customer, error) {
+	var c commonModels.Customer
+	if err := config.DB.
+		WithContext(ctx).Preload("Branch").Where("code = ?", code).First(&c).Error; err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -288,6 +305,23 @@ func customerValidate(in CustomerCreateInput) error {
 	}
 	if in.BranchID == 0 {
 		return NewBadRequest("branch is required")
+	}
+	// PAN and Aadhaar are optional for a borrower, but never malformed when given
+	// (normalizeKYC has already upper-cased the PAN and stripped Aadhaar spaces).
+	if in.PAN != "" && !customerPANRe.MatchString(in.PAN) {
+		return NewBadRequest("PAN must look like ABCDE1234F")
+	}
+	if in.Aadhaar != "" && !customerAadhaarRe.MatchString(in.Aadhaar) {
+		return NewBadRequest("Aadhaar must be exactly 12 digits")
+	}
+	if strings.ContainsAny(in.NomineeName, "0123456789") {
+		return NewBadRequest("nominee name must not contain digits")
+	}
+	if strings.ContainsAny(in.NomineeRelation, "0123456789") {
+		return NewBadRequest("nominee relation must not contain digits")
+	}
+	if in.BankAccountNumber != "" && (len(in.BankAccountNumber) > 18 || strings.Trim(in.BankAccountNumber, "0123456789") != "") {
+		return NewBadRequest("bank account number must be digits only, up to 18 digits")
 	}
 	switch in.CustomerType {
 	case "", "Borrower":
@@ -834,6 +868,20 @@ func GetCustomerById(c echo.Context) error {
 	rec, err := getCustomer(ctx, id, auth.GetBranchScope(c))
 	if err != nil {
 		return FailErr(c, err)
+	}
+	return Success(c, http.StatusOK, CustomerToResponse(rec))
+}
+
+// GetCustomerByCode backs the console's /customer/CUST-04 links: the address bar shows the
+// customer's code, and the page resolves it to the record (and its numeric id) here.
+func GetCustomerByCode(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	rec, err := findCustomerByCode(ctx, c.Param("code"))
+	if err != nil {
+		return FailErr(c, NewNotFound("customer not found"))
+	}
+	if branchID := auth.GetBranchScope(c); branchID != nil && rec.BranchID != *branchID {
+		return FailErr(c, NewNotFound("customer not found"))
 	}
 	return Success(c, http.StatusOK, CustomerToResponse(rec))
 }

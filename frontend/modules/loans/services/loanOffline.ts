@@ -413,6 +413,8 @@ export function filterLocalLoans(list: BackendLoan[], f?: LoanFilters): BackendL
   const branches = asArray(f.branchId);
   const customers = asArray(f.customerId);
   const servicing = asArray(f.servicing);
+  // the Loans page sends an empty array when no scheme is picked: that means "any scheme", not "no loan matches"
+  const schemes = asArray(f.schemeId);
   const q = (f.q ?? "").trim().toLowerCase();
   return list.filter((l) => {
     if (q) {
@@ -426,7 +428,7 @@ export function filterLocalLoans(list: BackendLoan[], f?: LoanFilters): BackendL
     if ((statuses.length > 0 || servicing.length > 0) && !byStatus && !byServicing) return false;
     if (branches.length && !branches.includes(l.branchId)) return false;
     if (customers.length && !customers.includes(l.customerId)) return false;
-    if (f.schemeId && l.schemeId !== f.schemeId) return false;
+    if (schemes.length && !schemes.includes(l.schemeId)) return false;
     if (f.bankPledgeStatus && l.bankPledgeStatus !== f.bankPledgeStatus) return false;
     if (f.from && l.openedDate.slice(0, 10) < f.from) return false;
     if (f.to && l.openedDate.slice(0, 10) > f.to) return false;

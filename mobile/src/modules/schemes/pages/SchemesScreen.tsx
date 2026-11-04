@@ -19,7 +19,10 @@ import { useAuth } from "@/common/providers/AuthProvider";
 // statement sheet (server-built PDF / xlsx).
 
 const INTEREST_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", "Multiple interest"] as const;
-const FILTER_SECTIONS: GFSection[] = [{ kind: "static", key: "method", label: "Interest method", options: INTEREST_METHODS.map((m) => ({ value: m, label: m })) }];
+const FILTER_SECTIONS: GFSection[] = [
+  { kind: "static", key: "method", label: "Interest method", options: INTEREST_METHODS.filter((m) => m !== "Compound monthly").map((m) => ({ value: m, label: m })) },
+  { kind: "static", key: "status", label: "Status", options: [{ value: "Active", label: "Active" }, { value: "Inactive", label: "Inactive" }] },
+];
 
 function serviceCharge(sc: Scheme) {
   if (!sc.serviceChargeType || sc.serviceChargeType === "None") return null;
@@ -30,10 +33,13 @@ function serviceCharge(sc: Scheme) {
 export default function SchemesScreen() {
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("schemes:filters", emptyGroupedFilter());
   const methods = gfValues(fv, "method");
-  const list = useServerList<Scheme, { method?: string[] }>({
+  const statuses = gfValues(fv, "status");
+  // Both ticked = no restriction.
+  const status = statuses.length === 1 ? statuses[0] : undefined;
+  const list = useServerList<Scheme, { method?: string[]; status?: string }>({
     key: ["schemes", "list"],
     persistKey: "schemes",
-    filters: { method: methods },
+    filters: { method: methods, status },
     fetchPage: (p) => listSchemesPage(p),
   });
   const [editing, setEditing] = useState<Scheme | null>(null);
@@ -109,6 +115,7 @@ export default function SchemesScreen() {
                 { k: "Penal rate", v: sc.penalRate != null ? `${sc.penalRate}% p.a.` : "—" },
                 { k: "Conditions", v: sc.conditions || "—" },
                 ...(sc.interestMethod ? [{ k: "Interest method", v: sc.interestMethod }] : []),
+                ...(sc.accrualBasis ? [{ k: "Accrual method", v: sc.accrualBasis === "monthly" ? "Monthly" : "Daily" }] : []),
                 ...(charge ? [{ k: "Service charge", v: charge }] : []),
               ]}
               actions={[

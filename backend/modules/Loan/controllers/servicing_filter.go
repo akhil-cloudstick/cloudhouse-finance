@@ -53,14 +53,17 @@ func matchesServicing(l *models.Loan, servicing string) bool {
 
 func servicingCandidates(servicing string, now time.Time) (statusNotIn []string, dueBefore, dueFrom *time.Time) {
 	notIn := append([]string{}, notDefaultableStatuses...)
+	// A loan is due, not overdue, for the whole of its due date, so the day
+	// boundaries are the start of today rather than the current instant.
+	today := startOfDay(now)
 	switch servicing {
 	case "due_soon":
-		from := now
-		before := now.AddDate(0, 0, dueSoonWindowDays+1)
+		from := today
+		before := today.AddDate(0, 0, dueSoonWindowDays+1)
 		return notIn, &before, &from
 	case "overdue":
 		notIn = append(notIn, models.StatusAuctionEligible, models.StatusAuctionedBalanceDue, models.StatusActive)
-		return notIn, &now, nil
+		return notIn, &today, nil
 	case "defaulted":
 		notIn = append(notIn, models.StatusAuctionEligible, models.StatusAuctionedBalanceDue)
 		before := now.AddDate(0, 0, -defaultedAfterDays)

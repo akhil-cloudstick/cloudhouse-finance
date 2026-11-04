@@ -1,6 +1,10 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { useEffect, useRef, useState } from "react";
 import { useScrollPageSize, STACK_MODE_MAX_WIDTH } from "@/common/utils/responsive";
@@ -28,6 +32,7 @@ const TRANSACTION_TYPE_OPTIONS = [
   { value: "auction", label: "Auction" },
   { value: "collection", label: "Collection" },
   { value: "personal loan", label: "Personal Loan" },
+  { value: "bank pledge", label: "Bank Pledge" },
   { value: "investment", label: "Investment" },
   { value: "expenses", label: "Expenses" },
 ];
@@ -78,6 +83,8 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
   const showBranchFilter = useShowBranchFilter();
   const showBranch = useShowBranch();
   const [filters, setFilters] = usePersistedState<FilterValue>("reports:ledger-filters", {});
+  const [q, setQ] = usePersistedState("reports:ledger-q", "");
+  const search = useDebouncedValue(q.trim());
   const [page, setPage] = useState(1);
   // Card mode (<=1279px): Prev/Next gives way to scroll-to-load — the page stays 1 and the size grows.
   const { cards, size: pageSize, more } = useScrollPageSize(PAGE_SIZE, STACK_MODE_MAX_WIDTH);
@@ -106,7 +113,7 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
   const fromDate = filters.__dateFrom;
   const toDate = filters.__dateTo;
 
-  useEffect(() => { setPage(1); }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate]);
+  useEffect(() => { setPage(1); }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate, search]);
 
   // Selecting one or more Branches narrows the Customer picker to customers
   // whose home branch is one of those (a customer belongs to exactly one
@@ -133,6 +140,7 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
     listCashMovementsPage(page, pageSize, {
       fromDate,
       toDate,
+      search: search || undefined,
       branchIds: branchIds.length ? branchIds : undefined,
       customerIds: customerIds.length ? customerIds : undefined,
       types: types.length ? types : undefined,
@@ -149,7 +157,7 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
         setError(e instanceof ApiError ? e.message : "Could not load the ledger.");
       })
       .finally(() => setLoading(false));
-  }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate, page, pageSize, cards, reloadKey]);
+  }, [JSON.stringify(branchIds), JSON.stringify(customerIds), JSON.stringify(types), fromDate, toDate, search, page, pageSize, cards, reloadKey]);
 
   async function onDownload(format: "pdf" | "xlsx") { return singleFlight("reports:ledger-export:"+format, async () => {
     setExporting(true);
@@ -157,6 +165,7 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
       await exportCashMovements({
         fromDate,
         toDate,
+        search: search || undefined,
         branchIds: branchIds.length ? branchIds : undefined,
         customerIds: customerIds.length ? customerIds : undefined,
         types: types.length ? types : undefined,
@@ -195,21 +204,16 @@ export function LedgerExportView({ onBack }: LedgerExportViewProps) {
           <h3>Transactions</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <TableSearch value={q} onChange={setQ} placeholder="Search date, ref no, party, bank, amount…" searches="date, ref no, particulars, mode, bank, party, debit, credit" />
             <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips hideClearAll />
             {canExport && (
-              <>
-                <button className="btn ghost sm" disabled={exporting} onClick={() => onDownload("pdf")}>
-                  <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
-                </button>
-                <button className="btn sm" disabled={exporting} onClick={() => onDownload("xlsx")}>
-                  <Icon name="download" /> {exporting ? "Exporting…" : "Export Excel"}
-                </button>
-              </>
+              <ExportMenu busy={exporting ? "pdf" : null} onExport={onDownload} />
             )}
           </div>
         </div>
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-stack">
+            <TableCols widths={[10, 10, 26, 10, 12, 12, 12]} />
             <thead>
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>

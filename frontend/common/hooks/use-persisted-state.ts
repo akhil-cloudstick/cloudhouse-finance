@@ -1,4 +1,4 @@
-import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 // useState whose value is mirrored to sessionStorage under `key`, so a page's
 // search/filter selections survive opening a detail page and coming back, a
@@ -24,6 +24,25 @@ export function usePersistedState<T>(key: string, initial: T): [T, Dispatch<SetS
   return [value, set];
 }
 
+// A list's current page, kept like the search/filter selections so that opening
+// a record and pressing Back returns to the same page instead of page 1.
+export function usePersistedPage(key: string): [number, Dispatch<SetStateAction<number>>] {
+  return usePersistedState<number>(`${key}:page`, 1);
+}
+
+// Sends the list back to page 1 when `deps` (its search / filters / page size)
+// change. Not on mount: the page restored by usePersistedPage must survive the
+// first render (also under StrictMode's mount, unmount, mount).
+export function useResetPageOnChange(setPage: (page: number) => void, deps: readonly unknown[]): void {
+  const mounted = useRef(false);
+  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
 // Pages that belong to one area of the app. Search/filter state is kept while
 // moving between pages of the SAME section (Ledger -> a party ledger -> a mode
 // ledger, Loans -> a loan and back) and dropped when the user enters a
@@ -47,6 +66,15 @@ const SECTION_KEY = "filters-section";
 // area: the ledger's filters are kept so Back returns to the same filtered view.
 const LEDGER_DRILLDOWNS = new Set(["loan", "personalloan", "investment", "customer"]);
 
+// Lists whose rows open a loan: opening one is a drill-down too, so Back returns to the same page and filters.
+const LOAN_DRILLDOWNS = new Set(["loan"]);
+const DRILLDOWNS_FROM: Record<string, Set<string>> = {
+  ledger: LEDGER_DRILLDOWNS,
+  auctions: LOAN_DRILLDOWNS,
+  bankpledge: LOAN_DRILLDOWNS,
+  reports: LOAN_DRILLDOWNS,
+};
+
 // Called as the route changes (see AppShell). Entering a different section than
 // the last one clears every remembered filter; a refresh stays in its section,
 // so its filters survive.
@@ -55,7 +83,7 @@ export function syncFilterSection(route: string) {
     const section = SECTION_OF[route] ?? route;
     const last = window.sessionStorage.getItem(SECTION_KEY);
     if (last === section) return;
-    if (last === "ledger" && LEDGER_DRILLDOWNS.has(route)) return;
+    if (last && DRILLDOWNS_FROM[last]?.has(route)) return;
     for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
       const k = window.sessionStorage.key(i);
       if (k && k.startsWith("filters:")) window.sessionStorage.removeItem(k);

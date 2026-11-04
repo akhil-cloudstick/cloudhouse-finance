@@ -180,7 +180,7 @@ export default function CashScreen() {
         )}
       </View>
       {tab === "expenses" && expenses.pages?.[0]?.totalAmount != null ? (
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12, marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
           <Txt style={{ fontSize: 12.5, color: C.muted }}>Total expenses</Txt>
           <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.red }}>{inr(expenses.pages[0].totalAmount ?? 0)}</Txt>
         </View>
@@ -200,12 +200,14 @@ export default function CashScreen() {
       ) : null}
       {tab === "movements" && movementTotals ? (
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>
-            Total Debit <Txt style={{ fontWeight: "700", color: C.red }}>{inr(movementTotals.debit)}</Txt>
-          </Txt>
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>
-            Total Credit <Txt style={{ fontWeight: "700", color: C.green }}>{inr(movementTotals.credit)}</Txt>
-          </Txt>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Txt style={{ fontSize: 12.5, color: C.muted }}>Total Debit</Txt>
+            <Txt style={{ fontSize: 14, fontWeight: "700", color: C.red }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(movementTotals.debit)}</Txt>
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Txt style={{ fontSize: 12.5, color: C.muted }}>Total Credit</Txt>
+            <Txt style={{ fontSize: 14, fontWeight: "700", color: C.green }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(movementTotals.credit)}</Txt>
+          </View>
         </View>
       ) : null}
     </View>

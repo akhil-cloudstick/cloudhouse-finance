@@ -7,6 +7,7 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -57,7 +58,8 @@ func valueOrnament(o *models.Ornament, gr *commonModels.GoldRate) error {
 	if err != nil {
 		return err
 	}
-	o.NetWeight = o.GrossWeight - o.DeductionWeight
+	// weights are entered to 3 decimals; rounding keeps float noise (0.1+0.2) out of the value the principal is checked against
+	o.NetWeight = math.Round((o.GrossWeight-o.DeductionWeight)*1000) / 1000
 	if o.NetWeight < 0 {
 		o.NetWeight = 0
 	}
@@ -272,7 +274,7 @@ func findOrnamentByCustomerID(ctx context.Context, customerID uint, from, to *ti
 		Where("loans.customer_id = ? AND ornaments.released_at IS NULL", customerID)
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("loans.loan_number ILIKE ? OR ornaments.name ILIKE ?", like, like)
+		q = q.Where("loans.loan_number ILIKE ? OR ornaments.name ILIKE ? OR ornaments.purity ILIKE ?", like, like, like)
 	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))

@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	cashbook "cloudhouse/backend/modules/Cash/controllers"
 	common "cloudhouse/backend/common/controllers"
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/modules/PersonalLoan/models"
@@ -76,6 +77,9 @@ func ledgerModeParts(p *models.PersonalLoanPayment) []LedgerPart {
 }
 
 func BuildLedger(l *models.PersonalLoan, payments []models.PersonalLoanPayment, penal []models.PersonalLoanHistory) []LedgerRow {
+	// What each collection paid (penal interest, then interest, then principal), so a payment shows as a line for
+	// each. Worked out from the loan's own entries in the order they are shown here, so old payments split too.
+	splits := paymentSplits(l, payments, penal)
 	var events []ledgerEvent
 	base := func(kind, key string, at time.Time) LedgerRow {
 		return LedgerRow{Key: key, Kind: kind, Date: at.Format("2006-01-02"), RefNo: l.LoanNumber, PersonalLoanID: l.ID, PaidOn: at}
@@ -170,10 +174,35 @@ func BuildLedger(l *models.PersonalLoan, payments []models.PersonalLoanPayment, 
 					}
 				}
 			}
+			if comps := splits[p.ID]; len(comps) > 0 {
+				// one credit line for each thing the payment paid, each in the mode it was paid by: cash first, then
+				// UPI, then bank transfer, a mode that was not used being skipped
+				lines := cashbook.PersonalSplitLines(comps, p.CashAmount, p.UpiAmount, p.BankTransferAmount, p.ChequeAmount, p.Method, p.Amount)
+				if len(lines) > 0 {
+					out := make([]LedgerRow, 0, len(lines))
+					later := p.Amount
+					for i, ln := range lines {
+						later -= ln.Amount
+						r := mk(fmt.Sprintf("payment-%d-%d", p.ID, i))
+						r.Particulars = paidLabel(ln.Label)
+						r.Mode = ln.Mode
+						if r.Mode == "" {
+							r.Mode = "Cash"
+						}
+						r.Part = &LedgerPart{Mode: r.Mode, Amount: ln.Amount, Index: i, Count: len(lines)}
+						r.Credit, r.Amount = ln.Amount, ln.Amount
+						r.Balance = bal - p.Amount + later
+						r.RunningBalance = r.Balance
+						setBank(&r)
+						out = append(out, r)
+					}
+					return out
+				}
+			}
 			parts := ledgerModeParts(&p)
 			if len(parts) < 2 {
 				r := mk(fmt.Sprintf("payment-%d", p.ID))
-				r.Particulars = "Instalment collected"
+				r.Particulars = "Installment "
 				r.Mode = p.Method
 				if len(parts) == 1 {
 					r.Mode = parts[0].Mode
@@ -189,7 +218,7 @@ func BuildLedger(l *models.PersonalLoan, payments []models.PersonalLoanPayment, 
 				pt := pt
 				later -= pt.Amount
 				r := mk(fmt.Sprintf("payment-%d-%s", p.ID, strings.ReplaceAll(pt.Mode, " ", "")))
-				r.Particulars, r.Mode, r.Part = "Instalment collected", pt.Mode, &pt
+				r.Particulars, r.Mode, r.Part = "Installment", pt.Mode, &pt
 				r.Credit, r.Amount = pt.Amount, pt.Amount
 				r.Balance = bal - p.Amount + later
 				r.RunningBalance = r.Balance
@@ -242,6 +271,17 @@ func getLedger(ctx context.Context, loanID uint, branchID *uint, limit, offset i
 		return nil, false, 0, totals, err
 	}
 	rows := BuildLedger(l, payments, penal)
+	// the payout row carries only the bank's id; the screen shows its name
+	if l.DisbursementBankID != nil {
+		var bank commonModels.Bank
+		if err := personalLoanDB().WithContext(ctx).First(&bank, *l.DisbursementBankID).Error; err == nil {
+			for i := range rows {
+				if rows[i].Kind == "disbursement" && rows[i].BankID != nil && rows[i].BankName == "" {
+					rows[i].BankName = bank.Name
+				}
+			}
+		}
+	}
 	for _, r := range rows {
 		totals.Debit += r.Debit
 		totals.Credit += r.Credit
@@ -261,4 +301,42 @@ func getLedger(ctx context.Context, loanID uint, branchID *uint, limit, offset i
 		end = len(rows)
 	}
 	return rows[offset:end], end < len(rows), total, totals, nil
+}
+
+// paymentSplits is what each collection on the loan paid, by payment id.
+func paymentSplits(l *models.PersonalLoan, payments []models.PersonalLoanPayment, penal []models.PersonalLoanHistory) map[uint][]cashbook.PayComponent {
+	interest := 0.0
+	if l.Status != models.StatusPendingApproval && l.Status != "Rejected" {
+		interest = l.InterestAmount
+		if extra := l.PrincipalAmount - l.DisbursedAmount; interest > extra {
+			interest = extra
+		}
+		if interest < 0 {
+			interest = 0
+		}
+	}
+	var charges []cashbook.PersonalCharge
+	for _, h := range penal {
+		if h.Event == models.EventPenalApplied {
+			charges = append(charges, cashbook.PersonalCharge{At: h.OccurredAt, Amount: h.Amount})
+		}
+	}
+	pays := make([]cashbook.PersonalPayment, 0, len(payments))
+	for _, p := range payments {
+		pays = append(pays, cashbook.PersonalPayment{ID: p.ID, At: p.PaidOn, Amount: p.Amount, Rollover: p.Method == "Renewal Rollover"})
+	}
+	return cashbook.PersonalPaymentComponents(interest, charges, pays)
+}
+
+// paidLabel is how a payment's part reads on the loan's own ledger.
+func paidLabel(component string) string {
+	switch component {
+	case "Penal Interest":
+		return "Penal interest paid"
+	case "Interest":
+		return "Interest paid"
+	case "Principal":
+		return "Amount paid"
+	}
+	return component
 }

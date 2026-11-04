@@ -24,14 +24,29 @@ var loanNoLongerMovableStatuses = map[string]bool{
 	loanModels.StatusRejected:            true,
 }
 
+// pendingLoanBlocksMove returns the reason a packet cannot be put into a locker
+// or pledged to a bank while its loan is still awaiting approval, or "" if the
+// move is fine. Releasing it (e.g. when the loan is rejected) is not a custody
+// move, so it stays allowed.
+func pendingLoanBlocksMove(loanStatus, toStatus string) string {
+	if loanStatus != loanModels.StatusPendingApproval {
+		return ""
+	}
+	if toStatus == models.StatusLockerStored || toStatus == models.StatusBankPledged {
+		return "this loan is still pending approval — its packet can be placed in a locker only after the loan is approved"
+	}
+	return ""
+}
+
 var allowedTransitions = map[string][]string{
 	// Released too: a loan can be released before its packet was ever checked into a locker.
-	"Packet Generated":        {models.StatusLockerStored, models.StatusReleased},
+	"Packet Generated":        {models.StatusLockerStored, models.StatusBankPledged, models.StatusReleased},
 	models.StatusLockerStored: {models.StatusBankPledged, models.StatusReleased},
 	models.StatusBankPledged:  {models.StatusReturned},
-	models.StatusReturned:     {models.StatusLockerStored, models.StatusReleased},
-	"Ready For Release":       {models.StatusReleased},
-	models.StatusReleased:     {},
+	// Back from a bank, the gold can be pledged again straight away.
+	models.StatusReturned: {models.StatusLockerStored, models.StatusBankPledged, models.StatusReleased},
+	"Ready For Release":   {models.StatusReleased},
+	models.StatusReleased: {},
 }
 
 var LockerCapacity func(ctx context.Context, lockerID uint) (capacity int, isActive bool, ok bool, err error)
@@ -134,10 +149,39 @@ func findPackets(ctx context.Context, f Filter) ([]models.Packet, int64, error) 
 	if f.LoanID != 0 {
 		q = q.Where("packets.loan_id = ?", f.LoanID)
 	}
-	if len(f.StatusIn) > 0 {
-		q = q.Where("packets.status IN ?", f.StatusIn)
-	} else if f.Status != "" {
-		q = q.Where("packets.status = ?", f.Status)
+	statuses := f.StatusIn
+	if len(statuses) == 0 && f.Status != "" {
+		statuses = []string{f.Status}
+	}
+	if len(statuses) > 0 {
+		// "Auctioned" and "Rejected" are loan statuses, not packet statuses: a packet keeps its own status after the
+		// loan is auctioned, and a rejected loan's packet is simply released. Both are matched through the loan, and
+		// "Released" leaves out rejected loans so those only show under "Rejected".
+		var plain []string
+		var conds []string
+		var args []interface{}
+		for _, st := range statuses {
+			switch st {
+			case "Auctioned":
+				conds = append(conds, "packets.loan_id IN (SELECT id FROM loans WHERE status IN ?)")
+				args = append(args, []string{loanModels.StatusAuctioned, loanModels.StatusAuctionedBalanceDue})
+			case "Rejected":
+				conds = append(conds, "packets.loan_id IN (SELECT id FROM loans WHERE status = ?)")
+				args = append(args, loanModels.StatusRejected)
+			case models.StatusReleased:
+				// Released means handed back to the customer: a rejected loan's packet and a sold (auctioned) loan's
+				// packet each have their own filter and are left out here.
+				conds = append(conds, "(packets.status = ? AND packets.loan_id NOT IN (SELECT id FROM loans WHERE status IN ?))")
+				args = append(args, models.StatusReleased, []string{loanModels.StatusRejected, loanModels.StatusAuctioned, loanModels.StatusAuctionedBalanceDue})
+			default:
+				plain = append(plain, st)
+			}
+		}
+		if len(plain) > 0 {
+			conds = append(conds, "packets.status IN ?")
+			args = append(args, plain)
+		}
+		q = q.Where("("+strings.Join(conds, " OR ")+")", args...)
 	}
 	if f.LockerID != 0 {
 		q = q.Where("packets.current_locker_id = ?", f.LockerID)
@@ -520,6 +564,9 @@ func RecordPacketMovement(c echo.Context) error {
 	}
 	if loanNoLongerMovableStatuses[p.Loan.Status] {
 		return common.FailErr(c, common.NewConflict("gold has left custody — no more movements"))
+	}
+	if blocked := pendingLoanBlocksMove(p.Loan.Status, req.ToStatus); blocked != "" {
+		return common.FailErr(c, common.NewConflict(blocked))
 	}
 	rec, err := SavePacketMovement(ctx, id, req.ToStatus, req.LockerID, req.EmployeeID, req.Remarks)
 	if err != nil {

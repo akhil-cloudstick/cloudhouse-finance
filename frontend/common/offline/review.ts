@@ -112,21 +112,67 @@ export async function discardReview(row: ReviewRow): Promise<void> {
 /* What an entry does, in words an admin can read, from the request it will send. */
 const ACTIONS: [RegExp, string][] = [
   [/^POST \/loans$/, "New loan"],
+  [/^POST \/loans\/drafts/, "Loan draft saved"],
+  [/^(PUT|PATCH) \/loans\/drafts/, "Loan draft edit"],
+  [/^DELETE \/loans\/drafts/, "Loan draft delete"],
   [/^POST \/loans\/[^/]+\/payments?$/, "Loan payment"],
   [/^POST \/loans\/[^/]+\/approve$/, "Loan approval / disbursal"],
+  [/^POST \/loans\/[^/]+\/top-?ups?$/, "Loan top-up"],
+  [/^POST \/loans\/[^/]+\/extension-request$/, "Loan extension request"],
+  [/^POST \/loans\/[^/]+\/release/, "Loan release request"],
+  [/^DELETE \/loans\/[^/]+\/hard-delete/, "Loan permanent delete"],
   [/^(PATCH|PUT) \/loans\/[^/]+$/, "Loan edit"],
   [/^DELETE \/loans\/[^/]+/, "Loan delete"],
+  [/^POST \/loans\/[^/]+\/bank-pledge/, "Bank pledge"],
   [/\/ornaments/, "Ornament change"],
+  [/^POST \/packets\/[^/]+\/movements$/, "Packet movement"],
   [/^POST \/customers$/, "New customer"],
+  [/^(PUT|PATCH) \/customers\/[^/]+$/, "Customer edit"],
+  [/^DELETE \/customers\/[^/]+\/hard-delete/, "Customer permanent delete"],
+  [/^DELETE \/customers\//, "Customer delete"],
   [/^POST \/schemes$/, "New scheme"],
+  [/^(PUT|PATCH) \/schemes\//, "Scheme edit"],
+  [/^DELETE \/schemes\//, "Scheme delete"],
   [/^POST \/lockers$/, "New locker"],
-  [/^(PUT|DELETE) \/lockers\//, "Locker change"],
-  [/cash-movements|cash\/entries|\/cash/, "Cash entry"],
-  [/categories|cash-sources/, "New category"],
+  [/^(PUT|PATCH|DELETE) \/lockers\//, "Locker change"],
+  [/^POST \/personal-loans$/, "New personal loan"],
+  [/^POST \/personal-loans\/[^/]+\/payments?$/, "Personal loan payment"],
+  [/^POST \/personal-loans\/[^/]+\/approve$/, "Personal loan approval"],
+  [/^POST \/personal-loans\/[^/]+\/renew$/, "Personal loan renewal"],
+  [/^(PATCH|PUT|DELETE) \/personal-loans\//, "Personal loan edit"],
+  [/^POST \/investment-plans/, "New investment plan"],
+  [/^(PUT|PATCH) \/investment-plans/, "Investment plan edit"],
+  [/^POST \/investments$/, "New investment"],
+  [/^POST \/investments\/[^/]+\/(payouts?|pay-interest)/, "Investment interest payout"],
+  [/^POST \/investments\/[^/]+\/mature/, "Investment maturity"],
+  [/^POST \/investments\/[^/]+\/(add-cash|deposit)/, "Investment top-up"],
+  [/^POST \/investments\/[^/]+\/withdraw/, "Investment withdrawal"],
+  [/^POST \/investments\/[^/]+\/close/, "Investment close"],
+  [/^(PATCH|PUT|DELETE) \/investments\//, "Investment edit"],
+  [/^POST \/reminders/, "New reminder"],
+  [/^(PUT|PATCH) \/reminders\/[^/]+\/complete/, "Reminder completed"],
+  [/^(PUT|PATCH) \/reminders/, "Reminder edit"],
+  [/^DELETE \/reminders/, "Reminder delete"],
+  [/gold-rates/, "Gold rate"],
   [/expenses/, "Expense"],
+  [/categories|cash-sources/, "New category"],
+  [/cash-movements|cash\/entries|\/cash/, "Cash entry"],
 ];
 
+const RESOURCE_NAMES: Record<string, string> = {
+  loans: "loan", customers: "customer", schemes: "scheme", lockers: "locker", packets: "packet", investments: "investment",
+  "investment-plans": "investment plan", "personal-loans": "personal loan", reminders: "reminder", expenses: "expense",
+  "cash-movements": "cash entry", "gold-rates": "gold rate", banks: "bank", branches: "branch", employees: "employee",
+};
+
+/* The title an admin sees: a known action in words, otherwise "New / Edit / Delete <thing>" from the first part of
+ * the path. Never the raw request path. */
 export function describeEntry(entry: OutboxEntry): string {
   const key = `${entry.method} ${entry.path}`;
-  return ACTIONS.find(([re]) => re.test(key))?.[1] ?? key;
+  const known = ACTIONS.find(([re]) => re.test(key))?.[1];
+  if (known) return known;
+  const first = entry.path.split("?")[0].split("/").filter(Boolean)[0] ?? "";
+  const thing = RESOURCE_NAMES[first] ?? (first.replace(/-/g, " ") || "record");
+  const verb = entry.method === "POST" ? "New" : entry.method === "DELETE" ? "Delete" : "Edit";
+  return `${verb} ${thing}`;
 }

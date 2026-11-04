@@ -16,6 +16,8 @@ export type ServerPage<T> = {
   totalSold?: number;
   totalCost?: number;
   totalProfit?: number;
+  /** Bank Management: net balance over every bank, not just the page. */
+  totalBalance?: number;
 };
 
 export const PAGE_SIZE = 10;

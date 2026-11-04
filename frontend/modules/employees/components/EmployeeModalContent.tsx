@@ -20,7 +20,7 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 /* The seeded roles — the fallback list when the live one (GET /roles,
  * which also carries custom roles) cannot be loaded because this user lacks
  * the role-view permission. The backend accepts any role that exists. */
-const DEFAULT_ROLES = [
+export const DEFAULT_ROLES = [
   "Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
   "Accountant", "Collection Staff", "Auction Administrator", "Auditor",
 ];
@@ -147,19 +147,16 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
     const trimmed = name.trim();
     const p = phone.trim();
 
-    if (trimmed.length < 3 || !NAME_RE.test(trimmed)) {
-      fail("name", "Please enter the employee's full name (letters only, at least 3 characters).");
-      return;
-    }
-    if (!role || !(roleNames.includes(role) || role === employee?.role)) { fail("role", "Please select a role."); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
-    if (p && !PHONE_RE.test(p)) { fail("phone", "Phone number must be exactly 10 digits."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (trimmed.length < 3 || !NAME_RE.test(trimmed)) errors["name"] ??= "Please enter the employee's full name (letters only, at least 3 characters).";
+    if (!role || !(roleNames.includes(role) || role === employee?.role)) errors["role"] ??= "Please select a role.";
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
+    if (p && !PHONE_RE.test(p)) errors["phone"] ??= "Phone number must be exactly 10 digits.";
     const uname = username.trim();
-    if (uname && !USERNAME_RE.test(uname)) {
-      fail("username", "Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).");
-      return;
-    }
-    if (password && password.length < 8) { fail("password", "Password must be at least 8 characters."); return; }
+    if (uname && !USERNAME_RE.test(uname)) errors["username"] ??= "Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).";
+    if (password && password.length < 8) errors["password"] ??= "Password must be at least 8 characters.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     setSaving(true);
     setErr("");

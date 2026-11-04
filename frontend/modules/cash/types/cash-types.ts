@@ -113,7 +113,7 @@ export type CashMovementInput = {
 // "" (CategoryAll) applies no filter. Kept as a plain string union rather
 // than an enum so a stray unrecognized value just falls through to "no
 // filter" server-side instead of a client-side type error.
-export type CashMovementCategory = "" | "loan" | "auction" | "collection" | "expenses" | "personal loan" | "investment";
+export type CashMovementCategory = "" | "loan" | "auction" | "collection" | "expenses" | "personal loan" | "investment" | "bank pledge";
 export type CashMovementFilters = {
   fromDate?: string;
   toDate?: string;
@@ -126,8 +126,11 @@ export type CashMovementFilters = {
   branchIds?: string[];
   customerIds?: string[];
   types?: CashMovementCategory[];
+  // Credit / Debit / Self Transfer category names — the Ledger filter's Category section.
+  categoryNames?: string[];
   // Cash / UPI / Bank Transfer — the Ledger filter's Mode section.
   modes?: string[];
+  search?: string;
 };
 /* Bank-to-bank self transfer — the backend writes a debit row on the from
  * bank and a credit row on the to bank (see POST /cash-movements/self-transfer).
@@ -173,6 +176,8 @@ export type BackendExpense = {
   receiptImage?: string;
   createdAt: string;
   editable?: boolean;
+  bankPledgeId?: number;
+  bankPledgeLoanId?: number;
 };
 export type ExpenseView = {
   id: number;
@@ -189,6 +194,9 @@ export type ExpenseView = {
   approvalStage?: string;
   remarks?: string;
   img?: string;
+  // A "Bank Pledge Release" entry: edited through its bank pledge (loan id + pledge id), not as a plain expense.
+  bankPledgeId?: number;
+  bankPledgeLoanId?: number;
   // A pending or approved expense a person keyed in — the register offers Edit on it.
   editable?: boolean;
 };
@@ -247,6 +255,17 @@ export type EntryInfo = {
   // A draw on a loan: the loan's number and its principal.
   loanNumber?: string;
   principalAmount?: number;
+  // The gold loan entry behind a system line (its payout or a top-up), so it can be edited from here.
+  loanEntry?: "disbursement" | "top_up" | "payment" | "bank_pledge" | "bank_pledge_release" | "personal_payment" | "personal_disbursement" | "investment_entry" | "service_charge" | "disbursement_reversal" | "auction_sale" | "auction_expense" | "auction_surplus";
+  loanId?: number;
+  loanTopUpId?: number;
+  loanPaymentId?: number;
+  // bank_pledge / bank_pledge_release: loanId is the gold loan, this the pledge record.
+  bankPledgeId?: number;
+  // investment_entry: loanId is the investment, this its ledger entry id (tx-N, payout-N, open-N).
+  investmentEntryId?: string;
+  // What a loan repayment was applied to, each part with the mode it was paid by (cash first, then UPI, then bank).
+  split?: LedgerSplitLineView[];
 };
 export type EntryUpdateInput = {
   // The type the entry should have after saving; when it differs from the entry's own, it is converted.
@@ -369,7 +388,7 @@ export type PartyTotals = {
 };
 // loanNumbers is the customer drilldown's Loan filter, now multi-select —
 // loanNumber (singular) is kept for any caller still passing exactly one.
-export type PartyDateRange = { focusDate?: string; focusAmount?: number; fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
+export type PartyDateRange = { search?: string; focusDate?: string; focusAmount?: number; fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
 /* Combined ledger row shape returned by the customer/bank drill-down
  * endpoints (backend/internal/cash/ledger.go's LedgerRow) — a UNION of
  * CashMovement/LoanPayment/PersonalLoanPayment/GoldSale rows, not just plain
@@ -396,7 +415,17 @@ export type LedgerRowView = {
   // popup and Edit open it. Absent on every other row.
   entryId?: number;
   editable?: boolean;
+  // The gold-loan repayment behind a row — the ledger offers its edit and delete.
+  loanId?: number;
+  paymentId?: number;
+  // The personal-loan payment (with paymentId) behind a row, and an Interest / Penal Interest Charged row (loanId).
+  personalLoanId?: number;
+  loanAccrual?: boolean;
+  // What a loan repayment was applied to, each part with the mode it was paid by (cash first, then UPI, then
+  // bank transfer). The row stays one entry for the amount paid; the info popup lists these.
+  split?: LedgerSplitLineView[];
 };
+export type LedgerSplitLineView = { label: string; mode?: string; amount: number };
 export type BackendLedgerRow = {
   id: number;
   date: string;
@@ -415,5 +444,11 @@ export type BackendLedgerRow = {
   memo?: boolean;
   entryId?: number;
   editable?: boolean;
+  loanId?: number;
+  paymentId?: number;
+  // The personal-loan payment (with paymentId) behind a row, and an Interest / Penal Interest Charged row (loanId).
+  personalLoanId?: number;
+  loanAccrual?: boolean;
+  split?: LedgerSplitLineView[];
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];

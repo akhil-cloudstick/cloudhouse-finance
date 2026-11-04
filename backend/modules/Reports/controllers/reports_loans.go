@@ -2,8 +2,12 @@ package controllers
 
 import (
 	"cloudhouse/backend/config"
+	loanModels "cloudhouse/backend/modules/Loan/models"
 	"cloudhouse/backend/modules/Reports/models"
 	"context"
+	"fmt"
+	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -36,15 +40,38 @@ func disbursementReport(ctx context.Context, f models.Filter) ([]models.Disburse
 	return rows, totals, nil
 }
 
+// loanStatusValues are the only statuses the loans-status report lists.
+var loanStatusValues = []string{"Active", "Due Soon", "Overdue", "Defaulted", "Closed"}
+
+// storedLoanStatusValues are the stored statuses behind those (Defaulted is derived from them).
+var storedLoanStatusValues = []string{"Active", "Due Soon", "Overdue", "Closed"}
+
 func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.LoanStatusRow, models.LoanStatusTotals, error) {
+	if status != "" {
+		valid := false
+		for _, s := range loanStatusValues {
+			if s == status {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return nil, models.LoanStatusTotals{}, fmt.Errorf("status must be one of %s", strings.Join(loanStatusValues, ", "))
+		}
+	}
 	from, to := dateRange(f)
+	// Defaulted is not a stored status: an open loan more than DefaultedAfterDays past its due date counts as
+	// Defaulted (the same rule as the Loans page filter), whatever status it is stored under.
+	defaultedBefore := time.Now().AddDate(0, 0, -loanModels.DefaultedAfterDays)
+	effective := "CASE WHEN l.status IN ('Active','Due Soon','Overdue') AND l.due_date < ? THEN 'Defaulted' ELSE l.status END"
 	newBase := func() *gorm.DB {
 		q := config.DB.
 			WithContext(ctx).Table("loans l").
 			Joins("LEFT JOIN branches b ON b.id = l.branch_id").
 			Joins("LEFT JOIN customers c ON c.id = l.customer_id").
 			Where("l.opened_date >= ? AND l.opened_date < ?", from, to).
-			Where("l.deleted_at IS NULL")
+			Where("l.deleted_at IS NULL").
+			Where("l.status IN ?", storedLoanStatusValues)
 		if f.BranchID != nil {
 			q = q.Where("l.branch_id = ?", *f.BranchID)
 		}
@@ -52,11 +79,11 @@ func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.L
 	}
 	var totals models.LoanStatusTotals
 	type statusCount struct {
-		Status string
+		Status string `gorm:"column:effective_status"`
 		Count  int
 	}
 	var counts []statusCount
-	if err := newBase().Select("l.status, count(*) as count").Group("l.status").Scan(&counts).Error; err != nil {
+	if err := newBase().Select(effective+" as effective_status, count(*) as count", defaultedBefore).Group("effective_status").Scan(&counts).Error; err != nil {
 		return nil, models.LoanStatusTotals{}, err
 	}
 	for _, c := range counts {
@@ -77,10 +104,10 @@ func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.L
 		}
 	}
 	q := newBase().Select(`l.id as loan_id, l.loan_number, c.name as customer_name, b.name as branch_name,
-		l.status, l.outstanding_amount as outstanding, l.due_date`).
+		`+effective+` as status, l.outstanding_amount as outstanding, l.due_date`, defaultedBefore).
 		Order("l.due_date asc")
 	if status != "" {
-		q = q.Where("l.status = ?", status)
+		q = q.Where("("+effective+") = ?", defaultedBefore, status)
 	}
 	var rows []models.LoanStatusRow
 	if err := q.Scan(&rows).Error; err != nil {

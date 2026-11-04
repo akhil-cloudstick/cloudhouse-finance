@@ -38,7 +38,7 @@ export function finenessForKarat(karat: number): number {
  * result isn't a valid fineness. */
 export function finenessFromRate(k24: number, rate: number, karat: number): number {
   if (!(k24 > 0) || !(rate > 0)) return finenessForKarat(karat);
-  const f = Math.round((rate / k24) * 10000) / 100;
+  const f = Math.round((rate / k24) * FINENESS_24K * 100) / 100;
   return isFinenessInRange(f) ? f : finenessForKarat(karat);
 }
 

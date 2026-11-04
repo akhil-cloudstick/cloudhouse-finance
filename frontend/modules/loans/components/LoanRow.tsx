@@ -43,7 +43,7 @@ export function LoanRow({ loan: l }: LoanRowProps) {
       <td data-label="Scheme">{l.schemeName}</td>
       <td className="td-date" data-label="Opened / Due">{fmtDate(l.opened)}<span className="sub">due {fmtDate(l.due)}</span></td>
       <td className="num" data-label="Principal">{fmt(l.principal)}</td>
-      <td className="num" data-label="Outstanding">{l.outstanding ? fmt(l.outstanding) : "—"}</td>
+      <td className="num" data-label="Outstanding">{fmt(l.outstanding)}</td>
       <td data-label="Pledge"><StatusChip status={l.bankPledgeStatus} /></td>
       <td data-label="Status"><StatusChip status={displayStatus(l)} /></td>
     </tr>

@@ -1,7 +1,9 @@
 "use client";
 
+import { roundRupee } from "@/common/utils/format";
 import { useEffect, useState } from "react";
-import { PaymentBreakdownFields, newPaymentRow, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
+import { getBank } from "@/modules/banks/services/bankService";
+import { PaymentBreakdownFields, effectiveRows, newPaymentRow, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
 
 // Cheque is not a payment mode in the application: Cash, UPI and Bank Transfer only.
 export const SPLIT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
@@ -54,15 +56,15 @@ export function sumSplitLines(lines: SplitPaymentLine[]): SplitAmounts {
     else if (l.mode === "Bank Transfer") split.bankTransferAmount += amt;
   }
   return {
-    cashAmount: Math.round(split.cashAmount * 100) / 100,
-    upiAmount: Math.round(split.upiAmount * 100) / 100,
-    bankTransferAmount: Math.round(split.bankTransferAmount * 100) / 100,
-    chequeAmount: Math.round(split.chequeAmount * 100) / 100,
+    cashAmount: roundRupee(split.cashAmount),
+    upiAmount: roundRupee(split.upiAmount),
+    bankTransferAmount: roundRupee(split.bankTransferAmount),
+    chequeAmount: roundRupee(split.chequeAmount),
   };
 }
 
 function splitTotal(s: SplitAmounts): number {
-  return Math.round((s.cashAmount + s.upiAmount + s.bankTransferAmount + s.chequeAmount) * 100) / 100;
+  return roundRupee((s.cashAmount + s.upiAmount + s.bankTransferAmount + s.chequeAmount));
 }
 
 type SplitPaymentInputProps = {
@@ -83,6 +85,8 @@ type SplitPaymentInputProps = {
   scrollInternally?: boolean;
   /** Heading above the lines; null drops it (PaymentModal's section title already names it). */
   label?: string | null;
+  /** Lines to start from (editing an existing payment); omit for a single Cash line that follows totalAmount. */
+  initialLines?: SplitPaymentLine[];
 };
 
 /**
@@ -104,20 +108,32 @@ export function SplitPaymentInput({
   onChange,
   scrollInternally = true,
   label,
+  initialLines,
 }: SplitPaymentInputProps) {
-  const [rows, setRows] = useState<PaymentRow[]>(() => [
-    newPaymentRow({ mode: "Cash", amount: totalAmount > 0 ? String(totalAmount) : "" }),
-  ]);
+  const [rows, setRows] = useState<PaymentRow[]>(() =>
+    initialLines?.length
+      ? initialLines.map((l) => newPaymentRow({ mode: l.mode, amount: l.amount, bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName ?? "", auto: initialLines.length === 1 }))
+      : [newPaymentRow({ mode: "Cash", amount: totalAmount > 0 ? String(totalAmount) : "" })]);
 
-  const lines: SplitPaymentLine[] = rows.map((r) => ({
+  const lines: SplitPaymentLine[] = effectiveRows(rows, totalAmount).map((r) => ({
     mode: r.mode as SplitPaymentMode,
     amount: r.amount,
     bankId: r.bankId ? +r.bankId : undefined,
     bankName: r.bankName,
   }));
   const split = sumSplitLines(lines);
-  const remaining = Math.round((totalAmount - splitTotal(split)) * 100) / 100;
+  const remaining = roundRupee((totalAmount - splitTotal(split)));
   const bankId = firstSelectedBankId(lines);
+
+  // A saved entry hands over only a bank id: the names are looked up once so the bank shows instead of an empty field.
+  useEffect(() => {
+    rows.filter((r) => r.bankId && !r.bankName).forEach((r) => {
+      getBank(+r.bankId)
+        .then((b) => setRows((cur) => cur.map((x) => (x.key === r.key && !x.bankName ? { ...x, bankName: b.name } : x))))
+        .catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reports the live split/remaining/bankId to the parent on every render
   // where any changed — the parent owns submit-gating and payload assembly,

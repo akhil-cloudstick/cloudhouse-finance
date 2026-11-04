@@ -1,7 +1,10 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -10,7 +13,7 @@ import { fmt, fmtW, initials, fmtDate, ageFromDob } from "@/common/utils/format"
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
-import { getCustomer360, verifyCustomerPan, startAadhaarVerify, checkAadhaarVerify, hardDeleteCustomer, listCustomerLoansPage, listCustomerOrnamentsPage, listCustomerPaymentsPage, listCustomerBankPledgesPage, listCustomerAuctionHistoryPage } from "@/modules/customers/services/customerService";
+import { getCustomer360, getCustomerByRef, isNumericCustomerRef,verifyCustomerPan, startAadhaarVerify, checkAadhaarVerify, hardDeleteCustomer, listCustomerLoansPage, listCustomerOrnamentsPage, listCustomerPaymentsPage, listCustomerBankPledgesPage, listCustomerAuctionHistoryPage } from "@/modules/customers/services/customerService";
 import { type Customer360View } from "@/modules/customers/types/customer-types";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 import type { LoanView, CustomerOrnamentRowView, CustomerPaymentRowView, CustomerBankPledgeRowView, CustomerAuctionRowView } from "@/modules/loans/types/loan-types";
@@ -42,7 +45,12 @@ type CustomerDetailPageProps = { id?: string };
  * table, with no ornament/payment/bank-pledge/auction history in one
  * place. SMS reminder / follow-up history is still omitted — no data
  * source exists anywhere yet. */
-export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
+export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
+  /* The URL names the customer by code (/customer/CUST-04); every call below
+   * wants the numeric id, so the code is resolved to it first. Older numeric
+   * links skip the lookup and get the code written into the address bar once
+   * the profile loads. */
+  const [id, setId] = useState<string | undefined>(routeRef && isNumericCustomerRef(routeRef) ? routeRef : undefined);
   const { openModal } = useModal();
   const showBranch = useShowBranch();
   const toast = useToast();
@@ -95,23 +103,39 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
   const [avatarFailed, setAvatarFailed] = useState(false);
 
   useEffect(() => {
+    if (!routeRef) { setId(undefined); return; }
+    if (isNumericCustomerRef(routeRef)) { setId(routeRef); return; }
+    let cancelled = false;
+    setError("");
+    getCustomerByRef(routeRef)
+      .then((c) => { if (!cancelled) setId(c.id); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load customer."); });
+    return () => { cancelled = true; };
+  }, [routeRef]);
+
+  useEffect(() => {
     if (!id) return;
     setError("");
     setAvatarFailed(false);
     setReloading(true);
     getCustomer360(id, { from, to })
-      .then(setProfile)
+      .then((p) => {
+        setProfile(p);
+        if (routeRef && isNumericCustomerRef(routeRef) && p.customer.code) {
+          window.history.replaceState(window.history.state, "", routeHref("customer", p.customer.code) + window.location.search);
+        }
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customer."))
       .finally(() => setReloading(false));
   }, [id, from, to]);
 
   const subtablePageSize = useResponsivePageSize(15, 15);
   const range = { from, to };
-  const listLoans = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerLoansPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerOrnamentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listPayments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listLoans = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerLoansPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerOrnamentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listPayments = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
   // Every CashMovement tagged to this customer (PartyCustomerID) — same
   // underlying query as the standalone Party Transactions page
   // (PartyLedger.tsx), reached here instead via this customer's own 360
@@ -144,8 +168,8 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
     { key: "__date", label: "Date", kind: "date" },
   ];
   const listTransactions = useCallback(
-    (page: number) =>
-      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters }, subtablePageSize)
+    (page: number, r?: { search?: string }) =>
+      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters, search: r?.search }, subtablePageSize)
         .then((res) => ({
           items: res.items,
           total: res.total,
@@ -189,13 +213,24 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
     onKeyDown: onActionsMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
 
-  const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
-  const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
-  const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
-  const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
+  // One search box on the header, one text per table (same order as TABLE_TABS).
+  const [tabQ, setTabQ] = useState<string[]>(["", "", "", "", "", ""]);
+  const tabSearch = useDebouncedValue(tabQ).map((s) => s.trim() || undefined);
+  const loanPager = useSubTablePage<LoanView>(listLoans, { ...range, search: tabSearch[0] }, !!id);
+  const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, { ...range, search: tabSearch[1] }, !!id);
+  const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, { ...range, search: tabSearch[2] }, !!id);
+  const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, { ...range, search: tabSearch[3] }, !!id);
   // Auction history needs "can view auction module" — not fetched without it.
-  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id && canViewAuctions);
-  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id && canViewCash);
+  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, { ...range, search: tabSearch[4] }, !!id && canViewAuctions);
+  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo, search: tabSearch[5] }, !!id && canViewCash);
+  const TAB_SEARCH: { placeholder: string; searches: string }[] = [
+    { placeholder: "Search loan, status…", searches: "loan number, customer name, customer code" },
+    { placeholder: "Search loan, ornament, purity…", searches: "loan number, ornament, purity" },
+    { placeholder: "Search loan, type, amount…", searches: "loan number, type, method, date, amount" },
+    { placeholder: "Search loan, bank, status…", searches: "loan number, bank, status, pledged date" },
+    { placeholder: "Search loan, stage, reference…", searches: "loan number, auction reference, stage, sale amount" },
+    { placeholder: "Search date, ref no, amount…", searches: "date, ref no, particulars, method, bank, debit, credit" },
+  ];
   useEffect(() => { transactionPager.setPage(1); }, [JSON.stringify(ledgerLoanFilters)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // profile.loans still backs the "Request Extension / Release" picker
@@ -299,7 +334,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
         loans={cLoans}
         onPicked={(pickedLoan: LoanView, type: "Extension" | "Release") => {
           if (type === "Extension") {
-            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => { }} />);
+            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => { }} />, true);
           } else {
             openModal(<RequestReleaseModalContent loan={pickedLoan} onSaved={() => { }} />);
           }
@@ -332,7 +367,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               <Icon name="gear" /> Actions <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
             {actionsMenuOpen && (
-              <div className="docs-dd-menu" role="menu">
+              <div className="docs-dd-menu fit" role="menu">
                 {canUpdateCustomers && (
                   <a href="#" title="Edit Customer" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openEditCustomer(); }}>
                     <Icon name="edit" /><span className="tx">Edit Customer</span>
@@ -574,6 +609,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               {activeTable === 5 ? (
                 <>
                   <div className="sp" />
+                  <TableSearch value={tabQ[5]} onChange={(v) => setTabQ((q) => q.map((x, i) => (i === 5 ? v : x)))} placeholder={TAB_SEARCH[5].placeholder} searches={TAB_SEARCH[5].searches} />
                   <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips hideClearAll />
                   {canExport && (
                     <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>
@@ -585,6 +621,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                 <>
                   <div className="sp" />
                   {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
+                  <TableSearch value={tabQ[activeTable]} onChange={(v) => setTabQ((q) => q.map((x, i) => (i === activeTable ? v : x)))} placeholder={TAB_SEARCH[activeTable].placeholder} searches={TAB_SEARCH[activeTable].searches} />
                   <FilterPanel categories={openedDateCategories} value={openedDateFilter} onChange={setOpenedDateFilter} hideChips hideClearAll />
                 </>
               )}
@@ -599,6 +636,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               * without re-running any of the fetches above. */}
             <div hidden={activeTable !== 0} className={activeTable === 0 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 20, 17, 15, 15, 11, 10]} />
                   <thead><tr><th>Loan</th><th>Scheme</th><th className="th-opened-due">Opened / <span className="th-due-part">Due</span></th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
                   <tbody>
                     {loanPager.items.length === 0 ? (
@@ -611,6 +649,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 1} className={activeTable === 1 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 30, 14, 20, 24]} />
                   <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
                   <tbody>
                     {ornamentPager.items.length === 0 ? (
@@ -631,6 +670,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 2} className={activeTable === 2 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 14, 20, 28, 26]} />
                   <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
                   <tbody>
                     {paymentPager.items.length === 0 ? (
@@ -651,6 +691,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 3} className={activeTable === 3 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 28, 22, 20, 18]} />
                   <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
                   <tbody>
                     {bankPledgePager.items.length === 0 ? (
@@ -671,6 +712,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 4} className={activeTable === 4 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 22, 22, 22, 22]} />
                   <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
                   <tbody>
                     {!canViewAuctions ? (
@@ -693,6 +735,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 5} className={activeTable === 5 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[13, 11, 24, 14, 13, 13, 12]} />
                   <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
                   <tbody>
                     {!canViewCash ? (

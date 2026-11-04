@@ -49,10 +49,10 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: SelectLoanForRep
             value={label}
             onChange={(_id, l) => { setSelected(l); setLabel(loanLabel(l)); setErr(""); }}
             fetchFn={searchEligibleLoansPage}
-            searchHint="Searches: loan number, customer name, customer code"
+            searchHint="Searches: loan number, customer name, customer code, packet number"
             getLabel={loanLabel}
             getId={(l) => String(l.numericId)}
-            placeholder="Search by loan number…"
+            placeholder="Search by loan or packet number…"
           /><FieldError msg={err} /></div></div>
         <p className="notice"><Icon name="shield" /><span>Only loans whose gold isn&apos;t already with a bank are listed. Type a loan number to search, or scroll for more.</span></p>
       </div>

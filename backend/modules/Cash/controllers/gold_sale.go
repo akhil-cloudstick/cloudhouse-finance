@@ -256,7 +256,12 @@ func findGoldSales(ctx context.Context, branchID *uint, fromDate, toDate time.Ti
 	}
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("ornament_type ILIKE ? OR remarks ILIKE ?", like, like)
+		q = q.Where("ornament_type ILIKE ? OR remarks ILIKE ? OR mode ILIKE ?"+
+			" OR branch_id IN (SELECT id FROM branches WHERE name ILIKE ?)"+
+			" OR bank_id IN (SELECT id FROM banks WHERE name ILIKE ?)"+
+			" OR to_char(sold_on, 'DD-MM-YYYY') LIKE ? OR to_char(sold_on, 'YYYY-MM-DD') LIKE ?"+
+			" OR CAST(sold_amount AS TEXT) LIKE ? OR CAST(cost_amount AS TEXT) LIKE ?",
+			like, like, like, like, like, like, like, searchAmountLike(search), searchAmountLike(search))
 	}
 	var total int64
 	if limit > 0 {
@@ -286,7 +291,12 @@ func sumGoldSaleFiltered(ctx context.Context, branchID *uint, fromDate, toDate t
 	}
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("ornament_type ILIKE ? OR remarks ILIKE ?", like, like)
+		q = q.Where("ornament_type ILIKE ? OR remarks ILIKE ? OR mode ILIKE ?"+
+			" OR branch_id IN (SELECT id FROM branches WHERE name ILIKE ?)"+
+			" OR bank_id IN (SELECT id FROM banks WHERE name ILIKE ?)"+
+			" OR to_char(sold_on, 'DD-MM-YYYY') LIKE ? OR to_char(sold_on, 'YYYY-MM-DD') LIKE ?"+
+			" OR CAST(sold_amount AS TEXT) LIKE ? OR CAST(cost_amount AS TEXT) LIKE ?",
+			like, like, like, like, like, like, like, searchAmountLike(search), searchAmountLike(search))
 	}
 	var t GoldSaleTotals
 	err := q.Select(`COALESCE(SUM(sold_amount), 0) AS total_sold, COALESCE(SUM(cost_amount), 0) AS total_cost,

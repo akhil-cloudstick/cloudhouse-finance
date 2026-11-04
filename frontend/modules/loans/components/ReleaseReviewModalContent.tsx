@@ -5,11 +5,12 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
-import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest } from "@/modules/loans/services/loanService";
+import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, releaseBankPledge, editReleaseRecord, linkedDiscountOf } from "@/modules/loans/services/loanService";
 import { type RequestView, type LoanView } from "@/modules/loans/types/loan-types";
-import { listPackets } from "@/modules/packets/services/packetService";
+import { listPackets, recordMovement, PACKET_STATUS } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModalContent";
+import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { canActAtStage, chainFor, flowOf, isFlowOff, stageByPending, trackerLabels } from "@/common/services/approvalWorkflowService";
@@ -18,7 +19,16 @@ import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError } from "@/common/components/ui/FieldError";
+import { DatePicker } from "@/common/components/ui/DatePicker";
+import { LedgerPaymentEditModalContent } from "@/modules/loans/components/LedgerPaymentEditModalContent";
+import { ReleaseCompleteModalContent } from "@/modules/loans/components/ReleaseCompleteModalContent";
+
+function localToday(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+}
 import { releaseAmountNeeded } from "@/modules/loans/utils/releaseAmount";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
 // no-buffer check ApproveReleaseRequest re-runs at Manager/Management
@@ -42,7 +52,7 @@ type ReleaseReviewModalContentProps = { request: RequestView; onSaved: () => voi
  * releases go through this same screen; l.isPartial only changes what
  * CompleteRelease does at the final approval. */
 export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewModalContentProps) {
-  const { closeModal, openModal } = useModal();
+  const { closeModal, openModal, openChildModal } = useModal();
   const toast = useToast();
   // Without "can update loan" this modal is a read-only view: the checklist
   // toggles stay locked and the approve/reject pair never renders (see
@@ -50,6 +60,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const { can, role, isSystem } = useAuth();
   const canOpen = useCanOpenRoute();
   const canDecide = can("Loan_Management", "can_update_loan");
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
   // Checklist verification and the two Manager/Management approval stages
   // each need their own "Release Approval" permission on top of the
   // general canDecide gate — see internal/authz.Catalogue and backend/
@@ -69,6 +80,14 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // Reveals the Top-Up Payment prompt only after ApproveReleaseRequest
   // actually refuses with the drift error — hidden otherwise, per the plan.
   const [showTopUp, setShowTopUp] = useState(false);
+  // The day the customer saw the gold / the release happened. Staff can backdate it; it becomes the default
+  // Payment Date in the Record Payment form, which they can still change each time.
+  const [releaseDate, setReleaseDate] = useState(() => {
+    // a release that is already decided shows the date it was recorded with, so it can be corrected
+    if (request.status !== "Pending" && request.requestedAt) return request.requestedAt.slice(0, 10);
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+  });
 
   useEffect(() => {
     getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
@@ -87,7 +106,41 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
   }, [loan?.numericId, loan?.bankPledgeStatus]);
 
+  // Shown again after a popup it opened (payment, bank pledge release) closes: pick up what that changed.
+  useEffect(() => { refreshRequest(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const goldStillHeld = loan?.bankPledgeStatus === "Bank Pledged" || packet?.status === "Locker Stored";
+  // The gold sitting in a locker can be checked out right here instead of from the packet page: ticking the
+  // box records the packet as Released, the same move the packet page's Release button makes, and that is
+  // what lets the customer be shown the gold below. A bank-pledged loan still has to be released from its
+  // own page first.
+  const canMovePackets = can("Packet_Management", "can_update_packet");
+  const packetInLocker = loan?.bankPledgeStatus !== "Bank Pledged" && packet?.status === "Locker Stored";
+  // Gold pledged to a bank is released the same way: the box opens the usual Release Bank Pledge popup
+  // (it needs the repayment split for a cash-in pledge) and returns here once it is done.
+  const activePledge = loan?.bankPledgeStatus === "Bank Pledged" ? loan.bankPledges.find((bp) => bp.status === "Active") : undefined;
+  const canReleasePledge = can("Bank_Pledge_Management", "can_update_bank_pledge");
+  const canReleaseHeldGold = req.status === "Pending" && canDecide && !req.locked && ((packetInLocker && canMovePackets) || (!!activePledge && canReleasePledge));
+  const [releasingPacket, setReleasingPacket] = useState(false);
+  const [packetReleasedHere, setPacketReleasedHere] = useState(false);
+  async function releasePacket() { return singleFlight("modal:releasereview:releasePacket", async () => {
+    if (!packet) return;
+    setReleasingPacket(true);
+    setErr("");
+    try {
+      // Same fixed actor id the packet page sends; the server takes the real employee from the login.
+      await recordMovement(packet.id, { toStatus: PACKET_STATUS.RELEASED, employeeId: 1, remarks: `Released with release request on ${request.loanNumber}` });
+      const ps = await listPackets({ loanId: packet.loanId });
+      setPacket(ps[0] ?? null);
+      setPacketReleasedHere(true);
+      onSaved();
+      toast(`Packet ${packet.code} released`);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not release the packet — try again.");
+    } finally {
+      setReleasingPacket(false);
+    }
+  }); }
   const goldHeldReason = loan?.bankPledgeStatus === "Bank Pledged" ? "pledged to a bank" : "checked into a locker";
 
   // Re-fetches this one request after a payment recorded via the general
@@ -101,6 +154,23 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       if (fresh) setReq(fresh);
     } catch {
       /* keep the possibly-stale request rather than blocking the modal */
+    }
+  }
+
+  // After the release payment: with no approver, or only one, recording it also approves the release (backend
+  // advanceReleaseRequestStage). Rather than leave this screen sitting in its approved state, swap it for the one
+  // Release Complete summary. Runs after the payment popup has closed back to here, so openModal replaces this modal.
+  async function afterReleasePayment() {
+    try {
+      const [freshLoan, all] = await Promise.all([getLoan(request.loanNumericId), listLoanRequests({ loanId: request.loanNumericId })]);
+      const fresh = all.find((r) => r.id === req.id);
+      setLoan(freshLoan);
+      if (fresh) setReq(fresh);
+      if (fresh?.status === "Approved") {
+        openModal(<ReleaseCompleteModalContent request={fresh} loan={freshLoan} onSaved={onSaved} />, true);
+      }
+    } catch {
+      /* the screen's own refresh on remount still picks the change up */
     }
   }
 
@@ -139,9 +209,10 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // Approve anyway, so the button/messaging here must not block on
   // paymentRecorded alone or it would show a stale "must record payment"
   // warning for a release that's actually ready to go.
-  const neededText = loan
-    ? fmt(releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null))
-    : "the minimum amount";
+  const neededNum = loan
+    ? releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)
+    : 0;
+  const neededText = loan ? fmt(neededNum) : "the minimum amount";
   const paymentConditionMet =req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
   async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
@@ -152,6 +223,29 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       setReq(updated);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not update the checklist — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }); }
+
+  // The release's own record: its date, and the payment recorded for it. The payment is an ordinary loan payment, so
+  // it is corrected through the same ledger editor, which checks it against the entries after it.
+  const recordedPaymentRow = loan && req.paymentRecorded
+    ? [...loan.payments].reverse().find((p) => p.description === "Release payment" && p.type !== "Discount")
+      ?? [...loan.payments].reverse().find((p) => Math.abs(p.amount - req.recordedPayment) < 0.005 && p.type !== "Disbursement" && p.type !== "Discount")
+    : undefined;
+  const dateChanged = !!req.requestedAt && releaseDate !== req.requestedAt.slice(0, 10) && (req.status !== "Pending" || req.paymentRecorded);
+
+  async function saveReleaseDate() { return singleFlight("modal:releasereview:saveDate", async () => {
+    setSaving(true);
+    setErr("");
+    try {
+      await editReleaseRecord(req.id, { requestedAt: releaseDate });
+      await refreshRequest();
+      onSaved();
+      toast("Release date updated");
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not update the release date — try again.");
     } finally {
       setSaving(false);
     }
@@ -228,6 +322,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
             <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(loan.outstandingInterest)}</div></div>
             <div className="i"><div className="k">Outstanding Penal Interest</div><div className="v" style={{ color: loan.outstandingPenalInterest > 0 ? "var(--red)" : undefined }}>{fmt(loan.outstandingPenalInterest)}</div></div>
             <div className="i"><div className="k">Total Paid So Far</div><div className="v">{fmt(loan.totalPaid)}</div></div>
+            <div className="i"><div className="k">Minimum Payable to Release</div><div className="v" style={{ color: req.paymentRecorded || neededNum <= 0.01 ? "var(--green, #1a7f37)" : "var(--red)" }}>{req.paymentRecorded ? `${fmt(req.recordedPayment + req.recordedDiscount)} recorded` : fmt(neededNum)}</div></div>
           </div>
         ) : (
           <p className="notice">Loading loan financials…</p>
@@ -236,7 +331,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         {req.isPartial && loan && (
           <div style={{ marginBottom: 14 }}>
             <label className="f">Selected Ornaments — {req.ornamentIds.length} of {loan.ornaments.filter((o) => !o.releasedAt).length}</label>
-            <div className="tbl-wrap rel-orn-wrap"><table className="tbl">
+            <div className="tbl-wrap rel-orn-wrap"><table className="tbl"><TableCols widths={[40, 18, 18, 24]} />
               <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
               <tbody>
                 {loan.ornaments.filter((o) => req.ornamentIds.includes(o.id)).map((o) => (
@@ -259,7 +354,50 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
               </span>
             </label>
           </div>
-          {goldStillHeld && loan && (
+          {((packetInLocker && canMovePackets && canReleaseHeldGold) || packetReleasedHere) && packet && (
+            <div className="ccheck-grid">
+              <label className="ccheck" style={{ padding: "6px 0" }}>
+                <input type="checkbox" checked={packetReleasedHere} disabled={releasingPacket || packetReleasedHere || saving || req.locked} onChange={(e) => { if (e.target.checked) releasePacket(); }} />
+                <span className="mark" />
+                <span>
+                  <b>{packetReleasedHere ? `Packet ${packet.code} released` : `Release packet ${packet.code} from the locker`}</b>
+                  <div className="ccheck-hint">{packetReleasedHere ? "The gold is out of the locker and can be shown to the customer" : "Records the packet as Released, the same as the Release button on the packet page"}</div>
+                </span>
+              </label>
+            </div>
+          )}
+          {activePledge && canReleaseHeldGold && loan && (
+            <div className="ccheck-grid">
+              <label className="ccheck" style={{ padding: "6px 0" }}>
+                <input
+                  type="checkbox"
+                  checked={false}
+                  disabled={saving || req.locked}
+                  onChange={(e) => {
+                    if (!e.target.checked) return;
+                    openChildModal(
+                      <ReleasePledgeModalContent
+                        bankName={activePledge.bankName}
+                        amount={activePledge.pledgedAmount}
+                        cashTreatment={activePledge.cashTreatment}
+                        onConfirm={async (payment) => {
+                          await releaseBankPledge(loan.numericId, activePledge.id, payment);
+                          toast("Bank pledge released");
+                          onSaved();
+                        }}
+                      />,
+                    );
+                  }}
+                />
+                <span className="mark" />
+                <span>
+                  <b>Release the bank pledge ({activePledge.bankName})</b>
+                  <div className="ccheck-hint">The gold is pledged to a bank — release it first so it can be shown to the customer</div>
+                </span>
+              </label>
+            </div>
+          )}
+          {goldStillHeld && loan && !canReleaseHeldGold && (
             <p className="notice" style={{ marginTop: 8, color: "var(--red)" }}>
               <Icon name="shield" />{" "}
               This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
@@ -281,10 +419,23 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           )}
         </div>
 
+        <div className="frow" style={{ marginBottom: 10 }}>
+          <div>
+            <label className="f">Release Date</label>
+            <DatePicker value={releaseDate} min={loan?.opened?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status === "Pending" ? !canDecide : !canEditLedger} />
+          </div>
+        </div>
+
+        {canEditLedger && dateChanged && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button className="btn ghost sm" disabled={saving} onClick={saveReleaseDate}><Icon name="check" /> Save release date</button>
+          </div>
+        )}
+
         <button
           className="btn ghost sm"
           disabled={req.status !== "Pending" || !canDecide || !loan}
-          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} releaseRequest={req} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
+          onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} releaseRequest={req} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
         >
           <Icon name="coin" /> Record Payment
         </button>
@@ -301,7 +452,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
               * VerifyReleaseChecklist/ApproveReleaseRequest are), posted
               * through the plain /loans/:id/payments endpoint like any
               * other payment, not the release-request endpoint. */}
-            <button className="btn ghost sm" onClick={() => openModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}>
+            <button className="btn ghost sm" onClick={() => openChildModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}>
               <Icon name="coin" /> Record Top-Up Payment
             </button>
           </div>
@@ -317,7 +468,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
                 : `At least ${neededText} must be paid (via Record Payment above) before this can be approved.`}
           </p>
         )}
-        {chain.length > 0 && (
+        {(chain.length > 1 || (chain.length === 1 && req.status === "Rejected")) && (
           <div style={{ marginTop: 14 }}>
             <StageTracker
               stages={trackerLabels(workflow, "loan_release", chain)}
@@ -327,15 +478,22 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           </div>
         )}
         {req.status === "Pending" && req.customerSawGold && paymentConditionMet && activeStage && (
-          <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> Awaiting {activeStage.role} approval ({stageName} stage).</p>
+          <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> Awaiting {activeStage.role} approval{chain.length > 1 ? ` (${stageName} stage)` : ""}.</p>
         )}
         {req.status === "Pending" && !activeStage && (
           <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> No release approval is configured — {flowOf(workflow, "loan_release")?.offBehavior}</p>
         )}
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
+      {/* the × in the header closes the popup; the footer is only for Edit and the approval buttons */}
+      {((canEditLedger && recordedPaymentRow && loan) || (req.status === "Pending" && canDecide && canActOnStage && !!stage)) && (
       <div className="ft">
-          {err && <span className="ft-err" role="alert">{err}</span>}
-        <button className="btn ghost" onClick={closeModal}>Close</button>
+        {canEditLedger && recordedPaymentRow && loan && (
+          <button className="btn ghost" disabled={saving}
+            onClick={() => openModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={recordedPaymentRow} linkedDiscount={linkedDiscountOf(loan.payments, recordedPaymentRow)} mode="edit" minDate={loan.opened?.slice(0, 10) || undefined} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); closeModal(); }} />, true)}>
+            <Icon name="edit" /> Edit
+          </button>
+        )}
         {req.status === "Pending" && canDecide && canActOnStage && !!stage && (
           <>
             {/* Locked (a payment has already been recorded against this
@@ -348,6 +506,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           </>
         )}
       </div>
+      )}
     </>
   );
 }

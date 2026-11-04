@@ -58,6 +58,9 @@ type LoanLedgerEntry struct {
 	Component string `json:"component,omitempty"`
 	// Mode is the payment mode of a split repayment row (Cash, UPI, Bank Transfer).
 	Mode string `json:"mode,omitempty"`
+	// PaidThrough is the date (YYYY-MM-DD) the loan's interest is paid up to once this payment is counted; set on
+	// a payment that paid interest.
+	PaidThrough string `json:"paid_through,omitempty"`
 }
 
 type LoanLedgerQuery struct {
@@ -202,6 +205,7 @@ func expandLedgerParts(e LoanLedgerEntry, total float64, parts []LoanLedgerPart,
 }
 
 func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []models.LoanTopUp, auctions []models.AuctionRecord, accruals []models.LoanAccrual) []LoanLedgerEntry {
+	paidThrough := interestPaidThroughDates(l, payments, accruals)
 	var disbursement *models.LoanPayment
 	disbursementCount := 0
 	sources := make([]ledgerSource, 0, len(payments)+len(topUps)+2*len(auctions))
@@ -328,6 +332,10 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 		date, amount := time.Time{}, l.DisbursedAmount
 		if l.DisbursementDate != nil {
 			date = *l.DisbursementDate
+			// A loan opened on a past date is sanctioned on that date, not the day it was recorded.
+			if o := l.OpenedDate.In(time.Local); !l.OpenedDate.IsZero() && o.Format("2006-01-02") < date.In(time.Local).Format("2006-01-02") {
+				date = l.OpenedDate
+			}
 		}
 		if disbursement != nil {
 			parts = ledgerSplitParts(disbursement.CashAmount, disbursement.UpiAmount, disbursement.BankTransferAmount, disbursement.ChequeAmount)
@@ -363,7 +371,7 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 			} else {
 				balance = p.RunningBalance
 			}
-			e := LoanLedgerEntry{Kind: "payment", Date: src.date, Balance: ledgerBalance(balance), Payment: p}
+			e := LoanLedgerEntry{Kind: "payment", Date: src.date, Balance: ledgerBalance(balance), Payment: p, PaidThrough: paidThrough[p.ID]}
 			if p.Type == models.PaymentTypeAuctionSale {
 				for i := range auctions {
 					if auctions[i].SaleAmount > 0 && auctionSalePayment(&auctions[i], []models.LoanPayment{*p}) != nil {
@@ -372,10 +380,11 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 					}
 				}
 			}
-			// Auction proceeds are shown the way the loan was paid down: one credit row per component
-			// (service charge, penal interest, interest, principal) in the mode the buyer paid by, like the
-			// repayment rows elsewhere. Components are met from the modes in order.
-			if comps := auctionPaymentComponents(p); p.Type == models.PaymentTypeAuctionSale && comps != nil {
+			// A repayment is shown the way it paid the loan down: one credit row per component (processing fee,
+				// penal interest, interest, principal), each in the mode it was paid by. Components are met from
+				// the modes in order: cash first, then UPI, then bank transfer, and a mode that was not used is
+				// skipped, so the next one covers that part.
+				if comps := ledgerPaymentComponents(p); comps != nil {
 				type modePart struct {
 					mode   string
 					amount float64
@@ -417,7 +426,7 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 				}
 				for i, r := range rows {
 					later -= r.amount
-					ce := LoanLedgerEntry{Kind: "payment", Key: fmt.Sprintf("payment-%d-%d", p.ID, i), Date: src.date, Amount: r.amount, Balance: ledgerBalance(end + later), Payment: p, Component: r.component, Mode: r.mode}
+					ce := LoanLedgerEntry{Kind: "payment", Key: fmt.Sprintf("payment-%d-%d", p.ID, i), Date: src.date, Amount: r.amount, Balance: ledgerBalance(end + later), Payment: p, Component: r.component, Mode: r.mode, PaidThrough: paidThrough[p.ID]}
 					if i == 0 {
 						ce.Auction = e.Auction
 					}
@@ -478,13 +487,30 @@ func ledgerFocusIndex(rows []LoanLedgerEntry, q LoanLedgerQuery) int {
 		return -1
 	}
 	same := func(a float64) bool { return math.Abs(a-*q.FocusAmount) < 0.005 }
+	// A repayment shown as component rows (interest, principal, ...) is looked for by its whole amount, or by what
+	// one mode paid, since that is what the main ledger's row carries.
+	modePaid := map[string]float64{}
+	for _, r := range rows {
+		if r.Payment != nil && r.Component != "" {
+			modePaid[fmt.Sprintf("%d|%s", r.Payment.ID, r.Mode)] += r.Amount
+		}
+	}
+	matches := func(r LoanLedgerEntry) bool {
+		if same(r.Amount) {
+			return true
+		}
+		if r.Payment != nil && r.Component != "" {
+			return same(r.Payment.Amount) || same(modePaid[fmt.Sprintf("%d|%s", r.Payment.ID, r.Mode)])
+		}
+		return false
+	}
 	for i, r := range rows {
-		if r.Date == q.FocusDate && same(r.Amount) {
+		if r.Date == q.FocusDate && matches(r) {
 			return i
 		}
 	}
 	for i, r := range rows {
-		if same(r.Amount) {
+		if matches(r) {
 			return i
 		}
 	}
@@ -626,6 +652,110 @@ func GetLoanLedger(c echo.Context) error {
 type ledgerComponent struct {
 	label  string
 	amount float64
+}
+
+// interestPaidThroughDates works out, for each payment that paid interest, the date the loan's interest is paid up
+// to once that payment is counted. The interest charged so far is laid out period by period from the opening date
+// (each saved charge covers the days since the one before); the interest paid in all the payments up to and
+// including this one is then placed along those periods, so paying half of a month's interest lands half way through
+// that month. A payment that clears a period lands on its last day.
+func interestPaidThroughDates(l *models.Loan, payments []models.LoanPayment, accruals []models.LoanAccrual) map[uint]string {
+	type period struct {
+		start, end time.Time
+		interest   float64
+	}
+	var saved []models.LoanAccrual
+	for _, a := range accruals {
+		if a.ID != 0 && a.Interest > 0.004 {
+			saved = append(saved, a)
+		}
+	}
+	sort.SliceStable(saved, func(i, j int) bool {
+		if !saved[i].AccruedOn.Equal(saved[j].AccruedOn) {
+			return saved[i].AccruedOn.Before(saved[j].AccruedOn)
+		}
+		return saved[i].ID < saved[j].ID
+	})
+	out := map[uint]string{}
+	if len(saved) == 0 {
+		return out
+	}
+	periods := make([]period, 0, len(saved))
+	prevEnd := l.OpenedDate
+	for _, a := range saved {
+		end := a.AccruedOn
+		if end.Before(prevEnd) {
+			end = prevEnd
+		}
+		periods = append(periods, period{start: prevEnd, end: end, interest: a.Interest})
+		prevEnd = end
+	}
+	// whole rupees: a period counts as cleared when what is left of it is under half a rupee
+	const slack = 0.51
+	dateFor := func(paid float64) (string, bool) {
+		if paid <= slack {
+			return "", false
+		}
+		var before float64
+		for _, pr := range periods {
+			if paid <= before+pr.interest+slack {
+				left := paid - before
+				if left <= slack {
+					return ledgerDate(pr.start), true
+				}
+				if left >= pr.interest-slack {
+					return ledgerDate(pr.end), true
+				}
+				days := math.Round(pr.end.Sub(pr.start).Hours() / 24 * left / pr.interest)
+				return ledgerDate(pr.start.AddDate(0, 0, int(days))), true
+			}
+			before += pr.interest
+		}
+		return ledgerDate(periods[len(periods)-1].end), true
+	}
+	ordered := make([]*models.LoanPayment, 0, len(payments))
+	for i := range payments {
+		if payments[i].Type != models.PaymentTypeDisbursement {
+			ordered = append(ordered, &payments[i])
+		}
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if !ordered[i].PaidOn.Equal(ordered[j].PaidOn) {
+			return ordered[i].PaidOn.Before(ordered[j].PaidOn)
+		}
+		return ordered[i].ID < ordered[j].ID
+	})
+	var paid float64
+	for _, p := range ordered {
+		if p.InterestApplied <= 0.004 {
+			continue
+		}
+		paid += p.InterestApplied
+		if d, ok := dateFor(paid); ok {
+			out[p.ID] = d
+		}
+	}
+	return out
+}
+
+// ledgerPaymentComponents lists what a repayment was applied to, or nil when it is shown as one row (not a
+// repayment, or an older row whose parts do not add up).
+func ledgerPaymentComponents(p *models.LoanPayment) []ledgerComponent {
+	switch p.Type {
+	case models.PaymentTypeInterest, models.PaymentTypePenalInterest, models.PaymentTypePrincipal,
+		models.PaymentTypePartial, models.PaymentTypeFullSettlement, models.PaymentTypeAuctionSale:
+	default:
+		return nil
+	}
+	comps := auctionPaymentComponents(p)
+	if p.Type != models.PaymentTypeAuctionSale {
+		for i := range comps {
+			if comps[i].label == "Service Charge" {
+				comps[i].label = "Processing Fee"
+			}
+		}
+	}
+	return comps
 }
 
 // auctionPaymentComponents lists what an auction's proceeds were applied to, in the order the loan is

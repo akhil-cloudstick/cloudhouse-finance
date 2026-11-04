@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getCustomer } from "@/modules/customers/services/customerService";
+import { getPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
+import { getInvestment } from "@/modules/investments/services/investmentService";
+import { getCustomerByRef, isNumericCustomerRef } from "@/modules/customers/services/customerService";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { fmt } from "@/common/utils/format";
 import { TITLES, PARENT_ROUTE } from "@/common/utils/routes";
@@ -12,6 +14,7 @@ import { Icon } from "@/common/components/Icon";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import GlobalSearch from "./GlobalSearch";
 import { AccountMenu } from "./AccountMenu";
+import { NetworkIndicator } from "./NetworkIndicator";
 import { DesktopUpdatePopup } from "./DesktopUpdatePopup";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
@@ -22,12 +25,23 @@ type TopbarProps = { route: string; arg?: string; onBurger: () => void };
  * `refreshRateChip()` / breadcrumb logic in `router()`. */
 export function Topbar({ route, arg, onBurger }: TopbarProps) {
   const { latest, isTodaySet } = useGoldRates();
-  // A customer page's crumb shows that customer's name (fetched by id).
-  const [customerName, setCustomerName] = useState("");
+  // A customer page's crumb shows that customer's code (CUST-04).
+  const [customerCode, setCustomerCode] = useState("");
   useEffect(() => {
-    if (route !== "customer" || !arg) { setCustomerName(""); return; }
+    if (route !== "customer" || !arg) { setCustomerCode(""); return; }
     let cancelled = false;
-    getCustomer(arg).then((c) => { if (!cancelled) setCustomerName(c.name); }).catch(() => { if (!cancelled) setCustomerName(""); });
+    getCustomerByRef(arg).then((c) => { if (!cancelled) setCustomerCode(c.code); }).catch(() => { if (!cancelled) setCustomerCode(""); });
+    return () => { cancelled = true; };
+  }, [route, arg]);
+  // Personal loan / investment crumbs show their number (PL-00003, INV-00003); an id link looks it up.
+  const [refNumber, setRefNumber] = useState("");
+  useEffect(() => {
+    if ((route !== "personalloan" && route !== "investment") || !arg || !/^\d+$/.test(arg)) { setRefNumber(""); return; }
+    let cancelled = false;
+    const lookup = route === "personalloan"
+      ? getPersonalLoan(Number(arg)).then((l) => l.loanNumber)
+      : getInvestment(Number(arg)).then((i) => i.investmentNumber);
+    lookup.then((n) => { if (!cancelled) setRefNumber(n || ""); }).catch(() => { if (!cancelled) setRefNumber(""); });
     return () => { cancelled = true; };
   }, [route, arg]);
   const { openModal } = useModal();
@@ -42,8 +56,13 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
 
   const crumb =
     route === "customer"
-      ? customerName || TITLES.customer
-      : TITLES[route] || "Dashboard";
+      ? customerCode || (arg && !isNumericCustomerRef(arg) ? arg : "") || TITLES.customer
+      // A loan's or packet's crumb is its number (LN-00070, PKT-00012), the same one in the URL.
+      : (route === "loan" || route === "packet") && arg
+        ? arg
+        : (route === "personalloan" || route === "investment") && arg
+          ? (/^\d+$/.test(arg) ? refNumber : arg) || TITLES[route]
+          : TITLES[route] || "Dashboard";
   // The crumb links back to the section it drills down from (e.g. a
   // personal loan's detail page links to the Personal Loans list) — routes
   // with no parent (top-level sections) just re-link to themselves.
@@ -70,7 +89,7 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
         </span>
         {parentRoute && (
           <>
-            <a href={parentHref} style={linkStyle}>{TITLES[parentRoute] || parentRoute}</a>
+            <a href={parentHref} style={linkStyle}>{route === "loan" ? "Loan" : TITLES[parentRoute] || parentRoute}</a>
             &nbsp;/&nbsp;
           </>
         )}
@@ -103,6 +122,7 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
           </button>
         )}
       </a>
+      <NetworkIndicator />
       <AccountMenu />
       <DesktopUpdatePopup />
     </header>

@@ -234,8 +234,6 @@ export function ApprovalWorkflowSettings() {
                 <span className="wf-err">{err}</span>
               ) : invalid && dirty ? (
                 <span className="wf-err">{invalid}</span>
-              ) : justSaved ? (
-                <span className="save-msg" role="status"><Icon name="check" /> Changes saved</span>
               ) : dirty ? (
                 <span className="wf-dirty">Unsaved changes</span>
               ) : (

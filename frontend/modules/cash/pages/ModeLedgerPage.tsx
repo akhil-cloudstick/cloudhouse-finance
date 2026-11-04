@@ -1,6 +1,9 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt, fmtDate } from "@/common/utils/format";
@@ -77,6 +80,8 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
   // branch) or while the global branch selector already scopes the page.
   const showBranchFilter = useShowBranchFilter();
   const [filters, setFilters] = usePersistedState<FilterValue>("mode:filters", {});
+  const [q, setQ] = usePersistedState("mode:q", "");
+  const search = useDebouncedValue(q.trim());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   // Server-side sums over every row matching the filters, not just this page.
@@ -99,7 +104,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
   // Any filter change resets back to page 1; switching to another mode's
   // ledger (same component, new `mode`) starts on its remembered page.
   // Compared against the previous key so neither fires on mount.
-  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(branchIds)}|${bankId ?? ""}|${typeValues.join(",")}`;
+  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(branchIds)}|${bankId ?? ""}|${typeValues.join(",")}|${search}`;
   const prevFilterKey = useRef(filterKey);
   useEffect(() => {
     if (prevFilterKey.current === filterKey) return;
@@ -127,7 +132,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
     getModeLedger(
       mode,
       page,
-      { ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount } : {}), fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined },
+      { ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount } : {}), fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined, search: search || undefined },
       pageSize
     )
       .then(({ items, total, totalDebit, totalCredit, focusPage }) => {
@@ -146,7 +151,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
       })
       .finally(() => { if (reqId === requestIdRef.current) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, page, pageSize, cards, fromDate, toDate, JSON.stringify(branchIds), bankId, typeValues.join(",")]);
+  }, [mode, page, pageSize, cards, fromDate, toDate, JSON.stringify(branchIds), bankId, typeValues.join(","), search]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useLedgerFocus("mode", !loading, [items]);
@@ -158,6 +163,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
         fromDate: fromDate || undefined, toDate: toDate || undefined,
         branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId,
         types: typeValues.length ? typeValues : undefined,
+        search: search || undefined,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not download the ledger.");
@@ -189,6 +195,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
         { value: "auction", label: "Auction" },
         { value: "collection", label: "Collection" },
         { value: "personal loan", label: "Personal Loan" },
+        { value: "bank pledge", label: "Bank Pledge" },
         { value: "investment", label: "Investment" },
         { value: "expenses", label: "Expenses" },
       ],
@@ -221,6 +228,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
           <h3>Transactions</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <TableSearch value={q} onChange={setQ} placeholder="Search date, ref no, bank, amount…" searches="date, ref no, particulars, bank, debit, credit" />
             <FilterPanel categories={filterCategories} value={filters} onChange={setFilters} hideChips hideClearAll />
             {canExport && (
               <button className="btn ghost sm" disabled={exporting} onClick={onDownload} title="PDF of every transaction matching the current filters">
@@ -231,6 +239,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
         </div>
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="mode" data-ledger-page={page}>
+            <TableCols widths={[11, 11, 24, ...(mode !== "Cash" ? [12] : []), null, null, null]} />
             <thead>
               <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th>{mode !== "Cash" && <th>Bank</th>}<th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
@@ -242,7 +251,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
               ) : (() => {
                 // The balance comes from the server — a true running balance over the
                 // whole filtered ledger, so the newest row equals the Net above.
-                return items.map((r) => {
+                return items.map((r, i) => {
                   // A gold-loan reference ("LN-00047") gets a clickable link
                   // to that loan — #loan/:loanNumber resolves it directly.
                   // A personal-loan ("PL-00012") or investment ("INV-00003")
@@ -264,7 +273,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                     r.description.match(/—\s*(PL-\S+)\s*$/i)?.[1] ||
                     null;
                   return (
-                  <tr key={`${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
+                  <tr key={`${r.type}-${r.id}-${r.method}-${i}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount}>
                     <td data-label="Date">{fmtDate(r.d)}</td>
                     <td data-label="Ref No">
                       {loanRef ? (

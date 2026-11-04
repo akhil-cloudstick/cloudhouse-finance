@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { Select } from "@/common/components/ui/Select";
 import { DatePicker } from "@/common/components/ui/DatePicker";
@@ -61,7 +61,7 @@ export function WithdrawInvestmentModalContent({
 
   const interestNum = from === "Principal" ? 0 : (+interestAmount || 0);
   const principalNum = from === "Interest" ? 0 : (+principalAmount || 0);
-  const total = Math.round((interestNum + principalNum) * 100) / 100;
+  const total = roundRupee((interestNum + principalNum));
   const balanced = Math.abs(remaining) < 0.01;
 
   const outstandingInterest = investment.outstandingInterest;
@@ -69,9 +69,12 @@ export function WithdrawInvestmentModalContent({
 
   async function save() { return singleFlight("modal:withdrawinvestment:save", async () => {
     if (total <= 0) { fail(from === "Principal" ? "principal" : "interest", "Enter an amount greater than zero."); return; }
-    if (interestNum > outstandingInterest + 0.01) { fail("interest", `Interest amount exceeds the outstanding interest (${fmt(outstandingInterest)}).`); return; }
-    if (principalNum > outstandingPrincipal + 0.01) { fail("principal", `Principal amount exceeds the outstanding principal (${fmt(outstandingPrincipal)}).`); return; }
-    if (!balanced) { fail("split", "The payment breakdown must add up to the amount."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (interestNum > outstandingInterest + 0.01) errors["interest"] ??= `Interest amount exceeds the outstanding interest (${fmt(outstandingInterest)}).`;
+    if (principalNum > outstandingPrincipal + 0.01) errors["principal"] ??= `Principal amount exceeds the outstanding principal (${fmt(outstandingPrincipal)}).`;
+    if (!balanced) errors["split"] ??= "The payment breakdown must add up to the amount.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     setErr("");
     setFe({});

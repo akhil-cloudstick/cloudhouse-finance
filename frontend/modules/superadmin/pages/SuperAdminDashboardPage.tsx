@@ -79,9 +79,17 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: IconName; tit
  * lives here: pricing is the vendor's decision, not a tenant's — everything
  * else about a business's own subscription lives on that business's own
  * Billing screen (modules/billing). */
+// Case-insensitive match of a search box against any of a row's text fields.
+function matches(q: string, ...fields: (string | null | undefined)[]) {
+  const needle = q.trim().toLowerCase();
+  return !needle || fields.some((f) => (f ?? "").toLowerCase().includes(needle));
+}
+
 export default function SuperAdminDashboardPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("businesses");
+  const [bizQ, setBizQ] = useState("");
+  const [auditQ, setAuditQ] = useState("");
   const [businesses, setBusinesses] = useState<Business[] | null>(null);
   const [tiers, setTiers] = useState<Tier[] | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[] | null>(null);
@@ -325,6 +333,13 @@ export default function SuperAdminDashboardPage() {
           {tab === "businesses" && detailId === null && (
             <>
               <div className="sa-toolbar">
+                <input
+                  className="sa-search"
+                  placeholder="Search businesses…"
+                  title="Searches: business name, legal name, code, URL, plan, status"
+                  value={bizQ}
+                  onChange={(e) => setBizQ(e.target.value)}
+                />
                 <button className="sa-btn" onClick={() => setDevToolsPinOpen(true)}>
                   DevTools PIN
                 </button>
@@ -358,7 +373,7 @@ export default function SuperAdminDashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {businesses.map((b) => (
+                      {businesses.filter((b) => matches(bizQ, b.name, b.legalName, b.code, b.appUrl, b.tier?.name, b.status)).map((b) => (
                         <tr
                           key={b.id}
                           className="sa-row-link"
@@ -519,6 +534,15 @@ export default function SuperAdminDashboardPage() {
 
           {tab === "audit" && (
             <div className="sa-table-wrap">
+              <div className="sa-toolbar">
+                <input
+                  className="sa-search"
+                  placeholder="Search audit log…"
+                  title="Searches: actor, action, business, detail, reason"
+                  value={auditQ}
+                  onChange={(e) => setAuditQ(e.target.value)}
+                />
+              </div>
               <table className="sa-table">
                 <thead>
                   <tr>
@@ -531,7 +555,7 @@ export default function SuperAdminDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(auditLog ?? []).map((e) => (
+                  {(auditLog ?? []).filter((e) => matches(auditQ, e.actorName, e.action, e.tenantName, e.detail, e.reason)).map((e) => (
                     <tr key={e.id}>
                       <td>{new Date(e.createdAt).toLocaleString()}</td>
                       <td>{e.actorName}</td>

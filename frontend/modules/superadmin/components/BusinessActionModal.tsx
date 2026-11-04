@@ -59,14 +59,11 @@ export function BusinessActionModal({
     e.preventDefault();
     setError(null);
     setFe({});
-    if (!reason.trim()) {
-      fail("reason", "A reason is required.");
-      return;
-    }
-    if (kind === "delete" && confirmCode.trim() !== business.code) {
-      fail("confirm", `Type ${business.code} exactly to confirm.`);
-      return;
-    }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!reason.trim()) errors["reason"] ??= "A reason is required.";
+    if (kind === "delete" && confirmCode.trim() !== business.code) errors["confirm"] ??= `Type ${business.code} exactly to confirm.`;
+    if (Object.keys(errors).length) { setFe(errors); return; }
     setSubmitting(true);
     try {
       if (kind === "suspend") await suspendBusiness(business.id, reason);

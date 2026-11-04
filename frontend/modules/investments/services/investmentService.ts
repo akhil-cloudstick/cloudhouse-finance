@@ -1,5 +1,6 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError, quietly } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { queueWrite } from "@/common/offline/queueWrite";
 import { currentActor } from "@/common/offline/actor";
 import { pendingInvestmentRow } from "@/common/offline/investmentAdjust";
 import { PLAN_REF, findLocalPlan, localRequestId } from "@/common/offline/requestRef";
@@ -33,6 +34,12 @@ export function updateInvestmentPlan(id: number, input: CreatePlanInput): Promis
 export function listInvestmentPlans(activeOnly?: boolean): Promise<BackendInvestmentPlan[]> {
   const qs = activeOnly ? "?activeOnly=true" : "";
   return apiFetch<BackendInvestmentPlan[]>(`/investment-plans${qs}`);
+}
+
+/* One page of plans (1-based), searched by name on the server — backs the Plan filter's scrolling list. */
+export function searchInvestmentPlansPage(q: string, page: number, limit = 20): Promise<{ items: BackendInvestmentPlan[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ q, limit: String(limit), offset: String((page - 1) * limit) });
+  return apiFetch<{ items: BackendInvestmentPlan[]; hasMore: boolean }>(`/investment-plans?${params}`);
 }
 
 /* What the form already knows that the server would otherwise work out, so the investment can be listed before it is sent. */
@@ -75,8 +82,12 @@ export const INVESTMENTS_TABLE_PAGE_SIZE = 10;
 export function listInvestmentsPage(params: {
   page: number;
   q?: string;
-  status?: InvestmentStatus | "All";
+  status?: string; // "All", one status, or several joined by commas
   customerId?: number;
+  customerIds?: string[]; // any of these investors
+  planIds?: string[]; // any of these plans
+  from?: string; // YYYY-MM-DD, bounds the start date (inclusive)
+  to?: string; // YYYY-MM-DD, bounds the start date (inclusive)
   pageSize?: number;
 }): Promise<{ items: BackendInvestment[]; hasMore: boolean; total: number }> {
   const pageSize = params.pageSize || INVESTMENTS_TABLE_PAGE_SIZE;
@@ -87,6 +98,11 @@ export function listInvestmentsPage(params: {
   if (params.q) query.set("q", params.q);
   if (params.status && params.status !== "All") query.set("status", params.status);
   if (params.customerId) query.set("customerId", String(params.customerId));
+  if (params.customerIds?.length) query.set("customerIds", params.customerIds.join(","));
+  // Not in the contract's key table, so sent under the backend's own name.
+  if (params.planIds?.length) query.set("plan_ids", params.planIds.join(","));
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
   return apiFetch<{ items: BackendInvestment[]; hasMore: boolean; total: number }>(`/investments?${query}`);
 }
 
@@ -129,17 +145,19 @@ export function markPayoutPaid(
   split: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number },
   bankId?: number
 ): Promise<BackendInvestmentPayout> {
-  return apiFetch<BackendInvestmentPayout>(`/investments/${investmentId}/payouts/${payoutId}/pay`, {
-    method: "POST",
-    body: JSON.stringify({ ...split, bankId }),
-  });
+  const path = `/investments/${investmentId}/payouts/${payoutId}/pay`;
+  const body = { ...split, bankId };
+  return queueWrite("POST", path, body, { id: payoutId, status: "Paid" } as unknown as BackendInvestmentPayout, () =>
+    apiFetch<BackendInvestmentPayout>(path, { method: "POST", body: JSON.stringify(body) })
+  );
 }
 
 export function matureInvestment(
   investmentId: number,
   input: { action: MaturityAction; planId?: number; principalAmount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number }
 ): Promise<BackendInvestment> {
-  return apiFetch<BackendInvestment>(`/investments/${investmentId}/mature`, { method: "POST", body: JSON.stringify(input) });
+  const path = `/investments/${investmentId}/mature`;
+  return queueWrite("POST", path, input, undefined as unknown as BackendInvestment, () => apiFetch<BackendInvestment>(path, { method: "POST", body: JSON.stringify(input) })).then((r) => r ?? getInvestment(investmentId));
 }
 
 export function listInvestmentsForCustomer(customerId: number): Promise<BackendInvestment[]> {
@@ -147,17 +165,17 @@ export function listInvestmentsForCustomer(customerId: number): Promise<BackendI
 }
 
 export function addCashToInvestment(investmentId: number, input: AddCashInput): Promise<BackendInvestment> {
-  return apiFetch<BackendInvestment>(`/investments/${investmentId}/add-cash`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  const path = `/investments/${investmentId}/add-cash`;
+  return queueWrite("POST", path, input, undefined as unknown as BackendInvestment, () =>
+    apiFetch<BackendInvestment>(path, { method: "POST", body: JSON.stringify(input) })
+  ).then((r) => r ?? getInvestment(investmentId));
 }
 
 export function withdrawFromInvestment(investmentId: number, input: WithdrawInput): Promise<BackendInvestment> {
-  return apiFetch<BackendInvestment>(`/investments/${investmentId}/withdraw`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  const path = `/investments/${investmentId}/withdraw`;
+  return queueWrite("POST", path, input, undefined as unknown as BackendInvestment, () =>
+    apiFetch<BackendInvestment>(path, { method: "POST", body: JSON.stringify(input) })
+  ).then((r) => r ?? getInvestment(investmentId));
 }
 
 export const INVESTMENT_TRANSACTIONS_PAGE_SIZE = 20;
@@ -234,9 +252,70 @@ export async function payInterestMonths(
   investmentId: number,
   input: { amount: number; cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }
 ): Promise<BackendInvestmentPayout[]> {
-  const res = await apiFetch<{ items: BackendInvestmentPayout[] | null }>(`/investments/${investmentId}/pay-interest`, {
-    method: "POST",
-    body: JSON.stringify(input),
+  const path = `/investments/${investmentId}/pay-interest`;
+  return queueWrite("POST", path, input, [] as BackendInvestmentPayout[], async () => {
+    const res = await apiFetch<{ items: BackendInvestmentPayout[] | null }>(path, { method: "POST", body: JSON.stringify(input) });
+    return res.items || [];
   });
-  return res.items || [];
+}
+
+/* --- Ledger entry edit / delete ---
+ * The investment is recalculated server-side in one transaction. dryRun asks for the before/after figures
+ * without saving anything. entryId is the ledger row id ("tx-5", "payout-3", "open-7"). */
+export type InvestmentLedgerSummary = {
+  invested: number;
+  outstandingPrincipal: number;
+  outstandingInterest: number;
+  totalInterestPaid: number;
+  paidPayouts: number;
+  status: string;
+  startDate: string;
+  maturityDate: string;
+};
+export type InvestmentLedgerEditPreview = { before: InvestmentLedgerSummary; after: InvestmentLedgerSummary; dryRun: boolean };
+export type EditInvestmentLedgerInput = {
+  occurredOn?: string;
+  amount?: number; // opening / add-cash deposit
+  principalAmount?: number; // withdrawal
+  interestAmount?: number; // withdrawal
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number;
+  reference?: string;
+  reason?: string;
+};
+
+export function editInvestmentLedgerEntry(investmentId: number, entryId: string, input: EditInvestmentLedgerInput, dryRun = false): Promise<InvestmentLedgerEditPreview> {
+  const path = `/investments/${investmentId}/ledger/${encodeURIComponent(entryId)}`;
+  if (dryRun) return apiFetch<InvestmentLedgerEditPreview>(`${path}?dry_run=true`, { method: "PATCH", body: JSON.stringify(input) });
+  return queueWrite("PATCH", path, input, { dryRun: false } as InvestmentLedgerEditPreview, () =>
+    apiFetch<InvestmentLedgerEditPreview>(path, { method: "PATCH", body: JSON.stringify(input) })
+  );
+}
+
+export function deleteInvestmentLedgerEntry(investmentId: number, entryId: string, dryRun = false, reason?: string): Promise<InvestmentLedgerEditPreview> {
+  const path = `/investments/${investmentId}/ledger/${encodeURIComponent(entryId)}`;
+  const qs = new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) });
+  if (dryRun) return apiFetch<InvestmentLedgerEditPreview>(`${path}?${qs}`, { method: "DELETE" });
+  return queueWrite("DELETE", reason ? `${path}?${qs}` : path, undefined, { dryRun: false } as InvestmentLedgerEditPreview, () =>
+    apiFetch<InvestmentLedgerEditPreview>(`${path}?${qs}`, { method: "DELETE" })
+  );
+}
+
+/* Closes an active/matured investment that owes the investor nothing more (every payout paid, principal paid
+ * back) — no cash moves. The backend refuses with what is still owed otherwise. */
+export function closeInvestment(investmentId: number): Promise<BackendInvestment> {
+  const path = `/investments/${investmentId}/close`;
+  return queueWrite("POST", path, undefined, undefined as unknown as BackendInvestment, () => apiFetch<BackendInvestment>(path, { method: "POST" })).then((r) => r ?? getInvestment(investmentId));
+}
+
+/* Deletes an investment at any stage, reversing every cash entry it booked, in one transaction server-side.
+ * Needs the "can delete investment" permission. */
+export async function deleteInvestment(investmentId: number): Promise<void> {
+  const path = `/investments/${investmentId}/delete`;
+  await queueWrite("DELETE", path, undefined, undefined, async () => {
+    await apiFetch<unknown>(path, { method: "DELETE" });
+  });
 }

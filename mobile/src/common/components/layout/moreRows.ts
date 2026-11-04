@@ -14,6 +14,7 @@ const MORE_ROWS: MoreRow[] = [
   { key: "auctions", route: "auctions", title: "Auctions", sub: "Active cases & auction history", icon: "gavel" },
   { key: "packets", route: "packets", title: "Packets & Lockers", sub: "Ornament custody tracking", icon: "doc" },
   { key: "banks", route: "banks", title: "Bank Pledges", sub: "Loans pledged to a bank", icon: "card" },
+  { key: "bank-management", route: "bank-management", title: "Bank Management", sub: "Banks & net balance", icon: "coin" },
   { key: "requests", route: "requests", title: "Releases", sub: "Loan extensions & gold release", icon: "edit" },
   { key: "cash", route: "cash", title: "Ledger", sub: "Movements, expenses & gold sales", icon: "coin" },
   { key: "personal-loans", route: "personal-loans", title: "Personal Loans", sub: "Non-gold loans & collections", icon: "card" },
@@ -27,7 +28,6 @@ const MORE_ROWS: MoreRow[] = [
   { key: "roles", route: "roles", title: "Roles & Permissions", sub: "What each role can do", icon: "shield" },
   // Shown only with EXPO_PUBLIC_ENABLE_PLAN_UPGRADE on (filtered below).
   { key: "billing", route: "billing", title: "Billing & Plan", sub: "Your plan, branch limit & upgrades", icon: "card" },
-  { key: "settings", route: "settings", title: "Settings", sub: "Branch, staff, and app settings", icon: "dots" },
 ];
 /** The More rows this user may open; the tab bar hides More when it's empty. */
 export function useMoreRows(): MoreRow[] {

@@ -48,8 +48,12 @@ export function AuctionDecisionModalContent({
 
   async function save() { return singleFlight("auction-modal:save:5", async () => {
     setErr(""); setFe({});
-    if (!decision) { fail("decision", "Please choose a decision."); return; }
-    if (isShortfall && !remarks.trim()) { fail("remarks", "Please state the reason for this decision."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!decision) errors["decision"] ??= "Please choose a decision.";
+    if (isShortfall && !remarks.trim()) errors["remarks"] ??= "Please state the reason for this decision.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    if (!decision) return; // narrows decision; the check above already reported it
     setSaving(true);
     try {
       const updated = await resolveAuctionDecision(loan.numericId, request.id, decision, remarks.trim() || undefined);

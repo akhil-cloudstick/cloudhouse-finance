@@ -670,6 +670,18 @@ h3,
   display: block
 }
 
+/* New Loan: dropdown lists and the Saved drafts list still scroll (wheel/touch),
+ * but without a visible scrollbar. */
+.newloan-root .gs-results,
+.newloan-drafts > .bd {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.newloan-root .gs-results::-webkit-scrollbar,
+.newloan-drafts > .bd::-webkit-scrollbar {
+  display: none;
+}
+
 /* FilterPanel.tsx's own popover — a small, capped-width card (never the
    full-bleed .gs-results search-result panel above, which this component
    used to reuse: styled for a text-search dropdown filling its trigger's
@@ -763,6 +775,28 @@ h3,
 .gs-results a .ic svg {
   width: 15px;
   height: 15px
+}
+
+.gs-results a .gs-del {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-content: center;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--red);
+  border-radius: 6px;
+  opacity: .65;
+  cursor: pointer;
+  transition: background .12s, opacity .12s;
+}
+
+.gs-results a .gs-del:hover {
+  background: var(--red-bg);
+  opacity: 1;
 }
 
 .gs-results a .tx {
@@ -887,7 +921,9 @@ h3,
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  width: 169px;
+  width: max-content;
+  min-width: 169px;
+  max-width: min(360px, calc(100vw - 24px));
   box-sizing: border-box;
   background: var(--card);
   border: 1px solid var(--line);
@@ -925,17 +961,30 @@ h3,
   flex-shrink: 0
 }
 
-/* A label that overflows the 169px-wide menu (e.g. "Send Indemnity Bond
- * for eSign") fades out at its own right edge — via a mask, not
- * text-overflow:ellipsis's "…" — rather than wrapping to a second line or
- * silently clipping mid-letter. */
+/* The menu sizes to its longest label (max-content, capped to the viewport),
+ * so labels such as "Partial Receipt — Malayalam" show in full. A label only
+ * wraps if it exceeds the capped width. */
 .docs-dd-menu a .tx {
   flex: 1;
   min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* `.fit`: the menu is exactly as wide as its trigger button, and a label longer than that ends in "…"
+ * (the item's title shows it in full on hover). */
+.docs-dd-menu.fit {
+  left: 0;
+  right: 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.docs-dd-menu.fit a .tx {
   white-space: nowrap;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent 100%);
-  mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+  text-overflow: ellipsis;
 }
 
 /* Side picker under a Documents item (Print Slip → Normal print / eSign): a small
@@ -1196,7 +1245,8 @@ button.fi-trigger {
  * modal only, so every other DatePicker app-wide keeps its normal fixed
  * width. */
 .repledge-modal-bd .dp.dp-date,
-.register-customer-bd .dp.dp-date {
+.register-customer-bd .dp.dp-date,
+.ledger-edit-bd .dp.dp-date {
   width: 100%;
   flex: 1 1 auto
 }
@@ -1218,6 +1268,13 @@ button.fi-trigger {
    instead of filling the column, leaving a large empty gap beside each
    field. Stretched to the column's own width instead. */
 .filter-popover .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
+}
+
+/* Gold Rates' date filter sits in a 170px box in the card header: fill that box instead of keeping the fixed 230px
+ * that pushed it past the card's edge. */
+.rate-filter-dp .dp.dp-date {
   width: 100%;
   flex: 1 1 auto
 }
@@ -1568,7 +1625,8 @@ button.fi-trigger {
 }
 
 .ss-input {
-  padding-right: 26px
+  padding-right: 26px;
+  text-overflow: ellipsis
 }
 
 /* A locked SearchableSelect reads like a locked native select — faint fill,
@@ -3085,14 +3143,13 @@ button.fi-trigger {
   overflow-y: auto;
 }
 
-/* Auto layout sizes each column to its content, and the min-width keeps the
- * table the same shape on every screen — a narrow right column scrolls the
- * table sideways (.tbl-wrap's overflow-x:auto above) instead of squeezing
- * equal fixed-width columns until dates and "Particulars" broke mid-word. */
+/* Each table sets its own column proportions (<TableCols>), and the min-width
+ * keeps them readable on a narrow right column: below it the table scrolls
+ * sideways (.tbl-wrap's overflow-x:auto above) instead of squeezing the
+ * columns until dates and "Particulars" broke mid-word. */
 .cust-360 .tbl {
-  table-layout: auto;
   width: 100%;
-  min-width: 0
+  min-width: 560px
 }
 
 /* Grid items default to min-width:auto, so the right column refused to
@@ -3554,6 +3611,14 @@ button.fi-trigger {
   outline-offset: 2px
 }
 
+.kpi.amber::after {
+  background: linear-gradient(180deg, oklch(0.78 0.13 75), var(--amber))
+}
+
+.kpi.info::after {
+  background: linear-gradient(180deg, oklch(0.72 0.1 245), var(--info))
+}
+
 .kpi.ok::after {
   background: linear-gradient(180deg, oklch(0.68 0.13 150), var(--green))
 }
@@ -3767,7 +3832,7 @@ button.fi-trigger {
  * wants the full row. Rows size to their content (both tables are paged) and
  * the cards never shrink below it — a shrinking card used to spill its pager
  * over the card beneath on a short or zoomed-in window. */
-.pl-detail-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);grid-auto-rows:auto;gap:15px;align-items:start;flex:0 0 auto}
+.pl-detail-grid{display:grid;grid-template-columns:minmax(380px,4fr) minmax(0,7fr);grid-auto-rows:auto;gap:15px;align-items:start;flex:0 0 auto}
 .pl-detail-grid > .card{flex-shrink:0;min-height:auto}
 /* Schedule has only 4 short columns, so it gives up its 640px table floor and
  * the (7-column) Payment Ledger gets the wider share; the ledger's date stays
@@ -4322,12 +4387,20 @@ label.f {
   z-index: 1
 }
 
+/* Fixed layout: a column's width comes from the table's <TableCols> (or its header cell's CSS
+ * width), never from the rows on screen, so the columns hold still whatever data a page, filter or
+ * refresh brings. A value longer than its column wraps inside the cell instead of widening it. */
 table.tbl {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13.5px;
-  min-width: 640px
+  min-width: 640px;
+  table-layout: fixed
+}
+
+table.tbl td {
+  overflow-wrap: anywhere
 }
 
 .tbl {
@@ -4538,7 +4611,7 @@ table.tbl {
   white-space: nowrap
 }
 
-/* Loans page only (.tbl.tbl-center) — center every column's content,
+/* Opt-in (.tbl.tbl-center) — center every column's content,
  * including the numeric ones that .tbl .num otherwise right-aligns. */
 .tbl.tbl-center th,
 .tbl.tbl-center td {
@@ -4553,7 +4626,11 @@ table.tbl {
  * Edit column was clipped (scrollbars are hidden, so it looked cut off).
  * Tighter cell padding + no forced min-width lets it fit at any width. */
 .tbl.plans-tbl {
-  min-width: 0
+  min-width: 640px
+}
+
+.modal .tbl-wrap.tbl-scroll-paged {
+  overflow-x: auto;
 }
 
 .tbl.plans-tbl th,
@@ -4784,6 +4861,41 @@ table.tbl {
     width: 100%;
     flex-basis: 100%;
     justify-content: flex-end
+  }
+}
+
+/* Right-hand column beside the KPI cards: the summary date on top, the tabs
+ * at the bottom, stretched to the cards' height. Below 1400px both share
+ * one right-aligned line under the cards, wrapping on phones. */
+.cash-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  align-self: stretch;
+  gap: 10px;
+  margin-left: auto
+}
+
+.cash-date-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px
+}
+
+@media (max-width: 1400px) {
+  .cash-side {
+    width: 100%;
+    flex-basis: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end
+  }
+
+  .cash-side .cash-tabs-row {
+    width: auto;
+    flex-basis: auto
   }
 }
 
@@ -5040,6 +5152,47 @@ table.tbl {
   padding-left: 34px
 }
 
+/* Row-scoped `.inp` padding rules (e.g. .cash-filter-row) must not pull the text under the icon. */
+.search .inp,
+.cash-filter-row .search .inp {
+  padding-left: 34px
+}
+
+/* The clear (×) button inside a search box, vertically centred at its right edge. */
+.search .search-clear {
+  position: absolute;
+  right: 20px;
+  top: calc(50% - 2px);
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 50%
+}
+
+.search .search-clear:hover {
+  color: var(--ink);
+  background: var(--brand-faint)
+}
+
+.search .search-clear svg {
+  position: static;
+  transform: none;
+  width: 13px;
+  height: 13px
+}
+
+.search:has(.search-clear) input {
+  padding-right: 46px
+}
+
 .search svg {
   position: absolute;
   left: 11px;
@@ -5095,6 +5248,24 @@ table.tbl {
 .modal.wide:has(.disburse-modal-bd) {
   max-width: 590px
 }
+/* The before / after preview table must fit the narrow modal (a table keeps its own min-width otherwise and the
+ * After column scrolls out of sight). */
+.ledger-edit-bd .tbl {
+  min-width: 0;
+  width: 100%
+}
+
+/* The ledger edit / delete modals: narrower than the shared wide size, still wide enough for the date picker and the
+ * Mode / Amount / Bank breakdown row. */
+.modal.wide:has(.ledger-edit-bd) {
+  max-width: 560px
+}
+
+/* Edit Loan: narrower than the shared wide size so its inputs are not stretched across the full width. */
+.modal.wide:has(.edit-loan-bd) {
+  max-width: 640px
+}
+
 
 /* PaymentModal's confirmation popup — a second, default-width modal stacked
  * over the open Record Payment modal (z-index 80) instead of replacing it. */
@@ -5354,7 +5525,8 @@ table.tbl {
 
 .modal:has(> .bd-scroll) {
   height: auto;
-  max-height: calc(100dvh - var(--titlebar-h) - 32px);
+  /* the standard modal cap: 640px, or the screen when that is shorter */
+  max-height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
   display: flex;
   flex-direction: column;
   margin: auto;
@@ -5376,7 +5548,8 @@ table.tbl {
 @media (min-height: 700px) {
   /* Personal-loan New / Renew modals share the same cap. */
   .modal:has(> .bd-scroll.entry-form),
-  .modal:has(> .bd-scroll.pl-modal) {
+  .modal:has(> .bd-scroll.pl-modal),
+  .modal:has(> .bd-scroll.bank-pledge-edit) {
     max-height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
   }
 }
@@ -5532,13 +5705,16 @@ table.tbl {
 .mini-list .tx b {
   font-weight: 600;
   font-size: 13.5px;
-  color: var(--nav-ink)
+  color: var(--nav-ink);
+  overflow-wrap: anywhere
 }
 
 .mini-list .tx small {
   display: block;
   color: var(--muted);
-  font-size: 11.5px
+  font-size: 11.5px;
+  white-space: normal;
+  overflow-wrap: anywhere
 }
 
 .mini-list .rt {
@@ -6118,6 +6294,10 @@ table.tbl {
   .pl-detail-grid {
     grid-template-columns: 1fr
   }
+  /* stacked cards: a long table scrolls inside its card (the usual max-height cap), not the page */
+  .pl-detail-grid .tbl-wrap {
+    max-height: calc(100vh - 350px)
+  }
 }
 
 /* Big screens (the exact complement of the stacking query above): like every
@@ -6130,8 +6310,17 @@ table.tbl {
   .pl-detail-grid {
     flex: 1 1 auto;
     min-height: 0;
-    grid-template-rows: minmax(min-content, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     align-items: stretch
+  }
+  /* the row takes only the height left on the page; each table scrolls inside its card, so the page does not */
+  .pl-detail-grid > .card {
+    min-height: 0
+  }
+  .pl-detail-grid .tbl-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto
   }
 }
 
@@ -6139,7 +6328,21 @@ table.tbl {
  * (the ledger gets the wider share, it has seven columns) and stack — as before — below the same
  * width/height boundary `.pl-detail-grid` uses. Both tables are paged, so rows size to their content
  * and the cards never shrink below it. */
-.inv-detail-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
+.inv-detail-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
+/* The payout schedule's due dates, and a Pending chip with its Mark Paid, stay on one line. */
+.inv-schedule-tbl td:nth-child(2),.inv-schedule-tbl td:nth-child(5),.inv-schedule-tbl .btn{white-space:nowrap}
+/* Side by side, each card has half the width: narrower amount columns, tighter cell gaps and header tracking keep
+ * the ledger's Balance inside the card; anything still too wide scrolls sideways rather than being clipped. */
+@media (min-width: 1101px) {
+  .inv-detail-grid{--ledger-amt-w:104px;--ledger-bal-w:132px}
+  .inv-detail-grid .tbl th,.inv-detail-grid .tbl td{padding-left:10px;padding-right:10px}
+  .inv-detail-grid .tbl th{letter-spacing:.1em}
+  .inv-detail-grid .tbl th:first-child,.inv-detail-grid .tbl td:first-child{padding-left:16px}
+  .inv-detail-grid .tbl th:last-child,.inv-detail-grid .tbl td:last-child{padding-right:16px}
+  .inv-detail-grid .tbl.ledger-amt th.num:last-child,.inv-detail-grid .tbl.ledger-amt td.num:last-child{padding-right:30px}
+  .inv-detail-grid .tbl.ledger-amt td.num:last-child .ledger-info{right:8px}
+  .inv-detail-grid .tbl-wrap{overflow-x:auto}
+}
 .inv-detail-grid > .card{flex-shrink:0;min-height:auto;margin-bottom:0}
 .inv-detail-grid .tbl{min-width:0}
 .inv-detail-grid .tbl-wrap{max-height:none}
@@ -6655,8 +6858,9 @@ table.tbl {
  * (plus the same 1px margin-top the mark already uses) guarantees their
  * first lines share one center regardless of surrounding font-size
  * overrides. */
-.cradio>span:last-child,
-.ccheck>span:last-child {
+/* :not(.mark) — a box with no label text after it has its own mark as the last span, which must stay a grid */
+.cradio>span:last-child:not(.mark),
+.ccheck>span:last-child:not(.mark) {
   display: inline-block;
   line-height: 18px
 }
@@ -6690,10 +6894,10 @@ table.tbl {
   cursor: not-allowed
 }
 
+/* no focus ring around a radio or a checkbox */
 .cradio input:focus-visible+.mark,
 .ccheck input:focus-visible+.mark {
-  outline: 2px solid var(--brand-deep);
-  outline-offset: 2px
+  outline: none
 }
 
 /* Consistent title/hint sizing for every .ccheck (checklist-style checkbox)
@@ -7044,6 +7248,69 @@ table.tbl {
   margin-bottom: 10px;
 }
 
+/* Edit Loan ornament card: name | purity | qty, then gross | less | net | photos.
+ * Every input here is the standard 38px (the shared 31px ornament-row pins don't apply). */
+.eln-top,
+.eln-wt {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.eln-top {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(70px, .5fr);
+}
+
+.eln-wt {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+}
+
+.eln-card .orn-type-td .inp {
+  height: 38px;
+  padding: 9px 12px;
+}
+
+.eln-card .pur-row {
+  height: 38px;
+}
+
+/* the purity field matches the toggle beside it (and the other inputs on the card), not the 31px default */
+.eln-card .pur-search,
+.eln-card .pur-search .ss,
+.eln-card .pur-search .inp {
+  height: 38px;
+  box-sizing: border-box;
+}
+
+.eln-card .pur-search .inp {
+  padding: 9px 12px;
+}
+
+@media (max-width: 700px) {
+  .eln-top {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .eln-top > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .eln-wt {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .eln-photos {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 420px) {
+  .eln-wt {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 @media (max-width: 900px) {
   .eln-card {
     margin-bottom: 16px;
@@ -7146,6 +7413,12 @@ table.tbl {
 .ledger-ref-chip-bank {
   background: var(--info-bg);
   color: var(--info);
+  /* a long bank name ends in "…" instead of stretching the cell */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .ledger-ref-chip-category {
@@ -8191,6 +8464,167 @@ table.tbl {
 
 .pay-chip:hover {
   background: var(--brand-pale);
+}
+
+/* Request Extension / Review Extension (RequestExtensionModalContent, ExtensionReviewModalContent): the
+ * Record Payment layout (form + receipt panel) at a narrower width, since the form side is short. The panel is
+ * wider than Record Payment's so the new due date sits on one line. */
+.modal.wide:has(.ext-modal-bd) {
+  max-width: 760px
+}
+
+.ext-modal-bd .pay-layout {
+  grid-template-columns: minmax(0, 1fr) 290px;
+}
+
+.ext-modal-bd .pay-r-big {
+  white-space: nowrap;
+}
+
+/* Release Complete (ReleaseCompleteModalContent): the payment receipt panel used as the summary's header — it
+ * scrolls with the body rather than sticking. */
+.modal.wide:has(.rel-done-bd) {
+  max-width: 640px
+}
+
+/* The ornaments table fits the modal instead of keeping the base `.tbl` min-width:640px and scrolling sideways. */
+.rel-done-bd .tbl {
+  min-width: 0;
+}
+
+/* Tighter column gaps so all five columns sit inside the modal; the base `.tbl` pads cells 14px a side. */
+.rel-done-bd .tbl th,
+.rel-done-bd .tbl td {
+  padding-left: 8px;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+
+.rel-done-bd .tbl th:first-child,
+.rel-done-bd .tbl td:first-child {
+  padding-left: 12px;
+  white-space: normal;
+}
+
+.rel-done-bd .tbl th:last-child,
+.rel-done-bd .tbl td:last-child {
+  padding-right: 12px;
+}
+
+.pay-receipt.rel-done-hero {
+  position: static;
+}
+
+/* No divider rule above this section. */
+.ext-modal-bd .pay-sec.ext-sec-plain {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+/* "Interest must be cleared first" — the one thing blocking the extension, with its Pay button. */
+.ext-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--red) 30%, transparent);
+  border-radius: 10px;
+  background: var(--red-bg);
+}
+
+.ext-block-tx {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--nav-ink);
+}
+
+.ext-block-tx b {
+  color: var(--red);
+  font-size: 12.5px;
+}
+
+/* Current → new due date pair; the arrow icon is the shared arrowUp turned to point right. */
+.ext-dates {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+
+.ext-dates > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ext-dates > div:last-child {
+  text-align: right;
+}
+
+.ext-dates span {
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ext-dates b {
+  font-variant-numeric: tabular-nums;
+  color: var(--nav-ink);
+  white-space: nowrap;
+}
+
+.ext-dates > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--brand);
+  transform: rotate(90deg);
+}
+
+.ext-dates-lg {
+  margin-top: 10px;
+  padding: 14px 16px;
+  background: var(--brand-faint);
+}
+
+.ext-dates-lg b {
+  font-size: 16px;
+}
+
+.ext-review-hero {
+  margin-bottom: 14px;
+}
+
+.ext-review-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  font-size: 13px;
+}
+
+.ext-review-grid span {
+  color: var(--muted);
+}
+
+.ext-review-grid b {
+  text-align: right;
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .ext-modal-bd .pay-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .pay-receipt {
@@ -9547,4 +9981,169 @@ table.tbl.lockers-tbl {
     padding-left: 0 !important;
     padding-right: 0 !important;
   }
+}
+
+/* Stacked ledger cards: the table's "no line under the last row" rule must not strip the dashed dividers inside the
+ * last card — only the card's own final line (its last cell) stays open. */
+@media (max-width: 1279px) {
+  .tbl.tbl-stack tr:last-child td:not(:last-child) {
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+  }
+}
+
+/* Card-mode tables (.tbl-cards) with an entry info icon: like the stacked ledgers, the icon moves to the top-left of
+ * the card and its action cell collapses, instead of the icon floating loose at the page edge. */
+@media (max-width: 1100px) {
+  table.tbl.tbl-cards tr:has(.ledger-info) {
+    position: relative;
+    padding-top: 30px;
+  }
+  table.tbl.tbl-cards tr:has(.ledger-info) td:has(> .ledger-info) {
+    position: static;
+    display: block;
+    height: 0;
+    min-height: 0;
+    padding: 0 !important;
+    border: 0;
+  }
+  table.tbl.tbl-cards tr:has(.ledger-info) .ledger-info {
+    position: absolute;
+    top: 7px;
+    left: 12px;
+    right: auto !important;
+    transform: none !important;
+    margin: 0;
+  }
+}
+
+/* Bug 105: list tables used automatic layout, so a column's width followed that page's content and the same
+ * table looked different from page to page. On desktop the card tables now share fixed column sizing (equal
+ * columns unless a <col> says otherwise). Skipped at <=1100px, where these tables are cards, and for the loans
+ * table (loans-tbl) and customer 360 tables, which size their own columns. */
+@media (min-width: 1101px) {
+  table.tbl.tbl-cards:not(.loans-tbl) {
+    table-layout: fixed;
+  }
+  table.tbl.tbl-cards:not(.loans-tbl) th,
+  table.tbl.tbl-cards:not(.loans-tbl) td {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* New Loan: the ornament list keeps a fixed height — about five rows — and scrolls inside
+ * itself, so adding ornaments never stretches the form. On shorter windows the cap shrinks
+ * with the viewport, so the list starts scrolling sooner instead of pushing the page. */
+.orn-table-view {
+  max-height: min(310px, 45vh);
+  overflow-y: auto;
+}
+.orn-table-view thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card, #fff);
+}
+.orn-cards-view {
+  max-height: min(430px, 55vh);
+  overflow-y: auto;
+}
+
+/* One height for a search box, the filter button and the buttons beside them in a toolbar. The
+ * !important beats inline heights some search inputs still carry. */
+.search .inp,
+.cash-filter-row .search .inp {
+  height: 34px !important;
+}
+.dp > button[aria-label="Filters"],
+.hd:has(.search) .btn.sm,
+.page-h .search ~ .btn {
+  height: 34px;
+  box-sizing: border-box;
+}
+
+/* The ornament list still scrolls (wheel, touch, keys) but without a visible scrollbar. */
+.orn-table-view,
+.orn-cards-view {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.orn-table-view::-webkit-scrollbar,
+.orn-cards-view::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Very narrow windows: opt-in `.tbl-cards-sm` tables (used inside modals)
+ * turn into one card per row, using each cell's data-label. ── */
+@media (max-width: 860px) {
+  .modal .tbl-wrap.tbl-scroll-paged { overflow-x: hidden; }
+  .modal .tbl-wrap:has(> table.tbl-cards-sm) { border: 0; background: none; box-shadow: none; border-radius: 0; }
+  table.tbl.tbl-cards-sm tr:has(> td[colspan]) { padding: 0; border: 0; background: none; }
+  table.tbl.tbl-cards-sm td[colspan] { background: none !important; padding: 0; border: 0; }
+  table.tbl.tbl-cards-sm { display: block; width: 100%; min-width: 0; }
+  table.tbl.tbl-cards-sm thead { display: none; }
+  table.tbl.tbl-cards-sm tbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 8px 0; }
+  table.tbl.tbl-cards-sm tr {
+    display: block;
+    min-width: 0;
+    padding: 4px 12px;
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .5);
+  }
+  table.tbl.tbl-cards-sm td,
+  table.tbl.tbl-cards-sm td.num {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    padding: 6px 0;
+    text-align: right;
+    background: none;
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  table.tbl.tbl-cards-sm td:last-child { border-bottom: 0; }
+  table.tbl.tbl-cards-sm td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+  }
+  table.tbl.tbl-cards-sm td:first-child { display: block; text-align: left; }
+  table.tbl.tbl-cards-sm td:first-child::before { display: none; }
+  /* Expand chevron sits in the card's top-right corner. */
+  table.tbl.tbl-cards-sm tr { position: relative; }
+  table.tbl.tbl-cards-sm td.td-chev {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    padding: 0;
+    border: 0;
+    width: auto;
+  }
+  table.tbl.tbl-cards-sm td.td-chev::before { display: none; }
+  table.tbl.tbl-cards-sm td[colspan] { display: block; text-align: left; }
+  table.tbl.tbl-cards-sm td[colspan]::before { display: none; }
+  table.tbl.tbl-cards-sm tr:has(> td.empty) { border: 0; background: none; }
+}
+
+/* Shorter rows for the tables inside modals (investors, plans). */
+.tbl.tbl-compact td { padding-top: 6px; padding-bottom: 6px; }
+.tbl.tbl-compact th { padding-top: 8px; padding-bottom: 8px; }
+.tbl.tbl-compact td .sub { margin-top: 0; line-height: 1.2; }
+
+/* Scrolls without a visible scrollbar (an investor's investments inside the Investors modal). */
+.inv-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.inv-scroll::-webkit-scrollbar { display: none; }
+
+/* Offline: a red ring around the profile picture (nothing extra while online) */
+.top .user .av.av-offline,
+.top .user:hover .av.av-offline,
+.top .user[aria-expanded="true"] .av.av-offline {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--red);
 }

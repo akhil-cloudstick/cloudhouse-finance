@@ -5,7 +5,7 @@ import { fromCamera, fromFiles, fromLibrary, PermissionError } from "@/common/co
 import { uploadFile } from "@/common/services/uploadService";
 import { type PickedFile } from "@/common/types/upload-types";
 import { API_ORIGIN, ApiError } from "@/common/services/httpClient";
-import { useUploadSource } from "./BillSheet";
+import { BillSheet, useUploadSource } from "./BillSheet";
 import { useAuth } from "@/common/providers/AuthProvider";
 
 type UploadFieldProps = {
@@ -29,6 +29,10 @@ export function UploadField({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
+  // The just-picked file's own uri: shown at once (no wait for the server image to download) and used as the
+  // thumbnail until the field is cleared.
+  const [localUri, setLocalUri] = useState<{ url: string; uri: string } | null>(null);
+  const [viewing, setViewing] = useState(false);
   // POST /uploads is gated "can create upload" — without it the tile is inert.
   const canUpload = useAuth().can("Upload_Management", "can_create_upload");
 
@@ -39,10 +43,14 @@ export function UploadField({
       const file = await run();
       if (!file) return;
       setBusy(true);
+      // Show the picked photo immediately while it uploads.
+      setLocalUri({ url: "", uri: file.uri });
       const url = await uploadFile(file);
       setName(file.name);
+      setLocalUri({ url, uri: file.uri });
       onChange(url);
     } catch (e) {
+      setLocalUri(null);
       setError(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
     } finally {
       setBusy(false);
@@ -52,14 +60,24 @@ export function UploadField({
   const isImage = !!value && !/\.pdf$/i.test(value);
   // /uploads/* is only served to a signed-in caller — send the session token.
   const thumbSource = useUploadSource(value || "");
+  const localThumb = value && localUri && localUri.url === value ? { uri: localUri.uri } : null;
+  const preview = localThumb ?? thumbSource ?? { uri: value.startsWith("http") ? value : `${API_ORIGIN}${value}` };
   return (
     <Field label={label}>
       <Pressable onPress={() => canUpload && !busy && setChoosing(true)} disabled={!canUpload} style={[s.box, !!value && s.boxDone]}>
         {busy ? (
-          <ActivityIndicator color={C.brandDeep} />
+          <View style={s.done}>
+            {localUri?.uri ? <Image source={{ uri: localUri.uri }} style={[s.thumb, { opacity: 0.6 }]} /> : null}
+            <ActivityIndicator color={C.brandDeep} />
+            <Txt style={s.doneTxt}>Uploading…</Txt>
+          </View>
         ) : value ? (
           <View style={s.done}>
-            {isImage ? <Image source={thumbSource ?? { uri: value.startsWith("http") ? value : `${API_ORIGIN}${value}` }} style={s.thumb} /> : null}
+            {isImage ? (
+              <Pressable onPress={() => setViewing(true)} hitSlop={6}>
+                <Image source={preview} style={s.thumb} />
+              </Pressable>
+            ) : null}
             <Txt style={s.doneTxt} numberOfLines={1}>
               {name ?? "Attached"}
               {canUpload ? " · Tap to replace" : ""}
@@ -70,10 +88,22 @@ export function UploadField({
         )}
       </Pressable>
       {value ? (
-        <Pressable onPress={() => onChange("")} hitSlop={6} style={{ alignSelf: "flex-end", marginTop: 6 }}>
-          <Txt style={{ fontSize: 11, fontWeight: "700", color: C.red }}>Remove</Txt>
-        </Pressable>
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 18, marginTop: 6 }}>
+          <Pressable onPress={() => setViewing(true)} hitSlop={6}>
+            <Txt style={{ fontSize: 11, fontWeight: "700", color: C.brandDeep }}>View</Txt>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setLocalUri(null);
+              onChange("");
+            }}
+            hitSlop={6}
+          >
+            <Txt style={{ fontSize: 11, fontWeight: "700", color: C.red }}>Remove</Txt>
+          </Pressable>
+        </View>
       ) : null}
+      <BillSheet path={viewing && value ? value : null} onClose={() => setViewing(false)} title={label} />
       {error ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 6 }}>{error}</Txt> : null}
       <Sheet visible={choosing} onClose={() => setChoosing(false)} title={label} maxHeightPct={50}>
         <SheetListItem first icon="scan" title="Take a photo" onPress={() => pick(fromCamera)} />
@@ -89,6 +119,6 @@ const s = StyleSheet.create({
   boxDone: { borderColor: C.brandDeep, backgroundColor: C.brandFaint, padding: 10 },
   empty: { color: C.muted, fontSize: 12 },
   done: { flexDirection: "row", alignItems: "center", gap: 10, alignSelf: "stretch" },
-  thumb: { width: 40, height: 40, borderRadius: 8, backgroundColor: C.line },
+  thumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: C.line },
   doneTxt: { flex: 1, fontSize: 12, fontWeight: "700", color: C.brandDeep },
 });

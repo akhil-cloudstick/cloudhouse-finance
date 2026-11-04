@@ -9,7 +9,7 @@
  * loan, or an approval stage that is not the last one, does not touch cash. */
 
 import { offlineStore } from "@/common/services/desktopBridge";
-import { getLocal } from "./localCopy";
+import { getLocal, listLocal } from "./localCopy";
 import type { OutboxEntry } from "./types";
 
 const MOVES_MONEY = /^\/loans\/uuid:([0-9a-f-]+)\/(approve|payments|topup|bank-pledge\/(\d+|ref:[0-9a-f-]+)\/release)$/i;
@@ -141,6 +141,27 @@ export async function pendingMoney(branch: number): Promise<Pending[]> {
       found.push({ entry, out: false, parts: iparts, loanNumber: inumber, branchId: ib.branchId ?? null, customerId: null, label: `Investment deposit — ${inumber}` });
       continue;
     }
+    // a bank pledge whose money is received as cash in: what the bank paid (in each mode) comes in, to the bank it was received in
+    const pledge = entry.method === "POST" ? /^\/loans\/(uuid:([0-9a-f-]+)|(\d+))\/bank-pledge$/i.exec(entry.path) : null;
+    if (pledge) {
+      const pb = (entry.body ?? {}) as { cashTreatment?: string; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; receivedBankId?: number; bankName?: string; pledgeDate?: string; pledgedAmount?: number };
+      if (pb.cashTreatment !== "CashIn") continue;
+      const rbank = Number(pb.receivedBankId) || undefined;
+      const pparts: Part[] = [
+        { mode: "Cash", amount: Number(pb.cashAmount) || 0 },
+        { mode: "UPI", amount: Number(pb.upiAmount) || 0, bankId: rbank },
+        { mode: "Bank Transfer", amount: Number(pb.bankTransferAmount) || 0, bankId: rbank },
+        { mode: "Cheque", amount: Number(pb.chequeAmount) || 0, bankId: rbank },
+      ].filter((p) => p.amount > 0);
+      if (!pparts.length) continue;
+      const pl = (pledge[2]
+        ? getLocal("loans", pledge[2])
+        : listLocal("loans").find((l) => (l as { id?: number }).id === Number(pledge[3]))) as { branchId?: number; customerId?: number; loanNumber?: string } | undefined;
+      if (branch && pl?.branchId && Number(pl.branchId) !== branch) continue;
+      const plabel = `Bank pledge — ${pb.bankName ?? ""}${pl?.loanNumber ? ` (${pl.loanNumber})` : ""}`.trim();
+      found.push({ entry, out: false, parts: pparts, loanNumber: pl?.loanNumber ?? plabel, branchId: pl?.branchId ?? null, customerId: pl?.customerId || null, label: plabel, on: pb.pledgeDate });
+      continue;
+    }
     let m = MOVES_MONEY.exec(entry.path);
     // a payment taken on a release request: it addresses the request, the loan is the other target of the entry
     if (!m && entry.method === "POST" && RELEASE_PAYMENT.test(entry.path)) {
@@ -258,7 +279,7 @@ export async function adjustBanks(body: string): Promise<string> {
 
 type Row = Record<string, unknown>;
 
-function movementRows(pending: Pending[]): Row[] {
+export function movementRows(pending: Pending[]): Row[] {
   const rows: Row[] = [];
   let n = 0;
   for (const p of pending) {

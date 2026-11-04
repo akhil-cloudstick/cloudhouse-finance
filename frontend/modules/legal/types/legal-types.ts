@@ -26,9 +26,12 @@ export type Provider = {
 /* A line that only one app's readers should see; a bare string shows to everyone. */
 export type Line = string | { only: "customer" | "staff"; text: string };
 
+/* A table row can be limited to one app the same way a Line is. */
+export type LegalRowSource = string[] | { only: "customer" | "staff"; row: string[] };
+export type LegalTableSource = { head: string[]; rows: LegalRowSource[] };
 export type LegalTable = { head: string[]; rows: string[][] };
 
-export type LegalSectionSource = { heading: string; body?: Line[]; list?: Line[]; table?: LegalTable };
+export type LegalSectionSource = { heading: string; body?: Line[]; list?: Line[]; table?: LegalTableSource };
 export type LegalDocumentSource = { title: string; summary: string; sections: LegalSectionSource[] };
 
 export type LegalSection = { heading: string; body: string[]; list: string[]; table?: LegalTable };

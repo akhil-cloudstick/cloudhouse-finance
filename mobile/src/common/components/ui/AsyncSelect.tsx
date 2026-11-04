@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Keyboard, Pressable, TextInput, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { C } from "./base";
 import { Spinner } from "./Spinner";
 import { Txt } from "./Txt";
@@ -13,11 +13,17 @@ import { MenuItem } from "./MenuItem";
 import { s } from "./formHelpers";
 import { Chevron } from "./Chevron";
 
+// Rows shown per page (and the most a plain `fetcher` list shows).
+const PAGE_SIZE = 30;
+
 type AsyncSelectProps<T> = {
   label?: string;
   placeholder?: string;
   queryKey: unknown[];
-  fetcher: (q: string) => Promise<T[]>;
+  fetcher?: (q: string) => Promise<T[]>;
+  // Server-paged alternative to `fetcher`: rows arrive PAGE_SIZE at a time and a "Show more" row
+  // at the end of the list loads the next page — for lists too long to send in one response.
+  pagedFetcher?: (q: string, page: { limit: number; offset: number }) => Promise<{ items: T[]; hasMore: boolean }>;
   selectedLabel?: string;
   onSelect: (v: T) => void;
   keyOf: (v: T) => string | number;
@@ -40,6 +46,7 @@ export function AsyncSelect<T>({
   placeholder,
   queryKey,
   fetcher,
+  pagedFetcher,
   selectedLabel,
   onSelect,
   keyOf,
@@ -58,8 +65,19 @@ export function AsyncSelect<T>({
   const dq = useDebouncedValue(q);
   const open = !!anchor;
   const enabled = open && dq.trim().length >= minChars;
-  const { data, isFetching } = useQuery({ queryKey: [...queryKey, dq], queryFn: () => fetcher(dq.trim()), enabled });
-  const items = useMemo(() => (data ?? []).slice(0, 30), [data]);
+  const single = useQuery({ queryKey: [...queryKey, dq], queryFn: () => fetcher!(dq.trim()), enabled: enabled && !pagedFetcher });
+  const paged = useInfiniteQuery({
+    queryKey: [...queryKey, "paged", dq],
+    queryFn: ({ pageParam }) => pagedFetcher!(dq.trim(), { limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (last, all) => (last.hasMore ? all.length * PAGE_SIZE : undefined),
+    enabled: enabled && !!pagedFetcher,
+  });
+  const isFetching = pagedFetcher ? paged.isFetching : single.isFetching;
+  const items = useMemo(
+    () => (pagedFetcher ? (paged.data?.pages.flatMap((p) => p.items) ?? []) : (single.data ?? []).slice(0, PAGE_SIZE)),
+    [pagedFetcher, paged.data, single.data]
+  );
   const [creating, setCreating] = useState(false);
   const close = () => {
     setAnchor(null);
@@ -141,6 +159,14 @@ export function AsyncSelect<T>({
             );
           })
         )}
+        {pagedFetcher && paged.hasNextPage ? (
+          <MenuItem
+            title={paged.isFetchingNextPage ? "Loading…" : "Show more"}
+            onPress={() => {
+              if (!paged.isFetchingNextPage) paged.fetchNextPage();
+            }}
+          />
+        ) : null}
       </Popover>
     </Field>
   );

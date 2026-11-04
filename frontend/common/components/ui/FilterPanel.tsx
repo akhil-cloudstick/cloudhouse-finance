@@ -222,6 +222,8 @@ export function FilterPanel({
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
+      // A day picked in the date picker unmounts that button before this runs, so the click looks outside the panel.
+      if (e.target instanceof Node && !e.target.isConnected) return;
       if (boxRef.current && !boxRef.current.contains(e.target as Node) && panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
@@ -410,11 +412,6 @@ export function FilterPanel({
         )}
       </div>
 
-      {activeCount > 0 && !hideClearAll && (
-        <button type="button" className="btn plain sm" onClick={resetAll} style={{ color: "var(--muted)" }}>
-          Clear all ×
-        </button>
-      )}
     </div>
   );
 }

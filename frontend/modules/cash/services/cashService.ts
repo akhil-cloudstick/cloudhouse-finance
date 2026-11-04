@@ -1,6 +1,7 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { canQueue, queueOnly } from "@/common/offline/queueWrite";
 import { uploadFile } from "@/common/services/uploadService";
 import { categoryLedgerPath } from "./expenseCategoryService";
 import { branchHeader } from "@/common/services/branchSelection";
@@ -50,6 +51,8 @@ function movementFilterParams(filters?: CashMovementFilters): URLSearchParams {
   if (filters?.customerIds?.length) params.set("customerIds", filters.customerIds.join(","));
   if (filters?.types?.length) params.set("types", filters.types.join(","));
   if (filters?.modes?.length) params.set("modes", filters.modes.join(","));
+  if (filters?.categoryNames?.length) params.set("category_names", filters.categoryNames.join(","));
+  if (filters?.search) params.set("search", filters.search);
   return params;
 }
 
@@ -111,10 +114,11 @@ export async function exportCashMovements(filters?: CashMovementFilters & { form
   await downloadFile(`/cash-movements/export${qs}`, `cash-movements.${format}`);
 }
 
-/* Downloads every expense-register row (branch-scoped server-side, same as
- * the table) as a PDF. */
-export async function exportExpenses(): Promise<void> {
-  await downloadFile("/expenses/export", "expense-register.pdf");
+/* Downloads every expense-register row matching the filters (branch-scoped
+ * server-side, same as the table) as a PDF. */
+export async function exportExpenses(filters?: ExpenseFilters): Promise<void> {
+  const qs = expenseFilterParams(filters).toString();
+  await downloadFile(`/expenses/export${qs ? `?${qs}` : ""}`, "expense-register.pdf");
 }
 
 export async function createCashMovement(input: CashMovementInput): Promise<CashMovementView> {
@@ -160,10 +164,19 @@ export async function getMovementEntry(id: number): Promise<EntryInfo> {
  * (every payment part, or both legs of a self transfer) is replaced by the
  * edited version. Needs no permission of its own. */
 export async function updateMovementEntry(id: number, input: EntryUpdateInput): Promise<void> {
+  if (canQueue()) {
+    await queueOnly("PATCH", `/cash-movements/${id}/update`, input, undefined);
+    return;
+  }
   await apiFetch<{ id: number }>(`/cash-movements/${id}/update`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+/* One expense, for opening the Expense Register on it (the dashboard's expense approval "Review"). */
+export async function getExpense(id: number): Promise<ExpenseView> {
+  return expenseToView(await apiFetch<BackendExpense>(`/expenses/${id}`));
 }
 
 /* The Expense Register's Edit form data for a pending or approved expense —
@@ -175,6 +188,10 @@ export async function getExpenseEntry(id: number): Promise<EntryInfo> {
 /* Saves an edit made in an entry form: from the Expense Register it goes to
  * PATCH /expenses/:id/update, from a ledger row to PATCH /cash-movements/:id/update. */
 export async function saveEntryEdit(info: EntryInfo, input: EntryUpdateInput): Promise<void> {
+  if (canQueue()) {
+    await queueOnly("PATCH", info.viaExpense ? `/expenses/${info.movementId}/update` : `/cash-movements/${info.movementId}/update`, input, undefined);
+    return;
+  }
   await apiFetch<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}/update` : `/cash-movements/${info.movementId}/update`, {
     method: "PATCH",
     body: JSON.stringify(input),
@@ -182,6 +199,7 @@ export async function saveEntryEdit(info: EntryInfo, input: EntryUpdateInput): P
 }
 
 export async function setCashMovementLoanStatus(id: number, status: "Open" | "Closed"): Promise<CashMovementView> {
+  if (canQueue()) return queueOnly("PATCH", `/cash-movements/${id}/status`, { status }, { id, status } as unknown as CashMovementView);
   const rec = await apiFetch<BackendCashMovement>(`/cash-movements/${id}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
@@ -206,6 +224,8 @@ function expenseToView(e: BackendExpense): ExpenseView {
     remarks: e.remarks,
     img: e.receiptImage,
     editable: e.editable,
+    bankPledgeId: e.bankPledgeId,
+    bankPledgeLoanId: e.bankPledgeLoanId,
   };
 }
 
@@ -216,12 +236,24 @@ export async function listExpenses(): Promise<ExpenseView[]> {
 
 export const EXPENSES_PAGE_SIZE = 8;
 
-export async function listExpensesPage(page: number, limit?: number): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number; totalAmount: number }> {
+export type ExpenseFilters = { search?: string; category?: string[]; mode?: string[]; status?: string[]; from?: string; to?: string };
+
+function expenseFilterParams(filters?: ExpenseFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters?.search) params.set("search", filters.search);
+  filters?.category?.forEach((v) => params.append("category", v));
+  filters?.mode?.forEach((v) => params.append("mode", v));
+  filters?.status?.forEach((v) => params.append("status", v));
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  return params;
+}
+
+export async function listExpensesPage(page: number, limit?: number, filters?: ExpenseFilters): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number; totalAmount: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
-  const params = new URLSearchParams({
-    limit: String(pageSize),
-    offset: String((page - 1) * pageSize),
-  });
+  const params = expenseFilterParams(filters);
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
   const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean; total?: number; totalAmount?: number }>(`/expenses?${params}`);
   return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalAmount: rec?.totalAmount ?? 0 };
 }
@@ -250,6 +282,7 @@ export async function createExpense(input: ExpenseFormInput): Promise<ExpenseVie
  * approve expense"). The approver is taken from the JWT, so no approvedBy is
  * sent. Approving is what posts the expense's cash movement. */
 export async function approveExpense(id: number): Promise<ExpenseView> {
+  if (canQueue()) return queueOnly("PATCH", `/expenses/${id}/approve`, {}, { id, status: "Approved" } as unknown as ExpenseView);
   const rec = await apiFetch<BackendExpense>(`/expenses/${id}/approve`, {
     method: "PATCH",
     body: JSON.stringify({}),
@@ -258,6 +291,7 @@ export async function approveExpense(id: number): Promise<ExpenseView> {
 }
 
 export async function rejectExpense(id: number, remarks: string): Promise<ExpenseView> {
+  if (canQueue()) return queueOnly("PATCH", `/expenses/${id}/reject`, { remarks }, { id, status: "Rejected" } as unknown as ExpenseView);
   const rec = await apiFetch<BackendExpense>(`/expenses/${id}/reject`, {
     method: "PATCH",
     body: JSON.stringify({ remarks }),
@@ -302,7 +336,7 @@ export const GOLD_SALES_PAGE_SIZE = 8;
 export async function listGoldSalesPage(
   page: number,
   limit?: number,
-  filters?: { fromDate?: string; toDate?: string }
+  filters?: { fromDate?: string; toDate?: string; search?: string }
 ): Promise<{ items: GoldSaleView[]; hasMore: boolean; total: number; totalSold: number; totalCost: number; totalProfit: number }> {
   const pageSize = limit ?? GOLD_SALES_PAGE_SIZE;
   const params = new URLSearchParams({
@@ -311,6 +345,7 @@ export async function listGoldSalesPage(
   });
   if (filters?.fromDate) params.set("fromDate", filters.fromDate);
   if (filters?.toDate) params.set("toDate", filters.toDate);
+  if (filters?.search) params.set("search", filters.search);
   const rec = await apiFetch<{ items: BackendGoldSale[]; hasMore: boolean; total?: number; totalSold?: number; totalCost?: number; totalProfit?: number }>(`/gold-sales?${params}`);
   return {
     items: (rec?.items || []).map(goldSaleToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0,
@@ -348,6 +383,7 @@ function partyRangeParams(range?: PartyDateRange): URLSearchParams {
   const params = new URLSearchParams();
   if (range?.fromDate) params.set("fromDate", range.fromDate);
   if (range?.toDate) params.set("toDate", range.toDate);
+  if (range?.search) params.set("search", range.search);
   if (range?.loanNumber) params.set("loanNumber", range.loanNumber);
   if (range?.loanNumbers?.length) params.set("loanNumbers", range.loanNumbers.join(","));
   if (range?.modes?.length) params.set("modes", range.modes.join(","));
@@ -391,6 +427,11 @@ export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
     memo: r.memo,
     entryId: r.entryId,
     editable: r.editable,
+    loanId: r.loanId,
+    paymentId: r.paymentId,
+    personalLoanId: r.personalLoanId,
+    loanAccrual: r.loanAccrual,
+    split: r.split,
   };
 }
 
@@ -537,4 +578,14 @@ export async function exportPartyStatementByBranch(branchId: number, range?: Par
   const params = partyRangeParams(range);
   const qs = params.toString() ? `?${params.toString()}` : "";
   await downloadFile(`/cash-movements/transactions/branch/${branchId}/export${qs}`, "branch-ledger.pdf");
+}
+
+/* Deletes a cash-in, debit, self transfer or gold sale keyed into the ledger — every payment part goes with it.
+ * Needs the "can delete ledger entry" permission. */
+export async function deleteMovementEntry(id: number): Promise<void> {
+  if (canQueue()) {
+    await queueOnly("DELETE", `/cash-movements/${id}/entry`, undefined, undefined);
+    return;
+  }
+  await apiFetch<unknown>(`/cash-movements/${id}/entry`, { method: "DELETE" });
 }

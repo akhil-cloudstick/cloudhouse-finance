@@ -64,6 +64,24 @@ export type PersonalLoanPayment = {
   runningBalance: number;
   installmentId: number | null;
   createdAt: string;
+  // Split of the payment and the bank its UPI / Bank Transfer part landed in.
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number | null;
+  // Ledger-row fields (one row per disbursement / charge / payment mode-share / rollover).
+  key?: string;
+  kind?: "disbursement" | "charge" | "penal" | "payment" | "rollover";
+  date?: string;
+  refNo?: string;
+  particulars?: string;
+  mode?: string;
+  bankName?: string;
+  debit?: number;
+  credit?: number;
+  balance?: number;
+  part?: { mode: string; amount: number; index: number; count: number };
 };
 export type CreatePersonalLoanInput = {
   branchId: number;

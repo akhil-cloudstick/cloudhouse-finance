@@ -2,6 +2,7 @@ import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } fr
 import { branchHeader } from "@/common/services/branchSelection";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { offlineStore } from "@/common/services/desktopBridge";
 import type { BackendScheme, SchemeView, SchemeFormInput, SchemeStatementFilters } from "@/modules/schemes/types/scheme-types";
 
 function toView(s: BackendScheme): SchemeView {
@@ -17,6 +18,7 @@ function toView(s: BackendScheme): SchemeView {
     ltv: s.ltvPercent,
     method: s.interestMethod,
     penal: s.penalRate,
+    accrualBasis: s.accrualBasis || "daily",
     cond: s.conditions,
     active: s.isActive,
     branchId: s.branchId,
@@ -37,6 +39,7 @@ function toRequestBody(input: SchemeFormInput) {
     ltvPercent: input.ltv,
     interestMethod: input.method,
     penalRate: input.penal,
+    accrualBasis: input.accrualBasis,
     conditions: input.cond,
     isActive: input.active,
     branchId: input.branchId,
@@ -49,10 +52,41 @@ function toRequestBody(input: SchemeFormInput) {
 /* Server-side search. `q` matches scheme name, code, LTV % and duration
  * (months); `methods` narrows to those interest calculation methods. */
 /* Schemes made on this PC that the server has not accepted yet, narrowed like the server would. */
+type SchemeLocal = BackendScheme & { editOf?: number; deleteOf?: number };
+
+function localSchemes(): SchemeLocal[] {
+  return offlineReady() ? (listLocal("schemes") as unknown as SchemeLocal[]) : [];
+}
+
+/* The server's schemes with this PC's waiting edits and deletes applied. */
+function overlaid(items: SchemeView[]): SchemeView[] {
+  const rows = localSchemes();
+  if (!rows.length) return items;
+  const gone = new Set(rows.filter((r) => r.deleteOf !== undefined).map((r) => String(r.deleteOf)));
+  return items
+    .filter((i) => !gone.has(i.id))
+    .map((i) => {
+      let next = i;
+      for (const r of rows) if (r.editOf !== undefined && String(r.editOf) === i.id) next = { ...toView({ ...r, id: Number(i.id) } as BackendScheme), id: i.id, code: i.code };
+      return next;
+    });
+}
+
+/* The server's answer when there is one; when there is none at all (offline) only what this PC holds. */
+async function orPending<T>(live: () => Promise<T>, none: () => T): Promise<T> {
+  try {
+    return await live();
+  } catch (e) {
+    if (offlineReady() && e instanceof ApiError && e.status === 0) return none();
+    throw e;
+  }
+}
+
 function pendingSchemes(q = "", methods?: string[], activeOnly = false): SchemeView[] {
   if (!offlineReady()) return [];
   const needle = q.trim().toLowerCase();
-  return (listLocal("schemes") as unknown as BackendScheme[])
+  return localSchemes()
+    .filter((s) => s.editOf === undefined && s.deleteOf === undefined)
     .filter((s) => !activeOnly || s.isActive)
     .filter((s) => !methods?.length || methods.includes(s.interestMethod))
     .filter((s) => !needle || [s.name, String(s.ltvPercent), String(s.durationMonths)].join(" ").toLowerCase().includes(needle))
@@ -60,7 +94,8 @@ function pendingSchemes(q = "", methods?: string[], activeOnly = false): SchemeV
 }
 
 export async function listSchemes(filters?: { q?: string; methods?: string[] }): Promise<SchemeView[]> {
-  return [...(await listSchemesLive(filters)), ...pendingSchemes(filters?.q, filters?.methods)];
+  const live = await orPending(() => listSchemesLive(filters), () => []);
+  return [...overlaid(live), ...pendingSchemes(filters?.q, filters?.methods)];
 }
 
 async function listSchemesLive(filters?: { q?: string; methods?: string[] }): Promise<SchemeView[]> {
@@ -76,13 +111,14 @@ async function listSchemesLive(filters?: { q?: string; methods?: string[] }): Pr
  * listSchemes, paged server-side ({items, hasMore, total} envelope).
  * `page` is 0-based. */
 export async function listSchemesPage(
-  filters: { q?: string; methods?: string[] },
+  filters: { q?: string; methods?: string[]; status?: string },
   page: number,
   limit: number
 ): Promise<{ items: SchemeView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(page * limit) });
   if (filters.q) params.set("q", filters.q);
   if (filters.methods?.length) params.set("method", filters.methods.join(","));
+  if (filters.status) params.set("status", filters.status);
   const rec = await apiFetch<{ items: BackendScheme[] | null; hasMore: boolean }>(`/schemes?${params}`);
   const items = (rec?.items || []).map(toView);
   // the first page also lists schemes made on this PC that are still waiting to be sent

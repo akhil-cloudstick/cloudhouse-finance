@@ -1,10 +1,10 @@
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
+import { presentFile } from "@/common/utils/presentFile";
 import {
   AccRow,
   AsyncSelect,
@@ -54,6 +54,7 @@ import { approvePersonalLoan, createPersonalLoan, getPersonalLoan, getPersonalLo
 import { type Frequency, type InterestType, type PersonalLoan, type PersonalLoanInstallment, type PersonalLoanPayment, type PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
+import { PersonalLedgerEditSheet } from "@/modules/personal-loans/components/PersonalLedgerEditSheet";
 import { loadErrorText, userMessage } from "@/common/services/apiErrors";
 
 // Personal Loans — prototype #header-personalloans + #page-personalloans and
@@ -103,10 +104,15 @@ export default function PersonalLoansScreen() {
   const [renewLoan, setRenewLoan] = useState<PersonalLoan | null>(null);
 
   // ?id=<personal loan id> (dashboard "Needs attention") opens its detail.
-  const params = useLocalSearchParams<{ id?: string; t?: string }>();
+  // &from=reminders (a reminder opened it): closing the detail goes back to Reminders.
+  const params = useLocalSearchParams<{ id?: string; t?: string; from?: string }>();
+  const cameFromReminders = useRef(false);
   useEffect(() => {
-    if (params.id && Number(params.id)) setDetailId(Number(params.id));
-  }, [params.id, params.t]);
+    if (params.id && Number(params.id)) {
+      cameFromReminders.current = params.from === "reminders";
+      setDetailId(Number(params.id));
+    }
+  }, [params.id, params.t, params.from]);
 
   const freqs = gfValues(fv, "freq");
   const statuses = gfValues(fv, "status");
@@ -160,7 +166,13 @@ export default function PersonalLoansScreen() {
       />
       <PersonalLoanDetailSheet
         loanId={detailId}
-        onClose={() => setDetailId(null)}
+        onClose={() => {
+          setDetailId(null);
+          if (cameFromReminders.current) {
+            cameFromReminders.current = false;
+            if (router.canGoBack()) router.back();
+          }
+        }}
         onOpenLoan={setDetailId}
         canUpdate={canUpdate}
         onCollect={setCollectLoan}
@@ -359,6 +371,11 @@ function PersonalLoanDetailSheet({
   const [tab, setTab] = useState<DetailTab>("schedule");
   const [bondBusy, setBondBusy] = useState<PersonalLoanBondLang | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { can } = useAuth();
+  // Editing / deleting a ledger entry recalculates the loan, so each has its own grant (shared with the gold-loan ledger).
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
+  const [editing, setEditing] = useState<{ entry: PersonalLoanPayment; bankId: number | null; mode: "edit" | "delete" } | null>(null);
 
   useEffect(() => {
     setTab("schedule");
@@ -407,7 +424,7 @@ function PersonalLoanDetailSheet({
         })
       );
       if (result.status < 200 || result.status >= 300) throw new ApiError(result.status, "", undefined);
-      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri, { mimeType: "application/pdf" });
+      await presentFile(result.uri, { mimeType: "application/pdf", title: "Personal loan bond" });
     } catch (e) {
       setError(errMsg(e, "Could not download the bond."));
     } finally {
@@ -539,8 +556,43 @@ function PersonalLoanDetailSheet({
         gutter={16}
         header={header}
         emptyText="No payments yet."
-        keyOf={(p) => String(p.id)}
-        renderItem={(p, i) => <RepayItem first={i === 0} label={`${dmy(p.paidOn)} · ${p.method}${p.reference ? ` · ${p.reference}` : ""}`} value={`+${inr(p.amount)}`} />}
+        keyOf={(p) => p.key ?? String(p.id)}
+        renderItem={(p) => {
+          // Ledger rows: one per disbursement / charge / payment mode-share. Only the first row of a payment (and the
+          // disbursement) can be corrected; a split payment's amount is the sum of its rows.
+          const kind = p.kind ?? "payment";
+          const isPayment = kind === "payment" && p.id > 0 && (!p.part || p.part.index === 0);
+          const isDisbursement = kind === "disbursement";
+          const showEdit = canEditLedger && (isPayment || isDisbursement);
+          const showDelete = canDeleteLedger && isPayment; // the disbursement is the loan's start and cannot be deleted
+          const sameId = (x: PersonalLoanPayment) => x.kind === p.kind && x.id === p.id;
+          const bankId = p.bankId ?? payments.items.find((x) => sameId(x) && x.bankId)?.bankId ?? null;
+          const entry = isPayment ? { ...p, amount: payments.items.filter((x) => x.kind === "payment" && x.id === p.id).reduce((s, x) => s + x.amount, 0) || p.amount } : p;
+          const isDebit = (p.debit ?? 0) > 0;
+          const shown = isDebit ? (p.debit ?? 0) : p.credit ?? p.amount;
+          return (
+            <AccRow
+              id={dmy(p.date ?? p.paidOn)}
+              name={p.particulars || `Payment${p.reference ? ` · ${p.reference}` : ""}`}
+              sub={[p.mode ?? p.method, p.bankName, p.refNo || p.reference].filter(Boolean).join(" · ") || undefined}
+              amount={`${isDebit ? "−" : "+"}${inr(shown)}`}
+              amountColor={isDebit ? C.red : C.green}
+              details={[
+                { k: "Debit", v: isDebit ? inr(p.debit) : "—", color: isDebit ? C.red : C.muted },
+                { k: "Credit", v: !isDebit ? inr(shown) : "—", color: !isDebit ? C.green : C.muted },
+                { k: "Balance", v: inr(p.balance ?? p.runningBalance), color: C.brandDeep },
+              ]}
+              actions={
+                showEdit || showDelete
+                  ? [
+                      ...(showEdit ? [{ label: "Edit", onPress: () => setEditing({ entry, bankId, mode: "edit" as const }) }] : []),
+                      ...(showDelete ? [{ label: "Delete", danger: true, onPress: () => setEditing({ entry, bankId, mode: "delete" as const }) }] : []),
+                    ]
+                  : undefined
+              }
+            />
+          );
+        }}
       />
     );
   else
@@ -570,6 +622,7 @@ function PersonalLoanDetailSheet({
 
   const active = l?.status === "Active";
   return (
+    <>
     <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={90} scroll={false}>
       <View style={{ flexShrink: 1 }}>{body}</View>
       {l && canUpdate && active ? (
@@ -579,6 +632,15 @@ function PersonalLoanDetailSheet({
         </BtnRow2>
       ) : null}
     </Sheet>
+    <PersonalLedgerEditSheet
+      loanId={id}
+      entry={editing?.entry ?? null}
+      bankId={editing?.bankId}
+      minDate={(l?.disbursedAt || l?.openedDate || "").slice(0, 10) || undefined}
+      mode={editing?.mode ?? "edit"}
+      onClose={() => setEditing(null)}
+    />
+    </>
   );
 }
 
@@ -587,38 +649,48 @@ type CollectSheetProps = { loan: PersonalLoan | null; onClose: () => void };
 // ---------------------------------------------------------------------------
 // Collect Payment (prototype #pl-collect-modal)
 // ---------------------------------------------------------------------------
+// Whole rupees, halves away from zero (same rule as web roundRupee / backend RoundMoney).
+const roundRupee = (n: number) => {
+  if (!Number.isFinite(n)) return 0;
+  const r = Math.round(Math.round(Math.abs(n) * 1e6) / 1e6);
+  return n < 0 ? -r : r;
+};
+
 function CollectSheet({ loan, onClose }: CollectSheetProps) {
-  const canCreateBank = useAuth().can("Bank_Management", "can_create_bank");
   const qc = useQueryClient();
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState<(typeof PAYMENT_METHODS)[number]>("Cash");
-  const [bank, setBank] = useState<Bank | null>(null);
+  const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const bankRequired = method === "UPI" || method === "Bank Transfer";
+  const outstanding = loan ? roundRupee(loan.outstandingAmount) : 0;
 
   useEffect(() => {
     if (loan) {
-      setAmount(String(Math.min(loan.installmentAmount, loan.outstandingAmount) || ""));
-      setMethod("Cash");
-      setBank(null);
+      const o = roundRupee(loan.outstandingAmount);
+      const d = roundRupee(Math.min(loan.installmentAmount, o));
+      setAmount(d > 0 ? String(d) : "");
+      setPay(null);
       setReference("");
       setDescription("");
       setError(null);
     }
   }, [loan]);
 
+  const amt = Number(amount) || 0;
+  const overCap = amt > 0 && roundRupee(amt) > outstanding + 0.01;
+  const ready = amt > 0 && !overCap && !!pay?.ready;
+
   const collect = useMutation({
     mutationFn: () => {
-      const amt = Number(amount);
+      const sp = pay!;
       return recordPersonalLoanPayment(loan!.id, {
         amount: amt,
-        cashAmount: method === "Cash" ? amt : 0,
-        upiAmount: method === "UPI" ? amt : 0,
-        bankTransferAmount: method === "Bank Transfer" ? amt : 0,
-        chequeAmount: 0,
-        bankId: bankRequired ? bank?.id : undefined,
+        cashAmount: sp.split.cashAmount,
+        upiAmount: sp.split.upiAmount,
+        bankTransferAmount: sp.split.bankTransferAmount,
+        chequeAmount: sp.split.chequeAmount,
+        bankId: sp.bankId,
         reference: reference || undefined,
         description: description || undefined,
       });
@@ -635,28 +707,17 @@ function CollectSheet({ loan, onClose }: CollectSheetProps) {
   });
 
   return (
-    <Sheet visible={!!loan} onClose={onClose} title={`Collect Payment — ${loan?.loanNumber ?? ""}`} maxHeightPct={70}>
-      {loan ? <Txt style={{ fontSize: 12, color: C.muted, marginTop: 6, marginBottom: 10 }}>Outstanding balance: {inr(loan.outstandingAmount)}</Txt> : null}
+    <Sheet visible={!!loan} onClose={onClose} title={`Collect Payment — ${loan?.loanNumber ?? ""}`} maxHeightPct={85}>
+      {loan ? (
+        <Txt style={{ fontSize: 12, color: C.muted, marginTop: 6, marginBottom: 10 }}>
+          Outstanding balance: {inr(outstanding)}  ·  Balance after payment: {inr(Math.max(0, outstanding - amt))}
+        </Txt>
+      ) : null}
       <Field label="Amount">
         <Input keyboardType="decimal-pad" value={amount} onChangeText={setAmount} placeholder="₹" />
       </Field>
-      <Field label="Method">
-        <ChipToggle options={PAYMENT_METHODS} value={method} onChange={(v) => { setMethod(v); if (v === "Cash") setBank(null); }} />
-      </Field>
-      {bankRequired ? (
-        <AsyncSelect<Bank>
-          label="Bank"
-          placeholder="Search or add a bank"
-          queryKey={["banks", "picker"]}
-          fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
-          selectedLabel={bank?.name}
-          onSelect={setBank}
-          onClear={() => setBank(null)}
-          keyOf={(b) => b.id}
-          renderItem={(b) => ({ title: b.name })}
-          onCreateNew={canCreateBank ? (name) => createBank({ name }) : undefined}
-        />
-      ) : null}
+      {overCap ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>Amount cannot exceed the outstanding balance of {inr(outstanding)}.</Txt> : null}
+      {loan && amt > 0 ? <SplitPaymentInput key={loan.id} total={amt} onChange={setPay} /> : null}
       <Field label="Reference">
         <Input placeholder="Optional" value={reference} onChangeText={setReference} />
       </Field>
@@ -664,7 +725,7 @@ function CollectSheet({ loan, onClose }: CollectSheetProps) {
         <Input placeholder="Optional" value={description} onChangeText={setDescription} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Confirm Payment" onPress={() => collect.mutate()} loading={collect.isPending} disabled={!amount || Number(amount) <= 0 || (bankRequired && !bank)} />
+      <PrimaryButton label="Confirm Payment" onPress={() => collect.mutate()} loading={collect.isPending} disabled={!ready} />
     </Sheet>
   );
 }

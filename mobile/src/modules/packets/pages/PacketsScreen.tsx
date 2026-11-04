@@ -47,8 +47,9 @@ const TABS = ["packets", "lockers"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { packets: "Packets", lockers: "Lockers" };
 
-// "Ready For Release" is a legacy stage nothing moves into, so not offered.
-const PKT_STATUSES = ["Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released"] as const;
+// "Ready For Release" is a legacy stage nothing moves into, so not offered. "Auctioned" is the loan's status (matched
+// through the loan by the server), shown on the card the same way.
+const PKT_STATUSES = ["Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released", "Auctioned", "Rejected"] as const;
 
 
 const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
@@ -324,7 +325,7 @@ function LockersTab({ header, onOpen }: LockersTabProps) {
         header={
           <>
             {header}
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by locker ID" style={{ paddingTop: 12, paddingBottom: 8 }} />
+            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search locker, loan, packet or customer" style={{ paddingTop: 12, paddingBottom: 8 }} />
             <View style={{ paddingHorizontal: 18, marginBottom: 14, alignItems: "flex-start" }}>
               <GroupedFilter title="Filter lockers" sections={sections} value={fv} onChange={setFv} />
             </View>

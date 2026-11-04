@@ -12,8 +12,8 @@ export const accountDeletion: LegalDocumentSource = {
     {
       heading: "How to request deletion",
       body: [
-        { only: "customer", text: `Email {{email}} from your registered address, or call {{phone}}, with your name, your registered mobile number and the subject “Delete my account”. We verify your identity and reply within ${DELETION_REPLY_DAYS} days.` },
-        { only: "staff", text: "Ask your business administrator, or email {{email}}, to disable your login. We verify the request before acting." },
+        { only: "customer", text: `Call {{phone}} with your name, your registered mobile number and the subject “Delete my account”. We verify your identity and reply within ${DELETION_REPLY_DAYS} days.` },
+        { only: "staff", text: "This app is an internal tool for authorised employees and field agents of {{provider}}. Accounts are provisioned manually by backend administrators and cannot be created within the app. To disable your login or request data deletion, contact your backend administrator or call {{phone}}. We verify the request before acting." },
         "Uninstalling the app does not delete your account.",
       ],
     },
@@ -21,14 +21,14 @@ export const accountDeletion: LegalDocumentSource = {
       heading: "What is deleted",
       list: [
         "Your profile details and sign-in credentials.",
-        "Device tokens and notification preferences.",
-        "Uploaded photos and documents that are not needed for a legal record.",
+        { only: "customer", text: "Uploaded photos and documents that are not needed for a legal record." },
       ],
     },
     {
       heading: "What we must keep",
       body: [
-        "Loan, interest, payment and KYC records that we are legally required to retain are kept for the period the law requires and used only for compliance. An account with an active loan cannot be fully deleted until the loan is closed.",
+        { only: "customer", text: "Loan, interest, payment and KYC records that we are legally required to retain are kept for the period the law requires and used only for compliance. An account with an active loan cannot be fully deleted until the loan is closed." },
+        { only: "staff", text: "Customer, loan and KYC records you entered belong to the lender, not to you, and stay in the lender's account for its own record-keeping. Your name may remain on those records as the person who entered them." },
       ],
     },
     {

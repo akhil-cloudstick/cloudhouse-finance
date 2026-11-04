@@ -1,16 +1,20 @@
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import React, { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   AccRow,
   Buffering,
   C,
-  Field,
-  FilterChipRow,
-  FiltersBar,
+  GroupedFilter,
+  emptyGroupedFilter,
+  gfDate,
+  gfValues,
+  groupedFilterCount,
+  type GFSection,
+  type GroupedFilterValue,
   FlatHeader,
-  PrimaryButton,
   Screen,
   SearchInput,
   ServerFlatList,
@@ -40,11 +44,15 @@ import { useAuth } from "@/common/providers/AuthProvider";
 // searched (`q`) and filtered (`status`, `type`) server-side; "Review
 // Request" raises the same review panels the loan detail screen uses.
 
-const STATUSES = ["All", "Pending", "Approved", "Rejected"] as const;
-type Status = (typeof STATUSES)[number];
-const TYPES = ["All", "Extension", "Release"] as const;
-type ReqType = (typeof TYPES)[number];
-type Filters = { status?: string; type?: string };
+// Status and type each take any number of ticked values; none ticked means no restriction.
+const STATUSES = ["Pending", "Approved", "Rejected"] as const;
+const TYPES = ["Extension", "Release"] as const;
+type Filters = { status?: string; type?: string; from?: string; to?: string };
+const FILTER_SECTIONS: GFSection[] = [
+  { kind: "static", key: "status", label: "Status", options: STATUSES.map((v) => ({ value: v, label: v })) },
+  { kind: "static", key: "type", label: "Type", options: TYPES.map((v) => ({ value: v, label: v })) },
+  { kind: "date", key: "date", label: "Requested date" },
+];
 
 export default function RequestsScreen() {
   const router = useRouter();
@@ -53,10 +61,10 @@ export default function RequestsScreen() {
   const canDecide = can("Loan_Management", "can_update_loan");
   const params = useLocalSearchParams<{ requestId?: string; loanId?: string }>();
 
-  const [status, setStatus] = usePersistedState<Status>("requests:status", "All");
-  const [type, setType] = usePersistedState<ReqType>("requests:type", "All");
-  const [draft, setDraft] = useState({ status, type });
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("requests:filters", emptyGroupedFilter());
+  const status = gfValues(fv, "status");
+  const type = gfValues(fv, "type");
+  const { from, to } = gfDate(fv, "date");
   // Holds just the id — the sheet derives the request live from the list (or
   // the deep-link lookup) so it always shows the CURRENT stage after a save.
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -65,7 +73,7 @@ export default function RequestsScreen() {
   const [downloadFor, setDownloadFor] = useState<LoanRequest | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
 
-  const filters: Filters = { status: status === "All" ? undefined : status, type: type === "All" ? undefined : type.toLowerCase() };
+  const filters: Filters = { status: status.length ? status.join(",") : undefined, type: type.length ? type.map((t) => t.toLowerCase()).join(",") : undefined, from: from || undefined, to: to || undefined };
   const list = useServerList<LoanRequest, Filters>({ key: ["loanRequests", "list"], filters, fetchPage: (p) => listLoanRequestsPage(p) });
 
   // ?requestId=<id> (dashboard "Needs attention") opens that request's review.
@@ -131,8 +139,7 @@ export default function RequestsScreen() {
     qc.invalidateQueries({ queryKey: ["loan"] });
   }
 
-  const count = (status !== "All" ? 1 : 0) + (type !== "All" ? 1 : 0);
-  const summary = `${status === "All" && type === "All" ? "All requests" : [status !== "All" ? status : null, type !== "All" ? type : null].filter(Boolean).join(" · ")} · ${list.total ?? list.items.length}`;
+  const count = groupedFilterCount(fv);
 
   return (
     <Screen header={<FlatHeader title="Requests" subtitle="Extensions & release" />}>
@@ -144,15 +151,9 @@ export default function RequestsScreen() {
         header={
           <>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search loan no, customer, phone" style={{ paddingTop: 12, paddingBottom: 8 }} />
-            <FiltersBar
-              count={count}
-              summary={summary}
-              style={{ marginTop: 0, marginBottom: 14 }}
-              onPress={() => {
-                setDraft({ status, type });
-                setFilterOpen(true);
-              }}
-            />
+            <View style={{ paddingHorizontal: 18, marginBottom: 14 }}>
+              <GroupedFilter title="Filter requests" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+            </View>
             {listError ? <Txt style={{ fontSize: 12, color: C.red, paddingHorizontal: 18, marginBottom: 10 }}>{listError}</Txt> : null}
           </>
         }
@@ -198,23 +199,6 @@ export default function RequestsScreen() {
           );
         }}
       />
-
-      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Requests" maxHeightPct={60}>
-        <Field label="Status">
-          <FilterChipRow options={STATUSES} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
-        </Field>
-        <Field label="Type">
-          <FilterChipRow options={TYPES} value={draft.type} onChange={(v) => setDraft((d) => ({ ...d, type: v }))} />
-        </Field>
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setStatus(draft.status);
-            setType(draft.type);
-            setFilterOpen(false);
-          }}
-        />
-      </Sheet>
 
       <Sheet visible={!!downloadFor} onClose={() => setDownloadFor(null)} title={downloadFor?.isPartial ? "Partial Release Receipt" : "Release Agreement"} maxHeightPct={50}>
         {downloadFor

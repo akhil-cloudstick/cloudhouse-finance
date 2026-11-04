@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "@/common/components/Icon";
 
 export type SearchPage<T> = { items: T[]; hasMore: boolean };
 
@@ -33,6 +34,10 @@ type SearchableSelectProps<T> = {
   searchHint?: string;
   allowCreate?: boolean;
   onCreate?: (query: string) => Promise<T>;
+  // Text of the create row, in place of + Create "<query>".
+  createLabel?: string;
+  // Returns a warning for a query that must not be created; the row then shows it, unclickable.
+  createGuard?: (query: string) => string | null;
   // Opt-in, separate mechanism from allowCreate/onCreate above (which
   // create from the typed text alone — see PurityPicker/ornament-type
   // usage in NewLoan.tsx). onCreateNew instead renders one persistent row
@@ -43,6 +48,9 @@ type SearchableSelectProps<T> = {
   // visually and functionally unchanged.
   onCreateNew?: () => void;
   createNewLabel?: string;
+  // Opt-in: shows an × on every row. Resolves once the item is deleted (the row then disappears);
+  // a rejection leaves the row in place, so the caller reports why (e.g. the item is still in use).
+  onDeleteItem?: (item: T) => Promise<void>;
   disabled?: boolean;
   /** Custom content for a dropdown row, in place of the plain bold
    * `getLabel(item)` text — e.g. a name plus a StatusChip instead of a
@@ -110,9 +118,12 @@ export function SearchableSelect<T>({
   searchHint,
   allowCreate = false,
   onCreate,
+  createLabel,
+  createGuard,
   onCreateNew,
   createNewLabel = "+ Add new",
   disabled,
+  onDeleteItem,
   renderOption,
   compact = false,
   compactMinWidth = 60,
@@ -418,7 +429,7 @@ export function SearchableSelect<T>({
   }
 
   async function pickCreate() {
-    if (!onCreate || !query.trim() || creating) return;
+    if (!onCreate || !query.trim() || creating || createGuard?.(query.trim())) return;
     setCreating(true);
     try {
       const created = await onCreate(query.trim());
@@ -428,6 +439,8 @@ export function SearchableSelect<T>({
       onChange(getId(created), created);
       setQuery(getLabel(created));
       setOpen(false);
+    } catch {
+      // a refused create (e.g. out-of-range value) leaves the query as typed
     } finally {
       setCreating(false);
     }
@@ -483,6 +496,20 @@ export function SearchableSelect<T>({
           onClick={(e) => { e.preventDefault(); pick(item); }}
         >
           {renderOption ? renderOption(item) : <span className="tx">{renderLabel ? renderLabel(item) : <b>{getLabel(item)}</b>}</span>}
+          {onDeleteItem && (
+            <button
+              type="button"
+              className="gs-del"
+              tabIndex={-1}
+              title="Delete category"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDeleteItem(item).then(() => setItems((prev) => prev.filter((x) => getId(x) !== getId(item)))).catch(() => {});
+              }}
+            ><Icon name="x" style={{ width: 13, height: 13 }} /></button>
+          )}
         </a>
       ))}
       {loadingMore && <div className="gs-none">Loading more…</div>}
@@ -493,8 +520,9 @@ export function SearchableSelect<T>({
           className={highlightedIndex === items.length ? "sel" : undefined}
           onMouseEnter={() => setHighlightedIndex(items.length)}
           onClick={(e) => { e.preventDefault(); pickCreate(); }}
+          style={createGuard?.(query.trim()) ? { color: "var(--red)", cursor: "not-allowed" } : undefined}
         >
-          <span className="tx"><b>{creating ? "Creating…" : `+ Create "${query.trim()}"`}</b></span>
+          <span className="tx"><b>{createGuard?.(query.trim()) ?? (creating ? "Creating…" : createLabel ?? `+ Create "${query.trim()}"`)}</b></span>
         </a>
       )}
     </>

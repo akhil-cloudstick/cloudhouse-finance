@@ -7,6 +7,9 @@ export type ServiceChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
 /* One step of a "Multiple interest" ladder: the rate applies while interest
  * has been unpaid for up to `days` days. The last step has days 0 (thereafter). */
 export type RateTier = { days: number; rate: number };
+/* How interest is counted: "daily" = rate ÷ 365 per day; "monthly" = rate ÷ 12
+ * per month, and rate ÷ 12 ÷ 30 per leftover day. */
+export type AccrualBasis = "daily" | "monthly";
 export type BackendScheme = {
   id: number;
   // The id the PC gave a scheme made while the server was unreachable.
@@ -20,6 +23,7 @@ export type BackendScheme = {
   ltvPercent: number;
   interestMethod: string;
   penalRate: number;
+  accrualBasis?: AccrualBasis;
   conditions: string;
   isActive: boolean;
   branchId: number;
@@ -46,6 +50,7 @@ export type SchemeView = {
   ltv: number;
   method: string;
   penal: number;
+  accrualBasis: AccrualBasis;
   cond: string;
   active: boolean;
   branchId: number;
@@ -63,6 +68,7 @@ export type SchemeFormInput = {
   ltv: number;
   method: string;
   penal: number;
+  accrualBasis: AccrualBasis;
   cond: string;
   active: boolean;
   branchId: number;

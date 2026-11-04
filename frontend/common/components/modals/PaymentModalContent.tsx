@@ -8,11 +8,12 @@ import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { DatePicker } from "@/common/components/ui/DatePicker";
-import { fmt, fmtDate as fmtDisplayDate } from "@/common/utils/format";
+import { fmt, fmtDate as fmtDisplayDate, roundRupee } from "@/common/utils/format";
 import { recordPayment, recordReleasePayment, getLoan } from "@/modules/loans/services/loanService";
-import { type LoanView, type RequestView } from "@/modules/loans/types/loan-types";
+import { type LoanView, type DiscountKind, DISCOUNT_KIND_LABELS, type RequestView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { useAuth } from "@/common/providers/AuthProvider";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 /* What the Amount is allowed to pay off. Every mode clears any outstanding
@@ -119,7 +120,7 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
 
 // Prefilled money figures are accrued/prorated, so they carry long decimals —
 // show them to the paisa.
-const prefill = (v: number) => (v > 0 ? String(Math.round(v * 100) / 100) : "");
+const prefill = (v: number) => (v > 0 ? String(roundRupee(v)) : "");
 
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = {
@@ -129,15 +130,19 @@ const SERVER_FIELDS: Record<string, RegExp> = {
 // releaseMinFor (release context only) gives the least that must be paid to release the gold, from the freshly fetched loan.
 // It prefills Amount, and Amount can't go below it (the backend checks the same figure).
 // releaseRequest is the request itself, so a payment taken while the server is down can be checked against it
-type PaymentModalContentProps = { loan: LoanView; onSaved: () => void; releaseRequestId?: number; releaseRequest?: RequestView; initialMode?: string; releaseMinFor?: (loan: LoanView) => number };
+type PaymentModalContentProps = { loan: LoanView; onSaved: () => void; releaseRequestId?: number; releaseRequest?: RequestView; initialMode?: string; releaseMinFor?: (loan: LoanView) => number; initialDate?: string };
 
 // Record Payment never posts straight away: it first pops a confirmation
 // summary (amount, where it lands, how it was paid) on top of the form, and
 // only that popup's Confirm Payment actually records it.
-export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId, releaseRequest, initialMode, releaseMinFor }: PaymentModalContentProps) {
+export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId, releaseRequest, initialMode, releaseMinFor, initialDate }: PaymentModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
-  const today = new Date().toISOString().slice(0, 10);
+  const { can } = useAuth();
+  const canDiscount = can("Loan_Management", "can_give_discount");
+  // Local calendar day, not UTC — toISOString() flips to tomorrow/yesterday around midnight in India.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const startMode = ALLOCATION_MODES.some((m) => m.value === initialMode) ? initialMode! : ALLOCATION_MODES[0].value;
 
   // The caller's `loan` prop can be a few minutes (or a full accrual cycle)
@@ -183,9 +188,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     }
   }
 
-  const releaseMin = releaseRequestId != null && releaseMinFor ? Math.round(releaseMinFor(loan) * 100) / 100 : null;
+  const releaseMin = releaseRequestId != null && releaseMinFor ? roundRupee(releaseMinFor(loan)) : null;
   const [amt, setAmt] = useState(() => {
-    const v = releaseRequestId != null && releaseMinFor ? Math.round(releaseMinFor(initialLoan) * 100) / 100 : amountForMode(initialLoan, startMode);
+    const v = releaseRequestId != null && releaseMinFor ? roundRupee(releaseMinFor(initialLoan)) : amountForMode(initialLoan, startMode);
     return v > 0 ? prefill(v) : "";
   });
   // Set the instant a mode is picked, before the user has typed their own
@@ -193,6 +198,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // "prefill, don't fight an edit" rule as the Interest field's own
   // interestTouchedRef below.
   const amountTouchedRef = useRef(false);
+  const [amountTyped, setAmountTyped] = useState(false);
   // Picking a narrower mode (Interest/Penal/Principal/Full Settlement) always
   // refills Amount with what that mode clears — keeping a typed figure made
   // the picker look broken (the receipt still showed the old amount, now
@@ -201,10 +207,14 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // The Amount refill itself lives in the effect below (it also depends on
   // Interest and Additional Charges), so picking a mode only sets the mode.
   function selectMode(nextMode: string) {
+    // A new payment type starts from what it owes; an amount typed for the old one does not carry over.
+    amountTouchedRef.current = false;
+    setAmountTyped(false);
     setMode(nextMode);
   }
   function setAmount(v: string) {
     amountTouchedRef.current = true;
+    setAmountTyped(true);
     setAmt(v);
   }
   // Prefilled with the live-calculated figure but editable — the formula
@@ -223,7 +233,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // this picker existed — so leaving it alone reproduces the old behaviour.
   const [mode, setMode] = useState(startMode);
   const [fee, setFee] = useState("");
-  const [date, setDate] = useState(today);
+  const [date, setDate] = useState(initialDate || today);
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
@@ -231,7 +241,21 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // with no cash movement, posted alongside the payment as a real
   // PaymentTypeDiscount ledger entry (see backend/internal/loan/service.go's
   // RecordReleaseRequestPayment).
+  // Discount: a negotiated reduction with no cash movement, saved as its own Discount ledger entry (a company
+  // write-off). Amount stays what the customer actually pays; Amount + Discount clears the loan. It needs a
+  // reason, and a mode so the entry shows under the right ledger mode.
   const [discount, setDiscount] = useState("");
+  // What the discount is given against: a customer discount (falls through penal interest, interest, principal), or
+  // interest / penal interest only.
+  const [discountKind, setDiscountKind] = useState<DiscountKind>("customer");
+  // Choosing what the discount is for fills the amount with what is still owed of it (interest, or penal interest);
+  // a customer discount is a figure the staff member types. The amount can still be changed.
+  function chooseDiscountKind(k: DiscountKind) {
+    setDiscountKind(k);
+    if (k === "interest") setDiscount(prefill(loan.outstandingInterest));
+    else if (k === "penal_interest") setDiscount(prefill(loan.outstandingPenalInterest));
+    else setDiscount("");
+  }
   // An error is about the figures as they were when it was raised — it's
   // stamped with them and stops showing the moment any of them change.
   const figuresKey = [amt, mode, remaining, fee, interest, discount].join("|");
@@ -264,25 +288,46 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
   // Additional Charges — so the figure typed/prefilled here is what the
   // customer pays and what gets recorded.
   const charge = +fee > 0 ? +fee : 0;
-  const previewAmount = +amt > 0 ? +amt : 0;
   // An Interest override replaces the computed interest server-side (see
   // PaymentInput.InterestOverride), so the preview uses it the same way.
-  const previewLoan = {
+  const interestForAmount = roundRupee(interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest);
+  // Every bucket in whole rupees, as the backend's allocatePayment works them out — a loan saved before rounding can
+  // still owe 21769.86, and comparing the ₹21,770 prefill against that flagged it as 14 paise "greater than amount due".
+  const owedLoan = {
     ...loan,
-    outstandingProcessingFee: loan.outstandingProcessingFee + (+fee || 0),
-    outstandingInterest: interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest,
+    outstanding: roundRupee(loan.outstanding),
+    outstandingPenalInterest: roundRupee(loan.outstandingPenalInterest),
+    outstandingProcessingFee: roundRupee(loan.outstandingProcessingFee),
+    outstandingInterest: interestForAmount,
   };
-  const alloc = previewAllocation(previewLoan, mode, previewAmount);
+  owedLoan.settlementAmount = owedLoan.outstanding + owedLoan.outstandingPenalInterest + owedLoan.outstandingProcessingFee + owedLoan.outstandingInterest;
+  const previewLoan = {
+    ...owedLoan,
+    outstandingProcessingFee: roundRupee(owedLoan.outstandingProcessingFee + charge),
+  };
+  // Release context: Amount is what the customer pays after the discount, so the allocation preview (and the
+  // over/short checks) run against payment + discount, which together clear the loan.
+  const discountNum = canDiscount && +discount > 0 ? +discount : 0;
+  // A discount moves no money; the ledger shows it as a Cash debit, so there is no mode to pick.
+  const discountMode = "Cash";
   // Prefill Amount with what the picked option owes (interest override
   // respected) plus the Additional Charges. "Both" keeps a hand-typed figure
   // since any amount is valid there.
-  const interestForAmount = interest.trim() && +interest >= 0 ? +interest : loan.outstandingInterest;
   // A release payment starts at what must be paid to release the gold, not at the whole settlement.
-  const modeTotal = mode === "Partial" && releaseMin != null
+  // With a discount the Amount is what the customer actually pays: the figure minus the discount.
+  const modeBase = mode === "Partial" && releaseMin != null
     ? releaseMin
-    : amountForMode({ ...loan, outstandingInterest: interestForAmount, settlementAmount: loan.settlementAmount - loan.outstandingInterest + interestForAmount }, mode) + charge;
+    : amountForMode(owedLoan, mode) + charge;
+  const modeTotal = Math.max(0, roundRupee((modeBase - discountNum)));
+  // Amount follows what the picked option owes (after the discount) in every mode but a hand-typed Partial, and the
+  // field is only filled in by the effect below a render later. The preview and its warnings use that figure at once,
+  // so changing the discount or the amount never flashes "amount greater than" against the old figure.
+  const amountFollowsOwed = mode === "Full Settlement" || !amountTyped;
+  const previewAmount = amountFollowsOwed ? modeTotal : +amt > 0 ? +amt : 0;
+  const settledAmount = previewAmount + discountNum;
+  const alloc = previewAllocation(previewLoan, mode, settledAmount);
   useEffect(() => {
-    if (mode === "Partial" && amountTouchedRef.current) return;
+    if (mode !== "Full Settlement" && amountTouchedRef.current) return;
     setAmt(modeTotal > 0 ? prefill(modeTotal) : "");
   }, [mode, modeTotal]);
   const splitBalanced = Math.abs(remaining) < 0.01;
@@ -293,7 +338,8 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     const processingFee = fee.trim() ? +fee : 0;
     if (processingFee < 0) { setErr("Processing fee cannot be negative.", "fee"); return; }
     const amount = typed;
-    if (releaseMin != null && amount < releaseMin - 0.005) { setErr(`Amount can't be less than ${fmt(releaseMin)}, the amount needed to release the gold — it can be more.`, "amount"); return; }
+    const discountForMin = discount.trim() && +discount > 0 ? +discount : 0;
+    if (releaseMin != null && amount + discountForMin < releaseMin - 0.005) { setErr(`${fmt(Math.max(0, releaseMin - discountForMin))} amount needed to release gold`, "amount"); return; }
     if (processingFee > amount + 0.001) { setErr("Additional charges cannot exceed the amount.", "fee"); return; }
     const interestOverride = interest.trim() ? +interest : undefined;
     if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative.", "interest"); return; }
@@ -303,8 +349,27 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     if (allocWarning) { setErr(allocWarning, "amount"); return; }
     const discountAmount = discount.trim() ? +discount : 0;
     if (discountAmount < 0) { setErr("Discount cannot be negative.", "discount"); return; }
-    if (discountAmount > amount) { setErr("Discount cannot exceed the amount.", "discount"); return; }
-    if (!confirming) { setErr(""); setConfirming(true); return; }
+    if (discountAmount > 0 && !canDiscount) { setErr("You don't have permission to give a discount.", "discount"); return; }
+    if (releaseMin != null ? discountAmount > releaseMin + 0.005 : discountAmount > modeBase + 0.005) { setErr(releaseMin != null ? `Discount cannot exceed ${fmt(releaseMin)}, the amount needed to release the gold.` : `Discount cannot exceed ${fmt(modeBase)}, what this payment type clears.`, "discount"); return; }
+    if (!confirming) {
+      setErr("");
+      // Interest keeps being charged while this form is open (a new month starts, a day passes), so what was offered at
+      // open can be short by the time it is confirmed — paying it would leave interest behind and ask for a second
+      // payment. Look again first and, if the figures moved, show the new ones instead of confirming the old.
+      try {
+        const fresh = await getLoan(loan.numericId);
+        const moved = Math.abs(fresh.outstandingInterest - loan.outstandingInterest) > 0.5
+          || Math.abs(fresh.outstandingPenalInterest - loan.outstandingPenalInterest) > 0.5;
+        setLoan(fresh);
+        if (moved) {
+          if (!interestTouchedRef.current) setInterestRaw(prefill(fresh.outstandingInterest));
+          setErr("The interest owed has changed since this form was opened — the amounts are updated. Please review and continue.");
+          return;
+        }
+      } catch { /* could not re-check: carry on with what is shown */ }
+      setConfirming(true);
+      return;
+    }
     if (postRef.current !== "idle") return;
     postRef.current = "posting";
     setSaving(true);
@@ -313,67 +378,38 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       // user's JWT — no employeeId sent from here (see loansApi.ts's
       // PaymentInput doc comment).
       if (releaseRequestId != null) {
-        // Amount here is what's typed as the full settlement figure — the
-        // discount is a negotiated reduction covering part of it with no
-        // cash movement, so the actual cash payment sent alongside it is
-        // the remainder. RecordReleaseRequestPayment applies the discount
-        // as its own ledger entry FIRST, which reduces the loan's
-        // outstanding balance before the payment call runs — sending the
-        // undiscounted amount here would then overshoot what's left owed
-        // and get rejected as ErrExceedsOutstanding, even though the
-        // discount had already gone through (see that function's own
-        // sequencing). Netting it out here keeps the two in sync.
-        const cashAmount = Math.round((amount - discountAmount) * 100) / 100;
-        // interestOverride is prefilled from outstandingInterest at MODAL-
-        // OPEN time (see the `interest` state's own doc comment) — a fixed
-        // snapshot, not live. The discount posted just above (inside
-        // RecordReleaseRequestPayment) reduces outstanding interest FIRST
-        // in its own penal->interest->principal waterfall before this
-        // payment call ever runs, so that stale prefilled figure no longer
-        // matches what's actually still owed once a discount is in play —
-        // sending it anyway made Full Settlement's amount-vs-total check
-        // compare against the wrong total and reject a correct payment.
-        // Only suppressed when the user hasn't hand-edited the field
-        // (interestTouchedRef): an explicit override is still respected,
-        // same as with no discount at all.
+        // Amount is what the customer actually pays (settlement minus discount), sent as typed with the discount
+        // alongside; the backend checks payment + discount covers what is needed. The discount is posted first and
+        // lowers the balance, so the interest override prefilled at modal-open is only sent if hand-edited. The
+        // payment breakdown was entered against this same Amount, so it is sent unscaled.
         const effectiveInterestOverride = discountAmount > 0 && !interestTouchedRef.current ? undefined : interestOverride;
-        // The split breakdown (cash/UPI/bank transfer/cheque) was entered
-        // against the full pre-discount Amount, so it no longer sums to
-        // cashAmount once the discount is netted out above — scaled down
-        // by the same ratio so it still adds up to what's actually being
-        // sent (ValidateSplit on the backend requires the parts to sum to
-        // the whole). Discount-only settlements (nothing left to pay in
-        // cash) skip the split entirely.
-        const splitRatio = amount > 0 ? cashAmount / amount : 0;
-        const scaledSplit = cashAmount <= 0.01 ? ZERO_SPLIT : {
-          cashAmount: Math.round(split.cashAmount * splitRatio * 100) / 100,
-          upiAmount: Math.round(split.upiAmount * splitRatio * 100) / 100,
-          bankTransferAmount: Math.round(split.bankTransferAmount * splitRatio * 100) / 100,
-          chequeAmount: Math.round(split.chequeAmount * splitRatio * 100) / 100,
-        };
-        // Rounding across four components can leave a fraction of a rupee
-        // unaccounted for — folded into cash (the default/most common mode)
-        // rather than left as drift the backend's own sum check would reject.
-        const scaledTotal = scaledSplit.cashAmount + scaledSplit.upiAmount + scaledSplit.bankTransferAmount + scaledSplit.chequeAmount;
-        scaledSplit.cashAmount = Math.round((scaledSplit.cashAmount + (cashAmount - scaledTotal)) * 100) / 100;
         await recordReleasePayment(releaseRequestId, {
-          amount: cashAmount, type: mode, discount: discountAmount || undefined,
-          cashAmount: scaledSplit.cashAmount,
-          upiAmount: scaledSplit.upiAmount,
-          bankTransferAmount: scaledSplit.bankTransferAmount,
-          chequeAmount: scaledSplit.chequeAmount,
-          bankId,
-          interestOverride: effectiveInterestOverride,
-        }, releaseRequest);
-      } else {
-        await recordPayment(loan.numericId, {
-          amount, type: mode, processingFee: processingFee || undefined, paidOn: date,
+          amount, type: mode, discount: discountAmount || undefined, paidOn: date,
+          discountReason: discountAmount > 0 ? "Discount" : undefined,
+          discountMode: discountAmount > 0 ? discountMode : undefined,
+          discountKind: discountAmount > 0 ? discountKind : undefined,
           cashAmount: split.cashAmount,
           upiAmount: split.upiAmount,
           bankTransferAmount: split.bankTransferAmount,
           chequeAmount: split.chequeAmount,
           bankId,
-          interestOverride,
+          interestOverride: effectiveInterestOverride,
+        }, releaseRequest);
+      } else {
+        // The interest figure prefilled at modal-open is the pre-discount amount; with a discount the backend works
+        // out interest after it, so that prefill is only sent when hand-edited (same rule as the release branch).
+        await recordPayment(loan.numericId, {
+          amount, type: mode, processingFee: processingFee || undefined, paidOn: date,
+          discount: discountAmount || undefined,
+          discountReason: discountAmount > 0 ? "Discount" : undefined,
+          discountMode: discountAmount > 0 ? discountMode : undefined,
+          discountKind: discountAmount > 0 ? discountKind : undefined,
+          cashAmount: split.cashAmount,
+          upiAmount: split.upiAmount,
+          bankTransferAmount: split.bankTransferAmount,
+          chequeAmount: split.chequeAmount,
+          bankId,
+          interestOverride: discountAmount > 0 && !interestTouchedRef.current ? undefined : interestOverride,
         }, loan.uuid);
       }
       // closeModal only hides the shared shell — this component stays
@@ -439,28 +475,45 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                 <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} /><FieldError msg={fe.mode} />
               </div></div>
               <div className="frow c2">
-                <div className={fe.date ? "has-err" : undefined}><label className="f">Payment Date *</label><DatePicker value={date} onChange={(v) => { clearField("date"); setDate(v); }} /><FieldError msg={fe.date} /></div>
+                <div className={fe.date ? "has-err" : undefined}><label className="f">Payment Date *</label><DatePicker value={date} min={initialLoan.opened?.slice(0, 10) || undefined} max={today} onChange={(v) => { clearField("date"); setDate(v); }} /><FieldError msg={fe.date} /></div>
                 <div className={fe.interest ? "has-err" : undefined}><label className="f">Interest (₹)</label>
                   <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} /><FieldError msg={fe.interest} />
                 </div>
               </div>
-              <div className="frow c2">
-                {releaseRequestId != null ? (
-                  <div className={fe.discount ? "has-err" : undefined}><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /><FieldError msg={fe.discount} /></div>
-                ) : (
-                  <div className={fe.fee ? "has-err" : undefined}><label className="f">Additional Charges (₹)</label>
-                    <input className="inp" type="number" min={0} placeholder="e.g. late fee" value={fee} onChange={(e) => setFee(e.target.value)} /><FieldError msg={fe.fee} />
+              {/* One c2 grid for Discount / Additional Charges / Reason / Mode, so they pair up 2-per-row with no half-empty row */}
+              {(
+                <div className="frow c2">
+                  {canDiscount && (
+                    <div><label className="f">Discount Type</label>
+                      <Select options={(Object.keys(DISCOUNT_KIND_LABELS) as DiscountKind[]).map((k) => ({ value: k, label: DISCOUNT_KIND_LABELS[k] }))} value={discountKind} onChange={(v) => chooseDiscountKind(v as DiscountKind)} />
+                    </div>
+                  )}
+                  {canDiscount && (
+                    <div className={fe.discount ? "has-err" : undefined}><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder={discountKind === "customer" ? "optional — negotiated reduction" : "filled from what is owed — change it if needed"} value={discount} onChange={(e) => setDiscount(e.target.value)} /><FieldError msg={fe.discount} /></div>
+                  )}
+                  {releaseRequestId == null && (
+                    <div className={fe.fee ? "has-err" : undefined}><label className="f">Additional Charges (₹)</label>
+                      <input className="inp" type="number" min={0} placeholder="e.g. late fee" value={fee} onChange={(e) => setFee(e.target.value)} /><FieldError msg={fe.fee} />
+                    </div>
+                  )}
+                  <div className={fe.amount ? "has-err" : undefined}>
+                    <label className="f">Amount (₹) *</label>
+                    <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} onBlur={() => {
+                      // Rupees only: a typed amount with paise is rounded to the nearest rupee.
+                      const n = +amt;
+                      if (amt.trim() && Number.isFinite(n) && n > 0 && n !== roundRupee(n)) {
+                        setAmt(String(roundRupee(n)));
+                        toast(`Amount rounded off to ${fmt(roundRupee(n))}`);
+                      }
+                    }} />
+                    <FieldError msg={fe.amount} />
                   </div>
-                )}
-                <div className={fe.amount ? "has-err" : undefined}>
-                  <label className="f">Amount (₹) *</label>
-                  <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} /><FieldError msg={fe.amount} />
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="pay-sec">
-              <div className="pay-sec-t">Payment breakdown <small>How the customer paid</small></div>
+              <div className="pay-sec-t">Payment breakdown</div>
               <div className={fe.split ? "has-err" : undefined}>
                 <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r, b) => { clearField("split"); setSplit(s); setRemaining(r); setBankId(b); }} scrollInternally={false} label={null} />
                 <FieldError msg={fe.split} />
@@ -474,11 +527,14 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
             <div className="pay-r-big">{fmt(previewAmount)}</div>
             <div className="pay-r-cap">{fmtDate(date)} · {paidBy.length ? paidBy.map(([l]) => l).join(" + ") : "—"}</div>
 
-            <div className="pay-r-h">Goes towards</div>
+            {/* Fixed: what the loan owes right now. Editing Amount never moves this figure — only the split below and what is left. */}
+            <div className="pay-r-h">Total due</div>
+            <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Total payable</span><b>{fmt(previewLoan.outstanding + previewLoan.outstandingPenalInterest + previewLoan.outstandingInterest + previewLoan.outstandingProcessingFee)}</b></div>
+            <div className="pay-r-h pay-r-div">Goes towards</div>
             {allocRows.length > 0 ? (
               <>
                 <div className="pay-bar">
-                  {allocRows.map(([label, v, color]) => <i key={label} style={{ width: `${(v / Math.max(previewAmount, 1)) * 100}%`, background: color }} />)}
+                  {allocRows.map(([label, v, color]) => <i key={label} style={{ width: `${(v / Math.max(settledAmount, 1)) * 100}%`, background: color }} />)}
                 </div>
                 {allocRows.map(([label, v, color]) => (
                   <div className="pay-r-row" key={label}>
@@ -488,6 +544,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
               </>
             ) : (
               <div className="pay-r-row" style={{ color: "var(--muted)" }}>Enter an amount</div>
+            )}
+            {discountNum > 0 && (
+              <div className="pay-r-row"><span style={{ color: "var(--muted)" }}>Includes {DISCOUNT_KIND_LABELS[discountKind].toLowerCase()}</span><b>{fmt(discountNum)}</b></div>
             )}
 
             <div className="pay-r-h pay-r-div">Left on the loan</div>
@@ -501,9 +560,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
       <div className="ft">
         {/* Never a silently disabled button: whatever is blocking Review
           * (or the server's last rejection) is spelled out here. */}
-        <span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? "Select a bank" : "")) || err}</span>
+        <span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? "Select a bank" : !splitBalanced ? "The payment breakdown must add up to the amount." : "")) || err}</span>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
+        <button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing || !splitBalanced}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
       </div>
       {/* Portalled to <body> so it stacks over the whole Record Payment modal
         * as its own smaller popup instead of replacing its content. React
@@ -552,11 +611,14 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
                       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>Applied as</div>
                       <div style={grid}>
                         {applied.filter(([, v]) => v > 0.001).map(([label, v, color]) => row(label, fmt(v), { indent: true, color }))}
-                        {+discount > 0 && row("Discount", fmt(+discount), { indent: true })}
+                        {discountNum > 0 && row(`${DISCOUNT_KIND_LABELS[discountKind]} discount`, fmt(discountNum), { indent: true })}
                       </div>
                     </div>
                     <div style={rule}>
-                      <div style={grid}>{row("Amount paying", fmt(previewAmount), { strong: true })}</div>
+                      <div style={grid}>
+                        {row("Amount paying", fmt(previewAmount), { strong: true })}
+                        {discountNum > 0 && row("Total cleared on the loan", fmt(settledAmount))}
+                      </div>
                     </div>
                   </>
                 );

@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { Icon } from "@/common/components/Icon";
@@ -8,6 +9,8 @@ import { getMovementEntry } from "@/modules/cash/services/cashService";
 import { type EntryInfo, type EntryKind } from "@/modules/cash/types/cash-types";
 import { BillLink } from "@/modules/cash/components/BillLink";
 import { EditEntryModalContent } from "@/modules/cash/components/EditEntryModalContent";
+import { DeleteEntryModalContent } from "@/modules/cash/components/DeleteEntryModalContent";
+import { useAuth } from "@/common/providers/AuthProvider";
 
 const KIND_LABEL: Record<EntryKind, string> = {
   cash_in: "Credit (Cash In)",
@@ -24,7 +27,9 @@ type EntryInfoModalContentProps = { entryId: number; onChanged?: () => void; ini
  * remarks and everything recorded about it — category, amount, date, the
  * payment breakdown (or the From / To banks of a transfer), branch, bill. */
 export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfoModalContentProps) {
-  const { closeModal, openModal } = useModal();
+  const { closeModal, openChildModal, closeAllModals } = useModal();
+  const { can } = useAuth();
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
   const [info, setInfo] = useState<EntryInfo | null>(initial ?? null);
   const [err, setErr] = useState("");
 
@@ -92,6 +97,12 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
           {info.remarks || "No remarks were added to this entry."}
         </div>
 
+        {info.loanEntry === "service_charge" && (
+          <p style={{ margin: "14px 0 0", fontSize: 12.5, color: "var(--muted)" }}>This charge is calculated from the loan&apos;s sanction and rate — it cannot be edited on its own.</p>
+        )}
+        {info.loanEntry === "disbursement_reversal" && (
+          <p style={{ margin: "14px 0 0", fontSize: 12.5, color: "var(--muted)" }}>This reversal is calculated from the loan&apos;s sanction and cannot be edited on its own — open the loan&apos;s sanction to change it.</p>
+        )}
         {isTransfer ? (
           <>
             <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Transfer</h4>
@@ -105,6 +116,7 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
           <>
             <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Payment breakdown</h4>
             <table className="tbl" style={{ width: "100%", minWidth: 0 }}>
+              <TableCols widths={[25, 40, 35]} />
               <thead><tr><th>Mode</th><th>Bank</th><th className="num">Amount</th></tr></thead>
               <tbody>
                 {info.lines.map((l) => (
@@ -115,6 +127,20 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
                 )}
               </tbody>
             </table>
+            {info.split && info.split.length > 0 && (
+              <>
+                <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Paid towards</h4>
+                <table className="tbl" style={{ width: "100%", minWidth: 0 }}>
+                  <TableCols widths={[25, 40, 35]} />
+                  <thead><tr><th>Part</th><th>Mode</th><th className="num">Amount</th></tr></thead>
+                  <tbody>
+                    {info.split.map((ln, i) => (
+                      <tr key={`${ln.label}-${ln.mode ?? ""}-${i}`}><td>{ln.label}</td><td>{ln.mode || "—"}</td><td className="num">{fmt(ln.amount)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
           </>
         )}
 
@@ -124,8 +150,13 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
+        {info.editable && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => openChildModal(<DeleteEntryModalContent entryId={entryId} label={info.category} onDeleted={() => { onChanged?.(); closeAllModals(); }} />)}>
+            <Icon name="trash" /> Delete
+          </button>
+        )}
         {info.editable && (
-          <button className="btn" onClick={() => openModal(<EditEntryModalContent entryId={entryId} info={info} onSaved={onChanged} />)}>
+          <button className="btn" onClick={() => openChildModal(<EditEntryModalContent entryId={entryId} info={info} onSaved={() => { onChanged?.(); closeAllModals(); }} />)}>
             <Icon name="edit" /> Edit
           </button>
         )}

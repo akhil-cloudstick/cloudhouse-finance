@@ -1,7 +1,9 @@
 import { apiFetchEnveloped as apiFetch, ApiError } from "@/common/services/httpClient";
 import { enqueueAndWait, getLocal, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { queueWrite } from "@/common/offline/queueWrite";
 import { getSelectedBranchId } from "@/common/services/branchSelection";
+import { offlineStore } from "@/common/services/desktopBridge";
 import { buildOptimisticCustomer, UUID_ID } from "@/modules/customers/services/customerOffline";
 import { uploadFile as uploadSharedFile } from "@/common/services/uploadService";
 import { isSmallScreen } from "@/common/utils/responsive";
@@ -140,7 +142,7 @@ export const CUSTOMERS_TABLE_PAGE_SIZE = 10;
 export async function listCustomersPage(
   q: string,
   page: number,
-  filters?: { panStatus?: string; aadhaarStatus?: string; branchIds?: string[] },
+  filters?: { panStatus?: string; aadhaarStatus?: string; branchIds?: string[]; customerType?: string },
   limit?: number
 ): Promise<{ items: CustomerView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 9);
@@ -148,6 +150,7 @@ export async function listCustomersPage(
   if (filters?.panStatus) params.set("panStatus", filters.panStatus);
   if (filters?.aadhaarStatus) params.set("aadhaarStatus", filters.aadhaarStatus);
   if (filters?.branchIds?.length) params.set("branchIds", filters.branchIds.join(","));
+  if (filters?.customerType) params.set("customerType", filters.customerType);
   return orLocal(
     async () => {
       const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean; total?: number }>(`/customers?${params}`);
@@ -194,6 +197,24 @@ export async function searchCustomersPage(q: string, page: number): Promise<{ it
   );
 }
 
+/* Same as searchCustomersPage, narrowed to Borrower customers — investors are kept to the Investments section, so
+ * loan pickers never offer them. */
+export async function searchBorrowersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE), customerType: "Borrower" });
+  return orLocal(
+    async () => {
+      const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
+      return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+    },
+    () => {
+      // the borrowers on this PC, including one registered here that the server has not numbered yet
+      const all = localCustomers().filter((c) => c.customerType !== "Investor" && matchesCustomer(c, q));
+      const from = page * CUSTOMER_PAGE_SIZE;
+      return { items: all.slice(from, from + CUSTOMER_PAGE_SIZE).map(toView), hasMore: from + CUSTOMER_PAGE_SIZE < all.length };
+    },
+  );
+}
+
 /* Same as searchCustomersPage, narrowed to Investor customers only — backs
  * the investor picker in the New Investment flow
  * (modules/investments/components/NewInvestmentModalContent.tsx). */
@@ -223,6 +244,29 @@ export async function getCustomer(id: string): Promise<CustomerView> {
     },
   );
 }
+
+/* A customer page's URL carries the customer's code (CUST-04), older links the
+ * numeric id — both resolve here. */
+export function isNumericCustomerRef(ref: string): boolean {
+  return /^\d+$/.test(ref);
+}
+
+export async function getCustomerByRef(ref: string): Promise<CustomerView> {
+  if (isNumericCustomerRef(ref)) return getCustomer(ref);
+  return orLocal(
+    async () => toView(await apiFetch<BackendCustomer>(`/customers/by-code/${encodeURIComponent(ref)}`)),
+    () => {
+      // the page is opened by the customer's code; with no server answer it is found in this PC's copy
+      const rec = (listLocal("customers") as unknown as BackendCustomer[]).find((c) => c.code === ref);
+      if (!rec) throw new ApiError("Customer not found", 404);
+      return toView(rec);
+    },
+  );
+}
+
+/* A customer page's URL carries the customer's code (CUST-04), older links the
+ * numeric id — both resolve here. */
+
 
 export async function verifyCustomerPan(id: string): Promise<PanVerificationResult> {
   const res = await apiFetch<{ customer: BackendCustomer; message: string; matchedName: string; traceId: string }>(
@@ -264,6 +308,35 @@ export async function createCustomer(input: CustomerFormInput, hint?: { branchNa
     });
     return toView(rec);
   }
+  // The server refuses a phone, PAN or Aadhaar already on file, and a refusal found only when the entry is sent leaves a
+  // customer on this PC that never reaches the server (and every loan or investment made for them). The same check is
+  // made here on this PC's copy, so the person is told before saving.
+  const known = listLocal("customers") as unknown as BackendCustomer[];
+  const phone = (input.phone ?? "").trim();
+  if (phone && known.some((c) => (c.phone ?? "").trim() === phone)) {
+    throw new ApiError("phone number is already registered to another customer", 409);
+  }
+  // the server compares PANs in capitals; this PC holds every customer's PAN
+  const pan = (input.pan ?? "").trim().toUpperCase();
+  if (pan && known.some((c) => (c.pan ?? "").trim().toUpperCase() === pan)) {
+    throw new ApiError("PAN is already registered to another customer", 409);
+  }
+  // This PC holds only the last four digits of a customer the server has, so the full number can be matched only against
+  // customers made on this PC and still waiting to be sent (their entries carry it whole). A number the server already has
+  // under another customer is refused when the entry is sent.
+  const aadhaar = (input.aadhaar ?? "").replace(/[s-]/g, "");
+  if (aadhaar) {
+    for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
+      try {
+        const e = JSON.parse(line) as { method?: string; path?: string; body?: { aadhaar?: string } };
+        if (e.method === "POST" && e.path === "/customers" && (e.body?.aadhaar ?? "").replace(/[s-]/g, "") === aadhaar) {
+          throw new ApiError("Aadhaar number is already registered to another customer", 409);
+        }
+      } catch (err) {
+        if (err instanceof ApiError) throw err;
+      }
+    }
+  }
   // Desktop: the save goes into the outbox first and the customer is in the local copy at once, so a loan can
   // be started for them straight away. If the server answers within a few seconds the real record comes back
   // (with its customer code), otherwise they show without a code until the next send.
@@ -290,7 +363,8 @@ export async function updateCustomer(id: string, input: CustomerFormInput): Prom
 }
 
 export async function deleteCustomer(id: string): Promise<void> {
-  await apiFetch<void>(`/customers/${id}`, { method: "DELETE" });
+  const path = `/customers/${id}`;
+  await queueWrite("DELETE", path, undefined, undefined, () => apiFetch<void>(path, { method: "DELETE" }));
 }
 
 /* Permanently deletes the customer and every record tied to them (loans and
@@ -299,7 +373,8 @@ export async function deleteCustomer(id: string): Promise<void> {
  * Rejected (thrown) if any of the customer's loans aren't yet Closed/
  * Auctioned; the thrown error's message names the offending loan number(s). */
 export async function hardDeleteCustomer(id: string): Promise<void> {
-  await apiFetch<void>(`/customers/${id}/hard-delete`, { method: "DELETE" });
+  const path = `/customers/${id}/hard-delete`;
+  await queueWrite("DELETE", path, undefined, undefined, () => apiFetch<void>(path, { method: "DELETE" }));
 }
 
 /* `range` narrows the profile to loans opened within an inclusive
@@ -360,7 +435,7 @@ async function getCustomer360Live(id: string, suffix: string): Promise<Customer3
  * page fills it exactly without the card growing. */
 export const CUSTOMER_SUBTABLE_PAGE_SIZE = 10;
 
-function subTableParams(page: number, range?: { from?: string; to?: string }, limit?: number): URLSearchParams {
+function subTableParams(page: number, range?: { from?: string; to?: string; search?: string }, limit?: number): URLSearchParams {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
     limit: String(pageSize),
@@ -368,6 +443,7 @@ function subTableParams(page: number, range?: { from?: string; to?: string }, li
   });
   if (range?.from) params.set("from", range.from);
   if (range?.to) params.set("to", range.to);
+  if (range?.search) params.set("search", range.search);
   return params;
 }
 
@@ -397,7 +473,7 @@ function pageOfLocal<T>(all: T[], page: number, limit?: number): { items: T[]; h
 export async function listCustomerLoansPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
@@ -416,7 +492,7 @@ export async function listCustomerLoansPage(
 export async function listCustomerOrnamentsPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: CustomerOrnamentRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
@@ -436,7 +512,7 @@ export async function listCustomerOrnamentsPage(
 export async function listCustomerPaymentsPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: CustomerPaymentRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
@@ -458,7 +534,7 @@ export async function listCustomerPaymentsPage(
 export async function listCustomerBankPledgesPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: CustomerBankPledgeRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);
@@ -478,7 +554,7 @@ export async function listCustomerBankPledgesPage(
 export async function listCustomerAuctionHistoryPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string },
+  range?: { from?: string; to?: string; search?: string },
   limit?: number
 ): Promise<{ items: CustomerAuctionRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range, limit);

@@ -1,7 +1,9 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
@@ -16,12 +18,15 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/com
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
+import { listSchemesPage } from "@/modules/schemes/services/schemeService";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 
 // Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
 const NO_BRANCHES: string[] = [];
 
-const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
+const PLEDGE_STATUSES = ["Not Pledged", "Bank Pledged", "Released"];
+
+const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Auctioned", "Auctioned - Balance Due", "Closure Requested", "Closed", "Rejected"];
 
 /* "Due Soon"/"Overdue"/"Defaulted" are read-time classifications (see
  * loan/accrual.go's enrichStatusFlags), not stored statuses, so they are not
@@ -29,7 +34,7 @@ const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Appr
  * applies the same rules and paginates (see loan/servicing_filter.go). The
  * three are mutually exclusive: Overdue leaves out defaulted loans, and
  * Defaulted leaves out loans already in the auction pipeline. */
-const SERVICING_CATS: Partial<Record<string, "due_soon" | "overdue" | "defaulted">> = {
+const SERVICING_CATS: Partial<Record<string, ServicingClass>> = {
   "Due Soon": "due_soon",
   "Overdue": "overdue",
   "Defaulted": "defaulted",
@@ -66,9 +71,11 @@ export function LoansPage() {
   // selection (it would intersect the global branch to an empty page).
   const branchIds = showBranchFilter ? savedBranchIds : NO_BRANCHES;
   const [customerIds, setCustomerIds] = usePersistedState<string[]>("loans:customers", []);
+  const [schemeIds, setSchemeIds] = usePersistedState<string[]>("loans:schemes", []);
+  const [pledgeStatuses, setPledgeStatuses] = usePersistedState<string[]>("loans:pledge", []);
   const [branches, setBranches] = useState<BranchView[]>([]);
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePersistedPage("loans");
   const [filtered, setFiltered] = useState<LoanView[] | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [serverTotal, setServerTotal] = useState(0);
@@ -80,10 +87,12 @@ export function LoansPage() {
   const catsKey = cats.join("|");
   const branchKey = branchIds.join(",");
   const customerKey = customerIds.join(",");
+  const schemeKey = schemeIds.join(",");
+  const pledgeKey = pledgeStatuses.join(",");
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [catsKey, q, fromDate, toDate, branchKey, customerKey, pageSize]);
+  useResetPageOnChange(setPage, [catsKey, q, fromDate, toDate, branchKey, customerKey, schemeKey, pledgeKey, pageSize]);
 
   // LoansProvider fetches once when the app shell mounts and is only
   // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,
@@ -105,6 +114,8 @@ export function LoansPage() {
         q: q.trim() || undefined,
         branchId: branchIds.map(Number),
         customerId: customerIds.map(Number),
+        schemeId: schemeIds.map(Number),
+        bankPledgeStatus: pledgeStatuses[0],
         from: fromDate || undefined,
         to: toDate || undefined,
         page,
@@ -124,7 +135,7 @@ export function LoansPage() {
     // Keying off the new array identity re-issues the filtered query in step
     // with every provider refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catsKey, q, fromDate, toDate, branchKey, customerKey, page, allLoans, pageSize]);
+  }, [catsKey, q, fromDate, toDate, branchKey, customerKey, schemeKey, pledgeKey, page, allLoans, pageSize]);
 
   // One grouped filter (same FilterPanel the ledger pages use) replacing the
   // old status tab row + standalone date pickers. Every section is
@@ -141,10 +152,23 @@ export function LoansPage() {
     {
       key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
       fetchOptions: (search: string, p: number) =>
-        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined }, 20).then((res) => ({
+        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined, customerType: "Borrower" }, 20).then((res) => ({
           items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
           hasMore: res.hasMore,
         })),
+    },
+    {
+      key: "scheme", label: "Scheme", kind: "async" as const, searchHint: "Searches: scheme name, code",
+      fetchOptions: (search: string, p: number) =>
+        // FilterPanel pages are 1-based, listSchemesPage is 0-based; passing p raw skipped the first 20 schemes.
+        listSchemesPage({ q: search || undefined }, p - 1, 20).then((res) => ({
+          items: res.items.map((s) => ({ value: String(s.id), label: s.name })),
+          hasMore: res.hasMore,
+        })),
+    },
+    {
+      key: "pledge", label: "Pledge Status", kind: "static" as const, singleSelect: true, searchHint: "Filters by bank pledge status",
+      options: PLEDGE_STATUSES.map((v) => ({ value: v, label: v })),
     },
     { key: "__date", label: "Date", kind: "date" as const },
   ];
@@ -152,6 +176,8 @@ export function LoansPage() {
     status: cats,
     branch: branchIds,
     customer: customerIds,
+    scheme: schemeIds,
+    pledge: pledgeStatuses,
     __dateFrom: fromDate || undefined,
     __dateTo: toDate || undefined,
   };
@@ -170,7 +196,7 @@ export function LoansPage() {
       <div className="page-h" >
         <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" title="Searches: loan number, customer name, customer code" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan ID or customer…" searches="loan number, customer name, customer code" value={q} onChange={setQ} />
         {canCreateLoans && <a className="btn" href={routeHref("newloan")}><Icon name="plus" /> New Gold Loan</a>}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
@@ -183,6 +209,8 @@ export function LoansPage() {
             setCats(Array.isArray(next.status) ? next.status.filter((st) => CATS.includes(st)) : []);
             setBranchIds(Array.isArray(next.branch) ? next.branch : []);
             setCustomerIds(Array.isArray(next.customer) ? next.customer : []);
+            setSchemeIds(Array.isArray(next.scheme) ? next.scheme : []);
+            setPledgeStatuses(Array.isArray(next.pledge) ? next.pledge.filter((v) => PLEDGE_STATUSES.includes(v)) : []);
             setFromDate(next.__dateFrom || "");
             setToDate(next.__dateTo || "");
           }}
@@ -192,6 +220,7 @@ export function LoansPage() {
       </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
       <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center loans-tbl tbl-cards">
+        <TableCols widths={[22, 16, 14, 12, 12, 12, 12]} />
         <thead><tr><th>Loan / Customer</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
         <tbody>
           {loading && !(cards && rows.length > 0) ? (
@@ -205,6 +234,7 @@ export function LoansPage() {
       <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page}{knownTotal ? ` of ${totalPages}` : ""}</span>
+        {knownTotal && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {serverTotal.toLocaleString("en-IN")} {serverTotal === 1 ? "result" : "results"}</span>}
         <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
       </div>
       </div>

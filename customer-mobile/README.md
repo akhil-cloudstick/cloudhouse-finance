@@ -15,10 +15,10 @@ Press `a` to launch on a connected Android emulator/device, or scan the QR code 
 Unlike the web admin (`frontend/`), there's no single-port dev proxy here — the app always talks to the Go backend directly over HTTP, since a device/emulator can't reach it via a Next.js-style proxy the way a browser does. Point it at your machine by setting `EXPO_PUBLIC_API_BASE_URL` in a `.env.local` file (Expo picks up `EXPO_PUBLIC_*` vars automatically):
 
 ```
-EXPO_PUBLIC_API_BASE_URL=http://192.168.1.23:8080/api/v1/customer
+EXPO_PUBLIC_API_BASE_URL=http://192.168.1.23:8090/api/v1/customer
 ```
 
-- **Android emulator**: the default (`http://10.0.2.2:8080/api/v1/customer`) already works out of the box — `10.0.2.2` is the emulator's alias for your machine's `localhost`.
+- **Android emulator**: the default (`http://10.0.2.2:8090/api/v1/customer`) already works out of the box — `10.0.2.2` is the emulator's alias for your machine's `localhost`.
 - **Physical device**: set `EXPO_PUBLIC_API_BASE_URL` to your machine's LAN IP instead — the device is a separate host on the network.
 
 Make sure the backend is running (`cd backend && go run .`) and migrated (`go run ./cmd/migrate`), and that a WhatsApp/OpenWA sender is configured under the staff web app's Settings > WhatsApp page — OTP delivery for this app goes out over that same integration.

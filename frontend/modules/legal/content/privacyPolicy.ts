@@ -7,17 +7,18 @@ export const privacyPolicy: LegalDocumentSource = {
     {
       heading: "1. Who we are",
       body: [
-        "{{app}} is provided by {{provider}}, {{address}} (“we”, “us”).",
-        { only: "staff", text: "This is the internal staff and field-agent policy. The app is for authorised employees and agents of the lender, not for the public or for loan applicants." },
-        "You can reach us at {{email}} or {{phone}}.",
+        "{{app}} is provided by {{provider}} (“we”, “us”).",
+        { only: "staff", text: "This app is an internal enterprise tool meant exclusively for authorised employees and field agents of {{provider}}. It is not for the public or for loan applicants. Accounts cannot be created by users within the app; they are provisioned manually by backend administrators." },
+        "You can reach us at {{phone}}.",
       ],
     },
     {
       heading: "2. Information we collect",
       list: [
         { only: "customer", text: "Your name, mobile number, address and KYC details (such as Aadhaar or PAN numbers and documents) that your lender holds about you; your loan, interest and payment records; and the one-time password sent to your mobile number to sign you in." },
-        { only: "staff", text: "Your name, login ID and role; the customer, loan, payment and KYC records you enter or view while working; and photographs and documents you capture or upload with the camera, photo library or file picker." },
-        "Device and technical information: device type, app version, push-notification token, error and diagnostic logs and IP address, used to keep the service secure and working and to send notifications.",
+        { only: "staff", text: "About you: your name, login ID and role." },
+        { only: "staff", text: "Customer information you enter while working (such as name, address, KYC or ID details, photographs and documents captured with the camera or chosen from your photo library). This belongs to the lender and its customers. We do not collect it for our own use: the app only passes it to the lender's account so you can verify the customer. We do not use it for any other purpose." },
+        "Our servers log your IP address and the requests the app makes, used only to keep the service secure and working. The app has no push-notification, analytics, advertising or crash-reporting service.",
         "We do not collect your location, contacts or microphone data, and we do not use advertising identifiers.",
       ],
     },
@@ -25,9 +26,9 @@ export const privacyPolicy: LegalDocumentSource = {
       heading: "3. How we use it",
       list: [
         "To sign you in and verify your identity.",
-        "To show and manage loans, payments and statements.",
-        "To meet legal, KYC and anti-money-laundering duties.",
-        "To send service messages such as payment reminders.",
+        { only: "customer", text: "To show and manage loans, payments and statements." },
+        { only: "customer", text: "To meet legal, KYC and anti-money-laundering duties." },
+        { only: "staff", text: "To let you record and verify customer details for the lender you work for. We use this data for that verification only." },
         "To detect fraud, secure the service and support you.",
       ],
     },
@@ -42,12 +43,13 @@ export const privacyPolicy: LegalDocumentSource = {
     },
     {
       heading: "5. Sharing",
-      body: ["We do not sell your personal data. We share it only:"],
+      body: ["We do not sell your personal data."],
       list: [
-        "with the lender (business) that holds your account;",
-        "with service providers acting for us — hosting, SMS or WhatsApp delivery, payment and identity-verification partners — under confidentiality;",
-        { only: "customer", text: "with Razorpay, our payment processor, when you pay a loan instalment: card, UPI or bank details are entered on Razorpay's screen and are processed by Razorpay under its own privacy policy; we do not receive or store them, and only receive the payment status, amount and reference;" },
-        "with authorities, when the law requires it.",
+        { only: "customer", text: "We share it only with the lender (business) that holds your account;" },
+        { only: "staff", text: "Customer details you enter are stored in the lender's account and are visible only to that lender's authorised users. Your staff details are shared only with that lender." },
+        "Our hosting and message-delivery providers process data on our behalf under confidentiality.",
+        { only: "customer", text: "We share payment data with Razorpay, our payment processor, when you pay a loan instalment: card, UPI or bank details are entered on Razorpay's screen and are processed by Razorpay under its own privacy policy; we do not receive or store them, and only receive the payment status, amount and reference;" },
+        "We disclose data to authorities only when the law requires it.",
       ],
     },
     {
@@ -59,21 +61,24 @@ export const privacyPolicy: LegalDocumentSource = {
     {
       heading: "7. Retention",
       body: [
-        "We retain personal information for as long as necessary to provide the service, maintain your account and meet applicable legal, regulatory, accounting and record-keeping obligations. Certain loan, payment and KYC records may need to be kept after account deletion and are then restricted to compliance use. When information is no longer required, we delete or anonymise it, subject to applicable law.",
+        { only: "customer", text: "We retain personal information for as long as necessary to provide the service, maintain your account and meet applicable legal, regulatory, accounting and record-keeping obligations. Certain loan, payment and KYC records may need to be kept after account deletion and are then restricted to compliance use. When information is no longer required, we delete or anonymise it, subject to applicable law." },
+        { only: "staff", text: "We keep your staff login details while your account is active. Customer information you enter is held in the lender's account for the lender's own records and legal obligations; we do not keep it for any purpose of our own. When your login is disabled we delete or anonymise your staff profile, subject to applicable law." },
       ],
     },
     {
       heading: "8. Your rights",
       body: [
-        "You may ask to access or correct your data, to withdraw consent, or to have your data deleted, subject to the legal retention above.",
-        "Account deletion: to request deletion, follow the steps on the Account Deletion page or write to {{email}} from your registered address. We verify your identity and tell you the expected processing time; the Account Deletion page lists what is deleted and which records we must keep. Uninstalling the app does not delete your account.",
+        { only: "customer", text: "You may ask to access or correct your data, to withdraw consent, or to have your data deleted, subject to the legal retention above." },
+        { only: "staff", text: "You may ask to access or correct your staff details, or to have your login disabled and your staff profile deleted. Requests about a customer's information should go to the lender that holds it." },
+        { only: "customer", text: "Account deletion: to request deletion, follow the steps on the Account Deletion page or call {{phone}}. We verify your identity and tell you the expected processing time; the Account Deletion page lists what is deleted and which records we must keep. Uninstalling the app does not delete your account." },
+        { only: "staff", text: "Account deletion: because the app does not support user-initiated account creation, accounts are provisioned internally by administrators and cannot be created within the app. Staff members who wish to disable their login or request data deletion may contact their backend administrator or call {{phone}}. We verify the request before acting. Uninstalling the app does not delete your account." },
       ],
     },
     { heading: "9. Children", body: ["The app is not for anyone under 18."] },
     { heading: "10. Changes", body: ["When this policy changes we update this page and its date."] },
     {
       heading: "11. Grievance contact",
-      body: ["{{provider}}, {{address}}. Email {{email}}. Phone {{phone}}."],
+      body: ["{{provider}}. Phone {{phone}}."],
     },
   ],
 };

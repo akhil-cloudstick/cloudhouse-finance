@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type Dispatch, type SetStateAction } from "react";
-import { fmt } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { Icon } from "@/common/components/Icon";
 import { FieldError } from "@/common/components/ui/FieldError";
 import { Select } from "@/common/components/ui/Select";
@@ -16,7 +16,6 @@ const MODE_OPTIONS = [
   { value: "Bank Transfer", label: "Bank Transfer" },
 ];
 
-const MAX_ROWS = 6;
 
 const noWheelStep = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
 
@@ -33,7 +32,16 @@ export function newPaymentRow(init?: Partial<PaymentRow>): PaymentRow {
 
 export const isBankMode = (mode: string) => mode === "UPI" || mode === "Bank Transfer";
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+const round2 = (n: number) => roundRupee(n);
+
+/* A lone untouched row follows the total, but only via the effect below — one render late. Anything that
+ * reads the rows during render (the "still to allocate" line, the parent's balanced check) must use this
+ * instead, or it sees a stale amount for a frame and flips red then green on every change of the total. */
+export function effectiveRows(rows: PaymentRow[], total: number): PaymentRow[] {
+  if (rows.length !== 1 || !rows[0].auto) return rows;
+  const v = total > 0 ? String(total) : "";
+  return rows[0].amount === v ? rows : [{ ...rows[0], amount: v }];
+}
 
 /* The rows as the backend's payment lines — rows with no amount are dropped. */
 export function paymentRowsToInput(rows: PaymentRow[]): PaymentPartInput[] {
@@ -106,7 +114,8 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
     if (rows[0].amount !== v) onChange((cur) => (cur.length === 1 && cur[0].auto ? [{ ...cur[0], amount: v }] : cur));
   }, [total, rows, onChange]);
 
-  const allocated = round2(rows.reduce((s, r) => s + (+r.amount || 0), 0));
+  const shownRows = effectiveRows(rows, total);
+  const allocated = round2(shownRows.reduce((s, r) => s + (+r.amount || 0), 0));
   const remaining = round2(total - allocated);
   const patch = (key: number, p: Partial<PaymentRow>) =>
     onChange((cur) => cur.map((r) => (r.key === key ? { ...r, auto: false, ...p } : r)));
@@ -118,7 +127,7 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
     const last = left[left.length - 1];
     return left.map((r) => (r.key === last.key && gone ? { ...r, amount: String(round2((Number(r.amount) || 0) + (Number(gone.amount) || 0))), auto: false } : r));
   });
-  const add = () => onChange((cur) => (cur.length >= MAX_ROWS ? cur : [...cur, newPaymentRow({ auto: false, amount: remaining > 0 ? String(remaining) : "" })]));
+  const add = () => onChange((cur) => [...cur, newPaymentRow({ auto: false, amount: remaining > 0 ? String(remaining) : "" })]);
 
   // The remove column only exists once there is more than one line.
   const grid = {
@@ -134,8 +143,8 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
           {label === null ? <span /> : <label className="f" style={{ margin: 0 }}>{label ?? <>Mode * <span style={{ fontWeight: 400, color: "var(--muted)" }}>(payment breakdown)</span></>}</label>}
           <button
-            type="button" onClick={add} disabled={rows.length >= MAX_ROWS} title="Add payment mode" aria-label="Add payment mode"
-            style={{ width: 28, height: 28, borderRadius: "50%", border: "1.5px solid var(--line)", background: "#fff", color: "var(--brand-deep, #423591)", cursor: rows.length >= MAX_ROWS ? "not-allowed" : "pointer", opacity: rows.length >= MAX_ROWS ? 0.5 : 1, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }}
+            type="button" onClick={add} title="Add payment mode" aria-label="Add payment mode"
+            style={{ width: 28, height: 28, borderRadius: "50%", border: "1.5px solid var(--line)", background: "#fff", color: "var(--brand-deep, #423591)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }}
           ><Icon name="plus" /></button>
         </div>
         <div style={{ ...grid, marginBottom: 4 }}>
@@ -146,7 +155,7 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
         </div>
         {/* The lines scroll inside a fixed height, so adding modes never grows the modal. */}
         <div className="no-scrollbar" style={{ ...(scrollInternally ? { maxHeight: 132, overflowY: "auto", overflowX: "hidden" } : {}), marginBottom: 8, paddingBottom: 2 }}>
-        {rows.map((r) => (
+        {shownRows.map((r) => (
           <div key={r.key} className={error?.key === r.key ? "has-err" : undefined} style={{ marginBottom: 8 }}>
           <div style={grid}>
             <Select
@@ -186,13 +195,12 @@ export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally
           </div>
         ))}
         </div>
-        <div style={{ minHeight: 18 }}>
+        <div>
           {error && error.key === null && <FieldError msg={error.message} />}
-          {total > 0 && !(error && error.key === null) && (
-            <span style={{ fontSize: 12.5, color: Math.abs(remaining) < 0.005 ? "var(--green)" : "var(--red)" }}>
-              {Math.abs(remaining) < 0.005
-                ? `Fully allocated ${fmt(total)}`
-                : remaining > 0 ? `${fmt(remaining)} still to allocate` : `Exceeds the amount by ${fmt(-remaining)}`}
+          {/* said only while the lines do not add up — a breakdown that is complete needs no message */}
+          {total > 0 && Math.abs(remaining) >= 0.005 && !(error && error.key === null) && (
+            <span style={{ fontSize: 12.5, color: "var(--red)" }}>
+              {remaining > 0 ? `${fmt(remaining)} still to allocate` : `Exceeds the amount by ${fmt(-remaining)}`}
             </span>
           )}
         </div>

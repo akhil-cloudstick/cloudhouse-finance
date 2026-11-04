@@ -7,6 +7,7 @@
 import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
 import { toQR } from "toqr";
+import { presentFile } from "@/common/utils/presentFile";
 import { dmy, fmt, todayISO } from "@/common/utils/format";
 import { rupeesInWords } from "@/common/utils/numberToWords";
 import { Loan, LoanTopUp } from "@/modules/loans/types/loan-types";
@@ -261,7 +262,7 @@ async function printServerPdf(path: string, filename: string): Promise<void> {
     FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
     throw new ApiError(result.status, message, body);
   }
-  await Print.printAsync({ uri: result.uri });
+  await presentFile(result.uri, { mimeType: "application/pdf", title: filename.replace(/\.pdf$/i, "") });
 }
 
 // GET /loans/:id/indemnity-bond/pdf?lang=en|ml|gu

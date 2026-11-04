@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Buffering, C, CenterModal, ChipToggle, Field, GrmTabs, Input, PrimaryButton, ReviewWarning, ServerFlatList, Txt, WarningBanner, toast } from "@/common/components/ui";
+import { Buffering, C, CenterModal, ChipToggle, DateField, Field, GrmTabs, Input, PrimaryButton, ReviewWarning, ServerFlatList, Txt, WarningBanner, toast } from "@/common/components/ui";
 import { Chevron } from "@/common/components/ui/Chevron";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { latestGoldRate, listGoldRatesPage, publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { dmy, inr } from "@/common/utils/format";
+import { dmy, inr, todayISO } from "@/common/utils/format";
 import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/common/utils/purity";
 import type { GoldRate } from "@/modules/gold-rates/types/gold-rate-types";
 import { userMessage } from "@/common/services/apiErrors";
@@ -80,9 +80,12 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const [fin, setFin] = useState<Record<Karat, string>>({ 24: String(FINENESS_24K), 22: savedFineness(22, now[24], now[22]), 18: savedFineness(18, now[24], now[18]) });
   const [lastEdited, setLastEdited] = useState<Karat | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The day the rate is for — today unless another day is picked; the same rate may be saved for any day.
+  const [rateDate, setRateDate] = useState(todayISO());
 
   const resetAuto = (k24: number) => {
     setMode("Auto");
+    setRateDate(todayISO());
     setRef24(k24);
     const f22 = savedFineness(22, now[24], now[22]);
     const f18 = savedFineness(18, now[24], now[18]);
@@ -162,9 +165,10 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const save = useMutation({
     mutationFn: async () => {
       const setBy = employee?.name ?? "Mobile App";
-      const jobs = KARAT_ROWS.filter(({ k }) => n[k] > 0 && Math.round(n[k]) !== Math.round(now[k])).map(({ k }) => ({ karat: k, rate: n[k] }));
-      if (!jobs.length) throw new Error("Nothing has changed from the current rates.");
-      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy);
+      if (!rateDate) throw new Error("Pick the date this rate is for.");
+      // All three rates are published for the chosen day, even when they equal the current ones.
+      const jobs = KARAT_ROWS.filter(({ k }) => n[k] > 0).map(({ k }) => ({ karat: k, rate: n[k] }));
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, rateDate);
       return jobs;
     },
     onSuccess: (jobs) => {
@@ -202,6 +206,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
                 </View>
               ))}
             </View>
+            <DateField label="Rate date" value={rateDate} onChange={(v) => { setRateDate(v); setError(null); }} />
             <Field label="Mode">
               <ChipToggle options={["Auto", "Manual"] as const} value={mode} onChange={switchMode} />
             </Field>

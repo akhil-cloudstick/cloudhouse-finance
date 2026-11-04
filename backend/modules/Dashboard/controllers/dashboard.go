@@ -77,6 +77,14 @@ func getNeedsAttention(ctx context.Context, page int, branchScope *uint, f Needs
 			Detail:       r.Detail,
 		})
 	}
+	// A defaulted loan whose gold is pledged to a bank isn't ready for auction until the bank releases it.
+	ready := auctions[:0]
+	for _, l := range auctions {
+		if l.Status == loanModels.StatusAuctionEligible || loan.AvailableForAuction(&l) {
+			ready = append(ready, l)
+		}
+	}
+	auctions = ready
 	for _, l := range auctions {
 		if !include("auctions") {
 			break

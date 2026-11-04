@@ -1,11 +1,15 @@
 "use client";
 
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
+import { ManageCategoriesModalContent } from "@/modules/cash/components/ManageCategoriesModalContent";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
-import { fmt } from "@/common/utils/format";
+import { fmt, fmtDate, localToday } from "@/common/utils/format";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { AddEntryModalContent } from "@/modules/cash/components/AddEntryModalContent";
 import { ReceiptViewModalContent } from "@/modules/cash/components/ReceiptViewModalContent";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
@@ -15,7 +19,7 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/com
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { useExpenseCategoryIdsState } from "@/common/hooks/use-expense-category-ids";
 import { rememberedLedgerPage, reloadedLedgerPosition, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
-import { listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary, approveExpense, rejectExpense, exportCashMovements, exportExpenses } from "@/modules/cash/services/cashService";
+import { listCashMovementsPage, listExpensesPage, getExpense, listGoldSalesPage, getCashSummary, approveExpense, rejectExpense, exportCashMovements, exportExpenses } from "@/modules/cash/services/cashService";
 import { type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory } from "@/modules/cash/types/cash-types";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { canActAtStage, stageByPending } from "@/common/services/approvalWorkflowService";
@@ -27,9 +31,11 @@ import { useShowBranch, useShowBranchFilter } from "@/common/hooks/use-branch-sw
 import { singleFlight } from "@/common/utils/singleFlight";
 import { Kpi } from "@/modules/cash/components/Kpi";
 import { MovementRow } from "@/modules/cash/components/MovementRow";
+import { useBankPledgeEntryActions } from "@/modules/loans/components/useBankPledgeEntryActions";
 import { ExpenseRow } from "@/modules/cash/components/ExpenseRow";
 import { EditEntryModalContent } from "@/modules/cash/components/EditEntryModalContent";
 import { GoldSaleRow } from "@/modules/cash/components/GoldSaleRow";
+import { TableCols } from "@/common/components/ui/TableCols";
 
 // Stable empty selection for a hidden Branch filter (see useShowBranchFilter).
 const NO_BRANCHES: string[] = [];
@@ -52,7 +58,7 @@ function withRunningBalance(items: CashMovementView[], topBalance: number): { m:
  * backend-backed: cash movements, the expense register, the opening cash
  * balance, and the Expected Cash in Hand figure all come from the Go API
  * (backend/internal/cash) instead of localStorage. */
-export function CashPage() {
+export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
   const { openModal } = useModal();
   const toast = useToast();
   // Recording cash movements and expenses is a create; closing a loan movement is an update.
@@ -73,7 +79,12 @@ export function CashPage() {
   // the first step, the same as the backend reads it.
   const expenseStage = (e: ExpenseView) => stageByPending(workflow, "expense", e.approvalStage || "Pending");
   const [decidingExpenseId, setDecidingExpenseId] = useState<number | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  // The summary tiles show one day: today (in the browser's own timezone) unless another date is picked.
+  const realToday = localToday();
+  const [summaryDate, setSummaryDate] = usePersistedState("cash:summary-date", "");
+  const today = summaryDate && summaryDate <= realToday ? summaryDate : realToday;
+  const isToday = today === realToday;
+  const dayLabel = isToday ? "today" : fmtDate(today);
 
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
@@ -128,6 +139,48 @@ export function CashPage() {
   // row above and the Expense Register tab are untouched.
   const [movementsFrom, setMovementsFrom] = usePersistedState("cash:from", "");
   const [movementsTo, setMovementsTo] = usePersistedState("cash:to", "");
+  const [movementsQ, setMovementsQ] = usePersistedState("cash:q", "");
+  const [expensesQ, setExpensesQ] = usePersistedState("cash:expenses-q", "");
+  const [goldSalesQ, setGoldSalesQ] = usePersistedState("cash:gold-sales-q", "");
+  const [expCategory, setExpCategory] = usePersistedState<string[]>("cash:expenses-categories", []);
+  const [expMode, setExpMode] = usePersistedState<string[]>("cash:expenses-modes", []);
+  const [expStatus, setExpStatus] = usePersistedState<string[]>("cash:expenses-statuses", []);
+  const [expFrom, setExpFrom] = usePersistedState("cash:expenses-from", "");
+  const [expTo, setExpTo] = usePersistedState("cash:expenses-to", "");
+  const [salesFrom, setSalesFrom] = usePersistedState("cash:gold-sales-from", "");
+  const [salesTo, setSalesTo] = usePersistedState("cash:gold-sales-to", "");
+  // Arrived from the dashboard's expense approval "Review" (/ledger/<expenseId>): show the
+  // Expense Register narrowed to that expense's day, then highlight its row once it has loaded.
+  const pendingExpenseFocus = useRef<number | null>(null);
+  useEffect(() => {
+    const id = Number(focusExpenseId);
+    if (!focusExpenseId || !Number.isInteger(id) || id <= 0) return;
+    setActiveCashTab("expenses");
+    getExpense(id)
+      .then((e) => {
+        pendingExpenseFocus.current = id;
+        setExpCategory([]); setExpMode([]); setExpStatus([]);
+        setExpFrom(e.d); setExpTo(e.d);
+        setExpensesPage(1);
+      })
+      .catch(() => { /* not found or outside this branch: the Expense Register opens unfiltered */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusExpenseId]);
+  const movementsSearch = useDebouncedValue(movementsQ.trim());
+  const expensesSearch = useDebouncedValue(expensesQ.trim());
+  const goldSalesSearch = useDebouncedValue(goldSalesQ.trim());
+  // A new search starts from the first page.
+  const searchMounted = useRef(false);
+  useEffect(() => {
+    if (!searchMounted.current) { searchMounted.current = true; return; }
+    setMovementsPage(1); setExpensesPage(1); setGoldSalesPage(1);
+  }, [movementsSearch, expensesSearch, goldSalesSearch]);
+  // A new expense / gold-sale filter also starts from the first page.
+  const filterMounted = useRef(false);
+  useEffect(() => {
+    if (!filterMounted.current) { filterMounted.current = true; return; }
+    setExpensesPage(1); setGoldSalesPage(1);
+  }, [expCategory, expMode, expStatus, expFrom, expTo, salesFrom, salesTo]);
   // Loan/Auction/Collection/Expenses — narrows which cash movements show,
   // same Category* buckets backend/internal/cash/repository.go's FindAll
   // filters on server-side (not a client-side re-filter of loaded rows).
@@ -145,6 +198,7 @@ export function CashPage() {
   const [movementsCustomerIds, setMovementsCustomerIds] = usePersistedState<string[]>("cash:customers", []);
   // The Mode section of the Ledger filter: Cash / UPI / Bank Transfer.
   const [movementsModes, setMovementsModes] = usePersistedState<string[]>("cash:modes", []);
+  const [movementsCategories, setMovementsCategories] = usePersistedState<string[]>("cash:categories", []);
   const [allBranches, setAllBranches] = useState<BranchView[]>([]);
   const [downloadingMovements, setDownloadingMovements] = useState(false);
   const [downloadingExpenses, setDownloadingExpenses] = useState(false);
@@ -180,6 +234,7 @@ export function CashPage() {
         { value: "auction", label: "Auction" },
         { value: "collection", label: "Collection" },
         { value: "personal loan", label: "Personal Loan" },
+        { value: "bank pledge", label: "Bank Pledge" },
         { value: "investment", label: "Investment" },
         { value: "expenses", label: "Expenses" },
       ],
@@ -192,13 +247,32 @@ export function CashPage() {
         { value: "Bank Transfer", label: "Bank Transfer" },
       ],
     },
+    { key: "category", label: "Category", kind: "static", searchHint: "Searches: category name", options: Object.keys(categoryIdByName).sort().map((v) => ({ value: v, label: v })) },
     { key: "__date", label: "Date", kind: "date" },
   ];
+  const filterOptions = (values: string[]) => values.map((v) => ({ value: v, label: v }));
+  const expensesFilterCategories: FilterCategory[] = [
+    { key: "category", label: "Category", kind: "static", options: filterOptions(Object.keys(categoryIdByName).sort()) },
+    { key: "mode", label: "Mode", kind: "static", options: filterOptions(["Cash", "UPI", "Bank Transfer"]) },
+    { key: "status", label: "Status", kind: "static", options: filterOptions(["Pending", "Approved", "Rejected"]) },
+    { key: "__date", label: "Date", kind: "date" },
+  ];
+  const expensesFilterValue: FilterValue = {
+    category: expCategory,
+    mode: expMode,
+    status: expStatus,
+    __dateFrom: expFrom || undefined,
+    __dateTo: expTo || undefined,
+  };
+  const goldSalesFilterCategories: FilterCategory[] = [{ key: "__date", label: "Date", kind: "date" }];
+  const goldSalesFilterValue: FilterValue = { __dateFrom: salesFrom || undefined, __dateTo: salesTo || undefined };
+  const expenseListFilters = { search: expensesSearch || undefined, category: expCategory.length ? expCategory : undefined, mode: expMode.length ? expMode : undefined, status: expStatus.length ? expStatus : undefined, from: expFrom || undefined, to: expTo || undefined };
   const movementsFilterValue: FilterValue = {
     branch: movementsBranchIds,
     customer: movementsCustomerIds,
     type: movementsTypes,
     mode: movementsModes,
+    category: movementsCategories,
     __dateFrom: movementsFrom || undefined,
     __dateTo: movementsTo || undefined,
   };
@@ -219,6 +293,8 @@ export function CashPage() {
       customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
       types: movementsTypes.length ? movementsTypes : undefined,
       modes: movementsModes.length ? movementsModes : undefined,
+      categoryNames: movementsCategories.length ? movementsCategories : undefined,
+      search: movementsSearch || undefined,
     }).then(({ items, hasMore, total, totalDebit, totalCredit, pageBalance, rowBalances }) => {
       setMovements(items);
       setMovementsPageBalance(pageBalance);
@@ -227,13 +303,13 @@ export function CashPage() {
       setMovementsTotal(total);
       setMovementSums({ debit: totalDebit, credit: totalCredit });
     }).catch(() => { setMovements([]); setMovementsHasMore(false); setMovementsTotal(0); });
-    listExpensesPage(expensesPage, cashPageSize).then(({ items, hasMore, total, totalAmount }) => {
+    listExpensesPage(expensesPage, cashPageSize, expenseListFilters).then(({ items, hasMore, total, totalAmount }) => {
       setExpenses(items);
       setExpensesHasMore(hasMore);
       setExpensesTotal(total);
       setExpenseSum(totalAmount);
     }).catch(() => { setExpenses([]); setExpensesHasMore(false); setExpensesTotal(0); });
-    listGoldSalesPage(goldSalesPage, cashPageSize).then(({ items, hasMore, total, totalSold, totalCost, totalProfit }) => {
+    listGoldSalesPage(goldSalesPage, cashPageSize, { search: goldSalesSearch || undefined, fromDate: salesFrom || undefined, toDate: salesTo || undefined }).then(({ items, hasMore, total, totalSold, totalCost, totalProfit }) => {
       setGoldSales(items);
       setGoldSalesHasMore(hasMore);
       setGoldSalesTotal(total);
@@ -247,11 +323,22 @@ export function CashPage() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes]);
+  }, [today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes, movementsModes, movementsCategories, movementsSearch, expensesSearch, goldSalesSearch, expCategory, expMode, expStatus, expFrom, expTo, salesFrom, salesTo]);
 
   useLedgerFocus("cash-movements", activeCashTab === "movements" && movements.length > 0 && idsReady, [movements]);
   useLedgerFocus("cash-expenses", activeCashTab === "expenses" && expenses.length > 0 && idsReady, [expenses]);
+  useEffect(() => {
+    const id = pendingExpenseFocus.current;
+    if (id === null || activeCashTab !== "expenses" || !idsReady || !expenses.some((e) => e.id === id)) return;
+    const row = document.querySelector<HTMLElement>(`tr[data-ledger-key="e-${id}"]`);
+    if (!row) return;
+    pendingExpenseFocus.current = null;
+    row.classList.add("ledger-row-focus");
+    row.scrollIntoView({ block: "center" });
+  }, [expenses, activeCashTab, idsReady]);
 
+  const pledgeActions = useBankPledgeEntryActions(refresh);
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
   useEffect(() => { refresh(); }, [refresh]);
 
   async function onApproveExpense(e: ExpenseView) {
@@ -300,6 +387,8 @@ export function CashPage() {
         customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
         types: movementsTypes.length ? movementsTypes : undefined,
         modes: movementsModes.length ? movementsModes : undefined,
+        categoryNames: movementsCategories.length ? movementsCategories : undefined,
+        search: movementsSearch || undefined,
       });
     } catch {
       toast("Could not download cash movements — try again.");
@@ -311,7 +400,7 @@ export function CashPage() {
   async function downloadExpenses() { return singleFlight("cash:download-expenses", async () => {
     setDownloadingExpenses(true);
     try {
-      await exportExpenses();
+      await exportExpenses(expenseListFilters);
     } catch {
       toast("Could not download the expense register — try again.");
     } finally {
@@ -347,14 +436,14 @@ export function CashPage() {
 
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
         <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
-          <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} s="carried forward" />
+          <Kpi l={`Opening Cash (${dayLabel})`} v={fmt(summary?.openingCash || 0)} s="carried forward" />
           {/* Backend's `collections` is every cash-in movement for the day —
               Savings top-ups, bank pledges and loan repayments alike, not just
               interest/principal (see cash.SummaryService.GetExpectedCash), so
               show `collectionsBreakdown` under the total rather than leaving the
               reader to guess what the one figure is made of. */}
           <Kpi
-            l="Cash In (today)"
+            l={`Cash In (${dayLabel})`}
             v={fmt(summary?.collections || 0)}
             cls="ok"
             parts={[
@@ -369,7 +458,7 @@ export function CashPage() {
               loan principal handed out, manual "Take Cash Out" withdrawals,
               and bank-pledge releases all land here. */}
           <Kpi
-            l="Cash Out (today)"
+            l={`Cash Out (${dayLabel})`}
             v={fmt(summary?.disbursements || 0)}
             parts={[
               ["Loan disbursements", summary?.disbursementsBreakdown?.loanDisbursements || 0],
@@ -379,7 +468,7 @@ export function CashPage() {
               ["Withdrawals", summary?.disbursementsBreakdown?.withdrawals || 0],
             ]}
           />
-          <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
+          <Kpi l={`Expenses (${dayLabel})`} v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
           <Kpi
             l="Balance in Hand"
             v={fmt((summary?.cashInHand || 0) + (summary?.bankBalance || 0))}
@@ -392,6 +481,12 @@ export function CashPage() {
           />
         </div>
 
+        {/* Summary date sits top-right, in the space the KPI cards leave above the tabs. */}
+        <div className="cash-side">
+        <div className="cash-date-filter">
+          {!isToday && <button type="button" className="btn plain sm" onClick={() => setSummaryDate("")}>Today</button>}
+          <DatePicker value={today} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} />
+        </div>
         <div className="tabs cash-tabs-row" style={{ flexShrink: 0, marginBottom: 0 }}>
           <button
             className={activeCashTab === "movements" ? "on" : ""}
@@ -412,6 +507,7 @@ export function CashPage() {
             Gold Sales
           </button>
         </div>
+        </div>
       </div>
 
       {activeCashTab === "movements" && (
@@ -420,6 +516,7 @@ export function CashPage() {
             <h3>Ledger</h3>
             <div className="sp" />
             <div className="cash-filter-row" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <TableSearch value={movementsQ} onChange={setMovementsQ} placeholder="Search date, ref no, party, bank, amount…" searches="date, ref no, particulars, mode, bank, party, debit, credit" />
               <FilterPanel
                 categories={movementsFilterCategories}
                 value={movementsFilterValue}
@@ -431,10 +528,16 @@ export function CashPage() {
                   setMovementsBranchIds(nextBranchIds);
                   setMovementsCustomerIds(Array.isArray(next.customer) ? next.customer : []);
                   setMovementsModes(Array.isArray(next.mode) ? next.mode : []);
+                  setMovementsCategories(Array.isArray(next.category) ? next.category : []);
                   setMovementsPage(1);
                 }}
                 hideChips
               />
+            {canUpdateCash && (
+              <button className="btn ghost sm" onClick={() => openModal(<ManageCategoriesModalContent initialKind="cash_in" />)} title="Delete categories you no longer use">
+                <Icon name="edit" /> Categories
+              </button>
+            )}
               {canExport && (
                 <button className="btn ghost sm" onClick={downloadMovements} disabled={downloadingMovements} title="Download every row matching the current filters">
                   <Icon name="download" /> {downloadingMovements ? "Preparing…" : "Download"}
@@ -444,6 +547,7 @@ export function CashPage() {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack ledger-nowrap ledger-amt" data-ledger-scope="cash-movements" data-ledger-page={movementsPage}>
+              <TableCols widths={[11, 11, 30, 9, null, null, null]} />
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {!idsReady
@@ -472,9 +576,27 @@ export function CashPage() {
 
       {activeCashTab === "expenses" && (
         <div className="card tbl-card tbl-card-fill cash-tbl-card">
-          <div className="hd">
+          <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
             <h3>Expense Register</h3>
             <div className="sp" />
+            <TableSearch value={expensesQ} onChange={setExpensesQ} placeholder="Search category, branch, amount…" searches="date, category, payee, amount, mode, branch, status, remarks" />
+            <FilterPanel
+              categories={expensesFilterCategories}
+              value={expensesFilterValue}
+              onChange={(next) => {
+                setExpCategory(Array.isArray(next.category) ? next.category : []);
+                setExpMode(Array.isArray(next.mode) ? next.mode : []);
+                setExpStatus(Array.isArray(next.status) ? next.status : []);
+                setExpFrom(next.__dateFrom || "");
+                setExpTo(next.__dateTo || "");
+              }}
+              hideChips
+            />
+            {canUpdateCash && (
+              <button className="btn ghost sm" onClick={() => openModal(<ManageCategoriesModalContent />)} title="Delete categories you no longer use">
+                <Icon name="edit" /> Categories
+              </button>
+            )}
             {canExport && (
               <button className="btn ghost sm" onClick={downloadExpenses} disabled={downloadingExpenses} title="Download every expense row">
                 <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
@@ -484,6 +606,7 @@ export function CashPage() {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-expenses" data-ledger-page={expensesPage}>
+              <TableCols widths={[12, 22, 13, 11, ...(showBranch ? [14] : []), 12, 8, 8]} />
               <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th>{showBranch && <th>Branch</th>}<th>Status</th><th style={{ textAlign: "center" }}>Edit</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
               <tbody>
                 {!idsReady
@@ -501,6 +624,7 @@ export function CashPage() {
                       onApprove={() => onApproveExpense(e)}
                       onReject={() => onRejectExpense(e)}
                       onEdit={() => openModal(<EditEntryModalContent entryId={e.id} viaExpense onSaved={refresh} />)}
+                      onEditPledge={canEditLedger && e.bankPledgeId && e.bankPledgeLoanId ? () => void pledgeActions.pledge(e.bankPledgeLoanId!, e.bankPledgeId!, "edit") : undefined}
                     />
                   ))
                   : <tr><td colSpan={showBranch ? 8 : 7} className="empty">No expenses recorded yet.</td></tr>}
@@ -520,14 +644,25 @@ export function CashPage() {
 
       {activeCashTab === "goldSales" && (
         <div className="card tbl-card tbl-card-fill cash-tbl-card">
-          <div className="hd">
+          <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
             <h3>Gold Sales</h3>
             <div className="sp" />
+            <TableSearch value={goldSalesQ} onChange={setGoldSalesQ} placeholder="Search ornament, bank, amount…" searches="date, ornament type, sold for, cost, mode, bank, branch, remarks" />
+            <FilterPanel
+              categories={goldSalesFilterCategories}
+              value={goldSalesFilterValue}
+              onChange={(next) => {
+                setSalesFrom(next.__dateFrom || "");
+                setSalesTo(next.__dateTo || "");
+              }}
+              hideChips
+            />
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
               Total profit {fmt(goldSales.reduce((s, g) => s + g.profit, 0))}
             </span>          </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy">
+              <TableCols widths={[10, 14, 11, 11, 11, 9, 11, ...(showBranch ? [10] : []), 13]} />
               <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Mode</th><th>Bank</th>{showBranch && <th>Branch</th>}<th>Remarks</th></tr></thead>
               <tbody>
                 {goldSales.length

@@ -61,10 +61,11 @@ function pendingLockers(f: LockerFilter): LockerView[] {
   return rows.filter((r) => typeof r.id === "number" && r.id < 0 && !gone.has(r.id)).map((r) => r as LockerView).filter((l) => matches(l, f));
 }
 
-export async function listLockers(filters?: { branchId?: number[]; status?: string[] }): Promise<LockerView[]> {
+export async function listLockers(filters?: { branchId?: number[]; status?: string[]; q?: string }): Promise<LockerView[]> {
   const params = new URLSearchParams();
   if (filters?.branchId?.length) params.set("branchId", filters.branchId.join(","));
   if (filters?.status?.length) params.set("status", filters.status.join(","));
+  if (filters?.q) params.set("q", filters.q);
   const qs = params.toString();
   const rec = await apiFetch<BackendLocker[]>(`/lockers${qs ? `?${qs}` : ""}`);
   const items = overlaid((rec || []).map(toView)).filter((l) => matches(l, filters ?? {}));

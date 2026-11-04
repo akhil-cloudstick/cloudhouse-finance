@@ -45,3 +45,10 @@ export function createCategory(type: CategoryType) {
     return rec;
   };
 }
+
+/* Deletes a Credit / Debit / Self Transfer category. The backend refuses system categories, loan
+ * categories and any category that ledger entries still use, answering with the reason. */
+export async function deleteCategoryById(id: number): Promise<void> {
+  await apiFetch<unknown>(`/categories/${id}`, { method: "DELETE" });
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(EXPENSE_CATEGORIES_CHANGED));
+}

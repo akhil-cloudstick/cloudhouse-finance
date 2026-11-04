@@ -1,8 +1,11 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
+import { useApprovalWorkflow } from "@/common/providers/AuthProvider";
+import { isFlowOff } from "@/common/services/approvalWorkflowService";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
 import { createReleaseRequest, getLoan, listLoanRequests } from "@/modules/loans/services/loanService";
@@ -10,6 +13,7 @@ import { type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 // The same formula the server checks, computed here so staff get live feedback as they tick ornaments.
 import { partialReleaseRemaining } from "@/modules/loans/utils/releaseAmount";
 
@@ -32,6 +36,10 @@ type RequestReleaseModalContentProps = { loan: LoanView; onSaved: () => void };
 export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: RequestReleaseModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
+  // With no release approver configured there is no request to wait on — the release completes once the checklist
+  // is done and the payment recorded — so the button just says "Release".
+  const { config: workflow } = useApprovalWorkflow();
+  const noApprover = isFlowOff(workflow, "loan_release");
 
   // The caller's `loan` prop can be stale by the time this modal actually
   // opens — LoanDetail.tsx only re-fetches on an explicit action, and
@@ -58,6 +66,10 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
   const pledged = loan.ornaments.filter((o) => !o.releasedAt);
   const [selected, setSelected] = useState<Set<number>>(new Set(pledged.map((o) => o.id)));
   const [detail, setDetail] = useState("");
+  // The day the release is being asked for (today unless the request is being logged after the fact).
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const [requestedOn, setRequestedOn] = useState(today);
   const [err, setErr] = useState("");
   // A server message about the picked ornaments shows under the table; `err` keeps the rest.
   const [ornamentsErr, setOrnamentsErr] = useState("");
@@ -121,7 +133,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
       // Passing every pledged ornament's id behaves identically to omitting
       // ornamentIds entirely — see createReleaseRequest's own doc comment —
       // so there is no separate "full release" branch to keep in sync here.
-      const created = await createReleaseRequest(loan.numericId, detail.trim() || (allSelected ? "Full settlement requested" : "Partial release requested"), ornamentIds);
+      const created = await createReleaseRequest(loan.numericId, detail.trim() || (allSelected ? "Full settlement requested" : "Partial release requested"), ornamentIds, requestedOn);
       onSaved();
       closeModal();
       // The amount the backend worked out when it logged the request; it is checked again when the payment is recorded.
@@ -150,6 +162,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
         </div>
         <div className={ornamentsErr ? "has-err" : undefined}>
         <div className="tbl-wrap rel-orn-wrap"><table className="tbl">
+          <TableCols widths={["36px", 34, 14, 14, 18, 14]} />
           <thead><tr><th style={{ width: 36 }}></th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th><th></th></tr></thead>
           <tbody>
             {pledged.map((o) => {
@@ -182,13 +195,17 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
         <div className="notice" style={{ margin: "14px 0" }}>
           <Icon name="unlock" /> {allSelected ? `${fmtW(loan.totalNetWeight)} gold pledged` : `${selected.size} of ${pledged.length} ornaments selected`} 
         </div>
-        <div className="frow"><div><label className="f">Note</label><input className="inp" placeholder="optional detail" value={detail} onChange={(e) => setDetail(e.target.value)} /></div></div>
+        <div className="frow c2">
+          <div><label className="f">Request Date *</label><DatePicker value={requestedOn} min={loan.opened?.slice(0, 10) || undefined} max={today} onChange={setRequestedOn} /></div>
+          <div><label className="f">Note</label><input className="inp" placeholder="optional detail" value={detail} onChange={(e) => setDetail(e.target.value)} /></div>
+        </div>
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
           {err && <span className="ft-err" role="alert">{err}</span>}
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" disabled={selected.size === 0 || saving} onClick={save}>
-          <Icon name="check" /> {saving ? "Saving…" : "Log Request"}
+          <Icon name="check" /> {saving ? "Saving…" : noApprover ? "Release" : "Log Request"}
         </button>
       </div>
     </>

@@ -32,14 +32,30 @@ export const termsAndConditions: LegalDocumentSource = {
     },
     {
       heading: "5. Loans are separate agreements",
-      body: ["Your loan is governed by the agreement between you and the lender. The app only displays information; interest, charges and dues are as per that agreement."],
+      body: [
+        { only: "customer", text: "Your loan is governed by the agreement between you and the lender. The app only displays information; interest, charges and dues are as per that agreement." },
+        { only: "staff", text: "Loans are governed by the agreements between the lender and its customers. The app only records and displays information; use it in line with your employer's instructions." },
+      ],
     },
-    { heading: "6. Payments", body: ["Payments are made to the lender and appear in the app after they are recorded."] },
+    {
+      heading: "6. Payments",
+      body: [
+        { only: "customer", text: "Payments are made to the lender and appear in the app after they are recorded." },
+        { only: "staff", text: "The app does not process payments. Payments you record are entries in the lender's books; enter them accurately." },
+      ],
+    },
     { heading: "7. Availability", body: ["We aim for continuous service but do not guarantee it is uninterrupted or error-free."] },
     { heading: "8. Liability", body: ["To the extent the law allows, we are not liable for indirect losses arising from use of the app or its downtime."] },
-    { heading: "9. Termination", body: ["We may suspend access for misuse or where the law requires. You can stop at any time; see Account Deletion."] },
+    {
+      heading: "9. Termination",
+      body: [
+        "We may suspend access for misuse or where the law requires.",
+        { only: "customer", text: "You can stop at any time; see Account Deletion." },
+        { only: "staff", text: "Your access ends when your administrator disables your login." },
+      ],
+    },
     { heading: "10. Changes", body: ["We may update these terms. Continued use means you accept the updated terms."] },
     { heading: "11. Governing law", body: [`These terms are governed by the laws of India; disputes go to ${GOVERNING_COURTS}.`] },
-    { heading: "12. Contact", body: ["{{provider}}, {{address}}. Email {{email}}. Phone {{phone}}."] },
+    { heading: "12. Contact", body: ["{{provider}}. Phone {{phone}}."] },
   ],
 };

@@ -7,6 +7,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useBranchSwitch } from "@/common/hooks/use-branch-switch";
 import { SettingsModalContent } from "@/modules/integrations/components/SettingsModalContent";
+import { useOfflineRing } from "./NetworkIndicator";
 import {
   checkForUpdate,
   isDesktop,
@@ -107,6 +108,7 @@ export function AccountMenu() {
     logout();
   }
 
+  const offlineRing = useOfflineRing();
   const initial = employee?.name ? employee.name.charAt(0).toUpperCase() : "—";
   // Stays on for either kind of pending update, regardless of dismiss. Checking/acting on it
   // happens only in Settings (DesktopVersionPanel) — this dropdown just surfaces the dot.

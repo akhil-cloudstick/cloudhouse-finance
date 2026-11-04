@@ -75,11 +75,15 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
   const principalNum = +principal || 0;
 
   async function save() {
-    if (!customerRef || !customerBranchId) { fail("investor", "Please select an investor."); return; }
-    if (!planId) { fail("plan", "Please select an investment plan."); return; }
-    if (!principalNum || principalNum <= 0) { fail("principal", "Please enter the principal amount."); return; }
-    if (plan && principalNum < plan.minPrincipal) { fail("principal", `Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`); return; }
-    if (Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the principal amount."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!customerRef || !customerBranchId) errors["investor"] ??= "Please select an investor.";
+    if (!planId) errors["plan"] ??= "Please select an investment plan.";
+    if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the principal amount.";
+    if (plan && principalNum < plan.minPrincipal) errors["principal"] ??= `Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`;
+    if (Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the principal amount.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    if (!customerRef || !customerBranchId) return; // narrows both; the check above already reported it
 
     setSaving(true);
     setErr("");

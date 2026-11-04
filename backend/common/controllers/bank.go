@@ -30,6 +30,7 @@ var bankRefColumns = []struct{ table, column string }{
 }
 
 var bankPhoneRe = regexp.MustCompile(`^\d{10}$`)
+var bankAccountNoRe = regexp.MustCompile(`^\d{1,18}$`)
 
 type bankRequest struct {
 	Name      string `json:"name"`
@@ -106,7 +107,8 @@ func findBanks(ctx context.Context, query string, branchID *uint, limit, offset 
 	q := config.DB.
 		WithContext(ctx).Preload("BusinessBranch").Order("name asc")
 	if query != "" {
-		q = q.Where("name ILIKE ?", "%"+query+"%")
+		q = ApplySearch(q, query, "banks.name", "banks.branch", "banks.ifsc", "banks.account_no", "banks.phone",
+			"(SELECT b.name FROM branches b WHERE b.id = banks.branch_id)")
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
@@ -122,10 +124,13 @@ func findBanks(ctx context.Context, query string, branchID *uint, limit, offset 
 	return banks, total, err
 }
 
-func findBankByName(ctx context.Context, name string) (*commonModels.Bank, error) {
+// findBankByNameAndBranch matches a bank by name together with the bank's own
+// branch, case-insensitively and without treating % or _ as wildcards. One bank
+// name may have many branches; only the pair must be unique.
+func findBankByNameAndBranch(ctx context.Context, name, branch string) (*commonModels.Bank, error) {
 	var b commonModels.Bank
 	if err := config.DB.
-		WithContext(ctx).Where("name ILIKE ?", name).First(&b).Error; err != nil {
+		WithContext(ctx).Where("lower(name) = lower(?) AND lower(coalesce(branch, '')) = lower(?)", name, branch).First(&b).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil
@@ -238,11 +243,14 @@ func FindBankOrCreate(ctx context.Context, in BankCreateInput) (*commonModels.Ba
 	if trimmed == "" {
 		return nil, false, NewBadRequest("name is required")
 	}
+	if acc := strings.TrimSpace(in.AccountNo); acc != "" && !bankAccountNoRe.MatchString(acc) {
+		return nil, false, NewBadRequest("account number must be digits only, up to 18 digits")
+	}
 	phone := strings.TrimSpace(in.Phone)
 	if phone != "" && !bankPhoneRe.MatchString(phone) {
 		return nil, false, NewBadRequest("phone number must be exactly 10 digits")
 	}
-	existing, err := findBankByName(ctx, trimmed)
+	existing, err := findBankByNameAndBranch(ctx, trimmed, strings.TrimSpace(in.Branch))
 	if err == nil {
 		return existing, false, nil
 	}
@@ -277,12 +285,15 @@ func updateBank(ctx context.Context, id uint, in BankCreateInput) (*commonModels
 	if trimmed == "" {
 		return nil, NewBadRequest("name is required")
 	}
+	if acc := strings.TrimSpace(in.AccountNo); acc != "" && !bankAccountNoRe.MatchString(acc) {
+		return nil, NewBadRequest("account number must be digits only, up to 18 digits")
+	}
 	phone := strings.TrimSpace(in.Phone)
 	if phone != "" && !bankPhoneRe.MatchString(phone) {
 		return nil, NewBadRequest("phone number must be exactly 10 digits")
 	}
-	if existing, _ := findBankByName(ctx, trimmed); existing != nil && existing.ID != id {
-		return nil, NewConflict("a bank with this name already exists")
+	if existing, _ := findBankByNameAndBranch(ctx, trimmed, strings.TrimSpace(in.Branch)); existing != nil && existing.ID != id {
+		return nil, NewConflict("a bank with this name and branch already exists")
 	}
 	rec.Name = trimmed
 	if in.BranchID != 0 {
@@ -336,7 +347,10 @@ func mergeBank(ctx context.Context, sourceID, targetID uint) (*commonModels.Bank
 func ListBanks(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := PageParams(c)
-	scope := auth.GetBranchScope(c)
+	scope, ok := queryBranchFilter(c)
+	if !ok {
+		return Fail(c, http.StatusBadRequest, "that branch is outside your current branch selection")
+	}
 	if limit == 0 {
 		rec, _, _, _, err := listWithBalances(ctx, c.QueryParam("search"), scope, 0, 0)
 		if err != nil {

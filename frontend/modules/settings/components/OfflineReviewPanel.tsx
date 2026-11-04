@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { REVIEW_CHANGED_EVENT, describeEntry, discardReview, listReview, retryReview, type ReviewRow } from "@/common/offline/review";
+import { SYNC_STATE_EVENT, drain, isSyncing } from "@/common/offline/sender";
 
 const when = (ms: number) => new Date(ms).toLocaleString();
 
@@ -14,7 +15,28 @@ export function OfflineReviewPanel() {
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState("");
 
+  const [syncing, setSyncing] = useState(isSyncing());
+
   const load = useCallback(() => listReview().then(setRows, () => setRows([])), []);
+
+  // the button is disabled whenever the automatic sync (cron, after a save, network back) is running
+  useEffect(() => {
+    const update = () => setSyncing(isSyncing());
+    update();
+    window.addEventListener(SYNC_STATE_EVENT, update);
+    return () => window.removeEventListener(SYNC_STATE_EVENT, update);
+  }, []);
+
+  async function syncNow() {
+    setError("");
+    try {
+      await drain("manual");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sync failed. Try again.");
+    } finally {
+      await load();
+    }
+  }
 
   useEffect(() => {
     const refresh = () => void load();
@@ -40,7 +62,12 @@ export function OfflineReviewPanel() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 640 }}>
       <div>
-        <h4 style={{ margin: "0 0 6px" }}>Offline review</h4>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <h4 style={{ margin: 0 }}>Offline review</h4>
+          <button type="button" className="btn sm" disabled={syncing} onClick={() => void syncNow()}>
+            {syncing ? "Syncing…" : "Sync now"}
+          </button>
+        </div>
         <p style={{ margin: 0, color: "var(--muted)", fontSize: 13, lineHeight: 1.55 }}>
           Entries saved on this PC while the server was unreachable, which the server then refused. They stay here with the
           server&apos;s reason until you retry or discard them.

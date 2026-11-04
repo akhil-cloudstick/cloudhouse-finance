@@ -23,6 +23,17 @@ import type { EntityName, OutboxEntry } from "./types";
 let running = false;
 let again = false;
 
+export const SYNC_STATE_EVENT = "app:offline-sync-state";
+
+/* True while the sender (cron, after a save, or the manual button) is sending or pulling. */
+export function isSyncing(): boolean {
+  return running;
+}
+
+function announce() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(SYNC_STATE_EVENT));
+}
+
 function parse(line: string): OutboxEntry | null {
   try {
     const e = JSON.parse(line) as OutboxEntry;
@@ -37,6 +48,8 @@ async function applyReply(entry: OutboxEntry, body: unknown): Promise<void> {
   // a locker made on this PC is now on the server: drop the pending copy, the server's own list has it
   // (so is a locker edit or delete shown from this PC's overlay)
   if (/^\/lockers(\/|$)/.test(entry.path) && getLocal("lockers", entry.id)) await removeLocal("lockers", entry.id);
+  // a scheme edit or delete waiting on this PC is on the server now: the server's own list has it
+  if (/^\/schemes\/\d+$/.test(entry.path) && getLocal("schemes", entry.id)) await removeLocal("schemes", entry.id);
   const rec = ((body as { data?: unknown } | undefined)?.data ?? body) as Record<string, unknown> | undefined;
   const uuid = rec && typeof rec.uuid === "string" ? rec.uuid : entry.targets?.[0];
   if (!rec || !uuid) return;
@@ -58,10 +71,13 @@ export async function waitingCount(): Promise<number> {
 /* True when the server answered and the outbox is now empty. */
 export async function drain(why: string): Promise<boolean> {
   if (running) {
-    again = true; // an entry was added mid-send: go round once more when this run ends
+    // a sync is already running: the cron tick and the manual button are simply ignored (no second sync is started or
+    // queued behind it); only a save made mid-send asks for one more round, so that entry is not left waiting
+    if (why !== "cron" && why !== "manual" && why !== "network back") again = true;
     return false;
   }
   running = true;
+  announce();
   let sent = 0;
   let stopped = false;
   try {
@@ -115,9 +131,25 @@ export async function drain(why: string): Promise<boolean> {
         }
         sendPath = `/packets/${packetId}/movements`;
       }
+      // an investment made for an investor registered on this PC names them as uuid:<entry id>; the investor's entry was
+      // sent before this one, so the server's id is in the local copy by now
+      const customerRef = typeof (body as { customerId?: unknown } | null)?.customerId === "string" ? String((body as { customerId: string }).customerId) : "";
+      let sendBody: unknown = body;
+      if (customerRef.startsWith("uuid:")) {
+        const known = getLocal("customers", customerRef.slice(5)) as { id?: number } | undefined;
+        if (known?.id && known.id > 0) {
+          sendBody = { ...(body as object), customerId: known.id };
+        } else {
+          const message = "The customer this refers to was not saved by the server (see the customer's own entry in the review list).";
+          offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${message}`);
+          await sendToReview(entry, message);
+          window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
+          continue;
+        }
+      }
       // an investment made with a plan made on this PC names it by the entry that created the plan
-      const resolvedBody = await resolvePlanRefs(body);
-      if (resolvedBody === null && body !== null) {
+      const resolvedBody = await resolvePlanRefs(sendBody);
+      if (resolvedBody === null && sendBody !== null) {
         const message = "The plan this refers to was not saved by the server.";
         offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${message}`);
         await sendToReview(entry, message);
@@ -167,6 +199,7 @@ export async function drain(why: string): Promise<boolean> {
     offlineStore.log("error", `send loop (${why}): ${e instanceof Error ? e.message : String(e)}`);
   } finally {
     running = false;
+    announce();
   }
   if (again) {
     again = false;

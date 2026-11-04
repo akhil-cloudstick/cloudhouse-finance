@@ -8,7 +8,19 @@ import (
 	"time"
 )
 
+// RoundMoney rounds a rupee amount to a whole rupee, halves away from zero (5.2 → 5, 5.5 → 6, 5.7 → 6).
+// Every money figure in the system goes through it. Not for rates, percentages or weights: those keep their
+// decimals (see RoundDecimal2 and the ornament weight rounding).
 func RoundMoney(f float64) float64 {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0
+	}
+	// Snap float noise first so a value that is 5.5 in exact arithmetic (5.499999999999) still rounds up.
+	return math.Round(math.Round(f*1e6) / 1e6)
+}
+
+// RoundDecimal2 rounds to two decimals. For rates and percentages (8.5% interest) that must not become whole numbers.
+func RoundDecimal2(f float64) float64 {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0
 	}

@@ -60,6 +60,7 @@ export type LoanPayment = {
   paidOn: string;
   receivedByEmployeeId: number;
   description?: string;
+  discountKind?: string; // Discount rows: customer / interest / penal_interest
   method?: string;
   // How amount was split across modes — mirrors web loanService.ts's
   // PaymentView. method above is derived from these (the single mode's
@@ -68,6 +69,9 @@ export type LoanPayment = {
   upiAmount?: number;
   bankTransferAmount?: number;
   chequeAmount?: number;
+  // Which bank the UPI / Bank Transfer part landed in (nil for a Cash-only payment).
+  bankId?: number | null;
+  bankName?: string;
   reference?: string;
   processingFeeApplied: number;
   penalInterestApplied: number;
@@ -99,6 +103,8 @@ export type BankPledgeRecord = {
   // voidBankPledge() cancelled a mis-recorded pledge (see src/modules/bank-pledges/services/bankPledgeService.ts).
   voidReason?: string;
   voidedAt?: string | null;
+  // Ornaments this pledge covers; empty/absent = the whole loan's gold.
+  ornamentIds?: number[] | null;
 };
 
 // backend/internal/loan/model.go's LoanRequest (523+) — Extension or Release.
@@ -268,6 +274,8 @@ export type LoanTopUp = {
   upiAmount: number;
   bankTransferAmount: number;
   chequeAmount: number;
+  // Which bank the UPI / Bank Transfer part left from.
+  bankId?: number | null;
   occurredOn: string;
   reference: string;
   // Pending/Rejected only when the tenant's "loan_topup" approval flow is on.
@@ -322,6 +330,8 @@ export type OrnamentRequestInput = {
   deductionWeight?: number;
   quantity?: number;
   remarks?: string;
+  /** Photo URLs attached when the ornament is added. */
+  images?: string[];
 };
 // --- Sanction-chain approvals (backend/internal/loan/handler.go's Approve/
 // ListApprovals, POST/GET /loans/:id/approve|approvals) ---------------------
@@ -340,7 +350,17 @@ export type SanctionStage = string;
 // go through addOrnament/updateOrnament/deleteOrnament above, one at a
 // time, not through this. -------------------------------------------------
 
-export type UpdateLoanInput = { schemeId?: number; principalAmount?: number };
+export type UpdateLoanInput = {
+  schemeId?: number;
+  principalAmount?: number;
+  /** undefined leaves it alone; "" clears it. */
+  overallPhotoUrl?: string;
+  /** undefined leaves it alone; "" clears it (max 2000 chars). */
+  additionalInfo?: string;
+  /** Cross-branch roles only (Branch_Management.can_view_all_branches). */
+  branchId?: number;
+  lockerId?: number;
+};
 // --- Indemnity bond Aadhaar eSign (Setu) ------------------------------------
 // Mirrors src/modules/loans/services/loanService.ts's
 // startIndemnityBondEsign/checkIndemnityBondEsign exactly — same backend
