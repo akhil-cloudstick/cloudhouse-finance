@@ -35,9 +35,10 @@ export function BanksPage() {
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
   // Banks have no status or type, so the lender's own (business) branch is the only filter.
   const filterCategories: FilterCategory[] = showBranch && branches.length
-    ? [{ key: "branch", label: "Branch", kind: "static", singleSelect: true, options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]
+    ? [{ key: "branch", label: "Branch", kind: "static", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]
     : [];
-  const filterValue: FilterValue = { branch: branchFilter ? [branchFilter] : [] };
+  // Several branches are kept comma-joined, the form the API takes them in.
+  const filterValue: FilterValue = { branch: branchFilter ? branchFilter.split(",") : [] };
   const reload = () => setReloadKey((k) => k + 1);
   // Net balance across every listed bank — the server's `totalBalance` from
   // the same GET /banks response the table renders, so it always equals the
@@ -65,7 +66,7 @@ export function BanksPage() {
           <FilterPanel
             categories={filterCategories}
             value={filterValue}
-            onChange={(next) => setBranchFilter(Array.isArray(next.branch) ? next.branch[0] || "" : "")}
+            onChange={(next) => setBranchFilter(Array.isArray(next.branch) ? next.branch.join(",") : "")}
             hideChips
           />
         )}

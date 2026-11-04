@@ -18,8 +18,8 @@ func goldWeight(ctx context.Context, f models.Filter) ([]models.GoldWeightRow, m
 		Where("l.opened_date >= ? AND l.opened_date < ?", from, to).
 		Where("l.deleted_at IS NULL").
 		Order("l.opened_date desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.GoldWeightTotals{}, err
@@ -47,8 +47,8 @@ func packetsReport(ctx context.Context, f models.Filter) ([]models.PacketRow, mo
 	// within the chosen period — not every packet ever released.
 	from, to := dateRange(f)
 	q = q.Where("p.status <> ? OR (p.updated_at >= ? AND p.updated_at < ?)", "Released", from, to)
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.PacketTotals{}, err

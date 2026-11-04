@@ -76,19 +76,25 @@ func parseFilter(c echo.Context) (models.Filter, error) {
 		}
 		f.To = &t
 	}
-	if v := c.QueryParam("branch_id"); v != "" {
-		id, err := strconv.ParseUint(v, 10, 64)
+	// branch_id is one or more comma-separated ids, kept inside the caller's branch scope.
+	for _, part := range strings.Split(c.QueryParam("branch_id"), ",") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		id, err := strconv.ParseUint(part, 10, 64)
 		if err != nil {
 			return models.Filter{}, err
 		}
-		branchID := uint(id)
-		f.BranchID = &branchID
+		f.BranchIDs = append(f.BranchIDs, uint(id))
 	}
-	branchID, ok := auth.NarrowBranch(c, f.BranchID)
-	if !ok {
-		return models.Filter{}, errors.New("that branch is outside your current branch selection")
+	if scope := auth.GetBranchScope(c); scope != nil {
+		for _, id := range f.BranchIDs {
+			if id != *scope {
+				return models.Filter{}, errors.New("that branch is outside your current branch selection")
+			}
+		}
+		f.BranchIDs = []uint{*scope}
 	}
-	f.BranchID = branchID
 	f.Status = c.QueryParam("status")
 	f.Page = 1
 	if v := c.QueryParam("page"); v != "" {

@@ -461,7 +461,7 @@ export const MODE_LEDGER_ROUTE: Record<string, string> = {
 export async function getModeLedger(
   mode: LedgerMode,
   page: number,
-  range?: PartyDateRange & { branchIds?: number[]; bankId?: number; types?: string[] },
+  range?: PartyDateRange & { branchIds?: number[]; bankId?: number | string; types?: string[] },
   pageSize: number = PARTY_PAGE_SIZE
 ): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; focusPage?: number }> {
   const params = partyRangeParams(range);
@@ -481,7 +481,7 @@ export async function getModeLedger(
 export async function downloadLedger(
   kind: "bank" | "customer" | "category" | "mode",
   ref: number | LedgerMode,
-  range?: PartyDateRange & { bankId?: number; branchIds?: number[]; types?: string[] }
+  range?: PartyDateRange & { bankId?: number | string; branchIds?: number[]; types?: string[] }
 ): Promise<void> {
   const params = partyRangeParams(range);
   params.set("export", "pdf");

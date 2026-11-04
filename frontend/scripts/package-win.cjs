@@ -60,6 +60,72 @@ async function applyTenantBranding() {
   return branding;
 }
 
+function findIscc() {
+  const candidates = [
+    process.env.ISCC_PATH,
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs", "Inno Setup 6", "ISCC.exe"),
+    "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe",
+    "C:\\Program Files\\Inno Setup 6\\ISCC.exe",
+  ];
+  return candidates.find((p) => p && fs.existsSync(p)) || null;
+}
+
+// PNG-embedded ICO (Vista+), so the installer icon needs no extra dependency.
+function writeIco(pngPaths, icoPath) {
+  const images = pngPaths.map((p) => fs.readFileSync(p));
+  const header = Buffer.alloc(6 + 16 * images.length);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(images.length, 4);
+  let offset = header.length;
+  images.forEach((img, i) => {
+    const w = img.readUInt32BE(16);
+    const h = img.readUInt32BE(20);
+    const e = 6 + 16 * i;
+    header.writeUInt8(w >= 256 ? 0 : w, e);
+    header.writeUInt8(h >= 256 ? 0 : h, e + 1);
+    header.writeUInt16LE(1, e + 4);
+    header.writeUInt16LE(32, e + 6);
+    header.writeUInt32LE(img.length, e + 8);
+    header.writeUInt32LE(offset, e + 12);
+    offset += img.length;
+  });
+  fs.writeFileSync(icoPath, Buffer.concat([header, ...images]));
+}
+
+// Stable per tenant, so a newer setup upgrades the existing install instead of adding a second one.
+function appIdFor(slug) {
+  const h = crypto.createHash("sha1").update(`cloudhouse-finance:${slug}`).digest("hex");
+  return `{{${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}}`.toUpperCase();
+}
+
+function buildInstaller(exePath, dist, branding) {
+  const iscc = findIscc();
+  if (!iscc) {
+    console.warn("Inno Setup 6 not found (set ISCC_PATH or install it) — built the portable exe only, no setup file.");
+    return null;
+  }
+  const slug = branding ? branding.slug : "cloudhouse";
+  const winDir = path.join(root, "build", "windows");
+  const icon = path.join(require("node:os").tmpdir(), `${slug}-installer.ico`);
+  writeIco([256, 48, 32, 16].map((px) => path.join(winDir, `icon-${px}.png`)), icon);
+
+  const outputBase = `${slug}-finance-${version}-setup`;
+  run(iscc, [
+    "/Q",
+    `/DAppId=${appIdFor(slug)}`,
+    `/DAppName=${branding ? branding.name : "CloudHouse Finance"}`,
+    `/DAppVersion=${version}`,
+    `/DExeName=${slug}-finance.exe`,
+    `/DSourceExe=${exePath}`,
+    `/DOutputDir=${dist}`,
+    `/DOutputBase=${outputBase}`,
+    `/DIconFile=${icon}`,
+    path.join(winDir, "installer.iss"),
+  ], { shell: false });
+  fs.rmSync(icon, { force: true });
+  return `${outputBase}.exe`;
+}
+
 function stageAssets() {
   const assets = path.join(root, "desktop", "assets");
   for (const entry of fs.readdirSync(assets)) {
@@ -99,6 +165,8 @@ async function main() {
   fs.writeFileSync(path.join(dist, "latest.json"), JSON.stringify(manifest, null, 2));
 
   console.log(`built ${file}`);
+  const setup = buildInstaller(target, dist, branding);
+  if (setup) console.log(`built ${setup}`);
 }
 
 main();
