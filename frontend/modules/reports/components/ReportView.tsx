@@ -94,7 +94,9 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   // Each report remembers its filters, search and page, so opening a loan from a row and pressing Back returns to
   // the same view (ReportsPage keys this component by report, so the keys below are read for the right report).
   const memo = `reports:${config.id}`;
-  const [branchId, setBranchId] = usePersistedState<number>(`${memo}:branch`, 0);
+  // One branch id or several comma-joined (an older saved value may still be a number).
+  const [branchSel, setBranchSel] = usePersistedState<number | string>(`${memo}:branch`, "");
+  const branchId = branchSel ? String(branchSel) : "";
   const [from, setFrom] = usePersistedState(`${memo}:from`, config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
   const [to, setTo] = usePersistedState(`${memo}:to`, today());
   const [extraValue, setExtraValue] = usePersistedState(`${memo}:extra`, "");
@@ -146,21 +148,22 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   // One grouped filter: Branch, the report's own extra dropdown, and Date.
   // Clearing the date range falls back to the report's default range.
   const filterCategories: FilterCategory[] = [
-    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     ...(config.extraFilter
-      ? [{ key: "extra", label: config.extraFilter.label, kind: "static" as const, singleSelect: true, options: config.extraFilter.options.map((o) => ({ value: o, label: o })) }]
+      ? [{ key: "extra", label: config.extraFilter.label, kind: "static" as const, options: config.extraFilter.options.map((o) => ({ value: o, label: o })) }]
       : []),
     { key: "__date", label: "Date", kind: "date" as const },
   ];
+  // Several picks are kept comma-joined, the form the API takes them in.
   const filterValue: FilterValue = {
-    branch: branchId ? [String(branchId)] : [],
-    extra: extraValue ? [extraValue] : [],
+    branch: branchId ? branchId.split(",") : [],
+    extra: extraValue ? extraValue.split(",") : [],
     __dateFrom: from || undefined,
     __dateTo: to || undefined,
   };
   function onFilterChange(next: FilterValue) {
-    setBranchId(Array.isArray(next.branch) && next.branch[0] ? Number(next.branch[0]) : 0);
-    setExtraValue(Array.isArray(next.extra) && next.extra[0] ? next.extra[0] : "");
+    setBranchSel(Array.isArray(next.branch) ? next.branch.join(",") : "");
+    setExtraValue(Array.isArray(next.extra) ? next.extra.join(",") : "");
     setFrom(next.__dateFrom || (config.defaultFromFn ? config.defaultFromFn() : firstOfMonth()));
     setTo(next.__dateTo || today());
   }
@@ -243,8 +246,9 @@ export function ReportView({ config, onBack }: ReportViewProps) {
             <thead>
               <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
             </thead>
-            <tbody>
-              {loading && !(cards && rows.length > 0) ? (
+            {/* A reload keeps the current rows (faded) so the page does not collapse and re-scroll. */}
+            <tbody style={loading && rows.length > 0 ? { opacity: 0.55, transition: "opacity .15s" } : undefined}>
+              {loading && rows.length === 0 ? (
                 <tr><td colSpan={columns.length} className="empty">Loading report…</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={columns.length} className="empty">No data for the selected filters.</td></tr>

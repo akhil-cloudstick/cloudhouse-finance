@@ -11,6 +11,11 @@ export function updateInvestmentPlan(id: number, input: CreatePlanInput): Promis
   return apiFetch<BackendInvestmentPlan>(`/investment-plans/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
+// Refused by the server while any investment still uses the plan.
+export async function deleteInvestmentPlan(id: number): Promise<void> {
+  await apiFetch<unknown>(`/investment-plans/${id}/delete`, { method: "DELETE" });
+}
+
 /* activeOnly=true is what the New Investment picker uses (only plans still
  * open for new money) — the plan admin screen passes false to also show
  * retired plans, since existing investments still reference them. */

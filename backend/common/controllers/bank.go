@@ -102,7 +102,7 @@ func insertBank(ctx context.Context, b *commonModels.Bank) error {
 		WithContext(ctx).Omit(clause.Associations).Create(b).Error
 }
 
-func findBanks(ctx context.Context, query string, branchID *uint, limit, offset int) ([]commonModels.Bank, int64, error) {
+func findBanks(ctx context.Context, query string, branchIDs []uint, limit, offset int) ([]commonModels.Bank, int64, error) {
 	var banks []commonModels.Bank
 	q := config.DB.
 		WithContext(ctx).Preload("BusinessBranch").Order("name asc")
@@ -110,8 +110,8 @@ func findBanks(ctx context.Context, query string, branchID *uint, limit, offset 
 		q = ApplySearch(q, query, "banks.name", "banks.branch", "banks.ifsc", "banks.account_no", "banks.phone",
 			"(SELECT b.name FROM branches b WHERE b.id = banks.branch_id)")
 	}
-	if branchID != nil {
-		q = q.Where("branch_id = ?", *branchID)
+	if len(branchIDs) > 0 {
+		q = q.Where("branch_id IN ?", branchIDs)
 	}
 	var total int64
 	if limit > 0 {
@@ -178,12 +178,32 @@ func reassignBankID(ctx context.Context, fromID, toID uint) error {
 	return nil
 }
 
-func listBanks(ctx context.Context, query string, branchID *uint, limit, offset int) ([]commonModels.Bank, int64, error) {
-	return findBanks(ctx, query, branchID, limit, offset)
+func listBanks(ctx context.Context, query string, branchIDs []uint, limit, offset int) ([]commonModels.Bank, int64, error) {
+	return findBanks(ctx, query, branchIDs, limit, offset)
 }
 
-func listWithBalances(ctx context.Context, query string, branchID *uint, limit, offset int) (views []BankView, count int64, total, unassigned float64, err error) {
-	rows, count, err := findBanks(ctx, query, branchID, limit, offset)
+// branchBankBalances sums BankBalances over each chosen branch; no branches means every branch at once.
+func branchBankBalances(ctx context.Context, branchIDs []uint) (map[uint]float64, float64, error) {
+	if len(branchIDs) == 0 {
+		return BankBalances(ctx, nil)
+	}
+	sum := map[uint]float64{}
+	var side float64
+	for _, id := range branchIDs {
+		b, s, err := BankBalances(ctx, &id)
+		if err != nil {
+			return nil, 0, err
+		}
+		for k, v := range b {
+			sum[k] += v
+		}
+		side += s
+	}
+	return sum, side, nil
+}
+
+func listWithBalances(ctx context.Context, query string, branchIDs []uint, limit, offset int) (views []BankView, count int64, total, unassigned float64, err error) {
+	rows, count, err := findBanks(ctx, query, branchIDs, limit, offset)
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}
@@ -191,7 +211,7 @@ func listWithBalances(ctx context.Context, query string, branchID *uint, limit, 
 	var bankSide float64
 	if BankBalances != nil &&
 		!config.IsDemoRun(ctx) {
-		if balances, bankSide, err = BankBalances(ctx, branchID); err != nil {
+		if balances, bankSide, err = branchBankBalances(ctx, branchIDs); err != nil {
 			return nil, 0, 0, 0, err
 		}
 	}
@@ -212,7 +232,7 @@ func listWithBalances(ctx context.Context, query string, branchID *uint, limit, 
 	}
 	all := rows
 	if limit > 0 {
-		if all, _, err = findBanks(ctx, query, branchID, 0, 0); err != nil {
+		if all, _, err = findBanks(ctx, query, branchIDs, 0, 0); err != nil {
 			return nil, 0, 0, 0, err
 		}
 	}
@@ -347,7 +367,7 @@ func mergeBank(ctx context.Context, sourceID, targetID uint) (*commonModels.Bank
 func ListBanks(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := PageParams(c)
-	scope, ok := queryBranchFilter(c)
+	scope, ok := queryBranchIDs(c)
 	if !ok {
 		return Fail(c, http.StatusBadRequest, "that branch is outside your current branch selection")
 	}

@@ -17,6 +17,9 @@ type ExpenseRowProps = {
   onEditPledge?: () => void;
 };
 
+// System note the backend stamped on bank pledge release expenses; not shown to users.
+const SYSTEM_REMARK = "Auto-recorded from bank pledge workflow";
+
 /* canApprove/onApprove/onReject drive the Approve/Reject pair shown on a
  * Pending row (the expense approval flow) — shown only to the role of the
  * step the expense waits at (or Administrator); awaiting names that role. */
@@ -33,7 +36,7 @@ export function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting,
       {showBranch && <td data-label="Branch">{e.branch}</td>}
       <td data-label="Status">
         <StatusChip status={e.status} />
-        {e.remarks ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
+        {e.remarks && e.remarks !== SYSTEM_REMARK ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
         {e.status === "Pending" && awaiting && !canApprove && (
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Awaiting {awaiting}</div>
         )}

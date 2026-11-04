@@ -301,7 +301,7 @@ export async function listLoansPage(
   if (hasValue(filters.servicing)) params.set("servicing", csv(filters.servicing!));
   if (hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
   if (hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
-  if (filters.bankPledgeStatus) params.set("bankPledgeStatus", filters.bankPledgeStatus);
+  if (hasValue(filters.bankPledgeStatus)) params.set("bankPledgeStatus", csv(filters.bankPledgeStatus!));
   if (hasValue(filters.schemeId)) params.set("schemeId", csv(filters.schemeId!));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);

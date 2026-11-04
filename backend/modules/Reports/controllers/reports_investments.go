@@ -21,8 +21,8 @@ func depositRegister(ctx context.Context, f models.Filter) ([]models.DepositRegi
 		Where("i.start_date >= ? AND i.start_date < ?", from, to).
 		Where("i.deleted_at IS NULL").
 		Order("i.start_date desc")
-	if f.BranchID != nil {
-		q = q.Where("i.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("i.branch_id IN ?", f.BranchIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.DepositRegisterTotals{}, err
@@ -46,8 +46,8 @@ func interestPayoutRegister(ctx context.Context, f models.Filter) ([]models.Inte
 		Joins("LEFT JOIN customers c ON c.id = i.customer_id").
 		Where("ip.due_date >= ? AND ip.due_date < ?", from, to).
 		Order("ip.due_date asc")
-	if f.BranchID != nil {
-		q = q.Where("i.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("i.branch_id IN ?", f.BranchIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.InterestPayoutRegisterTotals{}, err
@@ -74,8 +74,8 @@ func maturityRegister(ctx context.Context, f models.Filter) ([]models.MaturityRe
 			Joins("LEFT JOIN customers c ON c.id = i.customer_id").
 			Where("i.maturity_date >= ? AND i.maturity_date < ?", from, to).
 			Where("i.deleted_at IS NULL")
-		if f.BranchID != nil {
-			q = q.Where("i.branch_id = ?", *f.BranchID)
+		if len(f.BranchIDs) > 0 {
+			q = q.Where("i.branch_id IN ?", f.BranchIDs)
 		}
 		return q
 	}

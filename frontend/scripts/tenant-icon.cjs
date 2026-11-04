@@ -57,26 +57,18 @@ async function fetchTenantBranding(apiBase) {
   }
 }
 
-/* Builds the 4 Windows icon sizes from a tenant's logo (often a wide
- * wordmark, not pre-squared) by padding it onto a square black canvas,
- * matching the dark-pad style already used for this logo elsewhere in the
- * app (see common/components/BrandLogo.tsx's "dark-pad" display option). */
+// Logo trimmed of its empty margins and centred full-size on a transparent square.
 async function generateIconFromLogo(logoUrl, root) {
   const sharp = require("sharp");
   const res = await fetch(logoUrl);
   if (!res.ok) throw new Error(`logo fetch failed: ${res.status}`);
   const logoBuffer = Buffer.from(await res.arrayBuffer());
 
-  const meta = await sharp(logoBuffer).metadata();
+  const trimmed = await sharp(logoBuffer).ensureAlpha().trim().png().toBuffer();
+  const meta = await sharp(trimmed).metadata();
   const size = Math.max(meta.width, meta.height);
-  const shrunk = await sharp(logoBuffer)
-    .resize({ width: Math.round(meta.width * 0.8), height: Math.round(meta.height * 0.8), fit: "inside" })
-    .toBuffer();
-  const shrunkMeta = await sharp(shrunk).metadata();
-  const left = Math.round((size - shrunkMeta.width) / 2);
-  const top = Math.round((size - shrunkMeta.height) / 2);
-  const square = await sharp({ create: { width: size, height: size, channels: 4, background: "#000000" } })
-    .composite([{ input: shrunk, left, top }])
+  const square = await sharp(trimmed)
+    .resize({ width: size, height: size, fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png()
     .toBuffer();
 

@@ -480,7 +480,7 @@ export type LoanFilters = {
   servicing?: ServicingClass | ServicingClass[];
   branchId?: number | number[];
   customerId?: number | number[];
-  bankPledgeStatus?: string;
+  bankPledgeStatus?: string | string[];
   schemeId?: number | number[];
   auctionStage?: string | string[]; // latest auction record at any of these stages
   from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)

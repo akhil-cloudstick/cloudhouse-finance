@@ -149,7 +149,6 @@ func recordSystemExpense(ctx context.Context, category, bankName string, amount 
 		Payee:      bankName,
 		BranchID:   branchID,
 		Status:     "Approved",
-		Remarks:    "Auto-recorded from bank pledge workflow",
 		ApprovedBy: strPtr("System"),
 		ApprovedAt: &now,
 	}

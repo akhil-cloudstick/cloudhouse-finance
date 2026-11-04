@@ -1692,14 +1692,10 @@ func GetModeLedger(c echo.Context) error {
 	if !modeVocabulary[mode] {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid mode: expected Cash, UPI or Bank Transfer"})
 	}
-	var bankID *uint
-	if raw := c.QueryParam("bank_id"); raw != "" {
-		id, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid bank_id, please pick a bank from the list"})
-		}
-		v := uint(id)
-		bankID = &v
+	// One or more comma-separated bank ids.
+	bankIDs := parseUintCSV(c.QueryParam("bank_id"))
+	if strings.TrimSpace(c.QueryParam("bank_id")) != "" && len(bankIDs) == 0 {
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid bank_id, please pick a bank from the list"})
 	}
 	branchID := auth.GetBranchScope(c)
 	branchIDs := parseUintCSV(c.QueryParam("branch_ids"))
@@ -1712,7 +1708,7 @@ func GetModeLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listModeLedger(ctx, mode, bankID, branchID, branchIDs, parseStringCSV(c.QueryParam("types")), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listModeLedger(ctx, mode, bankIDs, branchID, branchIDs, parseStringCSV(c.QueryParam("types")), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

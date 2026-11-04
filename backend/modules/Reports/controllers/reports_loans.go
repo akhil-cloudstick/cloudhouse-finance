@@ -26,8 +26,8 @@ func disbursementReport(ctx context.Context, f models.Filter) ([]models.Disburse
 		Where("l.approval_stage = ?", "Approved").
 		Where("l.deleted_at IS NULL").
 		Order("l.opened_date desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.DisbursementTotals{}, err
@@ -46,11 +46,16 @@ var loanStatusValues = []string{"Active", "Due Soon", "Overdue", "Defaulted", "C
 // storedLoanStatusValues are the stored statuses behind those (Defaulted is derived from them).
 var storedLoanStatusValues = []string{"Active", "Due Soon", "Overdue", "Closed"}
 
+// status is one or more comma-separated statuses; empty means every status.
 func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.LoanStatusRow, models.LoanStatusTotals, error) {
-	if status != "" {
+	var statuses []string
+	for _, st := range strings.Split(status, ",") {
+		if st = strings.TrimSpace(st); st == "" {
+			continue
+		}
 		valid := false
 		for _, s := range loanStatusValues {
-			if s == status {
+			if s == st {
 				valid = true
 				break
 			}
@@ -58,6 +63,7 @@ func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.L
 		if !valid {
 			return nil, models.LoanStatusTotals{}, fmt.Errorf("status must be one of %s", strings.Join(loanStatusValues, ", "))
 		}
+		statuses = append(statuses, st)
 	}
 	from, to := dateRange(f)
 	// Defaulted is not a stored status: an open loan more than DefaultedAfterDays past its due date counts as
@@ -72,8 +78,8 @@ func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.L
 			Where("l.opened_date >= ? AND l.opened_date < ?", from, to).
 			Where("l.deleted_at IS NULL").
 			Where("l.status IN ?", storedLoanStatusValues)
-		if f.BranchID != nil {
-			q = q.Where("l.branch_id = ?", *f.BranchID)
+		if len(f.BranchIDs) > 0 {
+			q = q.Where("l.branch_id IN ?", f.BranchIDs)
 		}
 		return q
 	}
@@ -106,8 +112,8 @@ func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.L
 	q := newBase().Select(`l.id as loan_id, l.loan_number, c.name as customer_name, b.name as branch_name,
 		`+effective+` as status, l.outstanding_amount as outstanding, l.due_date`, defaultedBefore).
 		Order("l.due_date asc")
-	if status != "" {
-		q = q.Where("("+effective+") = ?", defaultedBefore, status)
+	if len(statuses) > 0 {
+		q = q.Where("("+effective+") IN ?", defaultedBefore, statuses)
 	}
 	var rows []models.LoanStatusRow
 	if err := q.Scan(&rows).Error; err != nil {
@@ -128,8 +134,8 @@ func interestCollection(ctx context.Context, f models.Filter) ([]models.Interest
 		Where("p.paid_on >= ? AND p.paid_on < ?", from, to).
 		Where("p.interest_applied > 0 OR p.penal_interest_applied > 0").
 		Order("p.paid_on desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.InterestCollectionTotals{}, err
@@ -153,8 +159,8 @@ func outstandingPrincipal(ctx context.Context, f models.Filter) ([]models.Outsta
 		Where("l.status IN ?", openStatuses).
 		Where("l.deleted_at IS NULL").
 		Group("b.name")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	var rows []models.OutstandingPrincipalRow
 	if err := q.Scan(&rows).Error; err != nil {
@@ -181,8 +187,8 @@ func paymentCollection(ctx context.Context, f models.Filter) ([]models.PaymentCo
 		Joins("LEFT JOIN employees e ON e.id = p.received_by_employee_id").
 		Where("p.paid_on >= ? AND p.paid_on < ?", from, to).
 		Order("p.paid_on desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.PaymentCollectionTotals{}, err

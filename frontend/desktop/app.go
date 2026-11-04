@@ -5,6 +5,7 @@ import (
 
 	"cloudhouse/desktop/update"
 
+	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -33,6 +34,17 @@ func NewApp(version, updateURL, contentUpdateURL string) *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+}
+
+// Opening the app again brings the already-running window to the front instead of a second window.
+func (a *App) onSecondInstanceLaunch(options.SecondInstanceData) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.WindowUnminimise(a.ctx)
+	runtime.WindowShow(a.ctx)
+	runtime.WindowSetAlwaysOnTop(a.ctx, true)
+	runtime.WindowSetAlwaysOnTop(a.ctx, false)
 }
 
 // ActiveContentVersion is "" when still on the embedded (built-in) web content.

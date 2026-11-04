@@ -5,13 +5,13 @@ import (
 )
 
 type Filter struct {
-	From     *time.Time
-	To       *time.Time
-	BranchID *uint
-	Page     int
-	PageSize int
-	Q        string
-	Status   string
+	From      *time.Time
+	To        *time.Time
+	BranchIDs []uint
+	Page      int
+	PageSize  int
+	Q         string
+	Status    string
 }
 
 type Result struct {

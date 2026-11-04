@@ -75,7 +75,9 @@ func applyFilter(q *gorm.DB, f CommLogFilter) *gorm.DB {
 	if f.Channel != "" {
 		q = q.Where("channel = ?", f.Channel)
 	}
-	if f.TriggerType != "" {
+	if types := splitStringCSV(f.TriggerType); len(types) > 1 {
+		q = q.Where("trigger_type IN ?", types)
+	} else if f.TriggerType != "" {
 		q = q.Where("trigger_type = ?", f.TriggerType)
 	}
 	if f.RelatedEntityType != "" {

@@ -32,12 +32,12 @@ export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
   const toast = useToast();
   const showBranchFilter = useShowBranchFilter();
   const [branches, setBranches] = useState<BranchView[]>([]);
-  const [branchId, setBranchId] = useState(0);
+  // Branch ids and loan numbers: one, or several comma-joined.
+  const [branchId, setBranchId] = useState("");
   // Opens on the current month.
   const [month, setMonth] = useState(monthKey(new Date()));
   const [from, setFrom] = useState(monthRange(monthKey(new Date())).from);
   const [to, setTo] = useState(monthRange(monthKey(new Date())).to);
-  // The picked loan: its number for the API, and "00144/26" for the filter's chip.
   const [loan, setLoan] = useState("");
 
   // What the server returned, and for which filters — loading until it matches the current ones.
@@ -96,28 +96,29 @@ export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
     });
   }, []);
   const filterCategories: FilterCategory[] = [
+    // Month stays single-choice: it sets the date range, and two months can't be one range.
     { key: "month", label: "Month", kind: "static", singleSelect: true, searchHint: "Searches: month name", options: monthOptions },
     {
-      key: "loan", label: "Loan", kind: "async", singleSelect: true, searchHint: "Searches: loan number, customer name",
+      key: "loan", label: "Loan", kind: "async", searchHint: "Searches: loan number, customer name",
       fetchOptions: async (search, page) => {
         const r = await listLoansPage({ q: search || undefined, page, limit: 20 });
         return { items: r.items.map((l) => ({ value: l.loanNumber, label: `${loanParticulars(l.loanNumber, l.opened)} — ${l.customerName}` })), hasMore: r.hasMore };
       },
     },
-    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     { key: "__date", label: "Date", kind: "date" },
   ];
   const filterValue: FilterValue = {
     month: month ? [month] : [],
-    loan: loan ? [loan] : [],
-    branch: branchId ? [String(branchId)] : [],
+    loan: loan ? loan.split(",") : [],
+    branch: branchId ? branchId.split(",") : [],
     __dateFrom: from || undefined,
     __dateTo: to || undefined,
   };
   function onFilterChange(next: FilterValue) {
     const pickedMonth = Array.isArray(next.month) && next.month[0] ? next.month[0] : "";
-    setLoan(Array.isArray(next.loan) && next.loan[0] ? next.loan[0] : "");
-    setBranchId(Array.isArray(next.branch) && next.branch[0] ? Number(next.branch[0]) : 0);
+    setLoan(Array.isArray(next.loan) ? next.loan.join(",") : "");
+    setBranchId(Array.isArray(next.branch) ? next.branch.join(",") : "");
     if (pickedMonth && pickedMonth !== month) {
       // A month sets the date range to that month.
       const r = monthRange(pickedMonth);
