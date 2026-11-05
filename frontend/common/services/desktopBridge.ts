@@ -173,6 +173,8 @@ export const offlineStore = {
   readAllOutbox: () => app()!.StoreReadAllOutbox(),
   /* The entry and the changed local-copy files, kept together in one transaction. */
   saveEntry: (line: string, files: Record<string, string>) => app()!.StoreSaveEntry(line, files),
+  /* Changes (empty line: removes) an entry that has not been sent yet, together with the files that depend on it. */
+  changeEntry: (id: string, line: string, files: Record<string, string>) => app()!.StoreChangeEntry(id, line, files),
   counts: () => app()!.StoreOutboxCounts(),
   markReview: (id: string, message: string) => app()!.StoreMarkReview(id, message),
   readReview: () => app()!.StoreReadReview(),
@@ -186,4 +188,10 @@ export const offlineStore = {
   /* Opens the folder picker and moves the offline data there; resolves to the new folder, or "" if closed. */
   chooseFolder: () => app()!.StoreChooseFolder(),
   useDefaultFolder: () => app()!.StoreUseDefaultFolder(),
+};
+
+/* Documents made on this PC from the bundled templates (desktop/documents.go) when the server cannot be reached. */
+export const offlineDocs = {
+  available: () => !!app()?.RenderOfflineDocument,
+  render: (kind: string, lang: string, inputJson: string) => app()!.RenderOfflineDocument(kind, lang, inputJson),
 };

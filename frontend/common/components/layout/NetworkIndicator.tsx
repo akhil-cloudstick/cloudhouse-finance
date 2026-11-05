@@ -27,8 +27,22 @@ export function useOfflineRing(): boolean {
   return off;
 }
 
+/* True while the sender is sending or pulling (desktop app only), for the spinning ring around the profile picture. */
+export function useSyncingRing(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const update = () => setOn(isDesktop() && isSyncing());
+    update();
+    window.addEventListener(SYNC_STATE_EVENT, update);
+    return () => window.removeEventListener(SYNC_STATE_EVENT, update);
+  }, []);
+  return on;
+}
+
 export function NetworkIndicator() {
   const [syncing, setSyncing] = useState(false);
+  // set when a reload was attempted (F5, Ctrl+R) during a sync and refused; the notice stays until it is dealt with
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     const refresh = () => setSyncing(isSyncing());
@@ -46,6 +60,7 @@ export function NetworkIndicator() {
       if (k === "f5" || ((e.ctrlKey || e.metaKey) && k === "r")) {
         e.preventDefault();
         e.stopPropagation();
+        setBlocked(true);
       }
     };
     const onUnload = (e: BeforeUnloadEvent) => {
@@ -60,5 +75,15 @@ export function NetworkIndicator() {
     };
   }, [syncing]);
 
-  return null;
+  if (!blocked) return null;
+  return (
+    <div
+      role="status"
+      style={{ position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, background: "var(--card, #fff)", color: "var(--ink, #111)", border: "1px solid var(--line, #ddd)", boxShadow: "0 8px 24px rgba(0,0,0,.18)", fontSize: 13 }}
+    >
+      <span>{syncing ? "Syncing with the server — refresh is paused until it finishes." : "Sync finished. You can refresh now."}</span>
+      <button type="button" className="btn sm" disabled={syncing} onClick={() => window.location.reload()}>Refresh</button>
+      <button type="button" className="btn sm ghost" onClick={() => setBlocked(false)} aria-label="Dismiss">✕</button>
+    </div>
+  );
 }

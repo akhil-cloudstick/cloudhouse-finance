@@ -5,6 +5,7 @@
 
 import { offlineStore } from "@/common/services/desktopBridge";
 import { listLocal } from "./localCopy";
+import { localRequestId } from "./requestRef";
 import type { OutboxEntry } from "./types";
 
 type ReminderBody = { customerId?: number; loanId?: number | null; type?: string; dueDate?: string; note?: string };
@@ -38,9 +39,10 @@ async function changes(): Promise<Change[]> {
   for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
     try {
       const entry = JSON.parse(line) as OutboxEntry;
-      const m = /^\/reminders\/(\d+)(\/complete)?$/.exec(entry.path.split("?")[0]);
+      const m = /^\/reminders\/(\d+|ref:[0-9a-f-]+)(\/complete)?$/i.exec(entry.path.split("?")[0]);
       if (!m) continue;
-      const id = Number(m[1]);
+      // a reminder made on this PC and not sent yet is addressed by the entry that creates it
+      const id = m[1].startsWith("ref:") ? localRequestId(m[1].slice(4)) : Number(m[1]);
       if (entry.method === "DELETE") found.push({ id, kind: "delete", body: {} });
       else if (entry.method === "PUT" && m[2]) found.push({ id, kind: "done", body: {} });
       else if (entry.method === "PUT") found.push({ id, kind: "edit", body: (entry.body ?? {}) as ReminderBody });
@@ -78,21 +80,26 @@ export async function adjustCalendar(path: string, body: string): Promise<string
   }
   // the dashboard's paged variant is an {events} envelope, which a waiting reminder is not added to
   if (!Array.isArray(env.data)) return body;
+  const list = await changes();
   const extra = (await waiting())
-    .filter(({ body: b }) => (!from || (b.dueDate as string) >= from) && (!to || (b.dueDate as string) <= to))
-    .map(({ body: b }) => {
+    .map(({ entry, body: b }) => ({ entry, b, id: localRequestId(entry.id) }))
+    // an edit waiting for this reminder may move its date, so the range is checked after it is applied
+    .map((w) => ({ ...w, b: { ...w.b, ...(list.filter((c) => c.id === w.id && c.kind === "edit").reduce((acc, c) => ({ ...acc, ...c.body }), {}) as ReminderBody) } }))
+    .filter(({ id }) => !list.some((c) => c.id === id && c.kind === "delete"))
+    .filter(({ b }) => (!from || (b.dueDate as string) >= from) && (!to || (b.dueDate as string) <= to))
+    .map(({ b, id }) => {
       const name = customerName(Number(b.customerId));
       return {
+        reminderId: id,
         date: b.dueDate,
         type: EVENT_TYPE[b.type ?? "Custom"] ?? "Custom",
         title: `${b.type ?? "Reminder"} — ${name}`,
         detail: b.note || "",
         customerId: b.customerId,
         customerName: name,
-        status: "Pending",
+        status: list.some((c) => c.id === id && c.kind === "done") ? "Done" : "Pending",
       };
     });
-  const list = await changes();
   const base = list.length
     ? (env.data as { reminderId?: number }[]).map((e) => (e.reminderId != null ? applyChanges(e as never, e.reminderId, list, true) : e)).filter((e) => e !== null)
     : env.data;
@@ -109,8 +116,9 @@ export async function adjustReminders(body: string): Promise<string> {
     return body;
   }
   if (!Array.isArray(env.data)) return body;
+  const list = await changes();
   const extra = (await waiting()).map(({ entry, body: b }) => ({
-    id: 0,
+    id: localRequestId(entry.id),
     customerId: b.customerId,
     customer: { id: b.customerId, name: customerName(Number(b.customerId)), code: "", phone: "" },
     loanId: b.loanId ?? null,
@@ -120,8 +128,7 @@ export async function adjustReminders(body: string): Promise<string> {
     status: "Pending",
     createdAt: entry.occurredAt,
     updatedAt: entry.occurredAt,
-  }));
-  const list = await changes();
+  })).map((r) => applyChanges(r as never, r.id, list, false) as typeof r | null).filter((r): r is NonNullable<typeof r> => r !== null);
   const base = list.length
     ? (env.data as { id: number }[]).map((r) => applyChanges(r as never, r.id, list, false)).filter((r) => r !== null)
     : env.data;

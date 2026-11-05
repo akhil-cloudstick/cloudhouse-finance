@@ -5,6 +5,7 @@
 
 import { enqueueAndWait, newEntry, offlineReady } from "./index";
 import { currentActor } from "./actor";
+import { ApiError } from "@/common/services/httpClient";
 
 export function canQueue(): boolean {
   return offlineReady();
@@ -20,7 +21,8 @@ export async function queueWrite<T>(
 ): Promise<T> {
   if (!offlineReady()) return online();
   // a record made on this PC and not yet on the server has a negative id; there is nothing on the server to change yet
-  if (/\/(-\d+|0)(\/|$|\?)/.test(path)) throw new Error("This record has not reached the server yet. Try again once it has synced.");
+  // (an ApiError, so the screen shows this sentence instead of its generic "could not save")
+  if (/\/(-\d+|0)(\/|$|\?)/.test(path)) throw new ApiError("Not synced yet. Try again once it has synced.", 409);
   const entry = newEntry(method, path, body, currentActor());
   entry.targets = [entry.id];
   await enqueueAndWait(entry, applyLocal);

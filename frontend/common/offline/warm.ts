@@ -5,7 +5,8 @@
  * Two tiers: the lists every few minutes, and the pages that belong to one record (a personal loan, an investment,
  * a bank's ledger, a loan's auction case) about every half hour, since those are many requests. */
 
-import { quietly, warmGet, warmJson } from "@/common/services/httpClient";
+import { quietly, warmAllPages, warmGet, warmJson } from "@/common/services/httpClient";
+import { setAuctionStage } from "./auctionStages";
 import { warmImages } from "./imageCache";
 import { listLocal } from "./localCopy";
 import { employeeId } from "./session";
@@ -16,6 +17,14 @@ const PER_RECORD = "limit=100&offset=0";
 // the per-record tier is refreshed this often, and at most this often after a send (so what was just saved is also kept)
 const HEAVY_EVERY_MS = 10 * 60_000;
 const HEAVY_MIN_GAP_MS = 60_000;
+// Nothing is cut short: every record of a list, and of the pages that belong to one record, is kept on this PC.
+const NO_CAP = 1_000_000;
+
+/* A list with a limit in its address is kept whole (every page, joined), anything else as the single answer it gives. */
+async function warmList(path: string, branch?: number | null): Promise<void> {
+  if (/[?&]limit=/.test(path)) await warmAllPages(path, branch);
+  else await warmGet(path, branch);
+}
 
 const PATHS = [
   "/schemes",
@@ -103,22 +112,34 @@ function rowsOf(json: unknown): Row[] {
   return rows.filter((r): r is Row => !!r && typeof (r as Row).id === "number" && ((r as Row).id as number) > 0);
 }
 
+/* Every row of a list, however many pages it has (kept whole on the way, see warmAllPages). */
+async function listRows(path: string): Promise<unknown[]> {
+  if (/[?&]limit=/.test(path)) {
+    const all = await warmAllPages(path);
+    if (all) return all;
+  }
+  const data = ((await warmJson(path)) as { data?: unknown } | null)?.data;
+  return Array.isArray(data) ? data : Array.isArray((data as { items?: unknown[] } | undefined)?.items) ? (data as { items: unknown[] }).items : [];
+}
+
+const withIds = (rows: unknown[]): Row[] => rows.filter((r): r is Row => !!r && typeof (r as Row).id === "number" && ((r as Row).id as number) > 0);
+
 async function idsOf(path: string, max: number): Promise<number[]> {
-  return rowsOf(await warmJson(path))
+  return withIds(await listRows(path))
     .slice(0, max)
     .map((r) => r.id as number);
 }
 
 /* Investments (id, engine) — the transactions list exists only for live-accrual ones; the server answers 400 for the rest. */
 async function investmentsOf(max: number): Promise<{ id: number; live: boolean }[]> {
-  return rowsOf(await warmJson(`/investments?${ALL}`))
+  return withIds(await listRows(`/investments?${ALL}`))
     .slice(0, max)
     .map((r) => ({ id: r.id as number, live: r.engine === "Live" }));
 }
 
 /* A packet's details page reads the packet and its movements, so those are kept for each packet as well. */
 async function warmPackets(): Promise<void> {
-  const rows = rowsOf(await warmJson("/packets")).slice(0, 150);
+  const rows = rowsOf(await warmJson("/packets")).slice(0, NO_CAP);
   for (const p of rows) {
     await warmGet(`/packets/${p.id}`);
     await warmGet(`/packets/${p.id}/movements`);
@@ -132,12 +153,12 @@ async function warmPackets(): Promise<void> {
 async function warmRoleMatrices(): Promise<void> {
   const emp = employeeId();
   if (!emp) return;
-  for (const id of await idsOf("/roles", 40)) await warmGet(`/employees/${emp}/permissions?role_id=${id}`);
+  for (const id of await idsOf("/roles", NO_CAP)) await warmGet(`/employees/${emp}/permissions?role_id=${id}`);
 }
 
 /* The detail page of a personal loan: the loan, its approvals, schedule, payments and history. */
 async function warmPersonalLoans(): Promise<void> {
-  for (const id of await idsOf(`/personal-loans?${ALL}`, 40)) {
+  for (const id of await idsOf(`/personal-loans?${ALL}`, NO_CAP)) {
     await warmGet(`/personal-loans/${id}`);
     await warmGet(`/personal-loans/${id}/approvals`);
     await warmGet(`/personal-loans/${id}/schedule?${PER_RECORD}`);
@@ -148,7 +169,7 @@ async function warmPersonalLoans(): Promise<void> {
 
 /* The detail page of an investment: the investment, its ledger, schedule, transactions and pending interest. */
 async function warmInvestments(): Promise<void> {
-  for (const { id, live } of await investmentsOf(40)) {
+  for (const { id, live } of await investmentsOf(NO_CAP)) {
     await warmGet(`/investments/${id}`);
     await warmGet(`/investments/${id}/ledger`);
     await warmGet(`/investments/${id}/ledger?${PER_RECORD}`);
@@ -160,19 +181,19 @@ async function warmInvestments(): Promise<void> {
 
 /* The ledgers that belong to one bank, one branch or one customer. */
 async function warmLedgers(): Promise<void> {
-  for (const id of await idsOf("/banks", 40)) {
-    await warmGet(`/banks/${id}/ledger?${ALL}`);
-    await warmGet(`/cash-movements/transactions/bank/${id}?${ALL}`);
+  for (const id of await idsOf("/banks", NO_CAP)) {
+    await warmList(`/banks/${id}/ledger?${ALL}`);
+    await warmList(`/cash-movements/transactions/bank/${id}?${ALL}`);
   }
-  for (const id of await idsOf("/branches", 40)) await warmGet(`/cash-movements/transactions/branch/${id}?${ALL}`);
+  for (const id of await idsOf("/branches", NO_CAP)) await warmList(`/cash-movements/transactions/branch/${id}?${ALL}`);
   const customers = listLocal("customers")
     .map((c) => c.id)
     .filter((id): id is number => typeof id === "number" && id > 0)
-    .slice(0, 1000);
-  for (const id of customers) await warmGet(`/cash-movements/transactions/customer/${id}?${ALL}`);
+    .slice(0, NO_CAP);
+  for (const id of customers) await warmList(`/cash-movements/transactions/customer/${id}?${ALL}`);
   // each expense category's ledger, and the ledger of each payment mode the server has one for (the Cash one is in PATHS)
-  for (const id of await idsOf("/expense-categories", 60)) await warmGet(`/expense-categories/${id}/ledger?${ALL}`);
-  for (const mode of ["UPI", "Bank Transfer"]) await warmGet(`/cash-movements/mode-ledger?mode=${encodeURIComponent(mode)}&${ALL}`);
+  for (const id of await idsOf("/expense-categories", NO_CAP)) await warmList(`/expense-categories/${id}/ledger?${ALL}`);
+  for (const mode of ["UPI", "Bank Transfer"]) await warmList(`/cash-movements/mode-ledger?mode=${encodeURIComponent(mode)}&${ALL}`);
 }
 
 /* The auction case of each open loan (Active tab) and every case ever opened against it (History), and its bank
@@ -180,9 +201,11 @@ async function warmLedgers(): Promise<void> {
 async function warmAuctions(): Promise<void> {
   const open = listLocal("loans")
     .filter((l) => typeof l.id === "number" && (l.id as number) > 0 && !/released|voided|rejected/i.test(String(l.status ?? "")))
-    .slice(0, 60);
+    .slice(0, NO_CAP);
   for (const l of open) {
-    await warmGet(`/loans/${l.id}/auction?optional=1`);
+    // the stage of the loan's latest case (none: no case); an answer that did not come leaves what is kept as it was
+    const answer = (await warmJson(`/loans/${l.id}/auction?optional=1`)) as { data?: { stage?: string } | null } | null;
+    if (answer) setAuctionStage(l.id as number, answer.data?.stage ?? null);
     await warmGet(`/loans/${l.id}/auction/history`);
     await warmGet(`/loans/${l.id}/bank-pledge/history`);
   }
@@ -192,10 +215,8 @@ async function warmAuctions(): Promise<void> {
  * for each case, along with the case's own history. */
 async function warmConcludedAuctions(): Promise<void> {
   for (const hasSale of ["true", "false"]) {
-    const json = (await warmJson(`/loans/auctions/concluded?${ALL}&hasSale=${hasSale}`)) as { data?: unknown } | null;
-    const data = json?.data;
-    const rows = (Array.isArray(data) ? data : Array.isArray((data as { items?: unknown[] } | undefined)?.items) ? (data as { items: unknown[] }).items : []) as { loanId?: number }[];
-    for (const r of rows.slice(0, 60)) {
+    const rows = (await listRows(`/loans/auctions/concluded?${ALL}&hasSale=${hasSale}`)) as { loanId?: number }[];
+    for (const r of rows.slice(0, NO_CAP)) {
       if (!r.loanId || r.loanId <= 0) continue;
       await warmGet(`/loans/${r.loanId}/auction/sale`);
       await warmGet(`/loans/${r.loanId}/auction/history`);
@@ -236,9 +257,9 @@ const BRANCH_PATHS = [
 /* Switching branch changes what those screens ask for, and each branch's answer is its own, so each branch (and "all
  * branches") is kept separately; otherwise a branch that was never opened online shows nothing offline. */
 async function warmBranches(): Promise<void> {
-  const ids = await idsOf("/branches", 40);
+  const ids = await idsOf("/branches", NO_CAP);
   for (const branch of [null, ...ids]) {
-    for (const p of BRANCH_PATHS) await warmGet(p, branch);
+    for (const p of BRANCH_PATHS) await warmList(p, branch);
     for (const r of REPORTS) await warmGet(`/reports/${r}`, branch);
   }
 }
@@ -267,7 +288,7 @@ export async function warmReadCache(force = false): Promise<void> {
   running = true;
   try {
     await quietly(async () => {
-      for (const p of PATHS) await warmGet(p);
+      for (const p of PATHS) await warmList(p);
       for (const r of REPORTS) await warmGet(`/reports/${r}`);
       await warmCalendar();
       await warmRoleMatrices();

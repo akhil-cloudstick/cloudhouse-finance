@@ -17,7 +17,7 @@ import { forgetRegistration } from "./device";
 import { withUploadedPhotos } from "./photos";
 import { ensureRegistered } from "./register";
 import { rememberPledge, resolvePledgePath } from "./pledgeRef";
-import { createsLoan, createsLocker, createsPlan, PACKET_REF, serverIdOf, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
+import { createsLoan, createsLocker, createsPlan, createsReminder, PACKET_REF, serverIdOf, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
 import type { EntityName, OutboxEntry } from "./types";
 
 let running = false;
@@ -27,8 +27,11 @@ export const SYNC_STATE_EVENT = "app:offline-sync-state";
 
 /* True while the sender (cron, after a save, or the manual button) is sending or pulling. */
 export function isSyncing(): boolean {
-  return running;
+  return running || pulling;
 }
+
+// true while the pull that follows an empty outbox is running (the send loop has already ended by then)
+let pulling = false;
 
 function announce() {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(SYNC_STATE_EVENT));
@@ -189,7 +192,7 @@ export async function drain(why: string): Promise<boolean> {
         break;
       }
       if (entry.method === "POST" && /\/bank-pledge$/.test(entry.path)) await rememberPledge(entry.id, r.body);
-      if (createsRequest(entry) || createsPlan(entry) || createsLocker(entry) || createsLoan(entry)) await rememberRequest(entry.id, r.body);
+      if (createsRequest(entry) || createsPlan(entry) || createsLocker(entry) || createsLoan(entry) || createsReminder(entry)) await rememberRequest(entry.id, r.body);
       await applyReply(entry, r.body);
       await offlineStore.deleteOutboxEntry(entry.id);
       sent++;
@@ -207,7 +210,15 @@ export async function drain(why: string): Promise<boolean> {
   }
   if (stopped) return false;
   // the list is empty: one pull brings this branch's changes (including other PCs') into the local copy
-  const pulled = await pull(sent > 0 ? "outbox empty" : why);
+  pulling = true;
+  announce();
+  let pulled = false;
+  try {
+    pulled = await pull(sent > 0 ? "outbox empty" : why);
+  } finally {
+    pulling = false;
+    announce();
+  }
   // what was just sent changes lists the PC keeps for offline use (a new scheme); fetch them again
   if (sent > 0) void warmReadCache(true);
   if (sent > 0) window.dispatchEvent(new Event(ENTRIES_SENT_EVENT));

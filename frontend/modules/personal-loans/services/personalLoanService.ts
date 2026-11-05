@@ -1,5 +1,8 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError, quietly } from "@/common/services/httpClient";
-import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { changeWithEntry, enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { waitingPersonalPayments } from "@/common/offline/personalLoanAdjust";
+import { canMakeOffline, localPerson, renderAndPrint } from "@/common/offline/documents";
+import { getBusinessProfile } from "@/modules/settings/services/businessProfileService";
 import { queueWrite } from "@/common/offline/queueWrite";
 import { currentActor } from "@/common/offline/actor";
 import { localRequestId } from "@/common/offline/requestRef";
@@ -195,6 +198,18 @@ export function listPersonalLoansForCustomer(customerId: number): Promise<Backen
  * pattern as loanService.ts's downloadIndemnityBondPDF, rather than
  * silently triggering a browser file save with no visible preview. */
 export async function downloadPersonalLoanBond(loanId: number, lang: PersonalLoanBondLang): Promise<void> {
+  try {
+    return await downloadPersonalLoanBondOnline(loanId, lang);
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    // the server did not answer: the bond is made on this PC from the loan and customer it holds
+    const loan = await getPersonalLoan(loanId);
+    const [profile] = await Promise.all([getBusinessProfile().catch(() => null)]);
+    return renderAndPrint("personal-loan-bond", lang, { personalLoan: loan, person: localPerson(loan.customerId), profile: profile ?? {} });
+  }
+}
+
+async function downloadPersonalLoanBondOnline(loanId: number, lang: PersonalLoanBondLang): Promise<void> {
   return printPdfJob(async () => {
     const token = typeof window !== "undefined" ? getAuthToken() : null;
     const res = await apiRawFetch(`/personal-loans/${loanId}/bond?lang=${lang}`, {
@@ -248,7 +263,32 @@ export type EditPersonalDisbursementInput = {
   reason?: string;
 };
 
+/* A payment collected on this PC and not sent yet is listed under a local (negative) id. Its entry is rewritten (or dropped) so
+ * the server only ever hears of the corrected payment; the screens are built from the outbox, so they follow at once. */
+async function waitingPersonalPayment(loanId: number, paymentId: number) {
+  const hit = (await waitingPersonalPayments(loanId)).find((w) => w.localId === paymentId);
+  if (!hit) throw new ApiError("This payment was just sent. Refresh, then edit it.", 409);
+  return hit;
+}
+
 export function editPersonalLoanPayment(loanId: number, paymentId: number, input: EditPersonalPaymentInput, dryRun = false): Promise<PersonalLedgerEditPreview> {
+  if (!dryRun && offlineReady() && paymentId < 0) {
+    return waitingPersonalPayment(loanId, paymentId).then(async ({ entry, body }) => {
+      const next = {
+        ...body,
+        amount: input.amount ?? body.amount,
+        cashAmount: input.cashAmount ?? body.cashAmount,
+        upiAmount: input.upiAmount ?? body.upiAmount,
+        bankTransferAmount: input.bankTransferAmount ?? body.bankTransferAmount,
+        chequeAmount: input.chequeAmount ?? body.chequeAmount,
+        bankId: input.bankId ?? body.bankId,
+        reference: input.reference ?? body.reference,
+        description: input.description ?? body.description,
+      };
+      await changeWithEntry(entry.id, JSON.stringify({ ...entry, body: next }), () => undefined);
+      return { dryRun: false } as unknown as PersonalLedgerEditPreview;
+    });
+  }
   const path = `/personal-loans/${loanId}/payments/${paymentId}`;
   if (dryRun) return apiFetch<PersonalLedgerEditPreview>(`${path}?dry_run=true`, { method: "PATCH", body: JSON.stringify(input) });
   return queueWrite("PATCH", path, input, { dryRun: false } as unknown as PersonalLedgerEditPreview, () =>
@@ -257,6 +297,12 @@ export function editPersonalLoanPayment(loanId: number, paymentId: number, input
 }
 
 export function deletePersonalLoanPayment(loanId: number, paymentId: number, dryRun = false, reason?: string): Promise<PersonalLedgerEditPreview> {
+  if (!dryRun && offlineReady() && paymentId < 0) {
+    return waitingPersonalPayment(loanId, paymentId).then(async ({ entry }) => {
+      await changeWithEntry(entry.id, "", () => undefined);
+      return { dryRun: false } as unknown as PersonalLedgerEditPreview;
+    });
+  }
   const path = `/personal-loans/${loanId}/payments/${paymentId}`;
   const qs = new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) });
   if (dryRun) return apiFetch<PersonalLedgerEditPreview>(`${path}?${qs}`, { method: "DELETE" });

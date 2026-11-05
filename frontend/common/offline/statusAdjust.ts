@@ -39,9 +39,19 @@ function parse(body: string): Env | null {
 function rowsOf(env: Env): { rows: Record<string, unknown>[]; put: (rows: Record<string, unknown>[]) => void } | null {
   const d = env.data;
   if (Array.isArray(d)) return { rows: d as Record<string, unknown>[], put: (r) => { env.data = r; } };
-  if (d && typeof d === "object" && Array.isArray((d as { items?: unknown[] }).items)) {
-    const o = d as { items: Record<string, unknown>[] };
-    return { rows: o.items, put: (r) => { o.items = r; } };
+  // The server (Go) writes an empty list as null, so a list with nothing in it has to count as an empty list: otherwise the
+  // rows made on this PC are never added to it (the first release request made offline, say).
+  if (d === null || d === undefined) {
+    const empty: Record<string, unknown>[] = [];
+    return { rows: empty, put: (r) => { env.data = r; } };
+  }
+  if (d && typeof d === "object") {
+    const o = d as { items?: Record<string, unknown>[] | null };
+    if (Array.isArray(o.items)) return { rows: o.items, put: (r) => { o.items = r; } };
+    if (o.items === null || "items" in o) {
+      o.items = [];
+      return { rows: o.items, put: (r) => { o.items = r; } };
+    }
   }
   return null;
 }

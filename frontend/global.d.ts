@@ -16,6 +16,7 @@ interface DesktopApp {
   StoreReadOutbox(): Promise<string[]>;
   StoreDeleteOutboxEntry(id: string): Promise<void>;
   StoreSaveEntry(line: string, files: Record<string, string>): Promise<void>;
+  StoreChangeEntry(id: string, line: string, files: Record<string, string>): Promise<void>;
   StoreReadAllOutbox(): Promise<string[]>;
   StoreOutboxCounts(): Promise<Record<string, number>>;
   StoreMarkReview(id: string, message: string): Promise<void>;
@@ -28,6 +29,7 @@ interface DesktopApp {
   StoreRootChosen(): Promise<boolean>;
   StoreChooseFolder(): Promise<string>;
   StoreUseDefaultFolder(): Promise<void>;
+  RenderOfflineDocument(kind: string, lang: string, inputJson: string): Promise<string>;
 }
 
 interface DesktopRuntime {

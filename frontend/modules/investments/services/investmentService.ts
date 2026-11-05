@@ -6,6 +6,8 @@ import { pendingInvestmentRow } from "@/common/offline/investmentAdjust";
 import { PLAN_REF, findLocalPlan, localRequestId } from "@/common/offline/requestRef";
 import { branchHeader } from "@/common/services/branchSelection";
 import { printPdfJob } from "@/common/utils/print";
+import { canMakeOffline, localPerson, renderAndPrint } from "@/common/offline/documents";
+import { getBusinessProfile } from "@/modules/settings/services/businessProfileService";
 import type { InvestmentStatus, BackendInvestmentPlan, CreatePlanInput, BackendInvestment, BackendInvestmentTransaction, BackendInvestmentPayout, CreateInvestmentInput, InvestmentLedgerRow, MaturityAction, AddCashInput, WithdrawInput } from "@/modules/investments/types/investment-types";
 
 /* Desktop, server not answering: the plan goes into the outbox and is listed (and offered for a new investment) at once under
@@ -236,7 +238,15 @@ async function fetchInvestmentStatementPdf(investmentId: number): Promise<Blob> 
  * print dialog — same printPdfBlob flow as loanService.ts's
  * downloadIndemnityBondPDF/downloadReleaseAgreementPDF. */
 export async function printInvestmentBondPdf(investmentId: number): Promise<void> {
-  return printPdfJob(() => fetchInvestmentBondPdf(investmentId), undefined, `investment-bond-${investmentId}.pdf`);
+  try {
+    return await printPdfJob(() => fetchInvestmentBondPdf(investmentId), undefined, `investment-bond-${investmentId}.pdf`);
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    // the server did not answer: the bond is made on this PC from the investment and investor it holds
+    const investment = await getInvestment(investmentId);
+    const profile = await getBusinessProfile().catch(() => null);
+    return renderAndPrint("investment-bond", "en", { investment, person: localPerson(investment.customerId as number), profile: profile ?? {} });
+  }
 }
 
 /* Sends the investment's account statement straight to the browser's print

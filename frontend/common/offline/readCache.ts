@@ -11,7 +11,8 @@ import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
 import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjust";
 import { adjustLatestRate, adjustRateHistory } from "./goldRateAdjust";
 import { adjustExpenses, adjustGoldSales, adjustLedger, adjustPartyLedger, LEDGER_PATH, PARTY_PATH } from "./ledgerAdjust";
-import { adjustPersonalLoans } from "./personalLoanAdjust";
+import { adjustAuctionRecord } from "./auctionAdjust";
+import { adjustPersonalLoanDetail, adjustPersonalLoanListPayments, adjustPersonalLoanPayments, adjustPersonalLoanSchedule, adjustPersonalLoans } from "./personalLoanAdjust";
 import { adjustInvestmentPlans, adjustInvestments } from "./investmentAdjust";
 import { adjustCalendar, adjustReminders } from "./reminderAdjust";
 import { adjustMovements, adjustPackets, adjustRequests } from "./statusAdjust";
@@ -21,7 +22,7 @@ const VERSION = 2;
 const SKIP = /(^|\/)(auth|sync|uploads)(\/|$)|pdf|statement|export|download|qr|esign|receipt/i;
 // Loans and customers are answered from the local copy instead (it also holds loans the server has not numbered yet)
 const LOCAL_LOANS = /\/users\/\d+\/(loans|customers)(\?.*)?$|\/users\/\d+\/loans\/by-number\/[^/?]+(\?.*)?$|\/users\/\d+\/(loans|customers)\/\d+(\?.*)?$|\/users\/\d+\/loans\/\d+\/ledger(\?.*)?$|\/users\/(\d+)\/customers\/[^/?]+\/(profile360|loans|ornaments|payments|bank-pledges|auction-history)(\?.*)?$/;
-const MAX_BODY = 3 * 1024 * 1024;
+const MAX_BODY = 32 * 1024 * 1024; // a whole list is kept as one answer (see warmAllPages), so it may be long
 const MAX_QUEUED = 300;
 // what a cached list is narrowed by when a screen asks for a subset (the server's own filters are not repeated otherwise)
 const FILTERS: { params: string[]; fields: string[] }[] = [
@@ -270,6 +271,13 @@ function reshape(cachedBody: string, path: string): string {
 
 export async function recall(path: string, view: string): Promise<string | null> {
   const body = await recallCopy(path, view);
+  // A loan's auction case: the steps taken on this PC and not sent yet are on it. A loan with no case yet (nothing kept, or an
+  // empty answer) gets one when a step is waiting.
+  if (/\/loans\/\d+\/auction(\?|$)/.test(path)) {
+    const empty = JSON.stringify({ success: true, data: null });
+    const adjusted = await adjustAuctionRecord(path, body ?? empty);
+    return body === null && adjusted === empty ? null : adjusted;
+  }
   // A rate published on this PC and not sent yet is the latest rate, even when no rate was ever kept from the server.
   if (/\/gold-rates\/latest(\?|$)/.test(path)) return adjustLatestRate(body);
   if (/\/gold-rates(\?|$)/.test(path)) return adjustRateHistory(path, body);
@@ -277,7 +285,18 @@ export async function recall(path: string, view: string): Promise<string | null>
   if (/\/investment-plans(\?|$)/.test(path)) return adjustInvestmentPlans(path, body);
   if (/\/users\/\d+\/investments(\?|$)/.test(path)) return adjustInvestments(path, body);
   // personal loans made on this PC and not sent yet are listed as pending ones
-  if (/\/personal-loans(\?|$)/.test(path)) return adjustPersonalLoans(path, body);
+  if (/\/personal-loans(\?|$)/.test(path)) {
+    const withNew = await adjustPersonalLoans(path, body);
+    return withNew === null ? null : adjustPersonalLoanListPayments(withNew);
+  }
+  // a payment collected on this PC and not sent yet counts against the loan and shows in its ledger
+  if (body !== null && /\/personal-loans\/\d+\/payments(\?|$)/.test(path)) return adjustPersonalLoanPayments(path, body);
+  if (body !== null && /\/personal-loans\/\d+\/schedule(\?|$)/.test(path)) return adjustPersonalLoanSchedule(path, body);
+  if (body !== null && /\/personal-loans\/\d+(\?|$)/.test(path)) {
+    // the loan's own schedule decides whether it is still past its grace period once a payment is counted
+    const schedule = await recallCopy(path.replace(/\/personal-loans\/(\d+)(\?.*)?$/, "/personal-loans/$1/schedule?limit=100&offset=0"), view);
+    return adjustPersonalLoanDetail(path, body, schedule);
+  }
   // The ledgers (Cash, UPI / Bank Transfer / Cheque, a bank's, an expense category's) list what this PC has entered since the
   // last answer. A category made on this PC has no answer at all, so this runs before the "nothing kept" check below.
   if (LEDGER_PATH.test(path)) return adjustLedger(path, body);

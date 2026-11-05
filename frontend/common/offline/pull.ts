@@ -3,16 +3,22 @@
 
 import { apiFetchEnveloped } from "@/common/services/httpClient";
 import { offlineStore } from "@/common/services/desktopBridge";
-import { mergeLocal, replaceLocal } from "./localCopy";
+import { listLocal, mergeLocal, replaceLocal } from "./localCopy";
 import { employeeId } from "./session";
 import type { OutboxEntry, PullPayload } from "./types";
 
 const CURSOR_FILE = "cursor.json";
 
+// Bumped when what a full download holds grows (v2: every closed loan, not just the last 90 days), so a PC that downloaded
+// under the old rule does one full download again instead of only ever fetching changes.
+const FULL_COPY_VERSION = 2;
+
 async function readCursor(): Promise<string> {
   try {
     const text = await offlineStore.readFile(CURSOR_FILE);
-    return text ? ((JSON.parse(text) as { since?: string }).since ?? "") : "";
+    if (!text) return "";
+    const c = JSON.parse(text) as { since?: string; full?: number };
+    return (c.full ?? 1) >= FULL_COPY_VERSION ? (c.since ?? "") : "";
   } catch {
     return "";
   }
@@ -45,7 +51,14 @@ export async function resetCursor(): Promise<void> {
 export async function pull(why: string): Promise<boolean> {
   const id = employeeId();
   if (!id) return false;
-  const since = await readCursor();
+  // The cursor says how far the local copy has caught up. If the copy is empty (a file that could not be read, a store that
+  // was recreated) while a cursor remains, an incremental pull would only ever bring new changes and the copy would stay
+  // empty, so everything is downloaded again.
+  let since = await readCursor();
+  if (since && listLocal("loans").length === 0 && listLocal("customers").length === 0) {
+    offlineStore.log("warn", `pull (${why}): local copy is empty but a cursor exists; downloading everything again`);
+    since = "";
+  }
   let payload: PullPayload;
   try {
     payload = await apiFetchEnveloped<PullPayload>(`/users/${id}/sync/pull${since ? `?since=${encodeURIComponent(since)}` : ""}`);
@@ -66,7 +79,7 @@ export async function pull(why: string): Promise<boolean> {
     await mergeLocal("loans", payload.loans, payload.deleted.loans, keep);
     await mergeLocal("customers", payload.customers, payload.deleted.customers, keep);
   }
-  await offlineStore.writeFile(CURSOR_FILE, JSON.stringify({ since: payload.cursor }));
+  await offlineStore.writeFile(CURSOR_FILE, JSON.stringify({ since: payload.cursor, full: FULL_COPY_VERSION }));
   offlineStore.log("info", `pull (${why}): ${payload.loans.length} loans, ${payload.customers.length} customers`);
   return true;
 }

@@ -3,9 +3,10 @@ import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
 import { offlineStore } from "@/common/services/desktopBridge";
 import { localPledgeId } from "@/common/offline/pledgeRef";
-import { findLocalRequest } from "@/common/offline/requestRef";
-import { canQueue, queueOnly } from "@/common/offline/queueWrite";
-import { enqueueAndWait, getLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
+import { findLocalRequest, localRequestId } from "@/common/offline/requestRef";
+import { canQueue, queueOnly, queueWrite } from "@/common/offline/queueWrite";
+import { setAuctionStage } from "@/common/offline/auctionStages";
+import { changeWithEntry, enqueueAndWait, getLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord, type OutboxEntry } from "@/common/offline";
 import { enabledStages, fetchApprovalWorkflow, isFlowOff, nextStage, stageByPending } from "@/common/services/approvalWorkflowService";
 import {
   applyActionLocally,
@@ -18,6 +19,7 @@ import {
   localLoanByNumericId,
   localLoans,
   pendingKey,
+  reversePaymentLocally,
   saveOptimisticLoan,
   sortNewestFirst,
   type CreateLoanHint,
@@ -26,6 +28,7 @@ import {
 import { listSchemes } from "@/modules/schemes/services/schemeService";
 import type { SchemeView } from "@/modules/schemes/types/scheme-types";
 import { printPdfJob } from "@/common/utils/print";
+import { canMakeOffline, printOfflineBondPreview, printOfflineLoanDocument, printOfflinePartialReceipt } from "@/modules/loans/services/loanDocumentsOffline";
 import { roundRupee } from "@/common/utils/format";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import type { OrnamentRequestInput, CreateLoanInput, BackendOrnament, BackendLoanPayment, BackendBankPledgeRecord, BackendLoan, OrnamentView, PaymentView, BankPledgeView, LoanView, BackendCustomerOrnamentRow, CustomerOrnamentRowView, BackendCustomerPaymentRow, CustomerPaymentRowView, BackendCustomerBankPledgeRow, CustomerBankPledgeRowView, SaveDraftInput, BackendLoanDraft, IndemnityBondEsignStart, EsignWitnessInput, IndemnityBondDeliverBy, IndemnityBondEsignCheck, LoanFilters, PurityTestInput, SanctionStage, ApprovalStageRecord, ApprovalInput, UpdateLoanInput, PaymentInput, TopUpInput, LoanTopUpView, TopUpApprovalInput, BankPledgeInput, BankPledgeCashTreatment, BankPledgeRecordView, AuctionStage, AuctionSettlementStatus, AuctionSurplusDisposition, AuctionDecisionStatus, AuctionDecisionRequestView, AuctionRecordView, BackendAuctionDecisionRequest, BackendAuctionRecord, BackendCustomerAuctionRow, CustomerAuctionRowView, BackendConcludedAuctionRow, ConcludedAuctionRowView, LoanLedgerEntry, LoanLedgerPage, LoanLedgerQuery, BackendLoanLedgerEntry, BackendLoanRequest, RequestView, LoanRequestFilters, LoanRiskLevel, LoanRiskRow, LoanRiskCounts, ChecklistInput, ReleasePaymentInput, ReleaseApprovalInput, ExtensionApprovalInput, IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types";
@@ -736,12 +739,68 @@ export async function recordPayment(loanId: number, input: PaymentInput, uuid?: 
   const entry = newEntry("POST", `/loans/uuid:${uuid}/payments`, input, actor, [uuid!]);
   const before = local;
   const after = applyPaymentLocally(local, input, actor);
+  // the payment is listed under an id made from its entry, so it can be edited or taken back before it is sent
+  const row = (after.payments ?? [])[(after.payments ?? []).length - 1];
+  if (row) row.id = localRequestId(entry.id);
   await enqueueAndWait(
     entry,
     () => upsertLocal("loans", after as unknown as LocalRecord),
     () => upsertLocal("loans", before as unknown as LocalRecord),
   );
   return toView((getLocal("loans", uuid!) as unknown as BackendLoan | undefined) ?? after);
+}
+
+/* A payment made on this PC and not sent yet: its entry (found by the local id it is listed under) and the loan it is on. */
+async function waitingLoanPayment(loanId: number, paymentId: number): Promise<{ entry: OutboxEntry; loan: BackendLoan & { uuid: string }; payment: BackendLoanPayment }> {
+  const loan = localLoanByNumericId(loanId);
+  const payment = loan?.payments?.find((p) => p.id === paymentId);
+  let entry: OutboxEntry | undefined;
+  for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
+    try {
+      const e = JSON.parse(line) as OutboxEntry;
+      if (e.method === "POST" && /^\/loans\/uuid:[0-9a-f-]+\/payments$/i.test(e.path) && localRequestId(e.id) === paymentId) entry = e;
+    } catch {
+      /* a line that cannot be read is not this one */
+    }
+  }
+  if (!loan || !payment || !entry) throw new ApiError("This payment was sent while you were editing. Refresh, then edit it.", 409);
+  return { entry, loan, payment };
+}
+
+/* Edit of a payment that has not been sent: the waiting entry is rewritten and the local loan recalculated with it, so
+ * what is sent later is the corrected payment. */
+async function editWaitingLoanPayment(loanId: number, paymentId: number, input: EditLedgerPaymentInput): Promise<LedgerPaymentEditPreview> {
+  const { entry, loan, payment } = await waitingLoanPayment(loanId, paymentId);
+  const old = (entry.body ?? {}) as PaymentInput;
+  const next: PaymentInput = {
+    ...old,
+    amount: input.amount ?? old.amount,
+    paidOn: input.paidOn ?? old.paidOn,
+    type: input.type ?? old.type,
+    processingFee: input.processingFee ?? old.processingFee,
+    cashAmount: input.cashAmount ?? old.cashAmount,
+    upiAmount: input.upiAmount ?? old.upiAmount,
+    bankTransferAmount: input.bankTransferAmount ?? old.bankTransferAmount,
+    chequeAmount: input.chequeAmount ?? old.chequeAmount,
+    bankId: input.bankId ?? old.bankId,
+    reference: input.reference ?? old.reference,
+    description: input.description ?? old.description,
+  };
+  const actor = currentActor();
+  const after = applyPaymentLocally(reversePaymentLocally(loan, payment), next, actor);
+  const row = (after.payments ?? [])[(after.payments ?? []).length - 1];
+  if (row) row.id = paymentId;
+  await changeWithEntry(entry.id, JSON.stringify({ ...entry, body: next }), () => upsertLocal("loans", { ...after, uuid: loan.uuid } as unknown as LocalRecord));
+  return { dryRun: false } as unknown as LedgerPaymentEditPreview;
+}
+
+/* Delete of a payment that has not been sent: the waiting entry is dropped, so the server never hears of it, and the local
+ * loan gets back what it paid. */
+async function deleteWaitingLoanPayment(loanId: number, paymentId: number): Promise<LedgerPaymentEditPreview> {
+  const { entry, loan, payment } = await waitingLoanPayment(loanId, paymentId);
+  const after = reversePaymentLocally(loan, payment);
+  await changeWithEntry(entry.id, "", () => upsertLocal("loans", { ...after, uuid: loan.uuid } as unknown as LocalRecord));
+  return { dryRun: false } as unknown as LedgerPaymentEditPreview;
 }
 
 /* When the business has the loan_topup approval flow switched on, this
@@ -1202,7 +1261,14 @@ export async function getAuctionRecord(loanId: number): Promise<AuctionRecordVie
 async function auctionQueued(loanId: number, step: string, body: unknown, stage: AuctionStage, patch: Partial<AuctionRecordView> = {}): Promise<AuctionRecordView | null> {
   if (!canQueue() || !(loanId > 0)) return null;
   const current = await getAuctionRecord(loanId);
-  await queueOnly("POST", `/loans/${loanId}/auction/${step}`, body, undefined);
+  // the stage is kept per loan on this PC (so the Auctions table and its filter see it at once), and a loan marked eligible is
+  // "Auction Eligible" from then on, a sold one "Auctioned" — as the server will have it when the step is sent
+  await queueWrite("POST", `/loans/${loanId}/auction/${step}`, body, undefined, () => Promise.reject(new Error("offline mode is not running")), async () => {
+    setAuctionStage(loanId, stage);
+    const status = step === "eligible" ? "Auction Eligible" : step === "sale" ? "Auctioned" : "";
+    const rec = localLoanByNumericId(loanId);
+    if (status && rec?.uuid) await upsertLocal("loans", { uuid: rec.uuid, status } as unknown as LocalRecord);
+  });
   const base: AuctionRecordView = current ?? toAuctionRecordView({ id: 0, loanId, stage, notices: [], events: [], decisionRequests: [] } as unknown as BackendAuctionRecord);
   return { ...base, stage, ...patch };
 }
@@ -1752,7 +1818,19 @@ export async function listLoanRiskAssessmentPage(
   return { items: rec?.items || [], hasMore: !!rec?.hasMore, total: rec?.total ?? 0, counts: rec?.counts ?? { loss: 0, atRisk: 0, safe: 0 } };
 }
 
+/* Offline, a second pending request of the same kind for one loan is refused here, as the server would (it answers "a release is
+ * already requested"); otherwise the same request could be saved again and again and all of them sent on reconnect. Pending
+ * requests are read from the list, which already includes the ones waiting to be sent from this PC. */
+async function refuseSecondPending(loanId: number, type: "Extension" | "Release"): Promise<void> {
+  if (!offlineReady() || !loanId) return;
+  const pending = await listLoanRequests({ loanId, status: "Pending" }).catch(() => [] as RequestView[]);
+  if (pending.some((r) => r.type === type)) {
+    throw new ApiError(type === "Release" ? "a release is already requested for this loan" : "an extension is already requested for this loan", 409);
+  }
+}
+
 export async function createExtensionRequest(loanId: number, months: number, detail?: string): Promise<RequestView> {
+  await refuseSecondPending(loanId, "Extension");
   // With no extension approval stages the server approves it on the spot and moves the due date; the local copy does the same
   const autoApproved = offlineReady() && !!localLoanByNumericId(loanId)?.uuid && isFlowOff(await fetchApprovalWorkflow().catch(() => []), "loan_extension");
   if (autoApproved) {
@@ -1780,6 +1858,7 @@ export async function createExtensionRequest(loanId: number, months: number, det
  * doesn't need to special-case "select all" as anything but a normal call. */
 export async function createReleaseRequest(loanId: number, detail?: string, ornamentIds?: number[], requestedAt?: string): Promise<RequestView> {
   const body = { detail, ornamentIds: ornamentIds && ornamentIds.length ? ornamentIds : undefined, requestedAt };
+  await refuseSecondPending(loanId, "Release");
   const queued = await queueFirst(loanId, "/release-request", "POST", body);
   if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Release", status: "Pending", requestedBy: "Staff", detail: detail ?? "", ...(requestedAt ? { requestedAt } : {}) } as unknown as BackendLoanRequest);
   const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/release-request`, {
@@ -1937,6 +2016,7 @@ export function linkedDiscountOf(payments: PaymentView[], p: PaymentView): Payme
 }
 
 export async function editLedgerPayment(loanId: number, paymentId: number, input: EditLedgerPaymentInput, dryRun = false): Promise<LedgerPaymentEditPreview> {
+  if (!dryRun && canQueue() && paymentId < 0) return editWaitingLoanPayment(loanId, paymentId, input);
   if (!dryRun && canQueue()) return queueOnly("PATCH", `/loans/${loanId}/payments/${paymentId}`, input, { dryRun: false } as unknown as LedgerPaymentEditPreview);
   return apiFetch<LedgerPaymentEditPreview>(`/loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, {
     method: "PATCH",
@@ -1998,6 +2078,7 @@ export async function deleteLoanTopUp(loanId: number, topUpId: number, dryRun = 
 }
 
 export async function deleteLedgerPayment(loanId: number, paymentId: number, dryRun = false, reason?: string, gold: LedgerGoldChoices = {}): Promise<LedgerPaymentEditPreview> {
+  if (!dryRun && canQueue() && paymentId < 0) return deleteWaitingLoanPayment(loanId, paymentId);
   if (!dryRun && canQueue()) {
     const q = new URLSearchParams({ ...(reason ? { reason } : {}), ...(gold.reversePacket ? { reverse_packet: "true" } : {}), ...(gold.restorePartialRelease ? { restore_partial_release: "true" } : {}) }).toString();
     return queueOnly("DELETE", `/loans/${loanId}/payments/${paymentId}${q ? `?${q}` : ""}`, undefined, { dryRun: false } as unknown as LedgerPaymentEditPreview);
@@ -2053,9 +2134,16 @@ export function canAcceptBankPledge(status: string, bankPledgeStatus: string): b
  * number in it always matches the document's contents. */
 export async function downloadLoanStatement(loanId: number): Promise<void> {
   const token = getAuthToken();
-  const res = await apiRawFetch(`/loans/${loanId}/statement`, {
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
-  });
+  let res: Response;
+  try {
+    res = await apiRawFetch(`/loans/${loanId}/statement`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
+    });
+  } catch (e) {
+    // the server did not answer: the statement is made on this PC from its own copy of the loan and opened in the print dialog
+    if (canMakeOffline(e)) return printOfflineLoanDocument("statement", loanId);
+    throw e;
+  }
   if (!res.ok) {
     let message = res.statusText;
     try {
@@ -2095,6 +2183,16 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
  * still uses the client-side copy, since there's no loan id yet to render
  * against. */
 export async function downloadIndemnityBondPDF(loanNumericId: number, lang: BondLang): Promise<void> {
+  try {
+    return await downloadIndemnityBondOnline(loanNumericId, lang);
+  } catch (e) {
+    // the server did not answer: the pledge agreement is made on this PC from its bundled template and its copy of the loan
+    if (canMakeOffline(e)) return printOfflineLoanDocument("bond", loanNumericId, lang);
+    throw e;
+  }
+}
+
+async function downloadIndemnityBondOnline(loanNumericId: number, lang: BondLang): Promise<void> {
   return printPdfJob(async () => {
     const token = getAuthToken();
     const res = await apiRawFetch(`/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
@@ -2137,7 +2235,12 @@ async function pledgeSlipResponse(loanNumericId: number, format?: "html"): Promi
 }
 
 export async function downloadPledgeSlipPDF(loanNumericId: number): Promise<void> {
-  return printPdfJob(async () => (await pledgeSlipResponse(loanNumericId)).blob(), undefined, `pledge-slip-${loanNumericId}.pdf`);
+  try {
+    return await printPdfJob(async () => (await pledgeSlipResponse(loanNumericId)).blob(), undefined, `pledge-slip-${loanNumericId}.pdf`);
+  } catch (e) {
+    if (canMakeOffline(e)) return printOfflineLoanDocument("pledge-slip", loanNumericId);
+    throw e;
+  }
 }
 
 /* TML payment receipt (the TML "statement") — rendered server-side from
@@ -2181,6 +2284,18 @@ export async function fetchPledgeSlipParts(loanNumericId: number): Promise<{ sty
  * released BY THIS REQUEST). Only valid for a Release request with
  * isPartial true — see DownloadPartialReleaseReceiptPDF's own doc comment. */
 export async function downloadPartialReleaseReceiptPDF(requestId: number, lang: "en" | "ml" = "en"): Promise<void> {
+  try {
+    return await downloadPartialReceiptOnline(requestId, lang);
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    // the server did not answer: made on this PC from the request and its copy of the loan
+    const req = (await listLoanRequests().catch(() => [] as RequestView[])).find((r) => r.id === requestId);
+    if (!req) throw e;
+    return printOfflinePartialReceipt({ loanNumericId: req.loanNumericId, settlementAmount: req.settlementAmount, ornamentIds: req.ornamentIds }, lang);
+  }
+}
+
+async function downloadPartialReceiptOnline(requestId: number, lang: "en" | "ml"): Promise<void> {
   return printPdfJob(async () => {
     const token = getAuthToken();
     const res = await apiRawFetch(`/loans/requests/${requestId}/partial-release-receipt/pdf?lang=${lang}`, {
@@ -2211,6 +2326,15 @@ export async function downloadPartialReleaseReceiptPDF(requestId: number, lang: 
  * Requests.tsx) only reaches this once a loan is closed/release-approved, so
  * there is no pre-save preview variant, unlike the indemnity bond. */
 export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "en" | "ml"): Promise<void> {
+  try {
+    return await downloadReleaseAgreementOnline(loanNumericId, lang);
+  } catch (e) {
+    if (canMakeOffline(e)) return printOfflineLoanDocument("release-agreement", loanNumericId, lang);
+    throw e;
+  }
+}
+
+async function downloadReleaseAgreementOnline(loanNumericId: number, lang: "en" | "ml"): Promise<void> {
   return printPdfJob(async () => {
     const token = getAuthToken();
     const res = await apiRawFetch(`/loans/${loanNumericId}/release-agreement/pdf?lang=${lang}`, {
@@ -2238,6 +2362,15 @@ export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "
  * an already-saved loan, and sends it straight to the print dialog the
  * same way via printPdfBlob — just POST with a JSON body instead of GET. */
 export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, lang: BondLang): Promise<void> {
+  try {
+    return await previewIndemnityBondOnline(data, lang);
+  } catch (e) {
+    if (canMakeOffline(e)) return printOfflineBondPreview(data, lang);
+    throw e;
+  }
+}
+
+async function previewIndemnityBondOnline(data: IndemnityBondPreviewInput, lang: BondLang): Promise<void> {
   return printPdfJob(async () => {
     const token = getAuthToken();
     const res = await apiRawFetch(`/loans/indemnity-bond/preview-pdf?lang=${lang}`, {

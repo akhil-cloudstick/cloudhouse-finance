@@ -25,6 +25,10 @@ function contentUrl() {
 // Tenant subdomain from NEXT_PUBLIC_API_BASE's host; falls back to "default"
 // (e.g. localhost) so local testing still refreshes the icon.
 function slugFromApiBase(apiBase) {
+  // DESKTOP_TENANT names the business directly (its code, e.g. "default"), for when the API address does not carry it:
+  // a localhost or shared address would otherwise give "default", and an address with another subdomain that business.
+  const forced = (process.env.DESKTOP_TENANT || "").trim().toLowerCase();
+  if (forced) return forced;
   try {
     const host = new URL(apiBase).hostname.toLowerCase();
     const labels = host.split(".");
@@ -47,7 +51,10 @@ async function fetchTenantBranding(apiBase) {
     // one only matches when the subdomain equals the business code. An unknown code answers with the platform default
     // (no logo), which is why the exe got the plain "C" icon, so ask by host first and take the first answer with a logo.
     let data = null;
-    for (const url of [`${base}/public/branding`, `${base}/public/branding/${encodeURIComponent(slug)}`]) {
+    const byCode = `${base}/public/branding/${encodeURIComponent(slug)}`;
+    // a business named explicitly is looked up by its code only: the host-resolved answer is for whatever the address maps to
+    const urls = (process.env.DESKTOP_TENANT || "").trim() ? [byCode] : [`${base}/public/branding`, byCode];
+    for (const url of urls) {
       const res = await fetch(url);
       if (!res.ok) continue;
       const body = await res.json();

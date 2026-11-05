@@ -583,3 +583,54 @@ func writeAtomic(path string, data []byte) error {
 	}
 	return nil
 }
+
+// ChangeEntry changes or removes an entry that is still waiting to be sent, together with the data files that
+// depend on it, in ONE transaction (the same guarantee as SaveEntry). An empty line removes the entry. An entry the
+// sender has already sent (or one in review) is refused, so a change can never be lost silently.
+func (s *Store) ChangeEntry(id, line string, files map[string]string) error {
+	if id == "" {
+		return errors.New("an entry id is required")
+	}
+	if line != "" {
+		got, _, err := entryHead(line)
+		if err != nil {
+			return err
+		}
+		if got != id {
+			return errors.New("the changed entry must keep its id")
+		}
+	}
+	sealed := make(map[string][]byte, len(files))
+	for name, content := range files {
+		b, err := sealFile(name, content)
+		if err != nil {
+			return err
+		}
+		sealed[name] = b
+	}
+	db, err := s.conn()
+	if err != nil {
+		return err
+	}
+	return inTx(db, func(tx *sql.Tx) error {
+		var res sql.Result
+		var err error
+		if line == "" {
+			res, err = tx.Exec(`DELETE FROM entries WHERE entry_id = ? AND status = ?`, id, statusPending)
+		} else {
+			res, err = tx.Exec(`UPDATE entries SET payload = ? WHERE entry_id = ? AND status = ?`, strings.TrimRight(line, "\r\n"), id, statusPending)
+		}
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return errors.New("this entry has already been sent to the server")
+		}
+		for name, b := range sealed {
+			if err := putFile(tx, name, b); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

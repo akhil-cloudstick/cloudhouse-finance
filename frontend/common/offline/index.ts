@@ -6,7 +6,8 @@ import { offlineStore } from "@/common/services/desktopBridge";
 import { currentDevice, forgetDevice, loadDevice } from "./device";
 import { uuid7 } from "./ids";
 import { installImageGuard } from "./imageCache";
-import { loadLocalCopy, saveWithEntry } from "./localCopy";
+import { loadAuctionStages } from "./auctionStages";
+import { changeWithEntry, loadLocalCopy, saveWithEntry } from "./localCopy";
 import { flushRememberedLogin } from "./loginCache";
 import { offlineBusiness } from "./session";
 import { askStorageChoice } from "./storageChoice";
@@ -19,10 +20,11 @@ import type { Actor, OutboxEntry } from "./types";
 
 export { uuid7, refPath } from "./ids";
 export { offlineReady } from "./state";
-export { getLocal, listLocal, removeLocal, subscribeLocal, upsertLocal } from "./localCopy";
+export { changeWithEntry, getLocal, listLocal, removeLocal, subscribeLocal, upsertLocal } from "./localCopy";
 export type { Actor, EntityName, LocalRecord, OutboxEntry } from "./types";
 
-const CRON_MS = 60_000;
+// how often the sender and the pull run on their own (a save, coming back online and the manual button run at once)
+const CRON_MS = 10 * 60_000;
 const DEVICE_FOLDER = "pc"; // the folder is already per Windows user, so one folder is one PC
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -53,6 +55,7 @@ async function doStartOffline(): Promise<void> {
     await offlineStore.open(business, DEVICE_FOLDER);
     await loadDevice();
     await loadLocalCopy();
+    await loadAuctionStages();
     setOfflineReady(true);
   } catch (e) {
     setOfflineReady(false);
@@ -64,11 +67,10 @@ async function doStartOffline(): Promise<void> {
   void flushRememberedLogin();
   offlineStore.log("info", `offline mode started for ${business} on ${deviceLabel()}`);
   void drain("start").then(() => warmReadCache());
-  let ticks = 0;
   timer = setInterval(() => {
     void drain("cron");
-    // every 3 minutes, refresh what is kept for offline use (changes other people made reach this PC's copy)
-    if (++ticks % 3 === 0) void warmReadCache();
+    // refresh what is kept for offline use (changes other people made reach this PC's copy)
+    void warmReadCache();
   }, CRON_MS);
   window.addEventListener("online", onOnline);
 }

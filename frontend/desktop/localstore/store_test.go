@@ -262,3 +262,41 @@ func TestOldLogsArePruned(t *testing.T) {
 		t.Errorf("today's log is missing: %v", err)
 	}
 }
+
+func TestChangeEntry(t *testing.T) {
+	s := open(t)
+	line := `{"id":"e1","method":"POST","path":"/x","body":{"amount":1},"targets":["a"]}`
+	if err := s.SaveEntry(line, map[string]string{"data/loans.json": `[1]`}); err != nil {
+		t.Fatal(err)
+	}
+	// a change rewrites the waiting entry and the file in one step
+	changed := `{"id":"e1","method":"POST","path":"/x","body":{"amount":2},"targets":["a"]}`
+	if err := s.ChangeEntry("e1", changed, map[string]string{"data/loans.json": `[2]`}); err != nil {
+		t.Fatal(err)
+	}
+	lines, _ := s.ReadAllOutbox()
+	if len(lines) != 1 || lines[0] != changed {
+		t.Fatalf("outbox = %v, want the changed entry", lines)
+	}
+	if got, _ := s.ReadFile("data/loans.json"); got != `[2]` {
+		t.Fatalf("file = %q, want [2]", got)
+	}
+	// the id cannot be swapped
+	if err := s.ChangeEntry("e1", `{"id":"other"}`, nil); err == nil {
+		t.Fatal("a changed entry must keep its id")
+	}
+	// an empty line removes it
+	if err := s.ChangeEntry("e1", "", map[string]string{"data/loans.json": `[]`}); err != nil {
+		t.Fatal(err)
+	}
+	if lines, _ := s.ReadAllOutbox(); len(lines) != 0 {
+		t.Fatalf("outbox = %v, want empty", lines)
+	}
+	// an entry that is gone (already sent) is refused, and the file is left alone
+	if err := s.ChangeEntry("e1", "", map[string]string{"data/loans.json": `[9]`}); err == nil {
+		t.Fatal("an entry that was already sent must be refused")
+	}
+	if got, _ := s.ReadFile("data/loans.json"); got != `[]` {
+		t.Fatalf("file = %q, want [] (unchanged by the refused change)", got)
+	}
+}

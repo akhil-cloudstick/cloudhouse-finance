@@ -123,7 +123,7 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
         let res: AuctionEditPreview;
         if (kind === "sale") {
           if (mode === "delete") {
-            res = await deleteAuctionSale(loanId, dry ? [] : applied(preview!), dry);
+            res = await deleteAuctionSale(loanId, dry || !preview ? [] : applied(preview), dry);
           } else {
             const sale = +saleAmount;
             const exp = +expenses || 0;
@@ -134,7 +134,7 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
             res = await editAuctionSale(loanId, {
               saleAmount: sale, auctionExpenses: exp, saleDate: date,
               cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId,
-              applyDependents: dry ? [] : applied(preview!),
+              applyDependents: dry || !preview ? [] : applied(preview),
             }, dry);
           }
         } else if (kind === "surplus") {
@@ -147,7 +147,7 @@ export function AuctionEditModalContent({ loanId, kind, mode, minDate, onSaved }
             res = await editAuctionSurplus(loanId, { disposition, ...(refund ? { mode: surplusMode(), bankId, settledOn: date || undefined } : {}) }, dry);
           }
         } else if (mode === "delete") {
-          res = await deleteAuctionWriteOff(loanId, dry ? [] : applied(preview!), dry);
+          res = await deleteAuctionWriteOff(loanId, dry || !preview ? [] : applied(preview), dry);
         } else {
           if (!date) { setErr("Choose the write-off date."); return; }
           res = await editAuctionWriteOff(loanId, date, dry);

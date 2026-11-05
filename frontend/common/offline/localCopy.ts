@@ -82,6 +82,34 @@ export function saveWithEntry(line: string, applyLocal: () => Promise<void> | vo
   return next;
 }
 
+/* Changes (empty line: removes) an entry that is still waiting to be sent and applies the matching change to the local copy
+ * as ONE transaction, like saveWithEntry. Refused when the sender has already sent the entry. */
+export function changeWithEntry(id: string, line: string, applyLocal: () => Promise<void> | void): Promise<void> {
+  const run = async () => {
+    const files = new Map<string, string>();
+    batch = files;
+    try {
+      await applyLocal();
+    } catch (e) {
+      batch = null;
+      await loadLocalCopy();
+      throw e;
+    }
+    batch = null;
+    const commit = writes.then(() => offlineStore.changeEntry(id, line, Object.fromEntries(files)));
+    writes = commit.catch(() => {});
+    try {
+      await commit;
+    } catch (e) {
+      await loadLocalCopy();
+      throw e;
+    }
+  };
+  const next = saving.then(run, run);
+  saving = next.catch(() => {});
+  return next;
+}
+
 export function isLoaded(): boolean {
   return loaded;
 }

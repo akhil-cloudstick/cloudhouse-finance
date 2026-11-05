@@ -9,6 +9,13 @@ import type { OutboxEntry } from "./types";
 const FILE = "data/request_refs.json";
 export const REQUEST_REF = /\/loans\/requests\/ref:([0-9a-f-]+)(\/|$)/i;
 const CREATES_REQUEST = /^\/loans\/uuid:[0-9a-f-]+\/(release|extension)-request$/i;
+/* A reminder made on this PC works the same way: listed under a local id, and a mark-done, edit or delete before it is
+ * sent addresses it as /reminders/ref:<entry id>. */
+const REMINDER_PATH_REF = /\/reminders\/ref:([0-9a-f-]+)(\/|$)/i;
+
+export function createsReminder(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+  return entry.method === "POST" && entry.path === "/reminders";
+}
 
 let cache: Record<string, number> | null = null;
 
@@ -65,7 +72,7 @@ export async function rememberRequest(entryId: string, body: unknown): Promise<v
 
 /* The entry's path with a ref swapped for the server's request id; null when that request never reached the server. */
 export async function resolveRequestPath(path: string): Promise<string | null> {
-  const m = REQUEST_REF.exec(path) ?? LOCKER_PATH_REF.exec(path);
+  const m = REQUEST_REF.exec(path) ?? LOCKER_PATH_REF.exec(path) ?? REMINDER_PATH_REF.exec(path);
   if (!m) return path;
   const id = (await load())[m[1]];
   return id ? path.replace(`ref:${m[1]}`, String(id)) : null;

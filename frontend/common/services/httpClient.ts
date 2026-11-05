@@ -332,6 +332,53 @@ export async function warmJson(path: string, branch?: number | null): Promise<un
   }
 }
 
+/* Keeps a whole paged list on this PC, however long it is. The server answers at most 500 rows at a time, so every page is fetched
+ * and the rows are joined into ONE answer kept as the "big" copy of the list: offline, any page, search or filter of that list is
+ * cut from it (readCache.ts). A path that is not a paged {items, hasMore} list is simply kept as the single answer it gives. */
+export async function warmAllPages(path: string, branch?: number | null): Promise<unknown[] | null> {
+  const PAGE = 500;
+  const [base, query = ""] = path.split("?");
+  const qs = new URLSearchParams(query);
+  qs.delete("limit");
+  qs.delete("offset");
+  const at = (offset: number, limit: number) => {
+    const p = new URLSearchParams(qs);
+    p.set("limit", String(limit));
+    p.set("offset", String(offset));
+    return `${base}?${p}`;
+  };
+  const headers = warmHeaders(branch);
+  type PagedAnswer = { data?: { items?: unknown[]; hasMore?: boolean } } | null;
+  let env: PagedAnswer = null;
+  const all: unknown[] = [];
+  let firstOfPrev = "";
+  try {
+    for (let offset = 0; offset < 2_000_000; offset += PAGE) {
+      const res = await contractFetch(at(offset, PAGE), { headers });
+      if (!res.ok) return null;
+      const json = (await res.json()) as PagedAnswer;
+      const data = json?.data;
+      if (!data || !Array.isArray(data.items)) return null; // not a paged list: the single answer is already kept
+      // a server that ignores the offset would answer the same page for ever
+      const first = data.items.length ? JSON.stringify(data.items[0]) : "";
+      if (offset > 0 && first && first === firstOfPrev) break;
+      firstOfPrev = first;
+      env = json;
+      all.push(...data.items);
+      if (!data.hasMore || data.items.length === 0) break;
+    }
+  } catch {
+    return null;
+  }
+  if (!env?.data) return null;
+  const merged = JSON.stringify({ ...env, data: { ...env.data, items: all, hasMore: false, total: all.length, limit: 100000, offset: 0 } });
+  const req = toApi("GET", at(0, 100000), undefined, readToken());
+  if (!cacheable(req.method, req.path)) return all;
+  const sentBranch = new Headers(headers).get(SELECTED_BRANCH_HEADER);
+  remember(req.path, JSON.stringify(sentBranch && branchScoped(req.path) ? { [SELECTED_BRANCH_HEADER]: sentBranch } : {}), merged);
+  return all;
+}
+
 /* One queued offline entry sent to the server as the same request the app makes today, plus the
  * entry's UUID and the moment the user clicked. "saved" and "duplicate" both mean the server has it, so the
  * line can go; anything else (no answer, timeout, a server error) means keep the line and try again.

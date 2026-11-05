@@ -1,0 +1,30 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Receipt — {{.AccountNo}}</title><style>{{.Style}}</style></head><body>
+
+<div class="c">
+<b>{{.LegalName}}</b>{{with .Place}}<br>{{.}}{{end}}{{with .Contact}}<br>Phone: {{.}}{{end}}</div>
+<div class="rule"></div>
+
+<div class="two">
+  <div><b>{{.CustomerName}}</b>{{range .AddressLines}}<br>{{.}}{{end}}</div>
+  <div class="r">
+    <div><b>A/c No</b><span><b>: {{.AccountNo}}</b></span></div>
+    <div><span>Rcpt No</span><span>: {{.ReceiptNo}}</span></div>
+    <div><span>Date</span><span>: {{.Date}}</span></div>
+  </div>
+</div>
+{{with .Status}}<div class="cl">{{.}}</div>{{end}}
+
+<table>
+  <tr><th>Particulars</th><th>Amount</th></tr>
+  <tr><td>Principle</td><td>{{.Principal}}</td></tr>
+  <tr><td>Interest</td><td>{{.Interest}}</td></tr>
+  {{if .HasInterestRange}}<tr><td>From: {{.From}} To: {{.To}} &nbsp;&nbsp;{{.Days}} Days</td><td></td></tr>{{end}}
+  <tr><td></td><td></td></tr>
+  <tr><td>Add</td><td>{{.Charges}}</td></tr>
+  <tr class="t"><td>Total</td><td>{{.Total}}</td></tr>
+</table>
+<div class="words">{{.Words}}</div>
+<div class="fr">For {{.LegalName}}</div>
+<div class="ft"><span>{{.PrintTime}}</span><span>(Authority)</span></div>
+
+</body></html>

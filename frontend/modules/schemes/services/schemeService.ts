@@ -170,7 +170,25 @@ export async function createScheme(input: SchemeFormInput): Promise<SchemeView> 
   return toView(rec);
 }
 
+/* A scheme made on this PC and not sent yet is known as "uuid:<id>"; the server has nothing to change or delete until it is sent. */
+const NOT_SENT = "This scheme has not reached the server yet. Try again once it has synced.";
+
 export async function updateScheme(id: string, input: SchemeFormInput): Promise<SchemeView> {
+  // Desktop: the edit goes into the outbox and the list shows it at once (see overlaid); the sender puts it.
+  if (offlineReady()) {
+    if (!/^\d+$/.test(id)) throw new ApiError(NOT_SENT, 409);
+    const body = toRequestBody(input);
+    const entry = newEntry("PUT", `/schemes/${id}`, body, currentActor());
+    entry.targets = [entry.id];
+    const draft = {
+      uuid: entry.id, editOf: Number(id), id: 0, code: "", name: input.name, interestRate: input.rate, rateTiers: input.rateTiers,
+      minimumDays: input.minimumDays, durationMonths: input.durationMonths, ltvPercent: input.ltv, interestMethod: input.method,
+      penalRate: input.penal, accrualBasis: input.accrualBasis, conditions: input.cond, isActive: input.active, branchId: input.branchId,
+      serviceChargeType: input.serviceChargeType, serviceChargeValue: body.serviceChargeValue, serviceChargeMode: body.serviceChargeMode,
+    } as unknown as SchemeLocal;
+    await enqueueAndWait(entry, () => upsertLocal("schemes", draft as unknown as LocalRecord), () => removeLocal("schemes", entry.id));
+    return { ...toView({ ...draft, id: Number(id) } as BackendScheme), id };
+  }
   const rec = await apiFetch<BackendScheme>(`/schemes/${id}`, {
     method: "PUT",
     body: JSON.stringify(toRequestBody(input)),
@@ -179,6 +197,14 @@ export async function updateScheme(id: string, input: SchemeFormInput): Promise<
 }
 
 export async function deleteScheme(id: string): Promise<void> {
+  if (offlineReady()) {
+    if (!/^\d+$/.test(id)) throw new ApiError(NOT_SENT, 409);
+    const entry = newEntry("DELETE", `/schemes/${id}`, undefined, currentActor());
+    entry.targets = [entry.id];
+    const mark = { uuid: entry.id, deleteOf: Number(id) } as unknown as LocalRecord;
+    await enqueueAndWait(entry, () => upsertLocal("schemes", mark), () => removeLocal("schemes", entry.id));
+    return;
+  }
   await apiFetch<void>(`/schemes/${id}`, { method: "DELETE" });
 }
 

@@ -185,3 +185,9 @@ func (a *App) StoreReadReview() ([]string, error) { return a.store.ReadReview() 
 
 // StoreRetryReview puts a reviewed entry back in the send queue.
 func (a *App) StoreRetryReview(id string) error { return a.store.RetryReview(id) }
+
+// StoreChangeEntry changes (or, with an empty line, removes) an entry that has not been sent yet, together with the
+// data files that depend on it, in one transaction.
+func (a *App) StoreChangeEntry(id, line string, files map[string]string) error {
+	return a.store.ChangeEntry(id, line, files)
+}

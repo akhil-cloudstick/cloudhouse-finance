@@ -143,7 +143,7 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
           res = await editAuctionSale(loanId, {
             saleAmount: sale, auctionExpenses: exp, saleDate: date,
             cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId,
-            applyDependents: dry ? [] : applied(preview!),
+            applyDependents: dry || !preview ? [] : applied(preview),
           }, dry);
           if (!dry) await saveSurplusAndWriteOff();
         } else if (showSurplus && surplusTouched) {

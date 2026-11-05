@@ -2,6 +2,7 @@ import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { queueWrite } from "@/common/offline/queueWrite";
 import { currentActor } from "@/common/offline/actor";
+import { createsReminder, findLocalRequest } from "@/common/offline/requestRef";
 import type { BackendReminder, ReminderView, CreateReminderInput, UpdateReminderInput, ReminderFilters, CalendarEvent } from "@/modules/reminders/types/reminder-types";
 
 function toView(r: BackendReminder): ReminderView {
@@ -41,22 +42,31 @@ export async function createReminder(input: CreateReminderInput): Promise<Remind
   return toView(rec);
 }
 
+/* A reminder made on this PC and not sent yet has a local (negative) id; it is addressed by the entry that creates it,
+ * and by the server's id once that entry has been sent (see common/offline/requestRef.ts). */
+async function reminderPath(id: number): Promise<string> {
+  if (id > 0) return `/reminders/${id}`;
+  const found = offlineReady() ? await findLocalRequest(id, createsReminder) : null;
+  if (!found) throw new Error("This reminder has not reached the server yet. Try again once it has synced.");
+  return "entryId" in found ? `/reminders/ref:${found.entryId}` : `/reminders/${found.serverId}`;
+}
+
 export async function updateReminder(id: number, input: UpdateReminderInput): Promise<ReminderView> {
-  const path = `/reminders/${id}`;
+  const path = await reminderPath(id);
   return queueWrite("PUT", path, input, { id, ...input } as unknown as ReminderView, async () =>
     toView(await apiFetch<BackendReminder>(path, { method: "PUT", body: JSON.stringify(input) }))
   );
 }
 
 export async function completeReminder(id: number): Promise<ReminderView> {
-  const path = `/reminders/${id}/complete`;
+  const path = `${await reminderPath(id)}/complete`;
   return queueWrite("PUT", path, undefined, { id, status: "Done" } as unknown as ReminderView, async () =>
     toView(await apiFetch<BackendReminder>(path, { method: "PUT" }))
   );
 }
 
 export async function deleteReminder(id: number): Promise<void> {
-  const path = `/reminders/${id}`;
+  const path = await reminderPath(id);
   await queueWrite("DELETE", path, undefined, undefined, () => apiFetch<void>(path, { method: "DELETE" }));
 }
 

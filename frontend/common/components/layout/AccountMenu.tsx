@@ -7,7 +7,8 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useBranchSwitch } from "@/common/hooks/use-branch-switch";
 import { SettingsModalContent } from "@/modules/integrations/components/SettingsModalContent";
-import { useOfflineRing } from "./NetworkIndicator";
+import { useOfflineRing, useSyncingRing } from "./NetworkIndicator";
+import { drain } from "@/common/offline/sender";
 import {
   checkForUpdate,
   isDesktop,
@@ -109,6 +110,7 @@ export function AccountMenu() {
   }
 
   const offlineRing = useOfflineRing();
+  const syncing = useSyncingRing();
   const initial = employee?.name ? employee.name.charAt(0).toUpperCase() : "—";
   // Stays on for either kind of pending update, regardless of dismiss. Checking/acting on it
   // happens only in Settings (DesktopVersionPanel) — this dropdown just surfaces the dot.
@@ -123,7 +125,7 @@ export function AccountMenu() {
         aria-expanded={open}
         onClick={() => { setOpen((o) => !o); setBranchOpen(false); }}
       >
-        <span className="av">
+        <span className={`av${offlineRing ? " av-offline" : ""}${syncing ? " av-syncing" : ""}`} title={syncing ? "Syncing with the server…" : undefined}>
           {initial}
           {desktop && waiting && <span className="acct-badge" aria-label="Update available" />}
         </span>
@@ -192,6 +194,12 @@ export function AccountMenu() {
               )}
               <div className="acct-sep" />
             </>
+          )}
+          {desktop && (
+            <button type="button" role="menuitem" className="acct-item" disabled={syncing} onClick={() => { void drain("manual"); }}>
+              <span className="i"><Icon name="refresh" /></span>
+              <span className="lbl">{syncing ? "Syncing…" : "Sync now"}</span>
+            </button>
           )}
           <button type="button" role="menuitem" className="acct-item" onClick={() => openSettings()}>
             <span className="i"><Icon name="gear" /></span>

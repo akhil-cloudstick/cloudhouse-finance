@@ -542,7 +542,8 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
                   <td data-label="Balance" className="num">
                     {fmt(p.balance)}
                     {(() => {
-                      const isPayment = p.kind === "payment" && p.id > 0 && (!p.part || p.part.index === 0);
+                      // (a payment collected on this PC and not sent yet has a negative id and can be edited or deleted too)
+                      const isPayment = p.kind === "payment" && p.id !== 0 && (!p.part || p.part.index === 0);
                       const isDisbursement = p.kind === "disbursement";
                       // a split payment's bank sits on its UPI / Bank Transfer row, which may not be this first row
                       const bankId = p.bankId ?? payments.items.find((x) => x.kind === p.kind && x.id === p.id && x.bankId)?.bankId ?? null;

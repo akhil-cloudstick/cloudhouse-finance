@@ -10201,7 +10201,24 @@ table.tbl.lockers-tbl th {
 .top .user .av.av-offline,
 .top .user:hover .av.av-offline,
 .top .user[aria-expanded="true"] .av.av-offline {
-  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--red);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #f4a0a0;
+}
+
+/* Syncing / pulling: a ring around the profile picture that spins while it lasts */
+.acct .av.av-syncing::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--brand);
+  border-right-color: var(--brand);
+  animation: av-sync-spin .8s linear infinite;
+  pointer-events: none;
+}
+@keyframes av-sync-spin { to { transform: rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) {
+  .acct .av.av-syncing::after { animation-duration: 2.4s }
 }
 
 /* Big screens only (1560px and wider, the app's own small-screen width): Loan Risk and Ledger

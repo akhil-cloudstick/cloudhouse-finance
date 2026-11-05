@@ -12,8 +12,8 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// closedKeepDays is how long a closed loan stays on a PC's local copy.
-const closedKeepDays = 90
+// closedKeepDays is how long a closed loan stays on a PC's local copy: effectively always (100 years), so the first download holds every loan the branch ever had.
+const closedKeepDays = 36500
 
 // pullCustomer is a customer as the customers API returns it (masked Aadhaar and all), plus the PC-visible UUID.
 type pullCustomer struct {

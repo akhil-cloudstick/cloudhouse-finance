@@ -3,6 +3,7 @@
  * detail page; it only lacks the server's number, so it carries PENDING-xxxxxxxx until the next send. */
 
 import { getLocal, listLocal, offlineReady, upsertLocal, type Actor, type LocalRecord } from "@/common/offline";
+import { auctionStageOf } from "@/common/offline/auctionStages";
 import { currentActor } from "@/common/offline/actor";
 import { getSelectedBranchId } from "@/common/services/branchSelection";
 import { ApiError } from "@/common/services/httpClient";
@@ -401,6 +402,36 @@ export function applyPaymentLocally(rec: BackendLoan, input: PaymentInput, actor
   };
 }
 
+/* Takes one payment made on this PC (not sent yet) back off the local loan: what it paid goes back onto what is owed. This
+ * is the inverse of applyPaymentLocally and is only for the local picture; the server works the real figures out when the
+ * entry is (or is not) sent. */
+export function reversePaymentLocally(rec: BackendLoan, p: BackendLoanPayment): BackendLoan {
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const fee = p.processingFeeApplied ?? 0;
+  const penal = p.penalInterestApplied ?? 0;
+  const interest = p.interestApplied ?? 0;
+  const principal = p.principalApplied ?? 0;
+  // the extra charge in the amount was added to what was owed before it was paid off
+  const applied = round(fee + penal + interest + principal - (p.processingFee ?? 0));
+  const owedNow = round((rec.totalOutstandingBalance ?? 0) + applied);
+  return {
+    ...rec,
+    payments: (rec.payments ?? []).filter((x) => x.id !== p.id),
+    totalPaid: round(Math.max(0, (rec.totalPaid ?? 0) - p.amount)),
+    outstandingAmount: round((rec.outstandingAmount ?? 0) + principal),
+    outstandingInterest: round((rec.outstandingInterest ?? 0) + interest),
+    outstandingPenalInterest: round((rec.outstandingPenalInterest ?? 0) + penal),
+    outstandingProcessingFee: round(Math.max(0, (rec.outstandingProcessingFee ?? 0) + fee - (p.processingFee ?? 0))),
+    interestPaid: round(Math.max(0, (rec.interestPaid ?? 0) - interest)),
+    penalInterestPaid: round(Math.max(0, (rec.penalInterestPaid ?? 0) - penal)),
+    totalOutstandingBalance: owedNow,
+    settlementAmount: round((rec.settlementAmount ?? owedNow) + applied),
+    // a payment that cleared the loan had asked for its closure; taking it back puts the loan back to being serviced
+    status: rec.status === "Closure Requested" && owedNow > 0.01 ? "Active" : rec.status,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 /* The Loans page's own filters, applied to the local copy. */
 export function filterLocalLoans(list: BackendLoan[], f?: LoanFilters): BackendLoan[] {
   // An admin's local copy holds every branch; the branch picked in the switcher narrows what is shown, exactly
@@ -415,6 +446,9 @@ export function filterLocalLoans(list: BackendLoan[], f?: LoanFilters): BackendL
   const servicing = asArray(f.servicing);
   // the Loans page sends an empty array when no scheme is picked: that means "any scheme", not "no loan matches"
   const schemes = asArray(f.schemeId);
+  const pledges = asArray(f.bankPledgeStatus as string | string[] | undefined).filter(Boolean);
+  // the auction stage lives on the loan's latest auction case, not on the loan: this PC keeps it per loan (auctionStages.ts)
+  const stagesWanted = asArray(f.auctionStage as string | string[] | undefined).filter(Boolean);
   const q = (f.q ?? "").trim().toLowerCase();
   return list.filter((l) => {
     if (q) {
@@ -429,7 +463,12 @@ export function filterLocalLoans(list: BackendLoan[], f?: LoanFilters): BackendL
     if (branches.length && !branches.includes(l.branchId)) return false;
     if (customers.length && !customers.includes(l.customerId)) return false;
     if (schemes.length && !schemes.includes(l.schemeId)) return false;
-    if (f.bankPledgeStatus && l.bankPledgeStatus !== f.bankPledgeStatus) return false;
+    // the Loans page sends this as a list, empty when nothing is picked ("any"), exactly like the other filters
+    if (pledges.length > 0 && !pledges.includes(l.bankPledgeStatus)) return false;
+    if (stagesWanted.length > 0) {
+      const stage = auctionStageOf(l.id, l.status);
+      if (!stage || !stagesWanted.includes(stage)) return false;
+    }
     if (f.from && l.openedDate.slice(0, 10) < f.from) return false;
     if (f.to && l.openedDate.slice(0, 10) > f.to) return false;
     return true;
