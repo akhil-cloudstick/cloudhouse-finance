@@ -637,8 +637,9 @@ func seedLoanRequests(ctx context.Context, st *state, rep *Report) error {
 			cur = next
 		}
 	}
-	const settledLoanIdx = 29
-	releaseTargets := []int{11, 13, 15, 17, settledLoanIdx}
+	// A fully settled loan (index 29) already sits in Closure Requested — it needs no release request,
+	// the gold is handed over straight from that state, and SaveReleaseRequest now refuses one.
+	releaseTargets := []int{11, 13, 15, 17}
 	yes := true
 	for n, idx := range releaseTargets {
 		if idx >= len(st.loanIDs) {
@@ -656,43 +657,15 @@ func seedLoanRequests(ctx context.Context, st *state, rep *Report) error {
 			continue
 		}
 		notes := "Demo verification"
-		check := loan.ChecklistInput{
+		if _, err := loan.SaveReleaseChecklist(ctx, req.ID, nil, loan.ChecklistInput{
 			CustomerSawGold:    &yes,
 			PacketVerified:     &yes,
 			BankPledgeVerified: &yes,
 			CustomerConfirmed:  &yes,
 			VerificationNotes:  &notes,
 			ActorRoleID:        st.adminRoleID,
-		}
-		if idx == settledLoanIdx {
-			check.PaymentVerified = &yes
-		}
-		if _, err := loan.SaveReleaseChecklist(ctx, req.ID, nil, check); err != nil {
+		}); err != nil {
 			return fmt.Errorf("verify release checklist on loan index %d: %w", idx, err)
-		}
-		if idx != settledLoanIdx {
-			continue
-		}
-		cur := req
-		for {
-			key, ok, err := requestStageKey(ctx, common.FlowLoanRelease, cur.ApprovalStage, loanModels.ApprovalStagePendingManager)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				break
-			}
-			next, err := loan.ApproveReleaseRequest(ctx, req.ID, nil, loan.ReleaseApprovalInput{
-				Stage:           key,
-				Action:          loanModels.ApprovalStageApproved,
-				ActorEmployeeID: st.keep.adminID,
-				ActorRoleID:     st.adminRoleID,
-				Remarks:         "Demo approval",
-			})
-			if err != nil {
-				return fmt.Errorf("approve release request on loan index %d: %w", idx, err)
-			}
-			cur = next
 		}
 	}
 	rep.created("loan requests", created)
