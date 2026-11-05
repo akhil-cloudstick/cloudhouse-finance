@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, BackHandler, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, BackHandler, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type HostInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextSheetId, sheetStore } from "./SheetHost";
 import { C } from "./base";
@@ -38,9 +38,15 @@ export function notifyUserScroll() {
   dragListeners.forEach((l) => l());
 }
 
+/** When the open list was last dragged (ms). A row checks it so a finger that went down on the
+ * row and then scrolled the list isn't taken as a tap on that row: on iOS (gesture-handler 3 at
+ * the app root) the row's press is no longer cancelled when the list starts scrolling, so the
+ * lift-off picked the row and closed the list instead of just scrolling it. */
+export const ListDragContext = createContext<{ lastDrag: () => number } | null>(null);
+
 /** Measures `ref` in window coordinates. */
 export function useAnchor() {
-  const ref = useRef<View>(null);
+  const ref = useRef<HostInstance>(null);
   const measure = useCallback((cb: (a: Anchor) => void) => {
     const node = ref.current;
     if (!node) return;
@@ -72,7 +78,10 @@ function Layer({
 }: LayerProps) {
   const insets = useSafeAreaInsets();
   const win = useWindowDimensions();
-  const [kbTop, setKbTop] = useState<number | null>(null);
+  // Where the keyboard's top edge is, or null when it's down. Read from the keyboard as it is now:
+  // on iOS its "will show" event fires before this list exists (it opens with or after the
+  // keyboard), so starting from null let the list run down behind the keyboard.
+  const [kbTop, setKbTop] = useState<number | null>(() => (Keyboard.isVisible() ? (Keyboard.metrics()?.screenY ?? null) : null));
   // Natural (unclipped) size of the list: fixed header + scroll content.
   const [headH, setHeadH] = useState(0);
   const [contentH, setContentH] = useState(0);
@@ -82,7 +91,7 @@ function Layer({
   // up) doesn't always share the overlay's origin — the list then landed
   // over the field. Measuring the layer the same way and subtracting keeps
   // both in one coordinate space.
-  const rootRef = useRef<View>(null);
+  const rootRef = useRef<HostInstance>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(lastOrigin);
   const [layerH, setLayerH] = useState(lastLayerH);
   const measureOrigin = useCallback(() => {
@@ -96,6 +105,13 @@ function Layer({
     });
   }, []);
   useEffect(measureOrigin, [anchor, measureOrigin]);
+  const dragAt = useRef(0);
+  const dragCtx = useMemo(() => ({ lastDrag: () => dragAt.current }), []);
+  // A finger on the list (and for a moment after it lifts). While it's there, a "the form behind
+  // started scrolling" signal is that same finger — on iOS a drag on the list can also start the
+  // sheet's scroll view under it — so it must not close the list.
+  const touching = useRef(false);
+  const touchEndAt = useRef(0);
   const cbRef = useRef({ onClose, onRemeasure });
   useEffect(() => {
     cbRef.current = { onClose, onRemeasure };
@@ -111,7 +127,11 @@ function Layer({
       });
     };
     shiftListeners.add(onShift);
-    const onDrag = () => cbRef.current.onClose();
+    const onDrag = () => {
+      const now = Date.now();
+      if (touching.current || now - touchEndAt.current < 300 || now - dragAt.current < 300) return;
+      cbRef.current.onClose();
+    };
     dragListeners.add(onDrag);
     return () => {
       shiftListeners.delete(onShift);
@@ -167,6 +187,17 @@ function Layer({
       setKbTop(null);
       settle();
     });
+    // iOS: also take the "did" events — they still arrive when the list opened after the "will"
+    // event had already fired (keyboard opening with a typeable field, or closing as a plain
+    // dropdown dismisses it), so the list always learns where the keyboard ended up.
+    const didShow = Platform.OS === "ios" ? Keyboard.addListener("keyboardDidShow", (e) => setKbTop(e.endCoordinates.screenY)) : null;
+    const didHide =
+      Platform.OS === "ios"
+        ? Keyboard.addListener("keyboardDidHide", () => {
+            setKbTop(null);
+            settle();
+          })
+        : null;
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
       cbRef.current.onClose();
       return true;
@@ -175,6 +206,8 @@ function Layer({
       timers.forEach(clearTimeout);
       show.remove();
       hide.remove();
+      didShow?.remove();
+      didHide?.remove();
       back.remove();
     };
   }, []);
@@ -213,8 +246,26 @@ function Layer({
     <View ref={rootRef} collapsable={false} onLayout={measureOrigin} style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {/* Closes on touch-down, so starting to scroll the form behind also
           closes the list instead of the list staying put while it moves. */}
-      <Pressable style={StyleSheet.absoluteFill} onPressIn={onClose} accessibilityLabel="Close list" />
+      {/* Closes on a TAP outside the list. It used to close on touch-down, so a scroll that
+          started even slightly outside a short list closed it at once. The form behind can't
+          be scrolled while the list is open anyway: this layer covers it. */}
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onClose}
+        accessibilityLabel="Close list"
+      />
       <Animated.View
+        onTouchStart={() => {
+          touching.current = true;
+        }}
+        onTouchEnd={() => {
+          touching.current = false;
+          touchEndAt.current = Date.now();
+        }}
+        onTouchCancel={() => {
+          touching.current = false;
+          touchEndAt.current = Date.now();
+        }}
         style={[
           s.panel,
           place,
@@ -230,12 +281,19 @@ function Layer({
         {header ? <View onLayout={(e) => setHeadH(e.nativeEvent.layout.height)}>{header}</View> : null}
         <ScrollView
           style={{ flexShrink: 1 }}
-          keyboardShouldPersistTaps="handled"
+          // "always": touching or scrolling the list never takes focus from the field it belongs
+          // to. With "handled", on iOS a second drag on the list (one that didn't register as a
+          // scroll yet) blurred a search dropdown's text box on lift-off — and the dropdown closes
+          // on blur. A pick still closes the list and keyboard itself (AsyncSelect / ComboInput close()).
+          keyboardShouldPersistTaps="always"
           nestedScrollEnabled
           showsVerticalScrollIndicator={contentH + headH + 10 > cap}
           onContentSizeChange={(_, ch) => setContentH(Math.max(1, ch))}
+          onScrollBeginDrag={() => {
+            dragAt.current = Date.now();
+          }}
         >
-          {children}
+          <ListDragContext.Provider value={dragCtx}>{children}</ListDragContext.Provider>
         </ScrollView>
       </Animated.View>
     </View>

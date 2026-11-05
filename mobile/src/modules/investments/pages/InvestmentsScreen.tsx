@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { PICKER_MAX_PCT } from "@/common/components/ui/Sheet";
 import {
   AccRow,
   AsyncSelect,
@@ -135,7 +136,7 @@ export default function InvestmentsScreen() {
         )}
       />
 
-      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Investments" maxHeightPct={55}>
+      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Investments" maxHeightPct={PICKER_MAX_PCT}>
         <Field label="Status">
           <ChipMultiSelect options={STATUS_FILTERS} value={draft} onChange={setDraft} />
         </Field>

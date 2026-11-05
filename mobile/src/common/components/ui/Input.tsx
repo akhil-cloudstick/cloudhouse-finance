@@ -1,12 +1,12 @@
 import React, { useState } from "react";
-import { TextInput, type TextInputProps } from "react-native";
+import { TextInput, type TextInputInstance, type TextInputProps } from "react-native";
 import { C } from "./base";
 import { doneBarFor } from "./KeyboardDoneBar";
 import { textStyle } from "@/common/theme/typography";
 import { s } from "./formHelpers";
 
 /** .field input */
-export function Input({ style, editable = true, ...rest }: TextInputProps & { ref?: React.Ref<TextInput> }) {
+export function Input({ style, editable = true, ...rest }: TextInputProps & { ref?: React.Ref<TextInputInstance> }) {
   const [focused, setFocused] = useState(false);
   return (
     <TextInput

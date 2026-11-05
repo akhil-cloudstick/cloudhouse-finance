@@ -1,8 +1,9 @@
 {
   "expo": {
     "name": "CloudHouse Staff",
-    "slug": "ambikagold",
-    "version": "1.0.0",
+    "slug": "cloudhousefinance",
+    "owner": "cloudhouse-production",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/cloudhouse.png",
     "userInterfaceStyle": "light",
@@ -67,13 +68,21 @@
       "./withNoAutofillHighlight"
     ],
     "androidStatusBar": {
-      "backgroundColor": "transparent",
+      "backgroundColor": "#00000000",
       "barStyle": "dark-content",
       "translucent": true
     },
     "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "expo-status-bar": {
+        "style": "dark"
+      },
       "eas": {
-        "projectId": "2eefa477-9d29-496f-9e91-06261ed62690"
+        "projectId": "82c9339c-3d9b-43f0-bcc7-8e8cab60ba0a"
       }
     }
   }

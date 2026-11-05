@@ -15,7 +15,7 @@ import {
   Txt,
 } from "@/common/components/ui";
 import { UploadField } from "@/common/components/UploadField";
-import { EXPENSE_CATEGORY_IDS_KEY } from "@/common/components/LedgerList";
+import { EXPENSE_CATEGORY_IDS_KEY } from "@/common/components/BillLink";
 import { inr, todayISO } from "@/common/utils/format";
 import type { Bank } from "@/modules/banks/types/bank-types";
 import {

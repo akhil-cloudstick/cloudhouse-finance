@@ -1,6 +1,6 @@
 import React, { createContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, BackHandler, Easing, Keyboard, LayoutAnimation, Platform, Pressable, View, StyleSheet, useWindowDimensions, type KeyboardEvent } from "react-native";
-import { Gesture, GestureDetector, type PanGesture } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, type LegacyPanGesture } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/common/theme/colors";
 import { nextSheetId, sheetStore } from "./SheetHost";
@@ -31,7 +31,7 @@ function createScrollLock(): ScrollLock {
   };
 }
 
-type SheetScrollCtx = { pan: PanGesture; onScroll: (y: number) => void; lock: ScrollLock };
+type SheetScrollCtx = { pan: LegacyPanGesture; onScroll: (y: number) => void; lock: ScrollLock };
 export const SheetScrollContext = createContext<SheetScrollCtx | null>(null);
 
 // Tallest overlay height seen (the full window) — see the keyboard lift below.

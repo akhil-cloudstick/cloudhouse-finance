@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { View, Pressable, TextInput } from "react-native";
+import { View, Pressable, TextInput, type TextInputInstance } from "react-native";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { ThemedText } from "@/common/components/ui/ThemedText";
 import { doneBarFor } from "@/common/components/ui/KeyboardDoneBar";
@@ -11,7 +11,7 @@ type OtpInputProps = { value: string; onChange: (v: string) => void; length?: nu
 // autofill still arrive in a single onChangeText.
 export function OtpInput({ value, onChange, length = 6 }: OtpInputProps) {
   const { colors } = useTheme();
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
   const [focused, setFocused] = useState(false);
   const active = Math.min(value.length, length - 1);
 

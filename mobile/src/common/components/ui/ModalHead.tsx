@@ -1,7 +1,7 @@
 import React from "react";
 import { Pressable, View } from "react-native";
 import { Txt } from "./Txt";
-import { s } from "./Sheet";
+import { s } from "./sheetStyles";
 
 type ModalHeadProps = { title?: React.ReactNode; onClose: () => void; closeLabel?: string; hideClose?: boolean; children?: React.ReactNode };
 

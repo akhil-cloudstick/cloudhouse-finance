@@ -1,16 +1,16 @@
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { MOVEMENT_TYPE_OPTIONS } from "@/common/components/movementLedger";
 import React, { useEffect, useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { AccRow, C, GroupedFilter, PIcon, PillButton, ServerFlatList, Txt, emptyGroupedFilter, gfDate, gfFirst, gfValues, openPage, toast, type AccDetail, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { AccRow, C, GroupedFilter, PillButton, ServerFlatList, Txt, emptyGroupedFilter, gfDate, gfFirst, gfValues, openPage, toast, type AccDetail, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listBanksPage } from "@/modules/banks/services/bankService";
 import { getLedger, getModeLedger, listExpenseCategoriesPage, LEDGER_MODES, PICKER_PAGE_SIZE } from "@/modules/cash/services/cashService";
 import { type LedgerKind, type LedgerRow, type LoanLedgerSummary } from "@/modules/cash/types/cash-types";
 import { listLoansPage } from "@/modules/loans/services/loanService";
-import { BillSheet } from "./BillSheet";
+import { BillLink, billDetail, EXPENSE_CATEGORY_IDS_KEY } from "./BillLink";
 import { dmy, inr } from "@/common/utils/format";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { shareLedgerPdf } from "@/common/utils/ledgerExport";
@@ -51,10 +51,9 @@ export function expenseCategoryOf(text?: string): string | null {
   return text && text.startsWith(EXPENSE_PREFIX) ? text.slice(EXPENSE_PREFIX.length).trim() : null;
 }
 
-/** Query key of the category name -> id map below — invalidate it when a
- * category is created, or a new category has no ledger link until it's
- * refetched. */
-export const EXPENSE_CATEGORY_IDS_KEY = ["expense-category-ids"];
+// EXPENSE_CATEGORY_IDS_KEY, billDetail and BillLink live in BillLink.tsx (no require cycle with
+// EntryActions / EntryForms); re-exported here so existing imports keep working.
+export { BillLink, billDetail, EXPENSE_CATEGORY_IDS_KEY };
 
 // Lower-cased loan-source name -> its bank loan number (filled by the load below), like web's loanNumberOfCategory.
 const loanNumberByCategory: Record<string, string> = {};
@@ -83,34 +82,6 @@ export function useExpenseCategoryIds(): Record<string, number> {
     staleTime: 5 * 60_000,
   });
   return q.data ?? {};
-}
-
-/** An in-row hyperlink. `to` is the page it opens ("/cash", "/loans"): when
- * the user can't open that page it renders as plain text. */
-// A ledger entry's bill — opens the uploaded image (server-root-relative URL).
-export function billDetail(receiptImage?: string): { k: string; v: React.ReactNode }[] {
-  if (!receiptImage) return [];
-  return [{ k: "Bill", v: <BillLink path={receiptImage} /> }];
-}
-
-type BillLinkProps = { path: string; label?: string; /** Title of the viewer sheet — the name of the thing being viewed (default "Bill"). */ title?: string; /** Show an eye icon (accessibilityLabel "View document") instead of the text link. */ icon?: boolean };
-
-// Opens the bill in an in-app sheet that sends the session token (the server
-// only serves /uploads/* to a signed-in caller) and falls back cleanly.
-export function BillLink({ path, label = "View bill", title, icon }: BillLinkProps) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      {icon ? (
-        <Pressable onPress={() => setOpen(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel={title ? `View ${title}` : "View document"}>
-          <PIcon name="eye" color={C.brandDeep} size={20} />
-        </Pressable>
-      ) : (
-        <LedgerLink label={label} to="/cash" onPress={() => setOpen(true)} />
-      )}
-      <BillSheet path={open ? path : null} title={title} onClose={() => setOpen(false)} />
-    </>
-  );
 }
 
 export const modeLink = (mode?: string, focus?: LedgerFocus) => (isMode(mode) ? <LedgerLink label={mode} to="/cash" onPress={() => openLedger("mode", mode, `${mode} Ledger`, focus)} /> : mode || "—");

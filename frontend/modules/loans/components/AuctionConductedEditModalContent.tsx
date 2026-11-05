@@ -5,7 +5,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { DatePicker } from "@/common/components/ui/DatePicker";
-import { FieldError } from "@/common/components/ui/FieldError";
+import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { ShortfallDecisionPicker, applyShortfallChoice, hasDecidedShortfall, useCanDecideShortfall, type ShortfallChoice } from "@/modules/loans/components/ShortfallDecisionPicker";
 import { SplitPaymentInput, type SplitAmounts, type SplitPaymentLine } from "@/common/components/SplitPaymentInput";
 import { fmt } from "@/common/utils/format";
@@ -63,6 +63,8 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
   const [shortfallChoice, setShortfallChoice] = useState<ShortfallChoice>({ decision: "", remarks: "" });
   const canDecideShortfall = useCanDecideShortfall();
   const [err, setErr] = useState("");
+  // Problems tied to one field show under it; anything else shows in the footer.
+  const [fe, setFe] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -88,7 +90,10 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
   const key = (d: AuctionDependent) => `${d.kind}:${d.id}`;
   const applied = (p: AuctionEditPreview): AppliedAuctionDependent[] =>
     p.dependents.filter((d) => chosen[key(d)]).map((d) => ({ kind: d.kind, id: d.id }));
-  const touch = () => { setPreview(null); setErr(""); };
+  const touch = () => { setPreview(null); setErr(""); setFe({}); };
+  const SERVER_FIELDS: Record<string, RegExp> = {
+    saleAmount: /sale amount/i, expenses: /expense/i, payments: /payment|bank|cash|upi/i, writeOff: /write.?off/i, refund: /refund|surplus/i,
+  };
 
   const initialLines: SplitPaymentLine[] = cur ? ([
     cur.cashAmount > 0 && { mode: "Cash" as const, amount: String(cur.cashAmount) },
@@ -122,22 +127,23 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
       const dry = preview == null;
       setSaving(true);
       try {
+        setErr(""); setFe({});
         if (!saleChanged && !(showSurplus && surplusTouched) && !(hasWriteOff && woTouched)) { setErr("Nothing has been changed."); return; }
         const refund = disposition === "RefundedToCustomer";
         if (showSurplus && surplusTouched && refund) {
-          if (Math.abs(sRemaining) > 0.01) { setErr("The refund must be paid out by one mode and add up to the surplus."); return; }
-          if ((sSplit.upiAmount > 0 || sSplit.bankTransferAmount > 0) && !sBank) { setErr("Select the bank for the refund."); return; }
+          if (Math.abs(sRemaining) > 0.01) { setFe({ refund: "The refund must be paid out by one mode and add up to the surplus." }); return; }
+          if ((sSplit.upiAmount > 0 || sSplit.bankTransferAmount > 0) && !sBank) { setFe({ refund: "Select the bank for the refund." }); return; }
         }
-        if (hasWriteOff && woTouched && !woDate) { setErr("Choose the write-off date."); return; }
-        if (!dry && askShortfall && shortfallChoice.decision && !shortfallChoice.remarks.trim()) { setErr("Give a reason for the shortfall decision."); return; }
+        if (hasWriteOff && woTouched && !woDate) { setFe({ writeOff: "Choose the write-off date." }); return; }
+        if (!dry && askShortfall && shortfallChoice.decision && !shortfallChoice.remarks.trim()) { setFe({ shortfall: "Give a reason for the shortfall decision." }); return; }
         let res: AuctionEditPreview;
         if (saleChanged) {
           const sale = +saleAmount;
           const exp = +expenses || 0;
-          if (!(sale > 0)) { setErr("Enter a valid sale amount."); return; }
-          if (exp < 0 || exp > sale) { setErr("Auction expenses cannot be negative or more than the sale amount."); return; }
-          if (Math.abs(remaining) > 0.01) { setErr(`The payment breakdown must add up to the sale amount (${fmt(sale)}).`); return; }
-          if ((split.upiAmount > 0 || split.bankTransferAmount > 0) && !bankId) { setErr("Select the bank for the UPI / Bank Transfer part."); return; }
+          if (!(sale > 0)) { setFe({ saleAmount: "Enter a valid sale amount." }); return; }
+          if (exp < 0 || exp > sale) { setFe({ expenses: "Auction expenses cannot be negative or more than the sale amount." }); return; }
+          if (Math.abs(remaining) > 0.01) { setFe({ payments: `The payment breakdown must add up to the sale amount (${fmt(sale)}).` }); return; }
+          if ((split.upiAmount > 0 || split.bankTransferAmount > 0) && !bankId) { setFe({ payments: "Select the bank for the UPI / Bank Transfer part." }); return; }
           res = await editAuctionSale(loanId, {
             saleAmount: sale, auctionExpenses: exp, saleDate: date,
             cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId,
@@ -169,7 +175,9 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
         onSaved();
         closeModal();
       } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "Could not save the change — try again.");
+        const msg = e instanceof ApiError ? e.message : "Could not save the change — try again.";
+        const field = e instanceof ApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+        if (field) { setErr(""); setFe({ [field]: msg }); } else { setFe({}); setErr(msg); }
         setPreview(null);
       } finally {
         setSaving(false);
@@ -195,10 +203,10 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
           <>
             <div className="frow c2">
               <div><label className="f">Sale Date *</label><DatePicker value={date} min={minDate} max={today} onChange={(v) => { touch(); setDate(v); }} /></div>
-              <div><label className="f">Sale Amount (₹) *</label><input className="inp" type="number" min={0} value={saleAmount} onChange={(e) => { touch(); setSaleAmount(e.target.value); }} /></div>
+              <div className={fe.saleAmount ? "has-err" : undefined}><label className="f">Sale Amount (₹) *</label><input className="inp" type="number" min={0} value={saleAmount} onChange={(e) => { touch(); setSaleAmount(e.target.value); }} /><FieldError msg={fe.saleAmount} /></div>
             </div>
             <div className="frow">
-              <div><label className="f">Auction Expenses (₹)</label><input className="inp" type="number" min={0} value={expenses} onChange={(e) => { touch(); setExpenses(e.target.value); }} /></div>
+              <div className={fe.expenses ? "has-err" : undefined}><label className="f">Auction Expenses (₹)</label><input className="inp" type="number" min={0} value={expenses} onChange={(e) => { touch(); setExpenses(e.target.value); }} /><FieldError msg={fe.expenses} /></div>
             </div>
             <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
               <h4 style={{ margin: "0 0 10px", fontSize: 13 }}>Payment breakdown</h4>
@@ -206,6 +214,7 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
                 totalAmount={+saleAmount || 0} initialLines={initialLines} label={null}
                 onChange={(s, r, b) => { touch(); setSplit(s); setRemaining(r); setBankId(b); }}
               />
+              <FieldError msg={fe.payments} />
             </div>
             {showSurplus && (
               <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
@@ -234,6 +243,7 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
                       totalAmount={auction.surplusPayableAmount} initialLines={[{ mode: "Cash" as const, amount: String(auction.surplusPayableAmount) }]} label={null}
                       onChange={(s, r, b) => { setSSplit(s); setSRemaining(r); setSBank(b); if (surplusTouched) touch(); }}
                     />
+                    <FieldError msg={fe.refund} />
                   </>
                 )}
               </div>
@@ -241,7 +251,7 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
             {hasWriteOff && (
               <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
                 <h4 style={{ margin: "0 0 10px", fontSize: 13 }}>Write-off</h4>
-                <div className="frow"><div><label className="f">Write-off Date *</label><DatePicker value={woDate} min={minDate} max={today} onChange={(v) => { touch(); setWoTouched(true); setWoDate(v); }} /></div></div>
+                <div className="frow"><div><label className="f">Write-off Date *</label><DatePicker value={woDate} min={minDate} max={today} onChange={(v) => { touch(); setWoTouched(true); setWoDate(v); }} /><FieldError msg={fe.writeOff} /></div></div>
               </div>
             )}
           </>
@@ -288,9 +298,10 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
         {askShortfall && preview?.outcome && (
           <ShortfallDecisionPicker shortfall={preview.outcome.shortfall} value={shortfallChoice} onChange={setShortfallChoice} canDecide={canDecideShortfall} />
         )}
-        <FieldError msg={err} />
+        <FieldError msg={fe.shortfall} />
       </div>
-      <div className="ft">
+      <div className="ft" style={{ alignItems: "center" }}>
+        {err && <div className="err" style={{ marginRight: "auto", fontSize: 12.5 }}>{err}</div>}
         <button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
         <button className="btn" onClick={submit} disabled={saving || !cur || !!loadErr}>
           <Icon name="check" /> {saving ? "Working…" : preview ? "Confirm" : "Preview the change"}

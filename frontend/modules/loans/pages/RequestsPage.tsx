@@ -221,7 +221,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                   <td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
                   <td data-label="Customer">{r.customerName}</td>
                   <td data-label="Detail">{r.detail}</td>
-                  <td data-label="Date">{fmtDate(r.requestedAt)}</td>
+                  <td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.requestedAt)}</td>
                   <td data-label="Status">
                     <StatusChip status={r.status} />
                     {/* Set by RecordReleaseRequestPayment when a recorded discount+payment

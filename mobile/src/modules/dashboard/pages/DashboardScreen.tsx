@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from "react";
-import { View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, type ScrollViewInstance } from "react-native";
+import { useFocusEffect } from "expo-router";
+import { swipe } from "@/common/components/ui/swipeStore";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   AccBtn,
@@ -15,6 +17,9 @@ import {
   FieldRow,
   FilterChipRow,
   HeroHeader,
+  heroScroll,
+  heroCollapseRange,
+  noteHeroScroll,
   Input,
   PScroll,
   QuickAction,
@@ -52,12 +57,40 @@ import type { Loan } from "@/modules/loans/types/loan-types";
 // the phone.
 type Seg = "Overview" | "Activity";
 const ATTENTION_TABS = ["approvals", "requests", "auctions"] as const;
+// After leaving the Dashboard, how long until it is put back at the top (its slide-out has finished by then).
+const LEAVE_RESET_MS = 450;
 
 export default function DashboardScreen() {
   const { employee, can } = useAuth();
   const shell = useShell();
   const [seg, setSeg] = useState<Seg>("Overview");
   const [collectOpen, setCollectOpen] = useState(false);
+
+  // Coming back to the Dashboard always shows it from the top with the hero fully open. The reset
+  // runs once the page has been left and has slid away (a swipe shows the Dashboard sliding back
+  // in before it takes focus, so resetting on return would be seen); returning sooner cancels it.
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const collapseRange = heroCollapseRange();
+  const leaveReset = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (leaveReset.current) clearTimeout(leaveReset.current);
+      leaveReset.current = null;
+      return () => {
+        leaveReset.current = setTimeout(() => {
+          leaveReset.current = null;
+          // Not while the Dashboard is on screen or being swiped (back) in — the jump would be seen.
+          if (swipe.active || swipe.page === 0) return;
+          scrollRef.current?.scrollTo({ y: 0, animated: false });
+          heroScroll.setValue(0);
+          noteHeroScroll(0);
+        }, LEAVE_RESET_MS);
+      };
+    }, [])
+  );
+  useEffect(() => () => {
+    if (leaveReset.current) clearTimeout(leaveReset.current);
+  }, []);
 
   const summary = useQuery({ queryKey: ["dashboard", "summary"], queryFn: getDashboardSummary });
   const rate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate });
@@ -79,6 +112,8 @@ export default function DashboardScreen() {
   return (
     <Screen
       headerFade={false}
+      // The page scrolls under the hero, which shrinks to its top row as it does (HeroHeader heroScroll).
+      overlayHeader
       header={
         <HeroHeader
           initials={initialsOf(employee?.name)}
@@ -102,7 +137,17 @@ export default function DashboardScreen() {
         />
       }
     >
-      <PScroll refreshing={summary.isRefetching} onRefresh={() => { summary.refetch(); rate.refetch(); }}>
+      <PScroll
+        underHeader
+        scrollY={heroScroll}
+        scrollRef={scrollRef}
+        onScroll={(e) => noteHeroScroll(e.nativeEvent.contentOffset.y)}
+        // The hero never rests half-collapsed (a half-collapsed header bobbed when switching
+        // pages): a scroll that stops inside the hero's collapse distance glides to fully open or
+        // fully slim. Below that the page scrolls freely (snapToEnd off).
+        snapToOffsets={collapseRange > 0 ? [0, collapseRange] : undefined}
+        snapToEnd={false}
+        refreshing={summary.isRefetching} onRefresh={() => { summary.refetch(); rate.refetch(); }}>
         {seg === "Overview" ? (
           <>
             {can("Loan_Management", "can_create_loan") || can("Customer_Management", "can_create_customer") || can("Loan_Management", "can_update_loan") ? (
@@ -115,7 +160,7 @@ export default function DashboardScreen() {
             <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 6, paddingHorizontal: 18 }}>
               {can("Loan_Management", "can_create_loan") ? <QuickAction icon="plus" label={"Create\nLoan"} tone="loan" onPress={shell.openNewLoan} /> : null}
               {can("Customer_Management", "can_create_customer") ? (
-                <QuickAction icon="user" label={"Register\nCustomer"} tone="cust" onPress={() => openPage("/customers?register=1")} />
+                <QuickAction icon="user" label={"Register\nCustomer"} tone="cust" onPress={shell.openRegisterCustomer} />
               ) : null}
               {can("Loan_Management", "can_update_loan") ? (
                 <QuickAction icon="card" label={"Collect\nPayment"} tone="pay" onPress={() => setCollectOpen(true)} />

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Keyboard, Pressable, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
+import { Keyboard, Pressable, View, type StyleProp, type TextInputInstance, type TextInputProps, type ViewStyle } from "react-native";
 import { Popover, useAnchor, type Anchor } from "./Popover";
 import { Input } from "./Input";
 import { s } from "./formHelpers";
@@ -34,7 +34,7 @@ export function ComboInput({
   inputStyle,
 }: ComboInputProps) {
   const { ref, measure } = useAnchor();
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputInstance>(null);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const close = () => {
     setAnchor(null);

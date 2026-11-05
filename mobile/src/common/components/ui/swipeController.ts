@@ -1,5 +1,5 @@
 import { Animated, BackHandler, Dimensions, Keyboard } from "react-native";
-import { headerStore, tabsRef, withoutNestedTarget } from "./shellContext";
+import { headerStore, resetTabs, tabsRef, withoutNestedTarget, type TabRoute, type tabRouteMinter } from "./shellContext";
 import { PRIMARY_ROUTES, swipe, swipeSettled } from "./swipeStore";
 
 const COMMIT_FRACTION = 0.2;
@@ -201,27 +201,23 @@ function flushFocus() {
 // A tab left on a detail page (one opened from its list, or by a jump that holds only the
 // detail) is put back on its list once it is off screen, so coming back to it — by swipe,
 // Back or a tap — always lands on the list, with no flash of the old detail.
-type TabsState = NonNullable<typeof tabsRef.state>;
-type TabRoute = TabsState["routes"][number];
 const STALE_RESET_MS = 600;
-let resetSeq = 0;
 let staleTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const leftOnDetail = (r: TabRoute) => r.state?.type === "stack" && (r.state.routes?.[0]?.name !== "index" || (r.state.index ?? 0) > 0);
 
-/** The tabs' routes with each of `stale` given a fresh stack holding just its list, and the
- * tab history pointed at their new keys. */
-function withListRoots(state: TabsState, stale: TabRoute[]) {
-  const keys = new Map<string, string>();
-  const routes = state.routes.map((r) => {
-    if (!stale.includes(r)) return r;
-    const n = ++resetSeq;
-    const key = `${r.name}-list-${n}`;
-    keys.set(r.key, key);
-    return { ...r, key, params: withoutNestedTarget(r.params), state: { type: "stack" as const, key: `list-stack-${n}`, index: 0, routes: [{ key: `list-${n}`, name: "index" }] } };
+/** The tabs' routes with each tab named in `stale` given a fresh stack holding just its list
+ * (new keys, so `replaced` lets the Back history follow). For resetTabs. */
+function withListRoots(routes: TabRoute[], stale: string[], mint: ReturnType<typeof tabRouteMinter>) {
+  const replaced = new Map<string, string>();
+  const next = routes.map((r) => {
+    if (!stale.includes(r.name)) return r;
+    const fresh = mint.stackRoute(r.name, { name: "index" });
+    replaced.set(r.key, fresh.key);
+    const { path: _path, ...rest } = r;
+    return { ...rest, key: fresh.key, params: withoutNestedTarget(r.params), state: fresh.state };
   });
-  const history = (state.history ?? []).map((it) => (it && typeof it === "object" && "key" in it && keys.has(it.key) ? { ...it, key: keys.get(it.key) as string } : it));
-  return { routes, history };
+  return { routes: next, replaced };
 }
 
 /** Called on every tab-state change; resets off-screen stale tabs once things are quiet. */
@@ -236,10 +232,9 @@ function resetStaleRoots() {
   if (!nav || !state) return;
   // Not while a swipe is moving the pages (the off-screen tabs may be sliding into view).
   if (st.running || st.settling) return scheduleStaleRootReset();
-  const stale = state.routes.filter((r, i) => i !== state.index && PRIMARY_ROUTES.indexOf(r.name) !== swipe.page && leftOnDetail(r));
+  const stale = state.routes.filter((r, i) => i !== state.index && PRIMARY_ROUTES.indexOf(r.name) !== swipe.page && leftOnDetail(r)).map((r) => r.name);
   if (!stale.length) return;
-  const { routes, history } = withListRoots(state, stale);
-  nav.dispatch({ type: "RESET", payload: { ...state, routes, history } });
+  resetTabs(nav, (routes, mint) => ({ ...withListRoots(routes, stale, mint), focusKey: null }));
 }
 
 /** Focus a primary tab, resetting the one being left in the same dispatch if it is stale. */
@@ -252,7 +247,10 @@ function focusTab(fromIdx: number, toIdx: number) {
     nav.navigate(PRIMARY_ROUTES[toIdx]);
     return;
   }
-  const { routes, history } = withListRoots(state, [left]);
-  const focusedHistory = history.filter((it) => !(it && typeof it === "object" && "key" in it && it.key === to.key)).concat({ type: "route" as const, key: to.key });
-  nav.dispatch({ type: "RESET", payload: { ...state, index: state.routes.indexOf(to), routes, history: focusedHistory } });
+  const done = resetTabs(nav, (routes, mint) => {
+    const reset = withListRoots(routes, [left.name], mint);
+    const toKey = routes.find((r) => r.name === to.name)?.key;
+    return { ...reset, focusKey: toKey ?? null };
+  });
+  if (!done) nav.navigate(PRIMARY_ROUTES[toIdx]);
 }

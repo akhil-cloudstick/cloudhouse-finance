@@ -10,7 +10,8 @@ import { PanGestureHandler } from "react-native-gesture-handler";
 import { PRIMARY_ROUTES, pageShift } from "@/common/components/ui/swipeStore";
 import { useTabSwipe } from "@/common/hooks/use-tab-swipe";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { C, HeaderHost, HeaderHostContext, PillButton, PTabBar, ShellContext, type ShellActions, Spinner, toast, Txt } from "@/common/components/ui";
+import { C, HeaderHost, HeaderHostContext, openPage, PillButton, PTabBar, ShellContext, type ShellActions, Spinner, toast, Txt } from "@/common/components/ui";
+import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
 import { NoAccess } from "@/common/components/NoAccess";
 import { PTAB_HEIGHT, PTAB_INSET, tabBarLift } from "@/common/theme/layout";
 import { MoreSheet } from "./MoreSheet";
@@ -111,7 +112,7 @@ function PermissionsFailedBanner() {
   );
 }
 
-type SheetName = "newLoan" | "more" | "search" | "gold" | "reminders" | "profile" | null;
+type SheetName = "newLoan" | "registerCustomer" | "more" | "search" | "gold" | "reminders" | "profile" | null;
 
 type CollectLauncherProps = { loanId: number | null; onClose: () => void };
 
@@ -179,7 +180,12 @@ const tabScreenOptions: NonNullable<TabsProps["screenOptions"]> = ({ route }) =>
 export default function TabsLayout() {
   // Before any screen below reads its remembered filters: entering a different
   // section clears them (see usePersistedState.ts).
-  syncPersistedSection(((useSegments() as string[])[1]) ?? "");
+  const segs = useSegments() as string[];
+  syncPersistedSection(segs[1] ?? "");
+  // The tab swipe only does anything on one of the four primary list pages. Elsewhere (a detail
+  // page, a More page) it was still claiming every sideways drag, so a horizontal scroller there —
+  // the customer / loan detail tab strip — could scroll one way and then not back. Off there.
+  const swipeEnabled = PRIMARY_ROUTES.includes(segs[1] ?? "") && segs.slice(2).every((s) => s === "index");
   useTenantModuleGuard();
   useRoutePermissionGuard();
   usePagePrefetch();
@@ -213,6 +219,7 @@ export default function TabsLayout() {
       openGoldRate: () => setOpen("gold"),
       openReminders: () => setOpen("reminders"),
       openProfile: () => setOpen("profile"),
+      openRegisterCustomer: () => setOpen("registerCustomer"),
       openCollect: (loanId: number) => setCollectLoanId(loanId),
     }),
     []
@@ -221,7 +228,7 @@ export default function TabsLayout() {
   return (
     <ShellContext.Provider value={actions}>
       <HeaderHostContext.Provider value>
-      <PanGestureHandler {...swipeHandlers}>
+      <PanGestureHandler {...swipeHandlers} enabled={swipeEnabled}>
       {/* Animated.View: the gesture's native event is attached to this view. */}
       <Animated.View style={{ flex: 1 }} collapsable={false}>
       <Tabs
@@ -240,23 +247,26 @@ export default function TabsLayout() {
         <Tabs.Screen name="loans" options={{ title: "Loans", lazy: false }} />
         <Tabs.Screen name="schemes" options={{ title: "Schemes", lazy: false }} />
 
-        {/* --- reachable from the More sheet --- */}
-        <Tabs.Screen name="auctions" options={{ title: "Auctions", href: null }} />
-        <Tabs.Screen name="packets" options={{ title: "Packets & Lockers", href: null }} />
-        <Tabs.Screen name="banks" options={{ title: "Bank Pledges", href: null }} />
-        <Tabs.Screen name="bank-management" options={{ title: "Bank Management", href: null }} />
-        <Tabs.Screen name="requests" options={{ title: "Requests", href: null }} />
-        <Tabs.Screen name="cash" options={{ title: "Ledger", href: null }} />
-        <Tabs.Screen name="personal-loans" options={{ title: "Personal Loans", href: null }} />
-        <Tabs.Screen name="investments" options={{ title: "Investments", href: null }} />
-        <Tabs.Screen name="reminders" options={{ title: "Reminders", href: null }} />
-        <Tabs.Screen name="reports" options={{ title: "Reports", href: null }} />
-        <Tabs.Screen name="ledger-statement" options={{ title: "Ledger / Statement", href: null }} />
-        <Tabs.Screen name="loan-risk" options={{ title: "Loan Risk", href: null }} />
-        <Tabs.Screen name="employees" options={{ title: "Employees", href: null }} />
-        <Tabs.Screen name="branches" options={{ title: "Branches", href: null }} />
-        <Tabs.Screen name="roles" options={{ title: "Roles & Permissions", href: null }} />
-        <Tabs.Screen name="billing" options={{ title: "Billing & Plan", href: null }} />
+        {/* --- reachable from the More sheet ---
+            Not `href: null`: Expo Router 58 treats that as "hidden" and drops the route from the
+            navigator's visible routes, so focusing one of these pages rendered nothing. Our own
+            tab bar only draws the four tabs above, so nothing needs hiding. */}
+        <Tabs.Screen name="auctions" options={{ title: "Auctions" }} />
+        <Tabs.Screen name="packets" options={{ title: "Packets & Lockers" }} />
+        <Tabs.Screen name="banks" options={{ title: "Bank Pledges" }} />
+        <Tabs.Screen name="bank-management" options={{ title: "Bank Management" }} />
+        <Tabs.Screen name="requests" options={{ title: "Requests" }} />
+        <Tabs.Screen name="cash" options={{ title: "Ledger" }} />
+        <Tabs.Screen name="personal-loans" options={{ title: "Personal Loans" }} />
+        <Tabs.Screen name="investments" options={{ title: "Investments" }} />
+        <Tabs.Screen name="reminders" options={{ title: "Reminders" }} />
+        <Tabs.Screen name="reports" options={{ title: "Reports" }} />
+        <Tabs.Screen name="ledger-statement" options={{ title: "Ledger / Statement" }} />
+        <Tabs.Screen name="loan-risk" options={{ title: "Loan Risk" }} />
+        <Tabs.Screen name="employees" options={{ title: "Employees" }} />
+        <Tabs.Screen name="branches" options={{ title: "Branches" }} />
+        <Tabs.Screen name="roles" options={{ title: "Roles & Permissions" }} />
+        <Tabs.Screen name="billing" options={{ title: "Billing & Plan" }} />
       </Tabs>
       {/* One header above every page — see Screen in Shell.tsx. */}
       <HeaderHost />
@@ -271,6 +281,14 @@ export default function TabsLayout() {
       <GoldRateModal visible={open === "gold"} onClose={close} />
       <RemindersModal visible={open === "reminders"} onClose={close} />
       <ProfileSheet visible={open === "profile"} onClose={close} />
+      {/* Register Customer over the current page, like New Loan; the new profile opens once saved. */}
+      <CustomerFormSheet
+        visible={open === "registerCustomer"}
+        onClose={close}
+        onSaved={(c) => {
+          if (c?.id) openPage(`/customers/${c.id}`);
+        }}
+      />
       <CollectLauncher loanId={collectLoanId} onClose={closeCollect} />
     </ShellContext.Provider>
   );
