@@ -892,6 +892,8 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/personal-loans` | `GET /api/v1/users/:user_id/personal-loans` |
 | `POST /api/v1/personal-loans` | `POST /api/v1/users/:user_id/personal-loans` |
 | `GET /api/v1/personal-loans/:id` | `GET /api/v1/users/:user_id/personal-loans/:id` |
+| `PATCH /api/v1/personal-loans/:id` | `PATCH /api/v1/users/:user_id/personal-loans/:id` |
+| `PATCH /api/v1/investments/:id` | `PATCH /api/v1/users/:user_id/investments/:id` |
 | `GET /api/v1/personal-loans/:id/approvals` | `GET /api/v1/users/:user_id/personal-loans/:id/approvals` |
 | `POST /api/v1/personal-loans/:id/approve` | `POST /api/v1/users/:user_id/personal-loans/:id/approve` |
 | `GET /api/v1/personal-loans/:id/bond` | `GET /api/v1/users/:user_id/personal-loans/:id/bond` |
@@ -921,6 +923,10 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/reports/balance-sheet` | `GET /api/v1/users/:user_id/reports/balance-sheet` |
 | `GET /api/v1/reports/bank-pledge` | `GET /api/v1/users/:user_id/reports/bank-pledge` |
 | `GET /api/v1/reports/cash-ledger` | `GET /api/v1/users/:user_id/reports/cash-ledger` |
+| `GET /api/v1/reports/day-book` | `GET /api/v1/users/:user_id/reports/day-book` |
+| `POST /api/v1/reports/day-book` | `POST /api/v1/users/:user_id/reports/day-book` |
+| `PATCH /api/v1/reports/day-book/:id` | `PATCH /api/v1/users/:user_id/reports/day-book/:id/update` |
+| `DELETE /api/v1/reports/day-book/:id` | `DELETE /api/v1/users/:user_id/reports/day-book/:id/delete` |
 | `GET /api/v1/reports/communication-history` | `GET /api/v1/users/:user_id/reports/communication-history` |
 | `GET /api/v1/reports/disbursement` | `GET /api/v1/users/:user_id/reports/disbursement` |
 | `GET /api/v1/reports/employee-performance` | `GET /api/v1/users/:user_id/reports/employee-performance` |

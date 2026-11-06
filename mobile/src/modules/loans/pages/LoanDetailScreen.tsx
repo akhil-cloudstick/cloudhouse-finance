@@ -139,28 +139,29 @@ export default function LoanDetailScreen() {
   useResetOnBlur(() => setOpen(null));
 
   // ?action=collect|bank|extend|release → open that sheet once the loan has loaded, then
-  // clear the param so a refetch / refocus doesn't reopen it.
-  const handledAction = useRef(false);
-  useEffect(() => {
-    if (action !== "collect" && action !== "bank" && action !== "extend" && action !== "release") {
-      handledAction.current = false;
-      return;
-    }
-    if (!loan.data || handledAction.current) return;
-    handledAction.current = true;
+  // clear the param so a refetch / refocus doesn't reopen it. The sheet is opened during render
+  // (React's "adjust state when a value changes" pattern), not in an effect, so it shows in the
+  // same paint instead of a cascading second render; only clearing the URL param is an effect.
+  const linkAction = action === "collect" || action === "bank" || action === "extend" || action === "release" ? action : null;
+  const [handledAction, setHandledAction] = useState(false);
+  if (!linkAction && handledAction) setHandledAction(false);
+  if (linkAction && loan.data && !handledAction) {
+    setHandledAction(true);
     const st = loan.data.status;
     const finished = st === "Closed" || st === "Rejected";
     const goldSold = st === "Auctioned" || st === "Auctioned - Balance Due";
     const pending = st === "Pending Approval";
-    if (action === "bank") setOpen("bank");
+    if (linkAction === "bank") setOpen("bank");
     else if (!finished) {
       // Same gates as the web loan page: no payment on an unapproved loan,
       // no extension/release on an unapproved or auctioned one.
-      if (action === "collect" && !pending) setOpen("collect");
-      else if ((action === "extend" || action === "release") && !pending && !goldSold) setOpen(action);
+      if (linkAction === "collect" && !pending) setOpen("collect");
+      else if ((linkAction === "extend" || linkAction === "release") && !pending && !goldSold) setOpen(linkAction);
     }
-    router.setParams({ action: undefined } as never);
-  }, [action, loan.data, router]);
+  }
+  useEffect(() => {
+    if (linkAction && handledAction) router.setParams({ action: undefined } as never);
+  }, [linkAction, handledAction, router]);
 
   // Synchronous double-tap guard (isPending only flips after a render), released in finally so a failed or
   // timed-out request can never leave the button stuck dimmed.

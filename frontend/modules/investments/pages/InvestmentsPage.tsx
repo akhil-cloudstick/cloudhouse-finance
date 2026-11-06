@@ -130,7 +130,7 @@ export function InvestmentsPage() {
         * the shape that class exists for — without it the footer falls back
         * to the sticky-overlay behavior and the card doesn't size to its own
         * rows, which is why this table sat differently to Loans'. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div className="filter-row-right" style={{ marginBottom: 12 }}>
         <FilterPanel
           categories={filterCategories}
           value={filterValue}

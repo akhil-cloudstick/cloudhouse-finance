@@ -4,7 +4,6 @@ import { View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import * as Print from "expo-print";
-import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import {
   AccRow,
@@ -12,9 +11,9 @@ import {
   C,
   Card,
   EmptyText,
+  ExportMenu,
   FlatHeader,
   PScroll,
-  PillButton,
   GroupedFilter,
   emptyGroupedFilter,
   gfDate,
@@ -35,10 +34,11 @@ import {
 import { SheetScrollView } from "@/common/components/ui/SheetScrollView";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { useServerList } from "@/common/hooks/use-server-list";
-import { getToken } from "@/common/services/tokenStorage";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { TENANT_MODULES, type TenantModule } from "@/common/config/tenantModules";
-import { getAuctions, getBalanceSheet, getBankPledge, getCommunicationHistory, getDepositRegister, getDisbursement, getEmployeePerformance, getExpenseCashflow, getFormG, getGoldRateHistory, getGoldRelease, getGoldWeight, getInterestCollection, getInterestPayoutRegister, getKYC, getLoanExtensions, getLoansStatus, getMaturityRegister, getOutstandingPrincipal, getPackets, getPaymentCollection, getPersonalLoans, getProfitAndLoss, reportExportUrl } from "@/modules/reports/services/reportsService";
+import { getAuctions, getBalanceSheet, getBankPledge, getCommunicationHistory, getDepositRegister, getDisbursement, getEmployeePerformance, getExpenseCashflow, getFormG, getGoldRateHistory, getGoldRelease, getGoldWeight, getInterestCollection, getInterestPayoutRegister, getKYC, getLoanExtensions, getLoansStatus, getMaturityRegister, getOutstandingPrincipal, getPackets, getPaymentCollection, getPersonalLoans, getProfitAndLoss } from "@/modules/reports/services/reportsService";
+import { downloadExport } from "@/modules/reports/services/reportDownload";
+import { DayBookSheet } from "@/modules/reports/components/DayBookSheet";
 import { type FormGStatement, type ReportFilters, type ReportResult, type StatementRow } from "@/modules/reports/types/reports-types";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
@@ -54,7 +54,7 @@ import { useCanOpen } from "@/common/config/routePermissions";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type RowView = { id?: string; name: string; sub?: string; amount?: string; status?: string; details?: AccDetail[] };
 // "link" opens another screen instead of a report sheet (see `href`).
-type Kind = "table" | "statement" | "formg" | "link";
+type Kind = "table" | "statement" | "formg" | "link" | "daybook";
 type ReportDef = {
   key: string;
   title: string;
@@ -346,6 +346,13 @@ const REPORTS: ReportDef[] = [
     kind: "link",
     href: "/ledger-statement?from=reports",
   },
+  // Hand-entered Day Book — its own sheet (DayBookSheet).
+  {
+    key: "day-book",
+    title: "Day Book",
+    group: "Financial Statements",
+    kind: "daybook",
+  },
   // Investments
   {
     key: "investments-deposit-register",
@@ -432,7 +439,8 @@ export default function ReportsScreen() {
         })}
         {shown.length === 0 ? <EmptyText>No reports match your search.</EmptyText> : null}
       </PScroll>
-      <ReportSheet report={open} onClose={() => setOpen(null)} />
+      <ReportSheet report={open?.kind === "daybook" ? null : open} onClose={() => setOpen(null)} />
+      <DayBookSheet visible={open?.kind === "daybook"} onClose={() => setOpen(null)} />
     </Screen>
   );
 }
@@ -440,23 +448,6 @@ export default function ReportsScreen() {
 // ---------------------------------------------------------------------------
 // Report table sheet (prototype #report-table-modal)
 // ---------------------------------------------------------------------------
-async function downloadExport(key: string, format: "xlsx" | "pdf", range: { from?: string; to?: string; q?: string; branchId?: number; status?: string; triggerType?: string }) {
-  const token = await getToken();
-  const targetUri = `${FileSystem.cacheDirectory}${key}-${Date.now()}.${format}`;
-  const qs = new URLSearchParams({ format });
-  if (range.from) qs.set("from", range.from);
-  if (range.to) qs.set("to", range.to);
-  if (range.q) qs.set("q", range.q);
-  if (range.branchId) qs.set("branch_id", String(range.branchId));
-  if (range.status) qs.set("status", range.status);
-  if (range.triggerType) qs.set("trigger_type", range.triggerType);
-  const result = await FileSystem.downloadAsync(reportExportUrl(key, qs), targetUri, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (result.status < 200 || result.status >= 300) throw new Error(`${format === "pdf" ? "Print" : "Export"} failed (${result.status})`);
-  return result.uri;
-}
-
 type ReportSheetProps = { report: ReportDef | null; onClose: () => void };
 
 function ReportSheet({ report, onClose }: ReportSheetProps) {
@@ -576,8 +567,7 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
       <View style={{ paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <GroupedFilter title="Filter report" sections={sections} value={fv} onChange={setFv} />
         <View style={{ flex: 1 }} />
-        <PillButton label={exporting ? "Downloading…" : "Download"} onPress={() => { if (!exporting) onExport(); }} />
-        <PillButton label={printing ? "Printing…" : "Export PDF"} onPress={() => { if (!printing) onPrint(); }} />
+        <ExportMenu busy={exporting || printing} onExcel={onExport} onPdf={onPrint} />
       </View>
     </View>
   ) : null;

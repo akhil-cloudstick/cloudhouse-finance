@@ -34,6 +34,7 @@ export * from "./SubTabs";
 export * from "./GrmTabs";
 export * from "./FiltersBar";
 export * from "./PillButton";
+export * from "./ExportMenu";
 export { type AccDetail, type AccAction, AccRowKey } from "./rowContext";
 export * from "./AccGroup";
 export * from "./AccRow";

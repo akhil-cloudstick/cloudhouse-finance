@@ -10200,3 +10200,74 @@ table.tbl.lockers-tbl th {
   .cash-kpi-row > .kpis.kpis-money { flex: 1 1 980px; min-width: 0; max-width: none !important; gap: 16px; }
   .cash-kpi-row > .cash-side { flex: 0 0 auto; }
 }
+
+/* ── Phone widths: every plain `.tbl` (labelled by TableCardsObserver) becomes
+ * a stack of cards — column name on the left, value on the right. ── */
+@media (max-width: 760px) {
+  table.tbl.tbl-auto,
+  table.tbl.tbl-auto tbody,
+  table.tbl.tbl-auto tr {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  table.tbl.tbl-auto thead { display: none; }
+  table.tbl.tbl-auto tbody { padding: 10px; }
+  table.tbl.tbl-auto tr {
+    margin-bottom: 10px;
+    padding: 4px 14px;
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .5);
+  }
+  table.tbl.tbl-auto tr:last-child { margin-bottom: 0; }
+  table.tbl.tbl-auto td,
+  table.tbl.tbl-auto td.num {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 8px 0 !important;
+    text-align: right !important;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    background: none;
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+  }
+  table.tbl.tbl-auto td:last-child { border-bottom: 0; }
+  table.tbl.tbl-auto td[data-label]::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+  }
+  table.tbl.tbl-auto td:not([data-label]) { justify-content: flex-end; }
+  /* Loading / empty rows are plain centred text, not label/value pairs. */
+  table.tbl.tbl-auto td[colspan] { display: block; text-align: center !important; }
+  .tbl-wrap:has(> table.tbl-auto) { overflow-x: visible; }
+}
+
+/* Grouped filter always sits at the right edge of its row. */
+.filter-row-right { display: flex; justify-content: flex-end; width: 100%; }
+
+/* Narrow screens: tables that became cards must not keep a bounded, scrolling
+ * box (its sticky footer would ride over the cards), and the personal-loan
+ * summary strip becomes an ordered grid — label above value. */
+@media (max-width: 760px) {
+  .tbl-wrap:has(> table.tbl-auto) { max-height: none; overflow: visible; }
+  .tbl-wrap:has(> table.tbl-auto) + .ft { position: static; }
+}
+@media (max-width: 900px) {
+  .kpis-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    align-items: start;
+    gap: 14px 16px;
+  }
+  .kpis-strip-item { flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+  .kpis-strip-item .v { overflow-wrap: anywhere; }
+}

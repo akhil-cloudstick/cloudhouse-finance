@@ -149,7 +149,7 @@ export function SchemesPage() {
       <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
       {/* Schemes are cards, not a table, so the filter sits in a toolbar row
        * directly above the card grid rather than in the page title. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+      <div className="filter-row-right" style={{ marginBottom: 14 }}>
         <FilterPanel
           categories={filterCategories}
           value={filterValue}

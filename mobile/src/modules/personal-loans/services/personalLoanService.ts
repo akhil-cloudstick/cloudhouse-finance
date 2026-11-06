@@ -35,6 +35,11 @@ export function createPersonalLoan(input: CreatePersonalLoanInput) {
   return apiRequest<PersonalLoan>("/personal-loans", { method: "POST", body: input });
 }
 
+// Corrects a loan's terms — only before any payment, renewal or penal charge (the backend answers with the reason otherwise).
+export function editPersonalLoan(id: number, input: Partial<CreatePersonalLoanInput> & { reason?: string }) {
+  return apiRequest<PersonalLoan>(`/personal-loans/${id}`, { method: "PATCH", body: input });
+}
+
 export function recordPersonalLoanPayment(
   id: number,
   input: {

@@ -17,6 +17,7 @@ import { PayInterestModalContent } from "@/modules/investments/components/PayInt
 import { MarkPayoutPaidModalContent } from "@/modules/investments/components/MarkPayoutPaidModalContent";
 import { AddInvestmentCashModalContent } from "@/modules/investments/components/AddInvestmentCashModalContent";
 import { WithdrawInvestmentModalContent } from "@/modules/investments/components/WithdrawInvestmentModalContent";
+import { NewInvestmentModalContent } from "@/modules/investments/components/NewInvestmentModalContent";
 import { InvestmentLedgerEditModalContent } from "@/modules/investments/components/InvestmentLedgerEditModalContent";
 import { LoanLedgerInfoModalContent, type LedgerInfoAction } from "@/modules/loans/components/LoanLedgerInfoModalContent";
 import { useModal } from "@/common/components/ModalProvider";
@@ -364,6 +365,9 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         )}
         {canUpdate && nothingOwed && (investment.status === "Active" || investment.status === "Matured") && (
           <button className="btn" onClick={openClose}><Icon name="check" /> Close Investment</button>
+        )}
+        {canUpdate && investment.status === "Active" && !investment.renewedFromInvestmentId && !investment.renewedToInvestmentId && !investment.totalInterestPaid && !investment.interestWithdrawn && (
+          <button className="btn" onClick={() => openModal(<NewInvestmentModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true)}><Icon name="edit" /> Edit</button>
         )}
         {canDelete && (
           <button className="btn danger" onClick={openDelete}><Icon name="trash" /> Delete</button>

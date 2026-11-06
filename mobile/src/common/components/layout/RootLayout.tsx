@@ -9,7 +9,7 @@ import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
 import { Asset } from "expo-asset";
-import { View, ActivityIndicator, AppState, type AppStateStatus, StatusBar as RNStatusBar, Platform } from "react-native";
+import { View, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
@@ -17,6 +17,7 @@ import { ThemeProvider, useTheme } from "@/common/theme/ThemeProvider";
 import { SheetHost } from "@/common/components/ui/SheetHost";
 import { ToastHost } from "@/common/components/ui/ToastHost";
 import { PrintProgressHost } from "@/common/components/ui/PrintProgressHost";
+import { CameraPermissionHost } from "@/common/components/ui/CameraPermission";
 import { KeyboardDoneBar } from "@/common/components/ui/KeyboardDoneBar";
 import { AnimatedSplash } from "@/common/components/ui/AnimatedSplash";
 import { AuthProvider, useAuth } from "@/common/providers/AuthProvider";
@@ -67,29 +68,11 @@ AppState.addEventListener("change", (status: AppStateStatus) => {
 // the inset area explicitly, on top of every navigator, so it always matches
 // the theme. (`expo-status-bar`'s backgroundColor can't do this job any
 // more — it's a no-op under edge-to-edge.)
-// expo-status-bar's <StatusBar> dropped `backgroundColor`/`translucent`
-// props in this SDK (they're a no-op under enforced edge-to-edge anyway —
-// see StatusBarBackdrop's comment below), so on Android 14 and older (and
-// in Expo Go, where app.json's native androidStatusBar config never
-// applies) the OS still reserves an opaque, black-by-default system-bar
-// area unless told otherwise imperatively. This runs once, setting the
-// same translucent+transparent state app.json's `androidStatusBar` bakes
-// into the native build, so both paths agree everywhere.
-function useAndroidStatusBarTranslucency() {
-  useEffect(() => {
-    if (Platform.OS !== "android") return;
-    RNStatusBar.setTranslucent(true);
-    RNStatusBar.setBackgroundColor("transparent");
-  }, []);
-}
-
-
 function RootNavigation() {
   const { employee, isLoading, businessCode } = useAuth();
   const { colors: themed } = useTheme();
   const segments = useSegments();
   const router = useRouter();
-  useAndroidStatusBarTranslucency();
   const dismissKeyboard = useDismissKeyboardOnOutsideTouch();
 
   // Signed out with no business yet → the scanner (connect); signed out with
@@ -142,6 +125,7 @@ function RootNavigation() {
       <SheetHost />
       <ToastHost />
       <PrintProgressHost />
+      <CameraPermissionHost />
       <KeyboardDoneBar />
     </View>
   );

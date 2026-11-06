@@ -1,10 +1,10 @@
 import React, { createContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Animated, BackHandler, Easing, Keyboard, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { Animated, BackHandler, Easing, Keyboard, View, type StyleProp, type ViewStyle } from "react-native";
 import { BottomSheetModal } from "./BottomSheetModal";
 import { SheetScrollView } from "./SheetScrollView";
 import { nextSheetId, sheetStore } from "./SheetHost";
-import { C } from "./base";
 import { ModalHead } from "./ModalHead";
+import { s } from "./sheetStyles";
 
 // ---- footer slot ----------------------------------------------------------
 // Lets a component nested deep inside a sheet (e.g. a review panel) put its
@@ -206,60 +206,9 @@ export function useOverlay(
   useEffect(() => () => sheetStore.remove(idRef.current), []);
 }
 
-export const s = StyleSheet.create({
-  head: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingTop: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: C.line,
-  },
-  headTitle: { fontWeight: "700", fontSize: 15, flexShrink: 1 },
-  cancel: { fontSize: 13, fontWeight: "700", color: C.brandDeep },
-  // .modal-body
-  body: { paddingTop: 6, paddingHorizontal: 16, paddingBottom: 28 },
-  footer: {
-    paddingTop: 10,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderTopWidth: 1,
-    borderTopColor: C.line,
-    backgroundColor: C.card,
-    gap: 8,
-  },
-  backdrop: { backgroundColor: "rgba(10,8,20,0.48)" },
-  overlayCenter: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  floatingCard: {
-    width: "100%",
-    maxHeight: "76%",
-    backgroundColor: C.card,
-    borderRadius: 22,
-    overflow: "hidden",
-    boxShadow: "0px 24px 60px rgba(0,0,0,0.35)",
-  },
-  topInset: { position: "absolute", top: 0, left: 0, right: 0, overflow: "hidden" },
-  topCard: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    maxHeight: "78%",
-    backgroundColor: C.card,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    overflow: "hidden",
-    boxShadow: "0px 18px 40px rgba(0,0,0,0.3)",
-  },
-});
+// The styles live in sheetStyles.ts (ModalHead needs them too); re-exported so `s` from "./Sheet" keeps working.
+export { s };
+
+/** The one height cap (% of the screen) for picker sheets — every calendar and filter. Content
+ * shorter than this opens at its own height; anything taller stops here and scrolls. */
+export const PICKER_MAX_PCT = 65;

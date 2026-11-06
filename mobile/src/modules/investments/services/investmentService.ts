@@ -26,6 +26,11 @@ export function createInvestment(input: CreateInvestmentInput) {
   return apiRequest<Investment>("/investments", { method: "POST", body: input });
 }
 
+// Corrects an investment's plan, principal or start date — only before any interest, payout, top-up or withdrawal (the backend answers with the reason otherwise).
+export function editInvestment(id: number, input: Partial<CreateInvestmentInput> & { startDate?: string; reason?: string }) {
+  return apiRequest<Investment>(`/investments/${id}`, { method: "PATCH", body: input });
+}
+
 export function getInvestmentSchedulePage(id: number, limit: number, offset: number) {
   return apiRequest<{ items: InvestmentPayout[]; hasMore: boolean }>(`/investments/${id}/schedule`, {
     params: { limit, offset },

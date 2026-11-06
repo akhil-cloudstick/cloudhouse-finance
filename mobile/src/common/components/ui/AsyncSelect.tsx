@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Keyboard, Pressable, TextInput, View } from "react-native";
+import { Keyboard, Pressable, View, type TextInputInstance } from "react-native";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { C } from "./base";
 import { Spinner } from "./Spinner";
@@ -56,7 +56,7 @@ export function AsyncSelect<T>({
   onCreateNew,
 }: AsyncSelectProps<T>) {
   const { ref, measure } = useAnchor();
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputInstance>(null);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [q, setQ] = useState("");
   // Until the user types, an open field keeps showing the current selection (selected, so typing

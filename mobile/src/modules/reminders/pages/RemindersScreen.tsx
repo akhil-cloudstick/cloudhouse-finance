@@ -40,6 +40,17 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const EVENTS_MAX_HEIGHT = 460;
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+// Same segments as the web day panel: a coloured count circle per group, tap one to list its events.
+const GROUPS: { key: string; label: string; fg: string; bg: string; types: CalendarEvent["type"][] }[] = [
+  { key: "overdue", label: "Overdue", fg: C.red, bg: C.redBg, types: ["Overdue", "PersonalLoanOverdue"] },
+  { key: "due", label: "Loan due", fg: C.amber, bg: C.amberBg, types: ["LoanDue", "PersonalLoanDue"] },
+  { key: "auction", label: "Auction", fg: C.amber, bg: C.amberBg, types: ["AuctionScheduled"] },
+  { key: "interest", label: "Interest", fg: C.green, bg: C.greenBg, types: ["InterestDue"] },
+  { key: "followup", label: "Follow-up", fg: C.blue, bg: C.blueBg, types: ["FollowUp"] },
+  { key: "promise", label: "Promise to pay", fg: C.blue, bg: C.blueBg, types: ["PromiseToPay"] },
+];
+const GROUPED_TYPES = GROUPS.flatMap((g) => g.types);
+
 function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
   if (t === "Overdue" || t === "PersonalLoanOverdue") return "red";
   if (t === "LoanDue" || t === "InterestDue" || t === "PersonalLoanDue") return "amber";
@@ -96,6 +107,22 @@ export default function RemindersScreen() {
     filters: range,
     fetchPage: (p) => listCalendarEventsPage(p),
   });
+  // Day view (not searching): the selected day's events from the month already loaded, split into the groups above.
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const dayEvents = useMemo(() => (monthEvents.data ?? []).filter((e) => e.date.slice(0, 10) === selected), [monthEvents.data, selected]);
+  const groupsOfDay = useMemo(
+    () =>
+      [
+        ...GROUPS.map((g) => ({ ...g, items: dayEvents.filter((e) => g.types.includes(e.type)) })),
+        { key: "other", label: "Other", fg: C.blue, bg: C.blueBg, types: [], items: dayEvents.filter((e) => !GROUPED_TYPES.includes(e.type)) },
+      ].filter((g) => g.items.length > 0),
+    [dayEvents]
+  );
+  const shownItems = searching ? list.items : (groupsOfDay.find((g) => g.key === openGroup)?.items ?? []);
+  const selectDay = (iso: string) => {
+    setSelected(iso);
+    setOpenGroup(null);
+  };
   const onSearch = (v: string) => {
     setSearchText(v);
     list.setSearch(v);
@@ -105,6 +132,7 @@ export default function RemindersScreen() {
   function goTo(year: number, monthIndex: number) {
     const d = new Date(year, monthIndex, 1);
     setMonth(d);
+    setOpenGroup(null);
     const first = isoOf(d.getFullYear(), d.getMonth(), 1);
     setSelected(today.slice(0, 7) === first.slice(0, 7) ? today : first);
   }
@@ -135,9 +163,31 @@ export default function RemindersScreen() {
           </Pressable>
         </View>
       </View>
-      <MonthGrid month={month} selected={selected} onSelect={setSelected} dots={dots} />
+      <MonthGrid month={month} selected={selected} onSelect={selectDay} dots={dots} />
       <SearchInput value={searchText} onChangeText={onSearch} placeholder="Search reminders by customer name, ID or loan number" style={{ paddingTop: 14, paddingBottom: 0 }} />
       <SectionTitle>{searching ? `Matches in ${MONTHS[m]} ${y}` : dayTitle(selected)}</SectionTitle>
+      {!searching && groupsOfDay.length > 0 ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 18, paddingBottom: 12 }}>
+          {groupsOfDay.map((g) => {
+            const on = openGroup === g.key;
+            return (
+              <Pressable
+                key={g.key}
+                onPress={() => setOpenGroup(on ? null : g.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${g.label}: ${g.items.length}`}
+                style={{ width: 64, alignItems: "center", gap: 4 }}
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: g.bg, borderWidth: 2, borderColor: on ? g.fg : "transparent" }}>
+                  <Txt style={{ fontWeight: "700", fontSize: 14, color: g.fg }}>{g.items.length}</Txt>
+                </View>
+                <Txt style={{ fontSize: 10.5, color: on ? C.ink : C.muted, textAlign: "center", lineHeight: 13 }}>{g.label}</Txt>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 
@@ -163,11 +213,13 @@ export default function RemindersScreen() {
         keyOf={() => "events"}
         renderItem={() => (
           <View style={{ backgroundColor: C.card, borderColor: C.line, borderWidth: 1, borderRadius: 18, maxHeight: EVENTS_MAX_HEIGHT, overflow: "hidden" }}>
-            {list.items.length === 0 ? (
-              list.isLoading ? (
+            {shownItems.length === 0 ? (
+              (searching ? list.isLoading : monthEvents.isLoading) ? (
                 <Buffering block />
               ) : (
-                <EmptyText>{searching ? "No reminders match your search." : "No reminders for this day."}</EmptyText>
+                <EmptyText>
+                  {searching ? "No reminders match your search." : dayEvents.length === 0 ? "No reminders for this day." : "Select a circle to see its reminders."}
+                </EmptyText>
               )
             ) : (
               <ScrollView
@@ -179,7 +231,7 @@ export default function RemindersScreen() {
                   if (n.layoutMeasurement.height + n.contentOffset.y >= n.contentSize.height - 80) list.fetchNextPage();
                 }}
               >
-                {list.items.map((e, i) => (
+                {shownItems.map((e, i) => (
                   <ReminderItem
                     key={`${e.date}-${e.type}-${e.reminderId ?? e.loanId ?? i}`}
                     ev={e}

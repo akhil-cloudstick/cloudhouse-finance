@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { Keyboard, Platform, View, ScrollView, TextInput, ScrollViewProps } from "react-native";
+import { Keyboard, Platform, View, ScrollView, TextInput, type HostInstance, type ScrollViewInstance, type ScrollViewProps } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { notifyLayoutShift, notifyUserScroll } from "./Popover";
 import { SheetScrollContext, ScrollLock } from "./BottomSheetModal";
@@ -13,7 +13,7 @@ export function SheetScrollView(props: ScrollViewProps) {
   const native = useMemo(() => (ctx ? Gesture.Native().simultaneousWithExternalGesture(ctx.pan) : null), [ctx]);
   const lock = ctx?.lock ?? NO_LOCK;
   const held = useSyncExternalStore(lock.subscribe, lock.get, lock.get);
-  const ref = useRef<ScrollView>(null);
+  const ref = useRef<ScrollViewInstance>(null);
   const offset = useRef(0);
   const viewH = useRef(0);
   // iOS doesn't scroll a focused input into view (Android does). Once the
@@ -25,9 +25,9 @@ export function SheetScrollView(props: ScrollViewProps) {
     const sub = Keyboard.addListener("keyboardDidShow", () => {
       timer = setTimeout(() => {
         const input = TextInput.State.currentlyFocusedInput?.();
-        const inner = (ref.current as unknown as { getInnerViewRef?: () => View | null })?.getInnerViewRef?.();
+        const inner = (ref.current as unknown as { getInnerViewRef?: () => HostInstance | null })?.getInnerViewRef?.();
         if (!input || !inner || !viewH.current) return;
-        (input as unknown as View).measureLayout(
+        (input as unknown as HostInstance).measureLayout(
           inner,
           (_x, y, _w, h) => {
             const top = offset.current;

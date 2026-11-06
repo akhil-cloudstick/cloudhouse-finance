@@ -178,7 +178,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
         <TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div className="filter-row-right" style={{ marginBottom: 12 }}>
           <FilterPanel
             categories={filterCategories}
             value={filterValue}
@@ -221,7 +221,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                   <td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
                   <td data-label="Customer">{r.customerName}</td>
                   <td data-label="Detail">{r.detail}</td>
-                  <td data-label="Date">{fmtDate(r.requestedAt)}</td>
+                  <td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.requestedAt)}</td>
                   <td data-label="Status">
                     <StatusChip status={r.status} />
                     {/* Set by RecordReleaseRequestPayment when a recorded discount+payment

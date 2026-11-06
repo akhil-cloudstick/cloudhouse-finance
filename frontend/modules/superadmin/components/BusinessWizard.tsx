@@ -28,6 +28,7 @@ const MODULE_HINTS: Record<string, string> = {
   quick_pay: "Pick a customer and one of their loans, then the usual Record Payment screen.",
   quick_extension: "Log the request here; if the user can approve their stage they approve it in the same window.",
   quick_release: "Log the release request and, if the user can approve their stage, review it in the same window.",
+  quick_day_book: "Opens the Day Book entry form (date, particulars, debit, credit, interest) straight from the dashboard.",
 };
 /* Modules whose grant is irreversible in effect rather than merely
  * revealing a page. Rendered with the danger styling so it does not read as

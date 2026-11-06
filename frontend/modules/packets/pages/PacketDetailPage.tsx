@@ -210,7 +210,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
               </tbody>
             </table>
           </div>
-          <div className="ft">
+          <div className="ft" style={{ position: "static" }}>
             Sealed contents of packet {p.code}, taken from loan{" "}
             {canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber} — ornament photos are on the loan page.
           </div>
@@ -317,8 +317,8 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
             )}
 
             {!isAuctioned && p.status === PACKET_STATUS.BANK_PLEDGED && (
-              <p style={{ color: "var(--muted)", fontSize: 12.5 }}>
-                Gold is currently pledged with a bank — use the loan&apos;s Bank Pledge release action to bring it back (that automatically moves this packet to &quot;Returned&quot;).
+              <p style={{ color: "var(--muted)", fontSize: "clamp(11px, 1.6vw, 12.5px)", lineHeight: 1.45, overflowWrap: "anywhere" }}>
+                Pledged with a bank — release it from the loan&apos;s Bank Pledge to return this packet.
               </p>
             )}
 

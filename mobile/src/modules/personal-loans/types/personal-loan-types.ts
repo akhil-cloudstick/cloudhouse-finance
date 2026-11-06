@@ -21,6 +21,8 @@ export type PersonalLoan = {
   interestValue: number;
   interestAmount: number;
   disbursedAmount: number;
+  // True when the customer got the full principal and owes principal + interest.
+  fullDisbursement?: boolean;
   frequency: Frequency;
   tenureCount: number;
   installmentAmount: number;

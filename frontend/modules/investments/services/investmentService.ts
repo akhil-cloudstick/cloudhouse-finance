@@ -34,6 +34,11 @@ export function createInvestment(input: CreateInvestmentInput): Promise<BackendI
   return apiFetch<BackendInvestment>("/investments", { method: "POST", body: JSON.stringify(input) });
 }
 
+/* Corrects an investment's plan, principal or start date — only before any interest, payout, top-up or withdrawal (the backend answers with the reason otherwise). */
+export function editInvestment(id: number, input: Partial<CreateInvestmentInput> & { reason?: string }): Promise<BackendInvestment> {
+  return apiFetch<BackendInvestment>(`/investments/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
 export const INVESTMENTS_TABLE_PAGE_SIZE = 10;
 
 /* Paginated, searched, filtered list — backs the Investments list page.

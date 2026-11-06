@@ -11,6 +11,7 @@ import { API_ORIGIN, ApiError } from "@/common/services/httpClient";
 import { uploadFile } from "@/common/services/uploadService";
 import { PickedFile } from "@/common/types/upload-types";
 import { useUploadSource } from "@/common/components/BillSheet";
+import { ensureCameraPermission } from "./CameraPermission";
 
 // The web modal collects these with a bare <input type="file">. On mobile the
 // equivalent is drawn in the app's own language instead of the platform's:
@@ -31,8 +32,9 @@ type Source = { key: string; label: string; icon: string; run: () => Promise<Pic
 export class PermissionError extends Error {}
 
 export async function fromCamera(): Promise<PickedFile | null> {
-  const perm = await ImagePicker.requestCameraPermissionsAsync();
-  if (!perm.granted) throw new PermissionError("Camera permission is needed to take a photo.");
+  // Our own "allow camera" card first (CameraPermission.tsx); the OS dialog only opens from its
+  // button. Backing out of it is a choice, not an error — nothing is attached.
+  if (!(await ensureCameraPermission())) return null;
   // Low quality keeps full-resolution camera shots small enough to upload quickly.
   const res = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.35, exif: false });
   if (res.canceled || !res.assets?.length) return null;

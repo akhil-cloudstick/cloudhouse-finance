@@ -3,12 +3,10 @@ import type { Customer } from "@/modules/customers/types/customer-types";
 import React, { createContext, useContext } from "react";
 import { Animated, StyleSheet } from "react-native";
 import { router as globalRouter } from "expo-router";
-import type { BottomTabBarProps } from "expo-router/js-tabs";
 import { C } from "./base";
 import { PTAB_HEIGHT, PTAB_INSET } from "@/common/theme/layout";
 import { canOpenPath } from "@/common/config/routePermissions";
 import { toast } from "./ToastHost";
-import { FlatHeader } from "./FlatHeader";
 
 // ---------------------------------------------------------------------------
 // Shell actions — one set of global openers (New Loan sheet, More sheet,
@@ -28,6 +26,8 @@ export type ShellActions = {
   openProfile: () => void;
   /** Collect Payment for a loan, right over the current page. */
   openCollect: (loanId: number) => void;
+  /** Register Customer, right over the current page (like New Loan); opens the new profile after saving. */
+  openRegisterCustomer: () => void;
 };
 const noop = () => {};
 export const ShellContext = createContext<ShellActions>({
@@ -40,16 +40,21 @@ export const ShellContext = createContext<ShellActions>({
   openReminders: noop,
   openProfile: noop,
   openCollect: noop,
+  openRegisterCustomer: noop,
 });
 export const useShell = () => useContext(ShellContext);
 
-/** Shown for the moment between leaving a page and the next one drawing. */
-const BLANK_HEADER = <FlatHeader title="" />;
+/** Shown for the moment between leaving a page and the next one drawing. Handed in by HeaderHost
+ * (a blank FlatHeader) — importing FlatHeader here made a require cycle, as FlatHeader imports this file. */
+let BLANK_HEADER: React.ReactNode = null;
+export function setBlankHeader(node: React.ReactNode) {
+  BLANK_HEADER = node;
+}
 
 /** Set by HeaderHost while the hero collapses into (or grows back out of) a
  * page's flat header. `p` runs 0 (hero open) → 1 (collapsed to the flat
  * header's height); `lift` is the height difference between the two. */
-export type HeroMorph = { p: Animated.AnimatedAddition<number>; lift: Animated.Value };
+export type HeroMorph = { p: Animated.AnimatedInterpolation<number>; lift: Animated.Value };
 export const HeroMorphContext = createContext<HeroMorph | null>(null);
 
 /** Set by HeaderHost while a flat header's title is changing: the outgoing text and the 0 → 1
@@ -114,6 +119,10 @@ export const coverStore = {
   },
 };
 
+/** Height of a page's header when the page lets its content run under it (Screen `overlayHeader`) —
+ * a scroller inside pads its content by this much (PScroll `underHeader`). 0 otherwise. */
+export const HeaderInsetContext = createContext(0);
+
 /** Which tab (route name) a page belongs to, so its header can be found before the page is focused. */
 export const TabNameContext = createContext("");
 
@@ -122,6 +131,11 @@ const headerEntries = new Map<string, HeaderEntry>();
 const headerListeners = new Set<() => void>();
 let headerSeq = 0;
 let headerPending = false;
+// The tab an openPage() jump is heading to, until the destination takes focus. The jump itself runs
+// two frames after the header starts changing, so until then the navigator still reports the page
+// being left — HeaderHost reads this instead to know whether the destination is a primary tab.
+let pendingTab = "";
+export const jumpTarget = () => pendingTab;
 let headerSnapshot: React.ReactNode = null;
 let headerHoldTimer: ReturnType<typeof setTimeout> | null = null;
 // The tab whose header preview() put up ahead of its focus ("" when none), and the safety timer.
@@ -179,6 +193,7 @@ function publishHeader() {
       headerHoldTimer = setTimeout(() => {
         headerHoldTimer = null;
         headerPending = false;
+        pendingTab = "";
         let next: HeaderEntry | null = null;
         for (const e of headerEntries.values()) if (e.focused && (!next || e.seq > next.seq)) next = e;
         headerSnapshot = next ? next.node : BLANK_HEADER;
@@ -197,6 +212,7 @@ export const headerStore = {
     if (gained) {
       if (headerPending) coverStore.end();
       headerPending = false;
+      pendingTab = "";
       // A page really took focus: whatever preview was up has served its purpose.
       endPreview();
     }
@@ -213,10 +229,11 @@ export const headerStore = {
     if (headerEntries.delete(key)) publishHeader();
   },
   /** A page switch is under way: hold the current header until the next page
-   * takes focus (see publishHeader). */
-  pending: () => {
+   * takes focus (see publishHeader). `tab` is where the jump is going. */
+  pending: (tab = "") => {
     endPreview();
     headerPending = true;
+    pendingTab = tab;
     coverStore.begin();
     publishHeader();
   },
@@ -267,11 +284,98 @@ export type FabMenuAction = {
 // ---------------------------------------------------------------------------
 // Cross-page navigation
 // ---------------------------------------------------------------------------
-type TabsNav = BottomTabBarProps["navigation"];
-type TabsState = BottomTabBarProps["state"];
-export const tabsRef: { nav: TabsNav | null; state: TabsState | null } = { nav: null, state: null };
+// Expo Router 58 types the tab bar's `state` as just { index, routes } and no longer hands it a
+// `navigation`. At runtime the state is still the tab router's full state (its key, the
+// `history` and each tab's nested stack state), which is what the helpers below rely on.
+type NestedState = {
+  type?: string;
+  key?: string;
+  index?: number;
+  routes?: { key: string; name: string; params?: object; state?: NestedState }[];
+};
+export type TabsState = {
+  key: string;
+  index: number;
+  routes: { key: string; name: string; params?: object; path?: string; state?: NestedState }[];
+  history?: { type: string; key: string }[];
+  /** Expo Router's counter for the next route key it mints in this navigator. */
+  routeKeySeq?: number;
+};
 
-let directSeq = 0;
+// Used only if the tabs state ever comes without its counter (the tab bar's trimmed fallback).
+let fallbackSeq = 100000;
+
+/**
+ * Mints fresh tab routes for a RESET the way Expo Router mints its own, so the payload looks
+ * router-made. Its keys are `<name>:<chain>` — the chain after the ":" is the route's place in
+ * the tree (`<tabs chain>-<seq>`, from the tabs state's own `routeKeySeq`), and a navigator nested
+ * under the route is keyed `navigator:<chain>`, its first route `<screen>:<chain>-0`. Hand-made
+ * keys without that ":" made Expo Router warn on every lookup ("has no chain separator").
+ * Pass `seq` back as the payload's `routeKeySeq` so the router carries on after them.
+ */
+export function tabRouteMinter(state: TabsState) {
+  // The tab bar's own state has no key / counter; the navigation tree's copy (read now, so it's
+  // current) does. Without either, fall back to a unique chain of our own — never a crash.
+  const live = tabsRef.live?.();
+  const stateKey = live?.key ?? state.key;
+  const tabsChain = typeof stateKey === "string" ? (stateKey.startsWith("navigator:") ? stateKey.slice("navigator:".length) : stateKey) : null;
+  let seq = live?.routeKeySeq ?? state.routeKeySeq ?? ++fallbackSeq;
+  return {
+    /** A new key for tab `name`, with a stack holding just `screen`. */
+    stackRoute(name: string, screen: { name: string; params?: object }) {
+      const chain = tabsChain === null ? `x${seq}` : tabsChain === "root" ? `${seq}` : `${tabsChain}-${seq}`;
+      seq += 1;
+      return {
+        key: `${name}:${chain}`,
+        state: { type: "stack" as const, key: `navigator:${chain}`, index: 0, routeKeySeq: 1, routes: [{ key: `${screen.name}:${chain}-0`, ...screen }] },
+      };
+    },
+    /** A new key for a tab route with no stack of its own. */
+    routeKey(name: string) {
+      const chain = tabsChain === null ? `x${seq}` : tabsChain === "root" ? `${seq}` : `${tabsChain}-${seq}`;
+      seq += 1;
+      return `${name}:${chain}`;
+    },
+    get seq() {
+      return seq;
+    },
+  };
+}
+
+export type TabRoute = TabsState["routes"][number];
+type TabsEdit = { routes: TabRoute[]; focusKey: string | null; replaced?: Map<string, string> };
+
+/**
+ * RESETs the tabs navigator. Expo Router 58 only accepts a COMPLETE state here (`key`, `index`,
+ * `routeNames`, `routeKeySeq`, `stale: false`) and ignores anything else — every jump built from
+ * the tab bar's trimmed state was dropped ("The action 'RESET' … was not handled"). So the payload
+ * is built from the navigator's own state in the navigation tree: `edit` changes its routes,
+ * `focusKey` is the route to focus (null keeps the current one) and `replaced` maps old route keys
+ * to their new ones so the Back history follows. Returns false if that state isn't available.
+ */
+export function resetTabs(nav: TabsNav, edit: (routes: TabRoute[], mint: ReturnType<typeof tabRouteMinter>) => TabsEdit): boolean {
+  const live = tabsRef.live?.();
+  if (!live) return false;
+  const mint = tabRouteMinter(live);
+  const { routes, focusKey, replaced } = edit(live.routes, mint);
+  const keep = live.routes[live.index]?.key ?? "";
+  const focus = focusKey ?? replaced?.get(keep) ?? keep;
+  const remap = (key: string) => replaced?.get(key) ?? key;
+  let history = (live.history ?? []).map((it) => ({ ...it, key: remap(it.key) })).filter((it) => routes.some((r) => r.key === it.key));
+  if (focusKey) history = history.filter((it) => it.key !== focusKey).concat({ type: "route", key: focusKey });
+  nav.dispatch({
+    type: "RESET",
+    target: live.key,
+    payload: { ...live, stale: false, routes, index: Math.max(0, routes.findIndex((r) => r.key === focus)), history, routeKeySeq: mint.seq },
+  });
+  return true;
+}
+/** What the tab bar can still do: dispatch to the tabs navigator, and focus one of its tabs. */
+export type TabsNav = {
+  dispatch: (action: { type: string; payload?: object; target?: string }) => void;
+  navigate: (name: string) => void;
+};
+export const tabsRef: { nav: TabsNav | null; state: TabsState | null; live?: () => TabsState | undefined } = { nav: null, state: null };
 
 // Tabs that are folders (their own stack: index + [id]); the rest are a
 // single screen.
@@ -354,11 +458,20 @@ function navigateTo(path: string) {
   const targetIndex = state?.routes.findIndex((r) => r.name === tab) ?? -1;
   const target = targetIndex >= 0 ? state?.routes[targetIndex] : undefined;
   const current = state?.routes[state?.index ?? -1]?.name;
-  if (!nav || !state || !target || current === tab) {
+  if (!nav || !state || current === tab) {
     globalRouter.push(path as never);
     return;
   }
-  headerStore.pending();
+  if (!target) {
+    // A More page not opened yet this session. Expo Router 58 keeps only visited tabs in the
+    // navigator's state, so there is no route to RESET onto — the router creates it. That first
+    // mount is heavy and used to run with nothing on screen (blank page, no spinner): put the
+    // cover + spinner up first, and push two frames later so it paints before the mount starts.
+    headerStore.pending(tab);
+    requestAnimationFrame(() => requestAnimationFrame(() => globalRouter.push(path as never)));
+    return;
+  }
+  headerStore.pending(tab);
   const screen = id ? "[id]" : "index";
   const screenParams = id ? { ...params, id, direct: "1" } : params;
   // The guard above already ruled out `current === tab` — this is always a
@@ -372,11 +485,20 @@ function navigateTo(path: string) {
   // so the list is never created underneath, never flashes, and isn't there
   // for Back to land on. Back from the detail therefore falls straight
   // through to the tabs' history: the page it was opened from.
-  if (!STACK_TABS.has(tab)) {
-    focusTab(nav, state, targetIndex, { params });
-    return;
-  }
-  focusTab(nav, state, targetIndex, { stack: { name: screen, params: screenParams } });
+  // The jump waits two frames, so the cover (and its spinner, started by pending() above) is
+  // on screen before the destination's first render takes over the JS thread. Run at once, that
+  // render blocked the cover from ever painting and the screen sat blank until it finished.
+  const jump = () => {
+    const live = tabsRef;
+    const idx = live.state?.routes.findIndex((r) => r.name === tab) ?? -1;
+    if (!live.nav || !live.state || idx < 0) return;
+    if (!STACK_TABS.has(tab)) {
+      focusTab(live.nav, live.state, idx, { params });
+      return;
+    }
+    focusTab(live.nav, live.state, idx, { stack: { name: screen, params: screenParams } });
+  };
+  requestAnimationFrame(() => requestAnimationFrame(jump));
 }
 
 /**
@@ -409,41 +531,42 @@ export function focusTab(
   targetIndex: number,
   change: { params?: object; stack?: { name: string; params?: object } }
 ) {
-  const target = state.routes[targetIndex];
-  // A stack change also gives the tab route a NEW key. The tab's scene is keyed by it, so the
-  // old stack (still showing its list — tabs like Loans are mounted up front) is dropped and a
-  // fresh one mounts straight onto the destination. Handing the new state to the already-mounted
-  // stack instead only took effect a render later, so the list was drawn first and the detail
-  // landed over it.
-  const n = change.stack ? ++directSeq : 0;
-  const nextKey = change.stack ? `${target.name}-direct-${n}` : target.key;
-  const routes = state.routes.map((r, i) => {
-    if (i !== targetIndex) return r;
+  const name = state.routes[targetIndex]?.name;
+  if (!name) return;
+  // Built from the navigator's complete state (resetTabs). The target tab may not be in it yet
+  // (a More page never opened) — then it is added.
+  const done = resetTabs(nav, (routes, mint) => {
+    const existing = routes.find((r) => r.name === name);
+    let next: TabRoute;
     if (change.stack) {
-      return {
-        ...r,
-        key: nextKey,
-        params: withoutNestedTarget(r.params),
-        state: { type: "stack" as const, key: `direct-stack-${n}`, index: 0, routes: [{ key: `direct-${n}`, ...change.stack }] },
-      };
+      // A stack change also gives the tab route a NEW key. The tab's scene is keyed by it, so the
+      // old stack (still showing its list — tabs like Loans are mounted up front) is dropped and
+      // a fresh one mounts straight onto the destination. Handing the new state to the
+      // already-mounted stack instead only took effect a render later, so the list was drawn
+      // first and the detail landed over it.
+      const m = mint.stackRoute(name, change.stack);
+      const { path: _path, ...rest } = existing ?? { name };
+      next = { ...rest, name, key: m.key, params: withoutNestedTarget(existing?.params), state: m.state };
+    } else if (existing) {
+      next = change.params ? { ...existing, params: change.params } : existing;
+    } else {
+      next = { name, key: mint.routeKey(name), ...(change.params ? { params: change.params } : {}) };
     }
-    return change.params ? { ...r, params: change.params } : r;
+    // The Back history (backBehavior="history") follows the tab: its old key is replaced by the
+    // new one and it becomes the latest entry — without it, Back from a page opened this way had
+    // nothing to fall back to and Android closed the app.
+    return {
+      routes: existing ? routes.map((r) => (r === existing ? next : r)) : [...routes, next],
+      focusKey: next.key,
+      replaced: existing && existing.key !== next.key ? new Map([[existing.key, next.key]]) : undefined,
+    };
   });
-  // The tab router's own back-navigation (both hardware Back and this
-  // Tabs' `backBehavior="history"`) is driven entirely by `state.history`,
-  // a list of previously-focused route keys that only its own actions
-  // (JUMP_TO/NAVIGATE/GO_BACK) know how to maintain — a raw RESET, if it
-  // doesn't include one, replaces it with nothing. Drop the target's old key
-  // (it may just have been replaced above) and append its current one,
-  // exactly like the router's own changeIndex does for backBehavior="history"
-  // (de-dupe, then append). Skipping this was the bug — Back from a loan
-  // opened this way had no history left to fall into, and Android closed the
-  // app outright.
-  const history = (state.history ?? [])
-    .filter((it) => (it && typeof it === "object" && "key" in it ? it.key !== target.key && it.key !== nextKey : true))
-    .concat({ type: "route" as const, key: nextKey });
-  nav.dispatch({ type: "RESET", payload: { ...state, index: targetIndex, routes, history } });
+  if (!done) nav.navigate(name);
 }
+
+// Height of a header's top row (logo + title / name + icons) — the same in every header, so the logo
+// sits at the same spot on every page. Fits the 38px logo and either header's two-line text.
+const HEADER_ROW_H = 40;
 
 const shadow = (y: number, blur: number, opacity: number, color = "43, 26, 94") => ({
   boxShadow: `0px ${y}px ${blur}px rgba(${color}, ${opacity})`,
@@ -463,8 +586,11 @@ export const s = StyleSheet.create({
 
   // .flat-header
   // Hero-coloured like the Dashboard header (HeroBackground), white on top.
-  flatHeader: { paddingHorizontal: 18, paddingBottom: 14, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, overflow: "hidden", backgroundColor: C.nav },
-  flatTopRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // Same corner as the Dashboard hero (aHeader / heroClip), so the two headers match when they meet.
+  flatHeader: { paddingHorizontal: 18, paddingBottom: 14, borderBottomLeftRadius: 26, borderBottomRightRadius: 26, overflow: "hidden", backgroundColor: C.nav },
+  // Fixed row height, shared with the Dashboard hero's top row (aTopRow): the row used to take the
+  // height of its text, which differs between the two headers, so the logo sat a little lower in one.
+  flatTopRow: { flexDirection: "row", alignItems: "center", gap: 8, height: HEADER_ROW_H },
   backBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
   flatLogo: { width: 38, height: 38 },
   flatTitleBlock: { flex: 1, minWidth: 0 },
@@ -476,7 +602,7 @@ export const s = StyleSheet.create({
 
   // .a-header
   aHeader: { paddingHorizontal: 18, paddingBottom: 18, borderBottomLeftRadius: 26, borderBottomRightRadius: 26, overflow: "hidden" },
-  aTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  aTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: HEADER_ROW_H },
   aId: { flexDirection: "row", alignItems: "center", gap: 8 },
   aName: { color: "#fff", fontWeight: "700", fontSize: 14 },
   aBranch: { color: "#fff", fontSize: 11, opacity: 0.75 },
@@ -587,7 +713,7 @@ export const s = StyleSheet.create({
   tabIc: { width: 54, height: 36, borderRadius: 18, overflow: "hidden", alignItems: "center", justifyContent: "center" },
   tabIcActive: { backgroundColor: C.brandPale },
   tabIcOverlay: { alignItems: "center", justifyContent: "center" },
-  tabLbl: { fontSize: 10, fontWeight: "600", color: C.muted },
+  tabLbl: { fontSize: 11.5, fontWeight: "600", color: C.muted },
   tabLblActive: { color: C.brandDeep },
   tabFab: { top: -22 },
   // Centre Loans button while Loans is the open tab: brighter fill, a soft

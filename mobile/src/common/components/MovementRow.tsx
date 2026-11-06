@@ -3,7 +3,7 @@ import { dmy, inr } from "@/common/utils/format";
 import type { CashMovement } from "@/modules/cash/types/cash-types";
 import { billDetail, expenseCategoryOf, modeLink, openLedger, openLoanByNumber } from "./LedgerList";
 import { LedgerLink } from "./LedgerLink";
-import { EntrySub, useEntryActions } from "@/modules/cash/components/EntryActions";
+import { useEntryActions } from "@/modules/cash/components/EntryActions";
 
 // loanRefFor pulls the loan number back out of `purpose` — every
 // loan-related movement's Purpose carries it as a "… — LN-00049" suffix
@@ -66,7 +66,7 @@ export function MovementRow({
     <AccRow
       defaultOpen={defaultOpen}
       name={inr(m.amount)}
-      sub={entry.infoButton ? <EntrySub text={m.purpose || m.source} infoButton={entry.infoButton} /> : m.purpose || m.source}
+      sub={m.purpose || m.source}
       actions={entry.actions}
       status={m.type === "in" ? "Cash in" : "Cash out"}
       statusTone={m.type === "in" ? "active" : "due"}

@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SheetFlatList } from "./SheetFlatList";
 import { pullRefreshControl } from "./base";
 import { EmptyText } from "./EmptyText";
-import { Buffering } from "./Buffering";
+import { Buffering, ReloadBuffer } from "./Buffering";
 import { AccRowKey } from "./rowContext";
 import { AccGroup } from "./AccGroup";
 import { PCONTENT_BOTTOM, tabBarLift } from "@/common/theme/layout";
@@ -100,12 +100,12 @@ export function ServerFlatList<T>({
       ListHeaderComponent={
         <>
           {header}
-          {reloading ? <Buffering style={{ paddingVertical: 10 }} /> : null}
+          <ReloadBuffer active={reloading} />
         </>
       }
       stickyHeaderIndices={stickyHeaderIndices}
       ListEmptyComponent={
-        list.isLoading ? (
+        list.isLoading || list.isRefreshing ? (
           <Buffering block />
         ) : errorText ? (
           <EmptyText>{errorText}</EmptyText>
@@ -113,7 +113,7 @@ export function ServerFlatList<T>({
           <EmptyText>{emptyText}</EmptyText>
         )
       }
-      ListFooterComponent={list.isFetchingNextPage ? <Buffering /> : null}
+      ListFooterComponent={list.isFetchingNextPage ? <Buffering /> : undefined}
       onEndReached={list.fetchNextPage}
       onEndReachedThreshold={0.4}
       keyboardShouldPersistTaps="handled"

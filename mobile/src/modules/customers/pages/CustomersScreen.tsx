@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { dmy } from "@/common/utils/format";
@@ -29,6 +29,7 @@ const FILTER_SECTIONS: GFSection[] = [
 // Customer quick action, via ?register=1) opens the Register Customer sheet.
 export default function CustomersScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const params = useLocalSearchParams<{ register?: string }>();
   const [registerOpen, setRegisterOpen] = useState(false);
   const canCreate = useAuth().can("Customer_Management", "can_create_customer");
@@ -98,7 +99,14 @@ export default function CustomersScreen() {
         visible={registerOpen}
         onClose={() => setRegisterOpen(false)}
         onSaved={(c) => {
-          if (c?.id) router.push(`/customers/${c.id}` as never);
+          if (!c?.id) return;
+          // Open the new customer's profile by pushing it straight onto this screen's own stack.
+          // The path-based router.push has to find this stack through Expo Router's global
+          // lookup, and when this page was reached from the Dashboard's Register Customer
+          // action (which rebuilds the Customers tab) the push didn't land on the profile.
+          const push = (navigation as { push?: (name: string, params?: object) => void }).push;
+          if (push) push("[id]", { id: String(c.id) });
+          else router.push(`/customers/${c.id}` as never);
         }}
       />
     </Screen>

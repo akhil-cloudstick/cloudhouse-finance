@@ -10,6 +10,11 @@ export function createPersonalLoan(input: CreatePersonalLoanInput): Promise<Back
   return apiFetch<BackendPersonalLoan>("/personal-loans", { method: "POST", body: JSON.stringify(input) });
 }
 
+/* Corrects a loan's terms — only before any payment, renewal or penal charge (the backend answers with the reason otherwise). */
+export function editPersonalLoan(id: number, input: Partial<CreatePersonalLoanInput> & { reason?: string }): Promise<BackendPersonalLoan> {
+  return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
 export function approvePersonalLoan(id: number, input: PersonalLoanApprovalInput): Promise<BackendPersonalLoan> {
   return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}/approve`, { method: "POST", body: JSON.stringify(input) });
 }

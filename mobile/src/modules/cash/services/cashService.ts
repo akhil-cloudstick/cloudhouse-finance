@@ -75,17 +75,17 @@ export function getExpenseEntry(id: number) {
   return apiRequest<EntryInfo>(`/expenses/${id}/entry`);
 }
 
-// Saves an edit made in an entry form: from the Expenses list it goes to PUT /expenses/:id, from a
-// ledger row to PUT /cash-movements/:id.
+// Saves an edit made in an entry form: from the Expenses list it goes to PATCH /expenses/:id/update, from a
+// ledger row to PATCH /cash-movements/:id/update.
 export function saveEntryEdit(info: EntryInfo, input: EntryUpdateInput) {
-  return apiRequest<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}` : `/cash-movements/${info.movementId}`, { method: "PUT", body: input });
+  return apiRequest<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}/update` : `/cash-movements/${info.movementId}/update`, { method: "PATCH", body: input });
 }
 
 // Edits a cash-in, debit or self transfer from the ledger: the whole entry
 // (every payment line, or both legs of a transfer) is replaced by the edited
 // version. Needs no permission of its own.
 export function updateMovementEntry(id: number, input: EntryUpdateInput) {
-  return apiRequest<{ id: number }>(`/cash-movements/${id}`, { method: "PUT", body: input });
+  return apiRequest<{ id: number }>(`/cash-movements/${id}/update`, { method: "PATCH", body: input });
 }
 
 // Bank-to-bank self transfer — the backend writes a debit row on the from

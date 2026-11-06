@@ -31,6 +31,7 @@ import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { QuickActionModalContent, type QuickAction } from "@/common/components/modals/QuickActionModalContent";
+import { DayBookEntryModalContent } from "@/modules/reports/components/DayBookEntryModalContent";
 
 type KpiProps = { l: string; v: string | number; s?: React.ReactNode; cls?: string; href?: string };
 
@@ -126,11 +127,15 @@ export function DashboardPage() {
   // Extra Quick actions this business was granted. Payment, extension and release requests are all
   // loan updates, the same permission the loan page gates them on.
   const canUpdateLoans = can("Loan_Management", "can_update_loan");
-  const quickActions: { action: QuickAction; label: string; icon: "coin" | "clock" | "unlock" }[] = [];
+  const quickActions: { action: QuickAction | "daybook"; label: string; icon: "coin" | "clock" | "unlock" | "note" }[] = [];
   if (canUpdateLoans) {
     if (hasModule("quick_pay")) quickActions.push({ action: "payment", label: "Record Payment", icon: "coin" });
     if (hasModule("quick_extension")) quickActions.push({ action: "extension", label: "Request Extension", icon: "clock" });
     if (hasModule("quick_release")) quickActions.push({ action: "release", label: "Request Release", icon: "unlock" });
+  }
+  // A Day Book entry is written from the Day Book report, so it needs the reports permission.
+  if (hasModule("quick_day_book") && can("Report_Management", "can_view_report_module")) {
+    quickActions.push({ action: "daybook", label: "Day Book Entry", icon: "note" });
   }
   const {
     open: quickMenuOpen,
@@ -324,7 +329,7 @@ export function DashboardPage() {
                   <a href={routeHref("newloan")} title="New Loan"><Icon name="plus" /><span className="tx">New Loan</span></a>
                 )}
                 {quickActions.map((a) => (
-                  <a key={a.action} href="#" title={a.label} onClick={(e) => { e.preventDefault(); setQuickMenuOpen(false); openModal(<QuickActionModalContent action={a.action} onChanged={refreshLoans} />); }}>
+                  <a key={a.action} href="#" title={a.label} onClick={(e) => { e.preventDefault(); setQuickMenuOpen(false); openModal(a.action === "daybook" ? <DayBookEntryModalContent /> : <QuickActionModalContent action={a.action} onChanged={refreshLoans} />); }}>
                     <Icon name={a.icon} /><span className="tx">{a.label}</span>
                   </a>
                 ))}

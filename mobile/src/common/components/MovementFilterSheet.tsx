@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Buffering, C, CheckItem, DateField, PillTabs, SearchInput, ServerFlatList, Sheet, Txt } from "@/common/components/ui";
+import { PICKER_MAX_PCT } from "@/common/components/ui/Sheet";
+import { SheetScrollView } from "@/common/components/ui/SheetScrollView";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { listBranches } from "@/modules/branches/services/branchService";
@@ -87,7 +89,7 @@ export function MovementFilterSheet({
           ) : null}
         </View>
       }
-      maxHeightPct={65}
+      maxHeightPct={PICKER_MAX_PCT}
       scroll={false}
     >
       <View style={fs.filterTabWrap}>
@@ -99,28 +101,35 @@ export function MovementFilterSheet({
           inSheet
         />
       </View>
+      {/* The option lists scroll once they reach the sheet's cap (they used to run off its bottom). */}
       {filterTab === "branch" ? (
-        <View style={fs.filterList}>
-          {branches.isLoading ? (
-            <Buffering style={{ paddingVertical: 20 }} />
-          ) : (
-            (branches.data ?? []).map((b: Branch) => (
-              <CheckItem key={b.id} checked={value.branchIds.includes(b.id)} onPress={() => toggleBranch(b.id)} title={b.name} />
-            ))
-          )}
-        </View>
+        <SheetScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <View style={fs.filterList}>
+            {branches.isLoading ? (
+              <Buffering style={{ paddingVertical: 20 }} />
+            ) : (
+              (branches.data ?? []).map((b: Branch) => (
+                <CheckItem key={b.id} checked={value.branchIds.includes(b.id)} onPress={() => toggleBranch(b.id)} title={b.name} />
+              ))
+            )}
+          </View>
+        </SheetScrollView>
       ) : filterTab === "type" ? (
-        <View style={fs.filterList}>
-          {MOVEMENT_TYPE_OPTIONS.map((o) => (
-            <CheckItem key={o.value} checked={value.types.includes(o.value)} onPress={() => toggleType(o.value)} title={o.label} />
-          ))}
-        </View>
+        <SheetScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <View style={fs.filterList}>
+            {MOVEMENT_TYPE_OPTIONS.map((o) => (
+              <CheckItem key={o.value} checked={value.types.includes(o.value)} onPress={() => toggleType(o.value)} title={o.label} />
+            ))}
+          </View>
+        </SheetScrollView>
       ) : filterTab === "mode" ? (
-        <View style={fs.filterList}>
-          {MOVEMENT_MODE_OPTIONS.map((o) => (
-            <CheckItem key={o.value} checked={value.modes.includes(o.value)} onPress={() => toggleMode(o.value)} title={o.label} />
-          ))}
-        </View>
+        <SheetScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <View style={fs.filterList}>
+            {MOVEMENT_MODE_OPTIONS.map((o) => (
+              <CheckItem key={o.value} checked={value.modes.includes(o.value)} onPress={() => toggleMode(o.value)} title={o.label} />
+            ))}
+          </View>
+        </SheetScrollView>
       ) : filterTab === "date" ? (
         <View style={[fs.filterList, { flexDirection: "row", gap: 10 }]}>
           <View style={{ flex: 1 }}>

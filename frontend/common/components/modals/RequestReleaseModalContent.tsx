@@ -153,7 +153,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
       <div className="bd bd-scroll">
         {hasPendingRelease && (
           <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
-            <Icon name="shield" /> An ornament on this loan is already requested for release and has not yet been approved.
+            <Icon name="shield" /> Release already pending approval.
           </div>
         )}
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
@@ -199,9 +199,9 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
           <div><label className="f">Request Date *</label><DatePicker value={requestedOn} min={loan.opened?.slice(0, 10) || undefined} max={today} onChange={setRequestedOn} /></div>
           <div><label className="f">Note</label><input className="inp" placeholder="optional detail" value={detail} onChange={(e) => setDetail(e.target.value)} /></div>
         </div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
+        <span className="pay-ft-msg">{err}</span>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" disabled={selected.size === 0 || saving} onClick={save}>
           <Icon name="check" /> {saving ? "Saving…" : noApprover ? "Release" : "Log Request"}

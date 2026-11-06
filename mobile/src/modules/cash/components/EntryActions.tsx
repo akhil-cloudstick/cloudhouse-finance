@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Pressable, View } from "react-native";
 import { C, PIcon, PrimaryButton, Sheet, SheetFooter, Txt, toast, type AccAction } from "@/common/components/ui";
-import { billDetail } from "@/common/components/LedgerList";
+import { billDetail } from "@/common/components/BillLink";
 import { inr, dmy } from "@/common/utils/format";
 import { getMovementEntry } from "@/modules/cash/services/cashService";
 import type { EntryInfo, EntryKind, LedgerRow } from "@/modules/cash/types/cash-types";
