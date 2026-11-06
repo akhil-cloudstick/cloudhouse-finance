@@ -23,9 +23,11 @@ const (
 	ModuleQuickPay       = "quick_pay"
 	ModuleQuickExtension = "quick_extension"
 	ModuleQuickRelease   = "quick_release"
+	// A Day Book entry (date, particulars, debit, credit, interest) written straight from the dashboard.
+	ModuleQuickDayBook = "quick_day_book"
 )
 
-var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp, ModuleMultipleInterest, ModuleQuickPay, ModuleQuickExtension, ModuleQuickRelease}
+var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp, ModuleMultipleInterest, ModuleQuickPay, ModuleQuickExtension, ModuleQuickRelease, ModuleQuickDayBook}
 
 const (
 	LangEnglish = "en"

@@ -92,17 +92,29 @@ func NewTransactionGroupID() string {
 
 func ValidateOccurredOn(occurredOn, lastKnownDate, now time.Time) error {
 	occurredDate := dateOnly(occurredOn)
-	if occurredDate.After(dateOnly(now)) {
+	// "Today" is the business's calendar day (IST), not the server's clock day:
+	// a UTC server is still on yesterday's date for the first 5.5h of an
+	// Indian morning, which rejected a date of today as "in the future".
+	ny, nm, nd := now.In(businessZone).Date()
+	today := time.Date(ny, nm, nd, 0, 0, 0, 0, occurredDate.Location())
+	if occurredDate.After(today) {
 		return NewBadRequest(fmt.Sprintf(
-			"date (%s) cannot be in the future", occurredOn.Format("2006-01-02")))
+			"date (%s) cannot be in the future", occurredOn.Format("02-01-2006")))
 	}
 	if !lastKnownDate.IsZero() && occurredDate.Before(dateOnly(lastKnownDate)) {
 		return NewBadRequest(fmt.Sprintf(
 			"date (%s) is before the most recent recorded entry on this account (%s)",
-			occurredOn.Format("2006-01-02"), lastKnownDate.Format("2006-01-02")))
+			occurredOn.Format("02-01-2006"), lastKnownDate.Format("02-01-2006")))
 	}
 	return nil
 }
+
+var businessZone = func() *time.Location {
+	if l, err := time.LoadLocation("Asia/Kolkata"); err == nil {
+		return l
+	}
+	return time.FixedZone("IST", 5*3600+30*60)
+}()
 
 func dateOnly(t time.Time) time.Time {
 	y, m, d := t.Date()

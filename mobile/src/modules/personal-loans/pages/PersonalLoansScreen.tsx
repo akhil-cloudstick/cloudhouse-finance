@@ -50,7 +50,7 @@ import type { Bank } from "@/modules/banks/types/bank-types";
 import { ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
-import { approvePersonalLoan, createPersonalLoan, getPersonalLoan, getPersonalLoanSchedulePage, listPersonalLoanApprovals, listPersonalLoanPaymentsPage, listPersonalLoansPage, previewRenewal, recordPersonalLoanPayment, renewPersonalLoan, personalLoanBondUrl } from "@/modules/personal-loans/services/personalLoanService";
+import { approvePersonalLoan, createPersonalLoan, editPersonalLoan, getPersonalLoan, getPersonalLoanSchedulePage, listPersonalLoanApprovals, listPersonalLoanPaymentsPage, listPersonalLoansPage, previewRenewal, recordPersonalLoanPayment, renewPersonalLoan, personalLoanBondUrl } from "@/modules/personal-loans/services/personalLoanService";
 import { type Frequency, type InterestType, type PersonalLoan, type PersonalLoanInstallment, type PersonalLoanPayment, type PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
@@ -102,6 +102,7 @@ export default function PersonalLoansScreen() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [collectLoan, setCollectLoan] = useState<PersonalLoan | null>(null);
   const [renewLoan, setRenewLoan] = useState<PersonalLoan | null>(null);
+  const [editLoan, setEditLoan] = useState<PersonalLoan | null>(null);
 
   // ?id=<personal loan id> (dashboard "Needs attention") opens its detail.
   // &from=reminders (a reminder opened it): closing the detail goes back to Reminders.
@@ -133,7 +134,9 @@ export default function PersonalLoansScreen() {
         header={
           <View style={{ paddingTop: 12 }}>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingBottom: 8 }} />
-            <GroupedFilter title="Filter personal loans" sections={FILTER_SECTIONS} value={fv} onChange={setFv} style={{ alignSelf: "flex-start", marginBottom: 10 }} />
+            <View style={{ paddingHorizontal: 18, paddingBottom: 10 }}>
+              <GroupedFilter title="Filter personal loans" sections={FILTER_SECTIONS} value={fv} onChange={setFv} style={{ alignSelf: "flex-start" }} />
+            </View>
           </View>
         }
         renderItem={(l, i) => (
@@ -164,6 +167,7 @@ export default function PersonalLoansScreen() {
           setDetailId(loan.id);
         }}
       />
+      <CreatePersonalLoanSheet visible={!!editLoan} loan={editLoan} onClose={() => setEditLoan(null)} onCreated={() => setEditLoan(null)} />
       <PersonalLoanDetailSheet
         loanId={detailId}
         onClose={() => {
@@ -177,6 +181,7 @@ export default function PersonalLoansScreen() {
         canUpdate={canUpdate}
         onCollect={setCollectLoan}
         onRenew={setRenewLoan}
+        onEdit={setEditLoan}
       />
       <CollectSheet loan={collectLoan} onClose={() => setCollectLoan(null)} />
       <RenewSheet
@@ -191,16 +196,23 @@ export default function PersonalLoansScreen() {
   );
 }
 
-type CreatePersonalLoanSheetProps = { visible: boolean; onClose: () => void; onCreated: (l: PersonalLoan) => void };
+// `loan` set: corrects that loan's terms (only before any payment) instead of opening a new one.
+type CreatePersonalLoanSheetProps = { visible: boolean; onClose: () => void; onCreated: (l: PersonalLoan) => void; loan?: PersonalLoan | null };
+
+// The loan amount as it was typed in: the stored principal is what is owed, which includes the interest on a full disbursement.
+const enteredPrincipal = (l: PersonalLoan) => (l.fullDisbursement ? l.principalAmount - l.interestAmount : l.principalAmount);
+// Penal terms left at their default follow the loan's own interest, so they are shown blank.
+const penalIsDefault = (l: PersonalLoan) => (l.interestType === "Percentage" ? l.penalInterestRate === l.interestValue && !l.penalFlatAmount : !l.penalInterestRate && l.penalFlatAmount === l.interestAmount);
 
 // ---------------------------------------------------------------------------
 // Create Personal Loan (prototype #pl-create-modal)
 // ---------------------------------------------------------------------------
-function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonalLoanSheetProps) {
+function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: CreatePersonalLoanSheetProps) {
   const qc = useQueryClient();
+  const editing = !!loan;
   // Tenant's "personal_loan" flow on → the loan is created "Pending
   // Approval" and only disbursed once its final stage approves it.
-  const needsApproval = !isFlowOff(useApprovalWorkflow(), "personal_loan");
+  const needsApproval = !editing && !isFlowOff(useApprovalWorkflow(), "personal_loan");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [principal, setPrincipal] = useState("");
   const [interestType, setInterestType] = useState<InterestType>("Flat");
@@ -219,17 +231,17 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
   useEffect(() => {
     if (visible) {
       setCustomer(null);
-      setPrincipal("");
-      setInterestType("Flat");
-      setInterestValue("");
-      setFrequency("Daily");
-      setTenureCount("");
-      setDisburse("Withhold interest");
-      setPenalRate("");
-      setGraceDays("");
+      setPrincipal(loan ? String(enteredPrincipal(loan)) : "");
+      setInterestType(loan?.interestType ?? "Flat");
+      setInterestValue(loan ? String(loan.interestValue) : "");
+      setFrequency(loan?.frequency ?? "Daily");
+      setTenureCount(loan ? String(loan.tenureCount) : "");
+      setDisburse(loan?.fullDisbursement ? "Full amount" : "Withhold interest");
+      setPenalRate(loan && !penalIsDefault(loan) && loan.penalInterestRate ? String(loan.penalInterestRate) : "");
+      setGraceDays(loan?.gracePeriodDays ? String(loan.gracePeriodDays) : "");
       setError(null);
     }
-  }, [visible]);
+  }, [visible, loan]);
 
   const principalNum = +principal || 0;
   const interestValueNum = +interestValue || 0;
@@ -243,9 +255,24 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
   const obligation = fullDisbursement ? Math.round((principalNum + interestAmount) * 100) / 100 : principalNum;
   const installmentAmount = tenureNum > 0 ? Math.round((obligation / tenureNum) * 100) / 100 : 0;
 
+  // Editing keeps how the customer was paid unless the amount changes (then a new breakdown is needed); the server checks the till.
+  const amountChanged = !!loan && Math.abs(disbursedAmount - loan.disbursedAmount) >= 0.005;
+
   const submit = useMutation({
     mutationFn: () =>
-      createPersonalLoan({
+      loan
+        ? editPersonalLoan(loan.id, {
+            principalAmount: principalNum,
+            interestType,
+            interestValue: interestValueNum,
+            frequency,
+            tenureCount: tenureNum,
+            fullDisbursement,
+            penalInterestRate: penalRate ? +penalRate : 0,
+            gracePeriodDays: graceDays ? +graceDays : 0,
+            ...(amountChanged ? { ...(pay?.split ?? {}), bankId: pay?.bankId } : {}),
+          })
+        : createPersonalLoan({
         branchId: customer!.branchId,
         customerId: customer!.id,
         principalAmount: principalNum,
@@ -259,26 +286,35 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
         ...(pay?.split ?? {}),
         bankId: pay?.bankId,
       }),
-    onSuccess: (loan) => {
+    onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: ["personalLoans"] });
-      if (loan.status === "Pending Approval") toast.success("Personal loan submitted for approval", `${loan.loanNumber} — disbursed once approved`);
-      onCreated(loan);
+      if (editing) {
+        qc.invalidateQueries({ queryKey: ["personalLoan"] });
+        qc.invalidateQueries({ queryKey: ["personalLoanSchedule"] });
+        toast.success("Loan updated", `${saved.loanNumber} — terms saved`);
+      } else if (saved.status === "Pending Approval") toast.success("Personal loan submitted for approval", `${saved.loanNumber} — disbursed once approved`);
+      onCreated(saved);
     },
     onError: (err) => setError(errMsg(err, "Could not create the loan — try again.")),
   });
 
   function validate(): string | null {
-    if (!customer) return "Please select a customer.";
+    if (!editing && !customer) return "Please select a customer.";
     if (!principalNum || principalNum <= 0) return "Please enter the principal amount.";
     if (!tenureNum || tenureNum <= 0) return "Please enter the number of installments.";
     if (interestValueNum < 0) return "Interest value must not be negative.";
     if (interestAmount >= principalNum) return "Interest amount must be less than the principal amount.";
-    if (disbursedAmount > 0 && !pay?.ready) return "The disbursement breakdown must add up to the amount the customer gets, with a bank for every UPI / Bank Transfer line.";
+    if ((!editing || amountChanged) && disbursedAmount > 0 && !pay?.ready) return "The disbursement breakdown must add up to the amount the customer gets, with a bank for every UPI / Bank Transfer line.";
     return null;
   }
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Create Personal Loan" maxHeightPct={92}>
+    <Sheet visible={visible} onClose={onClose} title={loan ? `Edit ${loan.loanNumber}` : "Create Personal Loan"} maxHeightPct={92}>
+      {loan ? (
+        <Field label="Customer">
+          <Input value={`${loan.customer.name} · ${loan.customer.code}`} editable={false} />
+        </Field>
+      ) : (
       <AsyncSelect<Customer>
         label="Customer"
         placeholder="Search existing customer by name, ID or phone"
@@ -290,6 +326,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
         keyOf={(c) => c.id}
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
+      )}
       <Field label="Principal amount">
         <Input keyboardType="decimal-pad" placeholder="e.g. 15000" value={principal} onChangeText={setPrincipal} />
       </Field>
@@ -316,7 +353,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
           <Input keyboardType="number-pad" placeholder="e.g. 5" value={graceDays} onChangeText={setGraceDays} />
         </Field>
       </FieldRow>
-      {disbursedAmount > 0 ? <SplitPaymentInput total={disbursedAmount} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
+      {disbursedAmount > 0 && (!editing || amountChanged) ? <SplitPaymentInput total={disbursedAmount} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
       <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
         <FieldGrid
           items={[
@@ -329,7 +366,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: CreatePersonal
       </Card>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
-        label={needsApproval ? "Submit for Approval" : "Create & Disburse"}
+        label={editing ? "Save Changes" : needsApproval ? "Submit for Approval" : "Create & Disburse"}
         loading={submit.isPending}
         onPress={() => {
           const v = validate();
@@ -356,6 +393,7 @@ type PersonalLoanDetailSheetProps = {
   canUpdate: boolean;
   onCollect: (l: PersonalLoan) => void;
   onRenew: (l: PersonalLoan) => void;
+  onEdit: (l: PersonalLoan) => void;
 };
 
 function PersonalLoanDetailSheet({
@@ -365,6 +403,7 @@ function PersonalLoanDetailSheet({
   canUpdate,
   onCollect,
   onRenew,
+  onEdit,
 }: PersonalLoanDetailSheetProps) {
   const visible = loanId != null;
   const id = loanId ?? 0;
@@ -621,10 +660,17 @@ function PersonalLoanDetailSheet({
     );
 
   const active = l?.status === "Active";
+  // Terms can be corrected only while nothing is built on them (the server enforces the same).
+  const editable = !!l && canUpdate && (l.status === "Active" || l.status === "Pending Approval") && !l.renewedFromLoanId && !l.renewedToLoanId && !l.totalPaid && !l.totalPenalInterestCharged;
   return (
     <>
     <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={90} scroll={false}>
       <View style={{ flexShrink: 1 }}>{body}</View>
+      {l && editable ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+          <PrimaryButton label="Edit Loan" variant="outline" onPress={() => onEdit(l)} />
+        </View>
+      ) : null}
       {l && canUpdate && active ? (
         <BtnRow2 style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 }}>
           <PrimaryButton label="Collect Payment" variant="outline" onPress={() => onCollect(l)} />

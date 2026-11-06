@@ -16,7 +16,6 @@ export type ReportFilters = {
   // Per-report extra filters.
   status?: string; // /reports/loans/status
   triggerType?: string; // /reports/communication-history
-  loan?: string; // /reports/cash-ledger — "00144/26", "LN-00144" or "144"
 };
 export type ReportResult<Row, Totals> = {
   rows: Row[];
@@ -114,12 +113,10 @@ export type ExpenseCashflowRow = {
 export type ExpenseCashflowTotals = {
   totalCollections: number; totalDisbursements: number; totalExpenses: number; netCashflow: number;
 };
-// Cash Ledger: every cash movement, oldest first, closing each month with a subtotal row (total: true).
-// particulars is the gold loan as "00144/26" (number / year opened), blank for any other movement.
-export type CashLedgerRow = {
-  date: string; month: string; particulars: string; debit: number; credit: number; balance: number; total: boolean;
-};
-export type CashLedgerTotals = { openingBalance: number; totalDebit: number; totalCredit: number; closingBalance: number };
+// Day Book: lines staff write by hand, oldest first. date is "YYYY-MM-DD".
+export type DayBookRow = { id: number; date: string; particulars: string; debit: number; credit: number; interest: number };
+export type DayBookTotals = { debit: number; credit: number; interest: number };
+export type DayBookInput = { date: string; particulars: string; debit: number; credit: number; interest: number };
 export type KYCRow = {
   customerId: number; code: string; name: string; phone: string; kycStatus: string; panStatus: string; aadhaarStatus: string;
 };
@@ -195,4 +192,4 @@ export type ReportKey =
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
   | "employee-performance" | "communication-history" | "balance-sheet" | "profit-loss" | "form-g"
-  | "investments-deposit-register" | "investments-interest-payout-register" | "investments-maturity-register" | "cash-ledger";
+  | "investments-deposit-register" | "investments-interest-payout-register" | "investments-maturity-register" | "day-book";

@@ -100,6 +100,11 @@ async function queuePersonalLoan(input: CreatePersonalLoanInput, hint: CreatePer
   } as BackendPersonalLoan;
 }
 
+/* Corrects a loan's terms — only before any payment, renewal or penal charge (the backend answers with the reason otherwise). */
+export function editPersonalLoan(id: number, input: Partial<CreatePersonalLoanInput> & { reason?: string }): Promise<BackendPersonalLoan> {
+  return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
 export function approvePersonalLoan(id: number, input: PersonalLoanApprovalInput): Promise<BackendPersonalLoan> {
   const path = `/personal-loans/${id}/approve`;
   const check = async () => {

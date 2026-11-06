@@ -2,7 +2,7 @@ import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } fr
 import { branchHeader } from "@/common/services/branchSelection";
 import { canMakeOffline } from "@/common/offline/documents";
 import { exportTable, tableFromObjects, type ExportCell, type ExportTable } from "@/common/offline/exports";
-import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, InvestorLedgerRow, InvestorLedgerTotals, InterestCollectionRow, InterestCollectionTotals, OutstandingPrincipalRow, OutstandingPrincipalTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, CashLedgerRow, CashLedgerTotals, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, FormGStatement, FormGOverrides, BalanceSheetRow, BalanceSheetTotals, ProfitLossRow, ProfitLossTotals, ReportKey } from "@/modules/reports/types/reports-types";
+import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, InvestorLedgerRow, InvestorLedgerTotals, InterestCollectionRow, InterestCollectionTotals, OutstandingPrincipalRow, OutstandingPrincipalTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, DayBookRow, DayBookTotals, DayBookInput, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, FormGStatement, FormGOverrides, BalanceSheetRow, BalanceSheetTotals, ProfitLossRow, ProfitLossTotals, ReportKey } from "@/modules/reports/types/reports-types";
 
 function buildQuery(filters: ReportFilters): string {
   const qs = new URLSearchParams();
@@ -14,7 +14,6 @@ function buildQuery(filters: ReportFilters): string {
   if (filters.search) qs.set("search", filters.search);
   if (filters.status) qs.set("status", filters.status);
   if (filters.triggerType) qs.set("trigger_type", filters.triggerType);
-  if (filters.loan) qs.set("loan", filters.loan);
   return qs.toString();
 }
 
@@ -132,8 +131,17 @@ export const getExpenseCashflow = (f: ReportFilters) =>
   fetchReport<ExpenseCashflowRow, ExpenseCashflowTotals>("expense-cashflow", f);
 
 // Every row of the period at once (the month subtotals and running balance need all of it).
-export const getCashLedger = (f: ReportFilters) =>
-  fetchReport<CashLedgerRow, CashLedgerTotals>("cash-ledger", f);
+export const getDayBook = (f: ReportFilters) =>
+  fetchReport<DayBookRow, DayBookTotals>("day-book", f);
+
+export const createDayBookEntry = (input: DayBookInput) =>
+  apiFetch<DayBookRow>("/reports/day-book", { method: "POST", body: JSON.stringify(input) });
+
+export const updateDayBookEntry = (id: number, input: DayBookInput) =>
+  apiFetch<DayBookRow>(`/reports/day-book/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+
+export const deleteDayBookEntry = (id: number) =>
+  apiFetch<void>(`/reports/day-book/${id}`, { method: "DELETE" });
 
 export const getKYC = (f: ReportFilters) =>
   fetchReport<KYCRow, KYCTotals>("kyc", f);

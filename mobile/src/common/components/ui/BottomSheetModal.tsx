@@ -1,6 +1,6 @@
 import React, { createContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, BackHandler, Easing, Keyboard, LayoutAnimation, Platform, Pressable, View, StyleSheet, useWindowDimensions, type KeyboardEvent } from "react-native";
-import { Gesture, GestureDetector, type PanGesture } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, type LegacyPanGesture } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/common/theme/colors";
 import { nextSheetId, sheetStore } from "./SheetHost";
@@ -31,7 +31,7 @@ function createScrollLock(): ScrollLock {
   };
 }
 
-type SheetScrollCtx = { pan: PanGesture; onScroll: (y: number) => void; lock: ScrollLock };
+type SheetScrollCtx = { pan: LegacyPanGesture; onScroll: (y: number) => void; lock: ScrollLock };
 export const SheetScrollContext = createContext<SheetScrollCtx | null>(null);
 
 // Tallest overlay height seen (the full window) — see the keyboard lift below.
@@ -312,7 +312,7 @@ export function BottomSheetModal({
                     ? Math.min((fullH.current * maxHeightPct) / 100 || Infinity, availH - lift - insets.top - 8)
                     : `${maxHeightPct}%`,
                   marginBottom: lift,
-                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? 14 : 14 + Math.max(insets.bottom, 10),
+                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? (Platform.OS === "ios" ? 8 : 14) : 14 + Math.max(insets.bottom, 10),
                   transform: [{ translateY }],
                 },
               ]}
@@ -339,7 +339,8 @@ export function BottomSheetModal({
 const OPEN_SPRING = { damping: 30, stiffness: 260, mass: 1, overshootClamping: true, restDisplacementThreshold: 0.5, restSpeedThreshold: 0.5 };
 const CLOSE_MS = 240;
 // Clear space kept between a sheet footer and the keyboard top (added to the footer's own 12px padding).
-const KB_GAP = 4;
+// iPhone sits a few px closer to the keyboard than Android.
+const KB_GAP = Platform.OS === "ios" ? 0 : 4;
 const CLOSE_EASE = Easing.bezier(0.4, 0, 0.9, 0.6);
 
 const styles = StyleSheet.create({

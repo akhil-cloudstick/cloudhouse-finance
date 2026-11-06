@@ -151,3 +151,8 @@ export type FormGStatement = {
     excessLiabilitiesOverAssets: number;
   };
 };
+
+/* ---- Day Book: lines staff record by hand (backend Reports/models/day_book.go). ---- */
+export type DayBookRow = { id: number; date: string; particulars: string; debit: number; credit: number; interest: number };
+export type DayBookTotals = { debit: number; credit: number; interest: number };
+export type DayBookInput = { date: string; particulars: string; debit: number; credit: number; interest: number };

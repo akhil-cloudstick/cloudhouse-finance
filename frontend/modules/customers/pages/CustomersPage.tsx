@@ -110,7 +110,7 @@ export function CustomersPage() {
           Something went wrong. Please try again later.
         </p>
       )}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div className="filter-row-right" style={{ marginBottom: 12 }}>
         <FilterPanel
           categories={filterCategories}
           value={filterValue}

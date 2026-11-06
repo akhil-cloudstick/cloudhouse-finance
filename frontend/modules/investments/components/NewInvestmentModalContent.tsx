@@ -12,8 +12,9 @@ import { searchInvestorsPage } from "@/modules/customers/services/customerServic
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { CreateInvestorModalContent } from "@/modules/investments/components/CreateInvestorModalContent";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { createInvestment, listInvestmentPlans } from "@/modules/investments/services/investmentService";
-import { type BackendInvestmentPlan } from "@/modules/investments/types/investment-types";
+import { createInvestment, editInvestment, listInvestmentPlans } from "@/modules/investments/services/investmentService";
+import { type BackendInvestment, type BackendInvestmentPlan } from "@/modules/investments/types/investment-types";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 // Which field a server message is about, by its words (first match wins).
@@ -21,7 +22,7 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   split: /payment|breakdown|bank|cheque|upi/i, investor: /investor|customer/i, plan: /plan/i, principal: /principal|amount/i,
 };
 
-type NewInvestmentModalContentProps = { onSaved: () => void };
+type NewInvestmentModalContentProps = { onSaved: () => void; /** Set to correct this investment instead of opening a new one (only before any payout or interest). */ investment?: BackendInvestment };
 
 /* "New Investment" — a modal (not a page) launched from Investments.tsx's
  * "+ New Investment" button, mirroring personal-loans/components/
@@ -30,16 +31,17 @@ type NewInvestmentModalContentProps = { onSaved: () => void };
  * rate/frequency/tenure onto the Investment and generates the full payout
  * schedule in one step (see backend/internal/investment/service.go's
  * CreateInvestment). */
-export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContentProps) {
+export function NewInvestmentModalContent({ onSaved, investment }: NewInvestmentModalContentProps) {
+  const editing = !!investment;
   const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
   const { closeModal } = useModal();
   const toast = useToast();
 
   // The picker's own id: a number, or "uuid:..." for an investor this PC registered that the server has not numbered yet
   // (the investment points at them by that, and the server resolves it when the investment is sent, after the investor).
-  const [customerRef, setCustomerRef] = useState<number | string | undefined>(undefined);
-  const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(undefined);
-  const [customerLabel, setCustomerLabel] = useState("");
+  const [customerRef, setCustomerRef] = useState<number | string | undefined>(investment?.customerId);
+  const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(investment?.branchId);
+  const [customerLabel, setCustomerLabel] = useState(investment ? `${investment.customer.name} (${investment.customer.code})` : "");
   const pickInvestor = (id: string | number, branchId: number | undefined, label: string) => {
     const s = String(id);
     setCustomerRef(/^\d+$/.test(s) ? Number(s) : s.startsWith("uuid:") ? s : undefined);
@@ -47,8 +49,9 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
     setCustomerLabel(label);
   };
   const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
-  const [planId, setPlanId] = useState<number | "">("");
-  const [principal, setPrincipal] = useState("");
+  const [planId, setPlanId] = useState<number | "">(investment?.planId ?? "");
+  const [principal, setPrincipal] = useState(investment ? String(investment.principalAmount) : "");
+  const [startDate, setStartDate] = useState(investment ? investment.startDate.slice(0, 10) : "");
   // How the investor pays the opening deposit (Cash / UPI / Bank Transfer /
   // Cheque), and the branch bank account a non-cash share lands in.
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
@@ -67,12 +70,19 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
 
   useEffect(() => {
     listInvestmentPlans(true)
-      .then((list) => { setPlans(list); if (list.length) setPlanId((cur) => cur || list[0].id); })
+      .then((list) => {
+        // The investment's own plan stays choosable even if it has since been switched off.
+        const all = investment && !list.some((p) => p.id === investment.planId) ? [investment.plan, ...list] : list;
+        setPlans(all);
+        if (all.length) setPlanId((cur) => cur || all[0].id);
+      })
       .catch(() => setErr("Could not load investment plans — try again later."));
   }, []);
 
   const plan = plans.find((p) => p.id === planId);
   const principalNum = +principal || 0;
+  // Editing keeps how the deposit was paid unless the amount changes (then a new breakdown is needed).
+  const amountChanged = !!investment && Math.abs(principalNum - investment.principalAmount) >= 0.005;
 
   async function save() {
     // Every problem is shown at once, each beside its own field.
@@ -81,7 +91,7 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
     if (!planId) errors["plan"] ??= "Please select an investment plan.";
     if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the principal amount.";
     if (plan && principalNum < plan.minPrincipal) errors["principal"] ??= `Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`;
-    if (Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the principal amount.";
+    if ((!editing || amountChanged) && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the principal amount.";
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     if (!customerRef || !customerBranchId) return; // narrows both; the check above already reported it
 
@@ -89,7 +99,18 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
     setErr("");
     setFe({});
     try {
-      const created = await createInvestment({
+      if (investment) {
+        await editInvestment(investment.id, {
+          planId: Number(planId),
+          principalAmount: principalNum,
+          startDate: startDate || undefined,
+          ...(amountChanged ? { ...split, bankId } : {}),
+        });
+        toast(`${investment.investmentNumber} updated`);
+        onSaved();
+        return;
+      }
+      await createInvestment({
         branchId: customerBranchId,
         customerId: customerRef,
         planId: Number(planId),
@@ -110,7 +131,7 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
     }
   }
 
-  if (creatingInvestor) {
+  if (creatingInvestor && !editing) {
     return (
       <CreateInvestorModalContent
         onCreated={(c) => {
@@ -123,10 +144,10 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
 
   return (
     <>
-      <div className="hd"><h3>New Investment</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>{investment ? `Edit ${investment.investmentNumber}` : "New Investment"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow"><div className={fe.investor ? "has-err" : undefined}><label className="f">Investor *</label>
-          <SearchableSelect<CustomerView>
+          {editing ? <input className="inp" value={customerLabel} disabled readOnly /> : <SearchableSelect<CustomerView>
             value={customerLabel}
             onChange={(id, item) => pickInvestor(id, item.branchId, `${item.name} (${item.code})`)}
             fetchFn={searchInvestorsPage}
@@ -136,7 +157,7 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
             placeholder="Search for an investor…"
             onCreateNew={canCreateCustomer ? () => setCreatingInvestor(true) : undefined}
             createNewLabel="+ Add new investor"
-          /><FieldError msg={fe.investor} /></div></div>
+          />}<FieldError msg={fe.investor} /></div></div>
         <div className="frow c2">
           <div className={fe.plan ? "has-err" : undefined}><label className="f">Investment Plan *</label>
             <Select
@@ -149,12 +170,13 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
           <div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 100000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /><FieldError msg={fe.principal} /></div>
         </div>
 
-        <div className="frow">
+        {editing && <div className="frow"><div><label className="f">Start Date</label><DatePicker value={startDate} max={new Date().toISOString().slice(0, 10)} onChange={setStartDate} /></div></div>}
+        {(!editing || amountChanged) && <div className="frow">
           <div className={fe.split ? "has-err" : undefined}>
             <SplitPaymentInput totalAmount={principalNum} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
             <FieldError msg={fe.split} />
           </div>
-        </div>
+        </div>}
 
         {plan && principalNum > 0 && (
           <div className="notice" style={{ marginTop: 4 }}>
@@ -168,7 +190,7 @@ export function NewInvestmentModalContent({ onSaved }: NewInvestmentModalContent
       </div>
       <div className="ft">
         <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving} onClick={save}>{saving ? "Creating…" : "Create Investment"}</button>
+        <button className="btn" disabled={saving} onClick={save}>{editing ? (saving ? "Saving…" : "Save Changes") : saving ? "Creating…" : "Create Investment"}</button>
       </div>
     </>
   );

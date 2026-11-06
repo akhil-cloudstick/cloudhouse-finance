@@ -1633,6 +1633,30 @@ const ROUTES: [string, string, string, string][] = [
  ],
  [
   "GET",
+  "/reports/day-book",
+  "GET",
+  "/users/:user_id/reports/day-book"
+ ],
+ [
+  "POST",
+  "/reports/day-book",
+  "POST",
+  "/users/:user_id/reports/day-book"
+ ],
+ [
+  "PATCH",
+  "/reports/day-book/:id",
+  "PATCH",
+  "/users/:user_id/reports/day-book/:id/update"
+ ],
+ [
+  "DELETE",
+  "/reports/day-book/:id",
+  "DELETE",
+  "/users/:user_id/reports/day-book/:id/delete"
+ ],
+ [
+  "GET",
   "/reports/communication-history",
   "GET",
   "/users/:user_id/reports/communication-history"
@@ -1642,6 +1666,18 @@ const ROUTES: [string, string, string, string][] = [
   "/reports/investments/deposit-register",
   "GET",
   "/users/:user_id/reports/investments/deposit-register"
+ ],
+ [
+  "PATCH",
+  "/personal-loans/:id",
+  "PATCH",
+  "/users/:user_id/personal-loans/:id"
+ ],
+ [
+  "PATCH",
+  "/investments/:id",
+  "PATCH",
+  "/users/:user_id/investments/:id"
  ],
  [
   "GET",

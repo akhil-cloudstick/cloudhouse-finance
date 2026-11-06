@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Pressable, ScrollView, View } from "react-native";
+import { Keyboard, Pressable, View, type ScrollViewInstance } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
-import { Sheet } from "./Sheet";
+import { PICKER_MAX_PCT, Sheet } from "./Sheet";
 import { MonthGrid } from "./MonthGrid";
 import { SheetNestedScrollView } from "./SheetNestedScrollView";
 import { Field } from "./Field";
@@ -40,13 +40,14 @@ export function DateField({
 }: DateFieldProps) {
   const [open, setOpen] = useState(false);
   const [pickYear, setPickYear] = useState(false);
+  const [gridH, setGridH] = useState(0);
   const init = value ? new Date(+value.slice(0, 4), +value.slice(5, 7) - 1, 1) : startMonth(min, max);
   const [cursor, setCursor] = useState(new Date(init.getFullYear(), init.getMonth(), 1));
   const thisYear = new Date().getFullYear();
   const minYear = min ? +min.slice(0, 4) : thisYear - 100;
   const maxYear = max ? +max.slice(0, 4) : thisYear + 20;
   const years = useMemo(() => Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i), [minYear, maxYear]);
-  const yearScroll = useRef<ScrollView>(null);
+  const yearScroll = useRef<ScrollViewInstance>(null);
   // A picked day stays highlighted for a moment before the sheet closes, so the choice is seen.
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelClose = () => {
@@ -77,7 +78,7 @@ export function DateField({
           setOpen(false);
         }}
         title={label ?? "Select date"}
-        maxHeightPct={70}
+        maxHeightPct={PICKER_MAX_PCT}
       >
         <View style={s.calHead}>
           <Pressable style={s.calNav} onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>
@@ -98,7 +99,7 @@ export function DateField({
         {pickYear ? (
           <SheetNestedScrollView
             ref={yearScroll}
-            style={{ maxHeight: 280 }}
+            style={{ height: gridH || 280 }}
             onLayout={() => {
               const row = Math.floor(years.indexOf(cursor.getFullYear()) / 4);
               yearScroll.current?.scrollTo({ y: Math.max(0, row * 48 - 96), animated: false });
@@ -130,6 +131,8 @@ export function DateField({
           min={min}
           max={max}
           gutter={0}
+          fixedRows
+          onHeight={setGridH}
           onSelect={(iso) => {
             onChange(iso);
             cancelClose();

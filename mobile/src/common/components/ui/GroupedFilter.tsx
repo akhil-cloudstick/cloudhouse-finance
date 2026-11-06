@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
-import { Sheet } from "./Sheet";
+import { PICKER_MAX_PCT, Sheet } from "./Sheet";
 import { SheetFooter } from "./SheetFooter";
 import { PrimaryButton } from "./PrimaryButton";
 import { SheetScrollView } from "./SheetScrollView";
@@ -137,8 +137,8 @@ function StaticPicker({ section, selected, onPick }: StaticPickerProps) {
   );
 }
 
-// Cap on how far the filter sheet rises, as a % of screen height.
-const SHEET_MAX_PCT = 65;
+// Cap on how far the filter sheet rises, as a % of screen height — the shared picker cap.
+const SHEET_MAX_PCT = PICKER_MAX_PCT;
 
 type GroupedFilterProps = {
   title?: string;
@@ -159,7 +159,6 @@ export function GroupedFilter({
 }: GroupedFilterProps) {
   const [open, setOpen] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const { height: winH } = useWindowDimensions();
   const count = groupedFilterCount(value);
   const active = sections.find((s) => s.key === activeKey) ?? sections[0];
 
@@ -219,7 +218,8 @@ export function GroupedFilter({
             );
           })}
         </ScrollView>
-        <View style={[st.body, { minHeight: Math.round((winH * SHEET_MAX_PCT * 0.46) / 100) }]}>
+        {/* Natural height: a short section opens small, a long one stops at the cap and scrolls. */}
+        <View style={st.body}>
           {!active ? null : active.kind === "date" ? (
             <View style={st.dateWrap}>
               <FieldRow>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { Pressable, ScrollView, TextInput, View, type TextInputInstance } from "react-native";
 import { C, EmptyText, FilterChipRow, Hit, PIcon, ServerFlatList, TopModal, Txt, openPage } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listLoansPage } from "@/modules/loans/services/loanService";
@@ -30,7 +30,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
   // Nothing heavy happens while the panel slides in: the result lists
   // mount (and start fetching) and the keyboard rises only once it has
   // finished — doing either mid-slide is what made the opening stutter.
-  const searchInput = useRef<TextInput>(null);
+  const searchInput = useRef<TextInputInstance>(null);
   const [opened, setOpened] = useState(false);
   useEffect(() => {
     if (!visible) setOpened(false);

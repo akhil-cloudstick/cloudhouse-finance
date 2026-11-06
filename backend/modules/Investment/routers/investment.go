@@ -16,6 +16,7 @@ func InvestmentRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(investmentPath, investment.ListInvestments, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/by-number/:number", investment.GetInvestmentByNumber, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/:id", investment.GetInvestmentById, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
+	e.PATCH(investmentPath+"/:id", investment.EditInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.GET(investmentPath+"/:id/ledger", investment.GetInvestmentLedger, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/:id/schedule", investment.GetInvestmentSchedule, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/:id/bond/pdf", investment.DownloadInvestmentBond, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)

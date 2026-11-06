@@ -26,6 +26,11 @@ func ReportRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(reportPath+"/auctions", reports.AuctionsReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/expense-cashflow", reports.ExpenseCashflowReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/cash-ledger", reports.CashLedgerReport, auth.Staff(perms.Read)...)
+	// The Day Book is written by hand from the report itself, so anyone who can open reports may add to it.
+	e.GET(reportPath+"/day-book", reports.DayBookReport, auth.Staff(perms.Read)...)
+	e.POST(reportPath+"/day-book", reports.CreateDayBookEntry, auth.Staff(perms.Read)...)
+	e.PATCH(reportPath+"/day-book/:id/update", reports.UpdateDayBookEntry, auth.Staff(perms.Read)...)
+	e.DELETE(reportPath+"/day-book/:id/delete", reports.DeleteDayBookEntry, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/kyc", reports.KYCReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/gold-rate-history", reports.GoldRateHistoryReport, auth.Staff(perms.Read)...)
 	e.GET(reportPath+"/employee-performance", reports.EmployeePerformanceReport, auth.Staff(perms.Read)...)

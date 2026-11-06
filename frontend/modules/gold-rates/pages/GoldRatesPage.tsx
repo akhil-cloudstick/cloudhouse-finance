@@ -128,7 +128,7 @@ export function GoldRatesPage() {
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-cards">
-            <TableCols widths={[20, 16, 16, 16, 32]} />
+            <TableCols widths={[30, 15, 15, 15, 25]} />
             <thead>
               <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g</th><th className="num">18K ₹/g</th><th>Published By</th></tr>
             </thead>

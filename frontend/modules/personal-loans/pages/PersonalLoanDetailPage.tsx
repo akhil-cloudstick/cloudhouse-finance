@@ -17,6 +17,7 @@ import { fmt, fmtDate, localToday } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
+import { NewPersonalLoanModalContent } from "@/modules/personal-loans/components/NewPersonalLoanModalContent";
 import { getPersonalLoan, resolvePersonalLoanNumber, getPersonalLoanSchedulePage, getPersonalLoanHistoryPage, listPersonalLoanPaymentsPage, downloadPersonalLoanBond, approvePersonalLoan, listPersonalLoanApprovals, deletePersonalLoan, PERSONAL_LOAN_PAGE_SIZE } from "@/modules/personal-loans/services/personalLoanService";
 import { type PersonalLoanApprovalRecord, type PersonalLoanBondLang, type BackendPersonalLoan, type BackendPersonalLoanInstallment, type BackendPersonalLoanHistory, type BackendPersonalLoanPayment } from "@/modules/personal-loans/types/personal-loan-types";
 import { CollectPaymentModalContent } from "@/modules/personal-loans/components/CollectPaymentModalContent";
@@ -357,6 +358,11 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
               {canUpdate && (loan.status === "Active" || loan.status === "Pending") && (
                 <a href="#" title="Renew Loan" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openRenew(); }}>
                   <Icon name="clock" /><span className="tx">Renew Loan</span>
+                </a>
+              )}
+              {canUpdate && (loan.status === "Active" || loan.status === "Pending Approval") && !loan.renewedFromLoanId && !loan.renewedToLoanId && !loan.totalPaid && !loan.totalPenalInterestCharged && (
+                <a href="#" title="Edit Loan" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openModal(<NewPersonalLoanModalContent loan={loan} onSaved={() => { closeModal(); void refreshLoan(); schedule.reload(); payments.reload(); }} />, true); }}>
+                  <Icon name="edit" /><span className="tx">Edit Loan</span>
                 </a>
               )}
               {canDeleteLedger && (

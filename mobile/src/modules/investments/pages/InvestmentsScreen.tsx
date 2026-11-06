@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { PICKER_MAX_PCT } from "@/common/components/ui/Sheet";
 import {
   AccRow,
   AsyncSelect,
@@ -8,6 +9,7 @@ import {
   BtnRow2,
   C,
   Card,
+  DateField,
   ChipMultiSelect,
   ChipToggle,
   EmptyText,
@@ -37,12 +39,12 @@ import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listCustomers } from "@/modules/customers/services/customerService";
 import { ApiError } from "@/common/services/httpClient";
-import { addCashToInvestment, createInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
+import { addCashToInvestment, createInvestment, editInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
 import { InvestmentLedgerEditSheet } from "@/modules/investments/components/InvestmentLedgerEditSheet";
 import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InvestmentLedgerRow, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { previewInvestmentBondPdf, previewInvestmentStatementPdf } from "@/modules/investments/utils/investmentBond";
-import { dmy, inr } from "@/common/utils/format";
+import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { isUserCancel, loadErrorText, userMessage } from "@/common/services/apiErrors";
 
@@ -135,7 +137,7 @@ export default function InvestmentsScreen() {
         )}
       />
 
-      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Investments" maxHeightPct={55}>
+      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Investments" maxHeightPct={PICKER_MAX_PCT}>
         <Field label="Status">
           <ChipMultiSelect options={STATUS_FILTERS} value={draft} onChange={setDraft} />
         </Field>
@@ -363,13 +365,16 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
   );
 }
 
-type CreateInvestmentSheetProps = { visible: boolean; onClose: () => void; onCreated: (inv: Investment) => void };
+// `investment` set: corrects that investment (only before any interest or payout) instead of opening a new one.
+type CreateInvestmentSheetProps = { visible: boolean; onClose: () => void; onCreated: (inv: Investment) => void; investment?: Investment | null };
 
 // ---------------------------------------------------------------------------
 // Create Investment (prototype #inv-create-modal)
 // ---------------------------------------------------------------------------
-function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestmentSheetProps) {
+function CreateInvestmentSheet({ visible, onClose, onCreated, investment }: CreateInvestmentSheetProps) {
   const qc = useQueryClient();
+  const editing = !!investment;
+  const [startDate, setStartDate] = useState("");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [plan, setPlan] = useState<InvestmentPlan | null>(null);
   const [principal, setPrincipal] = useState("");
@@ -379,35 +384,53 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
   useEffect(() => {
     if (visible) {
       setCustomer(null);
-      setPlan(null);
-      setPrincipal("");
+      setPlan(investment?.plan ?? null);
+      setPrincipal(investment ? String(investment.principalAmount) : "");
+      setStartDate(investment ? investment.startDate.slice(0, 10) : "");
       setError(null);
     }
-  }, [visible]);
+  }, [visible, investment]);
 
   const plans = useQuery({ queryKey: ["investmentPlans", "active"], queryFn: () => listInvestmentPlans(true), enabled: visible });
   const principalNum = +principal || 0;
+  // Editing keeps how the deposit was paid unless the amount changes (then a new breakdown is needed).
+  const amountChanged = !!investment && Math.abs(principalNum - investment.principalAmount) >= 0.005;
+  // The investment's own plan stays choosable even if it has since been switched off.
+  const planOptions = investment && !(plans.data ?? []).some((p) => p.id === investment.planId) ? [investment.plan, ...(plans.data ?? [])] : (plans.data ?? []);
 
   const submit = useMutation({
-    mutationFn: () => createInvestment({ branchId: customer!.branchId, customerId: customer!.id, planId: plan!.id, principalAmount: principalNum, ...(pay?.split ?? {}), bankId: pay?.bankId }),
+    mutationFn: () => investment
+      ? editInvestment(investment.id, { planId: plan!.id, principalAmount: principalNum, startDate: startDate || undefined, ...(amountChanged ? { ...(pay?.split ?? {}), bankId: pay?.bankId } : {}) })
+      : createInvestment({ branchId: customer!.branchId, customerId: customer!.id, planId: plan!.id, principalAmount: principalNum, ...(pay?.split ?? {}), bankId: pay?.bankId }),
     onSuccess: (inv) => {
       qc.invalidateQueries({ queryKey: ["investments"] });
+      if (editing) {
+        qc.invalidateQueries({ queryKey: ["investment"] });
+        qc.invalidateQueries({ queryKey: ["investmentSchedule"] });
+        qc.invalidateQueries({ queryKey: ["investmentLedger"] });
+        toast.success("Investment updated", `${inv.investmentNumber} — saved`);
+      }
       onCreated(inv);
     },
     onError: (err) => setError(errMsg(err, "Could not create the investment — try again.")),
   });
 
   function validate(): string | null {
-    if (!customer) return "Please select an investor.";
+    if (!editing && !customer) return "Please select an investor.";
     if (!plan) return "Please select an investment plan.";
     if (!principalNum || principalNum <= 0) return "Please enter the principal amount.";
-    if (!pay?.ready) return "The payment breakdown must add up to the principal, with a bank for every UPI / Bank Transfer line.";
+    if ((!editing || amountChanged) && !pay?.ready) return "The payment breakdown must add up to the principal, with a bank for every UPI / Bank Transfer line.";
     if (principalNum < plan.minPrincipal) return `Principal must be at least ${inr(plan.minPrincipal)} for this plan.`;
     return null;
   }
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Create Investment" maxHeightPct={88}>
+    <Sheet visible={visible} onClose={onClose} title={investment ? `Edit ${investment.investmentNumber}` : "Create Investment"} maxHeightPct={88}>
+      {investment ? (
+        <Field label="Investor">
+          <Input value={`${investment.customer.name} · ${investment.customer.code}`} editable={false} />
+        </Field>
+      ) : (
       <AsyncSelect<Customer>
         label="Investor"
         placeholder="Search existing customer by name, ID or phone"
@@ -419,19 +442,25 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
         keyOf={(c) => c.id}
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
+      )}
       <Field label="Investment plan">
         {plans.isLoading ? (
           <Buffering />
         ) : (plans.data ?? []).length === 0 ? (
           <Txt style={{ fontSize: 12, color: C.muted }}>No active plans available.</Txt>
         ) : (
-          <ThemeDropdown<InvestmentPlan> value={plan} options={plans.data ?? []} onChange={setPlan} labelOf={planLabel} keyOf={(p) => p.id} placeholder="Select a plan" />
+          <ThemeDropdown<InvestmentPlan> value={plan} options={planOptions} onChange={setPlan} labelOf={planLabel} keyOf={(p) => p.id} placeholder="Select a plan" />
         )}
       </Field>
       <Field label="Principal amount">
         <Input keyboardType="decimal-pad" placeholder={plan ? `Min ${inr(plan.minPrincipal)}` : "e.g. 100000"} value={principal} onChangeText={setPrincipal} />
       </Field>
-      {principalNum > 0 ? <SplitPaymentInput total={principalNum} onChange={setPay} bankLabel="Bank (account it landed in)" /> : null}
+      {editing ? (
+        <Field label="Start date">
+          <DateField value={startDate} max={todayISO()} onChange={setStartDate} />
+        </Field>
+      ) : null}
+      {principalNum > 0 && (!editing || amountChanged) ? <SplitPaymentInput total={principalNum} onChange={setPay} bankLabel="Bank (account it landed in)" /> : null}
       <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
         <FieldGrid
           items={[
@@ -444,7 +473,7 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
       </Card>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
-        label="Create Investment"
+        label={editing ? "Save Changes" : "Create Investment"}
         loading={submit.isPending}
         onPress={() => {
           const v = validate();
@@ -467,7 +496,7 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
   const qc = useQueryClient();
   const visible = investmentId != null;
   const id = investmentId ?? 0;
-  const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | "payInterest" | null>(null);
+  const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | "payInterest" | "edit" | null>(null);
   const [payout, setPayout] = useState<InvestmentPayout | null>(null);
   const [printing, setPrinting] = useState(false);
 
@@ -575,6 +604,9 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
       {inv.plan?.productType === "Bond" ? (
         <PrimaryButton label="Print Agreement" variant="outline" loading={printing} onPress={printBond} style={{ marginBottom: 10 }} />
       ) : null}
+      {canUpdate && inv.status === "Active" && !inv.renewedFromInvestmentId && !inv.renewedToInvestmentId && !inv.totalInterestPaid && !inv.interestWithdrawn ? (
+        <PrimaryButton label="Edit Investment" variant="outline" onPress={() => setAction("edit")} style={{ marginBottom: 10 }} />
+      ) : null}
       {canUpdate && isLive && (inv.status === "Active" || inv.status === "Matured") ? (
         <BtnRow2 style={{ marginBottom: 10 }}>
           {inv.status === "Active" ? <PrimaryButton label="Add Cash" variant="outline" onPress={() => setAction("addCash")} /> : null}
@@ -674,6 +706,7 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentD
       </Sheet>
       {inv ? (
         <>
+          <CreateInvestmentSheet visible={action === "edit"} investment={inv} onClose={() => setAction(null)} onCreated={() => setAction(null)} />
           <AddCashSheet inv={inv} visible={action === "addCash"} onClose={() => setAction(null)} onDone={invalidate} />
           <WithdrawSheet inv={inv} visible={action === "withdraw"} onClose={() => setAction(null)} onDone={invalidate} />
           <CloseRenewSheet inv={inv} visible={action === "mature"} onClose={() => setAction(null)} onDone={invalidate} />

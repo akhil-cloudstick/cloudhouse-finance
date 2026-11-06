@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, TextInput, TextInputProps } from "react-native";
+import { View, TextInput, type TextInputInstance, type TextInputProps } from "react-native";
 import { typeScale } from "@/common/theme/typography";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { ThemedText } from "@/common/components/ui/ThemedText";
@@ -10,7 +10,7 @@ import { styles } from "./authKitStyles";
 // Inputs
 
 type FieldProps = TextInputProps & {
-  ref?: React.Ref<TextInput>;
+  ref?: React.Ref<TextInputInstance>;
   label: string;
   icon: string;
   right?: React.ReactNode;

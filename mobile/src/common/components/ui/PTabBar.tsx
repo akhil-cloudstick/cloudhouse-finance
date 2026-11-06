@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigationContainerRef } from "expo-router";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
 import { C } from "./base";
 import { Fade } from "./Fade";
+import { Spinner } from "./Spinner";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
 import { PTAB_HEIGHT, PTAB_INSET, tabBarLift } from "@/common/theme/layout";
@@ -11,7 +13,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { useKeyboardVisible } from "@/common/hooks/use-keyboard-visible";
 import { routeAllowed } from "@/common/config/routePermissions";
 import { useMoreRows } from "@/common/components/layout/moreRows";
-import { tabsRef, useShell, focusTab, s, coverStore, headerStore } from "./shellContext";
+import { tabsRef, useShell, focusTab, s, coverStore, headerStore, type TabsNav, type TabsState } from "./shellContext";
 import { PRIMARY_ROUTES, showPage, swipe, tabLit, tabScale } from "./swipeStore";
 import { dropPendingFocus, leftOnDetail, scheduleStaleRootReset } from "./swipeController";
 
@@ -27,7 +29,11 @@ function NavCover() {
     }
   }, [phase, fade]);
   if (phase === "off") return null;
-  return <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.bg, opacity: fade }]} />;
+  return (
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.bg, opacity: fade, alignItems: "center", justifyContent: "center" }]}>
+      <Spinner size={34} color={C.brandDeep} />
+    </Animated.View>
+  );
 }
 // ---------------------------------------------------------------------------
 // Bottom tab bar
@@ -43,12 +49,50 @@ const TABS: TabDef[] = [
 ];
 // How far the tab bar's fade reaches above the bar itself.
 const TAB_FADE_ABOVE = 36;
+
+type AnyNavState = { type?: string; routeNames?: string[]; routes?: { name: string; state?: AnyNavState }[] };
+/** The tab router's own state inside the root navigation state. Found by its route names: Expo
+ * Router 58's tree states carry no `type`, so matching on `type === "tab"` never found it. */
+function findTabsState(root: AnyNavState | undefined): TabsState | undefined {
+  if (!root) return undefined;
+  if (PRIMARY_ROUTES.every((n) => root.routeNames?.includes(n))) return root as unknown as TabsState;
+  for (const r of root.routes ?? []) {
+    const found = findTabsState(r.state);
+    if (found) return found;
+  }
+  return undefined;
+}
 /** .tabbar + .tabfade — Dashboard / Customers / Loans (centre FAB) / Schemes / More. */
-export function PTabBar({ state, navigation }: BottomTabBarProps) {
+export function PTabBar({ state: viewState, emitter, navigateToTab }: BottomTabBarProps) {
+  // Expo Router 58 gives the tab bar no `navigation`, and only a trimmed copy of the state (no
+  // key / routeNames / routeKeySeq / stale, which a RESET payload must now carry). Both come
+  // from the navigation container instead: the real tabs state, and a dispatch aimed at the
+  // tabs navigator by its state key.
+  const container = useNavigationContainerRef();
+  // The tab bar renders from its own state, as it always has in practice: the lookup below never
+  // matched before (see findTabsState), so this was already the state in use. The real tree state
+  // is read only when it is needed — minting new route keys (tabRouteMinter) — when it is current.
+  const state = viewState as unknown as TabsState;
+  const navigation: TabsNav = {
+    dispatch: (action) => container.dispatch({ target: state.key, ...action }),
+    navigate: (name) => {
+      const route = state.routes.find((r) => r.name === name);
+      if (route) navigateToTab(route.key);
+    },
+  };
   useLayoutEffect(() => {
     tabsRef.nav = navigation;
     tabsRef.state = state;
+    tabsRef.live = () => findTabsState(container.getRootState());
     scheduleStaleRootReset();
+  });
+  // Expo Router 58 keeps only visited tabs in the navigator's state, and an unvisited tab is not
+  // drawn at all. `lazy: false` asks the router to PRELOAD the swipe pages; make sure every one of
+  // them is there, so a swipe never slides onto an empty, undrawn page.
+  useEffect(() => {
+    for (const name of PRIMARY_ROUTES) {
+      if (!state.routes.some((r) => r.name === name)) navigation.dispatch({ type: "PRELOAD", payload: { name } });
+    }
   });
   const keyboardUp = useKeyboardVisible();
   const insets = useSafeAreaInsets();
@@ -113,7 +157,7 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
   }
 
   function navigateTo(route: (typeof state.routes)[number]) {
-    const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+    const event = emitter.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
     if (event.defaultPrevented) return setPressed(null);
     // Always land on the tab's root list (a deep push, or a page opened
     // from another tab, can leave the nested stack parked on a detail).

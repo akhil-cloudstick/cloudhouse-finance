@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { Modal, View, Pressable, StyleSheet } from "react-native";
+import React, { useCallback, useState } from "react";
+import { Linking, Modal, View, Pressable, StyleSheet } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedText } from "@/common/components/ui/ThemedText";
-import { GoldButton } from "@/common/components/ui/GoldButton";
+import { CameraPermissionCard, useRecheckOnReturn } from "@/common/components/ui/CameraPermission";
 import { colors } from "@/common/theme/colors";
 
 type QrScannerProps = {
@@ -37,17 +37,25 @@ export function QrScanner({
   embedded = false,
   permissionText = "Camera access is needed to scan packet labels.",
 }: QrScannerProps) {
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, requestPermission, getPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
+  // Back from Settings (camera was blocked): pick up the new answer without reopening the scanner.
+  const recheck = useCallback(() => {
+    getPermission();
+  }, [getPermission]);
+  useRecheckOnReturn(!!permission && !permission.granted, recheck);
   // A CameraView keeps firing onBarcodeScanned for every frame that still
   // contains the code — without this lock, a single scan re-fires dozens of
   // times before the caller has a chance to close the sheet or navigate
   // away, potentially re-triggering navigation/lookups repeatedly.
   const [locked, setLocked] = useState(false);
 
-  useEffect(() => {
+  // Re-armed when the scanner opens again — during render, not in an effect.
+  const [wasVisible, setWasVisible] = useState(visible);
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
     if (visible) setLocked(false);
-  }, [visible]);
+  }
 
   function handleScanned({ data }: { data: string }) {
     if (locked) return;
@@ -65,14 +73,17 @@ export function QrScanner({
       />
       <View style={styles.frame} pointerEvents="none" />
     </>
-  ) : (
+  ) : permission ? (
+    // Our own card instead of going straight to Android's dialog (see CameraPermission.tsx).
     <View style={styles.permissionWrap}>
-      <ThemedText variant="body" color={colors.card} style={{ textAlign: "center", marginBottom: 16 }}>
-        {permission?.canAskAgain === false ? "Camera access was denied. Enable it in Settings to scan." : permissionText}
-      </ThemedText>
-      {permission?.canAskAgain !== false ? <GoldButton title="Allow Camera" onPress={requestPermission} /> : null}
+      <CameraPermissionCard
+        reason={permissionText}
+        blocked={permission.canAskAgain === false}
+        onAllow={permission.canAskAgain === false ? () => Linking.openSettings() : requestPermission}
+        onCancel={embedded ? undefined : onClose}
+      />
     </View>
-  );
+  ) : null;
 
   if (embedded) return <View style={styles.wrap}>{camera}</View>;
 
@@ -117,8 +128,8 @@ const styles = StyleSheet.create({
 });
 
 // Recovers what a scanned label points at. Both printers (loanPrint.ts's
-// printPacketLabel and the web LoanDetail) encode `<origin>/<app path>#packet/<code>`
-// when the loan already has a packet, but fall back to `#loan/<loanNumber>`
+// printPacketLabel and the web LoanDetail) encode a link to the packet
+// when the loan already has a packet, but fall back to the loan by number
 // when it doesn't — so a label printed before the packet was created only
 // carries the loan. Some scanners hand the fragment back percent-encoded
 // (`%23packet/...`), so the string is decoded before matching. Returns null
@@ -133,7 +144,14 @@ export function parseLabel(scanned: string): ScannedLabel | null {
   } catch {
     // Malformed escape — match against the raw string instead.
   }
-  const m = s.match(/#(packet|loan)\/([^/?#\s]+)/i);
-  if (!m) return null;
-  return m[1].toLowerCase() === "packet" ? { kind: "packet", code: m[2] } : { kind: "loan", loanNumber: m[2] };
+  // Labels printed from the web now use path links — `<origin>[/<business>]/packet/<code>` or
+  // `/loan/<loanNumber>` (frontend appRoutes.ts routeHref) — while older and mobile-printed
+  // labels use the hash form `<origin>/app#packet/<code>`. Accept both: a `packet/` or `loan/`
+  // segment right after a `#` or a `/`. (`packets/` and `loans/` list paths don't match.)
+  const m = s.match(/(?:^|[#/])(packet|loan)\/([^/?#\s]+)/i);
+  if (m) return m[1].toLowerCase() === "packet" ? { kind: "packet", code: m[2] } : { kind: "loan", loanNumber: m[2] };
+  // A QR holding just the code itself.
+  if (/^PKT[-_]?[A-Z0-9-]+$/i.test(s)) return { kind: "packet", code: s };
+  if (/^LN[-_]?[A-Z0-9-]+$/i.test(s)) return { kind: "loan", loanNumber: s };
+  return null;
 }

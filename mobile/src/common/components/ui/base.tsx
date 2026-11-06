@@ -33,7 +33,7 @@ export function initialsOf(name?: string | null) {
 
 export const styles = StyleSheet.create({
   txt: { color: C.ink, fontSize: 14.5 },
-  block: { paddingVertical: 40, alignItems: "center", justifyContent: "center" },
+  block: { minHeight: 320, paddingVertical: 40, alignItems: "center", justifyContent: "center" },
   inline: { paddingVertical: 16, alignItems: "center", justifyContent: "center" },
   empty: { paddingVertical: 24, paddingHorizontal: 18, textAlign: "center", color: C.muted, fontSize: 12.5 },
 });

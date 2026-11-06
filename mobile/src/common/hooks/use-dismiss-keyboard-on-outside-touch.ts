@@ -35,10 +35,12 @@ export function useDismissKeyboardOnOutsideTouch() {
     });
   };
 
-  const onTouchEndCapture = () => {
+  const onTouchEndCapture = (e: GestureResponderEvent) => {
     const entry = pending.current;
     pending.current = null;
     if (!entry) return;
+    // A finger that moved was scrolling (e.g. an open dropdown's list), not tapping outside the field.
+    if (Math.abs(e.nativeEvent.pageY - entry.y) > FIELD_SLOP) return;
     // After the touch's own handlers have run, so a tap that focused
     // another field is seen as a focus change, not an outside tap.
     setTimeout(() => {
