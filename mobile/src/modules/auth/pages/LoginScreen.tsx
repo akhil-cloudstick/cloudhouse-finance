@@ -381,7 +381,7 @@ export default function LoginScreen() {
         <AuthButton title="Sign in" onPress={handleSignIn} disabled={!identifier || !password} loading={loading} />
       </KeyboardAnchor>
 
-      <AuthLink label="Exit business" onPress={() => setConfirmExit(true)} />
+      <AuthLink label="Scan QR or enter code to sign in" onPress={() => setConfirmExit(true)} />
 
       <SecureNote />
 
@@ -389,7 +389,7 @@ export default function LoginScreen() {
         visible={confirmExit}
         onClose={() => setConfirmExit(false)}
         title="Exit business?"
-        message={`You'll need to scan ${businessName}'s QR code (or enter its business code) again to sign in.`}
+        message="Scan QR or enter code to sign in."
         confirmLabel="Exit business"
         danger
         onConfirm={() => {

@@ -1,4 +1,4 @@
-# iOS Build and TestFlight Guide (CloudHouse Staff)
+# iOS Build and TestFlight Guide (CloudHouse Finance)
 
 How to build the iOS app with EAS and send it to TestFlight, without anyone logging in to the Apple Developer account.
 
@@ -7,7 +7,7 @@ How to build the iOS app with EAS and send it to TestFlight, without anyone logg
 | | Dev app | Production app |
 |---|---|---|
 | EAS profile | `development` | `production` |
-| App name | CloudHouse Staff (Dev) | CloudHouse Staff |
+| App name | CloudHouse Finance (Dev) | CloudHouse Finance |
 | Bundle ID | `com.cloudhouse.app.dev` | `com.cloudhouse.app` |
 | Distribution | TestFlight (store) | TestFlight / App Store |
 
@@ -96,8 +96,8 @@ Steps:
    - You should end on "All credentials are ready to build".
 5. **Repeat steps 2 to 4 for the `production` profile.** It uses `com.cloudhouse.app`.
 6. **Ask the admin to create the apps in App Store Connect** (My Apps → +):
-   - CloudHouse Staff (Dev), bundle ID `com.cloudhouse.app.dev`
-   - CloudHouse Staff, bundle ID `com.cloudhouse.app`
+   - CloudHouse Finance (Dev), bundle ID `com.cloudhouse.app.dev`
+   - CloudHouse Finance, bundle ID `com.cloudhouse.app`
 
    Without these, `eas submit` fails.
 

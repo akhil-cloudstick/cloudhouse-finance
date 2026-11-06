@@ -16,7 +16,7 @@ import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { shareLedgerPdf } from "@/common/utils/ledgerExport";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { LedgerLink } from "./LedgerLink";
-import { EntrySub, useEntryActions } from "@/modules/cash/components/EntryActions";
+import { useEntryActions } from "@/modules/cash/components/EntryActions";
 import { useLoanRowEdit } from "@/modules/loans/components/useLoanRowEdit";
 
 // Mobile counterpart of the web ledger drill-downs (PartyLedger.tsx,
@@ -159,7 +159,7 @@ function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds, highlight }: Le
         defaultOpen={index === 0}
         id={dmy(r.date)}
         name={r.description || r.type}
-        sub={entry.infoButton ? <EntrySub text={subText} infoButton={entry.infoButton} /> : subText}
+        sub={subText}
         amount={inr(r.amount)}
         amountColor={isDebit ? C.red : memo ? C.muted : C.green}
         status={memo ? "Memo" : isDebit ? "Debit" : "Credit"}

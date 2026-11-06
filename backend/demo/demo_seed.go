@@ -18,6 +18,7 @@ import (
 	personalLoanModels "cloudhouse/backend/modules/PersonalLoan/models"
 	reminder "cloudhouse/backend/modules/Reminder/controllers"
 	reminderModels "cloudhouse/backend/modules/Reminder/models"
+	reports "cloudhouse/backend/modules/Reports/controllers"
 	"context"
 	"fmt"
 	"math"
@@ -1085,6 +1086,27 @@ func seededBankID(st *state, name string) (uint, error) {
 		}
 	}
 	return 0, fmt.Errorf("bank %q was not seeded", name)
+}
+
+func seedDayBook(ctx context.Context, st *state, rep *Report) error {
+	n := 0
+	for i, f := range dayBookFixtures {
+		in := reports.DayBookInput{
+			Date: st.clk.daysAgo(f.DaysAgo), Particulars: f.Particulars,
+			Debit: f.Debit, Credit: f.Credit, Interest: f.Interest,
+			CreatedByEmployeeID: &st.keep.adminID,
+		}
+		if len(st.branchIDs) > 0 {
+			id := st.branchIDs[i%len(st.branchIDs)]
+			in.BranchID = &id
+		}
+		if _, err := reports.SaveDayBookEntry(ctx, in); err != nil {
+			return fmt.Errorf("create day book entry %d: %w", i+1, err)
+		}
+		n++
+	}
+	rep.created("day book entries", n)
+	return nil
 }
 
 func seedReminders(ctx context.Context, st *state, rep *Report) error {

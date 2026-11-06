@@ -40,6 +40,7 @@ export function DateField({
 }: DateFieldProps) {
   const [open, setOpen] = useState(false);
   const [pickYear, setPickYear] = useState(false);
+  const [gridH, setGridH] = useState(0);
   const init = value ? new Date(+value.slice(0, 4), +value.slice(5, 7) - 1, 1) : startMonth(min, max);
   const [cursor, setCursor] = useState(new Date(init.getFullYear(), init.getMonth(), 1));
   const thisYear = new Date().getFullYear();
@@ -98,7 +99,7 @@ export function DateField({
         {pickYear ? (
           <SheetNestedScrollView
             ref={yearScroll}
-            style={{ maxHeight: 280 }}
+            style={{ height: gridH || 280 }}
             onLayout={() => {
               const row = Math.floor(years.indexOf(cursor.getFullYear()) / 4);
               yearScroll.current?.scrollTo({ y: Math.max(0, row * 48 - 96), animated: false });
@@ -130,6 +131,8 @@ export function DateField({
           min={min}
           max={max}
           gutter={0}
+          fixedRows
+          onHeight={setGridH}
           onSelect={(iso) => {
             onChange(iso);
             cancelClose();

@@ -50,6 +50,7 @@ var wipeOrder = []string{
 	"packets",
 	"ornaments",
 	"reminders",
+	"day_book_entries",
 	"notifications",
 	"investments",
 	"personal_loans",
@@ -247,6 +248,7 @@ func steps() []step {
 		{"investments", seedInvestments},
 		{"cash and expenses", seedCashAndExpenses},
 		{"reminders", seedReminders},
+		{"day book", seedDayBook},
 		{"messages and audit", seedCommsAndAudit},
 		{"dashboard snapshots", seedSnapshots},
 	}

@@ -16,6 +16,7 @@ func PersonalLoanRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(personalLoanPath, personalLoan.ListPersonalLoans, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read)...)
 	e.GET(personalLoanPath+"/by-number/:number", personalLoan.GetPersonalLoanByNumber, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read)...)
 	e.GET(personalLoanPath+"/:id", personalLoan.GetPersonalLoanById, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read)...)
+	e.PATCH(personalLoanPath+"/:id", personalLoan.EditPersonalLoan, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Update)...)
 	e.GET(personalLoanPath+"/:id/schedule", personalLoan.GetPersonalLoanSchedule, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read)...)
 	e.GET(personalLoanPath+"/:id/payments", personalLoan.ListPersonalLoanPayments, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read)...)
 	e.GET(personalLoanPath+"/:id/history", personalLoan.GetPersonalLoanHistory, auth.Staff(auth.RequireTenantModule(commonModels.ModulePersonalLoans), perms.Read)...)

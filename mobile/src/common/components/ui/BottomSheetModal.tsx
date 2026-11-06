@@ -312,7 +312,7 @@ export function BottomSheetModal({
                     ? Math.min((fullH.current * maxHeightPct) / 100 || Infinity, availH - lift - insets.top - 8)
                     : `${maxHeightPct}%`,
                   marginBottom: lift,
-                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? 14 : 14 + Math.max(insets.bottom, 10),
+                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? (Platform.OS === "ios" ? 8 : 14) : 14 + Math.max(insets.bottom, 10),
                   transform: [{ translateY }],
                 },
               ]}
@@ -339,7 +339,8 @@ export function BottomSheetModal({
 const OPEN_SPRING = { damping: 30, stiffness: 260, mass: 1, overshootClamping: true, restDisplacementThreshold: 0.5, restSpeedThreshold: 0.5 };
 const CLOSE_MS = 240;
 // Clear space kept between a sheet footer and the keyboard top (added to the footer's own 12px padding).
-const KB_GAP = 4;
+// iPhone sits a few px closer to the keyboard than Android.
+const KB_GAP = Platform.OS === "ios" ? 0 : 4;
 const CLOSE_EASE = Easing.bezier(0.4, 0, 0.9, 0.6);
 
 const styles = StyleSheet.create({

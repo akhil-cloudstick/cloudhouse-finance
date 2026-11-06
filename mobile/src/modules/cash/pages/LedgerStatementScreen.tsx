@@ -1,7 +1,7 @@
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import React, { useMemo, useState } from "react";
 import { View } from "react-native";
-import { FlatHeader, GroupedFilter, PillButton, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfDate, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { ExportMenu, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfDate, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listCashMovementsPage } from "@/modules/cash/services/cashService";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
@@ -110,12 +110,7 @@ export default function LedgerStatementScreen() {
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
               <GroupedFilter title="Filter Statement" sections={sections} value={fv} onChange={setFv} />
               <View style={{ flex: 1 }} />
-              {canExport ? (
-                <>
-                  <PillButton label="Download" onPress={() => onExport("xlsx")} />
-                  <PillButton label="Export PDF" onPress={() => onExport("pdf")} />
-                </>
-              ) : null}
+              {canExport ? <ExportMenu onExcel={() => onExport("xlsx")} onPdf={() => onExport("pdf")} /> : null}
             </View>
           </View>
         }

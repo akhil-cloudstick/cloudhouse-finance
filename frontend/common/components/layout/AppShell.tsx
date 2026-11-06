@@ -11,6 +11,7 @@ import { ModalProvider } from "@/common/components/ModalProvider";
 import { ToastProvider, useToast } from "@/common/components/ToastProvider";
 import { TooltipLayer } from "@/common/components/TooltipLayer";
 import { FitTextObserver } from "@/common/components/ui/FitTextObserver";
+import { TableCardsObserver } from "@/common/components/ui/TableCardsObserver";
 import { Sidebar } from "@/common/components/layout/Sidebar";
 import { Topbar } from "@/common/components/layout/Topbar";
 import { useAppRoute } from "@/common/hooks/use-app-route";
@@ -368,6 +369,7 @@ export function AppShell() {
                 <ModalProvider>
                   <AppShellInner />
                   <FitTextObserver />
+                  <TableCardsObserver />
                   <TooltipLayer />
                 </ModalProvider>
               </ToastProvider>

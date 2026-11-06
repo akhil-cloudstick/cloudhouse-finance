@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Switch, View } from "react-native";
+import { View } from "react-native";
+import { SwitchToggle } from "@/common/components/ui/SwitchToggle";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { C, DateField, Field, FieldRow, Input, ThemeDropdown, Txt } from "@/common/components/ui";
 import { LedgerEditShell, loanPreviewRows } from "@/common/components/LedgerEditShell";
@@ -133,7 +134,7 @@ export function LedgerPaymentEditSheet({ loanId, loanStart, payment: p, mode, on
 
   const packetQuestion = preview?.packet ? (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-      <Switch value={reversePacket} onValueChange={setReversePacket} />
+      <SwitchToggle value={reversePacket} onValueChange={setReversePacket} />
       <View style={{ flex: 1 }}>
         <Txt style={{ fontSize: 12.5 }}>
           This reopens the loan. Move packet <Txt style={{ fontWeight: "700" }}>{preview.packet.code}</Txt> back from{" "}

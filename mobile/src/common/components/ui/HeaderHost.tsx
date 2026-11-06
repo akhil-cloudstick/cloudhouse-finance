@@ -8,10 +8,6 @@ import { PRIMARY_ROUTES, swipe, whenSwipeSettled } from "./swipeStore";
 setTallHeaderCheck((node) => React.isValidElement(node) && node.type === HeroHeader);
 setBlankHeader(<FlatHeader title="" />);
 
-// TEMPORARY — traces header switches in the Metro log while the stuck-header bug is checked. Remove after.
-const hdrLog = (msg: string) => {
-  if (__DEV__) console.log(`[header] ${msg}`);
-};
 
 // Material "standard" curve: eases in and out, so the header neither jumps
 // off at the start nor stops dead at the end. Close to the page slide (220ms)
@@ -158,7 +154,6 @@ export function HeaderHost() {
     setPrevTall(tall);
     timed.stopAnimation();
     const flat = syncHeroGate();
-    hdrLog(`switch to ${tall ? "Dashboard hero" : "page header"} — ${flat ? "hero was collapsed: plain cross-fade" : "hero transition"}`);
     setFlatMode(flat);
     const driven = !flat && track.prev && focusedPrimary();
     if (!tall && heights.tall && heroNode) {
@@ -182,12 +177,10 @@ export function HeaderHost() {
     started.current = running;
     const ran = running;
     const done = (how: string) => {
-      hdrLog(`${ran.dir} finished (${how})`);
       setRunning((cur) => (cur === ran ? null : cur));
     };
     if (flatMode) {
       // Plain header change: the two headers cross-fade in place over the title-fade time.
-      hdrLog(`${ran.dir} started from ${from} — plain cross-fade (Dashboard header was collapsed)`);
       track.prev = focusedPrimary();
       morph.lift.setValue(0);
       Animated.timing(timed, { toValue: tall ? 0 : 1, duration: TITLE_FADE_MS, easing: HEADER_EASE, useNativeDriver: true }).start(({ finished }) => {
@@ -199,7 +192,6 @@ export function HeaderHost() {
     track.prev = focusedPrimary();
     const lift = tall ? h - heights.short : heights.tall - h;
     morph.lift.setValue(Math.max(0, lift));
-    hdrLog(`${ran.dir} started from ${from} — hero transition, ${driven ? "follows the swipe" : "timed"}, lift ${Math.round(lift)}`);
     if (driven) {
       // The page position carries the hero; just retire the curtain once the slide is done.
       timed.setValue(0);
@@ -233,16 +225,8 @@ export function HeaderHost() {
     const frame = requestAnimationFrame(() => {
       if (known > 0) startRunning(known, "fallback");
     });
-    const watchdog = setTimeout(() => {
-      hdrLog(
-        started.current !== running
-          ? `STUCK: ${running.dir} never started (incoming ${tall ? "hero" : "page"} height ${known})`
-          : `STUCK: ${running.dir} started but never finished`
-      );
-    }, 1500);
     return () => {
       cancelAnimationFrame(frame);
-      clearTimeout(watchdog);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);

@@ -412,6 +412,10 @@ func ExportReport(c echo.Context) error {
 		exportCashLedger(c, f, format)
 		return nil
 	}
+	if key == "day-book" {
+		exportDayBook(c, f, format)
+		return nil
+	}
 	rows, _, err := reportRows(ctx, key, f)
 	if err != nil {
 		badRequest(c, err)

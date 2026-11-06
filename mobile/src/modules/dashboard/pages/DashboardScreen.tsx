@@ -36,6 +36,9 @@ import {
   openPage,
 } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { useTheme } from "@/common/theme/ThemeProvider";
+import { TENANT_MODULES } from "@/common/config/tenantModules";
+import { DayBookEntrySheet } from "@/modules/reports/components/DayBookEntrySheet";
 import { useCanOpen } from "@/common/config/routePermissions";
 import { useRefetchOnFocus } from "@/common/hooks/use-refetch-on-focus";
 import { getDashboardSummary, listDashboardActivityPage, listNeedsAttentionPage, NEEDS_ATTENTION_PAGE_SIZE } from "@/modules/dashboard/services/dashboardService";
@@ -62,9 +65,13 @@ const LEAVE_RESET_MS = 450;
 
 export default function DashboardScreen() {
   const { employee, can } = useAuth();
+  const { hasModule } = useTheme();
+  // Day Book Entry quick action: switched on per business by the super admin, and needs Reports access.
+  const canDayBook = hasModule(TENANT_MODULES.quickDayBook) && can("Report_Management", "can_view_report_module");
   const shell = useShell();
   const [seg, setSeg] = useState<Seg>("Overview");
   const [collectOpen, setCollectOpen] = useState(false);
+  const [dayBookOpen, setDayBookOpen] = useState(false);
 
   // Coming back to the Dashboard always shows it from the top with the hero fully open. The reset
   // runs once the page has been left and has slid away (a swipe shows the Dashboard sliding back
@@ -150,7 +157,7 @@ export default function DashboardScreen() {
         refreshing={summary.isRefetching} onRefresh={() => { summary.refetch(); rate.refetch(); }}>
         {seg === "Overview" ? (
           <>
-            {can("Loan_Management", "can_create_loan") || can("Customer_Management", "can_create_customer") || can("Loan_Management", "can_update_loan") ? (
+            {can("Loan_Management", "can_create_loan") || can("Customer_Management", "can_create_customer") || can("Loan_Management", "can_update_loan") || canDayBook ? (
               <View style={{ paddingHorizontal: 18 }}>
                 <SectionTitle flush style={{ marginTop: 16, marginBottom: 12 }}>
                   Quick actions
@@ -165,6 +172,7 @@ export default function DashboardScreen() {
               {can("Loan_Management", "can_update_loan") ? (
                 <QuickAction icon="card" label={"Collect\nPayment"} tone="pay" onPress={() => setCollectOpen(true)} />
               ) : null}
+              {canDayBook ? <QuickAction icon="note" label={"Day Book\nEntry"} tone="cust" onPress={() => setDayBookOpen(true)} /> : null}
             </View>
 
             <SectionTitle>Today</SectionTitle>
@@ -178,7 +186,7 @@ export default function DashboardScreen() {
                 onPress={can("Report_Management", "can_view_report_module") ? () => openPage("/reports") : undefined}
                 stats={[
                   { n: String(s?.today.loansIssued ?? 0), l: "Loans issued" },
-                  { n: inrShort(s?.today.collections ?? 0), l: "Collections" },
+                  { n: inrShort(s?.today.collections ?? 0), l: "Balance in hand" },
                   { n: String(s?.today.newCustomers ?? 0), l: "New customers" },
                 ]}
               />
@@ -197,6 +205,7 @@ export default function DashboardScreen() {
         )}
       </PScroll>
       <CollectPaymentPicker visible={collectOpen} onClose={() => setCollectOpen(false)} />
+      <DayBookEntrySheet visible={dayBookOpen} onClose={() => setDayBookOpen(false)} />
     </Screen>
   );
 }

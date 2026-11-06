@@ -18,7 +18,8 @@ export function ModalHead({ title, onClose, closeLabel = "Close", hideClose, chi
           ) : (
             title
           )}
-          <View style={{ flex: 1 }} />
+          {/* A custom title node (e.g. GroupedFilter's title + "Reset all") fills the row itself. */}
+          {typeof title === "string" ? <View style={{ flex: 1 }} /> : null}
         </>
       )}
       {hideClose ? null : (

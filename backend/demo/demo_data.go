@@ -220,6 +220,22 @@ type investmentPlanFixture struct {
 	Active          bool
 }
 
+// Day Book lines, written by hand in the real app: a debit, a credit and/or interest each.
+var dayBookFixtures = []dayBookFixture{
+	{"Office rent — November", 12000, 0, 0, 5},
+	{"Interest received — 00012/26", 0, 0, 1850, 4},
+	{"Cash deposited to bank", 50000, 0, 0, 3},
+	{"Gold loan closure — 00007/26", 0, 42000, 1260, 2},
+	{"Electricity bill", 2380, 0, 0, 1},
+	{"Opening cash from safe", 0, 75000, 0, 0},
+}
+
+type dayBookFixture struct {
+	Particulars             string
+	Debit, Credit, Interest float64
+	DaysAgo                 int
+}
+
 type reminderFixture struct {
 	Type, Note string
 	DueInDays  int

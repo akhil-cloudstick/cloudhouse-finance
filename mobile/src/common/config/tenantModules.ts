@@ -18,6 +18,7 @@ export const TENANT_MODULES = {
   personalLoans: "personal_loans",
   investments: "investments",
   multipleInterest: "multiple_interest",
+  quickDayBook: "quick_day_book",
 } as const;
 
 export type TenantModule = (typeof TENANT_MODULES)[keyof typeof TENANT_MODULES];

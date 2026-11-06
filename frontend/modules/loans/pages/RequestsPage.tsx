@@ -178,7 +178,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
         <TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div className="filter-row-right" style={{ marginBottom: 12 }}>
           <FilterPanel
             categories={filterCategories}
             value={filterValue}

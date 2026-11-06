@@ -201,7 +201,7 @@ export function LoansPage() {
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div className="filter-row-right" style={{ marginBottom: 12 }}>
         <FilterPanel
           categories={filterCategories}
           value={filterValue}

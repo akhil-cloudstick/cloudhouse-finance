@@ -1,47 +1,53 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TableCols } from "@/common/components/ui/TableCols";
 import { BackLink } from "@/common/components/ui/BackLink";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
+import { Icon } from "@/common/components/Icon";
+import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
+import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
-import { listLoansPage } from "@/modules/loans/services/loanService";
 import { ExportMenu, type ExportKind } from "@/modules/reports/components/ExportMenu";
-import { exportReport, getCashLedger } from "@/modules/reports/services/reportsService";
-import { type CashLedgerRow, type CashLedgerTotals, type ReportFilters } from "@/modules/reports/types/reports-types";
+import { DayBookEntryModalContent } from "@/modules/reports/components/DayBookEntryModalContent";
+import { deleteDayBookEntry, exportReport, getDayBook } from "@/modules/reports/services/reportsService";
+import { type DayBookRow, type DayBookTotals, type ReportFilters } from "@/modules/reports/types/reports-types";
 
-/* Cash Ledger — the main ledger's every cash movement for a period, oldest first: Date,
- * Particulars (the gold loan as "00144/26" — its number and the year it opened — blank for any
- * other movement), Debit (money out), Credit (money in) and the running Balance in hand. Each month
- * gets a heading and closes with a subtotal. Filters: date range, a whole month, one loan. */
+/* Day Book — lines staff record by hand (Date, Particulars, Debit, Credit, Interest), oldest
+ * first, with the period's totals. Nothing is pulled in from the other modules: every line is
+ * added here (or from the dashboard's Quick actions) through DayBookEntryModalContent.
+ * Filters: a whole month, a date range, and the branch where the business has several. */
 
 // How many past months the Month filter offers.
 const MONTH_CHOICES = 24;
-// Ledger rows (entries and month totals) per page.
+// Entries per page.
 const PAGE_SIZE = 14;
 
-type CashLedgerReportViewProps = { onBack: () => void };
+type DayBookReportViewProps = { onBack: () => void };
 
-export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
+export function DayBookReportView({ onBack }: DayBookReportViewProps) {
   const toast = useToast();
+  const { openModal } = useModal();
   const showBranchFilter = useShowBranchFilter();
   const [branches, setBranches] = useState<BranchView[]>([]);
-  // Branch ids and loan numbers: one, or several comma-joined.
+  // Branch ids: one, or several comma-joined.
   const [branchId, setBranchId] = useState("");
   // Opens on the current month.
   const [month, setMonth] = useState(monthKey(new Date()));
   const [from, setFrom] = useState(monthRange(monthKey(new Date())).from);
   const [to, setTo] = useState(monthRange(monthKey(new Date())).to);
-  const [loan, setLoan] = useState("");
+  // Bumped after an add / edit / delete so the list reloads.
+  const [version, setVersion] = useState(0);
+  const reload = () => setVersion((v) => v + 1);
 
   // What the server returned, and for which filters — loading until it matches the current ones.
-  const [data, setData] = useState<{ key: string; rows: CashLedgerRow[]; totals: CashLedgerTotals | null; error: string } | null>(null);
+  const [data, setData] = useState<{ key: string; rows: DayBookRow[]; totals: DayBookTotals | null; error: string } | null>(null);
   const [exporting, setExporting] = useState<ExportKind | null>(null);
 
   useEffect(() => {
@@ -51,19 +57,20 @@ export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
   const filters: ReportFilters = useMemo(() => {
     const f: ReportFilters = { from, to };
     if (branchId) f.branchId = branchId;
-    if (loan) f.loan = loan;
     return f;
-  }, [from, to, branchId, loan]);
+  }, [from, to, branchId]);
 
   const filtersKey = JSON.stringify(filters);
+  const loadKey = `${filtersKey}#${version}`;
   useEffect(() => {
     let cancelled = false;
-    getCashLedger(filters)
-      .then((r) => { if (!cancelled) setData({ key: filtersKey, rows: r.rows ?? [], totals: r.totals, error: "" }); })
-      .catch((e) => { if (!cancelled) setData({ key: filtersKey, rows: [], totals: null, error: e instanceof ApiError ? e.message : "Could not load the ledger." }); });
+    getDayBook(filters)
+      .then((r) => { if (!cancelled) setData({ key: loadKey, rows: r.rows ?? [], totals: r.totals, error: "" }); })
+      .catch((e) => { if (!cancelled) setData({ key: loadKey, rows: [], totals: null, error: e instanceof ApiError ? e.message : "Could not load the day book." }); });
     return () => { cancelled = true; };
-  }, [filters, filtersKey]);
-  const loading = data?.key !== filtersKey;
+  }, [filters, loadKey]);
+  // After a reload the previous rows stay on screen until the new ones arrive.
+  const loading = !data || !data.key.startsWith(`${filtersKey}#`);
   const rows = data?.rows ?? [];
   const totals = data?.totals ?? null;
   const error = data?.error ?? "";
@@ -76,10 +83,10 @@ export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
   const setPage = (p: number) => setPageState({ key: filtersKey, page: p });
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  async function handleExport(format: ExportKind) { return singleFlight("reports:cash-ledger-export:" + format, async () => {
+  async function handleExport(format: ExportKind) { return singleFlight("reports:day-book-export:" + format, async () => {
     setExporting(format);
     try {
-      await exportReport("cash-ledger", format, filters);
+      await exportReport("day-book", format, filters);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Export failed.");
     } finally {
@@ -87,7 +94,23 @@ export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
     }
   }); }
 
-  // One grouped filter: Month, Loan, Date (and Branch where the business has several).
+  function onDelete(r: DayBookRow) {
+    openModal(
+      <ConfirmModalContent
+        title="Delete Day Book Entry"
+        message={<>Delete <b>{r.particulars}</b> dated <b>{fmtDate(r.date)}</b>?</>}
+        confirmLabel="Delete"
+        busyLabel="Deleting…"
+        onConfirm={async () => {
+          await deleteDayBookEntry(r.id);
+          reload();
+          toast("Day book entry deleted");
+        }}
+      />,
+    );
+  }
+
+  // One grouped filter: Month, Date (and Branch where the business has several).
   const monthOptions = useMemo(() => {
     const now = new Date();
     return Array.from({ length: MONTH_CHOICES }, (_, i) => {
@@ -98,26 +121,17 @@ export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
   const filterCategories: FilterCategory[] = [
     // Month stays single-choice: it sets the date range, and two months can't be one range.
     { key: "month", label: "Month", kind: "static", singleSelect: true, searchHint: "Searches: month name", options: monthOptions },
-    {
-      key: "loan", label: "Loan", kind: "async", searchHint: "Searches: loan number, customer name",
-      fetchOptions: async (search, page) => {
-        const r = await listLoansPage({ q: search || undefined, page, limit: 20 });
-        return { items: r.items.map((l) => ({ value: l.loanNumber, label: `${loanParticulars(l.loanNumber, l.opened)} — ${l.customerName}` })), hasMore: r.hasMore };
-      },
-    },
     ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     { key: "__date", label: "Date", kind: "date" },
   ];
   const filterValue: FilterValue = {
     month: month ? [month] : [],
-    loan: loan ? loan.split(",") : [],
     branch: branchId ? branchId.split(",") : [],
     __dateFrom: from || undefined,
     __dateTo: to || undefined,
   };
   function onFilterChange(next: FilterValue) {
     const pickedMonth = Array.isArray(next.month) && next.month[0] ? next.month[0] : "";
-    setLoan(Array.isArray(next.loan) ? next.loan.join(",") : "");
     setBranchId(Array.isArray(next.branch) ? next.branch.join(",") : "");
     if (pickedMonth && pickedMonth !== month) {
       // A month sets the date range to that month.
@@ -141,9 +155,11 @@ export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
       <div className="page-h">
         <div>
           <BackLink onClick={onBack} label="Back to Reports" />
-          <h1>Cash Ledger</h1>
-          <p>Every cash movement by date, loan-wise, with the running balance and month totals.</p>
+          <h1>Day Book</h1>
+          <p>Record each entry by hand — date, particulars, debit, credit and interest.</p>
         </div>
+        <div className="sp" />
+        <button className="btn" onClick={() => openModal(<DayBookEntryModalContent onSaved={reload} />)}><Icon name="plus" /> Add Entry</button>
       </div>
       <hr className="gold-rule" />
 
@@ -157,55 +173,42 @@ export function CashLedgerReportView({ onBack }: CashLedgerReportViewProps) {
         {error && <div className="notice" style={{ margin: 14 }}>{error}</div>}
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center ledger-amt ledger-nowrap">
-            <TableCols widths={[16, 34, null, null, null]} />
-            <thead><tr><th>Date</th><th>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
+            <TableCols widths={[14, 34, null, null, null, 10]} />
+            <thead><tr><th>Date</th><th>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Interest</th><th></th></tr></thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="empty">Loading ledger…</td></tr>
-              ) : !totals ? null : (
+                <tr><td colSpan={6} className="empty">Loading day book…</td></tr>
+              ) : rows.length === 0 ? (
+                error ? null : <tr><td colSpan={6} className="empty">No entries in this period — use Add Entry to record one.</td></tr>
+              ) : (
                 <>
-                  {page === 1 && (
-                    <tr style={{ fontWeight: 600 }}>
-                      <td />
-                      <td>Opening balance</td>
-                      <td className="num" />
-                      <td className="num" />
-                      <td className="num">{fmt(totals.openingBalance)}</td>
+                  {pageRows.map((r) => (
+                    <tr key={r.id}>
+                      <td>{fmtDate(r.date)}</td>
+                      <td>{r.particulars}</td>
+                      <td className="num" style={r.debit ? { color: "var(--red)" } : undefined}>{r.debit ? fmt(r.debit) : "—"}</td>
+                      <td className="num" style={r.credit ? { color: "var(--green)" } : undefined}>{r.credit ? fmt(r.credit) : "—"}</td>
+                      <td className="num">{r.interest ? fmt(r.interest) : "—"}</td>
+                      <td className="tbl-acts">
+                        <button type="button" className="tbl-ibtn" title="Edit entry" aria-label={`Edit ${r.particulars}`}
+                          onClick={() => openModal(<DayBookEntryModalContent entry={r} onSaved={reload} />)}>
+                          <Icon name="edit" />
+                        </button>
+                        <button type="button" className="tbl-ibtn danger" title="Delete entry" aria-label={`Delete ${r.particulars}`}
+                          onClick={() => onDelete(r)}>
+                          <Icon name="trash" />
+                        </button>
+                      </td>
                     </tr>
-                  )}
-                  {rows.length === 0 && <tr><td colSpan={5} className="empty">{loan ? "No entries for this loan in this period." : "No entries in this period."}</td></tr>}
-                  {pageRows.map((r, i) => (
-                    <Fragment key={`${r.month}-${(page - 1) * PAGE_SIZE + i}`}>
-                      {/* A month's heading, repeated at the top of a page that continues it. */}
-                      {(i === 0 || r.month !== pageRows[i - 1].month) && (
-                        <tr><td colSpan={5} style={{ textAlign: "left", fontWeight: 700, color: "var(--brand)", background: "var(--brand-faint, rgba(0,0,0,.03))" }}>{monthLabel(r.month)}</td></tr>
-                      )}
-                      {r.total ? (
-                        <tr style={{ fontWeight: 700 }}>
-                          <td />
-                          <td>{r.particulars}</td>
-                          <td className="num" style={{ color: "var(--red)" }}>{fmt(r.debit)}</td>
-                          <td className="num" style={{ color: "var(--green)" }}>{fmt(r.credit)}</td>
-                          <td className="num">{fmt(r.balance)}</td>
-                        </tr>
-                      ) : (
-                        <tr>
-                          <td>{fmtDate(r.date)}</td>
-                          <td>{r.particulars}</td>
-                          <td className="num" style={r.debit ? { color: "var(--red)" } : undefined}>{r.debit ? fmt(r.debit) : "—"}</td>
-                          <td className="num" style={r.credit ? { color: "var(--green)" } : undefined}>{r.credit ? fmt(r.credit) : "—"}</td>
-                          <td className="num">{fmt(r.balance)}</td>
-                        </tr>
-                      )}
-                    </Fragment>
                   ))}
-                  {page === totalPages && (
+                  {page === totalPages && totals && (
                     <tr style={{ fontWeight: 700 }}>
                       <td />
-                      <td>Closing balance</td>
-                      <td className="num" style={{ color: "var(--red)" }}>{fmt(totals.totalDebit)}</td>
-                      <td className="num" style={{ color: "var(--green)" }}>{fmt(totals.totalCredit)}</td>
-                      <td className="num">{fmt(totals.closingBalance)}</td>
+                      <td>Total</td>
+                      <td className="num" style={{ color: "var(--red)" }}>{fmt(totals.debit)}</td>
+                      <td className="num" style={{ color: "var(--green)" }}>{fmt(totals.credit)}</td>
+                      <td className="num">{fmt(totals.interest)}</td>
+                      <td />
                     </tr>
                   )}
                 </>
@@ -247,11 +250,4 @@ function monthRange(key: string): { from: string; to: string } {
 function periodLabel(from: string, to: string): string {
   if (!from && !to) return "All entries";
   return `${from ? fmtDate(from) : "Start"} – ${to ? fmtDate(to) : "Today"}`;
-}
-
-// LN-00144 opened in 2026 → "00144/26", as the backend writes Particulars.
-function loanParticulars(loanNumber: string, opened: string): string {
-  const digits = loanNumber.replace(/^LN-/i, "");
-  const year = opened ? opened.slice(2, 4) : "";
-  return year ? `${digits}/${year}` : digits;
 }
