@@ -5,6 +5,7 @@
 
 import { enqueueAndWait, newEntry, offlineReady } from "./index";
 import { currentActor } from "./actor";
+import { refLocalRecordPath } from "./requestRef";
 import { ApiError } from "@/common/services/httpClient";
 
 export function canQueue(): boolean {
@@ -20,6 +21,8 @@ export async function queueWrite<T>(
   applyLocal: () => Promise<void> | void = () => undefined,
 ): Promise<T> {
   if (!offlineReady()) return online();
+  // an investment or personal loan made on this PC and not sent yet is addressed by the entry that creates it
+  path = await refLocalRecordPath(path);
   // a record made on this PC and not yet on the server has a negative id; there is nothing on the server to change yet
   // (an ApiError, so the screen shows this sentence instead of its generic "could not save")
   if (/\/(-\d+|0)(\/|$|\?)/.test(path)) throw new ApiError("Not synced yet. Try again once it has synced.", 409);

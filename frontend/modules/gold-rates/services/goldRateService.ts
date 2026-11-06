@@ -1,6 +1,7 @@
 import { apiFetchEnveloped as apiFetch, ApiError, quietly } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { refuse } from "@/common/offline/validate";
 import { localToday } from "@/common/utils/format";
 import { rateForKarat, finenessFromRate } from "@/common/utils/purity";
 import type { BackendGoldRate, GoldRateView, GoldRatePublishInput } from "@/modules/gold-rates/types/gold-rate-types";
@@ -113,6 +114,7 @@ export async function publishGoldRates(rates: Partial<Record<24 | 22 | 18, numbe
  * picked another, not the day it is sent) and shows as the latest rate at once (see common/offline/goldRateAdjust.ts). */
 async function queueIfUnreachable(e: unknown, rates: Partial<Record<number, number>>, setBy: string, fineness?: Partial<Record<22 | 18, number>>, setOn?: string): Promise<GoldRateView | null> {
   if (!offlineReady() || !(e instanceof ApiError) || e.status !== 0) return null;
+  checkRates(rates, setBy, fineness);
   const date = setOn || localToday();
   const entry = newEntry("POST", "/gold-rates", { rates, setBy, date, ...(fineness ? { fineness } : {}) }, currentActor());
   await enqueueAndWait(entry, () => undefined, () => undefined);
@@ -125,4 +127,19 @@ async function queueIfUnreachable(e: unknown, rates: Partial<Record<number, numb
     fineness18: fineness?.[18] ?? finenessFromRate(k24, k18, 18),
     setBy, setByDesignation: "", createdAt: new Date().toISOString(),
   };
+}
+
+/* The server's field rules for publishing a rate (common/controllers/gold_rate.go), applied before a rate is queued. */
+function checkRates(rates: Partial<Record<number, number>>, setBy: string, fineness?: Partial<Record<22 | 18, number>>) {
+  if (fineness) {
+    for (const [k, v] of Object.entries(fineness)) {
+      if (k !== "22" && k !== "18") refuse("fineness can only be set for 22K or 18K");
+      if (!(Number(v) > 0 && Number(v) <= 100)) refuse("fineness must be above 0% and at most 100%");
+    }
+  }
+  for (const [k, v] of Object.entries(rates)) {
+    if (k !== "24" && k !== "22" && k !== "18") refuse("karat must be 24, 22, or 18");
+    if (!(Number(v) > 0)) refuse("rate must be greater than zero");
+  }
+  if (!(setBy ?? "").trim()) refuse("set_by is required");
 }

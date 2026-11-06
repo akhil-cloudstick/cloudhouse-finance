@@ -12,7 +12,7 @@ import type { IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types
 
 export { canMakeOffline };
 
-export type OfflineDocKind = "pledge-slip" | "statement" | "release-agreement" | "bond";
+export type OfflineDocKind = "pledge-slip" | "statement" | "release-agreement" | "bond" | "tml-pledge-slip" | "tml-statement";
 
 export async function printOfflineLoanDocument(kind: OfflineDocKind, loanNumericId: number, lang = "en"): Promise<void> {
   const loan = localLoanByNumericId(loanNumericId) as unknown as (Record<string, unknown> & { customerId?: number; customer?: Record<string, unknown> }) | undefined;
@@ -35,7 +35,9 @@ export async function printOfflineLoanDocument(kind: OfflineDocKind, loanNumeric
     profile: profile ?? {},
     singleBranch: branches.length <= 1,
   };
-  await renderAndPrint(kind, lang, input);
+  // a Tamil Nadu (TML) business has its own pledge slip
+  const policy = String((profile as { policy?: string } | null)?.policy ?? "").toUpperCase();
+  await renderAndPrint(kind === "pledge-slip" && policy === "TML" ? "tml-pledge-slip" : kind, lang, input);
 }
 
 /* The pledge agreement printed from New Loan before the loan is saved: filled from the form (the server needs the loan to

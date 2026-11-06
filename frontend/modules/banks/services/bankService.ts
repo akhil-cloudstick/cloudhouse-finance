@@ -1,5 +1,41 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { queueWrite } from "@/common/offline/queueWrite";
+import { refuse } from "@/common/offline/validate";
+import { createsBank } from "@/common/offline/setupAdjust";
+import { rewriteUnsent } from "@/common/offline/setupQueue";
+import { dropUnsentRecord } from "@/common/offline/unsent";
+import { localRequestId } from "@/common/offline/requestRef";
+import { ApiError } from "@/common/services/httpClient";
+import { currentActor } from "@/common/offline/actor";
 import type { BackendBank, BankFormInput } from "@/modules/banks/types/bank-types";
+
+/* The server's own bank checks (name, account number, phone, name + bank-branch unique), made before an entry is queued. The list
+ * read counts banks still waiting to be sent; when it cannot be read nothing is blocked. */
+async function checkBank(input: BankFormInput, selfId?: number): Promise<BackendBank | undefined> {
+  const name = input.name.trim();
+  if (!name) refuse("name is required");
+  const acc = (input.accountNo || "").trim();
+  if (acc && !/^\d{1,18}$/.test(acc)) refuse("account number must be digits only, up to 18 digits");
+  const phone = (input.phone || "").trim();
+  if (phone && !/^\d{10}$/.test(phone)) refuse("phone number must be exactly 10 digits");
+  let all: BackendBank[] = [];
+  try {
+    all = (await apiFetch<BackendBank[]>("/banks?mgmt=1")) || [];
+    if (!Array.isArray(all)) all = [];
+  } catch {
+    return undefined;
+  }
+  const branch = (input.branch || "").trim().toLowerCase();
+  const same = all.find((b) => b.name.trim().toLowerCase() === name.toLowerCase() && (b.branch || "").trim().toLowerCase() === branch && b.id !== selfId);
+  if (same && selfId !== undefined) refuse("a bank with this name and branch already exists", 409);
+  return same;
+}
+
+function draftBank(id: number, input: BankFormInput): BackendBank {
+  const now = new Date().toISOString();
+  return { id, name: input.name.trim(), branchId: input.branchId, branchName: "", branch: (input.branch || "").trim(), ifsc: (input.ifsc || "").trim(), accountNo: (input.accountNo || "").trim(), phone: (input.phone || "").trim(), balance: 0, createdAt: now, updatedAt: now };
+}
 
 /* Server-side search (by name) — backs the bank SearchableSelect in
  * RepledgeModal.tsx, same pattern as ornamentTypesApi.ts's search. */
@@ -27,6 +63,16 @@ export async function createBank(name: string): Promise<BackendBank> {
 }
 
 export async function createBankFull(input: BankFormInput): Promise<BackendBank> {
+  // Desktop: queued and listed at once (management list only; a bank that is not on the server yet is kept out of the pickers)
+  if (offlineReady()) {
+    // the server returns the existing bank when one has the same name and branch, and makes no new one
+    const existing = await checkBank(input);
+    if (existing) return existing;
+    const entry = newEntry("POST", "/banks", { ...input, name: input.name.trim() }, currentActor());
+    entry.targets = [entry.id];
+    await enqueueAndWait(entry, () => undefined);
+    return draftBank(localRequestId(entry.id), input);
+  }
   return apiFetch<BackendBank>("/banks", {
     method: "POST",
     body: JSON.stringify(input),
@@ -52,7 +98,7 @@ export async function listBanksPage(page: number, limit: number = BANKS_PAGE_SIZ
   const params = new URLSearchParams({ limit: String(limit), offset: String((page - 1) * limit) });
   if (q?.trim()) params.set("search", q.trim());
   if (branchId) params.set("branchId", branchId);
-  const res = await apiFetch<{ items: BackendBank[] | null; hasMore: boolean; total?: number; totalBalance?: number }>(`/banks?${params}`);
+  const res = await apiFetch<{ items: BackendBank[] | null; hasMore: boolean; total?: number; totalBalance?: number }>(`/banks?${params}${offlineReady() ? "&mgmt=1" : ""}`);
   return { items: res.items || [], hasMore: !!res.hasMore, total: res.total ?? 0, totalBalance: res.totalBalance ?? 0 };
 }
 
@@ -63,6 +109,15 @@ export async function getBank(id: number): Promise<BackendBank> {
 }
 
 export async function updateBank(id: number, input: BankFormInput): Promise<BackendBank> {
+  if (offlineReady()) {
+    await checkBank(input, id);
+    // a bank not sent yet: its creating entry is rewritten with the edit
+    if (id < 0) {
+      await rewriteUnsent(id, createsBank, (b) => ({ ...b, ...input, name: input.name.trim() }));
+      return draftBank(id, input);
+    }
+    return queueWrite("PUT", `/banks/${id}`, { ...input, name: input.name.trim() }, draftBank(id, input), () => apiFetch<BackendBank>(`/banks/${id}`, { method: "PUT", body: JSON.stringify(input) }));
+  }
   return apiFetch<BackendBank>(`/banks/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
@@ -70,6 +125,17 @@ export async function updateBank(id: number, input: BankFormInput): Promise<Back
  * bank-pledge record still references it; the caller should catch that and
  * point staff at mergeBanks instead. */
 export async function deleteBank(id: number): Promise<void> {
+  if (offlineReady()) {
+    // a bank not sent yet is taken back: nothing was ever recorded on the server for it
+    if (id < 0) {
+      if (!(await dropUnsentRecord(id, createsBank))) throw new ApiError("Not synced yet. Try again once it has synced.", 409);
+      return;
+    }
+    // whether the bank has transactions (the server refuses then) is not known on this PC, so the server decides
+    return queueWrite("DELETE", `/banks/${id}`, undefined, undefined, async () => {
+      await apiFetch<{ deleted: boolean }>(`/banks/${id}`, { method: "DELETE" });
+    });
+  }
   await apiFetch<{ deleted: boolean }>(`/banks/${id}`, { method: "DELETE" });
 }
 

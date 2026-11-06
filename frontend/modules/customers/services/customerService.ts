@@ -119,6 +119,15 @@ function localCustomers(): BackendCustomer[] {
     });
 }
 
+/* Customers registered on this PC that the server has not numbered yet, narrowed like the server would (search text, type). */
+function unsentCustomers(q: string, type?: string): CustomerView[] {
+  return localCustomers()
+    .filter((c) => !(c.id > 0))
+    .filter((c) => !type || (c.customerType ?? "Borrower") === type)
+    .filter((c) => matchesCustomer(c, q))
+    .map(toView);
+}
+
 function matchesCustomer(c: BackendCustomer, q: string): boolean {
   const needle = q.trim().toLowerCase();
   return !needle || [c.name, c.code, c.phone].join(" ").toLowerCase().includes(needle);
@@ -154,14 +163,17 @@ export async function listCustomersPage(
   return orLocal(
     async () => {
       const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean; total?: number }>(`/customers?${params}`);
-      return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+      // customers registered on this PC and not sent yet are not in the server's answer: they follow it on the first page
+      const unsent = page === 1 ? unsentCustomers(q, filters?.customerType) : [];
+      return { items: [...(rec?.items || []).map(toView), ...unsent], hasMore: !!rec?.hasMore, total: (rec?.total ?? 0) + unsent.length };
     },
     () => {
       const all = localCustomers()
         .filter((c) => matchesCustomer(c, q))
         .filter((c) => !filters?.panStatus || c.panStatus === filters.panStatus)
         .filter((c) => !filters?.aadhaarStatus || c.aadhaarStatus === filters.aadhaarStatus)
-        .filter((c) => !filters?.branchIds?.length || filters.branchIds.includes(String(c.branchId)));
+        .filter((c) => !filters?.branchIds?.length || filters.branchIds.includes(String(c.branchId)))
+        .filter((c) => !filters?.customerType || (c.customerType ?? "Borrower") === filters.customerType);
       const from = (page - 1) * pageSize;
       return { items: all.slice(from, from + pageSize).map(toView), hasMore: from + pageSize < all.length, total: all.length };
     },
@@ -187,7 +199,7 @@ export async function searchCustomersPage(q: string, page: number): Promise<{ it
   return orLocal(
     async () => {
       const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
-      return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+      return { items: [...(rec?.items || []).map(toView), ...(page === 0 ? unsentCustomers(q) : [])], hasMore: !!rec?.hasMore };
     },
     () => {
       const all = localCustomers().filter((c) => c.customerType !== "Investor" && matchesCustomer(c, q));
@@ -204,7 +216,7 @@ export async function searchBorrowersPage(q: string, page: number): Promise<{ it
   return orLocal(
     async () => {
       const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
-      return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+      return { items: [...(rec?.items || []).map(toView), ...(page === 0 ? unsentCustomers(q, "Borrower") : [])], hasMore: !!rec?.hasMore };
     },
     () => {
       // the borrowers on this PC, including one registered here that the server has not numbered yet
@@ -223,7 +235,7 @@ export async function searchInvestorsPage(q: string, page: number): Promise<{ it
   return orLocal(
     async () => {
       const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
-      return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+      return { items: [...(rec?.items || []).map(toView), ...(page === 0 ? unsentCustomers(q, "Investor") : [])], hasMore: !!rec?.hasMore };
     },
     () => {
       // the investors on this PC, including one registered here that the server has not numbered yet
@@ -311,6 +323,30 @@ export async function createCustomer(input: CustomerFormInput, hint?: { branchNa
   // The server refuses a phone, PAN or Aadhaar already on file, and a refusal found only when the entry is sent leaves a
   // customer on this PC that never reaches the server (and every loan or investment made for them). The same check is
   // made here on this PC's copy, so the person is told before saving.
+  // the server's own field checks (customerValidate), first
+  {
+    const p = (input.phone ?? "").trim();
+    const panIn = (input.pan ?? "").trim().toUpperCase();
+    const aadhaarIn = (input.aadhaar ?? "").replace(/[\s-]/g, "");
+    const bad = (m: string): never => {
+      throw new ApiError(m, 400);
+    };
+    if (!(input.name ?? "").trim()) bad("name is required");
+    if (!p) bad("phone is required");
+    if (!/^\d{10}$/.test(p)) bad("phone must be a 10-digit number");
+    if (!input.branchId) bad("branch is required");
+    if (panIn && !/^[A-Z]{5}\d{4}[A-Z]$/.test(panIn)) bad("PAN must look like ABCDE1234F");
+    if (aadhaarIn && !/^\d{12}$/.test(aadhaarIn)) bad("Aadhaar must be exactly 12 digits");
+    if (/\d/.test(input.nomineeName ?? "")) bad("nominee name must not contain digits");
+    if (/\d/.test(input.nomineeRelation ?? "")) bad("nominee relation must not contain digits");
+    const acct = input.bankAccountNumber ?? "";
+    if (acct && (acct.length > 18 || /\D/.test(acct))) bad("bank account number must be digits only, up to 18 digits");
+    if (input.customerType && input.customerType !== "Borrower" && input.customerType !== "Investor") bad("customer type must be Borrower or Investor");
+    if (input.customerType === "Investor") {
+      if (!input.bankAccountName || !acct || !input.bankIfsc) bad("bank account name, number and IFSC are required");
+      if (!panIn || !aadhaarIn) bad("PAN and Aadhaar are required for an investor");
+    }
+  }
   const known = listLocal("customers") as unknown as BackendCustomer[];
   const phone = (input.phone ?? "").trim();
   if (phone && known.some((c) => (c.phone ?? "").trim() === phone)) {
@@ -324,12 +360,12 @@ export async function createCustomer(input: CustomerFormInput, hint?: { branchNa
   // This PC holds only the last four digits of a customer the server has, so the full number can be matched only against
   // customers made on this PC and still waiting to be sent (their entries carry it whole). A number the server already has
   // under another customer is refused when the entry is sent.
-  const aadhaar = (input.aadhaar ?? "").replace(/[s-]/g, "");
+  const aadhaar = (input.aadhaar ?? "").replace(/[\s-]/g, "");
   if (aadhaar) {
     for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
       try {
         const e = JSON.parse(line) as { method?: string; path?: string; body?: { aadhaar?: string } };
-        if (e.method === "POST" && e.path === "/customers" && (e.body?.aadhaar ?? "").replace(/[s-]/g, "") === aadhaar) {
+        if (e.method === "POST" && e.path === "/customers" && (e.body?.aadhaar ?? "").replace(/[\s-]/g, "") === aadhaar) {
           throw new ApiError("Aadhaar number is already registered to another customer", 409);
         }
       } catch (err) {

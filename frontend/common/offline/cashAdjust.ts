@@ -141,6 +141,27 @@ export async function pendingMoney(branch: number): Promise<Pending[]> {
       found.push({ entry, out: false, parts: iparts, loanNumber: inumber, branchId: ib.branchId ?? null, customerId: null, label: `Investment deposit — ${inumber}` });
       continue;
     }
+    // what is done to an investment: cash added comes in; a withdrawal, a payout, interest paid and a closing payout go out
+    const inv = entry.method === "POST" ? /^\/investments\/(?:ref:[0-9a-f-]+|\d+)\/(add-cash|withdraw|pay-interest|payouts\/\d+\/pay|mature)$/i.exec(entry.path) : null;
+    if (inv) {
+      const ob = (entry.body ?? {}) as { amount?: number; principalAmount?: number; interestAmount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number; occurredOn?: string; action?: string };
+      const action = inv[1].toLowerCase();
+      if (action === "mature" && ob.action !== "Close") continue;
+      const obank = Number(ob.bankId) || undefined;
+      let oparts: Part[] = [
+        { mode: "Cash", amount: Number(ob.cashAmount) || 0 },
+        { mode: "UPI", amount: Number(ob.upiAmount) || 0, bankId: obank },
+        { mode: "Bank Transfer", amount: Number(ob.bankTransferAmount) || 0, bankId: obank },
+        { mode: "Cheque", amount: Number(ob.chequeAmount) || 0, bankId: obank },
+      ].filter((p) => p.amount > 0);
+      // no breakdown given means all cash, as the server reads it
+      const total = Number(ob.amount) || (Number(ob.principalAmount) || 0) + (Number(ob.interestAmount) || 0);
+      if (!oparts.length && total > 0) oparts = [{ mode: "Cash", amount: total }];
+      if (!oparts.length) continue;
+      const olabel = action === "add-cash" ? "Investment deposit" : action === "withdraw" ? "Investment withdrawal" : action === "mature" ? "Investment maturity payout" : "Investment payout";
+      found.push({ entry, out: action !== "add-cash", parts: oparts, loanNumber: olabel, branchId: null, customerId: null, label: olabel, on: ob.occurredOn });
+      continue;
+    }
     // a bank pledge whose money is received as cash in: what the bank paid (in each mode) comes in, to the bank it was received in
     const pledge = entry.method === "POST" ? /^\/loans\/(uuid:([0-9a-f-]+)|(\d+))\/bank-pledge$/i.exec(entry.path) : null;
     if (pledge) {

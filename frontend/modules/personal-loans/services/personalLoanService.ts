@@ -1,10 +1,15 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError, quietly } from "@/common/services/httpClient";
 import { changeWithEntry, enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
-import { waitingPersonalPayments } from "@/common/offline/personalLoanAdjust";
+import { pendingLoanKey, waitingPersonalPayments } from "@/common/offline/personalLoanAdjust";
+import { createsPersonalLoan } from "@/common/offline/requestRef";
+import { dropUnsentRecord } from "@/common/offline/unsent";
+import { assertPayoutFunds, partsOfSplit } from "@/common/offline/funds";
 import { canMakeOffline, localPerson, renderAndPrint } from "@/common/offline/documents";
 import { getBusinessProfile } from "@/modules/settings/services/businessProfileService";
 import { queueWrite } from "@/common/offline/queueWrite";
+import { refuse, requirePositive, requireNotNegative, requireValidSplit } from "@/common/offline/validate";
 import { currentActor } from "@/common/offline/actor";
+import { enabledStages, fetchApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { localRequestId } from "@/common/offline/requestRef";
 import { branchHeader } from "@/common/services/branchSelection";
 import { printPdfJob } from "@/common/utils/print";
@@ -32,6 +37,27 @@ export async function createPersonalLoan(input: CreatePersonalLoanInput, hint?: 
 }
 
 async function queuePersonalLoan(input: CreatePersonalLoanInput, hint: CreatePersonalLoanHint): Promise<BackendPersonalLoan> {
+  // the server's own input checks (SavePersonalLoan), made before anything is queued
+  requirePositive(input.principalAmount, "principal amount must be greater than zero");
+  requirePositive(input.tenureCount, "tenure count must be greater than zero");
+  if (!["Daily", "Weekly", "Monthly"].includes(input.frequency)) refuse("frequency must be Daily, Weekly or Monthly");
+  if (!["Flat", "Percentage"].includes(input.interestType)) refuse("interest type must be Flat or Percentage");
+  requireNotNegative(input.interestValue, "interest value must not be negative");
+  requireNotNegative(input.penalInterestRate, "penal interest rate must not be negative");
+  requireNotNegative(input.gracePeriodDays, "grace period days must not be negative");
+  {
+    const principal = Math.round(input.principalAmount * 100) / 100;
+    const interestAmt = Math.round((input.interestType === "Percentage" ? (principal * input.interestValue) / 100 : input.interestValue) * 100) / 100;
+    if (interestAmt >= principal) refuse("interest amount must be less than the principal amount");
+    requireValidSplit(input.fullDisbursement ? principal : Math.round((principal - interestAmt) * 100) / 100, input);
+  }
+  // With no approval step the loan is paid out at once, so the till or the chosen bank has to cover what is handed over (omitted split = all cash).
+  if (!hint.needsApproval) {
+    const interest = input.interestType === "Percentage" ? (input.principalAmount * input.interestValue) / 100 : input.interestValue;
+    const handedOver = input.fullDisbursement ? input.principalAmount : Math.max(0, input.principalAmount - interest);
+    const split = input.cashAmount || input.upiAmount || input.bankTransferAmount || input.chequeAmount ? input : { ...input, cashAmount: handedOver };
+    await assertPayoutFunds(input.branchId, partsOfSplit(split));
+  }
   // no targets: the sender copies a reply's id onto the record a target names, and the reply here is a personal loan, not the customer
   const entry = newEntry("POST", "/personal-loans", input, currentActor());
   const status = hint.needsApproval ? "Pending Approval" : "Active";
@@ -41,7 +67,8 @@ async function queuePersonalLoan(input: CreatePersonalLoanInput, hint: CreatePer
   const obligation = input.fullDisbursement ? Math.round((input.principalAmount + interest) * 100) / 100 : input.principalAmount;
   return {
     id: localRequestId(entry.id),
-    loanNumber: "Pending",
+    // a local number the loan page can open it by (see personalLoanAdjust.ts): the server numbers it when it is sent
+    loanNumber: pendingLoanKey(entry.id),
     branchId: input.branchId,
     customerId: 0,
     customer: { id: 0, name: hint.customerName, code: hint.customerCode, phone: "" },
@@ -75,9 +102,27 @@ async function queuePersonalLoan(input: CreatePersonalLoanInput, hint: CreatePer
 
 export function approvePersonalLoan(id: number, input: PersonalLoanApprovalInput): Promise<BackendPersonalLoan> {
   const path = `/personal-loans/${id}/approve`;
-  return queueWrite("POST", path, input, undefined as unknown as BackendPersonalLoan, () =>
+  const check = async () => {
+    if (!offlineReady()) return;
+    if (input.action !== "Approved" && input.action !== "Rejected") refuse("action must be Approved or Rejected");
+    const loan = await readLoan(id);
+    if (loan && loan.status !== "Pending Approval") refuse("this personal loan is not waiting for approval", 409);
+    // The last stage pays the loan out, from the split it was made with (kept on the loan): the till or the chosen bank has to cover it.
+    if (loan && id > 0 && input.action === "Approved") {
+      const chain = enabledStages(await fetchApprovalWorkflow().catch(() => []), "personal_loan");
+      if (chain.length > 0 && chain[chain.length - 1].key === input.stage) {
+        const l = loan as unknown as { branchId: number; disbursementCashAmount?: number; disbursementUpiAmount?: number; disbursementBankTransferAmount?: number; disbursementBankId?: number | null };
+        await assertPayoutFunds(l.branchId, [
+          { mode: "Cash", amount: l.disbursementCashAmount },
+          { mode: "UPI", amount: l.disbursementUpiAmount, bankId: l.disbursementBankId },
+          { mode: "Bank Transfer", amount: l.disbursementBankTransferAmount, bankId: l.disbursementBankId },
+        ]);
+      }
+    }
+  };
+  return check().then(() => queueWrite("POST", path, input, undefined as unknown as BackendPersonalLoan, () =>
     apiFetch<BackendPersonalLoan>(path, { method: "POST", body: JSON.stringify(input) })
-  ).then((r) => r ?? getPersonalLoan(id));
+  )).then((r) => r ?? getPersonalLoan(id));
 }
 
 export async function listPersonalLoanApprovals(id: number): Promise<PersonalLoanApprovalRecord[]> {
@@ -119,6 +164,11 @@ export function listPersonalLoansPage(params: {
 /* Deletes a personal loan and reverses its disbursement in the cash book. The backend refuses
  * a loan that still has payments or is part of a renewal, answering with the reason. */
 export async function deletePersonalLoan(id: number): Promise<void> {
+  // one made on this PC and not sent yet: deleting it takes back the entry that creates it (and the payments taken on it since)
+  if (id < 0 && offlineReady()) {
+    if (await dropUnsentRecord(id, createsPersonalLoan)) return;
+    throw new ApiError("This loan was sent while you were deleting it. Refresh, then delete it.", 409);
+  }
   const path = `/personal-loans/${id}`;
   await queueWrite("DELETE", path, undefined, undefined, async () => {
     await apiFetch<unknown>(path, { method: "DELETE" });
@@ -172,9 +222,35 @@ export function recordPersonalLoanPayment(
   }
 ): Promise<BackendPersonalLoan> {
   const path = `/personal-loans/${id}/payments`;
-  return queueWrite("POST", path, input, undefined as unknown as BackendPersonalLoan, () =>
+  const check = offlineReady() ? checkPersonalPayment(id, input) : Promise.resolve();
+  return check.then(() => queueWrite("POST", path, input, undefined as unknown as BackendPersonalLoan, () =>
     apiFetch<BackendPersonalLoan>(path, { method: "POST", body: JSON.stringify(input) })
-  ).then((r) => r ?? getPersonalLoan(id));
+  )).then((r) => r ?? getPersonalLoan(id));
+}
+
+/* The loan as this PC shows it (it already counts the entries waiting to be sent); null when it cannot be read, and then nothing is blocked. */
+async function readLoan(id: number): Promise<BackendPersonalLoan | null> {
+  try {
+    return await getPersonalLoan(id);
+  } catch {
+    return null;
+  }
+}
+
+async function checkPersonalPayment(id: number, input: { amount: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number }): Promise<void> {
+  requirePositive(input.amount, "payment amount must be greater than zero");
+  const loan = await readLoan(id);
+  if (loan) {
+    if (loan.status !== "Active" && loan.status !== "Pending") refuse("loan is not active", 409);
+    if (Math.round(input.amount) > Math.round(loan.outstandingAmount)) refuse("payment amount exceeds the outstanding balance");
+  }
+  const amount = Math.round(input.amount);
+  const sum = (input.cashAmount ?? 0) + (input.upiAmount ?? 0) + (input.bankTransferAmount ?? 0) + (input.chequeAmount ?? 0);
+  // here the server wants the parts to add up (no all-cash default) and a bank for any non-cash part
+  if (Math.abs(sum - amount) > 0.01) refuse(`payment breakdown (${sum.toFixed(2)}) does not match the amount (${amount.toFixed(2)})`);
+  if ((input.upiAmount ?? 0) > 0 || (input.bankTransferAmount ?? 0) > 0 || (input.chequeAmount ?? 0) > 0) {
+    if (!input.bankId) refuse("bank is required for UPI, transfer or cheque");
+  }
 }
 
 export function previewRenewal(id: number, input: RenewInput): Promise<RenewalPreview> {
@@ -183,9 +259,30 @@ export function previewRenewal(id: number, input: RenewInput): Promise<RenewalPr
 
 export function renewPersonalLoan(id: number, input: RenewInput): Promise<RenewResult> {
   const path = `/personal-loans/${id}/renew`;
-  return queueWrite("POST", path, input, { renewed: true } as unknown as RenewResult, () =>
+  const check = async () => {
+    if (!offlineReady()) return;
+    requirePositive(input.principalAmount, "principal amount must be greater than zero");
+    requirePositive(input.tenureCount, "tenure count must be greater than zero");
+    if (!["Daily", "Weekly", "Monthly"].includes(input.frequency)) refuse("frequency must be Daily, Weekly or Monthly");
+    if (!["Flat", "Percentage"].includes(input.interestType)) refuse("interest type must be Flat or Percentage");
+    requireNotNegative(input.interestValue, "interest value must not be negative");
+    const loan = await readLoan(id);
+    if (loan && loan.status !== "Active" && loan.status !== "Pending") refuse("loan is not active", 409);
+    const principal = Math.round(input.principalAmount * 100) / 100;
+    const interest = Math.round((input.interestType === "Percentage" ? (principal * input.interestValue) / 100 : input.interestValue) * 100) / 100;
+    if (!loan) return;
+    const disbursed = Math.round((principal - loan.outstandingAmount - interest) * 100) / 100;
+    if (disbursed < 0) refuse("new principal is below the amount owed");
+    if (interest >= principal) refuse("interest amount must be less than the principal amount");
+    if (disbursed > 0.005) {
+      requireValidSplit(disbursed, input);
+      const noSplit = !input.cashAmount && !input.upiAmount && !input.bankTransferAmount;
+      await assertPayoutFunds(loan.branchId, partsOfSplit(noSplit ? { cashAmount: disbursed } : input));
+    }
+  };
+  return check().then(() => queueWrite("POST", path, input, { renewed: true } as unknown as RenewResult, () =>
     apiFetch<RenewResult>(path, { method: "POST", body: JSON.stringify(input) })
-  );
+  ));
 }
 
 export function listPersonalLoansForCustomer(customerId: number): Promise<BackendPersonalLoan[]> {

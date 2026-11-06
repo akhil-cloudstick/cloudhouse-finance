@@ -12,6 +12,46 @@ const CREATES_REQUEST = /^\/loans\/uuid:[0-9a-f-]+\/(release|extension)-request$
 /* A reminder made on this PC works the same way: listed under a local id, and a mark-done, edit or delete before it is
  * sent addresses it as /reminders/ref:<entry id>. */
 const REMINDER_PATH_REF = /\/reminders\/ref:([0-9a-f-]+)(\/|$)/i;
+/* An investment or a personal loan made on this PC and not sent yet is listed under a local (negative) id; whatever is done to it before
+ * it is sent (add cash, withdraw, close, a payment...) addresses it as /investments/ref:<entry id>, and the sender swaps in the server's
+ * id once the entry that created it has been sent. */
+const RECORD_PATH_REF = /\/(?:investments|personal-loans)\/ref:([0-9a-f-]+)(\/|$)/i;
+
+/* A role made on this PC and not sent yet: its permission matrix is saved against /employees/<id>/permissions/ref:<entry id>, and an
+ * approval chain that names it carries "role-ref:<entry id>" in place of its id. (An employee names a role by its NAME, so needs no ref.) */
+const ROLE_PATH_REF = /\/permissions\/ref:([0-9a-f-]+)(\/|\?|$)/i;
+export const ROLE_REF = "role-ref:";
+
+export function createsRole(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+  return entry.method === "POST" && entry.path === "/roles";
+}
+
+/* An employee made on this PC and not sent yet is listed under a local id; an edit or delete of it rewrites or takes back its entry. */
+export function createsEmployee(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+  return entry.method === "POST" && entry.path === "/employees";
+}
+
+export function createsInvestment(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+  return entry.method === "POST" && entry.path === "/investments";
+}
+
+export function createsPersonalLoan(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+  return entry.method === "POST" && entry.path === "/personal-loans";
+}
+
+const LOCAL_RECORD = /^\/(investments|personal-loans)\/(-\d+)(\/.*)?$/;
+
+/* The path with a local id swapped for the entry that creates the record (or its server id once that entry was sent). A path that is
+ * not about such a record, or whose creating entry is gone, comes back as it was. */
+export async function refLocalRecordPath(path: string): Promise<string> {
+  const [bare, query] = path.split("?");
+  const m = LOCAL_RECORD.exec(bare);
+  if (!m) return path;
+  const found = await findLocalRequest(Number(m[2]), m[1] === "investments" ? createsInvestment : createsPersonalLoan);
+  if (!found) return path;
+  const seg = "entryId" in found ? `ref:${found.entryId}` : String(found.serverId);
+  return `/${m[1]}/${seg}${m[3] ?? ""}${query ? `?${query}` : ""}`;
+}
 
 export function createsReminder(entry: Pick<OutboxEntry, "method" | "path">): boolean {
   return entry.method === "POST" && entry.path === "/reminders";
@@ -72,7 +112,7 @@ export async function rememberRequest(entryId: string, body: unknown): Promise<v
 
 /* The entry's path with a ref swapped for the server's request id; null when that request never reached the server. */
 export async function resolveRequestPath(path: string): Promise<string | null> {
-  const m = REQUEST_REF.exec(path) ?? LOCKER_PATH_REF.exec(path) ?? REMINDER_PATH_REF.exec(path);
+  const m = REQUEST_REF.exec(path) ?? LOCKER_PATH_REF.exec(path) ?? REMINDER_PATH_REF.exec(path) ?? RECORD_PATH_REF.exec(path) ?? ROLE_PATH_REF.exec(path);
   if (!m) return path;
   const id = (await load())[m[1]];
   return id ? path.replace(`ref:${m[1]}`, String(id)) : null;
@@ -93,7 +133,7 @@ export function findLocalPlan(localId: number): Promise<{ entryId: string } | { 
 /* The body with every plan ref swapped for the server's plan id; null when that plan never reached the server. */
 export async function resolvePlanRefs(body: unknown): Promise<unknown | null> {
   if (typeof body === "string") {
-    const prefix = [PLAN_REF, LOCKER_REF].find((p) => body.startsWith(p));
+    const prefix = [PLAN_REF, LOCKER_REF, ROLE_REF].find((p) => body.startsWith(p));
     if (!prefix) return body;
     const id = (await load())[body.slice(prefix.length)];
     return id ? id : null;

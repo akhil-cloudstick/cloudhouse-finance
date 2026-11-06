@@ -1,3 +1,4 @@
+import { checkCategoryName } from "./cashOfflineChecks";
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
@@ -32,6 +33,7 @@ export function createCategory(type: CategoryType) {
   return async (name: string): Promise<BackendCategory> => {
     // Desktop: the category goes into the outbox first, is listed at once, and is sent from there.
     if (offlineReady()) {
+      checkCategoryName(name, type === "cash_in");
       const entry = newEntry("POST", "/categories", { name, type }, currentActor());
       const draft = { id: -Math.floor(Math.random() * 1_000_000) - 1, name, type, uuid: entry.id } as unknown as BackendCategory;
       await enqueueAndWait(entry, () => upsertLocal("categories", draft as unknown as LocalRecord), () => removeLocal("categories", entry.id));

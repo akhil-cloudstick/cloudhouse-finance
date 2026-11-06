@@ -3,10 +3,14 @@ import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { queueWrite } from "@/common/offline/queueWrite";
 import { currentActor } from "@/common/offline/actor";
 import { pendingInvestmentRow } from "@/common/offline/investmentAdjust";
-import { PLAN_REF, findLocalPlan, localRequestId } from "@/common/offline/requestRef";
+import { PLAN_REF, createsInvestment, findLocalPlan, localRequestId } from "@/common/offline/requestRef";
+import { dropUnsentRecord } from "@/common/offline/unsent";
+import { assertPayoutFunds, partsOfSplit } from "@/common/offline/funds";
+import { dayOf, refuse, requireNotBefore, requireNotFuture, requireNotNegative, requirePositive, requireValidSplit } from "@/common/offline/validate";
 import { branchHeader } from "@/common/services/branchSelection";
 import { printPdfJob } from "@/common/utils/print";
 import { canMakeOffline, localPerson, renderAndPrint } from "@/common/offline/documents";
+import { printTable, type ExportCell } from "@/common/offline/exports";
 import { getBusinessProfile } from "@/modules/settings/services/businessProfileService";
 import type { InvestmentStatus, BackendInvestmentPlan, CreatePlanInput, BackendInvestment, BackendInvestmentTransaction, BackendInvestmentPayout, CreateInvestmentInput, InvestmentLedgerRow, MaturityAction, AddCashInput, WithdrawInput } from "@/modules/investments/types/investment-types";
 
@@ -19,6 +23,16 @@ export async function createInvestmentPlan(input: CreatePlanInput): Promise<Back
     return await quietly(() => apiFetch<BackendInvestmentPlan>("/investment-plans", { method: "POST", body: JSON.stringify(input) }));
   } catch (e) {
     if (!(offlineReady() && e instanceof ApiError && e.status === 0)) throw e;
+    // the server's own plan checks (SaveInvestmentPlan)
+    if (!["Schedule", "Live"].includes(input.engine ?? "Schedule")) refuse("engine must be Schedule or Live");
+    if (input.productType && !["Deposit", "Bond"].includes(input.productType)) refuse("product type must be Deposit or Bond");
+    requirePositive(input.tenureMonths, "tenure months must be greater than zero");
+    if (!["Simple", "Compound"].includes(input.interestRateType)) refuse("interest rate type must be Simple or Compound");
+    requireNotNegative(input.interestRatePercent, "interest rate percent must not be negative");
+    if ((input.engine ?? "Schedule") === "Schedule") {
+      const per = input.payoutFrequency === "Yearly" ? 12 : input.payoutFrequency === "Monthly" ? 1 : 0;
+      if (per && input.tenureMonths % per !== 0) refuse("tenure months must divide evenly by the payout frequency");
+    }
     const entry = newEntry("POST", "/investment-plans", input, currentActor());
     await enqueueAndWait(entry, () => undefined, () => undefined);
     return { id: localRequestId(entry.id), ...input } as BackendInvestmentPlan;
@@ -67,6 +81,11 @@ export async function createInvestment(input: CreateInvestmentInput, hint?: Crea
 }
 
 async function queueInvestment(input: CreateInvestmentInput, hint: CreateInvestmentHint): Promise<BackendInvestment> {
+  // the server's own checks (SaveInvestment), on the plan the form holds. The deposit is money coming IN, so no funds check applies.
+  requirePositive(input.principalAmount, "principal amount must be greater than zero");
+  if (hint.plan.isActive === false) refuse("investment plan is not active");
+  if (Math.round(input.principalAmount * 100) / 100 < (hint.plan.minPrincipal || 0)) refuse("principal amount is below the plan's minimum");
+  requireValidSplit(Math.round(input.principalAmount * 100) / 100, input);
   let planId: number | string = input.planId;
   if (input.planId < 0) {
     const found = await findLocalPlan(input.planId);
@@ -90,7 +109,7 @@ export function listInvestmentsPage(params: {
   page: number;
   q?: string;
   status?: string; // "All", one status, or several joined by commas
-  customerId?: number;
+  customerId?: number | string; // a string for an investor made on this PC and not sent yet ("uuid:...")
   customerIds?: string[]; // any of these investors
   planIds?: string[]; // any of these plans
   from?: string; // YYYY-MM-DD, bounds the start date (inclusive)
@@ -154,16 +173,62 @@ export function markPayoutPaid(
 ): Promise<BackendInvestmentPayout> {
   const path = `/investments/${investmentId}/payouts/${payoutId}/pay`;
   const body = { ...split, bankId };
-  return queueWrite("POST", path, body, { id: payoutId, status: "Paid" } as unknown as BackendInvestmentPayout, () =>
+  return markPaidChecked(investmentId, payoutId, body).then(() => queueWrite("POST", path, body, { id: payoutId, status: "Paid" } as unknown as BackendInvestmentPayout, () =>
     apiFetch<BackendInvestmentPayout>(path, { method: "POST", body: JSON.stringify(body) })
-  );
+  ));
 }
 
-export function matureInvestment(
+/* Offline only: runs a check before an entry is queued. Online the server does the checking. */
+async function offlineCheck(check: () => Promise<void>): Promise<void> {
+  if (offlineReady()) await check();
+}
+
+/* The investment as this PC shows it (it already counts the entries waiting to be sent); null when it cannot be read, and then nothing is blocked. */
+async function readInvestment(id: number): Promise<BackendInvestment | null> {
+  try {
+    return await getInvestment(id);
+  } catch {
+    return null;
+  }
+}
+
+async function markPaidChecked(investmentId: number, payoutId: number, split: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }): Promise<void> {
+  await offlineCheck(async () => {
+    const inv = await readInvestment(investmentId);
+    if (inv && !["Active", "Matured", "Closed", "Renewed"].includes(inv.status)) refuse("investment is not active", 409);
+    let payout: BackendInvestmentPayout | undefined;
+    try {
+      payout = (await getInvestmentSchedulePage(investmentId, 0, 1000)).items.find((p) => p.id === payoutId);
+    } catch {
+      payout = undefined;
+    }
+    if (payout?.status === "Paid") refuse("payout has already been paid", 409);
+    if (payout) requireValidSplit(payout.amount, split);
+  });
+}
+
+export async function matureInvestment(
   investmentId: number,
   input: { action: MaturityAction; planId?: number; principalAmount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number }
 ): Promise<BackendInvestment> {
   const path = `/investments/${investmentId}/mature`;
+  await offlineCheck(async () => {
+    if (input.action !== "Close" && input.action !== "Renew") refuse("maturity decision must be Close or Renew");
+    const inv = await readInvestment(investmentId);
+    if (!inv) return;
+    if (inv.status !== "Matured") refuse("investment has not matured yet", 409);
+    if (inv.engine === "Live" && input.action === "Close") {
+      const total = Math.round(((inv.outstandingPrincipal || 0) + (inv.outstandingInterest || 0)) * 100) / 100;
+      if (total > 0.005) {
+        requireValidSplit(total, input);
+        await assertPayoutFunds(inv.branchId, partsOfSplit(input));
+      }
+    }
+  });
+  return queueMature(path, investmentId, input);
+}
+
+function queueMature(path: string, investmentId: number, input: object): Promise<BackendInvestment> {
   return queueWrite("POST", path, input, undefined as unknown as BackendInvestment, () => apiFetch<BackendInvestment>(path, { method: "POST", body: JSON.stringify(input) })).then((r) => r ?? getInvestment(investmentId));
 }
 
@@ -171,15 +236,40 @@ export function listInvestmentsForCustomer(customerId: number): Promise<BackendI
   return apiFetch<BackendInvestment[]>(`/customers/${customerId}/investments`);
 }
 
-export function addCashToInvestment(investmentId: number, input: AddCashInput): Promise<BackendInvestment> {
+export async function addCashToInvestment(investmentId: number, input: AddCashInput): Promise<BackendInvestment> {
   const path = `/investments/${investmentId}/add-cash`;
+  await offlineCheck(async () => {
+    requirePositive(input.amount, "amount must be greater than zero");
+    requireValidSplit(Math.round(input.amount * 100) / 100, input);
+    const inv = await readInvestment(investmentId);
+    if (!inv) return;
+    if (inv.engine !== "Live") refuse("needs a live-accrual investment");
+    if (inv.status !== "Active") refuse("investment is not active", 409);
+    requireNotFuture(input.occurredOn, `date (${dayOf(input.occurredOn)}) cannot be in the future`);
+    requireNotBefore(input.occurredOn, inv.lastAccrualDate, `date (${dayOf(input.occurredOn)}) is before the most recent recorded entry on this account (${dayOf(inv.lastAccrualDate)})`);
+  });
   return queueWrite("POST", path, input, undefined as unknown as BackendInvestment, () =>
     apiFetch<BackendInvestment>(path, { method: "POST", body: JSON.stringify(input) })
   ).then((r) => r ?? getInvestment(investmentId));
 }
 
-export function withdrawFromInvestment(investmentId: number, input: WithdrawInput): Promise<BackendInvestment> {
+export async function withdrawFromInvestment(investmentId: number, input: WithdrawInput): Promise<BackendInvestment> {
   const path = `/investments/${investmentId}/withdraw`;
+  await offlineCheck(async () => {
+    if (input.interestAmount < 0 || input.principalAmount < 0) refuse("amount must be greater than zero");
+    const total = Math.round((input.interestAmount + input.principalAmount) * 100) / 100;
+    requirePositive(total, "amount must be greater than zero");
+    requireValidSplit(total, input);
+    const inv = await readInvestment(investmentId);
+    if (!inv) return;
+    if (inv.engine !== "Live") refuse("needs a live-accrual investment");
+    if (inv.status !== "Active" && inv.status !== "Matured") refuse("investment is not active", 409);
+    requireNotFuture(input.occurredOn, `date (${dayOf(input.occurredOn)}) cannot be in the future`);
+    requireNotBefore(input.occurredOn, inv.lastAccrualDate, `date (${dayOf(input.occurredOn)}) is before the most recent recorded entry on this account (${dayOf(inv.lastAccrualDate)})`);
+    if (input.principalAmount > inv.outstandingPrincipal + 0.01) refuse("withdrawal exceeds the outstanding principal", 409);
+    // interest keeps accruing on the server, so a figure kept earlier can only be lower than the real one: blocks only when certain
+    if (typeof inv.outstandingInterest === "number" && input.interestAmount > inv.outstandingInterest + 0.01 && !inv.lastAccrualDate) refuse("withdrawal exceeds the outstanding interest", 409);
+  });
   return queueWrite("POST", path, input, undefined as unknown as BackendInvestment, () =>
     apiFetch<BackendInvestment>(path, { method: "POST", body: JSON.stringify(input) })
   ).then((r) => r ?? getInvestment(investmentId));
@@ -252,7 +342,30 @@ export async function printInvestmentBondPdf(investmentId: number): Promise<void
 /* Sends the investment's account statement straight to the browser's print
  * dialog — same printPdfBlob flow as printInvestmentBondPdf above. */
 export async function printInvestmentStatementPdf(investmentId: number): Promise<void> {
-  return printPdfJob(() => fetchInvestmentStatementPdf(investmentId), undefined, `investment-statement-${investmentId}.pdf`);
+  try {
+    return await printPdfJob(() => fetchInvestmentStatementPdf(investmentId), undefined, `investment-statement-${investmentId}.pdf`);
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    // the server did not answer: the statement is made on this PC from the investment, its ledger and schedule that it holds
+    const inv = await getInvestment(investmentId);
+    const ledger = await getInvestmentLedger(investmentId).catch(() => [] as InvestmentLedgerRow[]);
+    const sched = await getInvestmentSchedulePage(investmentId, 0, 500).then((r) => r.items).catch(() => [] as BackendInvestmentPayout[]);
+    const dmy = (s: string | null | undefined) => (s || "").slice(0, 10);
+    const summary = [
+      `Investment: ${inv.investmentNumber}`,
+      `Investor: ${inv.customer?.name ?? ""} (${inv.customer?.code ?? ""})`,
+      `Plan: ${inv.plan?.name ?? ""} - ${inv.interestRatePercent}% ${inv.interestRateType}, ${inv.payoutFrequency}, ${inv.tenureMonths} months`,
+      `Principal: ${inv.principalAmount}`,
+      `Start: ${dmy(inv.startDate)}  Maturity: ${dmy(inv.maturityDate)}  Status: ${inv.status}`,
+      `Total interest paid: ${inv.totalInterestPaid}`,
+    ];
+    const rows: ExportCell[][] = ledger.map((r) => [dmy(r.date), r.description, r.method, r.reference, r.debitOrCredit === "debit" ? r.amount : "", r.debitOrCredit === "credit" ? r.amount : "", r.runningBalance]);
+    if (sched.length) {
+      rows.push(["", "Payout schedule", "", "", "", "", ""]);
+      for (const p of sched) rows.push([dmy(p.dueDate), p.isPrincipalReturn ? "Principal return" : "Interest payout", p.status, p.paidAt ? `paid ${dmy(p.paidAt)}` : "", "", p.amount, ""]);
+    }
+    return printTable({ title: "Investment Statement", filename: `investment-statement-${inv.investmentNumber}`, summary, headers: ["Date", "Description", "Mode / Status", "Reference", "Debit", "Credit", "Balance"], rows });
+  }
 }
 
 
@@ -268,6 +381,37 @@ export async function payInterestMonths(
   input: { amount: number; cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }
 ): Promise<BackendInvestmentPayout[]> {
   const path = `/investments/${investmentId}/pay-interest`;
+  await offlineCheck(async () => {
+    const amount = Math.round(input.amount * 100) / 100;
+    requirePositive(amount, "amount must be greater than zero");
+    const inv = await readInvestment(investmentId);
+    if (inv && inv.engine === "Live") refuse("no payout schedule for this investment");
+    if (inv && !["Active", "Matured", "Closed", "Renewed"].includes(inv.status)) refuse("investment is not active", 409);
+    requireValidSplit(amount, input);
+    let pending: BackendInvestmentPayout[] | null = null;
+    try {
+      pending = await getPendingInterest(investmentId);
+    } catch {
+      pending = null;
+    }
+    if (pending) {
+      if (pending.length === 0) refuse("there is no unpaid interest on this investment", 409);
+      let covered = 0;
+      let months = 0;
+      for (const p of pending) {
+        if (covered + p.amount > amount + 0.01) break;
+        covered = Math.round((covered + p.amount) * 100) / 100;
+        months++;
+      }
+      if (months === 0) refuse(`amount is less than the next month's interest of ₹${pending[0].amount.toFixed(2)}`);
+      if (Math.abs(covered - amount) > 0.01) {
+        let msg = `amount must cover whole months — ₹${covered.toFixed(2)} covers ${months} month(s)`;
+        if (months < pending.length) msg += `, ₹${(Math.round((covered + pending[months].amount) * 100) / 100).toFixed(2)} covers ${months + 1}`;
+        refuse(msg);
+      }
+    }
+    await assertPayoutFunds(inv?.branchId, partsOfSplit(input));
+  });
   return queueWrite("POST", path, input, [] as BackendInvestmentPayout[], async () => {
     const res = await apiFetch<{ items: BackendInvestmentPayout[] | null }>(path, { method: "POST", body: JSON.stringify(input) });
     return res.items || [];
@@ -329,6 +473,11 @@ export function closeInvestment(investmentId: number): Promise<BackendInvestment
 /* Deletes an investment at any stage, reversing every cash entry it booked, in one transaction server-side.
  * Needs the "can delete investment" permission. */
 export async function deleteInvestment(investmentId: number): Promise<void> {
+  // one made on this PC and not sent yet: nothing is on the server, so deleting it takes back the entry that creates it (and what was done to it since)
+  if (investmentId < 0 && offlineReady()) {
+    if (await dropUnsentRecord(investmentId, createsInvestment)) return;
+    throw new ApiError("This investment was sent while you were deleting it. Refresh, then delete it.", 409);
+  }
   const path = `/investments/${investmentId}/delete`;
   await queueWrite("DELETE", path, undefined, undefined, async () => {
     await apiFetch<unknown>(path, { method: "DELETE" });

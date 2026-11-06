@@ -17,7 +17,8 @@ import { forgetRegistration } from "./device";
 import { withUploadedPhotos } from "./photos";
 import { ensureRegistered } from "./register";
 import { rememberPledge, resolvePledgePath } from "./pledgeRef";
-import { createsLoan, createsLocker, createsPlan, createsReminder, PACKET_REF, serverIdOf, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
+import { forgetSecret, hasSecretRef, resolveSecrets } from "./secrets";
+import { createsInvestment, createsLoan, createsRole, createsLocker, createsPersonalLoan, createsPlan, createsReminder, PACKET_REF, serverIdOf, createsRequest, rememberRequest, resolvePlanRefs, resolveRequestPath } from "./requestRef";
 import type { EntityName, OutboxEntry } from "./types";
 
 let running = false;
@@ -153,7 +154,16 @@ export async function drain(why: string): Promise<boolean> {
       // an investment made with a plan made on this PC names it by the entry that created the plan
       const resolvedBody = await resolvePlanRefs(sendBody);
       if (resolvedBody === null && sendBody !== null) {
-        const message = "The plan this refers to was not saved by the server.";
+        const message = JSON.stringify(sendBody).includes("role-ref:") ? "The role this refers to was not saved by the server." : "The plan this refers to was not saved by the server.";
+        offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${message}`);
+        await sendToReview(entry, message);
+        window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
+        continue;
+      }
+      // a password typed while this was waiting is kept sealed apart from the entry; it is put back in only for this send
+      const sealedBody = await resolveSecrets(resolvedBody);
+      if (sealedBody === null && resolvedBody !== null) {
+        const message = "The password saved for this was lost. Make the change again.";
         offlineStore.log("warn", `entry ${entry.id} ${entry.method} ${entry.path} refused: ${message}`);
         await sendToReview(entry, message);
         window.dispatchEvent(new CustomEvent(ENTRY_REFUSED_EVENT, { detail: { message: `${message} An admin can review it in Settings.` } }));
@@ -162,7 +172,7 @@ export async function drain(why: string): Promise<boolean> {
       const r = await replayRequest({
         method: entry.method,
         path: sendPath,
-        body: resolvedBody,
+        body: sealedBody,
         clientUuid: entry.id,
         occurredAt: entry.occurredAt,
       });
@@ -174,6 +184,7 @@ export async function drain(why: string): Promise<boolean> {
           // someone is still at the screen: they get the message there, the same as an online save, so the entry
           // is dropped and the local copy goes back to what the server holds
           await offlineStore.deleteOutboxEntry(entry.id);
+          if (hasSecretRef(entry.body)) await forgetSecret(entry.id);
           await refuse(entry.id, { status: r.status, message });
         } else {
           // nobody is waiting for it: it goes to the admin's review list, still on this PC with the server's reason,
@@ -192,9 +203,10 @@ export async function drain(why: string): Promise<boolean> {
         break;
       }
       if (entry.method === "POST" && /\/bank-pledge$/.test(entry.path)) await rememberPledge(entry.id, r.body);
-      if (createsRequest(entry) || createsPlan(entry) || createsLocker(entry) || createsLoan(entry) || createsReminder(entry)) await rememberRequest(entry.id, r.body);
+      if (createsRequest(entry) || createsPlan(entry) || createsLocker(entry) || createsLoan(entry) || createsReminder(entry) || createsInvestment(entry) || createsPersonalLoan(entry) || createsRole(entry)) await rememberRequest(entry.id, r.body);
       await applyReply(entry, r.body);
       await offlineStore.deleteOutboxEntry(entry.id);
+      if (hasSecretRef(entry.body)) await forgetSecret(entry.id);
       sent++;
     }
   } catch (e) {

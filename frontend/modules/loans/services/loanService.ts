@@ -6,6 +6,8 @@ import { localPledgeId } from "@/common/offline/pledgeRef";
 import { findLocalRequest, localRequestId } from "@/common/offline/requestRef";
 import { canQueue, queueOnly, queueWrite } from "@/common/offline/queueWrite";
 import { setAuctionStage } from "@/common/offline/auctionStages";
+import { assertPayoutFunds, partsOfSplit } from "@/common/offline/funds";
+import { releaseAmountNeeded } from "@/modules/loans/utils/releaseAmount";
 import { changeWithEntry, enqueueAndWait, getLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord, type OutboxEntry } from "@/common/offline";
 import { enabledStages, fetchApprovalWorkflow, isFlowOff, nextStage, stageByPending } from "@/common/services/approvalWorkflowService";
 import {
@@ -20,10 +22,12 @@ import {
   localLoans,
   pendingKey,
   reversePaymentLocally,
+  checkAuctionStepLocally,
   saveOptimisticLoan,
   sortNewestFirst,
   type CreateLoanHint,
   type EditSchemeTerms,
+  checkCreateLoanLocally, checkApprovalLocally, checkPaymentLocally, checkTopUpLocally, checkBankPledgeLocally, checkRequestLocally, checkOrnamentLocally,
 } from "@/modules/loans/services/loanOffline";
 import { listSchemes } from "@/modules/schemes/services/schemeService";
 import type { SchemeView } from "@/modules/schemes/types/scheme-types";
@@ -209,6 +213,7 @@ export async function createLoan(input: CreateLoanInput, hint?: CreateLoanHint):
       body: JSON.stringify(input),
     });
   }
+  checkCreateLoanLocally(input, hint);
   // Desktop: the save goes into the outbox first, with the local copy updated in the same step. If the server
   // answers within a few seconds the real loan comes back exactly as online; otherwise the loan shows with a
   // PENDING number and is sent by the cron.
@@ -543,6 +548,7 @@ export async function getLoanByNumber(loanNumber: string): Promise<LoanView> {
 
 export async function addOrnament(loanId: number, input: OrnamentRequestInput): Promise<LoanView> {
   if (!loanId && offlineReady()) throw new ApiError(NOT_SYNCED, 0);
+  if (offlineReady()) checkOrnamentLocally(input);
   try {
     const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/ornaments`, {
       method: "POST",
@@ -558,6 +564,7 @@ export async function addOrnament(loanId: number, input: OrnamentRequestInput): 
 
 export async function updateOrnament(ornamentId: number, input: OrnamentRequestInput): Promise<LoanView> {
   if (ornamentId < 0 && offlineReady()) throw new ApiError(NOT_SYNCED, 0);
+  if (offlineReady()) checkOrnamentLocally(input);
   try {
     const rec = await apiFetch<BackendLoan>(`/loans/ornaments/${ornamentId}`, {
       method: "PUT",
@@ -642,6 +649,9 @@ export async function approveLoan(loanId: number, input: ApprovalInput, uuid?: s
   // Desktop: one explicit action is one outbox entry, addressed by the loan UUID so it can point at a loan
   // the server has not numbered yet. The local copy moves to the next stage in the same step.
   const chain = enabledStages(await fetchApprovalWorkflow().catch(() => []), "loan_sanction");
+  // The last stage pays the loan out: refused here, as the server would, when the till or the chosen bank cannot cover it.
+  if (input.action === "Approved" && chain.length > 0 && chain[chain.length - 1].key === input.stage) await assertPayoutFunds(local.branchId, partsOfSplit(input));
+  checkApprovalLocally(local, input, chain);
   const actor = currentActor();
   const entry = newEntry("POST", `/loans/uuid:${uuid}/approve`, input, actor, [uuid!]);
   const before = local;
@@ -666,6 +676,20 @@ export async function previewLoanEdit(loanId: number, input: UpdateLoanInput): P
   }
 }
 
+/* The newest edit of this loan still waiting in the outbox, if any. */
+async function waitingLoanEdit(uuid: string): Promise<OutboxEntry | null> {
+  let found: OutboxEntry | null = null;
+  for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
+    try {
+      const e = JSON.parse(line) as OutboxEntry;
+      if (e.method === "PATCH" && e.path === `/loans/uuid:${uuid}`) found = e;
+    } catch {
+      /* a line that cannot be read is not this one */
+    }
+  }
+  return found;
+}
+
 export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: string): Promise<LoanView> {
   const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
   // Desktop: the change goes into the outbox first and shows on this loan at once; the sender posts it.
@@ -681,6 +705,17 @@ export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: 
     }
     const edited = applyEditLocally(local, input, firstStage, currentActor(), terms);
     const after = input.additionalInfo !== undefined ? { ...edited, additionalInfo: input.additionalInfo } : edited;
+    // An edit of a loan whose earlier edit has not been sent yet joins that entry (the newer values win), so saving a loan
+    // three times sends ONE edit, not three that the server has to take one after another.
+    const earlier = await waitingLoanEdit(uuid);
+    if (earlier) {
+      try {
+        await changeWithEntry(earlier.id, JSON.stringify({ ...earlier, body: { ...((earlier.body ?? {}) as object), ...input } }), () => upsertLocal("loans", after as unknown as LocalRecord));
+        return toView(after);
+      } catch {
+        /* it was sent (or refused) in the meantime: this edit is an entry of its own */
+      }
+    }
     await enqueueAndWait(
       entry,
       () => upsertLocal("loans", after as unknown as LocalRecord),
@@ -735,6 +770,7 @@ export async function recordPayment(loanId: number, input: PaymentInput, uuid?: 
   }
   // Desktop: the payment is one outbox entry addressed by the loan UUID. It shows on the loan at once; the
   // server works out the split and the new balances when it receives the entry.
+  checkPaymentLocally(local, input);
   const actor = currentActor();
   const entry = newEntry("POST", `/loans/uuid:${uuid}/payments`, input, actor, [uuid!]);
   const before = local;
@@ -823,6 +859,9 @@ export async function topUpLoan(loanId: number, input: TopUpInput): Promise<Loan
     const deduct = input.settleInterest === "deduct";
     if (arrears > 0.01 && !deduct) throw new ApiError("pay the outstanding interest first", 400);
     const needsApproval = enabledStages(await fetchApprovalWorkflow().catch(() => []), "loan_topup").length > 0;
+    checkTopUpLocally(local, input, needsApproval);
+    // with no approval step the top-up is paid out at once: the till or the chosen bank has to cover it (less what it deducts)
+    if (!needsApproval) await assertPayoutFunds(local.branchId, partsOfSplit({ ...input, cashAmount: input.cashAmount === undefined && !input.upiAmount && !input.bankTransferAmount ? Math.max(0, input.amount - (deduct ? Math.min(arrears, input.amount) : 0)) : input.cashAmount }));
     const taken = deduct ? Math.min(arrears, input.amount) : 0;
     const penalTaken = Math.min(taken, penalOwed);
     const interestTaken = taken - penalTaken;
@@ -883,6 +922,10 @@ export async function approveTopUp(topUpId: number, input: TopUpApprovalInput): 
 }
 
 export async function recordBankPledge(loanId: number, input: BankPledgeInput): Promise<LoanView> {
+  if (offlineReady() && loanId) {
+    const rec = localLoanByNumericId(loanId);
+    if (rec) checkBankPledgeLocally(rec, input);
+  }
   // the loan shows as pledged at once, with the new pledge listed (id 0 until the server numbers it)
   const queued = await queueFirst(loanId, "/bank-pledge", "POST", input, (loan, entryId) => ({
     ...loan,
@@ -1261,6 +1304,7 @@ export async function getAuctionRecord(loanId: number): Promise<AuctionRecordVie
 async function auctionQueued(loanId: number, step: string, body: unknown, stage: AuctionStage, patch: Partial<AuctionRecordView> = {}): Promise<AuctionRecordView | null> {
   if (!canQueue() || !(loanId > 0)) return null;
   const current = await getAuctionRecord(loanId);
+  checkAuctionStepLocally(step, body, current?.stage);
   // the stage is kept per loan on this PC (so the Auctions table and its filter see it at once), and a loan marked eligible is
   // "Auction Eligible" from then on, a sold one "Auctioned" — as the server will have it when the step is sent
   await queueWrite("POST", `/loans/${loanId}/auction/${step}`, body, undefined, () => Promise.reject(new Error("offline mode is not running")), async () => {
@@ -1679,6 +1723,16 @@ async function planReleasePayment(req: RequestView, loan: BackendLoan, input: Re
       bankId: input.bankId, reference: input.reference, interestOverride: input.interestOverride, description: "Release payment",
     }, actor);
   }
+  // The server checks the payment (plus discount) against what is needed to release the gold, from the live balance. Interest only adds to
+  // that balance, so a payment already short of what this PC shows is certainly short on the server; the opposite (a discount above what
+  // is needed) is left to the server, whose balance may be higher.
+  {
+    const view = toView(loan);
+    const kept = req.isPartial ? view.ornaments.filter((o) => !o.releasedAt && !(req.ornamentIds ?? []).includes(o.id)).map((o) => o.id) : null;
+    const needed = releaseAmountNeeded(view, kept);
+    const short = roundMoney(needed - (input.amount + discount));
+    if (short > 0.01) throw new ApiError(`the payment is ₹${short.toFixed(2)} short of the ₹${needed.toFixed(2)} needed to release the gold`, 400);
+  }
   const settled = req.isPartial || (next.totalOutstandingBalance ?? 0) <= 0.01;
   if (!settled && (discount > 0 || paymentAmount > 0) && !input.dueDate) throw new ApiError("due date is required", 400);
   let patch: Partial<RequestView> = {
@@ -1830,7 +1884,16 @@ async function refuseSecondPending(loanId: number, type: "Extension" | "Release"
 }
 
 export async function createExtensionRequest(loanId: number, months: number, detail?: string): Promise<RequestView> {
+  if (offlineReady() && loanId) {
+    const known = localLoanByNumericId(loanId);
+    if (known) checkRequestLocally(known, "Extension", months);
+  }
   await refuseSecondPending(loanId, "Extension");
+  // The server's own rule ("pay the outstanding interest first"), checked on this PC's copy so the request is not queued only to be refused.
+  if (offlineReady()) {
+    const rec = localLoanByNumericId(loanId);
+    if (rec && ((rec.outstandingInterest ?? 0) > 0.01 || (rec.outstandingPenalInterest ?? 0) > 0.01)) throw new ApiError("pay the outstanding interest first", 400);
+  }
   // With no extension approval stages the server approves it on the spot and moves the due date; the local copy does the same
   const autoApproved = offlineReady() && !!localLoanByNumericId(loanId)?.uuid && isFlowOff(await fetchApprovalWorkflow().catch(() => []), "loan_extension");
   if (autoApproved) {
@@ -1858,6 +1921,10 @@ export async function createExtensionRequest(loanId: number, months: number, det
  * doesn't need to special-case "select all" as anything but a normal call. */
 export async function createReleaseRequest(loanId: number, detail?: string, ornamentIds?: number[], requestedAt?: string): Promise<RequestView> {
   const body = { detail, ornamentIds: ornamentIds && ornamentIds.length ? ornamentIds : undefined, requestedAt };
+  if (offlineReady() && loanId) {
+    const known = localLoanByNumericId(loanId);
+    if (known) checkRequestLocally(known, "Release");
+  }
   await refuseSecondPending(loanId, "Release");
   const queued = await queueFirst(loanId, "/release-request", "POST", body);
   if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Release", status: "Pending", requestedBy: "Staff", detail: detail ?? "", ...(requestedAt ? { requestedAt } : {}) } as unknown as BackendLoanRequest);
@@ -2247,6 +2314,15 @@ export async function downloadPledgeSlipPDF(loanNumericId: number): Promise<void
  * backend/templates/tml_statement.html for the loan's latest payment
  * (GET /loans/:id/statement-receipt) and sent straight to the print dialog. */
 export async function downloadTmlStatementReceipt(loanNumericId: number): Promise<void> {
+  try {
+    return await downloadTmlStatementReceiptOnline(loanNumericId);
+  } catch (e) {
+    if (canMakeOffline(e)) return printOfflineLoanDocument("tml-statement", loanNumericId);
+    throw e;
+  }
+}
+
+async function downloadTmlStatementReceiptOnline(loanNumericId: number): Promise<void> {
   return printPdfJob(async () => {
     const token = getAuthToken();
     const res = await apiRawFetch(`/loans/${loanNumericId}/statement-receipt`, {

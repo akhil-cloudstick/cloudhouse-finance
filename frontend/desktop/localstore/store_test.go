@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -219,7 +220,7 @@ func TestFileRoundTripAndMissing(t *testing.T) {
 	if got, err := s.ReadFile("cursor.json"); err != nil || got != "" {
 		t.Fatalf("missing file: got %q, %v; want empty", got, err)
 	}
-	for _, n := range []string{"cursor.json", "users.json"} {
+	for _, n := range []string{"cursor.json", "users.json", "data/pending_secrets.json"} {
 		want := `{"v":"` + n + `"}`
 		if err := s.WriteFile(n, want); err != nil {
 			t.Fatal(err)
@@ -298,5 +299,28 @@ func TestChangeEntry(t *testing.T) {
 	}
 	if got, _ := s.ReadFile("data/loans.json"); got != `[]` {
 		t.Fatalf("file = %q, want [] (unchanged by the refused change)", got)
+	}
+}
+
+func TestPendingSecretsFileIsProtected(t *testing.T) {
+	for _, n := range []string{"pending_secrets.json", "data/pending_secrets.json"} {
+		if !isSecret(n) {
+			t.Errorf("%s is not protected as a secret file", n)
+		}
+	}
+	if isSecret("data/loans.json") {
+		t.Error("an ordinary data file is treated as a secret")
+	}
+	s := open(t)
+	want := `{"entry-1":"hunter2hunter2"}`
+	if err := s.WriteFile("data/pending_secrets.json", want); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ReadFile("data/pending_secrets.json"); err != nil || got != want {
+		t.Fatalf("round trip: got %q, %v; want %q", got, err, want)
+	}
+	raw, err := os.ReadFile(filepath.Join(s.dir, "data", "pending_secrets.json"))
+	if err == nil && runtime.GOOS == "windows" && strings.Contains(string(raw), "hunter2") {
+		t.Error("the password is on disk in plain text")
 	}
 }

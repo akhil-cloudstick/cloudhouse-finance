@@ -36,7 +36,7 @@ function InvestorInvestments({ customerId, from, to }: InvestorInvestmentsProps)
   useEffect(() => {
     let live = true;
     setLoadingMore(true);
-    listInvestmentsPage({ page, customerId: Number(customerId), from: from || undefined, to: to || undefined, pageSize: PAGE_SIZE })
+    listInvestmentsPage({ page, customerId: Number.isFinite(Number(customerId)) && Number(customerId) > 0 ? Number(customerId) : customerId, from: from || undefined, to: to || undefined, pageSize: PAGE_SIZE })
       .then((res) => {
         if (!live) return;
         setItems((cur) => (page === 1 ? res?.items || [] : [...(cur || []), ...(res?.items || [])]));

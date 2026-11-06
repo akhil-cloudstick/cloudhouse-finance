@@ -5,7 +5,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
-import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, releaseBankPledge, editReleaseRecord, linkedDiscountOf } from "@/modules/loans/services/loanService";
+import { getLoan, getLoanByNumber, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, releaseBankPledge, editReleaseRecord, linkedDiscountOf } from "@/modules/loans/services/loanService";
 import { type RequestView, type LoanView } from "@/modules/loans/types/loan-types";
 import { listPackets, recordMovement, PACKET_STATUS } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
@@ -90,8 +90,14 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   });
 
   useEffect(() => {
-    getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
+    loadLoan().then(setLoan).catch(() => setLoan(null));
   }, [request.loanNumericId]);
+
+  // A request made on this PC can point at a loan the server has not numbered yet (id 0): open it by its number then.
+  function loadLoan(): Promise<LoanView> {
+    const byNumber = () => getLoanByNumber(request.loanNumber);
+    return request.loanNumericId ? getLoan(request.loanNumericId).catch(byNumber) : byNumber();
+  }
 
   // The backend no longer gates CustomerSawGold on the packet's own stage
   // (see VerifyReleaseChecklist's own doc comment — that's tracked
@@ -162,7 +168,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // Release Complete summary. Runs after the payment popup has closed back to here, so openModal replaces this modal.
   async function afterReleasePayment() {
     try {
-      const [freshLoan, all] = await Promise.all([getLoan(request.loanNumericId), listLoanRequests({ loanId: request.loanNumericId })]);
+      const [freshLoan, all] = await Promise.all([loadLoan(), listLoanRequests({ loanId: request.loanNumericId })]);
       const fresh = all.find((r) => r.id === req.id);
       setLoan(freshLoan);
       if (fresh) setReq(fresh);
@@ -212,7 +218,6 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const neededNum = loan
     ? releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)
     : 0;
-  const neededText = loan ? fmt(neededNum) : "the minimum amount";
   const paymentConditionMet =req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
   async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
@@ -452,22 +457,12 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
               * VerifyReleaseChecklist/ApproveReleaseRequest are), posted
               * through the plain /loans/:id/payments endpoint like any
               * other payment, not the release-request endpoint. */}
-            <button className="btn ghost sm" onClick={() => openChildModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}>
+            <button className="btn ghost sm" onClick={() => openChildModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); loadLoan().then(setLoan); refreshRequest(); }} />, true)}>
               <Icon name="coin" /> Record Top-Up Payment
             </button>
           </div>
         )}
 
-        {req.status === "Pending" && (!req.customerSawGold || !paymentConditionMet) && (
-          <p className="notice" style={{ marginTop: 12 }}>
-            <Icon name="shield" />{" "}
-            {!req.customerSawGold && !paymentConditionMet
-              ? `"Customer has seen the gold" must be ticked and at least ${neededText} paid before this can be approved.`
-              : !req.customerSawGold
-                ? '"Customer has seen the gold" must be ticked before this can be approved.'
-                : `At least ${neededText} must be paid (via Record Payment above) before this can be approved.`}
-          </p>
-        )}
         {(chain.length > 1 || (chain.length === 1 && req.status === "Rejected")) && (
           <div style={{ marginTop: 14 }}>
             <StageTracker
@@ -490,7 +485,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       <div className="ft">
         {canEditLedger && recordedPaymentRow && loan && (
           <button className="btn ghost" disabled={saving}
-            onClick={() => openModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={recordedPaymentRow} linkedDiscount={linkedDiscountOf(loan.payments, recordedPaymentRow)} mode="edit" minDate={loan.opened?.slice(0, 10) || undefined} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); closeModal(); }} />, true)}>
+            onClick={() => openModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={recordedPaymentRow} linkedDiscount={linkedDiscountOf(loan.payments, recordedPaymentRow)} mode="edit" minDate={loan.opened?.slice(0, 10) || undefined} onSaved={() => { onSaved(); loadLoan().then(setLoan); refreshRequest(); closeModal(); }} />, true)}>
             <Icon name="edit" /> Edit
           </button>
         )}

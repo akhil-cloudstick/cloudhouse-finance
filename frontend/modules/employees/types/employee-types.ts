@@ -31,6 +31,9 @@ export type EmployeeView = {
   collections: number;
   followups: number;
   pending: number;
+  /** Set when the change was only saved on this PC for now (it applies to everyone once it syncs). */
+  queued?: boolean;
+  message?: string;
 };
 export type EmployeeFormInput = {
   name: string;

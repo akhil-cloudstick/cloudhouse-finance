@@ -1,4 +1,6 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, ApiError } from "@/common/services/httpClient";
+import { refuse } from "@/common/offline/validate";
+import { getLocker } from "@/modules/lockers/services/lockerService";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
 import { createsLocker, findLocalRequest, LOCKER_REF } from "@/common/offline/requestRef";
@@ -137,6 +139,40 @@ export async function listMovements(packetId: number): Promise<MovementView[]> {
   return (rec || []).map(toMovementView);
 }
 
+/* Mirrors backend Packet allowedTransitions (the stages a packet may move to from each stage). */
+const ALLOWED_MOVES: Record<string, string[]> = {
+  "Packet Generated": ["Locker Stored", "Bank Pledged", "Released"],
+  "Locker Stored": ["Bank Pledged", "Released"],
+  "Bank Pledged": ["Returned"],
+  Returned: ["Locker Stored", "Bank Pledged", "Released"],
+  "Ready For Release": ["Released"],
+  Released: [],
+};
+
+/* Offline only: the server's refusals for a movement (SavePacketMovement), checked on the packet and locker this PC shows. Where either
+ * cannot be read nothing is blocked. */
+async function checkMovement(packetId: number, input: RecordMovementInput): Promise<void> {
+  let packet: PacketView | null = null;
+  if (packetId > 0) {
+    try {
+      packet = await getPacket(packetId);
+    } catch {
+      packet = null;
+    }
+  }
+  if (packet && !(ALLOWED_MOVES[packet.status] ?? []).includes(input.toStatus)) refuse("invalid packet stage transition", 409);
+  if (input.toStatus === PACKET_STATUS.LOCKER_STORED) {
+    if (!input.lockerId) refuse("locker_id is required for this transition");
+    try {
+      const locker = await getLocker(input.lockerId);
+      if (!locker.isActive) refuse("locker does not exist or is inactive");
+      if (locker.occupied >= locker.capacity && packet?.status !== "Locker Stored") refuse("locker is at full capacity", 409);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 400 || e.status === 409)) throw e;
+    }
+  }
+}
+
 export async function recordMovement(packetId: number, input: RecordMovementInput): Promise<PacketView | null> {
   // Desktop: the movement goes into the outbox first and the packet shows its new stage at once (see
   // common/offline/statusAdjust.ts); the sender posts it. A packet with no server id yet cannot be moved.
@@ -144,6 +180,7 @@ export async function recordMovement(packetId: number, input: RecordMovementInpu
   const loanUuid = offlineReady() && packetId < 0 ? loanUuidOfPacket(packetId) : undefined;
   if (offlineReady() && packetId < 0 && !loanUuid) throw new Error("This packet is no longer on this PC — refresh and try again.");
   if (offlineReady() && (packetId > 0 || loanUuid)) {
+    await checkMovement(packetId, input);
     let body: unknown = input;
     // a locker made on this PC has no server id yet: the movement names it by the entry that creates it, or by the
     // server's id when that entry has already been sent (see common/offline/requestRef.ts)

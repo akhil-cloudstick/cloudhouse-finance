@@ -44,9 +44,12 @@ type docOrnament struct {
 	Quantity     int     `json:"quantity"`
 	GoldValue    float64 `json:"goldValue"`
 	ReleasedAt   *string `json:"releasedAt"`
+	DeductionWeight float64 `json:"deductionWeight"`
 }
 
 type docPayment struct {
+	ID                   int     `json:"id"`
+	ProcessingFeeApplied float64 `json:"processingFeeApplied"`
 	Amount               float64 `json:"amount"`
 	Type                 string  `json:"type"`
 	PaidOn               string  `json:"paidOn"`
@@ -105,6 +108,10 @@ type docLoan struct {
 	Ornaments []docOrnament        `json:"ornaments"`
 	Payments  []docPayment         `json:"payments"`
 	TopUps    []docTopUp           `json:"localTopUps"`
+	// TML documents
+	SchemeRateTiers      []docRateTier `json:"schemeRateTiers"`
+	SchemeMinimumDays    int           `json:"schemeMinimumDays"`
+	SchemeDurationMonths int           `json:"schemeDurationMonths"`
 }
 
 type docProfile struct {
@@ -151,6 +158,10 @@ func (a *App) RenderOfflineDocument(kind, lang, inputJSON string) (string, error
 		return docPersonalLoanBond(in, lang)
 	case "investment-bond":
 		return docInvestmentBond(in)
+	case "tml-pledge-slip":
+		return docTMLSlip(in)
+	case "tml-statement":
+		return docTMLStatement(in)
 	case "partial-release-receipt":
 		return docPartialReceipt(in, lang)
 	}

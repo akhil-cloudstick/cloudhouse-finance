@@ -12,9 +12,11 @@ import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjus
 import { adjustLatestRate, adjustRateHistory } from "./goldRateAdjust";
 import { adjustExpenses, adjustGoldSales, adjustLedger, adjustPartyLedger, LEDGER_PATH, PARTY_PATH } from "./ledgerAdjust";
 import { adjustAuctionRecord } from "./auctionAdjust";
-import { adjustPersonalLoanDetail, adjustPersonalLoanListPayments, adjustPersonalLoanPayments, adjustPersonalLoanSchedule, adjustPersonalLoans } from "./personalLoanAdjust";
-import { adjustInvestmentPlans, adjustInvestments } from "./investmentAdjust";
+import { adjustPendingLoanByNumber, adjustPendingLoanPages, adjustPersonalLoanDetail, adjustPersonalLoanListPayments, adjustPersonalLoanPayments, adjustPersonalLoanSchedule, adjustPersonalLoans } from "./personalLoanAdjust";
+import { adjustCustomerInvestments, adjustInvestmentOps, adjustInvestmentPlans, adjustInvestments, adjustPendingInvestmentByNumber, adjustPendingInvestmentPages } from "./investmentAdjust";
 import { adjustCalendar, adjustReminders } from "./reminderAdjust";
+import { adjustAccess } from "./accessAdjust";
+import { adjustSetup } from "./setupAdjust";
 import { adjustMovements, adjustPackets, adjustRequests } from "./statusAdjust";
 import { employeeId, offlineBusiness } from "./session";
 
@@ -270,7 +272,23 @@ function reshape(cachedBody: string, path: string): string {
 }
 
 export async function recall(path: string, view: string): Promise<string | null> {
-  const body = await recallCopy(path, view);
+  // a personal loan made on this PC and not sent yet: found by its local number and read by its local id, from its waiting entry
+  if (/\/personal-loans\//.test(path)) {
+    const pending = (await adjustPendingLoanByNumber(path)) ?? (await adjustPendingLoanPages(path));
+    if (pending !== null) return pending;
+  }
+  // an investment made on this PC and not sent yet: found by its local number and read by its local id, from its waiting entry
+  if (/\/investments\//.test(path)) {
+    const pending = (await adjustPendingInvestmentByNumber(path)) ?? (await adjustPendingInvestmentPages(path));
+    if (pending !== null) return pending;
+  }
+  // banks, branches and the business profile: what this PC changed and has not sent yet is applied to the last answer
+  // employees, roles, permission matrices and approval chains: the same, for what this PC changed and has not sent yet
+  const body = await adjustAccess(path, await adjustSetup(path, await recallCopy(path, view), recallCopy, view), recallCopy);
+  // the investments of one investor: the ones made for them on this PC and not sent yet are on the list
+  if (/\/customers\/[^/?]+\/investments(\?|$)/.test(path)) return adjustCustomerInvestments(path, body);
+  // what was done to an investment on this PC (cash added, withdrawn, a payout paid) is in its ledger, transactions and schedule
+  if (/\/investments\/\d+\/(ledger|transactions|schedule)(\?|$)/.test(path)) return adjustInvestmentOps(path, body);
   // A loan's auction case: the steps taken on this PC and not sent yet are on it. A loan with no case yet (nothing kept, or an
   // empty answer) gets one when a step is waiting.
   if (/\/loans\/\d+\/auction(\?|$)/.test(path)) {
@@ -340,9 +358,11 @@ async function recallCopy(path: string, view: string): Promise<string | null> {
 async function oneFromList(emp: number, path: string, view: string): Promise<string | null> {
   // a record opened by its code (a packet's page) is found in the same list by that code
   const byCode = /^(\/users\/\d+\/[a-z-]+)\/by-code\/([^/?]+)(\?.*)?$/.exec(path);
-  const m = byCode ?? /^(\/users\/\d+\/[a-z-]+)\/(\d+)(\?.*)?$/.exec(path);
+  // a record opened by its number (INV-00003, PL-00003) is found in the same list by that number; the server answers {id}
+  const byNumber = /^(\/users\/\d+\/[a-z-]+)\/by-number\/([^/?]+)(\?.*)?$/.exec(path);
+  const m = byCode ?? byNumber ?? /^(\/users\/\d+\/[a-z-]+)\/(\d+)(\?.*)?$/.exec(path);
   if (!m) return null;
-  const wanted = byCode ? decodeURIComponent(m[2]) : "";
+  const wanted = byCode || byNumber ? decodeURIComponent(m[2]) : "";
   for (const kind of ["*", "big", "paged"] as Kind[]) {
     const hit = await read(familyKey(emp, m[1], view, kind));
     if (!hit) continue;
@@ -350,8 +370,12 @@ async function oneFromList(emp: number, path: string, view: string): Promise<str
       const env = JSON.parse(hit.body) as Envelope;
       const data = env.data as unknown;
       const rows = Array.isArray(data) ? data : Array.isArray((data as { items?: unknown[] } | undefined)?.items) ? (data as { items: unknown[] }).items : [];
-      const row = rows.find((r) => (byCode ? (r as { code?: unknown }).code === wanted : (r as { id?: unknown }).id === Number(m[2])));
-      if (row) return JSON.stringify({ success: true, data: row });
+      const numberOf = (r: unknown) => {
+        const x = r as { investmentNumber?: unknown; loanNumber?: unknown; number?: unknown };
+        return x.investmentNumber ?? x.loanNumber ?? x.number;
+      };
+      const row = rows.find((r) => (byCode ? (r as { code?: unknown }).code === wanted : byNumber ? numberOf(r) === wanted : (r as { id?: unknown }).id === Number(m[2])));
+      if (row) return JSON.stringify({ success: true, data: byNumber ? { id: (row as { id?: unknown }).id } : row });
     } catch {
       /* a copy that cannot be read has nothing to give */
     }

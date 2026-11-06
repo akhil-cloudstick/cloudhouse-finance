@@ -163,19 +163,19 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
     setFe({});
     try {
       if (employee) {
-        await updateEmployee(employee.id, {
+        const saved = await updateEmployee(employee.id, {
           name: trimmed, role, branchId: branchId as number, phone: p,
           loansProcessed: employee.loansProcessed, collections: employee.collections,
           followups: employee.followups, pending: employee.pending,
           username: uname || undefined, password: password || undefined,
         });
-        toast(password ? `${trimmed} updated — password changed` : `${trimmed} updated`);
+        toast(`${password ? `${trimmed} updated — password changed` : `${trimmed} updated`}${saved.queued && saved.message ? `. ${saved.message}` : ""}`);
       } else {
-        await createEmployee({
+        const saved = await createEmployee({
           name: trimmed, role, branchId: branchId as number, phone: p,
           username: uname || undefined, password: password || undefined,
         });
-        toast(`${trimmed} added as ${role}`);
+        toast(`${trimmed} added as ${role}${saved.queued && saved.message ? `. ${saved.message}` : ""}`);
       }
       onSaved?.();
       closeModal();

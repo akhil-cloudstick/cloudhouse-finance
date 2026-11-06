@@ -38,6 +38,25 @@ func TestOfflineDocumentsRender(t *testing.T) {
 	}
 }
 
+func TestOfflineTMLDocumentsRender(t *testing.T) {
+	a := &App{}
+	in := strings.Replace(sampleDoc, `"schemeInterestRate": 18,`, `"schemeInterestRate": 18, "schemeDurationMonths": 12, "schemeMinimumDays": 30, "schemeRateTiers": [{"days": 90, "rate": 12}, {"days": 0, "rate": 18}],`, 1)
+	in = strings.Replace(in, `"profile": {`, `"profile": {"policy": "TML", "contactPhone": "9111111111", `, 1)
+	in = strings.Replace(in, `"payments": [{`, `"payments": [{"id": 9, `, 1)
+	for _, kind := range []string{"tml-pledge-slip", "tml-statement"} {
+		out, err := a.RenderOfflineDocument(kind, "", in)
+		if err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if !strings.Contains(out, "Lilly Mariya") {
+			t.Errorf("%s: customer name missing", kind)
+		}
+		if strings.Contains(out, "ZgotmplZ") {
+			t.Errorf("%s: a value was blocked by the template escaper", kind)
+		}
+	}
+}
+
 func TestOfflineBondsRender(t *testing.T) {
 	a := &App{}
 	for _, c := range []struct{ policy, lang string }{{"KML", "en"}, {"KML", "ml"}, {"GML", "en"}, {"GML", "gu"}, {"TML", "en"}, {"TML", "ta"}} {

@@ -1,6 +1,7 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { queueWrite } from "@/common/offline/queueWrite";
+import { refuse } from "@/common/offline/validate";
 import { currentActor } from "@/common/offline/actor";
 import { createsReminder, findLocalRequest } from "@/common/offline/requestRef";
 import type { BackendReminder, ReminderView, CreateReminderInput, UpdateReminderInput, ReminderFilters, CalendarEvent } from "@/modules/reminders/types/reminder-types";
@@ -18,10 +19,16 @@ function toView(r: BackendReminder): ReminderView {
   };
 }
 
+const REMINDER_TYPES: string[] = ["Follow-Up", "Promise-to-Pay", "Custom"];
+
 export async function createReminder(input: CreateReminderInput): Promise<ReminderView> {
   // Desktop: the reminder goes into the outbox first and shows in the calendar and the list at once (see
   // common/offline/reminderAdjust.ts); the sender posts it. The call returns at once.
   if (offlineReady()) {
+    // the server's own checks (reminder validate)
+    if (!input.customerId) refuse("customer is required");
+    if (!REMINDER_TYPES.includes(input.type)) refuse("type must be Follow-Up, Promise-to-Pay, or Custom");
+    if (!input.dueDate) refuse("due date is required");
     const entry = newEntry("POST", "/reminders", input, currentActor());
     await enqueueAndWait(entry, () => undefined, () => undefined);
     return {
@@ -53,6 +60,10 @@ async function reminderPath(id: number): Promise<string> {
 
 export async function updateReminder(id: number, input: UpdateReminderInput): Promise<ReminderView> {
   const path = await reminderPath(id);
+  if (offlineReady()) {
+    if (!REMINDER_TYPES.includes(input.type)) refuse("type must be Follow-Up, Promise-to-Pay, or Custom");
+    if (!input.dueDate) refuse("due date is required");
+  }
   return queueWrite("PUT", path, input, { id, ...input } as unknown as ReminderView, async () =>
     toView(await apiFetch<BackendReminder>(path, { method: "PUT", body: JSON.stringify(input) }))
   );

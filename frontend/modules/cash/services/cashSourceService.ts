@@ -1,3 +1,4 @@
+import { checkCategoryName } from "./cashOfflineChecks";
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
@@ -53,6 +54,9 @@ export async function searchLoanSourcesPage(q: string, page: number): Promise<{ 
 export async function createCashSource(name: string): Promise<BackendCashSource> {
   // Desktop: the category goes into the outbox first, is listed at once, and is sent from there.
   if (offlineReady()) {
+    checkCategoryName(name);
+    const same = (await searchCashSourcesPage(name.trim(), 0).catch(() => null))?.items.find((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase());
+    if (same) return same;
     const entry = newEntry("POST", "/cash-sources", { name }, currentActor());
     // a temporary negative id keeps it distinct in the picker; the server's own list replaces it once sent
     const draft = { id: -Math.floor(Math.random() * 1_000_000) - 1, name, type: "cash_in", uuid: entry.id } as unknown as BackendCashSource;

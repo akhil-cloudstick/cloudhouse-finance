@@ -2,6 +2,8 @@ import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } fr
 import { branchHeader } from "@/common/services/branchSelection";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { canMakeOffline } from "@/common/offline/documents";
+import { exportTable, type ExportCell } from "@/common/offline/exports";
 import { offlineStore } from "@/common/services/desktopBridge";
 import type { BackendScheme, SchemeView, SchemeFormInput, SchemeStatementFilters } from "@/modules/schemes/types/scheme-types";
 
@@ -212,7 +214,7 @@ export async function deleteScheme(id: string): Promise<void> {
  * triggers a browser save — same object-URL + anchor-click pattern as
  * reportsService.ts's exportReport, since it needs the raw fetch Response
  * for blob handling rather than apiFetch's JSON envelope. */
-export async function downloadSchemeStatement(
+async function downloadSchemeStatementOnline(
   id: string,
   format: "pdf" | "xlsx",
   filters: SchemeStatementFilters
@@ -250,4 +252,29 @@ export async function downloadSchemeStatement(
   a.click();
   a.remove();
   window.URL.revokeObjectURL(url);
+}
+
+/* Same columns as the server's statement; offline the loans (and their payments) come from the saved copy. */
+export async function downloadSchemeStatement(id: string, format: "pdf" | "xlsx", filters: SchemeStatementFilters): Promise<void> {
+  try {
+    await downloadSchemeStatementOnline(id, format, filters);
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    const { listLoansPage } = await import("@/modules/loans/services/loanService");
+    const r = await listLoansPage({ schemeId: Number(id), from: filters.from, to: filters.to, page: 1, limit: 5000 });
+    const pick = filters.loanIds?.length ? new Set(filters.loanIds) : null;
+    const rows: ExportCell[][] = [];
+    for (const l of r.items) {
+      if (pick && !pick.has(l.numericId)) continue;
+      const base: ExportCell[] = [l.loanNumber, l.customerName, l.opened, l.principal];
+      if (!l.payments.length) { rows.push([...base, "", "", "", "", "", ""]); continue; }
+      for (const p of l.payments) rows.push([...base, p.paidOn, p.type, p.amount, p.interestApplied, p.principalApplied, p.runningBalance]);
+    }
+    await exportTable(format, {
+      title: "Scheme Statement", filename: `scheme-${id}-statement`,
+      subtitle: filters.from || filters.to ? `${filters.from || "…"} – ${filters.to || "…"}` : undefined,
+      headers: ["Loan Number", "Customer", "Opened", "Principal", "Payment Date", "Type", "Amount", "Interest", "Principal Applied", "Balance"],
+      rows,
+    });
+  }
 }

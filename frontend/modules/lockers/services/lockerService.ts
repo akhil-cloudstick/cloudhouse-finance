@@ -1,6 +1,7 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { refuse } from "@/common/offline/validate";
 import { createsLocker, findLocalRequest, localRequestId } from "@/common/offline/requestRef";
 import type { BackendLocker, LockerFormInput, LockerView } from "@/modules/lockers/types/locker-types";
 
@@ -107,9 +108,27 @@ export async function getLocker(id: number): Promise<LockerView> {
   return overlaid([toView(rec)])[0] ?? toView(rec);
 }
 
+/* The server's own locker checks (validateLocker, the duplicate code, the capacity floor), made on the lockers this PC shows (which count
+ * lockers still waiting to be sent). Where the list cannot be read nothing is blocked. */
+async function checkLocker(input: LockerFormInput, selfId?: number): Promise<void> {
+  if (!input.code) refuse("code is required");
+  if (!(input.capacity > 0)) refuse("capacity must be greater than zero");
+  let all: LockerView[] | null = null;
+  try {
+    all = await listLockers();
+  } catch {
+    all = null;
+  }
+  if (!all) return;
+  if (all.some((l) => l.code === input.code && l.id !== selfId)) refuse("a locker with this code already exists", 409);
+  const mine = selfId === undefined ? undefined : all.find((l) => l.id === selfId);
+  if (mine && input.capacity < mine.occupied) refuse(`capacity cannot be less than the ${mine.occupied} packets already stored in this locker`);
+}
+
 export async function createLocker(input: LockerFormInput, branchName?: string): Promise<LockerView> {
   // Desktop: the locker goes into the outbox first, is listed at once, and is sent from there.
   if (offlineReady()) {
+    await checkLocker(input);
     const entry = newEntry("POST", "/lockers", input, currentActor());
     entry.targets = [entry.id];
     // a negative id (stable for this entry) keeps it distinct in pickers; the server's own list replaces it once sent
@@ -147,6 +166,7 @@ export async function updateLocker(id: number, input: LockerFormInput, branchNam
   // Desktop: the change goes into the outbox first, shows in the lists at once, and is sent from there.
   if (offlineReady()) {
     const t = await target(id);
+    await checkLocker(input, id);
     const entry = newEntry("PUT", t.path, input, currentActor());
     entry.targets = [entry.id];
     const fields = { code: input.code, branchId: input.branchId, capacity: input.capacity, isActive: input.isActive, ...(branchName ? { branchName } : {}) };

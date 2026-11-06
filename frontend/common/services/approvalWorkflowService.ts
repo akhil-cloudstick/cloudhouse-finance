@@ -1,4 +1,8 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { readRoles, SAVED_ON_PC } from "@/common/offline/accessChecks";
+import { canQueue, queueWrite } from "@/common/offline/queueWrite";
+import { createsRole, findLocalRequest, ROLE_REF } from "@/common/offline/requestRef";
+import { refuse } from "@/common/offline/validate";
 import type { ApprovalFlowKey, StageView, FlowView, ApprovalWorkflowConfig, CategoryView, UpdateCategoryInput, LegacyStage } from "@/common/types/approval-workflow-types";
 const LEGACY: Record<string, LegacyStage[]> = {
   loan_sanction: [
@@ -69,11 +73,61 @@ export async function fetchApprovalCategories(): Promise<CategoryView[]> {
 /* Saves one category: its mode and, for shared, the one chain (steps) or,
  * for per-action, each flow's chain (flows). Role IDs in approval order.
  * The backend refuses (400) a chain that breaks a flow's min/max. */
-export function updateApprovalCategory(category: string, body: UpdateCategoryInput): Promise<CategoryView> {
-  return apiFetch<CategoryView>(`/approval-workflow/categories/${category}`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+export async function updateApprovalCategory(category: string, body: UpdateCategoryInput): Promise<CategoryView> {
+  const online = () => apiFetch<CategoryView>(`/approval-workflow/categories/${category}`, { method: "PUT", body: JSON.stringify(body) });
+  if (!canQueue()) return online();
+  // Desktop: the server's own chain rules are checked here from the chains and roles this PC holds, then the change is queued and shown
+  const cats = await apiFetch<CategoryView[]>("/approval-workflow/categories").catch(() => null);
+  const roles = await readRoles();
+  const cat = cats?.find((c) => c.key === category);
+  if (!cats || !roles) refuse("The approval workflow has not been saved on this PC yet. Open it once while online, then try again.", 409);
+  if (!cat) refuse("Unknown approval category", 404);
+  const known = new Map(roles!.map((r) => [r.id, r]));
+  const check = (label: string, ids: number[], min: number, max: number) => {
+    const seen = new Set<number>();
+    for (const id of ids) {
+      const r = known.get(id);
+      if (!r) refuse(`${label}: one of the selected roles no longer exists`);
+      if (!r!.isActive) refuse(`${label}: role "${r!.name}" is inactive — remove it or reactivate it first`);
+      if (seen.has(id)) refuse(`${label}: role "${r!.name}" is in the chain twice`);
+      seen.add(id);
+    }
+    if (ids.length < min) refuse(`${label} needs at least ${min} approver`);
+    if (max > 0 && ids.length > max) refuse(`${label} allows at most ${max} approver`);
+  };
+  const shared = body.shared && cat!.flows.length > 1;
+  const out: { shared: boolean; steps?: (number | string)[]; flows?: Record<string, (number | string)[]> } = { shared: !!shared };
+  if (shared) {
+    check(cat!.label, body.steps ?? [], cat!.minEnabled, cat!.maxSteps);
+    out.steps = await roleRefs(body.steps ?? []);
+  } else {
+    out.flows = {};
+    for (const [key, ids] of Object.entries(body.flows ?? {})) {
+      const f = cat!.flows.find((x) => x.key === key);
+      if (!f) refuse("Unknown approval flow", 404);
+      check(f!.label, ids, f!.minEnabled, f!.maxSteps);
+      out.flows[key] = await roleRefs(ids);
+    }
+  }
+  await queueWrite("PUT", `/approval-workflow/categories/${category}`, out, SAVED_ON_PC, () => Promise.reject(new Error("offline mode is not running")));
+  // the answer is the chain as it now stands (the one just queued is applied to the screens' copy)
+  const now = await apiFetch<CategoryView[]>("/approval-workflow/categories").catch(() => null);
+  return now?.find((c) => c.key === category) ?? cat!;
+}
+
+/* A role made on this PC and not sent yet is named by the entry that creates it; every other role by its id. */
+async function roleRefs(ids: number[]): Promise<(number | string)[]> {
+  const out: (number | string)[] = [];
+  for (const id of ids) {
+    if (id > 0) {
+      out.push(id);
+      continue;
+    }
+    const found = await findLocalRequest(id, createsRole);
+    if (!found) return refuse("one of the selected roles no longer exists");
+    out.push("entryId" in found ? `${ROLE_REF}${found.entryId}` : found.serverId);
+  }
+  return out;
 }
 
 /* --- Lookups ------------------------------------------------------------
@@ -125,6 +179,9 @@ function resolveIndex(stages: StageView[], flow: string, v: string, field: "key"
 
 export function stageByPending(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, pending: string | null | undefined): StageView | null {
   const stages = enabledStages(config, flow);
+  // An extension request made on this PC and not sent yet has no stage written on it (the server writes the first one when it
+  // makes the request), so it waits at the first stage: without this its review shows every step done and offers no Approve.
+  if (!pending && flow === "loan_extension") return stages[0] ?? null;
   const i = resolveIndex(stages, flow, normalizePending(flow, pending || ""), "pending");
   return i >= 0 ? stages[i] : null;
 }

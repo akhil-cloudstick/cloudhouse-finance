@@ -41,6 +41,8 @@ const PATHS = [
   "/ornament-types",
   "/purity-standards",
   "/roles",
+  "/employees",
+  `/employees?${ALL}`,
   "/auth/me",
   "/banks",
   "/cash-sources",
@@ -148,8 +150,8 @@ async function warmPackets(): Promise<void> {
   }
 }
 
-/* The Roles & Permissions page reads one matrix per role, so each role's is kept. They are only viewable offline:
- * changing a permission needs the server, so access can never be changed in a way nobody can review. */
+/* The Roles & Permissions page reads one matrix per role, so each role's is kept. A permission change made offline is queued like any
+ * other save and shown on top of this copy (accessAdjust.ts) until it syncs. */
 async function warmRoleMatrices(): Promise<void> {
   const emp = employeeId();
   if (!emp) return;

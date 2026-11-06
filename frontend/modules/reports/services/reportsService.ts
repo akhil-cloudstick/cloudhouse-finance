@@ -1,5 +1,7 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
+import { canMakeOffline } from "@/common/offline/documents";
+import { exportTable, tableFromObjects, type ExportCell, type ExportTable } from "@/common/offline/exports";
 import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, InvestorLedgerRow, InvestorLedgerTotals, InterestCollectionRow, InterestCollectionTotals, OutstandingPrincipalRow, OutstandingPrincipalTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, CashLedgerRow, CashLedgerTotals, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, FormGStatement, FormGOverrides, BalanceSheetRow, BalanceSheetTotals, ProfitLossRow, ProfitLossTotals, ReportKey } from "@/modules/reports/types/reports-types";
 
 function buildQuery(filters: ReportFilters): string {
@@ -53,7 +55,7 @@ function buildFormGOverridesQuery(o: FormGOverrides): URLSearchParams {
 /* Downloads GET /reports/export/form-g?format=xlsx|pdf, folding the manual
  * overrides in as extra query params — mirrors exportReport below but
  * form-g needs the extra overrides on top of the shared filters. */
-export async function exportFormG(format: "xlsx" | "pdf", filters: ReportFilters, overrides: FormGOverrides): Promise<void> {
+async function exportFormGOnline(format: "xlsx" | "pdf", filters: ReportFilters, overrides: FormGOverrides): Promise<void> {
   const { page: _page, pageSize: _pageSize, ...rest } = filters;
   const qs = buildQuery(rest);
   const params = new URLSearchParams(qs);
@@ -168,7 +170,7 @@ export const getProfitAndLoss = (f: ReportFilters) =>
  * other binary downloads in this app. Exports always fetch the full
  * (unpaginated) filtered result server-side, so page/pageSize are omitted
  * even if present on the passed-in filters. */
-export async function exportReport(key: ReportKey, format: "xlsx" | "pdf", filters: ReportFilters): Promise<void> {
+async function exportReportOnline(key: ReportKey, format: "xlsx" | "pdf", filters: ReportFilters): Promise<void> {
   const { page: _page, pageSize: _pageSize, ...rest } = filters;
   const qs = buildQuery(rest);
   const params = new URLSearchParams(qs);
@@ -202,4 +204,92 @@ export async function exportReport(key: ReportKey, format: "xlsx" | "pdf", filte
   a.click();
   a.remove();
   window.URL.revokeObjectURL(url);
+}
+
+/* ---- Offline exports: the server is tried first; only when it does not answer are these built from the saved copy. ---- */
+
+const EXPORT_PATH: Record<string, string> = {
+  "loans-status": "loans/status",
+  "investments-deposit-register": "investments/deposit-register",
+  "investments-interest-payout-register": "investments/interest-payout-register",
+  "investments-maturity-register": "investments/maturity-register",
+};
+const dmy = (s: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ""); return m ? `${m[3]}-${m[2]}-${m[1]}` : s || ""; };
+const reportTitle = (key: string) =>
+  key === "profit-loss" ? "Statement of Profit and Loss" : key === "form-g" ? "Form G" : key.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+
+async function exportReportOffline(key: ReportKey, format: "xlsx" | "pdf", filters: ReportFilters): Promise<void> {
+  const { page: _p, pageSize: _ps, ...rest } = filters;
+  const period = rest.from && rest.to ? `For the period ${dmy(rest.from)} to ${dmy(rest.to)}` : undefined;
+  let table: ExportTable;
+  if (key === "balance-sheet" || key === "profit-loss") {
+    const r = await fetchReport<BalanceSheetRow, BalanceSheetTotals>(key, rest);
+    table = {
+      title: reportTitle(key), subtitle: key === "balance-sheet" && rest.to ? `As at ${dmy(rest.to)}` : period,
+      headers: ["Particulars", "Amount (Rs.)"],
+      rows: r.rows.map((x): ExportCell[] => [`${"    ".repeat(x.indent || 0)}${x.label}`, x.style === "header" ? "" : x.amount]),
+      filename: key,
+    };
+  } else if (key === "cash-ledger") {
+    const r = await fetchReport<CashLedgerRow, CashLedgerTotals>(key, rest);
+    const m = (v: number): ExportCell => (v ? v : "");
+    table = {
+      title: "Cash Ledger", subtitle: period, headers: ["Date", "Particulars", "Debit", "Credit", "Balance"],
+      rows: [["", "Opening balance", "", "", r.totals.openingBalance],
+        ...r.rows.filter((x) => !x.total).map((x): ExportCell[] => [dmy(x.date), x.particulars, m(x.debit), m(x.credit), x.balance])],
+      totalsRow: ["", "Closing balance", m(r.totals.totalDebit), m(r.totals.totalCredit), r.totals.closingBalance],
+      filename: key,
+    };
+  } else {
+    const r = await fetchReport<Record<string, unknown>, unknown>(EXPORT_PATH[key] ?? key, rest);
+    // the same columns as the server's file: every field of the row, ids left out
+    table = tableFromObjects(reportTitle(key), r.rows ?? [], { subtitle: period, filename: key });
+  }
+  await exportTable(format, table);
+}
+
+async function exportFormGOffline(format: "xlsx" | "pdf", filters: ReportFilters, o: FormGOverrides): Promise<void> {
+  const { page: _p, pageSize: _ps, ...rest } = filters;
+  const s = await getFormG(rest);
+  const d = s.section3Deposits;
+  const f = s.section4FinancialPosition;
+  const pick = (v: number | undefined, base: number) => (v ? v : base);
+  const assets = pick(o.assetsValue, f.assetsValue);
+  const liabilities = pick(o.liabilitiesValue, f.liabilitiesValue);
+  const rows: ExportCell[][] = [];
+  rows.push(["Lender", s.lenderName, "", ""], ["Address", s.lenderAddress, "", ""], ["Period", s.periodLabel, "", ""]);
+  rows.push(["1. Loans advanced", "No. of persons", "Amount (Rs.)", "Remarks"]);
+  for (const c of s.section1Advanced) rows.push([c.label, c.persons, c.amount, c.remarks]);
+  rows.push(["2. Loans redeemed", "No. of persons", "Amount (Rs.)", "Remarks"]);
+  for (const c of s.section2Redeemed) rows.push([c.label, c.persons, c.amount, c.remarks]);
+  rows.push(["3. Deposits", "Count", "Amount (Rs.)", ""]);
+  rows.push(["Opening", pick(o.depositOpeningCount, d.openingCount), pick(o.depositOpeningAmount, d.openingAmount), ""]);
+  rows.push(["Received during the period", pick(o.depositDuringCount, d.duringCount), pick(o.depositDuringAmount, d.duringAmount), ""]);
+  rows.push(["Repaid during the period", pick(o.depositRepaidCount, d.repaidCount), pick(o.depositRepaidAmount, d.repaidAmount), ""]);
+  rows.push(["Closing", pick(o.depositClosingCount, d.closingCount), pick(o.depositClosingAmount, d.closingAmount), ""]);
+  rows.push(["4. Financial position", "", "Amount (Rs.)", ""]);
+  rows.push(["Maximum outstanding" + (f.maxOutstandingDate ? ` (${dmy(f.maxOutstandingDate)})` : ""), "", f.maxOutstanding, ""]);
+  rows.push(["Value of assets", "", assets, ""], ["Value of liabilities", "", liabilities, ""]);
+  rows.push(["Excess of assets over liabilities", "", Math.max(0, assets - liabilities), ""]);
+  rows.push(["Excess of liabilities over assets", "", Math.max(0, liabilities - assets), ""]);
+  await exportTable(format, { title: "Form G", subtitle: s.periodLabel, headers: ["Particulars", "Persons / Count", "Amount (Rs.)", "Remarks"], rows, filename: "form-g" });
+}
+
+export async function exportFormG(format: "xlsx" | "pdf", filters: ReportFilters, overrides: FormGOverrides): Promise<void> {
+  try {
+    await exportFormGOnline(format, filters, overrides);
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    await exportFormGOffline(format, filters, overrides);
+  }
+}
+
+export async function exportReport(key: ReportKey, format: "xlsx" | "pdf", filters: ReportFilters): Promise<void> {
+  try {
+    await exportReportOnline(key, format, filters);
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    if (key === "form-g") await exportFormGOffline(format, filters, {});
+    else await exportReportOffline(key, format, filters);
+  }
 }

@@ -1,10 +1,15 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken } from "@/common/services/httpClient";
 import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { assertPayoutFunds } from "@/common/offline/funds";
 import { canQueue, queueOnly } from "@/common/offline/queueWrite";
+import { refuse } from "@/common/offline/validate";
+import { checkMovement, checkSelfTransfer, checkExpense, checkGoldSale, expenseFlowIsOff, cachedExpense, requirePending } from "./cashOfflineChecks";
 import { uploadFile } from "@/common/services/uploadService";
 import { categoryLedgerPath } from "./expenseCategoryService";
 import { branchHeader } from "@/common/services/branchSelection";
+import { canMakeOffline } from "@/common/offline/documents";
+import { exportTable, type ExportCell, type ExportTable } from "@/common/offline/exports";
 import type { BackendCashMovement, CashMovementView, CashMovementInput, CashMovementFilters, SelfTransferInput, BackendExpense, ExpenseView, ExpenseFormInput, CashSummary, BackendGoldSale, GoldSaleView, GoldSaleInput, PartyTotals, PartyDateRange, LedgerRowView, BackendLedgerRow, LedgerMode, EntryInfo, EntryUpdateInput } from "@/modules/cash/types/cash-types";
 
 function movementToView(m: BackendCashMovement): CashMovementView {
@@ -111,17 +116,30 @@ export async function exportCashMovements(filters?: CashMovementFilters & { form
   const format = filters?.format || "pdf";
   if (format === "xlsx") params.set("format", "xlsx");
   const qs = params.toString() ? `?${params.toString()}` : "";
-  await downloadFile(`/cash-movements/export${qs}`, `cash-movements.${format}`);
+  try {
+    await downloadFile(`/cash-movements/export${qs}`, `cash-movements.${format}`);
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    await exportMovementsOffline(format, filters);
+  }
 }
 
 /* Downloads every expense-register row matching the filters (branch-scoped
  * server-side, same as the table) as a PDF. */
 export async function exportExpenses(filters?: ExpenseFilters): Promise<void> {
   const qs = expenseFilterParams(filters).toString();
-  await downloadFile(`/expenses/export${qs ? `?${qs}` : ""}`, "expense-register.pdf");
+  try {
+    await downloadFile(`/expenses/export${qs ? `?${qs}` : ""}`, "expense-register.pdf");
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    await exportExpensesOffline(filters);
+  }
 }
 
 export async function createCashMovement(input: CashMovementInput): Promise<CashMovementView> {
+  if (offlineReady()) checkMovement(input);
+  // the server checks only the bank part of a cash-out (never cash in hand) for a plain cash movement
+  if (input.type === "out") await assertPayoutFunds(input.branchId, input.payments?.length ? input.payments : [{ mode: input.mode, amount: input.amount, bankId: input.bankId }], false);
   // Desktop: the save goes into the outbox first and the sender posts it from there (cash in hand, the bank
   // balances and the ledger include it at once, see common/offline/cashAdjust.ts). The call returns at once.
   if (offlineReady()) {
@@ -144,6 +162,7 @@ export async function createSelfTransfer(input: SelfTransferInput): Promise<void
   // Desktop: outbox first, as createCashMovement above. Both sides of the transfer count in cash in hand, the bank
   // balances and the ledgers at once (see common/offline/cashAdjust.ts and ledgerAdjust.ts).
   if (offlineReady()) {
+    checkSelfTransfer(input);
     const entry = newEntry("POST", "/cash-movements/self-transfer", input, currentActor());
     await enqueueAndWait(entry, () => undefined, () => undefined);
     return;
@@ -259,6 +278,12 @@ export async function listExpensesPage(page: number, limit?: number, filters?: E
 }
 
 export async function createExpense(input: ExpenseFormInput): Promise<ExpenseView> {
+  // refused here, as the server would, when the till or the chosen bank cannot cover it (only checked while the server cannot be reached)
+  if (offlineReady()) {
+    checkExpense(input);
+    // the server checks funds at creation only while the expense approval flow is off (otherwise at approval)
+    if (await expenseFlowIsOff()) await assertPayoutFunds(input.branchId, input.payments?.length ? input.payments : [{ mode: input.mode, amount: input.amount, bankId: input.fromBankId }]);
+  }
   // Desktop: outbox first, as createCashMovement above. The call returns at once; an expense that the approval flow
   // makes Pending shows as such after the sender has posted it.
   if (offlineReady()) {
@@ -282,7 +307,14 @@ export async function createExpense(input: ExpenseFormInput): Promise<ExpenseVie
  * approve expense"). The approver is taken from the JWT, so no approvedBy is
  * sent. Approving is what posts the expense's cash movement. */
 export async function approveExpense(id: number): Promise<ExpenseView> {
-  if (canQueue()) return queueOnly("PATCH", `/expenses/${id}/approve`, {}, { id, status: "Approved" } as unknown as ExpenseView);
+  if (canQueue()) {
+    const ex = await cachedExpense(id);
+    if (ex) {
+      requirePending(ex.status);
+      if (ex.mode && Number(ex.amount) > 0) await assertPayoutFunds(ex.branchId, [{ mode: ex.mode, amount: ex.amount, bankId: ex.fromBankId }]);
+    }
+    return queueOnly("PATCH", `/expenses/${id}/approve`, {}, { id, status: "Approved" } as unknown as ExpenseView);
+  }
   const rec = await apiFetch<BackendExpense>(`/expenses/${id}/approve`, {
     method: "PATCH",
     body: JSON.stringify({}),
@@ -291,7 +323,11 @@ export async function approveExpense(id: number): Promise<ExpenseView> {
 }
 
 export async function rejectExpense(id: number, remarks: string): Promise<ExpenseView> {
-  if (canQueue()) return queueOnly("PATCH", `/expenses/${id}/reject`, { remarks }, { id, status: "Rejected" } as unknown as ExpenseView);
+  if (canQueue()) {
+    if (!(remarks ?? "").trim()) refuse("remarks are required when rejecting an expense");
+    requirePending((await cachedExpense(id))?.status);
+    return queueOnly("PATCH", `/expenses/${id}/reject`, { remarks }, { id, status: "Rejected" } as unknown as ExpenseView);
+  }
   const rec = await apiFetch<BackendExpense>(`/expenses/${id}/reject`, {
     method: "PATCH",
     body: JSON.stringify({ remarks }),
@@ -357,6 +393,7 @@ export async function createGoldSale(input: GoldSaleInput): Promise<GoldSaleView
   // Desktop: outbox first, as createCashMovement above. The sale and its cost count in the cash figures, the ledgers and
   // the Gold Sales table at once (see common/offline/cashAdjust.ts and ledgerAdjust.ts).
   if (offlineReady()) {
+    checkGoldSale(input);
     const entry = newEntry("POST", "/gold-sales", input, currentActor());
     await enqueueAndWait(entry, () => undefined, () => undefined);
     return goldSaleToView({
@@ -546,19 +583,36 @@ export async function downloadLedger(
   if (kind === "bank") path = `/banks/${ref}/ledger`;
   else if (kind === "customer") path = `/cash-movements/transactions/customer/${ref}`;
   else if (kind === "category") path = categoryLedgerPath(ref);  else { params.set("mode", String(ref)); path = "/cash-movements/mode-ledger"; }
-  await downloadFile(`${path}?${params}`, "ledger.pdf");
+  try {
+    await downloadFile(`${path}?${params}`, "ledger.pdf");
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    await exportLedgerOffline(kind, ref, range);
+  }
 }
 
 export async function exportPartyStatementByBank(bankId: number, range?: PartyDateRange): Promise<void> {
   const params = partyRangeParams(range);
   const qs = params.toString() ? `?${params.toString()}` : "";
-  await downloadFile(`/cash-movements/transactions/bank/${bankId}/export${qs}`, "party-transactions.pdf");
+  try {
+    await downloadFile(`/cash-movements/transactions/bank/${bankId}/export${qs}`, "party-transactions.pdf");
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    const r = await listCashMovementsByBank(bankId, 1, range, ALL_ROWS);
+    await exportTable("pdf", partyTable("Party Transactions", r.items, range));
+  }
 }
 
 export async function exportPartyStatementByCustomer(customerId: number, range?: PartyDateRange): Promise<void> {
   const params = partyRangeParams(range);
   const qs = params.toString() ? `?${params.toString()}` : "";
-  await downloadFile(`/cash-movements/transactions/customer/${customerId}/export${qs}`, "party-transactions.pdf");
+  try {
+    await downloadFile(`/cash-movements/transactions/customer/${customerId}/export${qs}`, "party-transactions.pdf");
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    const r = await listCashMovementsByCustomer(customerId, 1, range, ALL_ROWS);
+    await exportTable("pdf", ledgerTable("Party Transactions", r.items, r, range));
+  }
 }
 
 export async function listCashMovementsByBranch(
@@ -577,7 +631,13 @@ export async function listCashMovementsByBranch(
 export async function exportPartyStatementByBranch(branchId: number, range?: PartyDateRange): Promise<void> {
   const params = partyRangeParams(range);
   const qs = params.toString() ? `?${params.toString()}` : "";
-  await downloadFile(`/cash-movements/transactions/branch/${branchId}/export${qs}`, "branch-ledger.pdf");
+  try {
+    await downloadFile(`/cash-movements/transactions/branch/${branchId}/export${qs}`, "branch-ledger.pdf");
+  } catch (e) {
+    if (!canMakeOffline(e)) throw e;
+    const r = await listCashMovementsByBranch(branchId, 1, range, ALL_ROWS);
+    await exportTable("pdf", partyTable("Branch Ledger", r.items, range));
+  }
 }
 
 /* Deletes a cash-in, debit, self transfer or gold sale keyed into the ledger — every payment part goes with it.
@@ -588,4 +648,68 @@ export async function deleteMovementEntry(id: number): Promise<void> {
     return;
   }
   await apiFetch<unknown>(`/cash-movements/${id}/entry`, { method: "DELETE" });
+}
+
+/* ---- Offline exports: built from the saved copy only when the server did not answer. ---- */
+
+const ALL_ROWS = 100000;
+
+function rangeNote(range?: { fromDate?: string; toDate?: string }): string | undefined {
+  if (!range?.fromDate && !range?.toDate) return undefined;
+  return `${range?.fromDate || "…"} – ${range?.toDate || "…"}`;
+}
+
+function movementColumns(items: CashMovementView[], last: "Amount" | "Status", title: string, range?: { fromDate?: string; toDate?: string }, filename?: string): ExportTable {
+  const withBranch = items.some((m) => m.branchName);
+  const headers = ["Date", "Type", "Source", "Purpose", "Mode", "Bank", ...(withBranch ? ["Branch"] : []), "Amount", last === "Status" ? "Status" : "Loan Status"];
+  return {
+    title, subtitle: rangeNote(range), headers, filename,
+    rows: items.map((m): ExportCell[] => [m.d, m.type, m.source || "", m.purpose || "", m.mode || "", m.bankName || m.bank || "", ...(withBranch ? [m.branchName || ""] : []), m.amount, m.status || ""]),
+  };
+}
+
+function partyTable(title: string, items: CashMovementView[], range?: { fromDate?: string; toDate?: string }): ExportTable {
+  const t = movementColumns(items, "Status", title, range, title);
+  t.headers[t.headers.length - 1] = "Status";
+  return t;
+}
+
+async function exportMovementsOffline(format: "pdf" | "xlsx", filters?: CashMovementFilters): Promise<void> {
+  const r = await listCashMovementsPage(1, ALL_ROWS, filters);
+  const t = movementColumns(r.items, "Amount", "Cash Movements", filters, "cash-movements");
+  if (filters?.types?.length) t.subtitle = [t.subtitle, `type: ${filters.types.join(", ")}`].filter(Boolean).join(" · ");
+  await exportTable(format, t);
+}
+
+async function exportExpensesOffline(filters?: ExpenseFilters): Promise<void> {
+  const r = await listExpensesPage(1, ALL_ROWS, filters);
+  const withBranch = r.items.some((e) => e.branch);
+  await exportTable("pdf", {
+    title: "Expense Register", filename: "expense-register",
+    subtitle: rangeNote({ fromDate: filters?.from, toDate: filters?.to }),
+    headers: ["Date", "Category", "Mode", ...(withBranch ? ["Branch"] : []), "Amount", "Status", "Remarks"],
+    rows: r.items.map((e): ExportCell[] => [e.d, e.cat, e.mode, ...(withBranch ? [e.branch] : []), e.amt, e.status, e.remarks || ""]),
+  });
+}
+
+function ledgerTable(title: string, items: LedgerRowView[], totals: { totalDebit: number; totalCredit: number }, range?: { fromDate?: string; toDate?: string }): ExportTable {
+  return {
+    title, subtitle: rangeNote(range), filename: title,
+    headers: ["Date", "Description", "Mode", "Reference", "Bank", "Customer", "Debit", "Credit", "Balance"],
+    rows: items.map((r): ExportCell[] => [r.d, r.description, r.method, r.reference, r.bankName || "", r.customerName || "",
+      r.debitOrCredit === "debit" ? r.amount : "", r.debitOrCredit === "debit" ? "" : r.amount, r.runningBalance]),
+    totalsRow: ["", "Total", "", "", "", "", totals.totalDebit, totals.totalCredit, ""],
+  };
+}
+
+async function exportLedgerOffline(kind: "bank" | "customer" | "category" | "mode", ref: number | LedgerMode, range?: PartyDateRange & { bankId?: number | string; branchIds?: number[]; types?: string[] }): Promise<void> {
+  let r: { items: LedgerRowView[]; totalDebit: number; totalCredit: number };
+  if (kind === "bank") r = await getBankLedger(Number(ref), 1, range, ALL_ROWS);
+  else if (kind === "customer") r = await listCashMovementsByCustomer(Number(ref), 1, range, ALL_ROWS);
+  else if (kind === "mode") r = await getModeLedger(ref as LedgerMode, 1, range, ALL_ROWS);
+  else {
+    const rec = await apiFetch<{ items: BackendLedgerRow[]; totalDebit?: number; totalCredit?: number }>(`${categoryLedgerPath(ref)}?${new URLSearchParams({ ...Object.fromEntries(partyRangeParams(range)), limit: String(ALL_ROWS), offset: "0" })}`);
+    r = { items: (rec?.items || []).map(ledgerRowToView), totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
+  }
+  await exportTable("pdf", ledgerTable("Ledger", r.items, r, range));
 }

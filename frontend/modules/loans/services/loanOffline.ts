@@ -3,6 +3,7 @@
  * detail page; it only lacks the server's number, so it carries PENDING-xxxxxxxx until the next send. */
 
 import { getLocal, listLocal, offlineReady, upsertLocal, type Actor, type LocalRecord } from "@/common/offline";
+import { refuse, requirePositive, requireNotNegative, requireValidSplit, requireNotFuture, requireNotBefore, dayOf } from "@/common/offline/validate";
 import { auctionStageOf } from "@/common/offline/auctionStages";
 import { currentActor } from "@/common/offline/actor";
 import { getSelectedBranchId } from "@/common/services/branchSelection";
@@ -12,6 +13,7 @@ import type {
   ApprovalInput,
   BackendLoan,
   BackendOrnament,
+  BankPledgeInput,
   CreateLoanInput,
   LoanFilters,
   PaymentInput,
@@ -488,3 +490,117 @@ export function sortNewestFirst(list: BackendLoan[]): BackendLoan[] {
 }
 
 export { currentActor, getLocal, offlineReady };
+
+/* ---- The server's own refusals, raised on this PC before an entry is queued (only where the answer is certain from local data) ---- */
+
+const SOLD = ["Auctioned", "Auctioned (Balance Due)"];
+const GONE = ["Closed", "Rejected", ...SOLD];
+
+/* Record payment (payment.go SaveLoanPayment). */
+export function checkPaymentLocally(rec: BackendLoan, input: PaymentInput): void {
+  if (rec.status === "Pending Approval") refuse("payments cannot be recorded until the loan is approved");
+  requirePositive(input.amount, "amount must be greater than zero");
+  requireNotNegative(input.processingFee, "amount must be greater than zero");
+  requireNotFuture(input.paidOn, "payment date cannot be in the future");
+  const floor = [dayOf(rec.openedDate), dayOf(rec.disbursementDate)].filter(Boolean).sort()[0];
+  requireNotBefore(input.paidOn, floor, "payment date cannot be before the loan was opened on " + floor);
+  if (input.type !== "Discount") requireValidSplit(input.amount, input);
+  requireNotNegative(input.discount, "discount cannot be negative");
+  if ((input.discount ?? 0) > 0) {
+    if (!(input.discountReason ?? "").trim()) refuse("a reason is required for a discount");
+    if (!["Cash", "UPI", "Bank Transfer", "Cheque"].includes(input.discountMode ?? "")) refuse("discount mode must be Cash, UPI, Bank Transfer or Cheque");
+    const owed = (rec.outstandingProcessingFee ?? 0) + Math.max(0, (rec.accruedPenalInterest ?? 0) - (rec.penalInterestPaid ?? 0)) + Math.max(0, (rec.accruedInterest ?? 0) - (rec.interestPaid ?? 0)) + (rec.outstandingAmount ?? 0);
+    if (rec.accruedInterest !== undefined && (input.discount ?? 0) > owed + 0.01 && owed > 0) refuse("the discount cannot exceed what is owed on the loan");
+  }
+}
+
+/* Create loan (loan.go SaveLoan). */
+export function checkCreateLoanLocally(input: CreateLoanInput, hint: CreateLoanHint): void {
+  if (!input.ornaments?.length) refuse("at least one ornament is required");
+  requirePositive(input.principalAmount, "principal amount must be greater than zero");
+  if (dayOf(input.dueDate) <= dayOf(input.openedDate)) refuse("due date must be after the opened date");
+  requireNotFuture(input.openedDate, "loan date cannot be in the future");
+  for (const o of input.ornaments) {
+    if (!(o.grossWeight > 0)) refuse("gross weight must be greater than zero");
+    const p = String(o.purity ?? "").trim();
+    const m = /^(\d+(?:\.\d+)?)\s*(K|%)$/i.exec(p);
+    if (p && (!m || (m[2].toUpperCase() === "K" ? +m[1] < 10 || +m[1] > 24 : +m[1] > 100))) {
+      refuse('purity must be a karat like "22K" (10-24) or a fineness percentage like "91.6%" (0-100)');
+    }
+  }
+  const extra = (input.additionalInfo ?? "").length;
+  if (extra > 2000) refuse("additional information cannot be longer than 2000 characters");
+  const total = (hint.ornamentValues ?? []).reduce((s, v) => s + (v || 0), 0);
+  if (total > 0 && hint.scheme?.ltv > 0) {
+    const eligible = round2((total * hint.scheme.ltv) / 100);
+    const type = hint.scheme.serviceChargeType;
+    const value = hint.scheme.serviceChargeValue ?? 0;
+    let capped = input.principalAmount;
+    if ((input.serviceChargeMode ?? "WithheldFromPayout") === "AddedToPrincipal") {
+      capped = type === "Flat" ? capped - value : type === "Percent" ? capped / (1 + value / 100) : capped;
+    }
+    if (round2(capped) > eligible) refuse("principal amount cannot exceed the eligible loan amount");
+  }
+}
+
+/* Top-up split and a second waiting top-up (topup.go). */
+export function checkTopUpLocally(rec: BackendLoan, input: { amount: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number | null }, needsApproval: boolean): void {
+  requireValidSplit(input.amount, input);
+  if (needsApproval && (rec.localTopUps ?? []).some((t) => t.status === "Pending")) refuse("this loan already has a top-up waiting for approval", 409);
+}
+
+/* Sanction decision (approval.go SaveLoanApproval). */
+export function checkApprovalLocally(rec: BackendLoan, input: ApprovalInput, chain: StageView[]): void {
+  if (!["Approved", "Rejected", "Verified"].includes(input.action)) refuse("action must be Approved or Rejected");
+  if (rec.approvalStage === "Approved" || rec.approvalStage === "Rejected") refuse("loan  already disbursed");
+  if (chain.length > 0) {
+    const step = chain.find((s) => s.pending === rec.approvalStage || s.key === rec.approvalStage);
+    // Only when this PC knows exactly which stage the loan waits at: a stage name it does not recognise (an older value, a chain that
+    // changed) is left to the server rather than blocking an approval that is valid.
+    if (step && input.stage && input.stage !== step.key && input.stage !== step.pending) refuse("wrong approval stage");
+  }
+}
+
+/* An auction step (auction.go): each needs the case at a particular stage - a notice any time before the sale, a schedule after a notice, a
+ * sale after a schedule, a settlement after a sale - and a sale needs sensible amounts. `stage` is the case as this PC shows it, with the steps
+ * already waiting counted, so a second press of the same step is caught here. Without a case on this PC the stage rule is left to the server. */
+export function checkAuctionStepLocally(step: string, body: unknown, stage: string | undefined): void {
+  const mismatch = "action does not match the auction case's current stage";
+  if (step === "sale") {
+    const b = (body ?? {}) as { saleAmount?: number; auctionExpenses?: number };
+    requirePositive(b.saleAmount, "amount must be greater than zero");
+    if (Number(b.auctionExpenses) < 0) refuse("amount must be greater than zero");
+    if (Number(b.auctionExpenses) > Number(b.saleAmount)) refuse("auction expenses cannot be more than the sale amount");
+  }
+  if (!stage) return;
+  if (step === "notice" && (stage === "Auctioned" || stage === "Settled")) refuse(mismatch);
+  if (step === "schedule" && stage !== "NoticeIssued") refuse(mismatch);
+  if (step === "sale" && stage !== "AuctionScheduled") refuse(mismatch);
+  if (step === "settle" && stage !== "Auctioned") refuse(mismatch);
+}
+
+/* Extension / release request (extension.go, release.go). */
+export function checkRequestLocally(rec: BackendLoan, type: "Extension" | "Release", months?: number): void {
+  if (type === "Extension" && months !== undefined && !(months > 0)) refuse("requested extension months must be greater than zero");
+  if (rec.status === "Pending Approval") refuse("loan is not approved yet");
+  if (SOLD.includes(rec.status)) refuse("this loan's gold has been auctioned — extension or release can no longer be requested");
+  if (type === "Release" && (rec.status === "Closed" || rec.status === "Closure Requested")) refuse("a release has already been approved for this loan — complete it instead of requesting another", 409);
+}
+
+/* Bank pledge (bank_pledge.go). */
+export function checkBankPledgeLocally(rec: BackendLoan, input: BankPledgeInput): void {
+  requirePositive(input.pledgedAmount, "amount must be greater than zero");
+  if (GONE.includes(rec.status)) refuse("gold is no longer held — can't re-pledge");
+  const active = (rec.bankPledges ?? []).filter((p) => (p.status || "Active") === "Active");
+  if (active.length > 0 && !(input.ornamentIds?.length)) refuse("some of this loan's ornaments are already pledged to a bank — select the remaining ornaments to pledge");
+  const mine = new Set((rec.ornaments ?? []).map((o) => o.id));
+  const bad = (input.ornamentIds ?? []).find((id) => id > 0 && !mine.has(id));
+  if (bad !== undefined) refuse("ornament does not belong to this loan");
+  if (input.cashTreatment && !["CashIn", "RecordOnly"].includes(input.cashTreatment)) refuse('cash_treatment must be either "CashIn" or "RecordOnly"');
+}
+
+/* Ornament change (ornament.go, loan.go). */
+export function checkOrnamentLocally(input: { purity?: string; grossWeight?: number } | undefined): void {
+  if (!input) return;
+  if (input.grossWeight !== undefined && !(input.grossWeight > 0)) refuse("gross weight must be greater than zero");
+}

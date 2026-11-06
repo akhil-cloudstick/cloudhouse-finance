@@ -40,7 +40,7 @@ var (
 	// plain names the page may read and write: cursor.json, data/loans.json, photos/<id>.json and so on
 	fileName = regexp.MustCompile(`^((data|photos)/)?[a-z0-9_-]{1,40}\.json$`)
 	// these hold secrets, so they are protected for this Windows user
-	secretFiles = map[string]bool{"device.json": true, "users.json": true}
+	secretFiles = map[string]bool{"device.json": true, "users.json": true, "pending_secrets.json": true, "data/pending_secrets.json": true}
 )
 
 type Store struct {

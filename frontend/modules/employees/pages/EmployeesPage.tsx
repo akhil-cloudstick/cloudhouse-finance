@@ -91,8 +91,8 @@ export function EmployeesPage() {
         confirmLabel="Delete"
         busyLabel="Deleting…"
         onConfirm={async () => {
-          await deleteEmployee(e.id);
-          toast(`Employee "${e.name}" deleted`);
+          const res = await deleteEmployee(e.id);
+          toast(`Employee "${e.name}" deleted${res.queued && res.message ? `. ${res.message}` : ""}`);
           load();
         }}
       />

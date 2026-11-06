@@ -5,6 +5,7 @@
 import { offlineStore } from "@/common/services/desktopBridge";
 import { getLocal, removeLocal, upsertLocal } from "./localCopy";
 import { pull, resetCursor } from "./pull";
+import { forgetSecrets } from "./secrets";
 import type { EntityName, OutboxEntry } from "./types";
 
 export const REVIEW_CHANGED_EVENT = "app:offline-review-changed";
@@ -96,6 +97,8 @@ export async function retryReview(row: ReviewRow): Promise<void> {
 export async function discardReview(row: ReviewRow): Promise<void> {
   await offlineStore.deleteOutboxEntry(row.id);
   for (const held of row.heldEntries) await offlineStore.deleteOutboxEntry(held.id);
+  // a password kept for a discarded entry goes with it
+  await forgetSecrets([row.id, ...row.heldEntries.map((h) => h.id)]).catch(() => undefined);
   for (const uuid of row.entry.targets ?? []) {
     const entity = entityOf(uuid);
     if (!entity) continue;
@@ -133,6 +136,22 @@ const ACTIONS: [RegExp, string][] = [
   [/^POST \/schemes$/, "New scheme"],
   [/^(PUT|PATCH) \/schemes\//, "Scheme edit"],
   [/^DELETE \/schemes\//, "Scheme delete"],
+  [/^POST \/banks$/, "New bank"],
+  [/^(PUT|PATCH) \/banks\//, "Bank edit"],
+  [/^DELETE \/banks\//, "Bank delete"],
+  [/^POST \/branches$/, "New branch"],
+  [/^(PUT|PATCH) \/branches\//, "Branch edit"],
+  [/^DELETE \/branches\//, "Branch deactivation"],
+  [/^(PUT|PATCH) \/business-profile/, "Business profile edit"],
+  [/^POST \/employees$/, "New employee"],
+  [/^(PUT|PATCH) \/employees\/[^/]+$/, "Employee edit"],
+  [/^DELETE \/employees\/[^/]+$/, "Employee delete"],
+  [/^POST \/roles$/, "New role"],
+  [/^(PUT|PATCH) \/roles\//, "Role edit"],
+  [/^DELETE \/roles\//, "Role delete"],
+  [/^PATCH \/employees\/[^/]+\/permissions\/[^/]+\/set-all/, "Role permissions (all on / off)"],
+  [/^PATCH \/employees\/[^/]+\/permissions\//, "Role permissions change"],
+  [/^(PUT|PATCH) \/approval-workflow\/categories\//, "Approval workflow change"],
   [/^POST \/lockers$/, "New locker"],
   [/^(PUT|PATCH|DELETE) \/lockers\//, "Locker change"],
   [/^POST \/personal-loans$/, "New personal loan"],

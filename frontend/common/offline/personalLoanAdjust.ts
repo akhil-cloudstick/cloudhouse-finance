@@ -45,7 +45,7 @@ export function pendingPersonalLoanRow(entry: OutboxEntry, b: Body, v: View): Re
   const tenure = Number(b.tenureCount) || 0;
   return {
     id: localRequestId(entry.id),
-    loanNumber: "Pending",
+    loanNumber: pendingLoanKey(entry.id),
     branchId: b.branchId ?? null,
     customerId: 0,
     customer: { id: 0, name: v.customerName ?? "—", code: v.customerCode ?? "", phone: "" },
@@ -129,10 +129,12 @@ export async function waitingPersonalPayments(loanId?: number): Promise<WaitingP
   for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
     try {
       const entry = JSON.parse(line) as OutboxEntry;
-      const m = /^\/personal-loans\/(\d+)\/payments$/.exec(entry.path.split("?")[0]);
+      const m = /^\/personal-loans\/(\d+|ref:[0-9a-f-]+)\/payments$/i.exec(entry.path.split("?")[0]);
       if (entry.method !== "POST" || !m) continue;
-      if (loanId !== undefined && Number(m[1]) !== loanId) continue;
-      found.push({ entry, loanId: Number(m[1]), body: (entry.body ?? {}) as PayBody, localId: localRequestId(entry.id) });
+      // a loan made on this PC and not sent yet is addressed by the entry that creates it, and listed under the local id made from it
+      const forLoan = m[1].startsWith("ref:") ? localRequestId(m[1].slice(4)) : Number(m[1]);
+      if (loanId !== undefined && forLoan !== loanId) continue;
+      found.push({ entry, loanId: forLoan, body: (entry.body ?? {}) as PayBody, localId: localRequestId(entry.id) });
     } catch {
       /* a line that cannot be read adds nothing */
     }
@@ -176,7 +178,7 @@ const rowsOfSchedule = (body: string | null): Installment[] | null => {
  * loan's schedule (when it has one): the server moves a loan that was "Pending" back to "Active" when it is not past its
  * grace period any more, and closes it when nothing is owed. */
 export async function adjustPersonalLoanDetail(path: string, body: string, schedule: string | null = null): Promise<string> {
-  const m = /\/personal-loans\/(\d+)(\?|$)/.exec(path);
+  const m = /\/personal-loans\/(-?\d+)(\?|$)/.exec(path);
   if (!m) return body;
   const waiting = await waitingPersonalPayments(Number(m[1]));
   if (!waiting.length) return body;
@@ -224,7 +226,7 @@ export async function adjustPersonalLoanSchedule(path: string, body: string): Pr
 
 /* GET /personal-loans/:id/payments — the loan's ledger with a row for each mode of each waiting payment, newest first. */
 export async function adjustPersonalLoanPayments(path: string, body: string): Promise<string> {
-  const m = /\/personal-loans\/(\d+)\/payments(\?|$)/.exec(path);
+  const m = /\/personal-loans\/(-?\d+)\/payments(\?|$)/.exec(path);
   if (!m) return body;
   const waiting = await waitingPersonalPayments(Number(m[1]));
   if (!waiting.length) return body;
@@ -290,4 +292,39 @@ export async function adjustPersonalLoanListPayments(body: string): Promise<stri
   } catch {
     return body;
   }
+}
+
+/* ---- opening a personal loan made on this PC and not sent yet --------------------------------------------------------
+ * The server has not numbered it, so the lists show it under a local number (PENDING-XXXXXX) and a local (negative) id. The loan
+ * page finds a loan by its number and then reads it by id; both answers come from the waiting entry, so the loan opens (with
+ * nothing yet in its schedule, ledger or history) instead of "Loan not found". */
+
+export const pendingLoanKey = (entryId: string) => "PENDING-" + entryId.replace(/-/g, "").slice(-6).toUpperCase();
+
+async function waitingLoans(): Promise<{ entry: OutboxEntry; body: Body; view: View }[]> {
+  return waiting();
+}
+
+/* GET /personal-loans/by-number/PENDING-XXXXXX */
+export async function adjustPendingLoanByNumber(path: string): Promise<string | null> {
+  const m = /\/personal-loans\/by-number\/(PENDING-[0-9A-F]{6})(\?|$)/i.exec(path);
+  if (!m) return null;
+  const hit = (await waitingLoans()).find((w) => pendingLoanKey(w.entry.id) === m[1].toUpperCase());
+  return hit ? JSON.stringify({ success: true, data: { id: localRequestId(hit.entry.id) } }) : null;
+}
+
+/* GET /personal-loans/<local id> and its schedule / payments / history / approvals. Returns null when the path is not one of these. */
+export async function adjustPendingLoanPages(path: string): Promise<string | null> {
+  const m = /\/personal-loans\/(-\d+)(\/(schedule|payments|history|approvals))?(\?|$)/.exec(path);
+  if (!m) return null;
+  const id = Number(m[1]);
+  const hit = (await waitingLoans()).find((w) => localRequestId(w.entry.id) === id);
+  if (!hit) return null;
+  if (!m[3]) {
+    const row = pendingPersonalLoanRow(hit.entry, hit.body, hit.view);
+    return adjustPersonalLoanDetail(path, JSON.stringify({ success: true, data: row }));
+  }
+  if (m[3] === "approvals") return JSON.stringify({ success: true, data: [] });
+  const empty = JSON.stringify({ success: true, data: { items: [], total: 0, hasMore: false, totalDebit: 0, totalCredit: 0 } });
+  return m[3] === "payments" ? adjustPersonalLoanPayments(path, empty) : empty;
 }
