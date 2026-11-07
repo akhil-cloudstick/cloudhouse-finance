@@ -39,6 +39,8 @@ var (
 	scopePart = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 	// plain names the page may read and write: cursor.json, data/loans.json, photos/<id>.json and so on
 	fileName = regexp.MustCompile(`^((data|photos)/)?[a-z0-9_-]{1,40}\.json$`)
+	// names of the values kept beside the mirror tables (the pull cursor of each table and so on)
+	stateKey = regexp.MustCompile(`^[a-z0-9_.:-]{1,80}$`)
 	// these hold secrets, so they are protected for this Windows user
 	secretFiles = map[string]bool{"device.json": true, "users.json": true, "pending_secrets.json": true, "data/pending_secrets.json": true}
 )
@@ -104,6 +106,16 @@ func (s *Store) Open(business, device string) error {
 	return nil
 }
 
+// DBPath is the offline database file of the opened business, for the local read server.
+func (s *Store) DBPath() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return "", errors.New("store is not open")
+	}
+	return filepath.Join(s.dir, dbFile), nil
+}
+
 // Close flushes and closes the database. The store must be opened again before it is used.
 func (s *Store) Close() {
 	s.mu.Lock()
@@ -140,6 +152,10 @@ func openDB(path string) (*sql.DB, error) {
 	}
 	db.SetMaxOpenConns(1)
 	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureMirror(db); err != nil {
 		db.Close()
 		return nil, err
 	}

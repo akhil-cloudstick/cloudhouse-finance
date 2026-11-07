@@ -2,6 +2,7 @@ import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } fr
 import { branchHeader } from "@/common/services/branchSelection";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
+import { recordList } from "@/common/offline/validate";
 import { canMakeOffline } from "@/common/offline/documents";
 import { exportTable, type ExportCell } from "@/common/offline/exports";
 import { offlineStore } from "@/common/services/desktopBridge";
@@ -124,14 +125,14 @@ export async function listSchemesPage(
   const rec = await apiFetch<{ items: BackendScheme[] | null; hasMore: boolean }>(`/schemes?${params}`);
   const items = (rec?.items || []).map(toView);
   // the first page also lists schemes made on this PC that are still waiting to be sent
-  return { items: page === 0 ? [...items, ...pendingSchemes(filters.q, filters.methods)] : items, hasMore: !!rec?.hasMore };
+  return { items: page === 0 ? [...overlaid(items), ...pendingSchemes(filters.q, filters.methods)] : overlaid(items), hasMore: !!rec?.hasMore };
 }
 
 /* Server-side search (by name) across active schemes only — backs
  * SearchableSelect pickers (see NewLoan.tsx). */
 export async function searchActiveSchemes(q: string): Promise<SchemeView[]> {
   const rec = await apiFetch<BackendScheme[]>(`/schemes/active?q=${encodeURIComponent(q)}`);
-  return [...(rec || []).map(toView), ...pendingSchemes(q, undefined, true)];
+  return [...overlaid((rec || []).map(toView)).filter((s) => s.active), ...pendingSchemes(q, undefined, true)];
 }
 
 const SCHEME_PAGE_SIZE = 5;
@@ -144,7 +145,8 @@ export async function searchActiveSchemesPage(q: string, page: number): Promise<
   const params = new URLSearchParams({ q, limit: String(SCHEME_PAGE_SIZE), offset: String(page * SCHEME_PAGE_SIZE) });
   const rec = await apiFetch<{ items: BackendScheme[]; hasMore: boolean }>(`/schemes/active?${params}`);
   const items = (rec?.items || []).map(toView);
-  return { items: page === 0 ? [...items, ...pendingSchemes(q, undefined, true)] : items, hasMore: !!rec?.hasMore };
+  const current = overlaid(items).filter((s) => s.active);
+  return { items: page === 0 ? [...current, ...pendingSchemes(q, undefined, true)] : current, hasMore: !!rec?.hasMore };
 }
 
 export async function createScheme(input: SchemeFormInput): Promise<SchemeView> {
@@ -198,9 +200,17 @@ export async function updateScheme(id: string, input: SchemeFormInput): Promise<
   return toView(rec);
 }
 
+/* The server will not delete a scheme a loan uses (deleteScheme in the backend); the loans this PC holds are compared here, so
+ * the delete is refused now, with the server's words, instead of being queued and refused later. */
+function checkSchemeDeleteLocally(id: string): void {
+  const used = (listLocal("loans") as unknown as { schemeId?: number; loanNumber?: string }[]).filter((l) => String(l.schemeId) === id);
+  if (used.length > 0) throw new ApiError(`Cannot delete this scheme — it is used by ${used.length} loan(s) (${recordList(used.map((l) => String(l.loanNumber)), used.length)}). Deactivate it instead.`, 409);
+}
+
 export async function deleteScheme(id: string): Promise<void> {
   if (offlineReady()) {
     if (!/^\d+$/.test(id)) throw new ApiError(NOT_SENT, 409);
+    checkSchemeDeleteLocally(id);
     const entry = newEntry("DELETE", `/schemes/${id}`, undefined, currentActor());
     entry.targets = [entry.id];
     const mark = { uuid: entry.id, deleteOf: Number(id) } as unknown as LocalRecord;

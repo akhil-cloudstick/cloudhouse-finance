@@ -9,6 +9,7 @@ import { quietly, warmAllPages, warmGet, warmJson } from "@/common/services/http
 import { setAuctionStage } from "./auctionStages";
 import { warmImages } from "./imageCache";
 import { listLocal } from "./localCopy";
+import { COPY_STATUS_EVENT } from "./pull";
 import { employeeId } from "./session";
 
 // one big page, so any smaller page or search of the same list can be cut from it offline
@@ -103,6 +104,7 @@ const REPORTS = [
   "balance-sheet",
   "profit-loss",
   "form-g",
+  "day-book",
 ];
 
 type Row = { id?: number; code?: string; status?: string; engine?: string };
@@ -277,7 +279,13 @@ async function warmPictures(): Promise<void> {
 
 let running = false;
 let lastHeavy = 0;
+let warmedOnce = false;
 let rerun: { force: boolean } | null = null;
+
+/* True once a whole warm-up (the lists and the per-record pages) has run to the end since sign-in. */
+export function warmCompleted(): boolean {
+  return warmedOnce;
+}
 
 /* `force` is for right after this PC sent something: the record pages are fetched again without waiting for the interval.
  * A call made while a warm-up is running is not lost; it runs once that one ends. */
@@ -304,6 +312,10 @@ export async function warmReadCache(force = false): Promise<void> {
         await warmBranches();
         await warmPictures();
         lastHeavy = Date.now();
+        if (!warmedOnce) {
+          warmedOnce = true;
+          if (typeof window !== "undefined") window.dispatchEvent(new Event(COPY_STATUS_EVENT));
+        }
       }
     });
   } finally {

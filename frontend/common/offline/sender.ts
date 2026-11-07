@@ -2,7 +2,7 @@
  *   saved or duplicate  -> delete the line (the server has it)
  *   refused by the server -> review list (or dropped, if the screen is still waiting for the answer)
  *   anything else       -> keep the entry, stop, and let the next cron tick try again
- * When the outbox is empty after at least one line was sent, it does one pull. There is no health check:
+ * After the outbox has been tried, with or without a stuck entry, it does one pull. There is no health check:
  * the only signal is whether the real request got an answer. */
 
 import { offlineStore } from "@/common/services/desktopBridge";
@@ -10,6 +10,8 @@ import { replayRequest } from "@/common/services/httpClient";
 import { ENTRIES_SENT_EVENT, ENTRY_REFUSED_EVENT, isRefusal, isWatched, refuse } from "./live";
 import { getLocal, removeLocal, upsertLocal } from "./localCopy";
 import { pull } from "./pull";
+import { syncMirror } from "./mirrorSync";
+import { SYNC_STATE_EVENT, syncBusy } from "./progress";
 import { sendToReview } from "./review";
 import { warmReadCache } from "./warm";
 import { uploadFileOnline } from "@/common/services/uploadService";
@@ -24,11 +26,11 @@ import type { EntityName, OutboxEntry } from "./types";
 let running = false;
 let again = false;
 
-export const SYNC_STATE_EVENT = "app:offline-sync-state";
+export { SYNC_STATE_EVENT } from "./progress";
 
-/* True while the sender (cron, after a save, or the manual button) is sending or pulling. */
+/* True while the sender (cron, after a save, or the manual button) is sending, pulling or downloading the business tables. */
 export function isSyncing(): boolean {
-  return running || pulling;
+  return running || pulling || syncBusy();
 }
 
 // true while the pull that follows an empty outbox is running (the send loop has already ended by then)
@@ -75,9 +77,8 @@ export async function waitingCount(): Promise<number> {
 /* True when the server answered and the outbox is now empty. */
 export async function drain(why: string): Promise<boolean> {
   if (running) {
-    // a sync is already running: the cron tick and the manual button are simply ignored (no second sync is started or
-    // queued behind it); only a save made mid-send asks for one more round, so that entry is not left waiting
-    if (why !== "cron" && why !== "manual" && why !== "network back") again = true;
+    // a sync is already running: one more round is queued behind it, so no trigger is lost
+    again = true;
     return false;
   }
   running = true;
@@ -184,6 +185,7 @@ export async function drain(why: string): Promise<boolean> {
           // someone is still at the screen: they get the message there, the same as an online save, so the entry
           // is dropped and the local copy goes back to what the server holds
           await offlineStore.deleteOutboxEntry(entry.id);
+          await offlineStore.mirrorDropTemp(entry.id).catch(() => undefined);
           if (hasSecretRef(entry.body)) await forgetSecret(entry.id);
           await refuse(entry.id, { status: r.status, message });
         } else {
@@ -206,6 +208,8 @@ export async function drain(why: string): Promise<boolean> {
       if (createsRequest(entry) || createsPlan(entry) || createsLocker(entry) || createsLoan(entry) || createsReminder(entry) || createsInvestment(entry) || createsPersonalLoan(entry) || createsRole(entry)) await rememberRequest(entry.id, r.body);
       await applyReply(entry, r.body);
       await offlineStore.deleteOutboxEntry(entry.id);
+      // the rows this entry made under temporary ids give way to the server's own, which come down with the next pull
+      await offlineStore.mirrorDropTemp(entry.id).catch(() => undefined);
       if (hasSecretRef(entry.body)) await forgetSecret(entry.id);
       sent++;
     }
@@ -220,13 +224,13 @@ export async function drain(why: string): Promise<boolean> {
     again = false;
     return drain("entry added while sending");
   }
-  if (stopped) return false;
-  // the list is empty: one pull brings this branch's changes (including other PCs') into the local copy
+  // one pull brings this branch's changes (including other PCs') into the local copy, whether or not an entry is stuck:
+  // records with a waiting entry are kept as they are, and with no answer from the server the pull just returns
   pulling = true;
   announce();
   let pulled = false;
   try {
-    pulled = await pull(sent > 0 ? "outbox empty" : why);
+    pulled = await pull(sent > 0 ? "after send" : why);
   } finally {
     pulling = false;
     announce();
@@ -234,5 +238,8 @@ export async function drain(why: string): Promise<boolean> {
   // what was just sent changes lists the PC keeps for offline use (a new scheme); fetch them again
   if (sent > 0) void warmReadCache(true);
   if (sent > 0) window.dispatchEvent(new Event(ENTRIES_SENT_EVENT));
-  return sent > 0 || pulled;
+  // the server answered: the business tables catch up too, and the sync is not finished until they have
+  const mirrored = pulled ? await syncMirror(sent > 0 ? "after send" : why) : false;
+  if (stopped) return false;
+  return sent > 0 || pulled || mirrored;
 }

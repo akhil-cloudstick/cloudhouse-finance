@@ -496,6 +496,21 @@ export { currentActor, getLocal, offlineReady };
 const SOLD = ["Auctioned", "Auctioned (Balance Due)"];
 const GONE = ["Closed", "Rejected", ...SOLD];
 
+// Statuses the server will not take a bank pledge on (backend BankPledgeIneligibleStatuses): the gold is no longer held.
+export const PLEDGE_INELIGIBLE = ["Rejected", "Closed", "Closure Requested", "Auctioned", "Auctioned - Balance Due", "Pending Approval"];
+
+type PledgeLike = { status?: string; ornamentIds?: number[] | null };
+const activePledges = (rec: { bankPledges?: PledgeLike[] }) => (rec.bankPledges ?? []).filter((p) => (p.status || "Active") === "Active");
+
+/* Whether a loan can be offered for a new bank pledge: its gold is still held, no auction case is open on it, and no pledge
+ * covers the whole loan (a loan with only some ornaments pledged can take another pledge for the rest). */
+export function canTakeBankPledge(rec: { status: string; id: number; bankPledges?: PledgeLike[] }): boolean {
+  if (PLEDGE_INELIGIBLE.includes(rec.status)) return false;
+  const stage = auctionStageOf(rec.id, rec.status);
+  if (stage && stage !== "Settled" && stage !== "Withdrawn") return false;
+  return !activePledges(rec).some((p) => !(p.ornamentIds?.length));
+}
+
 /* Record payment (payment.go SaveLoanPayment). */
 export function checkPaymentLocally(rec: BackendLoan, input: PaymentInput): void {
   if (rec.status === "Pending Approval") refuse("payments cannot be recorded until the loan is approved");
@@ -590,12 +605,22 @@ export function checkRequestLocally(rec: BackendLoan, type: "Extension" | "Relea
 /* Bank pledge (bank_pledge.go). */
 export function checkBankPledgeLocally(rec: BackendLoan, input: BankPledgeInput): void {
   requirePositive(input.pledgedAmount, "amount must be greater than zero");
-  if (GONE.includes(rec.status)) refuse("gold is no longer held — can't re-pledge");
-  const active = (rec.bankPledges ?? []).filter((p) => (p.status || "Active") === "Active");
+  // the same rules, in the same order, as the server (SaveBankPledge), so a pledge it would refuse is refused here, not queued
+  if (PLEDGE_INELIGIBLE.includes(rec.status)) refuse("gold is no longer held — can't re-pledge");
+  const stage = auctionStageOf(rec.id, rec.status);
+  if (stage && stage !== "Settled" && stage !== "Withdrawn") refuse("this loan has an auction case in progress; its gold cannot be pledged to a bank until the case is closed");
+  const active = activePledges(rec);
+  if (active.some((p) => !(p.ornamentIds?.length))) refuse("gold is still pledged to a bank — release the bank pledge before releasing it to the customer");
   if (active.length > 0 && !(input.ornamentIds?.length)) refuse("some of this loan's ornaments are already pledged to a bank — select the remaining ornaments to pledge");
-  const mine = new Set((rec.ornaments ?? []).map((o) => o.id));
-  const bad = (input.ornamentIds ?? []).find((id) => id > 0 && !mine.has(id));
-  if (bad !== undefined) refuse("ornament does not belong to this loan");
+  const mine = new Map((rec.ornaments ?? []).map((o) => [o.id, o]));
+  const pledged = new Set(active.flatMap((p) => p.ornamentIds ?? []));
+  for (const id of input.ornamentIds ?? []) {
+    if (id <= 0) continue;
+    const o = mine.get(id);
+    if (!o) refuse("ornament does not belong to this loan");
+    else if (o.releasedAt) refuse(`ornament "${o.name}" has already been released`);
+    else if (pledged.has(id)) refuse(`ornament "${o.name}" is already pledged to a bank`);
+  }
   if (input.cashTreatment && !["CashIn", "RecordOnly"].includes(input.cashTreatment)) refuse('cash_treatment must be either "CashIn" or "RecordOnly"');
 }
 

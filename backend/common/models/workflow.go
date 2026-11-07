@@ -29,6 +29,7 @@ type ApprovalAction struct {
 	ActorRole       string    `json:"actor_role" gorm:"size:60"`
 	Remarks         string    `json:"remarks"`
 	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type ApprovalChain struct {

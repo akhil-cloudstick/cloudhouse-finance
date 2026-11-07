@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getDevToolsPin, setDevToolsPin, SuperAdminApiError, type DevToolsPin } from "@/modules/superadmin/services/superadminService";
+import { PasswordInput } from "@/modules/superadmin/components/PasswordInput";
 import { ReasonField } from "@/modules/superadmin/components/ReasonField";
 import { fieldForMessage } from "@/common/components/ui/FieldError";
 
@@ -98,8 +99,7 @@ export function DevToolsPinModal({ onClose }: DevToolsPinModalProps) {
             <form onSubmit={submit}>
               <div className={fe.pin ? "sa-field has-err" : "sa-field"}>
                 <label>New PIN (4-6 digits)</label>
-                <input
-                  type="password"
+                <PasswordInput
                   inputMode="numeric"
                   maxLength={6}
                   value={pin}

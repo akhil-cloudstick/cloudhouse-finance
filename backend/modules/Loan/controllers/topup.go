@@ -404,16 +404,27 @@ func listTopUps(ctx context.Context, loanID uint) ([]models.LoanTopUp, error) {
 }
 
 func createLoanTopUpTx(ctx context.Context, tx *gorm.DB, t *models.LoanTopUp) error {
-	return tx.WithContext(ctx).Create(t).Error
+	db := tx.WithContext(ctx)
+	if err := db.Create(t).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, t.LoanID)
 }
 
 func updateLoanTopUpTx(ctx context.Context, tx *gorm.DB, t *models.LoanTopUp) error {
-	return tx.WithContext(ctx).Save(t).Error
+	db := tx.WithContext(ctx)
+	if err := db.Save(t).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, t.LoanID)
 }
 
 func persistLoanTopUp(ctx context.Context, t *models.LoanTopUp) error {
-	return config.DB.
-		WithContext(ctx).Save(t).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(t).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, t.LoanID)
 }
 
 func findLoanTopUpByID(ctx context.Context, id uint) (*models.LoanTopUp, error) {

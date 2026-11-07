@@ -1406,7 +1406,13 @@ func deletePlan(ctx context.Context, id uint) error {
 		return err
 	}
 	if used > 0 {
-		return common.NewConflict(fmt.Sprintf("This plan is used by %d investment(s) and can't be deleted — mark it inactive instead.", used))
+		var numbers []string
+		config.DB.WithContext(ctx).Raw("SELECT investment_number FROM investments WHERE plan_id = ? ORDER BY id LIMIT 5", rec.ID).Scan(&numbers)
+		listed := ""
+		if len(numbers) > 0 {
+			listed = " (" + common.RecordList(numbers, used) + ")"
+		}
+		return common.NewConflict(fmt.Sprintf("This plan is used by %d investment(s)%s and can't be deleted — mark it inactive instead.", used, listed))
 	}
 	return config.DB.WithContext(ctx).Delete(rec).Error
 }

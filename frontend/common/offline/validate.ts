@@ -16,6 +16,14 @@ export function refuse(message: string, status = 400): never {
   throw new ApiError(message, status);
 }
 
+/* The records standing in the way of an action, as the server words them: the first few named, then how many more
+ * ("LN-00001, LN-00002 and 2 more"). */
+export function recordList(items: string[], total = items.length): string {
+  const shown = items.slice(0, 5);
+  const more = total - shown.length;
+  return `${shown.join(", ")}${more > 0 ? `${shown.length ? " and " : ""}${more} more` : ""}`;
+}
+
 /* A required value that has to be above zero. */
 export function requirePositive(value: unknown, message: string): void {
   if (!(n(value) > 0)) refuse(message);

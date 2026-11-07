@@ -300,7 +300,15 @@ func RequireSelf(param, ctxKey string) echo.MiddlewareFunc {
 	}
 }
 
+// LocalStaff is set only by the desktop app's local read server (backend/localapi). When it is set, routes registered with
+// Staff use it instead of the online checks, because a PC without the server cannot verify a login token; it answers
+// from the session the PC saved at sign-in. The online server never sets it.
+var LocalStaff []echo.MiddlewareFunc
+
 func Staff(extra ...echo.MiddlewareFunc) []echo.MiddlewareFunc {
+	if LocalStaff != nil {
+		return append(append([]echo.MiddlewareFunc{}, LocalStaff...), extra...)
+	}
 	return append([]echo.MiddlewareFunc{AuthMiddleware(), RequireSelf("user_id", "employeeId"), RequireHostMatchesTenant(true), PinTenantConn(), PinSingleBranch(), SyncEntry()}, extra...)
 }
 

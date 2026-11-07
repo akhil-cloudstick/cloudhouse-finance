@@ -149,10 +149,15 @@ export function replaceLocal(entity: EntityName, rows: LocalRecord[], keep: Set<
 }
 
 /* An incremental pull: changed rows overwrite, removed rows go. */
-export function mergeLocal(entity: EntityName, rows: LocalRecord[], removed: string[], keep: Set<string>): Promise<void> {
+export function mergeLocal(entity: EntityName, rows: LocalRecord[], removed: string[], keep: Set<string>, persistNow = true): Promise<void> {
   for (const r of rows) if (!keep.has(r.uuid)) cache[entity].set(r.uuid, r);
   for (const uuid of removed) if (!keep.has(uuid)) cache[entity].delete(uuid);
   notify();
+  return persistNow ? persist(entity) : Promise.resolve();
+}
+
+/* Writes the entity to disk now; a long download merges many pages in memory and saves at checkpoints. */
+export function saveLocal(entity: EntityName): Promise<void> {
   return persist(entity);
 }
 

@@ -785,6 +785,39 @@ body {
 /* The viewport-relative max-height needs the floor: on a short window
    (or a laptop with a large browser chrome) calc() alone resolves to a
    sliver, and the table would scroll inside ~40px. */
+/* Password field with a reveal (eye) button inside its right edge. */
+.sa-pw {
+  position: relative;
+}
+.sa-pw input {
+  width: 100%;
+  padding-right: 42px;
+}
+.sa-pw-toggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--sa-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sa-pw-toggle:hover {
+  color: var(--sa-brand-deep);
+}
+.sa-pw-toggle .sa-icon {
+  width: 18px;
+  height: 18px;
+}
+
 .sa-table-wrap {
   overflow: auto;
   max-height: max(320px, calc(100vh - 290px));
@@ -811,16 +844,36 @@ body {
    column drops out first on a narrower laptop — the code is already in the
    URL beside it. Only a phone (see the 720px block) falls back to a scroll. */
 .sa-table-wrap-fit {
-  overflow-x: hidden;
+  overflow-x: auto;
 }
+/* overflow-wrap:anywhere on every cell made each column's min-content one
+   character, so on a narrow card the table crushed the Business and Plan
+   columns to a letter per line. Columns now have real floors and only the URL
+   may break mid-word; when the floors don't fit, the wrap scrolls sideways. */
 .sa-table-biz {
-  min-width: 0;
+  min-width: 900px;
 }
 .sa-table-biz th,
 .sa-table-biz td {
   padding: 10px 10px;
 }
-.sa-table-biz td {
+.sa-table-biz th:nth-child(1),
+.sa-table-biz td:nth-child(1) {
+  min-width: 170px;
+}
+.sa-table-biz th:nth-child(3),
+.sa-table-biz td:nth-child(3) {
+  min-width: 190px;
+}
+.sa-table-biz th:nth-child(4),
+.sa-table-biz td:nth-child(4) {
+  min-width: 100px;
+}
+.sa-table-biz th:nth-child(5),
+.sa-table-biz td:nth-child(5) {
+  min-width: 80px;
+}
+.sa-table-biz .sa-url {
   overflow-wrap: anywhere;
 }
 .sa-table-biz .sa-biz-sub {
@@ -1311,12 +1364,6 @@ body {
 /* Tablet and below: tighten the gutters so the tables and cards get the width
    back, and let the topbar stack rather than squeeze. */
 @media (max-width: 720px) {
-  .sa-table-wrap-fit {
-    overflow-x: auto;
-  }
-  .sa-table-biz {
-    min-width: 640px;
-  }
   .sa-topbar {
     align-items: flex-start;
     gap: 10px;

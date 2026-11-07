@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { REVIEW_CHANGED_EVENT, describeEntry, discardReview, listReview, retryReview, type ReviewRow } from "@/common/offline/review";
-import { SYNC_STATE_EVENT, drain, isSyncing } from "@/common/offline/sender";
+import { SYNC_STATE_EVENT } from "@/common/offline/sender";
 
 const when = (ms: number) => new Date(ms).toLocaleString();
 
-/* Desktop-only Settings section for admins: entries made on this PC while offline that the server refused when they
- * were sent. Each one keeps the server's reason. Retry sends it again; Discard gives it up for good. */
+/* The review part of the Offline settings, for admins: entries made on this PC while offline that the server refused when
+ * they were sent. Each one keeps the server's reason. Retry sends it again; Discard gives it up for good. */
 export function OfflineReviewPanel() {
   const [rows, setRows] = useState<ReviewRow[] | null>(null);
   const [open, setOpen] = useState<string>("");
@@ -15,34 +15,18 @@ export function OfflineReviewPanel() {
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState("");
 
-  const [syncing, setSyncing] = useState(isSyncing());
-
   const load = useCallback(() => listReview().then(setRows, () => setRows([])), []);
 
-  // the button is disabled whenever the automatic sync (cron, after a save, network back) is running
-  useEffect(() => {
-    const update = () => setSyncing(isSyncing());
-    update();
-    window.addEventListener(SYNC_STATE_EVENT, update);
-    return () => window.removeEventListener(SYNC_STATE_EVENT, update);
-  }, []);
-
-  async function syncNow() {
-    setError("");
-    try {
-      await drain("manual");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sync failed. Try again.");
-    } finally {
-      await load();
-    }
-  }
-
+  // the list is read again when an entry is refused, and when a sync starts or ends
   useEffect(() => {
     const refresh = () => void load();
     refresh();
     window.addEventListener(REVIEW_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(REVIEW_CHANGED_EVENT, refresh);
+    window.addEventListener(SYNC_STATE_EVENT, refresh);
+    return () => {
+      window.removeEventListener(REVIEW_CHANGED_EVENT, refresh);
+      window.removeEventListener(SYNC_STATE_EVENT, refresh);
+    };
   }, [load]);
 
   async function act(row: ReviewRow, run: (r: ReviewRow) => Promise<void>) {
@@ -60,14 +44,9 @@ export function OfflineReviewPanel() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 640 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6 }}>
-          <h4 style={{ margin: 0 }}>Offline review</h4>
-          <button type="button" className="btn sm" disabled={syncing} onClick={() => void syncNow()}>
-            {syncing ? "Syncing…" : "Sync now"}
-          </button>
-        </div>
+        <h4 style={{ margin: "0 0 6px" }}>Needs review</h4>
         <p style={{ margin: 0, color: "var(--muted)", fontSize: 13, lineHeight: 1.55 }}>
           Entries saved on this PC while the server was unreachable, which the server then refused. They stay here with the
           server&apos;s reason until you retry or discard them.

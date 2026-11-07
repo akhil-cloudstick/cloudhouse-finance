@@ -1,6 +1,9 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
 import { canMakeOffline } from "@/common/offline/documents";
+import { offlineReady } from "@/common/offline";
+import { queueWrite } from "@/common/offline/queueWrite";
+import { checkDayBookLocally } from "@/common/offline/dayBookAdjust";
 import { exportTable, tableFromObjects, type ExportCell, type ExportTable } from "@/common/offline/exports";
 import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, InvestorLedgerRow, InvestorLedgerTotals, InterestCollectionRow, InterestCollectionTotals, OutstandingPrincipalRow, OutstandingPrincipalTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, DayBookRow, DayBookTotals, DayBookInput, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, FormGStatement, FormGOverrides, BalanceSheetRow, BalanceSheetTotals, ProfitLossRow, ProfitLossTotals, ReportKey } from "@/modules/reports/types/reports-types";
 
@@ -134,14 +137,22 @@ export const getExpenseCashflow = (f: ReportFilters) =>
 export const getDayBook = (f: ReportFilters) =>
   fetchReport<DayBookRow, DayBookTotals>("day-book", f);
 
-export const createDayBookEntry = (input: DayBookInput) =>
-  apiFetch<DayBookRow>("/reports/day-book", { method: "POST", body: JSON.stringify(input) });
+// Desktop with offline mode running: the line goes into the outbox first and shows in the report at once (see dayBookAdjust.ts).
+export async function createDayBookEntry(input: DayBookInput): Promise<DayBookRow> {
+  if (offlineReady()) checkDayBookLocally(input);
+  return queueWrite("POST", "/reports/day-book", input, { id: 0, ...input }, () =>
+    apiFetch<DayBookRow>("/reports/day-book", { method: "POST", body: JSON.stringify(input) }));
+}
 
-export const updateDayBookEntry = (id: number, input: DayBookInput) =>
-  apiFetch<DayBookRow>(`/reports/day-book/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+export async function updateDayBookEntry(id: number, input: DayBookInput): Promise<DayBookRow> {
+  if (offlineReady()) checkDayBookLocally(input);
+  return queueWrite("PATCH", `/reports/day-book/${id}`, input, { id, ...input }, () =>
+    apiFetch<DayBookRow>(`/reports/day-book/${id}`, { method: "PATCH", body: JSON.stringify(input) }));
+}
 
 export const deleteDayBookEntry = (id: number) =>
-  apiFetch<void>(`/reports/day-book/${id}`, { method: "DELETE" });
+  queueWrite<void>("DELETE", `/reports/day-book/${id}`, undefined, undefined, () =>
+    apiFetch<void>(`/reports/day-book/${id}`, { method: "DELETE" }));
 
 export const getKYC = (f: ReportFilters) =>
   fetchReport<KYCRow, KYCTotals>("kyc", f);
@@ -238,14 +249,13 @@ async function exportReportOffline(key: ReportKey, format: "xlsx" | "pdf", filte
       rows: r.rows.map((x): ExportCell[] => [`${"    ".repeat(x.indent || 0)}${x.label}`, x.style === "header" ? "" : x.amount]),
       filename: key,
     };
-  } else if (key === "cash-ledger") {
-    const r = await fetchReport<CashLedgerRow, CashLedgerTotals>(key, rest);
+  } else if (key === "day-book") {
+    const r = await fetchReport<DayBookRow, DayBookTotals>(key, rest);
     const m = (v: number): ExportCell => (v ? v : "");
     table = {
-      title: "Cash Ledger", subtitle: period, headers: ["Date", "Particulars", "Debit", "Credit", "Balance"],
-      rows: [["", "Opening balance", "", "", r.totals.openingBalance],
-        ...r.rows.filter((x) => !x.total).map((x): ExportCell[] => [dmy(x.date), x.particulars, m(x.debit), m(x.credit), x.balance])],
-      totalsRow: ["", "Closing balance", m(r.totals.totalDebit), m(r.totals.totalCredit), r.totals.closingBalance],
+      title: "Day Book", subtitle: period, headers: ["Date", "Particulars", "Debit", "Credit", "Interest"],
+      rows: r.rows.map((x): ExportCell[] => [dmy(x.date), x.particulars, m(x.debit), m(x.credit), m(x.interest)]),
+      totalsRow: ["", "Total", m(r.totals.debit), m(r.totals.credit), m(r.totals.interest)],
       filename: key,
     };
   } else {

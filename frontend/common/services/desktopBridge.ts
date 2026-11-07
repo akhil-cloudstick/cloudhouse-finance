@@ -188,6 +188,17 @@ export const offlineStore = {
   /* Opens the folder picker and moves the offline data there; resolves to the new folder, or "" if closed. */
   chooseFolder: () => app()!.StoreChooseFolder(),
   useDefaultFolder: () => app()!.StoreUseDefaultFolder(),
+  /* The mirror: the server's business tables, copied row for row. A batch of rows, deletions and cursors is one transaction. */
+  mirrorApply: (batch: string) => app()!.StoreMirrorApply(batch),
+  /* The local read server: answers a GET from this PC's copy of the business when the server cannot be reached. */
+  localApiBind: (sessionJson: string) => app()!.LocalApiBind(sessionJson),
+  localApiGet: (path: string, query: string, headers: Record<string, string>) => app()!.LocalApiGet(path, query, headers),
+  mirrorBindTenant: (tenant: number) => app()!.StoreMirrorBindTenant(tenant),
+  mirrorWriteTemp: (entryId: string, batch: string) => app()!.StoreMirrorWriteTemp(entryId, batch),
+  mirrorDropTemp: (entryId: string) => app()!.StoreMirrorDropTemp(entryId),
+  mirrorState: (key: string) => app()!.StoreMirrorState(key),
+  mirrorIds: (table: string) => app()!.StoreMirrorIDs(table),
+  mirrorCounts: () => app()!.StoreMirrorCounts(),
 };
 
 /* Documents made on this PC from the bundled templates (desktop/documents.go) when the server cannot be reached. */

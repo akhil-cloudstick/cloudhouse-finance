@@ -53,6 +53,7 @@ type CashMovement struct {
 	// IsManual marks a line a person keyed in (cash-in, debit, self transfer): the ledger offers Edit on it.
 	IsManual  bool      `json:"editable" gorm:"not null;default:false"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Expense struct {
@@ -79,6 +80,7 @@ type Expense struct {
 	// GroupID ties the debit lines of one payment breakdown together (empty for a single-mode expense).
 	GroupID   string    `json:"group_id,omitempty" gorm:"size:40;index"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	// Editable is true for an expense the Expense Register may edit: a pending or approved one a person keyed in
 	// (not the ones the system books for an auction or a bank pledge release).
 	Editable bool `json:"editable" gorm:"-"`
@@ -107,6 +109,7 @@ type OpeningCashBalance struct {
 	FromBank    *commonModels.Bank  `json:"from_bank,omitempty" gorm:"foreignKey:FromBankID"`
 	Amount      float64             `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	CreatedAt   time.Time           `json:"created_at"`
+	UpdatedAt   time.Time           `json:"updated_at"`
 	IsSet       bool                `json:"is_set" gorm:"-"`
 }
 
@@ -133,6 +136,7 @@ type GoldSale struct {
 	Remarks      string    `json:"remarks" gorm:"size:500"`
 	ReceiptImage string    `json:"receipt_image,omitempty" gorm:"type:text"`
 	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type Category struct {
@@ -161,6 +165,7 @@ type LoanCashSource struct {
 	InterestRate    *float64  `json:"interest_rate" gorm:"type:numeric(6,2)"`
 	DurationMonths  *int      `json:"duration_months"`
 	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 func (m *CashMovement) BeforeCreate(_ *gorm.DB) error {

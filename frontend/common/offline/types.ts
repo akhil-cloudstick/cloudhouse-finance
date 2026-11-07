@@ -32,4 +32,9 @@ export type PullPayload = {
   customers: LocalRecord[];
   deleted: { loans: string[]; customers: string[] };
   cursor: string;
+  has_more?: boolean;
+  scope?: string;
+  next?: { loan_after: string; customer_after: string; start: string };
 };
+
+export type SyncIds = { loans: string[]; customers: string[] };

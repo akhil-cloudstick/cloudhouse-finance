@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { offlineStore } from "@/common/services/desktopBridge";
 import { startOffline, stopOffline } from "@/common/offline";
 
-/* Desktop-only Settings section: where this PC keeps its offline data, and a way to move it. Moving copies what is
- * stored to the new folder and leaves the old one in place. */
+/* The storage-folder part of the Offline settings: where this PC keeps its offline data, and a way to move it. Moving
+ * copies what is stored to the new folder and leaves the old one in place. */
 export function OfflineStoragePanel() {
   const [folder, setFolder] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,34 +36,29 @@ export function OfflineStoragePanel() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 560 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
-        <h4 style={{ margin: "0 0 6px" }}>Offline storage</h4>
+        <h4 style={{ margin: "0 0 6px" }}>Storage folder</h4>
         <p style={{ margin: 0, color: "var(--muted)", fontSize: 13, lineHeight: 1.55 }}>
           Loans, customers and anything saved while the server is unreachable are kept in this folder until they are sent.
         </p>
       </div>
 
-      <div>
-        <div style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 6 }}>
-          Current folder
-        </div>
-        <div
-          title={folder}
-          style={{
-            padding: "10px 12px",
-            border: "1px solid var(--line)",
-            borderRadius: 8,
-            background: "rgba(0,0,0,.025)",
-            fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
-            fontSize: 12.5,
-            lineHeight: 1.5,
-            wordBreak: "break-all",
-            userSelect: "all",
-          }}
-        >
-          {folder || "…"}
-        </div>
+      <div
+        title={folder}
+        style={{
+          padding: "10px 12px",
+          border: "1px solid var(--line)",
+          borderRadius: 8,
+          background: "rgba(0,0,0,.025)",
+          fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+          fontSize: 12.5,
+          lineHeight: 1.5,
+          wordBreak: "break-all",
+          userSelect: "all",
+        }}
+      >
+        {folder || "…"}
       </div>
 
       <div>

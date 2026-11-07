@@ -1,5 +1,5 @@
 /* Offline mode for the desktop exe. Every Save is added to the outbox and the local copy together; the sender
- * sends the outbox oldest first, right after a Save and from a 1-minute cron. In a browser none of this runs
+ * sends the outbox oldest first, right after a Save and from a 10-minute cron. In a browser none of this runs
  * and the app behaves as before. */
 
 import { offlineStore } from "@/common/services/desktopBridge";
@@ -12,7 +12,9 @@ import { flushRememberedLogin } from "./loginCache";
 import { offlineBusiness } from "./session";
 import { askStorageChoice } from "./storageChoice";
 import { setReadCacheEnabled } from "./readCache";
-import { pull } from "./pull";
+import { loadCopyStatus, pull } from "./pull";
+import { loadMirrorStatus } from "./mirrorSync";
+import { bindLocalApi, resetLocalApi } from "./localApi";
 import { drain } from "./sender";
 import { warmReadCache } from "./warm";
 import { offlineReady, setOfflineReady } from "./state";
@@ -55,8 +57,11 @@ async function doStartOffline(): Promise<void> {
     await offlineStore.open(business, DEVICE_FOLDER);
     await loadDevice();
     await loadLocalCopy();
+    await loadCopyStatus();
+    await loadMirrorStatus();
     await loadAuctionStages();
     setOfflineReady(true);
+    void bindLocalApi();
   } catch (e) {
     setOfflineReady(false);
     console.error("offline mode could not start", e);
@@ -81,6 +86,7 @@ export function stopOffline(): void {
   window.removeEventListener("online", onOnline);
   setReadCacheEnabled(false);
   forgetDevice();
+  resetLocalApi();
   setOfflineReady(false);
 }
 

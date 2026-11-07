@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createBusiness, changeTier, updateProfile, setBranding, setModules, setLanguages, uploadLogo, clearLogo, uploadSignature, fetchSignatureUrl, clearSignature, getAdminLogin, updateAdminLogin, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business, type Tier, type Catalogue } from "@/modules/superadmin/types/superadmin-types";
 import { Select } from "@/modules/superadmin/components/Select";
+import { PasswordInput } from "@/modules/superadmin/components/PasswordInput";
 import { DEFAULT_BRAND_COLOR, DEFAULT_FONT_FAMILY, DEFAULT_FONT_SCALE, LOGO_SCALES, DEFAULT_LOGO_SCALE, DEFAULT_LOGO_DISPLAY } from "@/modules/superadmin/config/theme";
 import BrandingStep, { type BrandingDraft } from "@/modules/superadmin/components/BrandingStep";
 import { classicLayout, LAYOUT_PRESETS, LOGO_WIDTH_SQUARE, matchingPreset, parseHeaderLayout, serializeHeaderLayout, type HeaderLayout } from "@/common/config/headerLayout";
@@ -921,8 +922,7 @@ export function BusinessWizard({
                 </div>
                 <div className="sa-field">
                   <label>{isCreate ? "Password" : "New password"}</label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
                     minLength={8}

@@ -412,13 +412,19 @@ func recordPledgeEvent(ctx context.Context, p *models.BankPledgeRecord, action s
 }
 
 func insertBankPledge(ctx context.Context, p *models.BankPledgeRecord) error {
-	return config.DB.
-		WithContext(ctx).Create(p).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(p).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, p.LoanID)
 }
 
 func persistBankPledge(ctx context.Context, p *models.BankPledgeRecord) error {
-	return config.DB.
-		WithContext(ctx).Save(p).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(p).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, p.LoanID)
 }
 
 func findBankPledgeByID(ctx context.Context, id uint) (*models.BankPledgeRecord, error) {
@@ -577,8 +583,11 @@ func findBankPledgeAllByCustomerID(ctx context.Context, customerID uint, from, t
 }
 
 func createBankPledgeEvent(ctx context.Context, e *models.BankPledgeEvent) error {
-	return config.DB.
-		WithContext(ctx).Create(e).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(e).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfPledge(db, e.BankPledgeRecordID)
 }
 
 func ListBankPledgesForCustomer(c echo.Context) error {

@@ -110,7 +110,7 @@ export function NewInvestmentModalContent({ onSaved, investment }: NewInvestment
         onSaved();
         return;
       }
-      await createInvestment({
+      const created = await createInvestment({
         branchId: customerBranchId,
         customerId: customerRef,
         planId: Number(planId),

@@ -221,13 +221,19 @@ func findPackets(ctx context.Context, f Filter) ([]models.Packet, int64, error) 
 }
 
 func persistPacket(ctx context.Context, p *models.Packet) error {
-	return config.DB.
-		WithContext(ctx).Save(p).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(p).Error; err != nil {
+		return err
+	}
+	return loanModels.TouchLoan(db, p.LoanID)
 }
 
 func createMovement(ctx context.Context, m *models.PacketMovement) error {
-	return config.DB.
-		WithContext(ctx).Create(m).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(m).Error; err != nil {
+		return err
+	}
+	return loanModels.TouchLoanOfPacket(db, m.PacketID)
 }
 
 func findMovements(ctx context.Context, packetID uint) ([]models.PacketMovement, error) {

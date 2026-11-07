@@ -5,6 +5,7 @@ import { isDesktop } from "@/common/services/desktopBridge";
 import { offlineReady } from "@/common/offline";
 import { NETWORK_EVENT, isReachable } from "@/common/offline/network";
 import { SYNC_STATE_EVENT, isSyncing } from "@/common/offline/sender";
+import { PROGRESS_EVENT, downloadProgress, type DownloadProgress } from "@/common/offline/progress";
 
 /* Desktop app only. Whether the server can be reached is shown as a red ring around the profile picture (see
  * AccountMenu); nothing is drawn while online. This component draws nothing itself: it keeps the page from being
@@ -37,6 +38,19 @@ export function useSyncingRing(): boolean {
     return () => window.removeEventListener(SYNC_STATE_EVENT, update);
   }, []);
   return on;
+}
+
+/* How far the offline copy has got (desktop app only), for the progress ring around the profile picture and the bar in
+ * Settings. `initial` is true until the copy has been complete once; only then is the percentage shown. */
+export function useDownloadProgress(): DownloadProgress {
+  const [progress, setProgress] = useState<DownloadProgress>(() => downloadProgress());
+  useEffect(() => {
+    const update = () => setProgress(downloadProgress());
+    update();
+    window.addEventListener(PROGRESS_EVENT, update);
+    return () => window.removeEventListener(PROGRESS_EVENT, update);
+  }, []);
+  return progress;
 }
 
 export function NetworkIndicator() {

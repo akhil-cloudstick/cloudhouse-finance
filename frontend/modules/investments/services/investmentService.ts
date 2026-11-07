@@ -6,7 +6,7 @@ import { pendingInvestmentRow } from "@/common/offline/investmentAdjust";
 import { PLAN_REF, createsInvestment, findLocalPlan, localRequestId } from "@/common/offline/requestRef";
 import { dropUnsentRecord } from "@/common/offline/unsent";
 import { assertPayoutFunds, partsOfSplit } from "@/common/offline/funds";
-import { dayOf, refuse, requireNotBefore, requireNotFuture, requireNotNegative, requirePositive, requireValidSplit } from "@/common/offline/validate";
+import { dayOf, recordList, refuse, requireNotBefore, requireNotFuture, requireNotNegative, requirePositive, requireValidSplit } from "@/common/offline/validate";
 import { branchHeader } from "@/common/services/branchSelection";
 import { printPdfJob } from "@/common/utils/print";
 import { canMakeOffline, localPerson, renderAndPrint } from "@/common/offline/documents";
@@ -41,12 +41,29 @@ export async function createInvestmentPlan(input: CreatePlanInput): Promise<Back
 
 export function updateInvestmentPlan(id: number, input: CreatePlanInput): Promise<BackendInvestmentPlan> {
   if (id < 0) throw new ApiError("This plan has not reached the server yet. Edit it once it has (it is sent as soon as the connection is back).", 409);
-  return apiFetch<BackendInvestmentPlan>(`/investment-plans/${id}`, { method: "PUT", body: JSON.stringify(input) });
+  const path = `/investment-plans/${id}`;
+  // on the desktop the change is queued and the plan lists show it at once (see recordEdits.ts)
+  return queueWrite("PUT", path, input, { id, ...input } as BackendInvestmentPlan, () =>
+    apiFetch<BackendInvestmentPlan>(path, { method: "PUT", body: JSON.stringify(input) }));
 }
 
-// Refused by the server while any investment still uses the plan.
+// Refused by the server while any investment still uses the plan; offline the investments this PC holds are compared first.
 export async function deleteInvestmentPlan(id: number): Promise<void> {
-  await apiFetch<unknown>(`/investment-plans/${id}/delete`, { method: "DELETE" });
+  const path = `/investment-plans/${id}/delete`;
+  if (offlineReady() && id > 0) {
+    let used: BackendInvestment[] = [];
+    try {
+      used = (await listInvestmentsPage({ page: 1, planIds: [String(id)], pageSize: 1000 })).items.filter((i) => i.planId === id);
+    } catch {
+      /* nothing held to compare with: the server decides */
+    }
+    if (used.length > 0) {
+      refuse(`This plan is used by ${used.length} investment(s) (${recordList(used.map((i) => i.investmentNumber), used.length)}) and can't be deleted — mark it inactive instead.`, 409);
+    }
+  }
+  await queueWrite("DELETE", path, undefined, undefined, async () => {
+    await apiFetch<unknown>(path, { method: "DELETE" });
+  });
 }
 
 /* activeOnly=true is what the New Investment picker uses (only plans still
@@ -99,9 +116,41 @@ async function queueInvestment(input: CreateInvestmentInput, hint: CreateInvestm
   return pendingInvestmentRow(entry, input, entry.view as { customerName: string; customerCode: string; plan: BackendInvestmentPlan }) as unknown as BackendInvestment;
 }
 
-/* Corrects an investment's plan, principal or start date — only before any interest, payout, top-up or withdrawal (the backend answers with the reason otherwise). */
-export function editInvestment(id: number, input: Partial<CreateInvestmentInput> & { reason?: string }): Promise<BackendInvestment> {
-  return apiFetch<BackendInvestment>(`/investments/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+/* What this PC knows of an investment before it is changed: the investment and whether anything has been recorded on it (what is
+ * still waiting to be sent counts too). null when nothing is held for it, and then the server decides. */
+async function investmentState(id: number): Promise<{ inv: BackendInvestment; hasOps: boolean } | null> {
+  try {
+    const inv = await getInvestment(id);
+    const tx = await getInvestmentTransactionsPage(id, 0);
+    return { inv, hasOps: tx.items.length > 0 };
+  } catch {
+    return null;
+  }
+}
+
+/* The server's reason an investment cannot be corrected (investmentEditBlocker). */
+function investmentEditBlocker(inv: BackendInvestment, hasOps: boolean): string {
+  if (inv.status !== "Active") return `an investment in status ${inv.status} cannot be edited`;
+  if (inv.renewedToInvestmentId) return "it was renewed into another investment";
+  if (inv.renewedFromInvestmentId) return "it was created by renewing another investment";
+  if (hasOps || inv.totalInterestPaid > 0 || inv.interestWithdrawn > 0) return "interest, a payout, a top-up or a withdrawal has already been recorded — correct it from the ledger instead";
+  return "";
+}
+
+/* Corrects an investment's plan, principal or start date — only before any interest, payout, top-up or withdrawal (the backend answers with the reason otherwise). On the
+ * desktop with offline mode running the same reasons are given here, and the correction is queued. */
+export async function editInvestment(id: number, input: Partial<CreateInvestmentInput> & { reason?: string }): Promise<BackendInvestment> {
+  const path = `/investments/${id}`;
+  const online = () => apiFetch<BackendInvestment>(path, { method: "PATCH", body: JSON.stringify(input) });
+  if (!offlineReady()) return online();
+  const state = id > 0 ? await investmentState(id) : null;
+  if (state) {
+    const reason = investmentEditBlocker(state.inv, state.hasOps);
+    if (reason) refuse(`This investment cannot be edited — ${reason}.`, 409);
+  }
+  if (input.principalAmount !== undefined && !(input.principalAmount > 0)) refuse("principal amount must be greater than zero");
+  if (input.startDate) requireNotFuture(input.startDate, "start date cannot be in the future");
+  return queueWrite("PATCH", path, input, { ...(state?.inv ?? { id }), ...input } as BackendInvestment, online);
 }
 
 export const INVESTMENTS_TABLE_PAGE_SIZE = 10;
@@ -484,6 +533,11 @@ export async function deleteInvestment(investmentId: number): Promise<void> {
     throw new ApiError("This investment was sent while you were deleting it. Refresh, then delete it.", 409);
   }
   const path = `/investments/${investmentId}/delete`;
+  if (offlineReady()) {
+    const state = await investmentState(investmentId);
+    // the server's investmentDeleteBlocker
+    if (state?.inv.renewedToInvestmentId) refuse("This investment cannot be deleted — it was renewed into another investment — delete that one first.", 409);
+  }
   await queueWrite("DELETE", path, undefined, undefined, async () => {
     await apiFetch<unknown>(path, { method: "DELETE" });
   });

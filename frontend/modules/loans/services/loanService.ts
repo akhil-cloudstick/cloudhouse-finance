@@ -27,7 +27,7 @@ import {
   sortNewestFirst,
   type CreateLoanHint,
   type EditSchemeTerms,
-  checkCreateLoanLocally, checkApprovalLocally, checkPaymentLocally, checkTopUpLocally, checkBankPledgeLocally, checkRequestLocally, checkOrnamentLocally,
+  checkCreateLoanLocally, checkApprovalLocally, checkPaymentLocally, checkTopUpLocally, checkBankPledgeLocally, canTakeBankPledge, checkRequestLocally, checkOrnamentLocally,
 } from "@/modules/loans/services/loanOffline";
 import { listSchemes } from "@/modules/schemes/services/schemeService";
 import type { SchemeView } from "@/modules/schemes/types/scheme-types";
@@ -467,7 +467,7 @@ export async function searchLoansPage(
     () => searchLoansPageLive(q, page, opts),
     () => {
       const pageSize = opts?.limit ?? LOAN_PAGE_SIZE;
-      const all = sortNewestFirst(filterLocalLoans(localLoans(), { q, customerId: opts?.customerId, status: opts?.status })).filter((l) => !opts?.excludeBankPledged || l.bankPledgeStatus === "Not Pledged");
+      const all = sortNewestFirst(filterLocalLoans(localLoans(), { q, customerId: opts?.customerId, status: opts?.status })).filter((l) => !opts?.excludeBankPledged || canTakeBankPledge(l));
       const from = page * pageSize;
       return { items: all.slice(from, from + pageSize).map(toView), hasMore: from + pageSize < all.length };
     },
@@ -597,10 +597,15 @@ function placeholderLoanView(): LoanView {
 }
 
 export async function recordPurityTest(ornamentId: number, input: PurityTestInput): Promise<BackendOrnament> {
-  return apiFetch<BackendOrnament>(`/loans/ornaments/${ornamentId}/purity-test`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  try {
+    return await apiFetch<BackendOrnament>(`/loans/ornaments/${ornamentId}/purity-test`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  } catch (e) {
+    if (ornamentId > 0 && (await queueRawIfUnreachable(e, "POST", `/loans/ornaments/${ornamentId}/purity-test`, input))) return {} as BackendOrnament;
+    throw e;
+  }
 }
 
 /* FALLBACK ONLY — which sanction stages actually apply is now per-business

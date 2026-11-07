@@ -7,7 +7,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { useBranchSwitch } from "@/common/hooks/use-branch-switch";
 import { SettingsModalContent } from "@/modules/integrations/components/SettingsModalContent";
-import { useOfflineRing, useSyncingRing } from "./NetworkIndicator";
+import { useDownloadProgress, useOfflineRing, useSyncingRing } from "./NetworkIndicator";
 import { drain } from "@/common/offline/sender";
 import {
   checkForUpdate,
@@ -20,6 +20,9 @@ import {
 type UpdateState = "idle" | "checking" | "uptodate" | "available" | "downloading" | "ready" | "error";
 
 const subscribeNever = () => () => {};
+
+// the progress ring around the profile picture is a circle of radius 18 in a 40-wide box
+const PROGRESS_CIRCUMFERENCE = 2 * Math.PI * 18;
 
 /* The header's name chip, opening a small dropdown that holds what used to
  * be three separate things: the Connect mobile app button, the sidebar's
@@ -111,6 +114,10 @@ export function AccountMenu() {
 
   const offlineRing = useOfflineRing();
   const syncing = useSyncingRing();
+  // the first download of the offline copy is a ring that fills up; later syncs just spin
+  const download = useDownloadProgress();
+  const percent = Math.round(download.fraction * 100);
+  const showProgress = desktop && download.active && download.initial;
   const initial = employee?.name ? employee.name.charAt(0).toUpperCase() : "—";
   // Stays on for either kind of pending update, regardless of dismiss. Checking/acting on it
   // happens only in Settings (DesktopVersionPanel) — this dropdown just surfaces the dot.
@@ -125,8 +132,17 @@ export function AccountMenu() {
         aria-expanded={open}
         onClick={() => { setOpen((o) => !o); setBranchOpen(false); }}
       >
-        <span className={`av${offlineRing ? " av-offline" : ""}${syncing ? " av-syncing" : ""}`} title={syncing ? "Syncing with the server…" : undefined}>
+        <span
+          className={`av${offlineRing ? " av-offline" : ""}${syncing && !showProgress ? " av-syncing" : ""}`}
+          title={showProgress ? `Downloading the offline copy: ${percent}%` : syncing ? "Syncing with the server…" : undefined}
+        >
           {initial}
+          {showProgress && (
+            <svg className="av-progress" viewBox="0 0 40 40" role="progressbar" aria-label="Downloading the offline copy" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+              <circle className="av-progress-track" cx="20" cy="20" r="18" />
+              <circle className="av-progress-bar" cx="20" cy="20" r="18" strokeDasharray={PROGRESS_CIRCUMFERENCE} strokeDashoffset={PROGRESS_CIRCUMFERENCE * (1 - download.fraction)} />
+            </svg>
+          )}
           {desktop && waiting && <span className="acct-badge" aria-label="Update available" />}
         </span>
         <span className="nm">

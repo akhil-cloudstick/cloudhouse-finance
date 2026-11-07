@@ -10217,6 +10217,34 @@ table.tbl.lockers-tbl th {
   pointer-events: none;
 }
 @keyframes av-sync-spin { to { transform: rotate(360deg) } }
+
+/* The offline copy's progress bar in Settings: fills while the first download runs, slides while a later sync checks */
+.off-bar { height: 10px; border-radius: 999px; background: var(--line, #e3e5ea); overflow: hidden; position: relative; }
+.off-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--brand); transition: width .35s ease; }
+.off-bar.done > i { background: var(--green, #1f9d55); }
+.off-bar.ind > i { position: absolute; width: 35%; transition: none; animation: off-bar-slide 1.2s ease-in-out infinite; }
+@keyframes off-bar-slide { from { left: -35% } to { left: 100% } }
+@media (prefers-reduced-motion: reduce) {
+  .off-bar > i { transition: none; }
+  .off-bar.ind > i { animation-duration: 3s; }
+}
+
+/* The first download of the offline copy: a ring around the profile picture that fills as it goes */
+.acct .av .av-progress {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  transform: rotate(-90deg);
+  pointer-events: none;
+  overflow: visible;
+}
+.acct .av .av-progress circle { fill: none; stroke-width: 3; }
+.acct .av .av-progress-track { stroke: var(--line, #d9dce3); }
+.acct .av .av-progress-bar { stroke: var(--brand); stroke-linecap: round; transition: stroke-dashoffset .35s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .acct .av .av-progress-bar { transition: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .acct .av.av-syncing::after { animation-duration: 2.4s }
 }

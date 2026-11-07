@@ -158,13 +158,19 @@ func (req loanRequest) toInput() (CreateInput, error) {
 }
 
 func insertLoanRequest(ctx context.Context, req *models.LoanRequest) error {
-	return config.DB.
-		WithContext(ctx).Create(req).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func persistLoanRequest(ctx context.Context, req *models.LoanRequest) error {
-	return config.DB.
-		WithContext(ctx).Save(req).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func findLoanRequestByID(ctx context.Context, id uint) (*models.LoanRequest, error) {

@@ -29,6 +29,15 @@ interface DesktopApp {
   StoreRootChosen(): Promise<boolean>;
   StoreChooseFolder(): Promise<string>;
   StoreUseDefaultFolder(): Promise<void>;
+  StoreMirrorApply(batch: string): Promise<void>;
+  StoreMirrorBindTenant(tenant: number): Promise<void>;
+  LocalApiBind(sessionJson: string): Promise<void>;
+  LocalApiGet(path: string, query: string, headers: Record<string, string>): Promise<{ status: number; body: string }>;
+  StoreMirrorWriteTemp(entryId: string, batch: string): Promise<void>;
+  StoreMirrorDropTemp(entryId: string): Promise<void>;
+  StoreMirrorState(key: string): Promise<string>;
+  StoreMirrorIDs(table: string): Promise<number[]>;
+  StoreMirrorCounts(): Promise<Record<string, number>>;
   RenderOfflineDocument(kind: string, lang: string, inputJson: string): Promise<string>;
 }
 

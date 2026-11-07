@@ -961,13 +961,19 @@ func preloadAuctionDetail(db *gorm.DB) *gorm.DB {
 }
 
 func insertAuction(ctx context.Context, a *models.AuctionRecord) error {
-	return config.DB.
-		WithContext(ctx).Create(a).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func persistAuction(ctx context.Context, a *models.AuctionRecord) error {
-	return config.DB.
-		WithContext(ctx).Save(a).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func findAuctionActiveByLoanID(ctx context.Context, loanID uint) (*models.AuctionRecord, error) {
@@ -1100,12 +1106,19 @@ func findAuctionAllByCustomerID(ctx context.Context, customerID uint, from, to *
 }
 
 func createNotice(ctx context.Context, n *models.AuctionNotice) error {
-	return config.DB.
-		WithContext(ctx).Create(n).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(n).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfAuction(db, n.AuctionRecordID)
 }
 
 func createAuctionEvent(ctx context.Context, tx *gorm.DB, e *models.AuctionEvent) error {
-	return auctionDbOr(ctx, tx).Create(e).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Create(e).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfAuction(db, e.AuctionRecordID)
 }
 
 func auctionDbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
@@ -1117,7 +1130,11 @@ func auctionDbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
 }
 
 func updateAuctionTx(ctx context.Context, tx *gorm.DB, a *models.AuctionRecord) error {
-	return auctionDbOr(ctx, tx).Save(a).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Save(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func findPendingDecision(ctx context.Context, tx *gorm.DB, auctionRecordID uint, kind string) (*models.AuctionDecisionRequest, error) {
@@ -1141,11 +1158,19 @@ func hasAnyPendingDecision(ctx context.Context, auctionRecordID uint) (bool, err
 }
 
 func createDecision(ctx context.Context, tx *gorm.DB, req *models.AuctionDecisionRequest) error {
-	return auctionDbOr(ctx, tx).Create(req).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Create(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func updateDecision(ctx context.Context, tx *gorm.DB, req *models.AuctionDecisionRequest) error {
-	return auctionDbOr(ctx, tx).Save(req).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Save(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func findDecisionByID(ctx context.Context, tx *gorm.DB, id uint) (*models.AuctionDecisionRequest, error) {

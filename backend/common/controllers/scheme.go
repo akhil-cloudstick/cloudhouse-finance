@@ -446,15 +446,26 @@ func deleteScheme(ctx context.Context, id uint, branchID *uint) error {
 		return err
 	}
 	if loans > 0 || drafts > 0 {
-		return errSchemeInUse(loans, drafts)
+		return errSchemeInUse(loans, drafts, schemeLoanNumbers(ctx, id))
 	}
 	return hardDelete(ctx, id)
 }
 
-func errSchemeInUse(loans, drafts int64) error {
+// schemeLoanNumbers are the first loans that use the scheme, so the refusal can name them.
+func schemeLoanNumbers(ctx context.Context, id uint) []string {
+	var numbers []string
+	config.DB.WithContext(ctx).Raw("SELECT loan_number FROM loans WHERE scheme_id = ? ORDER BY id LIMIT ?", id, maxListedRecords).Scan(&numbers)
+	return numbers
+}
+
+func errSchemeInUse(loans, drafts int64, numbers []string) error {
 	var parts []string
 	if loans > 0 {
-		parts = append(parts, fmt.Sprintf("%d loan(s)", loans))
+		if len(numbers) > 0 {
+			parts = append(parts, fmt.Sprintf("%d loan(s) (%s)", loans, RecordList(numbers, loans)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d loan(s)", loans))
+		}
 	}
 	if drafts > 0 {
 		parts = append(parts, fmt.Sprintf("%d loan draft(s)", drafts))

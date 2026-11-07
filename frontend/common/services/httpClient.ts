@@ -9,6 +9,7 @@ import { setReachable } from "@/common/offline/network";
 import { branchHeader, SELECTED_BRANCH_HEADER } from "@/common/services/branchSelection";
 import { fromApi, toApi } from "@/common/services/apiContract";
 import { branchScoped, cacheable, recall, remember } from "@/common/offline/readCache";
+import { localGet } from "@/common/offline/localApi";
 import { offlineReady } from "@/common/offline/state";
 import { signHeaders } from "@/common/offline/device";
 
@@ -56,6 +57,8 @@ export function resolveAssetUrl(path: string): string {
  * surfaced as an ApiError with status 0 so callers show one readable message. */
 export const UNREACHABLE_EVENT = "app:server-unreachable";
 const QUIET_PATH = /\/(sync\/pull|devices|uploads)(\/|\?|$)/;
+// the offline table copy (see common/offline/mirrorSync.ts): answers keep the server's own field names
+const VERBATIM_PATH = /\/sync\/(tables|table|children)(\/|\?|$)/;
 let quietDepth = 0;
 
 /* Runs background work whose failures must not raise the pop-up. */
@@ -107,6 +110,19 @@ async function contractFetch(path: string, init?: RequestInit, signed = false): 
       const hit = await recall(req.path, view);
       if (hit !== null) return new Response(hit, { status: 200, headers: { "content-type": "application/json", "X-From-Cache": "true" } });
     }
+    // Nothing was kept for this read: this PC's own copy of the business answers it, with the backend's own route code
+    if (e instanceof ApiError && e.status === 0 && req.method === "GET" && !signed && offlineReady()) {
+      const local = await localGet(req.path, sentBranch);
+      if (local !== null) {
+        let adapted = local;
+        try {
+          adapted = JSON.stringify(fromApi(JSON.parse(local), req));
+        } catch {
+          /* an answer that is not JSON is passed on as it is */
+        }
+        return new Response(adapted, { status: 200, headers: { "content-type": "application/json", "X-From-Local": "true" } });
+      }
+    }
     // A read with nothing kept for it while offline mode is running fails without the "couldn't reach" wording, so
     // no page shows that warning: the PC is expected to be offline and the page simply has nothing to list.
     if (e instanceof ApiError && e.status === 0 && offlineReady() && req.method === "GET" && !signed) throw new ApiError("", 0);
@@ -124,7 +140,8 @@ async function contractFetch(path: string, init?: RequestInit, signed = false): 
   const text = await res.text();
   let adapted = text;
   try {
-    adapted = text ? JSON.stringify(fromApi(JSON.parse(text), req)) : text;
+    // the table copy is stored under the server's own column names, so those answers are not reshaped for the screens
+    adapted = text && !VERBATIM_PATH.test(req.path) ? JSON.stringify(fromApi(JSON.parse(text), req)) : text;
   } catch {
     /* not valid JSON despite the header: hand it back untouched */
   }

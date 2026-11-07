@@ -19,3 +19,18 @@ export function employeeId(): number | null {
     return null;
   }
 }
+
+/* What the login token says about who is signed in (decoded, not checked: the PC has no way to verify it). The local read
+ * server uses it to know whose permissions to apply. */
+export function sessionClaims(): { tenantId: number; employeeId: number; roleId: number; role: string; branchId: number } | null {
+  const part = readToken()?.split(".")[1];
+  if (!part) return null;
+  try {
+    const c = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
+    const n = (v: unknown) => (typeof v === "number" && v > 0 ? v : 0);
+    const out = { tenantId: n(c.tenantId), employeeId: n(c.employeeId), roleId: n(c.roleId), role: typeof c.role === "string" ? c.role : "", branchId: n(c.branchId) };
+    return out.tenantId && out.employeeId && out.roleId ? out : null;
+  } catch {
+    return null;
+  }
+}

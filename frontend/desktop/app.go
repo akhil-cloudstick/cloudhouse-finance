@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 
+	"cloudhouse/backend/localapi"
 	"cloudhouse/desktop/localstore"
 	"cloudhouse/desktop/update"
 
@@ -115,7 +117,41 @@ func (a *App) OpenDevTools() {
 // disk (flushed appends, whole-file swaps, protected secrets) and refuses any name outside the allow-list.
 
 // StoreOpen selects the folder for this business and PC. Call it once after sign-in.
-func (a *App) StoreOpen(business, device string) error { return a.store.Open(business, device) }
+func (a *App) StoreOpen(business, device string) error {
+	localapi.Close() // the database file may be a different one now
+	return a.store.Open(business, device)
+}
+
+// LocalApiBind tells the local read server who is signed in (the session saved at sign-in), so it can answer the app's
+// reads from this PC's copy when the server cannot be reached. sessionJSON is {tenantId, employeeId, roleId, role, branchId, isSystem}.
+func (a *App) LocalApiBind(sessionJSON string) error {
+	var sess localapi.Session
+	if err := json.Unmarshal([]byte(sessionJSON), &sess); err != nil {
+		return err
+	}
+	path, err := a.store.DBPath()
+	if err != nil {
+		return err
+	}
+	srv, err := localapi.Open(path)
+	if err != nil {
+		return err
+	}
+	return srv.Bind(sess)
+}
+
+// LocalApiGet answers one read request from this PC's copy. path is the route after /api/v1.
+func (a *App) LocalApiGet(path, query string, headers map[string]string) localapi.Response {
+	p, err := a.store.DBPath()
+	if err != nil {
+		return localapi.Response{Status: 503, Body: `{"success":false,"error":"the offline store is not open"}`}
+	}
+	srv, err := localapi.Open(p)
+	if err != nil {
+		return localapi.Response{Status: 503, Body: `{"success":false,"error":"the local copy is not available"}`}
+	}
+	return srv.Handle("GET", path, query, headers)
+}
 
 // StoreAppendOutbox adds one entry line and flushes it to disk before returning.
 func (a *App) StoreAppendOutbox(line string) error { return a.store.AppendOutbox(line) }
@@ -161,6 +197,29 @@ func (a *App) StoreChooseFolder() (string, error) {
 	}
 	return a.store.Root(), nil
 }
+
+// StoreMirrorApply writes a batch of server rows, deletions and cursors into the mirror tables in one transaction.
+func (a *App) StoreMirrorApply(batch string) error { return a.store.MirrorApply(batch) }
+
+// StoreMirrorBindTenant says which business the mirror holds; data of any other business is cleared first.
+func (a *App) StoreMirrorBindTenant(tenant int64) error { return a.store.MirrorBindTenant(tenant) }
+
+// StoreMirrorWriteTemp puts the rows an offline change made into the mirror under temporary ids, tied to its queued entry.
+func (a *App) StoreMirrorWriteTemp(entryID, batch string) error {
+	return a.store.MirrorWriteTemp(entryID, batch)
+}
+
+// StoreMirrorDropTemp removes the temporary rows a queued entry made, once it has been sent.
+func (a *App) StoreMirrorDropTemp(entryID string) error { return a.store.MirrorDropTemp(entryID) }
+
+// StoreMirrorState returns a value kept beside the mirror tables ("" when there is none).
+func (a *App) StoreMirrorState(key string) (string, error) { return a.store.MirrorState(key) }
+
+// StoreMirrorIDs returns the primary keys a mirror table holds.
+func (a *App) StoreMirrorIDs(table string) ([]int64, error) { return a.store.MirrorIDs(table) }
+
+// StoreMirrorCounts returns how many rows each mirror table holds.
+func (a *App) StoreMirrorCounts() (map[string]int, error) { return a.store.MirrorCounts() }
 
 // StoreUseDefaultFolder records that the default folder is fine.
 func (a *App) StoreUseDefaultFolder() error { return a.store.UseDefault() }

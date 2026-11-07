@@ -253,7 +253,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         else if (offline.status === "wrong") throw new ApiError("invalid username/phone or password", 401);
         else if (offline.status === "locked") throw new ApiError("Too many attempts. Wait a moment and try again.", 429);
         else if (offlineStore.available()) {
-          throw new ApiError("The server cannot be reached, and this PC has no saved sign-in for that user. Sign in once while the server is reachable and it will work offline afterwards.", 0);
+          throw new ApiError("Can't reach the server. Sign in once while online to enable offline sign-in.", 0);
         } else throw e;
       }
       writeSession(code || null, res.token, JSON.stringify(res.employee));

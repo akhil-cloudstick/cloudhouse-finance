@@ -10,6 +10,8 @@
 import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
 import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjust";
 import { adjustLatestRate, adjustRateHistory } from "./goldRateAdjust";
+import { adjustDayBook } from "./dayBookAdjust";
+import { adjustRecordEdits } from "./recordEdits";
 import { adjustExpenses, adjustGoldSales, adjustLedger, adjustPartyLedger, LEDGER_PATH, PARTY_PATH } from "./ledgerAdjust";
 import { adjustAuctionRecord } from "./auctionAdjust";
 import { adjustPendingLoanByNumber, adjustPendingLoanPages, adjustPersonalLoanDetail, adjustPersonalLoanListPayments, adjustPersonalLoanPayments, adjustPersonalLoanSchedule, adjustPersonalLoans } from "./personalLoanAdjust";
@@ -164,7 +166,10 @@ function write(path: string, view: string, body: string, emp: number): void {
 
 /* Fire and forget: a failed write only means this answer will not be there offline. */
 export function remember(path: string, view: string, body: string): void {
-  if (body.length > MAX_BODY) return;
+  if (body.length > MAX_BODY) {
+    offlineStore.log("warn", `${path} answer is ${Math.round(body.length / 1048576)} MB, over the ${MAX_BODY / 1048576} MB kept for offline use; it will not be available offline`);
+    return;
+  }
   const emp = employeeId() ?? 0;
   if (enabled) write(path, view, body, emp);
   else {
@@ -272,6 +277,12 @@ function reshape(cachedBody: string, path: string): string {
 }
 
 export async function recall(path: string, view: string): Promise<string | null> {
+  const body = await recallBase(path, view);
+  // edits and deletes of personal loans, investments and plans waiting to be sent are applied last, to whatever was found
+  return body === null ? null : adjustRecordEdits(path, body);
+}
+
+async function recallBase(path: string, view: string): Promise<string | null> {
   // a personal loan made on this PC and not sent yet: found by its local number and read by its local id, from its waiting entry
   if (/\/personal-loans\//.test(path)) {
     const pending = (await adjustPendingLoanByNumber(path)) ?? (await adjustPendingLoanPages(path));
@@ -327,6 +338,8 @@ export async function recall(path: string, view: string): Promise<string | null>
   // The cash figures and the cash ledger are the server's last answer; what this PC has taken or paid out since
   // (entries still waiting to be sent) is added to them.
   if (body === null) return null;
+  // Day Book lines written, edited or deleted on this PC and not sent yet
+  if (/\/reports\/day-book(\?|$)/.test(path)) return adjustDayBook(path, body);
   if (/\/expenses(\?|$)/.test(path)) return adjustExpenses(path, body);
   if (/\/gold-sales(\?|$)/.test(path)) return adjustGoldSales(path, body);
   if (/\/cash\/summary(\?|$)/.test(path)) return adjustCashSummary(path, body);

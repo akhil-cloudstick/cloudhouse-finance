@@ -410,7 +410,30 @@ export async function deleteCustomer(id: string): Promise<void> {
  * Auctioned; the thrown error's message names the offending loan number(s). */
 export async function hardDeleteCustomer(id: string): Promise<void> {
   const path = `/customers/${id}/hard-delete`;
+  if (offlineReady()) {
+    const { customer, loans } = localCustomerWithLoans(id);
+    // the server refuses while a gold loan is still open; the loans this PC holds are compared here, with its own words
+    const blocking = loans.filter((l) => !["Closed", "Rejected", "Auctioned"].includes(String(l.status))).map((l) => `Gold loan ${l.loanNumber} (${l.status})`);
+    if (blocking.length) throw new ApiError(`Cannot delete this customer — it still has: ${blocking.join("; ")}. Close or delete these first.`, 409);
+    // a delete is for good, so the customer and the closed loans the server would delete with them leave this PC's copy at once
+    await queueWrite("DELETE", path, undefined, undefined, () => apiFetch<void>(path, { method: "DELETE" }), async () => {
+      if (customer) await removeLocal("customers", customer.uuid);
+      for (const l of loans) await removeLocal("loans", l.uuid);
+    });
+    return;
+  }
   await queueWrite("DELETE", path, undefined, undefined, () => apiFetch<void>(path, { method: "DELETE" }));
+}
+
+type LocalLoanRef = { uuid: string; loanNumber?: string; status?: string; customerId?: number };
+
+/* The customer this PC holds under a number or a "uuid:..." reference, and the gold loans it holds for them. */
+function localCustomerWithLoans(ref: string): { customer?: { uuid: string; id: number }; loans: LocalLoanRef[] } {
+  const uuid = ref.replace(/^uuid:/, "");
+  const customer = (listLocal("customers") as unknown as { uuid: string; id: number }[]).find((c) => c.uuid === uuid || String(c.id) === ref);
+  if (!customer) return { loans: [] };
+  const loans = (listLocal("loans") as unknown as LocalLoanRef[]).filter((l) => customer.id > 0 && l.customerId === customer.id);
+  return { customer, loans };
 }
 
 /* `range` narrows the profile to loans opened within an inclusive

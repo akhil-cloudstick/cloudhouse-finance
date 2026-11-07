@@ -100,9 +100,60 @@ async function queuePersonalLoan(input: CreatePersonalLoanInput, hint: CreatePer
   } as BackendPersonalLoan;
 }
 
-/* Corrects a loan's terms — only before any payment, renewal or penal charge (the backend answers with the reason otherwise). */
-export function editPersonalLoan(id: number, input: Partial<CreatePersonalLoanInput> & { reason?: string }): Promise<BackendPersonalLoan> {
-  return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+const entries = (n: number) => (n === 1 ? "y" : "ies");
+
+/* What this PC knows of a loan before it is changed: the loan itself and how many payments it has (the ones still waiting to be
+ * sent count too). null when nothing is held for it, and then the server decides. */
+async function personalLoanState(id: number): Promise<{ loan: BackendPersonalLoan; payments: number } | null> {
+  try {
+    const loan = await getPersonalLoan(id);
+    const payments = await listPersonalLoanPaymentsPage(id, 0, 1);
+    return { loan, payments: payments.total ?? payments.items.length };
+  } catch {
+    return null;
+  }
+}
+
+/* The server's reasons a loan's terms cannot be corrected (loanEditBlocker) or the loan cannot be deleted (loanDeleteBlocker). */
+function personalLoanBlocker(l: BackendPersonalLoan, payments: number, forDelete: boolean): string {
+  if (!forDelete && l.status !== "Active" && l.status !== "Pending Approval") return `a loan in status ${l.status} cannot be edited`;
+  if (l.renewedToLoanId) return "this loan was renewed into another loan";
+  if (l.renewedFromLoanId) return "this loan was created by renewing another loan";
+  if (payments > 0) return forDelete ? `it has ${payments} payment entr${entries(payments)} — delete them from the ledger first` : `it already has ${payments} payment entr${entries(payments)} — correct them from the ledger instead`;
+  if (!forDelete && (l.penalCycleCount > 0 || l.totalPenalInterestCharged > 0)) return "penal interest has been charged on it";
+  return "";
+}
+
+/* The server's checks on corrected terms (editPersonalLoan), against the loan's present terms for what is left unchanged. */
+function checkPersonalEditInput(loan: BackendPersonalLoan | undefined, input: Partial<CreatePersonalLoanInput>): void {
+  const entered = loan ? (loan.fullDisbursement ? loan.principalAmount - loan.interestAmount : loan.principalAmount) : undefined;
+  const principal = input.principalAmount ?? entered;
+  const tenure = input.tenureCount ?? loan?.tenureCount;
+  const type = input.interestType ?? loan?.interestType;
+  const value = input.interestValue ?? loan?.interestValue;
+  if (principal !== undefined && !(principal > 0)) refuse("principal amount must be greater than zero");
+  if (tenure !== undefined && !(tenure > 0)) refuse("tenure count must be greater than zero");
+  if (input.frequency !== undefined && !["Daily", "Weekly", "Monthly"].includes(input.frequency)) refuse("frequency must be Daily, Weekly or Monthly");
+  if (type !== undefined && !["Flat", "Percentage"].includes(type)) refuse("interest type must be Flat or Percentage");
+  if (value !== undefined && value < 0) refuse("interest value must not be negative");
+  if (input.gracePeriodDays !== undefined && input.gracePeriodDays < 0) refuse("grace period days must not be negative");
+  if (input.penalInterestRate !== undefined && input.penalInterestRate < 0) refuse("penal interest rate must not be negative");
+  if (principal !== undefined && value !== undefined && (type === "Percentage" ? (principal * value) / 100 : value) >= principal) refuse("interest amount must be less than the principal amount");
+}
+
+/* Corrects a loan's terms — only before any payment, renewal or penal charge (the backend answers with the reason otherwise). On the
+ * desktop with offline mode running the same reasons are given here, and the correction is queued. */
+export async function editPersonalLoan(id: number, input: Partial<CreatePersonalLoanInput> & { reason?: string }): Promise<BackendPersonalLoan> {
+  const path = `/personal-loans/${id}`;
+  const online = () => apiFetch<BackendPersonalLoan>(path, { method: "PATCH", body: JSON.stringify(input) });
+  if (!offlineReady()) return online();
+  const state = id > 0 ? await personalLoanState(id) : null;
+  if (state) {
+    const reason = personalLoanBlocker(state.loan, state.payments, false);
+    if (reason) refuse(`This personal loan cannot be edited — ${reason}.`, 409);
+  }
+  checkPersonalEditInput(state?.loan, input);
+  return queueWrite("PATCH", path, input, { ...(state?.loan ?? { id }), ...input } as BackendPersonalLoan, online);
 }
 
 export function approvePersonalLoan(id: number, input: PersonalLoanApprovalInput): Promise<BackendPersonalLoan> {
@@ -175,6 +226,11 @@ export async function deletePersonalLoan(id: number): Promise<void> {
     throw new ApiError("This loan was sent while you were deleting it. Refresh, then delete it.", 409);
   }
   const path = `/personal-loans/${id}`;
+  if (offlineReady()) {
+    const state = await personalLoanState(id);
+    const reason = state ? personalLoanBlocker(state.loan, state.payments, true) : "";
+    if (reason) refuse(`This personal loan cannot be deleted — ${reason}.`, 409);
+  }
   await queueWrite("DELETE", path, undefined, undefined, async () => {
     await apiFetch<unknown>(path, { method: "DELETE" });
   });

@@ -63,9 +63,11 @@ async function applyTenantBranding() {
 function findIscc() {
   const candidates = [
     process.env.ISCC_PATH,
-    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs", "Inno Setup 6", "ISCC.exe"),
-    "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe",
-    "C:\\Program Files\\Inno Setup 6\\ISCC.exe",
+    ...["7", "6"].flatMap((v) => [
+      process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs", `Inno Setup ${v}`, "ISCC.exe"),
+      `C:\\Program Files (x86)\\Inno Setup ${v}\\ISCC.exe`,
+      `C:\\Program Files\\Inno Setup ${v}\\ISCC.exe`,
+    ]),
   ];
   return candidates.find((p) => p && fs.existsSync(p)) || null;
 }
@@ -101,7 +103,7 @@ function appIdFor(slug) {
 function buildInstaller(exePath, dist, branding) {
   const iscc = findIscc();
   if (!iscc) {
-    console.warn("Inno Setup 6 not found (set ISCC_PATH or install it) — built the portable exe only, no setup file.");
+    console.warn("Inno Setup 6/7 not found (set ISCC_PATH or install it) — built the portable exe only, no setup file.");
     return null;
   }
   const slug = branding ? branding.slug : "cloudhouse";
