@@ -202,8 +202,7 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
           <div className="notice" style={{ marginTop: 12 }}>
             <Icon name="shield" />
             <span>
-              <b>{fmt(rec.surplusPayableAmount)}</b> surplus is payable back to {l.customerName} and has not been disposed of
-              yet. Settle the case to refund it or record it as income.
+              <b>{fmt(rec.surplusPayableAmount)}</b> surplus pending. Settle to refund.
             </span>
           </div>
         )}
@@ -217,17 +216,14 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
             <span>
               {decision.kind === "Shortfall" ? (
                 <>
-                  <b>Shortfall — awaiting authority.</b> The sale realised {fmt(decision.amountPaid)} and left{" "}
-                  <b>{fmt(decision.outstandingAtRequest)}</b> owing. A Branch Manager or Management must decide whether to
-                  write the balance off or pursue it. The balance is frozen until then.
+                  <b>Shortfall</b> — {fmt(decision.outstandingAtRequest)} owing. Awaiting decision.
                 </>
               ) : (
                 <>
-                  <b>Decision pending.</b> {fmt(decision.amountPaid)} was paid, leaving {fmt(decision.outstandingAtRequest)}{" "}
-                  owing. The auction is frozen — no notice, schedule, or sale can proceed until this is resolved.
+                  <b>Decision pending.</b> Auction frozen.
                 </>
               )}
-              {!canDecide && <> Your role can view this but not decide it.</>}
+              {!canDecide && <> View only.</>}
             </span>
           </div>
         )}
@@ -238,9 +234,9 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
             <span>
               {lastAutoDecision
                 ? lastAutoDecision.kind === "Shortfall"
-                  ? "Balance pursued automatically — shortfall decisions are switched off in the approval workflow."
-                  : "No decision needed — the auction continues automatically (partial-repayment decisions are switched off in the approval workflow)."
-                : "No decision needed for partial repayments — the auction continues automatically."}
+                  ? "Balance pursued automatically."
+                  : "No decision needed. Auction continues."
+                : "No decision needed. Auction continues."}
             </span>
           </div>
         )}
@@ -248,7 +244,7 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
         {balanceDue && !decision && (
           <div className="notice" style={{ marginTop: 12 }}>
             <Icon name="shield" />
-            <span>Balance due after auction — collect it as a normal payment.</span>
+            <span>Balance due. Collect as normal payment.</span>
           </div>
         )}
 

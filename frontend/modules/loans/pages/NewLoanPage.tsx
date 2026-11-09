@@ -452,7 +452,14 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     requestAnimationFrame(() => {
       const inputs = document.querySelectorAll<HTMLInputElement>(".orn-type-td input.inp");
       const visible = Array.from(inputs).filter((el) => el.offsetParent !== null);
-      visible[visible.length - 1]?.focus();
+      // preventScroll: the browser's own scroll-into-view on focus fired a
+      // scroll event, which the (portaled) dropdown treats as "close".
+      const newest = visible[visible.length - 1];
+      if (!newest) return;
+      // Bring the new row into view first (instant, so the dropdown opens
+      // against its final position), then focus without a second scroll.
+      (newest.closest(".orn-card, tr") ?? newest).scrollIntoView({ block: "center", behavior: "instant" });
+      newest.focus({ preventScroll: true });
     });
   }, [rows.length]);
   function delOrnRow(i: number) {
@@ -1337,7 +1344,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                   <div
                     key={d.id}
                     style={{
-                      display: "flex", alignItems: "center", gap: 8, padding: "8px 0",
+                      display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 0",
                       borderBottom: "1px dashed var(--line)",
                     }}
                   >

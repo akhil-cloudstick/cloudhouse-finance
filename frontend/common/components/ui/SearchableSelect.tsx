@@ -346,8 +346,15 @@ export function SearchableSelect<T>({
     // `position:fixed`/portaled panel re-anchored mid-scroll reads as a
     // floating, detached dropdown. Scrolling the results list itself
     // (onResultsScroll's own infinite-scroll paging) must not close it.
+    const openedAt = Date.now();
     function closeOnScroll(e: Event) {
       if (resultsRef.current?.contains(e.target as Node)) return;
+      // A scroll right as it opens is the browser scrolling the focused field
+      // into view, not the user scrolling away — don't close on that, but
+      // re-anchor to the field's new position: otherwise the fixed list stays
+      // where the field WAS and floats detached from it (e.g. right after
+      // "+ Add Ornament" focuses a new row and scrolls it into view).
+      if (Date.now() - openedAt < 600) { reposition(); return; }
       setOpen(false);
     }
     window.addEventListener("resize", reposition);
@@ -539,6 +546,9 @@ export function SearchableSelect<T>({
         autoComplete="off"
         onChange={(e) => { setQuery(e.target.value); setSearchTerm(e.target.value); setOpen(true); }}
         onFocus={() => { setSearchTerm(""); setOpen(true); }}
+        // Clicking an already-focused field fires no focus event, so once the
+        // list had closed (Esc, scroll) it could never be reopened by mouse.
+        onClick={() => { if (!open && !disabled) { setSearchTerm(""); setOpen(true); } }}
         onKeyDown={onInputKeyDown}
         // Closes the dropdown whenever focus actually leaves this field —
         // previously it only closed on a document-level click outside, so

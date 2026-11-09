@@ -1384,7 +1384,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         * stuck". */}
       {l.status === "Closure Requested" && l.totalOutstandingBalance > 0.01 && (
         <div className="notice" style={{ marginBottom: 14, color: "var(--amber)" }}>
-          <Icon name="shield" /> Final settlement of {fmt(l.totalOutstandingBalance)} has not been recorded yet — record the payment before completing the release. The loan stays in Closure Requested until then.
+          <Icon name="shield" /> Final settlement of {fmt(l.totalOutstandingBalance)} not recorded.
         </div>
       )}
       {l.status === "Rejected" && (
@@ -1792,7 +1792,6 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                       {o.photoUrl ? (
                         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <SafeImage src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={o.photoUrls.length > 1 ? `View all ${o.photoUrls.length} photos` : "View photo"} onClick={() => viewOrnImg(o.photoUrls, o.name)} />
-                          <button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrls, o.name)}>{o.photoUrls.length > 1 ? `View all (${o.photoUrls.length})` : "View"}</button>
                         </span>
                       ) : (
                         <span style={{ color: "var(--muted)" }}>—</span>
@@ -1838,8 +1837,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     * "Complete Release" won't go through. */}
                   <div className="notice" style={{ marginTop: 12 }}>
                     <Icon name="shield" />
-                    {" Closure requires releasing this bank pledge first"}
-                    {packet?.status === "Locker Stored" ? ", and checking the gold out of its locker." : "."}
+                    {packet?.status === "Locker Stored" ? " Release pledge and check out locker first." : " Release bank pledge first."}
                   </div>
                   {canUpdateBankPledges && (
                     <button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
@@ -1861,7 +1859,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     <>
                       {l.totalOutstandingBalance <= 0.01 ? (
                         <div className="notice" style={{ color: "var(--red)", marginTop: 12 }}>
-                          <Icon name="shield" /> This loan is fully paid, but its gold is still checked into a locker — check it out before this loan can be closed.
+                          <Icon name="shield" /> Fully paid. Check gold out of locker.
                         </div>
                       ) : (
                         <p style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 8 }}>Gold is currently held in a locker.</p>

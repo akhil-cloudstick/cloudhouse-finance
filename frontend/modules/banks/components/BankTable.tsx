@@ -227,7 +227,7 @@ function ConfirmDeleteBank({ bank, onSaved, onMergeInstead }: ConfirmDeleteBankP
       <div className="hd"><h3>Delete Bank</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="notice">
-          <Icon name="shield" /> Delete &quot;{bank.name}&quot;? This can&apos;t be undone. If it&apos;s still linked to any transactions or pledges, deletion will be blocked.
+          <Icon name="shield" /> Delete &quot;{bank.name}&quot;? This can&apos;t be undone.
         </div>
         {err && (
           <div className="notice" style={{ marginTop: 10, color: "var(--red)" }}>

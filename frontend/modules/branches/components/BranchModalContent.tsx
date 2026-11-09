@@ -146,7 +146,7 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
               onChange={(v) => setIsActive(v === "1")}
             /></div>
         </div>
-        <div className="notice"><Icon name="shield" /> Branches cannot be deactivated while employees, expenses or cash movements still reference them.</div>
+        <div className="notice"><Icon name="shield" /> Can&apos;t deactivate while branch is in use.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

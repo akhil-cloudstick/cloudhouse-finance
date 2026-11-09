@@ -368,12 +368,22 @@ func SavePacketMovement(ctx context.Context, packetID uint, toStatus string, loc
 	if err != nil {
 		return nil, common.NewNotFound("packet not found")
 	}
-	if !isAllowed(p.Status, toStatus) {
+	// Locker Stored -> Locker Stored is the one same-stage move: shifting the packet to a different locker.
+	changingLocker := p.Status == models.StatusLockerStored && toStatus == models.StatusLockerStored
+	if !changingLocker && !isAllowed(p.Status, toStatus) {
 		return nil, common.NewConflict("invalid packet stage transition")
 	}
 	if toStatus == models.StatusLockerStored {
 		if lockerID == nil || *lockerID == 0 {
 			return nil, common.NewBadRequest("locker_id is required for this transition")
+		}
+		if changingLocker {
+			if p.CurrentLockerID != nil && *p.CurrentLockerID == *lockerID {
+				return nil, common.NewBadRequest("the packet is already in this locker")
+			}
+			if remarks == "" {
+				remarks = "Locker changed"
+			}
 		}
 		if err := checkLockerCapacity(ctx, *lockerID); err != nil {
 			return nil, err

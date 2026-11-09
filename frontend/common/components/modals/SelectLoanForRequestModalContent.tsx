@@ -51,7 +51,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
             onChange={(v) => setType(v as "Extension" | "Release")}
           /></div></div>
         {eligible.length === 0 && (
-          <p className="notice"><Icon name="shield" /> This customer has no open loans to request an extension or release for.</p>
+          <p className="notice"><Icon name="shield" /> Customer has no open loans.</p>
         )}
       </div>
       <div className="ft">
