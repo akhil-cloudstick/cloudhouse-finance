@@ -5,6 +5,7 @@
  * nothing is applied twice. */
 
 import { offlineStore } from "@/common/services/desktopBridge";
+import { roundRupee } from "@/common/utils/format";
 import type { OutboxEntry } from "./types";
 
 type Row = Record<string, unknown>;
@@ -12,7 +13,6 @@ type Env = { success?: boolean; data?: unknown; [k: string]: unknown };
 type Kind = "personal" | "investment" | "plan";
 type Waiting = { edits: Map<number, Row[]>; deleted: Set<number> };
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => Number(v) || 0;
 
 const ENTRY: Record<Kind, { edit: [string, RegExp]; remove: RegExp }> = {
@@ -62,12 +62,13 @@ function editedPersonal(row: Row, edits: Row[]): Row {
   for (const b of edits) {
     const full = b.fullDisbursement === undefined ? !!r.fullDisbursement : !!b.fullDisbursement;
     const entered = r.fullDisbursement ? num(r.principalAmount) - num(r.interestAmount) : num(r.principalAmount);
-    const principal = b.principalAmount === undefined ? entered : num(b.principalAmount);
+    const principal = roundRupee(b.principalAmount === undefined ? entered : num(b.principalAmount));
     const type = String(b.interestType ?? r.interestType);
     const value = b.interestValue === undefined ? num(r.interestValue) : num(b.interestValue);
     const tenure = b.tenureCount === undefined ? num(r.tenureCount) : num(b.tenureCount);
-    const interest = round2(type === "Percentage" ? (principal * value) / 100 : value);
-    const obligation = full ? round2(principal + interest) : round2(principal);
+    // the server's rule (computeInterest, edit_loan.go): interest, obligation, disbursed and installment are whole rupees
+    const interest = roundRupee(type === "Percentage" ? (principal * value) / 100 : value);
+    const obligation = full ? roundRupee(principal + interest) : principal;
     r = {
       ...r,
       principalAmount: obligation,
@@ -75,10 +76,10 @@ function editedPersonal(row: Row, edits: Row[]): Row {
       interestValue: value,
       interestAmount: interest,
       fullDisbursement: full,
-      disbursedAmount: full ? round2(principal) : round2(principal - interest),
+      disbursedAmount: full ? principal : roundRupee(principal - interest),
       frequency: b.frequency ?? r.frequency,
       tenureCount: tenure,
-      installmentAmount: tenure > 0 ? round2(obligation / tenure) : 0,
+      installmentAmount: tenure > 0 ? roundRupee(obligation / tenure) : 0,
       outstandingAmount: obligation,
       penalInterestRate: b.penalInterestRate === undefined ? r.penalInterestRate : num(b.penalInterestRate),
       gracePeriodDays: b.gracePeriodDays === undefined ? r.gracePeriodDays : num(b.gracePeriodDays),

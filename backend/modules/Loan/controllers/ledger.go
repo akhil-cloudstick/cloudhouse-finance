@@ -381,10 +381,10 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 				}
 			}
 			// A repayment is shown the way it paid the loan down: one credit row per component (processing fee,
-				// penal interest, interest, principal), each in the mode it was paid by. Components are met from
-				// the modes in order: cash first, then UPI, then bank transfer, and a mode that was not used is
-				// skipped, so the next one covers that part.
-				if comps := ledgerPaymentComponents(p); comps != nil {
+			// penal interest, interest, principal), each in the mode it was paid by. Components are met from
+			// the modes in order: cash first, then UPI, then bank transfer, and a mode that was not used is
+			// skipped, so the next one covers that part.
+			if comps := ledgerPaymentComponents(p); comps != nil {
 				type modePart struct {
 					mode   string
 					amount float64

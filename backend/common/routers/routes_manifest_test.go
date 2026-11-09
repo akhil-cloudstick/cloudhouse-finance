@@ -295,6 +295,7 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/users/:user_id/investment-plans":                                        list(),
 	"GET /api/v1/users/:user_id/investment-plans/:id":                                     probe("id=investment_plans"),
 	"PATCH /api/v1/users/:user_id/investment-plans/:id/update":                            probe("id=investment_plans"),
+	"DELETE /api/v1/users/:user_id/investment-plans/:id/delete":                           probe("id=investment_plans"),
 	"GET /api/v1/users/:user_id/investments":                                              list(),
 	"POST /api/v1/users/:user_id/investments":                                             list(),
 	"GET /api/v1/users/:user_id/investments/:id":                                          probe("id=investments"),

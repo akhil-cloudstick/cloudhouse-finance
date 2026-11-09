@@ -29,28 +29,28 @@ const ZERO_TOTALS: PartyTotals = { totalIn: 0, totalOut: 0, net: 0, inCount: 0, 
 const PAGE_SIZE = 12;
 
 const TRANSACTION_TYPE_OPTIONS = [
-  { value: "loan", label: "Loan" },
-  { value: "auction", label: "Auction" },
-  { value: "collection", label: "Collection" },
-  { value: "personal loan", label: "Personal Loan" },
-  { value: "bank pledge", label: "Bank Pledge" },
-  { value: "investment", label: "Investment" },
-  { value: "expenses", label: "Expenses" },
+	{ value: "loan", label: "Loan" },
+	{ value: "auction", label: "Auction" },
+	{ value: "collection", label: "Collection" },
+	{ value: "personal loan", label: "Personal Loan" },
+	{ value: "bank pledge", label: "Bank Pledge" },
+	{ value: "investment", label: "Investment" },
+	{ value: "expenses", label: "Expenses" },
 ];
 
 // In card mode (<=1279px) Prev/Next gives way to scroll-to-load, so there is no footer at all.
 type PagerProps = { page: number; total: number; pageSize: number; onChange: (p: number) => void; cards?: boolean };
 
 function Pager({ page, total, pageSize, onChange, cards }: PagerProps) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (cards) return null;
-  return (
-    <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
-      <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
-      <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
-      <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
-    </div>
-  );
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+	if (cards) return null;
+	return (
+		<div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+			<button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
+			<span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
+			<button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+		</div>
+	);
 }
 
 type BranchLedgerPageProps = { id?: string };
@@ -59,185 +59,185 @@ type BranchLedgerPageProps = { id?: string };
  * (/ledger-branch/:id), opened from the Ledger link on a Branch Management row.
  * Mirrors PartyLedger.tsx's bank/customer drilldown, scoped by branch. */
 export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
-  const { can } = useAuth();
-  const canExport = can("Ledger_Export", "can_export_ledger");
-  const branchId = Number(id);
-  const [branch, setBranch] = useState<BranchView | null>(null);
-  const [branchError, setBranchError] = useState("");
-  useEffect(() => {
-    if (!branchId) return;
-    setBranch(null);
-    setBranchError("");
-    getBranch(branchId).then(setBranch).catch(() => setBranchError("Branch not found."));
-  }, [branchId]);
-  const [items, setItems] = useState<CashMovementView[]>([]);
-  const [total, setTotal] = useState(0);
-  const [totals, setTotals] = useState<PartyTotals>(ZERO_TOTALS);
-  // Back from a drill-down, this ledger reopens on the page the user left, on the row they clicked.
-  const [page, setPage] = useState(() => rememberedLedgerPage("branch") ?? 1);
-  useEffect(() => { saveLedgerPosition({ branch: page }); }, [page]);
-  // Card mode (<=1279px): Prev/Next gives way to scroll-to-load — the page stays 1 and the size grows.
-  const { cards, size: pageSize, more } = useScrollPageSize(PAGE_SIZE, STACK_MODE_MAX_WIDTH);
-  useEffect(() => { if (cards) setPage(1); }, [cards]);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [exporting, setExporting] = useState(false);
-  const [filters, setFilters] = usePersistedState<FilterValue>("branchledger:filters", {});
-  const [q, setQ] = usePersistedState("branchledger:q", "");
-  const search = useDebouncedValue(q.trim());
+	const { can } = useAuth();
+	const canExport = can("Ledger_Export", "can_export_ledger");
+	const branchId = Number(id);
+	const [branch, setBranch] = useState<BranchView | null>(null);
+	const [branchError, setBranchError] = useState("");
+	useEffect(() => {
+		if (!branchId) return;
+		setBranch(null);
+		setBranchError("");
+		getBranch(branchId).then(setBranch).catch(() => setBranchError("Branch not found."));
+	}, [branchId]);
+	const [items, setItems] = useState<CashMovementView[]>([]);
+	const [total, setTotal] = useState(0);
+	const [totals, setTotals] = useState<PartyTotals>(ZERO_TOTALS);
+	// Back from a drill-down, this ledger reopens on the page the user left, on the row they clicked.
+	const [page, setPage] = useState(() => rememberedLedgerPage("branch") ?? 1);
+	useEffect(() => { saveLedgerPosition({ branch: page }); }, [page]);
+	// Card mode (<=1279px): Prev/Next gives way to scroll-to-load — the page stays 1 and the size grows.
+	const { cards, size: pageSize, more } = useScrollPageSize(PAGE_SIZE, STACK_MODE_MAX_WIDTH);
+	useEffect(() => { if (cards) setPage(1); }, [cards]);
+	const itemsRef = useRef(items);
+	itemsRef.current = items;
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState("");
+	const [exporting, setExporting] = useState(false);
+	const [filters, setFilters] = usePersistedState<FilterValue>("branchledger:filters", {});
+	const [q, setQ] = usePersistedState("branchledger:q", "");
+	const search = useDebouncedValue(q.trim());
 
-  const fromDate = filters.__dateFrom;
-  const toDate = filters.__dateTo;
-  const typeValues = Array.isArray(filters.type) ? filters.type : [];
-  const customerValues = Array.isArray(filters.customer) ? filters.customer : [];
+	const fromDate = filters.__dateFrom;
+	const toDate = filters.__dateTo;
+	const typeValues = Array.isArray(filters.type) ? filters.type : [];
+	const customerValues = Array.isArray(filters.customer) ? filters.customer : [];
 
-  // Any filter change resets to page 1 (not on mount, where the remembered page applies).
-  const filterKey = `${fromDate}|${toDate}|${JSON.stringify(filters.type)}|${JSON.stringify(filters.customer)}|${search}`;
-  const prevFilterKey = useRef(filterKey);
-  useEffect(() => {
-    if (prevFilterKey.current === filterKey) return;
-    prevFilterKey.current = filterKey;
-    setPage(1);
-  }, [filterKey]);
+	// Any filter change resets to page 1 (not on mount, where the remembered page applies).
+	const filterKey = `${fromDate}|${toDate}|${JSON.stringify(filters.type)}|${JSON.stringify(filters.customer)}|${search}`;
+	const prevFilterKey = useRef(filterKey);
+	useEffect(() => {
+		if (prevFilterKey.current === filterKey) return;
+		prevFilterKey.current = filterKey;
+		setPage(1);
+	}, [filterKey]);
 
-  const categories: FilterCategory[] = [
-    { key: "type", label: "Transaction Type", kind: "static", options: TRANSACTION_TYPE_OPTIONS },
-    {
-      key: "customer",
-      label: "Customer",
-      kind: "async",
-      searchHint: "Searches: customer name, customer code, phone",
-      fetchOptions: (search, p) =>
-        listCustomersPage(search, p, undefined, 20).then((res) => ({
-          items: res.items.map((c: CustomerView) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
-          hasMore: res.hasMore,
-        })),
-    },
-    { key: "__date", label: "Date", kind: "date" },
-  ];
+	const categories: FilterCategory[] = [
+		{ key: "type", label: "Transaction Type", kind: "static", options: TRANSACTION_TYPE_OPTIONS },
+		{
+			key: "customer",
+			label: "Customer",
+			kind: "async",
+			searchHint: "Searches: customer name, customer code, phone",
+			fetchOptions: (search, p) =>
+				listCustomersPage(search, p, undefined, 20).then((res) => ({
+					items: res.items.map((c: CustomerView) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
+					hasMore: res.hasMore,
+				})),
+		},
+		{ key: "__date", label: "Date", kind: "date" },
+	];
 
-  // Type and Customer (any number of each) are narrowed server-side, together
-  // with the date range, over this branch's movements — the same filtered
-  // query the main Ledger uses with this branch fixed.
-  const refresh = useCallback(() => {
-    if (!branchId) return;
-    if (!(cards && itemsRef.current.length)) setLoading(true);
-    listCashMovementsPage(page, pageSize, {
-      fromDate, toDate, search: search || undefined,
-      branchIds: [String(branchId)],
-      customerIds: customerValues.length ? customerValues : undefined,
-      types: typeValues.length ? (typeValues as CashMovementCategory[]) : undefined,
-    })
-      .then(({ items, total, totalDebit, totalCredit }) => {
-        setItems(items);
-        setTotal(total);
-        setTotals({ totalIn: totalCredit, totalOut: totalDebit, net: totalCredit - totalDebit, inCount: 0, outCount: 0 });
-        setError("");
-      })
-      .catch((e) => {
-        setItems([]);
-        setError(e instanceof ApiError ? e.message : "Could not load this branch's ledger.");
-      })
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId, page, pageSize, cards, fromDate, toDate, JSON.stringify(typeValues), JSON.stringify(customerValues), search]);
+	// Type and Customer (any number of each) are narrowed server-side, together
+	// with the date range, over this branch's movements — the same filtered
+	// query the main Ledger uses with this branch fixed.
+	const refresh = useCallback(() => {
+		if (!branchId) return;
+		if (!(cards && itemsRef.current.length)) setLoading(true);
+		listCashMovementsPage(page, pageSize, {
+			fromDate, toDate, search: search || undefined,
+			branchIds: [String(branchId)],
+			customerIds: customerValues.length ? customerValues : undefined,
+			types: typeValues.length ? (typeValues as CashMovementCategory[]) : undefined,
+		})
+			.then(({ items, total, totalDebit, totalCredit }) => {
+				setItems(items);
+				setTotal(total);
+				setTotals({ totalIn: totalCredit, totalOut: totalDebit, net: totalCredit - totalDebit, inCount: 0, outCount: 0 });
+				setError("");
+			})
+			.catch((e) => {
+				setItems([]);
+				setError(e instanceof ApiError ? e.message : "Could not load this branch's ledger.");
+			})
+			.finally(() => setLoading(false));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [branchId, page, pageSize, cards, fromDate, toDate, JSON.stringify(typeValues), JSON.stringify(customerValues), search]);
 
-  useEffect(() => { refresh(); }, [refresh]);
-  useLedgerFocus("branch", !loading, [items]);
+	useEffect(() => { refresh(); }, [refresh]);
+	useLedgerFocus("branch", !loading, [items]);
 
-  async function onExport() { return singleFlight("branch-ledger:export", async () => {
-    setExporting(true);
-    try {
-      await exportCashMovements({
-        fromDate, toDate, search: search || undefined,
-        branchIds: [String(branchId)],
-        customerIds: customerValues.length ? customerValues : undefined,
-        types: typeValues.length ? (typeValues as CashMovementCategory[]) : undefined,
-      });
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not export the ledger.");
-    } finally {
-      setExporting(false);
-    }
-  }); }
+	async function onExport() { return singleFlight("branch-ledger:export", async () => {
+		setExporting(true);
+		try {
+			await exportCashMovements({
+				fromDate, toDate, search: search || undefined,
+				branchIds: [String(branchId)],
+				customerIds: customerValues.length ? customerValues : undefined,
+				types: typeValues.length ? (typeValues as CashMovementCategory[]) : undefined,
+			});
+		} catch (e) {
+			setError(e instanceof ApiError ? e.message : "Could not export the ledger.");
+		} finally {
+			setExporting(false);
+		}
+	}); }
 
-  if (branchError) return <div className="notice">{branchError}</div>;
-  if (!branchId) {
-    return (
-      <div className="notice">
-        No branch selected. <a href={routeHref("branches")} onClick={(e) => { e.preventDefault(); goBack("branches"); }}>Back to Branch Management</a>
-      </div>
-    );
-  }
+	if (branchError) return <div className="notice">{branchError}</div>;
+	if (!branchId) {
+		return (
+			<div className="notice">
+				No branch selected. <a href={routeHref("branches")} onClick={(e) => { e.preventDefault(); goBack("branches"); }}>Back to Branch Management</a>
+			</div>
+		);
+	}
 
-  return (
-    <>
-      <div className="page-h">
-        <div>
-          <BackLink href={routeHref("branches")} onClick={() => goBack("branches")} />
-          <h1>{branch ? `${branch.name} — Ledger` : "Loading…"}</h1>
-          <p>Every cash movement recorded against this branch</p>
-        </div>
-      </div>
-      <hr className="gold-rule" />
+	return (
+		<>
+			<div className="page-h">
+				<div>
+					<BackLink href={routeHref("branches")} onClick={() => goBack("branches")} />
+					<h1>{branch ? `${branch.name} — Ledger` : "Loading…"}</h1>
+					<p>Every cash movement recorded against this branch</p>
+				</div>
+			</div>
+			<hr className="gold-rule" />
 
-      {branch && (
-        <div className="kpis" style={{ marginBottom: 16 }}>
-          <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totals.totalIn - totals.totalOut)}</div></div>
-          <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totals.totalIn)}</div></div>
-          <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totals.totalOut)}</div></div>
-        </div>
-      )}
+			{branch && (
+				<div className="kpis" style={{ marginBottom: 16 }}>
+					<div className="kpi"><div className="l">Net</div><div className="v">{fmt(totals.totalIn - totals.totalOut)}</div></div>
+					<div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totals.totalIn)}</div></div>
+					<div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totals.totalOut)}</div></div>
+				</div>
+			)}
 
-      {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
+			{error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
-      <div className="card tbl-card tbl-card-fill">
-        <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
-          <h3>Transactions</h3>
-          <div className="sp" />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <TableSearch value={q} onChange={setQ} placeholder="Search date, ref no, amount…" searches="date, ref no, particulars, mode, bank, party, debit, credit" />
-            <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips hideClearAll />
-            {canExport && <button className="btn ghost sm" disabled={exporting} onClick={onExport}><Icon name="download" /> {exporting ? "Exporting…" : "Download"}</button>}
-          </div>
-        </div>
-        <div className="tbl-wrap tbl-scroll">
-          <table className="tbl tbl-center tbl-stack" data-ledger-scope="branch" data-ledger-page={page}>
-            <TableCols widths={[12, 12, 34, 14, 14, 14]} />
-            <thead>
-              <tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={6} className="empty compact">Loading…</td></tr>
-              ) : items.length === 0 ? (
-                <tr><td colSpan={6} className="empty compact">No ledger entries found.</td></tr>
-              ) : (() => {
-                const chronological = [...items].reverse();
-                let running = 0;
-                const withBalance = chronological.map((m) => {
-                  if (m.type === "out") running -= m.amount; else running += m.amount;
-                  return { m, balance: running };
-                });
-                return withBalance.reverse().map(({ m, balance }) => (
-                  <tr key={m.id} data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
-                    <td data-label="Date">{fmtDate(m.d)}</td>
-                    <td className="ledger-ref" data-label="Ref No" title={refTitleFor(m)}>{refCellFor(m)}</td>
-                    <td data-label="Particulars" style={{ textAlign: "center" }}>{m.purpose || m.source || "—"}</td>
-                    <td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
-                    <td className="num" data-label="Credit" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
-                    <td className="num" data-label="Balance">{fmt(balance)}<LedgerEntryActions entryId={m.id} editable={m.editable} onChanged={refresh} /></td>
-                  </tr>
-                ));
-              })()}
-            </tbody>
-          </table>
-        </div>
-        <ScrollSentinel enabled={cards && items.length < total} onVisible={more} watch={items.length} />
-        <Pager page={page} total={total} pageSize={pageSize} onChange={setPage} cards={cards} />
-      </div>
-    </>
-  );
+			<div className="card tbl-card tbl-card-fill">
+				<div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
+					<h3>Transactions</h3>
+					<div className="sp" />
+					<div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+						<TableSearch value={q} onChange={setQ} placeholder="Search date, ref no, amount…" searches="date, ref no, particulars, mode, bank, party, debit, credit" />
+						<FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips hideClearAll />
+						{canExport && <button className="btn ghost sm" disabled={exporting} onClick={onExport}><Icon name="download" /> {exporting ? "Exporting…" : "Download"}</button>}
+					</div>
+				</div>
+				<div className="tbl-wrap tbl-scroll">
+					<table className="tbl tbl-center tbl-stack" data-ledger-scope="branch" data-ledger-page={page}>
+						<TableCols widths={[12, 12, 34, 14, 14, 14]} />
+						<thead>
+							<tr><th>Date</th><th>Ref No</th><th style={{ textAlign: "center" }}>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
+						</thead>
+						<tbody>
+							{loading ? (
+								<tr><td colSpan={6} className="empty compact">Loading…</td></tr>
+							) : items.length === 0 ? (
+								<tr><td colSpan={6} className="empty compact">No ledger entries found.</td></tr>
+							) : (() => {
+								const chronological = [...items].reverse();
+								let running = 0;
+								const withBalance = chronological.map((m) => {
+									if (m.type === "out") running -= m.amount; else running += m.amount;
+									return { m, balance: running };
+								});
+								return withBalance.reverse().map(({ m, balance }) => (
+									<tr key={m.id} data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
+										<td data-label="Date">{fmtDate(m.d)}</td>
+										<td className="ledger-ref" data-label="Ref No" title={refTitleFor(m)}>{refCellFor(m)}</td>
+										<td data-label="Particulars" style={{ textAlign: "center" }}>{m.purpose || m.source || "—"}</td>
+										<td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
+										<td className="num" data-label="Credit" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
+										<td className="num" data-label="Balance">{fmt(balance)}<LedgerEntryActions entryId={m.id} editable={m.editable} onChanged={refresh} /></td>
+									</tr>
+								));
+							})()}
+						</tbody>
+					</table>
+				</div>
+				<ScrollSentinel enabled={cards && items.length < total} onVisible={more} watch={items.length} />
+				<Pager page={page} total={total} pageSize={pageSize} onChange={setPage} cards={cards} />
+			</div>
+		</>
+	);
 }

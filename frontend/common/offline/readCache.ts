@@ -12,9 +12,10 @@ import { adjustBanks, adjustCashMovements, adjustCashSummary } from "./cashAdjus
 import { adjustLatestRate, adjustRateHistory } from "./goldRateAdjust";
 import { adjustDayBook } from "./dayBookAdjust";
 import { adjustRecordEdits } from "./recordEdits";
+import { adjustReferenceLists } from "./referenceAdjust";
 import { adjustExpenses, adjustGoldSales, adjustLedger, adjustPartyLedger, LEDGER_PATH, PARTY_PATH } from "./ledgerAdjust";
 import { adjustAuctionRecord } from "./auctionAdjust";
-import { adjustPendingLoanByNumber, adjustPendingLoanPages, adjustPersonalLoanDetail, adjustPersonalLoanListPayments, adjustPersonalLoanPayments, adjustPersonalLoanSchedule, adjustPersonalLoans } from "./personalLoanAdjust";
+import { adjustPendingLoanByNumber, adjustPendingLoanPages, adjustPersonalLoanDetail, adjustPersonalLoanFixes, adjustPersonalLedgerFixes, adjustPersonalLoanListPayments, adjustPersonalLoanPayments, adjustPersonalLoanSchedule, adjustPersonalLoans } from "./personalLoanAdjust";
 import { adjustCustomerInvestments, adjustInvestmentOps, adjustInvestmentPlans, adjustInvestments, adjustPendingInvestmentByNumber, adjustPendingInvestmentPages } from "./investmentAdjust";
 import { adjustCalendar, adjustReminders } from "./reminderAdjust";
 import { adjustAccess } from "./accessAdjust";
@@ -279,7 +280,9 @@ function reshape(cachedBody: string, path: string): string {
 export async function recall(path: string, view: string): Promise<string | null> {
   const body = await recallBase(path, view);
   // edits and deletes of personal loans, investments and plans waiting to be sent are applied last, to whatever was found
-  return body === null ? null : adjustRecordEdits(path, body);
+  if (body === null) return null;
+  const edited = await adjustRecordEdits(path, body);
+  return edited === null ? null : adjustReferenceLists(path, edited);
 }
 
 async function recallBase(path: string, view: string): Promise<string | null> {
@@ -319,12 +322,13 @@ async function recallBase(path: string, view: string): Promise<string | null> {
     return withNew === null ? null : adjustPersonalLoanListPayments(withNew);
   }
   // a payment collected on this PC and not sent yet counts against the loan and shows in its ledger
-  if (body !== null && /\/personal-loans\/\d+\/payments(\?|$)/.test(path)) return adjustPersonalLoanPayments(path, body);
+  if (body !== null && /\/personal-loans\/\d+\/payments(\?|$)/.test(path)) return adjustPersonalLedgerFixes(path, await adjustPersonalLoanPayments(path, body));
   if (body !== null && /\/personal-loans\/\d+\/schedule(\?|$)/.test(path)) return adjustPersonalLoanSchedule(path, body);
   if (body !== null && /\/personal-loans\/\d+(\?|$)/.test(path)) {
     // the loan's own schedule decides whether it is still past its grace period once a payment is counted
     const schedule = await recallCopy(path.replace(/\/personal-loans\/(\d+)(\?.*)?$/, "/personal-loans/$1/schedule?limit=100&offset=0"), view);
-    return adjustPersonalLoanDetail(path, body, schedule);
+    const ledger = await recallCopy(path.replace(/\/personal-loans\/(\d+)(\?.*)?$/, "/personal-loans/$1/payments?limit=100&offset=0&order=desc"), view);
+    return adjustPersonalLoanFixes(path, await adjustPersonalLoanDetail(path, body, schedule), ledger);
   }
   // The ledgers (Cash, UPI / Bank Transfer / Cheque, a bank's, an expense category's) list what this PC has entered since the
   // last answer. A category made on this PC has no answer at all, so this runs before the "nothing kept" check below.

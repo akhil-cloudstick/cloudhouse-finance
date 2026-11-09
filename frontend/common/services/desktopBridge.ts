@@ -193,6 +193,10 @@ export const offlineStore = {
   /* The local read server: answers a GET from this PC's copy of the business when the server cannot be reached. */
   localApiBind: (sessionJson: string) => app()!.LocalApiBind(sessionJson),
   localApiGet: (path: string, query: string, headers: Record<string, string>) => app()!.LocalApiGet(path, query, headers),
+  /* The same read, answered as it will look once the changes still waiting in the outbox have been sent (the backend's own
+   * handlers run them inside a transaction that is rolled back). `skipped` counts waiting changes the copy could not run. */
+  localApiGetPending: (path: string, query: string, headers: Record<string, string>, pendingJson: string) =>
+    app()!.LocalApiGetPending(path, query, headers, pendingJson),
   mirrorBindTenant: (tenant: number) => app()!.StoreMirrorBindTenant(tenant),
   mirrorWriteTemp: (entryId: string, batch: string) => app()!.StoreMirrorWriteTemp(entryId, batch),
   mirrorDropTemp: (entryId: string) => app()!.StoreMirrorDropTemp(entryId),

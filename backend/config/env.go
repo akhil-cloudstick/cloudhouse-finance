@@ -136,3 +136,7 @@ func getEnvInt(key string, fallback int) int {
 	}
 	return n
 }
+
+func EnvTrimmed(name string) string {
+	return strings.TrimSpace(os.Getenv(name))
+}

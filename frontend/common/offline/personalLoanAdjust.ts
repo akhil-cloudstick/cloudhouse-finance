@@ -4,6 +4,7 @@
  * includes the loan and it is no longer in the outbox, so nothing is shown twice. */
 
 import { offlineStore } from "@/common/services/desktopBridge";
+import { roundRupee } from "@/common/utils/format";
 import { localRequestId } from "./requestRef";
 import type { OutboxEntry } from "./types";
 
@@ -38,10 +39,11 @@ async function waiting(): Promise<{ entry: OutboxEntry; body: Body; view: View }
 
 /* The row the server will make for a waiting entry. */
 export function pendingPersonalLoanRow(entry: OutboxEntry, b: Body, v: View): Record<string, unknown> {
-  const principal = Number(b.principalAmount) || 0;
+  // the server's rule: principal, interest, disbursed, obligation and installment are each rounded to a whole rupee
+  const principal = roundRupee(Number(b.principalAmount) || 0);
   const value = Number(b.interestValue) || 0;
-  const interest = round2(b.interestType === "Percentage" ? (principal * value) / 100 : value);
-  const obligation = b.fullDisbursement ? round2(principal + interest) : principal;
+  const interest = roundRupee(b.interestType === "Percentage" ? (principal * value) / 100 : value);
+  const obligation = b.fullDisbursement ? roundRupee(principal + interest) : principal;
   const tenure = Number(b.tenureCount) || 0;
   return {
     id: localRequestId(entry.id),
@@ -53,11 +55,11 @@ export function pendingPersonalLoanRow(entry: OutboxEntry, b: Body, v: View): Re
     interestType: b.interestType,
     interestValue: value,
     interestAmount: interest,
-    disbursedAmount: b.fullDisbursement ? principal : round2(principal - interest),
+    disbursedAmount: b.fullDisbursement ? principal : roundRupee(principal - interest),
     fullDisbursement: !!b.fullDisbursement,
     frequency: b.frequency,
     tenureCount: tenure,
-    installmentAmount: tenure > 0 ? round2(obligation / tenure) : 0,
+    installmentAmount: tenure > 0 ? roundRupee(obligation / tenure) : 0,
     outstandingAmount: obligation,
     totalPaid: 0,
     status: v.status ?? "Active",
@@ -327,4 +329,119 @@ export async function adjustPendingLoanPages(path: string): Promise<string | nul
   if (m[3] === "approvals") return JSON.stringify({ success: true, data: [] });
   const empty = JSON.stringify({ success: true, data: { items: [], total: 0, hasMore: false, totalDebit: 0, totalCredit: 0 } });
   return m[3] === "payments" ? adjustPersonalLoanPayments(path, empty) : empty;
+}
+
+/* ---- corrections to payments and the disbursement that the server already has, made on this PC and not sent yet ------------
+ * A payment edit (PATCH .../payments/:id), a payment delete (DELETE .../payments/:id) and a disbursement edit
+ * (PATCH .../disbursement) wait in the outbox like everything else; the loan's ledger and page are applied with them here so the
+ * screens show the correction at once. Once sent, the server's own answer includes it and the entry is gone. */
+
+type Row = Record<string, unknown>;
+type Fix = { loanId: number; paymentId: number | null; method: string; body: Row };
+
+async function waitingFixes(loanId: number): Promise<Fix[]> {
+  const found: Fix[] = [];
+  for (const line of await offlineStore.readAllOutbox().catch(() => [] as string[])) {
+    try {
+      const e = JSON.parse(line) as OutboxEntry;
+      const m = /^\/personal-loans\/(\d+)\/(?:payments\/(\d+)|(disbursement))$/.exec(e.path.split("?")[0]);
+      if (!m || Number(m[1]) !== loanId || (e.method !== "PATCH" && e.method !== "DELETE")) continue;
+      if (e.method === "DELETE" && !m[2]) continue;
+      found.push({ loanId, paymentId: m[2] ? Number(m[2]) : null, method: e.method, body: (e.body ?? {}) as Row });
+    } catch {
+      /* a line that cannot be read changes nothing */
+    }
+  }
+  return found;
+}
+
+const MODES: [string, string][] = [["Cash", "cashAmount"], ["UPI", "upiAmount"], ["Bank Transfer", "bankTransferAmount"], ["Cheque", "chequeAmount"]];
+const n = (v: unknown) => Number(v) || 0;
+
+
+/* After a payment's credit changes by `delta` (positive: more is owed), the balance after it, and after every later entry, moves with it. */
+function shiftBalances(items: Row[], at: number, count: number, delta: number, desc: boolean): Row[] {
+  if (!delta) return items;
+  const move = (r: Row): Row => ({ ...r, balance: n(r.balance) + delta, runningBalance: n(r.runningBalance) + delta });
+  return items.map((r, i) => (desc ? i < at + count : i >= at) ? move(r) : r);
+}
+
+/* GET /personal-loans/:id/payments — the ledger with waiting payment corrections, disbursement corrections and payment deletes applied. */
+export async function adjustPersonalLedgerFixes(path: string, body: string): Promise<string> {
+  const m = /\/personal-loans\/(\d+)\/payments(\?|$)/.exec(path);
+  if (!m) return body;
+  const fixes = await waitingFixes(Number(m[1]));
+  if (!fixes.length) return body;
+  try {
+    const env = JSON.parse(body) as { data?: { items?: Row[]; total?: number; totalCredit?: number; totalDebit?: number } };
+    const d = env.data;
+    if (!d || !Array.isArray(d.items)) return body;
+    const desc = new URLSearchParams(path.includes("?") ? path.slice(path.indexOf("?") + 1) : "").get("order") === "desc";
+    let items = d.items;
+    for (const f of fixes) {
+      if (f.paymentId === null) {
+        // disbursement: date and the amounts of each mode
+        const date = typeof f.body.disbursedAt === "string" ? f.body.disbursedAt.slice(0, 10) : null;
+        items = items.map((r) => (r.kind === "disbursement" ? { ...r, ...(date ? { date, createdAt: f.body.disbursedAt } : {}), syncPending: true } : r));
+      } else if (f.method === "DELETE") {
+        const gone = items.filter((r) => r.kind === "payment" && n(r.id) === f.paymentId);
+        d.totalCredit = Math.max(0, n(d.totalCredit) - gone.reduce((s, r) => s + n(r.credit), 0));
+        d.total = Math.max(0, n(d.total) - gone.length);
+        const goneAt = items.indexOf(gone[0]);
+        items = items.filter((r) => !(r.kind === "payment" && n(r.id) === f.paymentId));
+        if (gone.length) items = shiftBalances(items, goneAt, 0, gone.reduce((s, r) => s + n(r.credit), 0), desc);
+      } else {
+        const mine = items.filter((r) => r.kind === "payment" && n(r.id) === f.paymentId);
+        if (!mine.length) continue;
+        const first = mine[0];
+        const merged: Row = {};
+        for (const [, k] of MODES) merged[k] = f.body[k] !== undefined ? n(f.body[k]) : mine.reduce((s, r) => s + n(r[k]), 0);
+        const edited = MODES.some(([, k]) => f.body[k] !== undefined);
+        const parts = edited ? MODES.filter(([, k]) => n(merged[k]) > 0) : [];
+        const date = typeof f.body.paidOn === "string" ? f.body.paidOn.slice(0, 10) : String(first.date ?? "");
+        const rows: Row[] = edited
+          ? parts.map(([mode, k], index) => ({
+              ...first, ...(Object.fromEntries(MODES.map(([, kk]) => [kk, kk === k ? n(merged[k]) : 0]))), amount: n(merged[k]), credit: n(merged[k]), mode,
+              method: parts.length > 1 ? "Split" : mode, part: { mode, amount: n(merged[k]), index, count: parts.length }, key: `${String(first.key)}-fix${index}`,
+              paidOn: date, date, reference: f.body.reference ?? first.reference, description: f.body.description ?? first.description, syncPending: true,
+            }))
+          : mine.map((r) => ({ ...r, paidOn: date, date, reference: f.body.reference ?? r.reference, description: f.body.description ?? r.description, syncPending: true }));
+        const at = items.indexOf(first);
+        d.totalCredit = n(d.totalCredit) - mine.reduce((s, r) => s + n(r.credit), 0) + rows.reduce((s, r) => s + n(r.credit), 0);
+        d.total = n(d.total) - mine.length + rows.length;
+        const delta = mine.reduce((s, r) => s + n(r.credit), 0) - rows.reduce((s, r) => s + n(r.credit), 0);
+        items = [...items.slice(0, at), ...rows, ...items.filter((r, i) => i > at && !mine.includes(r))];
+        items = shiftBalances(items, at, rows.length, delta, desc);
+      }
+    }
+    d.items = items;
+    return JSON.stringify(env);
+  } catch {
+    return body;
+  }
+}
+
+/* GET /personal-loans/:id — what is owed follows a waiting payment edit or delete. */
+export async function adjustPersonalLoanFixes(path: string, body: string, ledger: string | null): Promise<string> {
+  const m = /\/personal-loans\/(\d+)(\?|$)/.exec(path);
+  if (!m || !ledger) return body;
+  const fixes = (await waitingFixes(Number(m[1]))).filter((f) => f.paymentId !== null);
+  if (!fixes.length) return body;
+  try {
+    const rows = ((JSON.parse(ledger) as { data?: { items?: Row[] } }).data?.items ?? []).filter((r) => r.kind === "payment");
+    const env = JSON.parse(body) as { data?: Row };
+    const loan = env.data;
+    if (!loan || typeof loan !== "object") return body;
+    let delta = 0; // positive: more is owed
+    for (const f of fixes) {
+      const was = rows.filter((r) => n(r.id) === f.paymentId).reduce((s, r) => s + n(r.credit), 0);
+      const now = f.method === "DELETE" ? 0 : MODES.some(([, k]) => f.body[k] !== undefined || f.body.amount !== undefined) ? (f.body.amount !== undefined ? n(f.body.amount) : MODES.reduce((s, [, k]) => s + n(f.body[k]), 0)) : was;
+      delta += was - now;
+    }
+    if (!delta) return body;
+    env.data = { ...loan, outstandingAmount: Math.max(0, n(loan.outstandingAmount) + delta), totalPaid: Math.max(0, n(loan.totalPaid) - delta), syncPending: true };
+    return JSON.stringify(env);
+  } catch {
+    return body;
+  }
 }

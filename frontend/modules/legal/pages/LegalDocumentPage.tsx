@@ -14,28 +14,28 @@ const MESSAGE = { maxWidth: 760, margin: "0 auto", padding: "48px 16px", lineHei
  * AuthGuard. It waits for the provider's details rather than showing a
  * placeholder company, and says so plainly if they cannot be loaded. */
 export default function LegalDocumentPage({ doc, audience }: Props) {
-  const [provider, setProvider] = useState<Provider | null>(null);
-  const [failed, setFailed] = useState(false);
+	const [provider, setProvider] = useState<Provider | null>(null);
+	const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    let live = true;
-    fetchProvider().then((p) => {
-      if (!live) return;
-      if (p) setProvider(p);
-      else setFailed(true);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+	useEffect(() => {
+		let live = true;
+		fetchProvider().then((p) => {
+			if (!live) return;
+			if (p) setProvider(p);
+			else setFailed(true);
+		});
+		return () => {
+			live = false;
+		};
+	}, []);
 
-  const content = useMemo(() => (provider ? buildDocument(doc, audience, provider) : null), [doc, audience, provider]);
+	const content = useMemo(() => (provider ? buildDocument(doc, audience, provider) : null), [doc, audience, provider]);
 
-  useEffect(() => {
-    if (content && provider) window.document.title = `${content.title} – ${provider.name}`;
-  }, [content, provider]);
+	useEffect(() => {
+		if (content && provider) window.document.title = `${content.title} – ${provider.name}`;
+	}, [content, provider]);
 
-  if (failed) return <main style={MESSAGE}>This page could not be loaded. Please refresh, or try again in a few minutes.</main>;
-  if (!provider || !content) return <main style={MESSAGE}>Loading…</main>;
-  return <LegalLayout doc={doc} audience={audience} provider={provider} document={content} />;
+	if (failed) return <main style={MESSAGE}>This page could not be loaded. Please refresh, or try again in a few minutes.</main>;
+	if (!provider || !content) return <main style={MESSAGE}>Loading…</main>;
+	return <LegalLayout doc={doc} audience={audience} provider={provider} document={content} />;
 }

@@ -338,16 +338,15 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		}
 	}
 	rec := &models.CashMovement{
-		Type:         in.Type,
-		Amount:       in.Amount,
-		Mode:         in.Mode,
-		Bank:         in.Bank,
-		BankID:       in.BankID,
-		ToBankID:     in.ToBankID,
-		BranchID:     in.BranchID,
-		ReceiptImage: in.ReceiptImage,
-		Remarks:      strings.TrimSpace(in.Remarks),
-
+		Type:               in.Type,
+		Amount:             in.Amount,
+		Mode:               in.Mode,
+		Bank:               in.Bank,
+		BankID:             in.BankID,
+		ToBankID:           in.ToBankID,
+		BranchID:           in.BranchID,
+		ReceiptImage:       in.ReceiptImage,
+		Remarks:            strings.TrimSpace(in.Remarks),
 		TransactionGroupID: in.GroupID,
 	}
 	if in.OccurredOn.IsZero() {

@@ -19,56 +19,56 @@ type MergeBankModalContentProps = { source: BackendBank; banks: BackendBank[]; o
  * bank backfill is expected to create ("HDFC", "HDFC Bank", "HDFC BANK LTD",
  * …). Irreversible, so this warns up front rather than only on error. */
 export function MergeBankModalContent({ source, banks, onSaved }: MergeBankModalContentProps) {
-  const { closeModal } = useModal();
-  const toast = useToast();
-  const candidates = banks.filter((b) => b.id !== source.id);
-  const [targetId, setTargetId] = useState(candidates[0] ? String(candidates[0].id) : "");
-  const [err, setErr] = useState("");
-  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
-  const [fe, setFe] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
+	const { closeModal } = useModal();
+	const toast = useToast();
+	const candidates = banks.filter((b) => b.id !== source.id);
+	const [targetId, setTargetId] = useState(candidates[0] ? String(candidates[0].id) : "");
+	const [err, setErr] = useState("");
+	// Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+	const [fe, setFe] = useState<Record<string, string>>({});
+	const [saving, setSaving] = useState(false);
 
-  const target = candidates.find((b) => String(b.id) === targetId);
+	const target = candidates.find((b) => String(b.id) === targetId);
 
-  async function save() { return singleFlight("modal:mergebank:save", async () => {
-    if (!target) { setErr(""); setFe({ target: "Please pick a bank to merge into." }); return; }
-    setSaving(true);
-    setErr("");
-    setFe({});
-    try {
-      await mergeBanks(source.id, target.id);
-      toast(`"${source.name}" merged into "${target.name}"`);
-      closeModal();
-      onSaved();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Failed to merge banks.");
-    } finally {
-      setSaving(false);
-    }
-  }); }
+	async function save() { return singleFlight("modal:mergebank:save", async () => {
+		if (!target) { setErr(""); setFe({ target: "Please pick a bank to merge into." }); return; }
+		setSaving(true);
+		setErr("");
+		setFe({});
+		try {
+			await mergeBanks(source.id, target.id);
+			toast(`"${source.name}" merged into "${target.name}"`);
+			closeModal();
+			onSaved();
+		} catch (e) {
+			setErr(e instanceof ApiError ? e.message : "Failed to merge banks.");
+		} finally {
+			setSaving(false);
+		}
+	}); }
 
-  return (
-    <>
-      <div className="hd"><h3>Merge Duplicate Bank</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
-        <div className="frow"><div className={fe.target ? "has-err" : undefined}><label className="f">Merge "{source.name}" into</label>
-          <Select
-            options={candidates.map((b) => ({ value: String(b.id), label: b.name }))}
-            value={targetId}
-            onChange={setTargetId}
-            placeholder="Select the bank to keep…"
-          /><FieldError msg={fe.target} />
-        </div></div>
-        <div className="notice" style={{ marginTop: 12 }}>
-          <Icon name="shield" /> This will move every transaction and pledge linked to &quot;{source.name}&quot; onto
-          {target ? ` "${target.name}"` : " the bank you pick"} and permanently delete &quot;{source.name}&quot; — this can&apos;t be undone.
-        </div>
-      </div>
-      <div className="ft">
-          {err && <span className="ft-err" role="alert">{err}</span>}
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn danger" onClick={save} disabled={saving || !target}>{saving ? "Merging…" : "Merge & Delete"}</button>
-      </div>
-    </>
-  );
+	return (
+		<>
+			<div className="hd"><h3>Merge Duplicate Bank</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll">
+				<div className="frow"><div className={fe.target ? "has-err" : undefined}><label className="f">Merge "{source.name}" into</label>
+					<Select
+						options={candidates.map((b) => ({ value: String(b.id), label: b.name }))}
+						value={targetId}
+						onChange={setTargetId}
+						placeholder="Select the bank to keep…"
+					/><FieldError msg={fe.target} />
+				</div></div>
+				<div className="notice" style={{ marginTop: 12 }}>
+					<Icon name="shield" /> This will move every transaction and pledge linked to &quot;{source.name}&quot; onto
+					{target ? ` "${target.name}"` : " the bank you pick"} and permanently delete &quot;{source.name}&quot; — this can&apos;t be undone.
+				</div>
+			</div>
+			<div className="ft">
+					{err && <span className="ft-err" role="alert">{err}</span>}
+				<button className="btn ghost" onClick={closeModal}>Cancel</button>
+				<button className="btn danger" onClick={save} disabled={saving || !target}>{saving ? "Merging…" : "Merge & Delete"}</button>
+			</div>
+		</>
+	);
 }

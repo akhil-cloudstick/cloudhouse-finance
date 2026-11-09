@@ -70,7 +70,6 @@ func editInvestment(ctx context.Context, id uint, branchID *uint, req editInvest
 		}
 		snapshot := *inv
 		before = &snapshot
-
 		principal := inv.PrincipalAmount
 		if req.PrincipalAmount != nil {
 			principal = common.RoundMoney(*req.PrincipalAmount)
@@ -109,7 +108,6 @@ func editInvestment(ctx context.Context, id uint, branchID *uint, req editInvest
 			}
 			start = *startDate
 		}
-
 		amountChanged := common.RoundMoney(principal) != common.RoundMoney(inv.PrincipalAmount)
 		splitGiven := req.CashAmount != nil || req.UpiAmount != nil || req.BankTransferAmount != nil || req.ChequeAmount != nil || req.BankID != nil
 		inv.PrincipalAmount, inv.StartDate = principal, start
@@ -118,7 +116,6 @@ func editInvestment(ctx context.Context, id uint, branchID *uint, req editInvest
 		if inv.Engine == models.EngineLive {
 			inv.OutstandingPrincipal, inv.LastAccrualDate = principal, start
 		}
-
 		// Payouts were generated from the old terms: replace them all (none is paid).
 		if err := tx.WithContext(ctx).Where("investment_id = ?", id).Delete(&models.InvestmentPayout{}).Error; err != nil {
 			return err
@@ -132,7 +129,6 @@ func editInvestment(ctx context.Context, id uint, branchID *uint, req editInvest
 				return err
 			}
 		}
-
 		deposit := tx.WithContext(ctx).Where("source_type = ? AND source_id = ?", "investment_deposit", inv.ID)
 		switch {
 		case amountChanged || splitGiven:

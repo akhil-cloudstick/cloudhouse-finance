@@ -9,13 +9,13 @@ import { type LoanBalance } from "@/modules/cash/types/cash-source-types";
  * loan has nothing drawn yet, so there is nothing to check against). Used by
  * the Add Entry forms to block an amount the loan can't take. */
 export function useLoanBalance(cat: { id: number; name: string; principalAmount?: number } | null): LoanBalance | null {
-  const [balance, setBalance] = useState<LoanBalance | null>(null);
-  const id = cat && cat.id > 0 && isLoanSource(cat.name) ? cat.id : 0;
-  useEffect(() => {
-    let cancelled = false;
-    setBalance(null);
-    if (id) getLoanBalance(id).then((b) => { if (!cancelled) setBalance(b); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [id]);
-  return balance;
+	const [balance, setBalance] = useState<LoanBalance | null>(null);
+	const id = cat && cat.id > 0 && isLoanSource(cat.name) ? cat.id : 0;
+	useEffect(() => {
+		let cancelled = false;
+		setBalance(null);
+		if (id) getLoanBalance(id).then((b) => { if (!cancelled) setBalance(b); }).catch(() => {});
+		return () => { cancelled = true; };
+	}, [id]);
+	return balance;
 }

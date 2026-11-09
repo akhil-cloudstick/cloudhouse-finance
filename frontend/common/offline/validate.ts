@@ -5,6 +5,7 @@
  * Use these only inside the offline (queueing) branch of an operation: online, the server does the checking. */
 
 import { ApiError } from "@/common/services/httpClient";
+import { roundRupee } from "@/common/utils/format";
 
 export type PaymentSplit = { cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number | null };
 
@@ -39,9 +40,11 @@ export function requireNotNegative(value: unknown, message: string): void {
  * where the split is optional. */
 export function requireValidSplit(amount: number, split: PaymentSplit, emptyMeansCash = true): void {
   if (n(split.chequeAmount) > 0) refuse("Cheque is not a supported payment mode");
-  const parts = n(split.cashAmount) + n(split.upiAmount) + n(split.bankTransferAmount);
+  // as the server's ValidateSplit: both sides in whole rupees, with a paisa of slack
+  const parts = roundRupee(n(split.cashAmount) + n(split.upiAmount) + n(split.bankTransferAmount));
   if (parts === 0 && emptyMeansCash) return;
-  if (Math.abs(parts - amount) > 0.005) refuse(`payment breakdown (${money(parts)}) does not match the amount (${money(amount)})`);
+  const total = roundRupee(amount);
+  if (Math.abs(parts - total) > 0.01) refuse(`payment breakdown (${money(parts)}) does not match the amount (${money(total)})`);
   if (n(split.upiAmount) + n(split.bankTransferAmount) > 0 && !split.bankId) refuse("bank is required for the payment split");
 }
 

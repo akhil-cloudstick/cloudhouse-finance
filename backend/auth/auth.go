@@ -181,7 +181,7 @@ func RequirePermission(permissionName string) echo.MiddlewareFunc {
 					return failForbidden(c, "Permission not found", permissionName)
 				}
 				log.Printf("permission check for %q (role %d) failed: %v", permissionName, roleID, err)
-				return failAbort(c, http.StatusInternalServerError, "permission check failed")
+				return failAbort(c, http.StatusBadRequest, "Permission check failed, please try again")
 			}
 			if !allowed {
 				return failForbidden(c, "Access denied", permissionName)

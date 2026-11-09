@@ -153,6 +153,21 @@ func (a *App) LocalApiGet(path, query string, headers map[string]string) localap
 	return srv.Handle("GET", path, query, headers)
 }
 
+// LocalApiGetPending answers one read from this PC's copy as it will look once the changes still waiting to be sent have
+// reached the server (see backend/localapi/replay.go). pendingJSON is [{method, path, body}], oldest first; skipped says how many
+// of them could not be run, and when it is not zero the answer should not be trusted.
+func (a *App) LocalApiGetPending(path, query string, headers map[string]string, pendingJSON string) localapi.PendingResponse {
+	p, err := a.store.DBPath()
+	if err != nil {
+		return localapi.PendingResponse{Status: 503, Body: `{"success":false,"error":"the offline store is not open"}`}
+	}
+	srv, err := localapi.Open(p)
+	if err != nil {
+		return localapi.PendingResponse{Status: 503, Body: `{"success":false,"error":"the local copy is not available"}`}
+	}
+	return srv.GetWithPending(path, query, headers, pendingJSON)
+}
+
 // StoreAppendOutbox adds one entry line and flushes it to disk before returning.
 func (a *App) StoreAppendOutbox(line string) error { return a.store.AppendOutbox(line) }
 

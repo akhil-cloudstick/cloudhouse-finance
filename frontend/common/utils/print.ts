@@ -12,31 +12,31 @@ import { BRAND, printBrand, printColors } from "@/common/config/brand";
 
 /** Escapes text interpolated into the print HTML strings. */
 export const esc = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** True on desktop browsers that can print a PDF/popup in place. Mobile and
  * tablet browsers (Android Chrome, iOS Safari) have no inline PDF viewer, so
  * the iframe/popup print flows silently do nothing there. */
 export function canPrintInline(): boolean {
-  if (typeof navigator === "undefined") return true;
-  const ua = navigator.userAgent || "";
-  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
-    || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
-  const pdfViewer = (navigator as Navigator & { pdfViewerEnabled?: boolean }).pdfViewerEnabled;
-  return !mobile && pdfViewer !== false;
+	if (typeof navigator === "undefined") return true;
+	const ua = navigator.userAgent || "";
+	const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+		|| (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+	const pdfViewer = (navigator as Navigator & { pdfViewerEnabled?: boolean }).pdfViewerEnabled;
+	return !mobile && pdfViewer !== false;
 }
 
 /** Saves a blob as a file. The object URL is revoked late: mobile Chrome
  * starts the download asynchronously and an immediate revoke cancels it. */
 export function downloadBlob(blob: Blob, filename: string): void {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+	const url = window.URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
 }
 
 /* Sends a PDF blob straight to the browser's print dialog instead of
@@ -48,40 +48,40 @@ export function downloadBlob(blob: Blob, filename: string): void {
  * agreement, personal-loan bond) — moved here from loanService.ts so it's
  * not duplicated per module. */
 export function printPdfBlob(blob: Blob, onReady?: () => void, filename = "document.pdf"): void {
-  // Phones/tablets can't render a PDF inside an iframe or print it from
-  // there, so the user gets the file instead.
-  if (!canPrintInline()) {
-    downloadBlob(blob, filename);
-    onReady?.();
-    return;
-  }
-  const url = window.URL.createObjectURL(blob);
-  const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  iframe.src = url;
-  document.body.appendChild(iframe);
-  iframe.onload = () => {
-    // Before print(): in some browsers print() blocks until the dialog
-    // closes, which would leave a progress overlay sitting over it.
-    onReady?.();
-    const win = iframe.contentWindow;
-    if (!win) return;
-    const cleanup = () => {
-      window.URL.revokeObjectURL(url);
-      iframe.remove();
-    };
-    win.addEventListener("afterprint", cleanup, { once: true });
-    // Fallback in case afterprint never fires (e.g. print dialog cancelled
-    // in some browsers) — keep the iframe around long enough to print.
-    setTimeout(cleanup, 60_000);
-    win.focus();
-    win.print();
-  };
+	// Phones/tablets can't render a PDF inside an iframe or print it from
+	// there, so the user gets the file instead.
+	if (!canPrintInline()) {
+		downloadBlob(blob, filename);
+		onReady?.();
+		return;
+	}
+	const url = window.URL.createObjectURL(blob);
+	const iframe = document.createElement("iframe");
+	iframe.style.position = "fixed";
+	iframe.style.right = "0";
+	iframe.style.bottom = "0";
+	iframe.style.width = "0";
+	iframe.style.height = "0";
+	iframe.style.border = "0";
+	iframe.src = url;
+	document.body.appendChild(iframe);
+	iframe.onload = () => {
+		// Before print(): in some browsers print() blocks until the dialog
+		// closes, which would leave a progress overlay sitting over it.
+		onReady?.();
+		const win = iframe.contentWindow;
+		if (!win) return;
+		const cleanup = () => {
+			window.URL.revokeObjectURL(url);
+			iframe.remove();
+		};
+		win.addEventListener("afterprint", cleanup, { once: true });
+		// Fallback in case afterprint never fires (e.g. print dialog cancelled
+		// in some browsers) — keep the iframe around long enough to print.
+		setTimeout(cleanup, 60_000);
+		win.focus();
+		win.print();
+	};
 }
 
 /* The backend renders each document through headless Chrome, which takes a
@@ -97,45 +97,45 @@ let printOverlay: HTMLDivElement | null = null;
 let printJobs = 0;
 
 function showPrintProgress(label: string): () => void {
-  printJobs++;
-  if (!printOverlay) {
-    printOverlay = document.createElement("div");
-    printOverlay.className = "print-progress";
-    printOverlay.setAttribute("role", "status");
-    printOverlay.setAttribute("aria-live", "polite");
-    printOverlay.innerHTML = `<div class="print-progress-card"><span class="print-progress-spinner"></span><span class="print-progress-label"></span></div>`;
-    document.body.appendChild(printOverlay);
-  }
-  const labelEl = printOverlay.querySelector(".print-progress-label");
-  if (labelEl) labelEl.textContent = label;
-  let done = false;
-  return () => {
-    if (done) return;
-    done = true;
-    printJobs--;
-    if (printJobs <= 0 && printOverlay) {
-      printJobs = 0;
-      printOverlay.remove();
-      printOverlay = null;
-    }
-  };
+	printJobs++;
+	if (!printOverlay) {
+		printOverlay = document.createElement("div");
+		printOverlay.className = "print-progress";
+		printOverlay.setAttribute("role", "status");
+		printOverlay.setAttribute("aria-live", "polite");
+		printOverlay.innerHTML = `<div class="print-progress-card"><span class="print-progress-spinner"></span><span class="print-progress-label"></span></div>`;
+		document.body.appendChild(printOverlay);
+	}
+	const labelEl = printOverlay.querySelector(".print-progress-label");
+	if (labelEl) labelEl.textContent = label;
+	let done = false;
+	return () => {
+		if (done) return;
+		done = true;
+		printJobs--;
+		if (printJobs <= 0 && printOverlay) {
+			printJobs = 0;
+			printOverlay.remove();
+			printOverlay = null;
+		}
+	};
 }
 
 /* Fetches a server-rendered PDF and sends it to the print dialog, with the
  * progress overlay above shown throughout. Errors still reject, so callers
  * keep their own toasts. */
 export async function printPdfJob(fetchBlob: () => Promise<Blob>, label = "Preparing document…", filename = "document.pdf"): Promise<void> {
-  const hide = showPrintProgress(label);
-  try {
-    const blob = await fetchBlob();
-    printPdfBlob(blob, hide, filename);
-    // Safety net: an iframe that never fires onload must not leave the
-    // screen covered.
-    setTimeout(hide, 15_000);
-  } catch (err) {
-    hide();
-    throw err;
-  }
+	const hide = showPrintProgress(label);
+	try {
+		const blob = await fetchBlob();
+		printPdfBlob(blob, hide, filename);
+		// Safety net: an iframe that never fires onload must not leave the
+		// screen covered.
+		setTimeout(hide, 15_000);
+	} catch (err) {
+		hide();
+		throw err;
+	}
 }
 
 /**
@@ -149,10 +149,10 @@ export async function printPdfJob(fetchBlob: () => Promise<Blob>, label = "Prepa
  * title (e.g. "Gold Loan Pledge Slip") and it renders beneath the brand.
  */
 export function brandHeader(docTitle?: string): string {
-  // The signed-in business's own particulars, falling back to the platform
-  // brand field by field — see printBrand.
-  const B = printBrand();
-  return `<header class="brandhead">
+	// The signed-in business's own particulars, falling back to the platform
+	// brand field by field — see printBrand.
+	const B = printBrand();
+	return `<header class="brandhead">
     <div class="bh-name">${esc(B.legalName.toUpperCase())}</div>
     <div class="bh-desc">${esc(BRAND.descriptor)}</div>
     <div class="bh-meta">${esc(B.kmlRegLabel)} &nbsp;·&nbsp; ${esc(B.phones)}</div>${B.addressLine ? `
@@ -176,22 +176,22 @@ const SELF_PRINT_SCRIPT = `<script>window.addEventListener("load",function(){set
  * (noopener means window.open returns null even on success, so a popup block
  * cannot be detected here.) The object URL is revoked late so the tab can load. */
 export function openPrintableTab(html: string): void {
-  const url = URL.createObjectURL(new Blob([html.replace("</body>", SELF_PRINT_SCRIPT + "</body>")], { type: "text/html" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 120_000);
+	const url = URL.createObjectURL(new Blob([html.replace("</body>", SELF_PRINT_SCRIPT + "</body>")], { type: "text/html" }));
+	const a = document.createElement("a");
+	a.href = url;
+	a.target = "_blank";
+	a.rel = "noopener noreferrer";
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }
 
 export function openPrintWindow(title: string, body: string, onBlocked: (msg: string) => void) {
-  // Resolved per call, not at module load: the colour belongs to whichever
-  // business is signed in, and this module is imported once for all of them.
-  const C = printColors();
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>
+	// Resolved per call, not at module load: the colour belongs to whichever
+	// business is signed in, and this module is imported once for all of them.
+	const C = printColors();
+	const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>
     /* Print documents cannot rely on next/font, which only injects its faces
        into the app document — so these name the families and fall back to
        system stacks rather than fetching webfonts into a popup. */
@@ -226,12 +226,12 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
   <div class="noprint" style="text-align:center;margin-top:30px">
     <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print</button></div>
   </body></html>`;
-  // No popup printing on phones/tablets (and the popup would be blocked after
-  // the awaited fetch) — hand over the document as a file to open and print.
-  if (!canPrintInline()) {
-    downloadBlob(new Blob([html], { type: "text/html" }), `${title.replace(/[\\/:*?"<>|]+/g, "-")}.html`);
-    return;
-  }
-  void onBlocked;
-  openPrintableTab(html);
+	// No popup printing on phones/tablets (and the popup would be blocked after
+	// the awaited fetch) — hand over the document as a file to open and print.
+	if (!canPrintInline()) {
+		downloadBlob(new Blob([html], { type: "text/html" }), `${title.replace(/[\\/:*?"<>|]+/g, "-")}.html`);
+		return;
+	}
+	void onBlocked;
+	openPrintableTab(html);
 }

@@ -7,6 +7,7 @@ import { refuse, requirePositive, requireNotNegative, requireValidSplit, require
 import { auctionStageOf } from "@/common/offline/auctionStages";
 import { currentActor } from "@/common/offline/actor";
 import { getSelectedBranchId } from "@/common/services/branchSelection";
+import { roundRupee } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import type { StageView } from "@/common/types/approval-workflow-types";
 import type {
@@ -76,24 +77,24 @@ export function buildOptimisticLoan(uuid: string, input: CreateLoanInput, hint: 
     deductionWeight: o.deductionWeight ?? 0,
     netWeight: round3(o.grossWeight - (o.deductionWeight ?? 0)),
     quantity: o.quantity ?? 1,
-    goldValue: round2(hint.ornamentValues[i] ?? 0),
+    goldValue: hint.ornamentValues[i] ?? 0,
     remarks: o.remarks ?? "",
     images: (o.images ?? []).map((imageUrl) => ({ id: 0, ornamentId: 0, imageUrl, createdAt: now })),
   }));
-  const totalGoldValue = round2(ornaments.reduce((s, o) => s + o.goldValue, 0));
-  const eligible = round2((totalGoldValue * hint.scheme.ltv) / 100);
-  const charge = round2(
+  const totalGoldValue = ornaments.reduce((s, o) => s + o.goldValue, 0);
+  const eligible = roundRupee((totalGoldValue * hint.scheme.ltv) / 100);
+  // the server keeps the service charge as worked out (computeServiceChargeAmount) and rounds the principal and payout built from it
+  const charge =
     hint.scheme.serviceChargeType === "Flat"
       ? hint.scheme.serviceChargeValue ?? 0
       : hint.scheme.serviceChargeType === "Percent"
         ? (input.principalAmount * (hint.scheme.serviceChargeValue ?? 0)) / 100
-        : 0,
-  );
+        : 0;
   const mode = input.serviceChargeMode ?? "WithheldFromPayout";
   // a customer the server has not numbered yet has no number to show; the pull supplies it
   const customerNumber = typeof input.customerId === "number" ? input.customerId : 0;
   const schemeNumber = typeof input.schemeId === "number" ? input.schemeId : 0;
-  const principal = mode === "AddedToPrincipal" ? round2(input.principalAmount + charge) : input.principalAmount;
+  const principal = roundRupee(mode === "AddedToPrincipal" ? input.principalAmount + charge : input.principalAmount);
   return {
     uuid,
     id: 0,
@@ -183,7 +184,7 @@ export function applyActionLocally(
   next.approvalStage = "Approved";
   next.status = "Active";
   next.sanctionedAmount = rec.principalAmount;
-  next.disbursedAmount = round2(rec.principalAmount - charge);
+  next.disbursedAmount = roundRupee(rec.principalAmount - charge);
   next.disbursementDate = now;
   return next;
 }
@@ -222,9 +223,9 @@ export function applyEditLocally(
     throw new ApiError("loan is closed — nothing to extend", 400);
   }
   const newScheme = typeof input.schemeId === "number" && input.schemeId !== rec.schemeId ? input.schemeId : undefined;
-  const newPrincipal = input.principalAmount !== undefined ? round2(input.principalAmount) : undefined;
+  const newPrincipal = input.principalAmount !== undefined ? roundRupee(input.principalAmount) : undefined;
   if (newPrincipal !== undefined && newPrincipal <= 0) throw new ApiError("principal amount must be greater than zero", 400);
-  const principalChanged = newPrincipal !== undefined && newPrincipal !== round2(rec.principalAmount);
+  const principalChanged = newPrincipal !== undefined && newPrincipal !== roundRupee(rec.principalAmount);
   const material = newScheme !== undefined || principalChanged;
   const now = new Date().toISOString();
   const next = { ...rec, updatedAt: now } as BackendLoan;
@@ -240,23 +241,23 @@ export function applyEditLocally(
       if (scheme.serviceChargeMode) next.serviceChargeMode = scheme.serviceChargeMode;
       next.scheme = { ...(rec.scheme ?? {}), id: newScheme, name: scheme.name, interestRate: scheme.rate, ltvPercent: scheme.ltv, interestMethod: scheme.method, penalRate: scheme.penal } as BackendLoan["scheme"];
       // the gold is the same, the share of it the new scheme lends against is not
-      next.eligibleLoanAmount = round2(((rec.totalGoldValue ?? 0) * scheme.ltv) / 100);
+      next.eligibleLoanAmount = roundRupee(((rec.totalGoldValue ?? 0) * scheme.ltv) / 100);
     }
   }
   if (input.overallPhotoUrl !== undefined) next.overallPhotoUrl = input.overallPhotoUrl.trim();
   if (newPrincipal !== undefined) {
     const delta = newPrincipal - rec.principalAmount;
     next.principalAmount = newPrincipal;
-    next.outstandingAmount = round2(Math.max(0, (rec.outstandingAmount ?? 0) + delta));
-    next.totalOutstandingBalance = round2(Math.max(0, (rec.totalOutstandingBalance ?? 0) + delta));
-    next.settlementAmount = round2(Math.max(0, (rec.settlementAmount ?? 0) + delta));
+    next.outstandingAmount = roundRupee(Math.max(0, (rec.outstandingAmount ?? 0) + delta));
+    next.totalOutstandingBalance = roundRupee(Math.max(0, (rec.totalOutstandingBalance ?? 0) + delta));
+    next.settlementAmount = roundRupee(Math.max(0, (rec.settlementAmount ?? 0) + delta));
   }
   const principal = next.principalAmount;
   const type = next.serviceChargeType;
   const value = next.serviceChargeValue ?? 0;
   if (newScheme !== undefined || newPrincipal !== undefined) {
-    if (type !== undefined) next.serviceChargeAmount = round2(chargeFor(type, value, principal));
-    else if (rec.serviceChargeAmount && rec.principalAmount > 0) next.serviceChargeAmount = round2((rec.serviceChargeAmount * principal) / rec.principalAmount);
+    if (type !== undefined) next.serviceChargeAmount = chargeFor(type, value, principal);
+    else if (rec.serviceChargeAmount && rec.principalAmount > 0) next.serviceChargeAmount = (rec.serviceChargeAmount * principal) / rec.principalAmount;
   }
   // a service charge that is added to the principal is not part of what the gold can back; the server checks this after every
   // edit that touches the scheme or the principal, against the eligible amount under the (possibly new) scheme
@@ -269,8 +270,9 @@ export function applyEditLocally(
     }
   }
   const eligible = next.eligibleLoanAmount ?? 0;
-  if ((newScheme !== undefined || newPrincipal !== undefined) && round2(capped) > round2(eligible)) {
-    throw new ApiError(`principal amount ₹${round2(capped).toFixed(2)} cannot exceed the eligible loan amount ₹${round2(eligible).toFixed(2)} (based on scheme LTV)`, 400);
+  // the server compares whole rupees, with a paisa of slack (RoundMoney on both sides)
+  if ((newScheme !== undefined || newPrincipal !== undefined) && roundRupee(capped) > roundRupee(eligible) + 0.01) {
+    throw new ApiError(`principal amount ₹${round2(capped).toFixed(2)} cannot exceed the eligible loan amount ₹${roundRupee(eligible).toFixed(2)} (based on scheme LTV)`, 400);
   }
   if (material) {
     const wasDisbursed = !!rec.disbursementDate;
@@ -547,14 +549,15 @@ export function checkCreateLoanLocally(input: CreateLoanInput, hint: CreateLoanH
   if (extra > 2000) refuse("additional information cannot be longer than 2000 characters");
   const total = (hint.ornamentValues ?? []).reduce((s, v) => s + (v || 0), 0);
   if (total > 0 && hint.scheme?.ltv > 0) {
-    const eligible = round2((total * hint.scheme.ltv) / 100);
+    const eligible = roundRupee((total * hint.scheme.ltv) / 100);
     const type = hint.scheme.serviceChargeType;
     const value = hint.scheme.serviceChargeValue ?? 0;
     let capped = input.principalAmount;
     if ((input.serviceChargeMode ?? "WithheldFromPayout") === "AddedToPrincipal") {
       capped = type === "Flat" ? capped - value : type === "Percent" ? capped / (1 + value / 100) : capped;
     }
-    if (round2(capped) > eligible) refuse("principal amount cannot exceed the eligible loan amount");
+    // whole rupees with a paisa of slack, as the server compares them: ₹34,698 against an eligible ₹34,697.70 is allowed
+    if (roundRupee(capped) > eligible + 0.01) refuse("principal amount cannot exceed the eligible loan amount");
   }
 }
 

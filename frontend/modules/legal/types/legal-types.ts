@@ -1,11 +1,11 @@
 export const LEGAL_DOCS = [
-  "privacy-policy",
-  "account-deletion",
-  "terms-and-conditions",
-  "disclaimer",
-  "refund-policy",
-  "data-safety",
-  "contact",
+	"privacy-policy",
+	"account-deletion",
+	"terms-and-conditions",
+	"disclaimer",
+	"refund-policy",
+	"data-safety",
+	"contact",
 ] as const;
 export type LegalDoc = (typeof LEGAL_DOCS)[number];
 
@@ -14,13 +14,13 @@ export type LegalDoc = (typeof LEGAL_DOCS)[number];
 export type LegalAudience = "customer" | "staff";
 
 export type Provider = {
-  name: string;
-  legalName: string;
-  addressLine: string;
-  contactPhone: string;
-  supportEmail: string;
-  website: string;
-  logoUrl: string;
+	name: string;
+	legalName: string;
+	addressLine: string;
+	contactPhone: string;
+	supportEmail: string;
+	website: string;
+	logoUrl: string;
 };
 
 /* A line that only one app's readers should see; a bare string shows to everyone. */

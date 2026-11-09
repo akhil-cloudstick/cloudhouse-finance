@@ -12,10 +12,10 @@ import { type BackendPersonalLoan, type Frequency, type InterestType, type Renew
 
 // Server messages are put on the field they are about, by wording.
 const SERVER_FIELDS: Record<string, RegExp> = {
-  interest: /interest/i,
-  principal: /principal/i,
-  tenure: /installment|tenure/i,
-  split: /breakdown|bank|cash|upi|cheque/i,
+	interest: /interest/i,
+	principal: /principal/i,
+	tenure: /installment|tenure/i,
+	split: /breakdown|bank|cash|upi|cheque/i,
 };
 
 type RenewLoanModalContentProps = { loan: BackendPersonalLoan; onSaved: () => void };
@@ -28,129 +28,129 @@ type RenewLoanModalContentProps = { loan: BackendPersonalLoan; onSaved: () => vo
  * preview is re-fetched (debounced) as the form changes so staff sees the
  * payout — or a shortfall warning — before committing. */
 export function RenewLoanModalContent({ loan, onSaved }: RenewLoanModalContentProps) {
-  const { closeModal } = useModal();
-  const toast = useToast();
+	const { closeModal } = useModal();
+	const toast = useToast();
 
-  const [principal, setPrincipal] = useState(String(loan.principalAmount));
-  const [interestType, setInterestType] = useState<InterestType>(loan.interestType);
-  const [interestValue, setInterestValue] = useState(String(loan.interestValue));
-  const [frequency, setFrequency] = useState<Frequency>(loan.frequency);
-  const [tenureCount, setTenureCount] = useState(String(loan.tenureCount));
-  const [preview, setPreview] = useState<RenewalPreview | null>(null);
-  const [previewError, setPreviewError] = useState("");
-  const [err, setErr] = useState("");
-  const [fe, setFe] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
-  const [remaining, setRemaining] = useState(0);
-  const [bankId, setBankId] = useState<number | undefined>(undefined);
+	const [principal, setPrincipal] = useState(String(loan.principalAmount));
+	const [interestType, setInterestType] = useState<InterestType>(loan.interestType);
+	const [interestValue, setInterestValue] = useState(String(loan.interestValue));
+	const [frequency, setFrequency] = useState<Frequency>(loan.frequency);
+	const [tenureCount, setTenureCount] = useState(String(loan.tenureCount));
+	const [preview, setPreview] = useState<RenewalPreview | null>(null);
+	const [previewError, setPreviewError] = useState("");
+	const [err, setErr] = useState("");
+	const [fe, setFe] = useState<Record<string, string>>({});
+	const [saving, setSaving] = useState(false);
+	const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+	const [remaining, setRemaining] = useState(0);
+	const [bankId, setBankId] = useState<number | undefined>(undefined);
 
-  const principalNum = +principal || 0;
-  const interestValueNum = +interestValue || 0;
+	const principalNum = +principal || 0;
+	const interestValueNum = +interestValue || 0;
 
-  useEffect(() => {
-    if (!principalNum) { setPreview(null); return; }
-    let cancelled = false;
-    const handle = setTimeout(() => {
-      previewRenewal(loan.id, { principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: +tenureCount || 1 })
-        .then((p) => { if (!cancelled) { setPreview(p); setPreviewError(""); } })
-        .catch((e) => { if (!cancelled) { setPreview(null); setPreviewError(e instanceof ApiError ? e.message : "Could not compute preview."); } });
-    }, 300);
-    return () => { cancelled = true; clearTimeout(handle); };
-  }, [loan.id, principalNum, interestType, interestValueNum, frequency, tenureCount]);
+	useEffect(() => {
+		if (!principalNum) { setPreview(null); return; }
+		let cancelled = false;
+		const handle = setTimeout(() => {
+			previewRenewal(loan.id, { principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: +tenureCount || 1 })
+				.then((p) => { if (!cancelled) { setPreview(p); setPreviewError(""); } })
+				.catch((e) => { if (!cancelled) { setPreview(null); setPreviewError(e instanceof ApiError ? e.message : "Could not compute preview."); } });
+		}, 300);
+		return () => { cancelled = true; clearTimeout(handle); };
+	}, [loan.id, principalNum, interestType, interestValueNum, frequency, tenureCount]);
 
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
-  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+	const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
 
-  async function save() {
-    const tenureNum = +tenureCount || 0;
-    // Every problem is shown at once, each beside its own field.
-    const errors: Record<string, string> = {};
-    if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the new principal amount.";
-    if (!tenureNum || tenureNum <= 0) errors["tenure"] ??= "Please enter the number of installments.";
-    const payout = preview?.disbursedAmount ?? 0;
-    if (payout > 0 && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the cash paid to the customer.";
-    if (payout > 0 && split.upiAmount + split.bankTransferAmount > 0 && !bankId) errors["split"] ??= "Pick the bank the payout was made from.";
-    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
-    setSaving(true);
-    setErr("");
-    setFe({});
-    try {
-      await renewPersonalLoan(loan.id, {
-        principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: tenureNum,
-        ...(payout > 0 ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: split.chequeAmount, bankId } : {}),
-      });
-      toast(`${loan.loanNumber} renewed — new loan created`);
-      onSaved();
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not renew the loan — try again.";
-      const field = e instanceof ApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
-      if (field) fail(field, msg); else setErr(msg);
-    } finally {
-      setSaving(false);
-    }
-  }
+	async function save() {
+		const tenureNum = +tenureCount || 0;
+		// Every problem is shown at once, each beside its own field.
+		const errors: Record<string, string> = {};
+		if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the new principal amount.";
+		if (!tenureNum || tenureNum <= 0) errors["tenure"] ??= "Please enter the number of installments.";
+		const payout = preview?.disbursedAmount ?? 0;
+		if (payout > 0 && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the cash paid to the customer.";
+		if (payout > 0 && split.upiAmount + split.bankTransferAmount > 0 && !bankId) errors["split"] ??= "Pick the bank the payout was made from.";
+		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+		setSaving(true);
+		setErr("");
+		setFe({});
+		try {
+			await renewPersonalLoan(loan.id, {
+				principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: tenureNum,
+				...(payout > 0 ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: split.chequeAmount, bankId } : {}),
+			});
+			toast(`${loan.loanNumber} renewed — new loan created`);
+			onSaved();
+		} catch (e) {
+			const msg = e instanceof ApiError ? e.message : "Could not renew the loan — try again.";
+			const field = e instanceof ApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+			if (field) fail(field, msg); else setErr(msg);
+		} finally {
+			setSaving(false);
+		}
+	}
 
-  const installmentAmount = +tenureCount > 0 && principalNum > 0 ? roundRupee((principalNum / +tenureCount)) : 0;
-  const v = (n: number | undefined) => (preview && n !== undefined ? fmt(n) : "—");
+	const installmentAmount = +tenureCount > 0 && principalNum > 0 ? roundRupee((principalNum / +tenureCount)) : 0;
+	const v = (n: number | undefined) => (preview && n !== undefined ? fmt(n) : "—");
 
-  return (
-    <>
-      <div className="hd"><h3>Renew Loan — {loan.loanNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll pl-modal">
-        <div className="notice" style={{ marginBottom: 16 }}>Current outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></div>
-        <div className="pl-sec-h">Loan terms</div>
-        <div className="frow c2">
-          <div className={fe.principal ? "has-err" : undefined}><label className="f">New Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => { setPrincipal(e.target.value); clearFe("principal"); }} /><FieldError msg={fe.principal} /></div>
-          <div className={fe.tenure ? "has-err" : undefined}><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} placeholder="e.g. 50" value={tenureCount} onChange={(e) => { setTenureCount(e.target.value); clearFe("tenure"); }} /><FieldError msg={fe.tenure} /></div>
-        </div>
-        <div className="frow c2">
-          <div><label className="f">Interest Type *</label>
-            <div className="pl-seg" role="radiogroup">
-              {([["Flat", "Flat ₹"], ["Percentage", "Percent %"]] as [InterestType, string][]).map(([val, label]) => (
-                <button key={val} type="button" role="radio" aria-checked={interestType === val}
-                  className={interestType === val ? "on" : ""} onClick={() => setInterestType(val)}>{label}</button>
-              ))}
-            </div>
-          </div>
-          <div className={fe.interest ? "has-err" : undefined}><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => { setInterestValue(e.target.value); clearFe("interest"); }} /><FieldError msg={fe.interest} /></div>
-        </div>
-        <div className="frow"><div><label className="f">Collection Frequency *</label>
-          <div className="pl-seg" role="radiogroup">
-            {(["Daily", "Weekly", "Monthly"] as Frequency[]).map((f) => (
-              <button key={f} type="button" role="radio" aria-checked={frequency === f}
-                className={frequency === f ? "on" : ""} onClick={() => setFrequency(f)}>{f}</button>
-            ))}
-          </div>
-        </div></div>
+	return (
+		<>
+			<div className="hd"><h3>Renew Loan — {loan.loanNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll pl-modal">
+				<div className="notice" style={{ marginBottom: 16 }}>Current outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></div>
+				<div className="pl-sec-h">Loan terms</div>
+				<div className="frow c2">
+					<div className={fe.principal ? "has-err" : undefined}><label className="f">New Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => { setPrincipal(e.target.value); clearFe("principal"); }} /><FieldError msg={fe.principal} /></div>
+					<div className={fe.tenure ? "has-err" : undefined}><label className="f">Number of Installments *</label><input className="inp" type="number" min={1} placeholder="e.g. 50" value={tenureCount} onChange={(e) => { setTenureCount(e.target.value); clearFe("tenure"); }} /><FieldError msg={fe.tenure} /></div>
+				</div>
+				<div className="frow c2">
+					<div><label className="f">Interest Type *</label>
+						<div className="pl-seg" role="radiogroup">
+							{([["Flat", "Flat ₹"], ["Percentage", "Percent %"]] as [InterestType, string][]).map(([val, label]) => (
+								<button key={val} type="button" role="radio" aria-checked={interestType === val}
+									className={interestType === val ? "on" : ""} onClick={() => setInterestType(val)}>{label}</button>
+							))}
+						</div>
+					</div>
+					<div className={fe.interest ? "has-err" : undefined}><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => { setInterestValue(e.target.value); clearFe("interest"); }} /><FieldError msg={fe.interest} /></div>
+				</div>
+				<div className="frow"><div><label className="f">Collection Frequency *</label>
+					<div className="pl-seg" role="radiogroup">
+						{(["Daily", "Weekly", "Monthly"] as Frequency[]).map((f) => (
+							<button key={f} type="button" role="radio" aria-checked={frequency === f}
+								className={frequency === f ? "on" : ""} onClick={() => setFrequency(f)}>{f}</button>
+						))}
+					</div>
+				</div></div>
 
-        {preview && preview.disbursedAmount > 0 && (
-          <>
-            <div className="pl-sec-h">Disbursement method</div>
-            <div className="frow">
-              <div className={fe.split ? "has-err" : undefined} style={{ width: "100%", minWidth: 0 }}>
-                <SplitPaymentInput totalAmount={preview.disbursedAmount} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
-                <FieldError msg={fe.split} />
-              </div>
-            </div>
-          </>
-        )}
+				{preview && preview.disbursedAmount > 0 && (
+					<>
+						<div className="pl-sec-h">Disbursement method</div>
+						<div className="frow">
+							<div className={fe.split ? "has-err" : undefined} style={{ width: "100%", minWidth: 0 }}>
+								<SplitPaymentInput totalAmount={preview.disbursedAmount} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+								<FieldError msg={fe.split} />
+							</div>
+						</div>
+					</>
+				)}
 
-        {/* Live preview — dashes until the backend preview comes back. */}
-        <div className="pl-sum">
-          <div><span>Rollover</span><b>{v(preview?.rollover)}</b></div>
-          <div><span>New interest</span><b>{v(preview?.interestAmount)}</b></div>
-          <div><span>Customer gets</span><b>{v(preview?.disbursedAmount)}</b></div>
-          <div><span>Per installment</span><b>{installmentAmount > 0 ? fmt(installmentAmount) : "—"}</b>{installmentAmount > 0 && <small>/ {frequency.toLowerCase()}</small>}</div>
-        </div>
-        {preview?.shortfall && <div className="notice" style={{ marginTop: 10, color: "var(--red, #c21725)" }}>⚠ New principal is not enough to cover the outstanding balance and interest.</div>}
-        {previewError && <div className="notice" style={{ marginTop: 10 }}>{previewError}</div>}
-        {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
-      </div>
-      <div className="ft">
-        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !!preview?.shortfall} onClick={save}>{saving ? "Renewing…" : "Confirm Renewal"}</button>
-      </div>
-    </>
-  );
+				{/* Live preview — dashes until the backend preview comes back. */}
+				<div className="pl-sum">
+					<div><span>Rollover</span><b>{v(preview?.rollover)}</b></div>
+					<div><span>New interest</span><b>{v(preview?.interestAmount)}</b></div>
+					<div><span>Customer gets</span><b>{v(preview?.disbursedAmount)}</b></div>
+					<div><span>Per installment</span><b>{installmentAmount > 0 ? fmt(installmentAmount) : "—"}</b>{installmentAmount > 0 && <small>/ {frequency.toLowerCase()}</small>}</div>
+				</div>
+				{preview?.shortfall && <div className="notice" style={{ marginTop: 10, color: "var(--red, #c21725)" }}>⚠ New principal is not enough to cover the outstanding balance and interest.</div>}
+				{previewError && <div className="notice" style={{ marginTop: 10 }}>{previewError}</div>}
+				{err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
+			</div>
+			<div className="ft">
+				<button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
+				<button className="btn" disabled={saving || !!preview?.shortfall} onClick={save}>{saving ? "Renewing…" : "Confirm Renewal"}</button>
+			</div>
+		</>
+	);
 }

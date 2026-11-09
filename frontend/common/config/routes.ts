@@ -16,41 +16,41 @@
  * missing here is unreachable by URL; a route missing there is reachable by
  * anyone. */
 export const APP_ROUTES = [
-  "dashboard",
-  "customers",
-  "customer",
-  "loans",
-  "loan",
-  "newloan",
-  "schemes",
-  "goldrates",
-  "requests",
-  "loanrisk",
-  "personalloans",
-  "personalloan",
-  "investments",
-  "investment",
-  "ledger",
-  "auctions",
-  "packets",
-  "packet",
-  "bankpledge",
-  "reports",
-  "employees",
-  "calendar",
-  "branches",
-  "banks",
-  "ledger-bank",
-  "ledger-customer",
-  "ledger-branch",
-  "ledger-category",
-  "cash-ledger",
-  "upi-ledger",
-  "bank-transfer-ledger",
-  "cheque-ledger",
-  "roles-permissions",
-  "billing",
-  "settings",
+	"dashboard",
+	"customers",
+	"customer",
+	"loans",
+	"loan",
+	"newloan",
+	"schemes",
+	"goldrates",
+	"requests",
+	"loanrisk",
+	"personalloans",
+	"personalloan",
+	"investments",
+	"investment",
+	"ledger",
+	"auctions",
+	"packets",
+	"packet",
+	"bankpledge",
+	"reports",
+	"employees",
+	"calendar",
+	"branches",
+	"banks",
+	"ledger-bank",
+	"ledger-customer",
+	"ledger-branch",
+	"ledger-category",
+	"cash-ledger",
+	"upi-ledger",
+	"bank-transfer-ledger",
+	"cheque-ledger",
+	"roles-permissions",
+	"billing",
+	"settings",
 ] as const;
 
 export type AppRoute = (typeof APP_ROUTES)[number];
@@ -61,8 +61,8 @@ export const DEFAULT_ROUTE: AppRoute = "dashboard";
  * bookmarked /<slug>/cash opens the Ledger and the address bar is rewritten
  * to /<slug>/ledger (see useAppRoute). */
 export const ROUTE_ALIASES: Readonly<Record<string, AppRoute>> = {
-  cash: "ledger",
-  "party-category": "ledger-category",
+	cash: "ledger",
+	"party-category": "ledger-category",
 };
 
 /* Pages that sit under a business but are not console routes:
@@ -87,24 +87,24 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
  * isValidBusinessSlug, which refuses them outright rather than letting one be
  * created and break its own links later. */
 export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set<string>([
-  ...APP_ROUTES,
-  ...Object.keys(ROUTE_ALIASES),
-  ...STANDALONE_PAGES,
-  "api",
-  "uploads",
-  "assets",
-  "static",
-  "_next",
-  "favicon.ico",
-  "index",
-  "app",
-  "superadmin",
-  "forgot-password",
-  "reset-password",
-  "digilocker-callback",
-  "esign-callback",
-  "customer-app",
-  "staff-app",
+	...APP_ROUTES,
+	...Object.keys(ROUTE_ALIASES),
+	...STANDALONE_PAGES,
+	"api",
+	"uploads",
+	"assets",
+	"static",
+	"_next",
+	"favicon.ico",
+	"index",
+	"app",
+	"superadmin",
+	"forgot-password",
+	"reset-password",
+	"digilocker-callback",
+	"esign-callback",
+	"customer-app",
+	"staff-app",
 ]);
 
 /* isValidBusinessSlug is the rule for what may BE a business code, and it now
@@ -112,12 +112,12 @@ export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set<string>([
  * coded "api" or "loans" would produce links that can never resolve to it, so
  * rejecting the code is the only point at which that is fixable. */
 export function isValidBusinessSlug(value: string): boolean {
-  return (
-    SLUG_PATTERN.test(value) && value.length <= 60 && !RESERVED_ROOT_SEGMENTS.has(value)
-  );
+	return (
+		SLUG_PATTERN.test(value) && value.length <= 60 && !RESERVED_ROOT_SEGMENTS.has(value)
+	);
 }
 
 /** True when a URL's first path segment names a business rather than a page. */
 export function isBusinessSegment(segment: string): boolean {
-  return isValidBusinessSlug(segment);
+	return isValidBusinessSlug(segment);
 }

@@ -194,7 +194,6 @@ func paginateLedgerWindowedCached(ctx context.Context, cacheKey string, fp ledge
 	}
 	focus, hasFocus := ctx.Value(ledgerFocusKey{}).(ledgerFocus)
 	hasFocus = hasFocus && limit > 0
-
 	now := time.Now()
 	closedBefore := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
 	var cache *ledgerCacheEntry
@@ -227,7 +226,6 @@ func paginateLedgerWindowedCached(ctx context.Context, cacheKey string, fp ledge
 		}
 		return a, nil
 	}
-
 	opening := 0.0
 	if !fromDate.IsZero() {
 		for _, w := range ledgerWindows(time.Time{}, fromDate.AddDate(0, 0, -1)) {
@@ -238,7 +236,6 @@ func paginateLedgerWindowedCached(ctx context.Context, cacheKey string, fp ledge
 			opening += a.net
 		}
 	}
-
 	// Pass 1: count, totals and each window's size and net (a focus search needs
 	// the rows themselves, so it reads every window).
 	windows := ledgerWindows(fromDate, toDate)
@@ -272,7 +269,6 @@ func paginateLedgerWindowedCached(ctx context.Context, cacheKey string, fp ledge
 		total += int64(sums[i].count)
 	}
 	closing := opening + netRange
-
 	if limit <= 0 && total > ledgerExportMaxRows {
 		return nil, 0, LedgerTotals{}, common.NewBadRequest(fmt.Sprintf("this ledger has %d entries in the chosen period — choose a shorter date range (at most %d entries per export)", total, ledgerExportMaxRows))
 	}
@@ -293,7 +289,6 @@ func paginateLedgerWindowedCached(ctx context.Context, cacheKey string, fp ledge
 	if limit > 0 && offset+limit < end {
 		end = offset + limit
 	}
-
 	// Pass 2: collect the page. A row's running balance is the closing balance
 	// less the net of every newer row.
 	var page []ledgerSourceRow
@@ -325,7 +320,6 @@ func paginateLedgerWindowedCached(ctx context.Context, cacheKey string, fp ledge
 			idx++
 		}
 	}
-
 	out := make([]LedgerRow, len(page))
 	for i, r := range page {
 		out[i] = toLedgerRow(r)

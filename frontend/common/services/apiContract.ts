@@ -6,2014 +6,2014 @@ type Identity = { employeeId?: number; customerId?: number; superAdminUserId?: n
 // [old method, old path, new method, new path], paths relative to /api/v1
 const ROUTES: [string, string, string, string][] = [
  [
-  "GET",
-  "/audit-log",
-  "GET",
-  "/users/:user_id/audit-log"
+	"GET",
+	"/audit-log",
+	"GET",
+	"/users/:user_id/audit-log"
  ],
  [
-  "GET",
-  "/employees/:id/permissions/by-employee",
-  "GET",
-  "/users/:user_id/employees/:id/permissions/by-employee"
+	"GET",
+	"/employees/:id/permissions/by-employee",
+	"GET",
+	"/users/:user_id/employees/:id/permissions/by-employee"
  ],
  [
-  "POST",
-  "/roles",
-  "POST",
-  "/users/:user_id/roles"
+	"POST",
+	"/roles",
+	"POST",
+	"/users/:user_id/roles"
  ],
  [
-  "DELETE",
-  "/roles/:id",
-  "DELETE",
-  "/users/:user_id/roles/:id/delete"
+	"DELETE",
+	"/roles/:id",
+	"DELETE",
+	"/users/:user_id/roles/:id/delete"
  ],
  [
-  "GET",
-  "/roles",
-  "GET",
-  "/users/:user_id/roles"
+	"GET",
+	"/roles",
+	"GET",
+	"/users/:user_id/roles"
  ],
  [
-  "GET",
-  "/employees/:id/permissions",
-  "GET",
-  "/users/:user_id/employees/:id/permissions"
+	"GET",
+	"/employees/:id/permissions",
+	"GET",
+	"/users/:user_id/employees/:id/permissions"
  ],
  [
-  "PATCH",
-  "/employees/:id/permissions/:role_id/set-all",
-  "PATCH",
-  "/users/:user_id/employees/:id/permissions/:role_id/set-all"
+	"PATCH",
+	"/employees/:id/permissions/:role_id/set-all",
+	"PATCH",
+	"/users/:user_id/employees/:id/permissions/:role_id/set-all"
  ],
  [
-  "PATCH",
-  "/employees/:id/permissions/:role_id",
-  "PATCH",
-  "/users/:user_id/employees/:id/permissions/:role_id"
+	"PATCH",
+	"/employees/:id/permissions/:role_id",
+	"PATCH",
+	"/users/:user_id/employees/:id/permissions/:role_id"
  ],
  [
-  "PATCH",
-  "/roles/:id",
-  "PATCH",
-  "/users/:user_id/roles/:id"
+	"PATCH",
+	"/roles/:id",
+	"PATCH",
+	"/users/:user_id/roles/:id"
  ],
  [
-  "POST",
-  "/banks",
-  "POST",
-  "/users/:user_id/banks"
+	"POST",
+	"/banks",
+	"POST",
+	"/users/:user_id/banks"
  ],
  [
-  "DELETE",
-  "/banks/:id",
-  "DELETE",
-  "/users/:user_id/banks/:id/delete"
+	"DELETE",
+	"/banks/:id",
+	"DELETE",
+	"/users/:user_id/banks/:id/delete"
  ],
  [
-  "GET",
-  "/banks/:id",
-  "GET",
-  "/users/:user_id/banks/:id"
+	"GET",
+	"/banks/:id",
+	"GET",
+	"/users/:user_id/banks/:id"
  ],
  [
-  "GET",
-  "/banks",
-  "GET",
-  "/users/:user_id/banks"
+	"GET",
+	"/banks",
+	"GET",
+	"/users/:user_id/banks"
  ],
  [
-  "POST",
-  "/banks/:id/merge",
-  "POST",
-  "/users/:user_id/banks/:id/merge"
+	"POST",
+	"/banks/:id/merge",
+	"POST",
+	"/users/:user_id/banks/:id/merge"
  ],
  [
-  "PUT",
-  "/banks/:id",
-  "PATCH",
-  "/users/:user_id/banks/:id/update"
+	"PUT",
+	"/banks/:id",
+	"PATCH",
+	"/users/:user_id/banks/:id/update"
  ],
  [
-  "POST",
-  "/branches",
-  "POST",
-  "/users/:user_id/branches"
+	"POST",
+	"/branches",
+	"POST",
+	"/users/:user_id/branches"
  ],
  [
-  "DELETE",
-  "/branches/:id",
-  "DELETE",
-  "/users/:user_id/branches/:id/delete"
+	"DELETE",
+	"/branches/:id",
+	"DELETE",
+	"/users/:user_id/branches/:id/delete"
  ],
  [
-  "GET",
-  "/branches/:id",
-  "GET",
-  "/users/:user_id/branches/:id"
+	"GET",
+	"/branches/:id",
+	"GET",
+	"/users/:user_id/branches/:id"
  ],
  [
-  "GET",
-  "/branches",
-  "GET",
-  "/users/:user_id/branches"
+	"GET",
+	"/branches",
+	"GET",
+	"/users/:user_id/branches"
  ],
  [
-  "GET",
-  "/branches/quota",
-  "GET",
-  "/users/:user_id/branches/quota"
+	"GET",
+	"/branches/quota",
+	"GET",
+	"/users/:user_id/branches/quota"
  ],
  [
-  "GET",
-  "/branches/switchable",
-  "GET",
-  "/users/:user_id/branches/switchable"
+	"GET",
+	"/branches/switchable",
+	"GET",
+	"/users/:user_id/branches/switchable"
  ],
  [
-  "PUT",
-  "/branches/:id",
-  "PATCH",
-  "/users/:user_id/branches/:id/update"
+	"PUT",
+	"/branches/:id",
+	"PATCH",
+	"/users/:user_id/branches/:id/update"
  ],
  [
-  "POST",
-  "/branding/connect-code",
-  "POST",
-  "/users/:user_id/branding/connect-code"
+	"POST",
+	"/branding/connect-code",
+	"POST",
+	"/users/:user_id/branding/connect-code"
  ],
  [
-  "GET",
-  "/branding",
-  "GET",
-  "/users/:user_id/branding"
+	"GET",
+	"/branding",
+	"GET",
+	"/users/:user_id/branding"
  ],
  [
-  "GET",
-  "/business-profile",
-  "GET",
-  "/users/:user_id/business-profile"
+	"GET",
+	"/business-profile",
+	"GET",
+	"/users/:user_id/business-profile"
  ],
  [
-  "PUT",
-  "/business-profile",
-  "PATCH",
-  "/users/:user_id/business-profile/update"
+	"PUT",
+	"/business-profile",
+	"PATCH",
+	"/users/:user_id/business-profile/update"
  ],
  [
-  "POST",
-  "/customers/:id/verify-aadhaar/check",
-  "POST",
-  "/users/:user_id/customers/:id/verify-aadhaar/check"
+	"POST",
+	"/customers/:id/verify-aadhaar/check",
+	"POST",
+	"/users/:user_id/customers/:id/verify-aadhaar/check"
  ],
  [
-  "POST",
-  "/customers",
-  "POST",
-  "/users/:user_id/customers"
+	"POST",
+	"/customers",
+	"POST",
+	"/users/:user_id/customers"
  ],
  [
-  "GET",
-  "/customer/profile/aadhaar/status",
-  "GET",
-  "/customers/:customer_id/profile/aadhaar/status"
+	"GET",
+	"/customer/profile/aadhaar/status",
+	"GET",
+	"/customers/:customer_id/profile/aadhaar/status"
  ],
  [
-  "GET",
-  "/customer/profile",
-  "GET",
-  "/customers/:customer_id/profile"
+	"GET",
+	"/customer/profile",
+	"GET",
+	"/customers/:customer_id/profile"
  ],
  [
-  "POST",
-  "/customer/profile/aadhaar/start",
-  "POST",
-  "/customers/:customer_id/profile/aadhaar/start"
+	"POST",
+	"/customer/profile/aadhaar/start",
+	"POST",
+	"/customers/:customer_id/profile/aadhaar/start"
  ],
  [
-  "POST",
-  "/customer/profile/verify-pan",
-  "POST",
-  "/customers/:customer_id/profile/verify-pan"
+	"POST",
+	"/customer/profile/verify-pan",
+	"POST",
+	"/customers/:customer_id/profile/verify-pan"
  ],
  [
-  "GET",
-  "/customers/by-code/:code",
-  "GET",
-  "/users/:user_id/customers/by-code/:code"
+	"GET",
+	"/customers/by-code/:code",
+	"GET",
+	"/users/:user_id/customers/by-code/:code"
  ],
  [
-  "GET",
-  "/customers/:id",
-  "GET",
-  "/users/:user_id/customers/:id"
+	"GET",
+	"/customers/:id",
+	"GET",
+	"/users/:user_id/customers/:id"
  ],
  [
-  "GET",
-  "/customers/:id/aadhaar-full",
-  "GET",
-  "/users/:user_id/customers/:id/aadhaar-full"
+	"GET",
+	"/customers/:id/aadhaar-full",
+	"GET",
+	"/users/:user_id/customers/:id/aadhaar-full"
  ],
  [
-  "DELETE",
-  "/customers/:id/hard-delete",
-  "DELETE",
-  "/users/:user_id/customers/:id/hard-delete"
+	"DELETE",
+	"/customers/:id/hard-delete",
+	"DELETE",
+	"/users/:user_id/customers/:id/hard-delete"
  ],
  [
-  "GET",
-  "/customers",
-  "GET",
-  "/users/:user_id/customers"
+	"GET",
+	"/customers",
+	"GET",
+	"/users/:user_id/customers"
  ],
  [
-  "POST",
-  "/customers/:id/verify-aadhaar/start",
-  "POST",
-  "/users/:user_id/customers/:id/verify-aadhaar/start"
+	"POST",
+	"/customers/:id/verify-aadhaar/start",
+	"POST",
+	"/users/:user_id/customers/:id/verify-aadhaar/start"
  ],
  [
-  "PUT",
-  "/customers/:id",
-  "PATCH",
-  "/users/:user_id/customers/:id/update"
+	"PUT",
+	"/customers/:id",
+	"PATCH",
+	"/users/:user_id/customers/:id/update"
  ],
  [
-  "POST",
-  "/customers/:id/verify-pan",
-  "POST",
-  "/users/:user_id/customers/:id/verify-pan"
+	"POST",
+	"/customers/:id/verify-pan",
+	"POST",
+	"/users/:user_id/customers/:id/verify-pan"
  ],
  [
-  "POST",
-  "/employees",
-  "POST",
-  "/users/:user_id/employees"
+	"POST",
+	"/employees",
+	"POST",
+	"/users/:user_id/employees"
  ],
  [
-  "DELETE",
-  "/employees/:id",
-  "DELETE",
-  "/users/:user_id/employees/:id/delete"
+	"DELETE",
+	"/employees/:id",
+	"DELETE",
+	"/users/:user_id/employees/:id/delete"
  ],
  [
-  "GET",
-  "/employees/:id",
-  "GET",
-  "/users/:user_id/employees/:id"
+	"GET",
+	"/employees/:id",
+	"GET",
+	"/users/:user_id/employees/:id"
  ],
  [
-  "GET",
-  "/employees",
-  "GET",
-  "/users/:user_id/employees"
+	"GET",
+	"/employees",
+	"GET",
+	"/users/:user_id/employees"
  ],
  [
-  "PUT",
-  "/employees/:id",
-  "PATCH",
-  "/users/:user_id/employees/:id/update"
+	"PUT",
+	"/employees/:id",
+	"PATCH",
+	"/users/:user_id/employees/:id/update"
  ],
  [
-  "GET",
-  "/gold-rates/:id",
-  "GET",
-  "/users/:user_id/gold-rates/:id"
+	"GET",
+	"/gold-rates/:id",
+	"GET",
+	"/users/:user_id/gold-rates/:id"
  ],
  [
-  "GET",
-  "/customer/gold-rate/latest",
-  "GET",
-  "/customers/:customer_id/gold-rate/latest"
+	"GET",
+	"/customer/gold-rate/latest",
+	"GET",
+	"/customers/:customer_id/gold-rate/latest"
  ],
  [
-  "GET",
-  "/gold-rates/latest",
-  "GET",
-  "/users/:user_id/gold-rates/latest"
+	"GET",
+	"/gold-rates/latest",
+	"GET",
+	"/users/:user_id/gold-rates/latest"
  ],
  [
-  "GET",
-  "/customer/gold-rate/history",
-  "GET",
-  "/customers/:customer_id/gold-rate/history"
+	"GET",
+	"/customer/gold-rate/history",
+	"GET",
+	"/customers/:customer_id/gold-rate/history"
  ],
  [
-  "GET",
-  "/gold-rates",
-  "GET",
-  "/users/:user_id/gold-rates"
+	"GET",
+	"/gold-rates",
+	"GET",
+	"/users/:user_id/gold-rates"
  ],
  [
-  "POST",
-  "/gold-rates",
-  "POST",
-  "/users/:user_id/gold-rates"
+	"POST",
+	"/gold-rates",
+	"POST",
+	"/users/:user_id/gold-rates"
  ],
  [
-  "POST",
-  "/customer/notifications/:id/ack",
-  "POST",
-  "/customers/:customer_id/notifications/:id/ack"
+	"POST",
+	"/customer/notifications/:id/ack",
+	"POST",
+	"/customers/:customer_id/notifications/:id/ack"
  ],
  [
-  "GET",
-  "/customer/notifications",
-  "GET",
-  "/customers/:customer_id/notifications"
+	"GET",
+	"/customer/notifications",
+	"GET",
+	"/customers/:customer_id/notifications"
  ],
  [
-  "POST",
-  "/customer/notifications/:id/read",
-  "POST",
-  "/customers/:customer_id/notifications/:id/read"
+	"POST",
+	"/customer/notifications/:id/read",
+	"POST",
+	"/customers/:customer_id/notifications/:id/read"
  ],
  [
-  "POST",
-  "/ornament-types",
-  "POST",
-  "/users/:user_id/ornament-types"
+	"POST",
+	"/ornament-types",
+	"POST",
+	"/users/:user_id/ornament-types"
  ],
  [
-  "GET",
-  "/ornament-types",
-  "GET",
-  "/users/:user_id/ornament-types"
+	"GET",
+	"/ornament-types",
+	"GET",
+	"/users/:user_id/ornament-types"
  ],
  [
-  "POST",
-  "/purity-standards",
-  "POST",
-  "/users/:user_id/purity-standards"
+	"POST",
+	"/purity-standards",
+	"POST",
+	"/users/:user_id/purity-standards"
  ],
  [
-  "GET",
-  "/purity-standards",
-  "GET",
-  "/users/:user_id/purity-standards"
+	"GET",
+	"/purity-standards",
+	"GET",
+	"/users/:user_id/purity-standards"
  ],
  [
-  "POST",
-  "/schemes/:id/calculate",
-  "POST",
-  "/users/:user_id/schemes/:id/calculate"
+	"POST",
+	"/schemes/:id/calculate",
+	"POST",
+	"/users/:user_id/schemes/:id/calculate"
  ],
  [
-  "POST",
-  "/schemes",
-  "POST",
-  "/users/:user_id/schemes"
+	"POST",
+	"/schemes",
+	"POST",
+	"/users/:user_id/schemes"
  ],
  [
-  "DELETE",
-  "/schemes/:id",
-  "DELETE",
-  "/users/:user_id/schemes/:id/delete"
+	"DELETE",
+	"/schemes/:id",
+	"DELETE",
+	"/users/:user_id/schemes/:id/delete"
  ],
  [
-  "GET",
-  "/schemes/:id",
-  "GET",
-  "/users/:user_id/schemes/:id"
+	"GET",
+	"/schemes/:id",
+	"GET",
+	"/users/:user_id/schemes/:id"
  ],
  [
-  "GET",
-  "/schemes",
-  "GET",
-  "/users/:user_id/schemes"
+	"GET",
+	"/schemes",
+	"GET",
+	"/users/:user_id/schemes"
  ],
  [
-  "GET",
-  "/schemes/active",
-  "GET",
-  "/users/:user_id/schemes/active"
+	"GET",
+	"/schemes/active",
+	"GET",
+	"/users/:user_id/schemes/active"
  ],
  [
-  "GET",
-  "/schemes/inactive",
-  "GET",
-  "/users/:user_id/schemes/inactive"
+	"GET",
+	"/schemes/inactive",
+	"GET",
+	"/users/:user_id/schemes/inactive"
  ],
  [
-  "POST",
-  "/schemes/:id/toggle-active",
-  "POST",
-  "/users/:user_id/schemes/:id/toggle-active"
+	"POST",
+	"/schemes/:id/toggle-active",
+	"POST",
+	"/users/:user_id/schemes/:id/toggle-active"
  ],
  [
-  "PUT",
-  "/schemes/:id",
-  "PATCH",
-  "/users/:user_id/schemes/:id/update"
+	"PUT",
+	"/schemes/:id",
+	"PATCH",
+	"/users/:user_id/schemes/:id/update"
  ],
  [
-  "GET",
-  "/integrations/whatsapp",
-  "GET",
-  "/users/:user_id/integrations/whatsapp"
+	"GET",
+	"/integrations/whatsapp",
+	"GET",
+	"/users/:user_id/integrations/whatsapp"
  ],
  [
-  "GET",
-  "/integrations/whatsapp/qr",
-  "GET",
-  "/users/:user_id/integrations/whatsapp/qr"
+	"GET",
+	"/integrations/whatsapp/qr",
+	"GET",
+	"/users/:user_id/integrations/whatsapp/qr"
  ],
  [
-  "POST",
-  "/integrations/whatsapp/connect",
-  "POST",
-  "/users/:user_id/integrations/whatsapp/connect"
+	"POST",
+	"/integrations/whatsapp/connect",
+	"POST",
+	"/users/:user_id/integrations/whatsapp/connect"
  ],
  [
-  "POST",
-  "/integrations/whatsapp/pairing-code",
-  "POST",
-  "/users/:user_id/integrations/whatsapp/pairing-code"
+	"POST",
+	"/integrations/whatsapp/pairing-code",
+	"POST",
+	"/users/:user_id/integrations/whatsapp/pairing-code"
  ],
  [
-  "POST",
-  "/integrations/whatsapp/disconnect",
-  "POST",
-  "/users/:user_id/integrations/whatsapp/disconnect"
+	"POST",
+	"/integrations/whatsapp/disconnect",
+	"POST",
+	"/users/:user_id/integrations/whatsapp/disconnect"
  ],
  [
-  "DELETE",
-  "/settings/api-keys/:category",
-  "DELETE",
-  "/users/:user_id/settings/api-keys/:category/delete"
+	"DELETE",
+	"/settings/api-keys/:category",
+	"DELETE",
+	"/users/:user_id/settings/api-keys/:category/delete"
  ],
  [
-  "GET",
-  "/settings/api-keys/:category",
-  "GET",
-  "/users/:user_id/settings/api-keys/:category"
+	"GET",
+	"/settings/api-keys/:category",
+	"GET",
+	"/users/:user_id/settings/api-keys/:category"
  ],
  [
-  "GET",
-  "/settings/api-keys",
-  "GET",
-  "/users/:user_id/settings/api-keys"
+	"GET",
+	"/settings/api-keys",
+	"GET",
+	"/users/:user_id/settings/api-keys"
  ],
  [
-  "PUT",
-  "/settings/api-keys/:category",
-  "PATCH",
-  "/users/:user_id/settings/api-keys/:category/update"
+	"PUT",
+	"/settings/api-keys/:category",
+	"PATCH",
+	"/users/:user_id/settings/api-keys/:category/update"
  ],
  [
-  "POST",
-  "/uploads",
-  "POST",
-  "/users/:user_id/uploads"
+	"POST",
+	"/uploads",
+	"POST",
+	"/users/:user_id/uploads"
  ],
  [
-  "GET",
-  "/approval-workflow/categories",
-  "GET",
-  "/users/:user_id/approval-workflow/categories"
+	"GET",
+	"/approval-workflow/categories",
+	"GET",
+	"/users/:user_id/approval-workflow/categories"
  ],
  [
-  "GET",
-  "/approval-workflow",
-  "GET",
-  "/users/:user_id/approval-workflow"
+	"GET",
+	"/approval-workflow",
+	"GET",
+	"/users/:user_id/approval-workflow"
  ],
  [
-  "PUT",
-  "/approval-workflow/categories/:category",
-  "PATCH",
-  "/users/:user_id/approval-workflow/categories/:category/update"
+	"PUT",
+	"/approval-workflow/categories/:category",
+	"PATCH",
+	"/users/:user_id/approval-workflow/categories/:category/update"
  ],
  [
-  "POST",
-  "/billing/confirm",
-  "POST",
-  "/users/:user_id/billing/confirm"
+	"POST",
+	"/billing/confirm",
+	"POST",
+	"/users/:user_id/billing/confirm"
  ],
  [
-  "GET",
-  "/billing/status",
-  "GET",
-  "/users/:user_id/billing/status"
+	"GET",
+	"/billing/status",
+	"GET",
+	"/users/:user_id/billing/status"
  ],
  [
-  "POST",
-  "/billing/subscribe",
-  "POST",
-  "/users/:user_id/billing/subscribe"
+	"POST",
+	"/billing/subscribe",
+	"POST",
+	"/users/:user_id/billing/subscribe"
  ],
  [
-  "POST",
-  "/cash-sources",
-  "POST",
-  "/users/:user_id/cash-sources"
+	"POST",
+	"/cash-sources",
+	"POST",
+	"/users/:user_id/cash-sources"
  ],
  [
-  "GET",
-  "/cash-sources/:id",
-  "GET",
-  "/users/:user_id/cash-sources/:id"
+	"GET",
+	"/cash-sources/:id",
+	"GET",
+	"/users/:user_id/cash-sources/:id"
  ],
  [
-  "GET",
-  "/cash-sources/:id/ledger",
-  "GET",
-  "/users/:user_id/cash-sources/:id/ledger"
+	"GET",
+	"/cash-sources/:id/ledger",
+	"GET",
+	"/users/:user_id/cash-sources/:id/ledger"
  ],
  [
-  "PATCH",
-  "/cash-sources/:id/loan",
-  "PATCH",
-  "/users/:user_id/cash-sources/:id/loan"
+	"PATCH",
+	"/cash-sources/:id/loan",
+	"PATCH",
+	"/users/:user_id/cash-sources/:id/loan"
  ],
  [
-  "GET",
-  "/cash-sources",
-  "GET",
-  "/users/:user_id/cash-sources"
+	"GET",
+	"/cash-sources",
+	"GET",
+	"/users/:user_id/cash-sources"
  ],
  [
-  "POST",
-  "/categories",
-  "POST",
-  "/users/:user_id/categories"
+	"POST",
+	"/categories",
+	"POST",
+	"/users/:user_id/categories"
  ],
  [
-  "GET",
-  "/categories",
-  "GET",
-  "/users/:user_id/categories"
+	"GET",
+	"/categories",
+	"GET",
+	"/users/:user_id/categories"
  ],
  [
-  "POST",
-  "/expense-categories",
-  "POST",
-  "/users/:user_id/expense-categories"
+	"POST",
+	"/expense-categories",
+	"POST",
+	"/users/:user_id/expense-categories"
  ],
  [
-  "DELETE",
-  "/expense-categories/:id",
-  "DELETE",
-  "/users/:user_id/expense-categories/:id"
+	"DELETE",
+	"/expense-categories/:id",
+	"DELETE",
+	"/users/:user_id/expense-categories/:id"
  ],
  [
-  "DELETE",
-  "/categories/:id",
-  "DELETE",
-  "/users/:user_id/categories/:id"
+	"DELETE",
+	"/categories/:id",
+	"DELETE",
+	"/users/:user_id/categories/:id"
  ],
  [
-  "GET",
-  "/expense-categories/:id/ledger",
-  "GET",
-  "/users/:user_id/expense-categories/:id/ledger"
+	"GET",
+	"/expense-categories/:id/ledger",
+	"GET",
+	"/users/:user_id/expense-categories/:id/ledger"
  ],
  [
-  "GET",
-  "/expense-categories",
-  "GET",
-  "/users/:user_id/expense-categories"
+	"GET",
+	"/expense-categories",
+	"GET",
+	"/users/:user_id/expense-categories"
  ],
  [
-  "PATCH",
-  "/expenses/:id/approve",
-  "PATCH",
-  "/users/:user_id/expenses/:id/approve"
+	"PATCH",
+	"/expenses/:id/approve",
+	"PATCH",
+	"/users/:user_id/expenses/:id/approve"
  ],
  [
-  "GET",
-  "/expenses/export",
-  "GET",
-  "/users/:user_id/expenses/export"
+	"GET",
+	"/expenses/export",
+	"GET",
+	"/users/:user_id/expenses/export"
  ],
  [
-  "GET",
-  "/expenses/:id",
-  "GET",
-  "/users/:user_id/expenses/:id"
+	"GET",
+	"/expenses/:id",
+	"GET",
+	"/users/:user_id/expenses/:id"
  ],
  [
-  "GET",
-  "/expenses",
-  "GET",
-  "/users/:user_id/expenses"
+	"GET",
+	"/expenses",
+	"GET",
+	"/users/:user_id/expenses"
  ],
  [
-  "POST",
-  "/expenses",
-  "POST",
-  "/users/:user_id/expenses"
+	"POST",
+	"/expenses",
+	"POST",
+	"/users/:user_id/expenses"
  ],
  [
-  "PATCH",
-  "/expenses/:id/reject",
-  "PATCH",
-  "/users/:user_id/expenses/:id/reject"
+	"PATCH",
+	"/expenses/:id/reject",
+	"PATCH",
+	"/users/:user_id/expenses/:id/reject"
  ],
  [
-  "GET",
-  "/gold-sales/:id",
-  "GET",
-  "/users/:user_id/gold-sales/:id"
+	"GET",
+	"/gold-sales/:id",
+	"GET",
+	"/users/:user_id/gold-sales/:id"
  ],
  [
-  "GET",
-  "/gold-sales",
-  "GET",
-  "/users/:user_id/gold-sales"
+	"GET",
+	"/gold-sales",
+	"GET",
+	"/users/:user_id/gold-sales"
  ],
  [
-  "POST",
-  "/gold-sales",
-  "POST",
-  "/users/:user_id/gold-sales"
+	"POST",
+	"/gold-sales",
+	"POST",
+	"/users/:user_id/gold-sales"
  ],
  [
-  "GET",
-  "/cash-movements/export",
-  "GET",
-  "/users/:user_id/cash-movements/export"
+	"GET",
+	"/cash-movements/export",
+	"GET",
+	"/users/:user_id/cash-movements/export"
  ],
  [
-  "GET",
-  "/cash-movements/transactions/bank/:bankId/export",
-  "GET",
-  "/users/:user_id/cash-movements/transactions/bank/:bank_id/export"
+	"GET",
+	"/cash-movements/transactions/bank/:bankId/export",
+	"GET",
+	"/users/:user_id/cash-movements/transactions/bank/:bank_id/export"
  ],
  [
-  "GET",
-  "/cash-movements/transactions/branch/:id/export",
-  "GET",
-  "/users/:user_id/cash-movements/transactions/branch/:id/export"
+	"GET",
+	"/cash-movements/transactions/branch/:id/export",
+	"GET",
+	"/users/:user_id/cash-movements/transactions/branch/:id/export"
  ],
  [
-  "GET",
-  "/cash-movements/transactions/customer/:customerId/export",
-  "GET",
-  "/users/:user_id/cash-movements/transactions/customer/:customer_id/export"
+	"GET",
+	"/cash-movements/transactions/customer/:customerId/export",
+	"GET",
+	"/users/:user_id/cash-movements/transactions/customer/:customer_id/export"
  ],
  [
-  "GET",
-  "/cash-movements/:id",
-  "GET",
-  "/users/:user_id/cash-movements/:id"
+	"GET",
+	"/cash-movements/:id",
+	"GET",
+	"/users/:user_id/cash-movements/:id"
  ],
  [
-  "GET",
-  "/banks/:id/ledger",
-  "GET",
-  "/users/:user_id/banks/:id/ledger"
+	"GET",
+	"/banks/:id/ledger",
+	"GET",
+	"/users/:user_id/banks/:id/ledger"
  ],
  [
-  "GET",
-  "/cash-movements/cash-ledger",
-  "GET",
-  "/users/:user_id/cash-movements/cash-ledger"
+	"GET",
+	"/cash-movements/cash-ledger",
+	"GET",
+	"/users/:user_id/cash-movements/cash-ledger"
  ],
  [
-  "GET",
-  "/cash-movements/mode-ledger",
-  "GET",
-  "/users/:user_id/cash-movements/mode-ledger"
+	"GET",
+	"/cash-movements/mode-ledger",
+	"GET",
+	"/users/:user_id/cash-movements/mode-ledger"
  ],
  [
-  "GET",
-  "/cash-movements",
-  "GET",
-  "/users/:user_id/cash-movements"
+	"GET",
+	"/cash-movements",
+	"GET",
+	"/users/:user_id/cash-movements"
  ],
  [
-  "GET",
-  "/cash-movements/transactions/bank/:bankId",
-  "GET",
-  "/users/:user_id/cash-movements/transactions/bank/:bank_id"
+	"GET",
+	"/cash-movements/transactions/bank/:bankId",
+	"GET",
+	"/users/:user_id/cash-movements/transactions/bank/:bank_id"
  ],
  [
-  "GET",
-  "/cash-movements/transactions/branch/:id",
-  "GET",
-  "/users/:user_id/cash-movements/transactions/branch/:id"
+	"GET",
+	"/cash-movements/transactions/branch/:id",
+	"GET",
+	"/users/:user_id/cash-movements/transactions/branch/:id"
  ],
  [
-  "GET",
-  "/cash-movements/transactions/customer/:customerId",
-  "GET",
-  "/users/:user_id/cash-movements/transactions/customer/:customer_id"
+	"GET",
+	"/cash-movements/transactions/customer/:customerId",
+	"GET",
+	"/users/:user_id/cash-movements/transactions/customer/:customer_id"
  ],
  [
-  "GET",
-  "/cash-movements/loan-sources",
-  "GET",
-  "/users/:user_id/cash-movements/loan-sources"
+	"GET",
+	"/cash-movements/loan-sources",
+	"GET",
+	"/users/:user_id/cash-movements/loan-sources"
  ],
  [
-  "POST",
-  "/cash-movements",
-  "POST",
-  "/users/:user_id/cash-movements"
+	"POST",
+	"/cash-movements",
+	"POST",
+	"/users/:user_id/cash-movements"
  ],
  [
-  "POST",
-  "/cash-movements/self-transfer",
-  "POST",
-  "/users/:user_id/cash-movements/self-transfer"
+	"POST",
+	"/cash-movements/self-transfer",
+	"POST",
+	"/users/:user_id/cash-movements/self-transfer"
  ],
  [
-  "PATCH",
-  "/cash-movements/:id/status",
-  "PATCH",
-  "/users/:user_id/cash-movements/:id/status"
+	"PATCH",
+	"/cash-movements/:id/status",
+	"PATCH",
+	"/users/:user_id/cash-movements/:id/status"
  ],
  [
-  "GET",
-  "/expenses/:id/entry",
-  "GET",
-  "/users/:user_id/expenses/:id/entry"
+	"GET",
+	"/expenses/:id/entry",
+	"GET",
+	"/users/:user_id/expenses/:id/entry"
  ],
  [
-  "PUT",
-  "/expenses/:id",
-  "PUT",
-  "/users/:user_id/expenses/:id"
+	"PUT",
+	"/expenses/:id",
+	"PUT",
+	"/users/:user_id/expenses/:id"
  ],
  [
-  "PATCH",
-  "/expenses/:id/update",
-  "PATCH",
-  "/users/:user_id/expenses/:id/update"
+	"PATCH",
+	"/expenses/:id/update",
+	"PATCH",
+	"/users/:user_id/expenses/:id/update"
  ],
  [
-  "GET",
-  "/cash-movements/:id/entry",
-  "GET",
-  "/users/:user_id/cash-movements/:id/entry"
+	"GET",
+	"/cash-movements/:id/entry",
+	"GET",
+	"/users/:user_id/cash-movements/:id/entry"
  ],
  [
-  "PUT",
-  "/cash-movements/:id",
-  "PUT",
-  "/users/:user_id/cash-movements/:id"
+	"PUT",
+	"/cash-movements/:id",
+	"PUT",
+	"/users/:user_id/cash-movements/:id"
  ],
  [
-  "PATCH",
-  "/cash-movements/:id/update",
-  "PATCH",
-  "/users/:user_id/cash-movements/:id/update"
+	"PATCH",
+	"/cash-movements/:id/update",
+	"PATCH",
+	"/users/:user_id/cash-movements/:id/update"
  ],
  [
-  "GET",
-  "/cash/opening-balance",
-  "GET",
-  "/users/:user_id/cash/opening-balance"
+	"GET",
+	"/cash/opening-balance",
+	"GET",
+	"/users/:user_id/cash/opening-balance"
  ],
  [
-  "POST",
-  "/cash/opening-balance",
-  "POST",
-  "/users/:user_id/cash/opening-balance"
+	"POST",
+	"/cash/opening-balance",
+	"POST",
+	"/users/:user_id/cash/opening-balance"
  ],
  [
-  "GET",
-  "/cash/summary",
-  "GET",
-  "/users/:user_id/cash/summary"
+	"GET",
+	"/cash/summary",
+	"GET",
+	"/users/:user_id/cash/summary"
  ],
  [
-  "GET",
-  "/dashboard/activity",
-  "GET",
-  "/users/:user_id/dashboard/activity"
+	"GET",
+	"/dashboard/activity",
+	"GET",
+	"/users/:user_id/dashboard/activity"
  ],
  [
-  "GET",
-  "/dashboard/snapshots/latest",
-  "GET",
-  "/users/:user_id/dashboard/snapshots/latest"
+	"GET",
+	"/dashboard/snapshots/latest",
+	"GET",
+	"/users/:user_id/dashboard/snapshots/latest"
  ],
  [
-  "GET",
-  "/dashboard/snapshots",
-  "GET",
-  "/users/:user_id/dashboard/snapshots"
+	"GET",
+	"/dashboard/snapshots",
+	"GET",
+	"/users/:user_id/dashboard/snapshots"
  ],
  [
-  "GET",
-  "/dashboard/needs-attention",
-  "GET",
-  "/users/:user_id/dashboard/needs-attention"
+	"GET",
+	"/dashboard/needs-attention",
+	"GET",
+	"/users/:user_id/dashboard/needs-attention"
  ],
  [
-  "GET",
-  "/dashboard/summary",
-  "GET",
-  "/users/:user_id/dashboard/summary"
+	"GET",
+	"/dashboard/summary",
+	"GET",
+	"/users/:user_id/dashboard/summary"
  ],
  [
-  "GET",
-  "/dashboard/loan-stats",
-  "GET",
-  "/users/:user_id/dashboard/loan-stats"
+	"GET",
+	"/dashboard/loan-stats",
+	"GET",
+	"/users/:user_id/dashboard/loan-stats"
  ],
  [
-  "POST",
-  "/demo/reset",
-  "POST",
-  "/users/:user_id/demo/reset"
+	"POST",
+	"/demo/reset",
+	"POST",
+	"/users/:user_id/demo/reset"
  ],
  [
-  "POST",
-  "/investments/:id/add-cash",
-  "POST",
-  "/users/:user_id/investments/:id/add-cash"
+	"POST",
+	"/investments/:id/add-cash",
+	"POST",
+	"/users/:user_id/investments/:id/add-cash"
  ],
  [
-  "GET",
-  "/investments/by-number/:number",
-  "GET",
-  "/users/:user_id/investments/by-number/:number"
+	"GET",
+	"/investments/by-number/:number",
+	"GET",
+	"/users/:user_id/investments/by-number/:number"
  ],
  [
-  "POST",
-  "/investments",
-  "POST",
-  "/users/:user_id/investments"
+	"POST",
+	"/investments",
+	"POST",
+	"/users/:user_id/investments"
  ],
  [
-  "POST",
-  "/investment-plans",
-  "POST",
-  "/users/:user_id/investment-plans"
+	"POST",
+	"/investment-plans",
+	"POST",
+	"/users/:user_id/investment-plans"
  ],
  [
-  "GET",
-  "/investments/:id/bond/pdf",
-  "GET",
-  "/users/:user_id/investments/:id/bond/pdf"
+	"GET",
+	"/investments/:id/bond/pdf",
+	"GET",
+	"/users/:user_id/investments/:id/bond/pdf"
  ],
  [
-  "GET",
-  "/investments/:id/statement/pdf",
-  "GET",
-  "/users/:user_id/investments/:id/statement/pdf"
+	"GET",
+	"/investments/:id/statement/pdf",
+	"GET",
+	"/users/:user_id/investments/:id/statement/pdf"
  ],
  [
-  "GET",
-  "/investments/:id",
-  "GET",
-  "/users/:user_id/investments/:id"
+	"GET",
+	"/investments/:id",
+	"GET",
+	"/users/:user_id/investments/:id"
  ],
  [
-  "GET",
-  "/investment-plans/:id",
-  "GET",
-  "/users/:user_id/investment-plans/:id"
+	"GET",
+	"/investment-plans/:id",
+	"GET",
+	"/users/:user_id/investment-plans/:id"
  ],
  [
-  "GET",
-  "/investments/:id/ledger",
-  "GET",
-  "/users/:user_id/investments/:id/ledger"
+	"GET",
+	"/investments/:id/ledger",
+	"GET",
+	"/users/:user_id/investments/:id/ledger"
  ],
  [
-  "GET",
-  "/investments",
-  "GET",
-  "/users/:user_id/investments"
+	"GET",
+	"/investments",
+	"GET",
+	"/users/:user_id/investments"
  ],
  [
-  "GET",
-  "/customers/:id/investments",
-  "GET",
-  "/users/:user_id/customers/:id/investments"
+	"GET",
+	"/customers/:id/investments",
+	"GET",
+	"/users/:user_id/customers/:id/investments"
  ],
  [
-  "GET",
-  "/investment-plans",
-  "GET",
-  "/users/:user_id/investment-plans"
+	"GET",
+	"/investment-plans",
+	"GET",
+	"/users/:user_id/investment-plans"
  ],
  [
-  "GET",
-  "/investments/:id/transactions",
-  "GET",
-  "/users/:user_id/investments/:id/transactions"
+	"GET",
+	"/investments/:id/transactions",
+	"GET",
+	"/users/:user_id/investments/:id/transactions"
  ],
  [
-  "POST",
-  "/investments/:id/payouts/:payoutId/pay",
-  "POST",
-  "/users/:user_id/investments/:id/payouts/:payout_id/pay"
+	"POST",
+	"/investments/:id/payouts/:payoutId/pay",
+	"POST",
+	"/users/:user_id/investments/:id/payouts/:payout_id/pay"
  ],
  [
-  "GET",
-  "/investments/:id/pending-interest",
-  "GET",
-  "/users/:user_id/investments/:id/pending-interest"
+	"GET",
+	"/investments/:id/pending-interest",
+	"GET",
+	"/users/:user_id/investments/:id/pending-interest"
  ],
  [
-  "POST",
-  "/investments/:id/pay-interest",
-  "POST",
-  "/users/:user_id/investments/:id/pay-interest"
+	"POST",
+	"/investments/:id/pay-interest",
+	"POST",
+	"/users/:user_id/investments/:id/pay-interest"
  ],
  [
-  "POST",
-  "/investments/:id/mature",
-  "POST",
-  "/users/:user_id/investments/:id/mature"
+	"POST",
+	"/investments/:id/mature",
+	"POST",
+	"/users/:user_id/investments/:id/mature"
  ],
  [
-  "GET",
-  "/investments/:id/schedule",
-  "GET",
-  "/users/:user_id/investments/:id/schedule"
+	"GET",
+	"/investments/:id/schedule",
+	"GET",
+	"/users/:user_id/investments/:id/schedule"
  ],
  [
-  "PUT",
-  "/investment-plans/:id",
-  "PATCH",
-  "/users/:user_id/investment-plans/:id/update"
+	"PUT",
+	"/investment-plans/:id",
+	"PATCH",
+	"/users/:user_id/investment-plans/:id/update"
  ],
  [
-  "POST",
-  "/investments/:id/withdraw",
-  "POST",
-  "/users/:user_id/investments/:id/withdraw"
+	"POST",
+	"/investments/:id/withdraw",
+	"POST",
+	"/users/:user_id/investments/:id/withdraw"
  ],
  [
-  "POST",
-  "/loans/:id/ornaments",
-  "POST",
-  "/users/:user_id/loans/:id/ornaments"
+	"POST",
+	"/loans/:id/ornaments",
+	"POST",
+	"/users/:user_id/loans/:id/ornaments"
  ],
  [
-  "POST",
-  "/loans/ornaments/:ornamentId/images",
-  "POST",
-  "/users/:user_id/loans/ornaments/:ornament_id/images"
+	"POST",
+	"/loans/ornaments/:ornamentId/images",
+	"POST",
+	"/users/:user_id/loans/ornaments/:ornament_id/images"
  ],
  [
-  "POST",
-  "/loans/:id/approve",
-  "POST",
-  "/users/:user_id/loans/:id/approve"
+	"POST",
+	"/loans/:id/approve",
+	"POST",
+	"/users/:user_id/loans/:id/approve"
  ],
  [
-  "POST",
-  "/loans/requests/:requestId/approve",
-  "POST",
-  "/users/:user_id/loans/requests/:request_id/approve"
+	"POST",
+	"/loans/requests/:requestId/approve",
+	"POST",
+	"/users/:user_id/loans/requests/:request_id/approve"
  ],
  [
-  "POST",
-  "/loans/topups/:topUpId/approve",
-  "POST",
-  "/users/:user_id/loans/topups/:top_up_id/approve"
+	"POST",
+	"/loans/topups/:topUpId/approve",
+	"POST",
+	"/users/:user_id/loans/topups/:top_up_id/approve"
  ],
  [
-  "GET",
-  "/loans/:id/indemnity-bond/esign/status",
-  "GET",
-  "/users/:user_id/loans/:id/indemnity-bond/esign/status"
+	"GET",
+	"/loans/:id/indemnity-bond/esign/status",
+	"GET",
+	"/users/:user_id/loans/:id/indemnity-bond/esign/status"
  ],
  [
-  "POST",
-  "/loans/:id/complete-release",
-  "POST",
-  "/users/:user_id/loans/:id/complete-release"
+	"POST",
+	"/loans/:id/complete-release",
+	"POST",
+	"/users/:user_id/loans/:id/complete-release"
  ],
  [
-  "POST",
-  "/loans",
-  "POST",
-  "/users/:user_id/loans"
+	"POST",
+	"/loans",
+	"POST",
+	"/users/:user_id/loans"
  ],
  [
-  "POST",
-  "/loans/:id/extension-request",
-  "POST",
-  "/users/:user_id/loans/:id/extension-request"
+	"POST",
+	"/loans/:id/extension-request",
+	"POST",
+	"/users/:user_id/loans/:id/extension-request"
  ],
  [
-  "POST",
-  "/loans/:id/release-request",
-  "POST",
-  "/users/:user_id/loans/:id/release-request"
+	"POST",
+	"/loans/:id/release-request",
+	"POST",
+	"/users/:user_id/loans/:id/release-request"
  ],
  [
-  "POST",
-  "/customer/loans/:id/extension-request",
-  "POST",
-  "/customers/:customer_id/loans/:id/extension-request"
+	"POST",
+	"/customer/loans/:id/extension-request",
+	"POST",
+	"/customers/:customer_id/loans/:id/extension-request"
  ],
  [
-  "POST",
-  "/customer/loans/:id/pay/create-order",
-  "POST",
-  "/customers/:customer_id/loans/:id/pay/create-order"
+	"POST",
+	"/customer/loans/:id/pay/create-order",
+	"POST",
+	"/customers/:customer_id/loans/:id/pay/create-order"
  ],
  [
-  "POST",
-  "/customer/loans/:id/release-request",
-  "POST",
-  "/customers/:customer_id/loans/:id/release-request"
+	"POST",
+	"/customer/loans/:id/release-request",
+	"POST",
+	"/customers/:customer_id/loans/:id/release-request"
  ],
  [
-  "GET",
-  "/customer/loans/:id",
-  "GET",
-  "/customers/:customer_id/loans/:id"
+	"GET",
+	"/customer/loans/:id",
+	"GET",
+	"/customers/:customer_id/loans/:id"
  ],
  [
-  "GET",
-  "/customer/loans/:id/payments",
-  "GET",
-  "/customers/:customer_id/loans/:id/payments"
+	"GET",
+	"/customer/loans/:id/payments",
+	"GET",
+	"/customers/:customer_id/loans/:id/payments"
  ],
  [
-  "GET",
-  "/customer/loans/:id/requests",
-  "GET",
-  "/customers/:customer_id/loans/:id/requests"
+	"GET",
+	"/customer/loans/:id/requests",
+	"GET",
+	"/customers/:customer_id/loans/:id/requests"
  ],
  [
-  "GET",
-  "/customer/loans",
-  "GET",
-  "/customers/:customer_id/loans"
+	"GET",
+	"/customer/loans",
+	"GET",
+	"/customers/:customer_id/loans"
  ],
  [
-  "GET",
-  "/customer/payments",
-  "GET",
-  "/customers/:customer_id/payments"
+	"GET",
+	"/customer/payments",
+	"GET",
+	"/customers/:customer_id/payments"
  ],
  [
-  "GET",
-  "/customer/loans/:id/statement",
-  "GET",
-  "/customers/:customer_id/loans/:id/statement"
+	"GET",
+	"/customer/loans/:id/statement",
+	"GET",
+	"/customers/:customer_id/loans/:id/statement"
  ],
  [
-  "GET",
-  "/customer/payments/:paymentId/receipt",
-  "GET",
-  "/customers/:customer_id/payments/:payment_id/receipt"
+	"GET",
+	"/customer/payments/:paymentId/receipt",
+	"GET",
+	"/customers/:customer_id/payments/:payment_id/receipt"
  ],
  [
-  "POST",
-  "/customer/loans/:id/pay/verify",
-  "POST",
-  "/customers/:customer_id/loans/:id/pay/verify"
+	"POST",
+	"/customer/loans/:id/pay/verify",
+	"POST",
+	"/customers/:customer_id/loans/:id/pay/verify"
  ],
  [
-  "PUT",
-  "/loans/requests/:requestId/decide",
-  "PATCH",
-  "/users/:user_id/loans/requests/:request_id/decide"
+	"PUT",
+	"/loans/requests/:requestId/decide",
+	"PATCH",
+	"/users/:user_id/loans/requests/:request_id/decide"
  ],
  [
-  "DELETE",
-  "/loans/drafts/:draftId",
-  "DELETE",
-  "/users/:user_id/loans/drafts/:draft_id/delete"
+	"DELETE",
+	"/loans/drafts/:draftId",
+	"DELETE",
+	"/users/:user_id/loans/drafts/:draft_id/delete"
  ],
  [
-  "DELETE",
-  "/loans/ornaments/:ornamentId",
-  "DELETE",
-  "/users/:user_id/loans/ornaments/:ornament_id/delete"
+	"DELETE",
+	"/loans/ornaments/:ornamentId",
+	"DELETE",
+	"/users/:user_id/loans/ornaments/:ornament_id/delete"
  ],
  [
-  "GET",
-  "/loans/:id/indemnity-bond/pdf",
-  "GET",
-  "/users/:user_id/loans/:id/indemnity-bond/pdf"
+	"GET",
+	"/loans/:id/indemnity-bond/pdf",
+	"GET",
+	"/users/:user_id/loans/:id/indemnity-bond/pdf"
  ],
  [
-  "GET",
-  "/loans/requests/:requestId/partial-release-receipt/pdf",
-  "GET",
-  "/users/:user_id/loans/requests/:request_id/partial-release-receipt/pdf"
+	"GET",
+	"/loans/requests/:requestId/partial-release-receipt/pdf",
+	"GET",
+	"/users/:user_id/loans/requests/:request_id/partial-release-receipt/pdf"
  ],
  [
-  "GET",
-  "/loans/:id/pledge-slip",
-  "GET",
-  "/users/:user_id/loans/:id/pledge-slip"
+	"GET",
+	"/loans/:id/pledge-slip",
+	"GET",
+	"/users/:user_id/loans/:id/pledge-slip"
  ],
  [
-  "GET",
-  "/loans/:id/release-agreement/pdf",
-  "GET",
-  "/users/:user_id/loans/:id/release-agreement/pdf"
+	"GET",
+	"/loans/:id/release-agreement/pdf",
+	"GET",
+	"/users/:user_id/loans/:id/release-agreement/pdf"
  ],
  [
-  "GET",
-  "/loans/:id",
-  "GET",
-  "/users/:user_id/loans/:id"
+	"GET",
+	"/loans/:id",
+	"GET",
+	"/users/:user_id/loans/:id"
  ],
  [
-  "GET",
-  "/loans/:id/auction",
-  "GET",
-  "/users/:user_id/loans/:id/auction"
+	"GET",
+	"/loans/:id/auction",
+	"GET",
+	"/users/:user_id/loans/:id/auction"
  ],
  [
-  "GET",
-  "/loans/:id/auction/history",
-  "GET",
-  "/users/:user_id/loans/:id/auction/history"
+	"GET",
+	"/loans/:id/auction/history",
+	"GET",
+	"/users/:user_id/loans/:id/auction/history"
  ],
  [
-  "GET",
-  "/loans/:id/bank-pledge/history",
-  "GET",
-  "/users/:user_id/loans/:id/bank-pledge/history"
+	"GET",
+	"/loans/:id/bank-pledge/history",
+	"GET",
+	"/users/:user_id/loans/:id/bank-pledge/history"
  ],
  [
-  "GET",
-  "/loans/by-number/:loanNumber",
-  "GET",
-  "/users/:user_id/loans/by-number/:loan_number"
+	"GET",
+	"/loans/by-number/:loanNumber",
+	"GET",
+	"/users/:user_id/loans/by-number/:loan_number"
  ],
  [
-  "GET",
-  "/customers/:id/profile360",
-  "GET",
-  "/users/:user_id/customers/:id/profile360"
+	"GET",
+	"/customers/:id/profile360",
+	"GET",
+	"/users/:user_id/customers/:id/profile360"
  ],
  [
-  "GET",
-  "/loans/drafts/:draftId",
-  "GET",
-  "/users/:user_id/loans/drafts/:draft_id"
+	"GET",
+	"/loans/drafts/:draftId",
+	"GET",
+	"/users/:user_id/loans/drafts/:draft_id"
  ],
  [
-  "GET",
-  "/loans/interest-collected",
-  "GET",
-  "/users/:user_id/loans/interest-collected"
+	"GET",
+	"/loans/interest-collected",
+	"GET",
+	"/users/:user_id/loans/interest-collected"
  ],
  [
-  "GET",
-  "/loans/:id/ledger",
-  "GET",
-  "/users/:user_id/loans/:id/ledger"
+	"GET",
+	"/loans/:id/ledger",
+	"GET",
+	"/users/:user_id/loans/:id/ledger"
  ],
  [
-  "DELETE",
-  "/loans/:id/hard-delete",
-  "DELETE",
-  "/users/:user_id/loans/:id/hard-delete"
+	"DELETE",
+	"/loans/:id/hard-delete",
+	"DELETE",
+	"/users/:user_id/loans/:id/hard-delete"
  ],
  [
-  "POST",
-  "/loans/:id/auction/notice",
-  "POST",
-  "/users/:user_id/loans/:id/auction/notice"
+	"POST",
+	"/loans/:id/auction/notice",
+	"POST",
+	"/users/:user_id/loans/:id/auction/notice"
  ],
  [
-  "GET",
-  "/loans",
-  "GET",
-  "/users/:user_id/loans"
+	"GET",
+	"/loans",
+	"GET",
+	"/users/:user_id/loans"
  ],
  [
-  "GET",
-  "/loans/:id/approvals",
-  "GET",
-  "/users/:user_id/loans/:id/approvals"
+	"GET",
+	"/loans/:id/approvals",
+	"GET",
+	"/users/:user_id/loans/:id/approvals"
  ],
  [
-  "GET",
-  "/customers/:id/auction-history",
-  "GET",
-  "/users/:user_id/customers/:id/auction-history"
+	"GET",
+	"/customers/:id/auction-history",
+	"GET",
+	"/users/:user_id/customers/:id/auction-history"
  ],
  [
-  "GET",
-  "/loans/bank-pledges/history",
-  "GET",
-  "/users/:user_id/loans/bank-pledges/history"
+	"GET",
+	"/loans/bank-pledges/history",
+	"GET",
+	"/users/:user_id/loans/bank-pledges/history"
  ],
  [
-  "GET",
-  "/customers/:id/bank-pledges",
-  "GET",
-  "/users/:user_id/customers/:id/bank-pledges"
+	"GET",
+	"/customers/:id/bank-pledges",
+	"GET",
+	"/users/:user_id/customers/:id/bank-pledges"
  ],
  [
-  "GET",
-  "/loans/auctions/concluded",
-  "GET",
-  "/users/:user_id/loans/auctions/concluded"
+	"GET",
+	"/loans/auctions/concluded",
+	"GET",
+	"/users/:user_id/loans/auctions/concluded"
  ],
  [
-  "GET",
-  "/loans/drafts",
-  "GET",
-  "/users/:user_id/loans/drafts"
+	"GET",
+	"/loans/drafts",
+	"GET",
+	"/users/:user_id/loans/drafts"
  ],
  [
-  "GET",
-  "/customers/:id/loans",
-  "GET",
-  "/users/:user_id/customers/:id/loans"
+	"GET",
+	"/customers/:id/loans",
+	"GET",
+	"/users/:user_id/customers/:id/loans"
  ],
  [
-  "GET",
-  "/customers/:id/ornaments",
-  "GET",
-  "/users/:user_id/customers/:id/ornaments"
+	"GET",
+	"/customers/:id/ornaments",
+	"GET",
+	"/users/:user_id/customers/:id/ornaments"
  ],
  [
-  "GET",
-  "/customers/:id/payments",
-  "GET",
-  "/users/:user_id/customers/:id/payments"
+	"GET",
+	"/customers/:id/payments",
+	"GET",
+	"/users/:user_id/customers/:id/payments"
  ],
  [
-  "GET",
-  "/loans/auctions/decisions/pending",
-  "GET",
-  "/users/:user_id/loans/auctions/decisions/pending"
+	"GET",
+	"/loans/auctions/decisions/pending",
+	"GET",
+	"/users/:user_id/loans/auctions/decisions/pending"
  ],
  [
-  "GET",
-  "/loans/requests",
-  "GET",
-  "/users/:user_id/loans/requests"
+	"GET",
+	"/loans/requests",
+	"GET",
+	"/users/:user_id/loans/requests"
  ],
  [
-  "GET",
-  "/loans/risk-assessment",
-  "GET",
-  "/users/:user_id/loans/risk-assessment"
+	"GET",
+	"/loans/risk-assessment",
+	"GET",
+	"/users/:user_id/loans/risk-assessment"
  ],
  [
-  "GET",
-  "/loans/:id/topups",
-  "GET",
-  "/users/:user_id/loans/:id/topups"
+	"GET",
+	"/loans/:id/topups",
+	"GET",
+	"/users/:user_id/loans/:id/topups"
  ],
  [
-  "POST",
-  "/loans/:id/auction/eligible",
-  "POST",
-  "/users/:user_id/loans/:id/auction/eligible"
+	"POST",
+	"/loans/:id/auction/eligible",
+	"POST",
+	"/users/:user_id/loans/:id/auction/eligible"
  ],
  [
-  "GET",
-  "/loans/next-number",
-  "GET",
-  "/users/:user_id/loans/next-number"
+	"GET",
+	"/loans/next-number",
+	"GET",
+	"/users/:user_id/loans/next-number"
  ],
  [
-  "POST",
-  "/loans/indemnity-bond/preview-pdf",
-  "POST",
-  "/users/:user_id/loans/indemnity-bond/preview-pdf"
+	"POST",
+	"/loans/indemnity-bond/preview-pdf",
+	"POST",
+	"/users/:user_id/loans/indemnity-bond/preview-pdf"
  ],
  [
-  "POST",
-  "/loans/:id/auction/sale",
-  "POST",
-  "/users/:user_id/loans/:id/auction/sale"
+	"POST",
+	"/loans/:id/auction/sale",
+	"POST",
+	"/users/:user_id/loans/:id/auction/sale"
  ],
  [
-  "POST",
-  "/loans/:id/bank-pledge",
-  "POST",
-  "/users/:user_id/loans/:id/bank-pledge"
+	"POST",
+	"/loans/:id/bank-pledge",
+	"POST",
+	"/users/:user_id/loans/:id/bank-pledge"
  ],
  [
-  "POST",
-  "/loans/:id/payments",
-  "POST",
-  "/users/:user_id/loans/:id/payments"
+	"POST",
+	"/loans/:id/payments",
+	"POST",
+	"/users/:user_id/loans/:id/payments"
  ],
  [
-  "PATCH",
-  "/loans/:id/payments/:payment_id",
-  "PATCH",
-  "/users/:user_id/loans/:id/payments/:payment_id"
+	"PATCH",
+	"/loans/:id/payments/:payment_id",
+	"PATCH",
+	"/users/:user_id/loans/:id/payments/:payment_id"
  ],
  [
-  "DELETE",
-  "/loans/:id/payments/:payment_id",
-  "DELETE",
-  "/users/:user_id/loans/:id/payments/:payment_id"
+	"DELETE",
+	"/loans/:id/payments/:payment_id",
+	"DELETE",
+	"/users/:user_id/loans/:id/payments/:payment_id"
  ],
  [
-  "POST",
-  "/loans/ornaments/:ornamentId/purity-test",
-  "POST",
-  "/users/:user_id/loans/ornaments/:ornament_id/purity-test"
+	"POST",
+	"/loans/ornaments/:ornamentId/purity-test",
+	"POST",
+	"/users/:user_id/loans/ornaments/:ornament_id/purity-test"
  ],
  [
-  "POST",
-  "/loans/requests/:requestId/release-payment",
-  "POST",
-  "/users/:user_id/loans/requests/:request_id/release-payment"
+	"POST",
+	"/loans/requests/:requestId/release-payment",
+	"POST",
+	"/users/:user_id/loans/requests/:request_id/release-payment"
  ],
  [
-  "PUT",
-  "/loans/:id/bank-pledge/:pledgeId/release",
-  "PATCH",
-  "/users/:user_id/loans/:id/bank-pledge/:pledge_id/release"
+	"PUT",
+	"/loans/:id/bank-pledge/:pledgeId/release",
+	"PATCH",
+	"/users/:user_id/loans/:id/bank-pledge/:pledge_id/release"
  ],
  [
-  "POST",
-  "/loans/:id/auction/decision",
-  "POST",
-  "/users/:user_id/loans/:id/auction/decision"
+	"POST",
+	"/loans/:id/auction/decision",
+	"POST",
+	"/users/:user_id/loans/:id/auction/decision"
  ],
  [
-  "POST",
-  "/loans/drafts",
-  "POST",
-  "/users/:user_id/loans/drafts"
+	"POST",
+	"/loans/drafts",
+	"POST",
+	"/users/:user_id/loans/drafts"
  ],
  [
-  "POST",
-  "/loans/:id/auction/schedule",
-  "POST",
-  "/users/:user_id/loans/:id/auction/schedule"
+	"POST",
+	"/loans/:id/auction/schedule",
+	"POST",
+	"/users/:user_id/loans/:id/auction/schedule"
  ],
  [
-  "GET",
-  "/schemes/:id/statement",
-  "GET",
-  "/users/:user_id/schemes/:id/statement"
+	"GET",
+	"/schemes/:id/statement",
+	"GET",
+	"/users/:user_id/schemes/:id/statement"
  ],
  [
-  "POST",
-  "/loans/:id/auction/settle",
-  "POST",
-  "/users/:user_id/loans/:id/auction/settle"
+	"POST",
+	"/loans/:id/auction/settle",
+	"POST",
+	"/users/:user_id/loans/:id/auction/settle"
  ],
  [
-  "POST",
-  "/loans/:id/indemnity-bond/esign/start",
-  "POST",
-  "/users/:user_id/loans/:id/indemnity-bond/esign/start"
+	"POST",
+	"/loans/:id/indemnity-bond/esign/start",
+	"POST",
+	"/users/:user_id/loans/:id/indemnity-bond/esign/start"
  ],
  [
-  "GET",
-  "/loans/:id/statement",
-  "GET",
-  "/users/:user_id/loans/:id/statement"
+	"GET",
+	"/loans/:id/statement",
+	"GET",
+	"/users/:user_id/loans/:id/statement"
  ],
  [
-  "GET",
-  "/loans/:id/statement-receipt",
-  "GET",
-  "/users/:user_id/loans/:id/statement-receipt"
+	"GET",
+	"/loans/:id/statement-receipt",
+	"GET",
+	"/users/:user_id/loans/:id/statement-receipt"
  ],
  [
-  "POST",
-  "/loans/:id/topup",
-  "POST",
-  "/users/:user_id/loans/:id/topup"
+	"POST",
+	"/loans/:id/topup",
+	"POST",
+	"/users/:user_id/loans/:id/topup"
  ],
  [
-  "PUT",
-  "/loans/drafts/:draftId",
-  "PATCH",
-  "/users/:user_id/loans/drafts/:draft_id/update"
+	"PUT",
+	"/loans/drafts/:draftId",
+	"PATCH",
+	"/users/:user_id/loans/drafts/:draft_id/update"
  ],
  [
-  "PATCH",
-  "/loans/:id",
-  "PATCH",
-  "/users/:user_id/loans/:id"
+	"PATCH",
+	"/loans/:id",
+	"PATCH",
+	"/users/:user_id/loans/:id"
  ],
  [
-  "PUT",
-  "/loans/ornaments/:ornamentId",
-  "PATCH",
-  "/users/:user_id/loans/ornaments/:ornament_id/update"
+	"PUT",
+	"/loans/ornaments/:ornamentId",
+	"PATCH",
+	"/users/:user_id/loans/ornaments/:ornament_id/update"
  ],
  [
-  "PUT",
-  "/loans/requests/:requestId/verify",
-  "PATCH",
-  "/users/:user_id/loans/requests/:request_id/verify"
+	"PUT",
+	"/loans/requests/:requestId/verify",
+	"PATCH",
+	"/users/:user_id/loans/requests/:request_id/verify"
  ],
  [
-  "PUT",
-  "/loans/:id/bank-pledge/:pledgeId/void",
-  "PATCH",
-  "/users/:user_id/loans/:id/bank-pledge/:pledge_id/void"
+	"PUT",
+	"/loans/:id/bank-pledge/:pledgeId/void",
+	"PATCH",
+	"/users/:user_id/loans/:id/bank-pledge/:pledge_id/void"
  ],
  [
-  "POST",
-  "/lockers",
-  "POST",
-  "/users/:user_id/lockers"
+	"POST",
+	"/lockers",
+	"POST",
+	"/users/:user_id/lockers"
  ],
  [
-  "DELETE",
-  "/lockers/:id",
-  "DELETE",
-  "/users/:user_id/lockers/:id/delete"
+	"DELETE",
+	"/lockers/:id",
+	"DELETE",
+	"/users/:user_id/lockers/:id/delete"
  ],
  [
-  "GET",
-  "/lockers/:id",
-  "GET",
-  "/users/:user_id/lockers/:id"
+	"GET",
+	"/lockers/:id",
+	"GET",
+	"/users/:user_id/lockers/:id"
  ],
  [
-  "GET",
-  "/lockers",
-  "GET",
-  "/users/:user_id/lockers"
+	"GET",
+	"/lockers",
+	"GET",
+	"/users/:user_id/lockers"
  ],
  [
-  "PUT",
-  "/lockers/:id",
-  "PATCH",
-  "/users/:user_id/lockers/:id/update"
+	"PUT",
+	"/lockers/:id",
+	"PATCH",
+	"/users/:user_id/lockers/:id/update"
  ],
  [
-  "GET",
-  "/packets/:id",
-  "GET",
-  "/users/:user_id/packets/:id"
+	"GET",
+	"/packets/:id",
+	"GET",
+	"/users/:user_id/packets/:id"
  ],
  [
-  "GET",
-  "/packets/by-code/:code",
-  "GET",
-  "/users/:user_id/packets/by-code/:code"
+	"GET",
+	"/packets/by-code/:code",
+	"GET",
+	"/users/:user_id/packets/by-code/:code"
  ],
  [
-  "GET",
-  "/packets",
-  "GET",
-  "/users/:user_id/packets"
+	"GET",
+	"/packets",
+	"GET",
+	"/users/:user_id/packets"
  ],
  [
-  "GET",
-  "/packets/:id/movements",
-  "GET",
-  "/users/:user_id/packets/:id/movements"
+	"GET",
+	"/packets/:id/movements",
+	"GET",
+	"/users/:user_id/packets/:id/movements"
  ],
  [
-  "POST",
-  "/packets/:id/movements",
-  "POST",
-  "/users/:user_id/packets/:id/movements"
+	"POST",
+	"/packets/:id/movements",
+	"POST",
+	"/users/:user_id/packets/:id/movements"
  ],
  [
-  "GET",
-  "/personal-loans/:id/approvals",
-  "GET",
-  "/users/:user_id/personal-loans/:id/approvals"
+	"GET",
+	"/personal-loans/:id/approvals",
+	"GET",
+	"/users/:user_id/personal-loans/:id/approvals"
  ],
  [
-  "POST",
-  "/personal-loans/:id/approve",
-  "POST",
-  "/users/:user_id/personal-loans/:id/approve"
+	"POST",
+	"/personal-loans/:id/approve",
+	"POST",
+	"/users/:user_id/personal-loans/:id/approve"
  ],
  [
-  "GET",
-  "/personal-loans/by-number/:number",
-  "GET",
-  "/users/:user_id/personal-loans/by-number/:number"
+	"GET",
+	"/personal-loans/by-number/:number",
+	"GET",
+	"/users/:user_id/personal-loans/by-number/:number"
  ],
  [
-  "POST",
-  "/personal-loans",
-  "POST",
-  "/users/:user_id/personal-loans"
+	"POST",
+	"/personal-loans",
+	"POST",
+	"/users/:user_id/personal-loans"
  ],
  [
-  "GET",
-  "/personal-loans/:id/bond",
-  "GET",
-  "/users/:user_id/personal-loans/:id/bond"
+	"GET",
+	"/personal-loans/:id/bond",
+	"GET",
+	"/users/:user_id/personal-loans/:id/bond"
  ],
  [
-  "GET",
-  "/personal-loans/:id",
-  "GET",
-  "/users/:user_id/personal-loans/:id"
+	"GET",
+	"/personal-loans/:id",
+	"GET",
+	"/users/:user_id/personal-loans/:id"
  ],
  [
-  "DELETE",
-  "/personal-loans/:id",
-  "DELETE",
-  "/users/:user_id/personal-loans/:id"
+	"DELETE",
+	"/personal-loans/:id",
+	"DELETE",
+	"/users/:user_id/personal-loans/:id"
  ],
  [
-  "GET",
-  "/personal-loans/:id/history",
-  "GET",
-  "/users/:user_id/personal-loans/:id/history"
+	"GET",
+	"/personal-loans/:id/history",
+	"GET",
+	"/users/:user_id/personal-loans/:id/history"
  ],
  [
-  "GET",
-  "/personal-loans",
-  "GET",
-  "/users/:user_id/personal-loans"
+	"GET",
+	"/personal-loans",
+	"GET",
+	"/users/:user_id/personal-loans"
  ],
  [
-  "GET",
-  "/customers/:id/personal-loans",
-  "GET",
-  "/users/:user_id/customers/:id/personal-loans"
+	"GET",
+	"/customers/:id/personal-loans",
+	"GET",
+	"/users/:user_id/customers/:id/personal-loans"
  ],
  [
-  "GET",
-  "/personal-loans/:id/payments",
-  "GET",
-  "/users/:user_id/personal-loans/:id/payments"
+	"GET",
+	"/personal-loans/:id/payments",
+	"GET",
+	"/users/:user_id/personal-loans/:id/payments"
  ],
  [
-  "POST",
-  "/personal-loans/:id/payments",
-  "POST",
-  "/users/:user_id/personal-loans/:id/payments"
+	"POST",
+	"/personal-loans/:id/payments",
+	"POST",
+	"/users/:user_id/personal-loans/:id/payments"
  ],
  [
-  "POST",
-  "/personal-loans/:id/renew",
-  "POST",
-  "/users/:user_id/personal-loans/:id/renew"
+	"POST",
+	"/personal-loans/:id/renew",
+	"POST",
+	"/users/:user_id/personal-loans/:id/renew"
  ],
  [
-  "POST",
-  "/personal-loans/:id/renewal-preview",
-  "POST",
-  "/users/:user_id/personal-loans/:id/renewal-preview"
+	"POST",
+	"/personal-loans/:id/renewal-preview",
+	"POST",
+	"/users/:user_id/personal-loans/:id/renewal-preview"
  ],
  [
-  "GET",
-  "/personal-loans/:id/schedule",
-  "GET",
-  "/users/:user_id/personal-loans/:id/schedule"
+	"GET",
+	"/personal-loans/:id/schedule",
+	"GET",
+	"/users/:user_id/personal-loans/:id/schedule"
  ],
  [
-  "GET",
-  "/reminders/calendar",
-  "GET",
-  "/users/:user_id/reminders/calendar"
+	"GET",
+	"/reminders/calendar",
+	"GET",
+	"/users/:user_id/reminders/calendar"
  ],
  [
-  "PUT",
-  "/reminders/:id/complete",
-  "PATCH",
-  "/users/:user_id/reminders/:id/complete"
+	"PUT",
+	"/reminders/:id/complete",
+	"PATCH",
+	"/users/:user_id/reminders/:id/complete"
  ],
  [
-  "POST",
-  "/reminders",
-  "POST",
-  "/users/:user_id/reminders"
+	"POST",
+	"/reminders",
+	"POST",
+	"/users/:user_id/reminders"
  ],
  [
-  "DELETE",
-  "/reminders/:id",
-  "DELETE",
-  "/users/:user_id/reminders/:id/delete"
+	"DELETE",
+	"/reminders/:id",
+	"DELETE",
+	"/users/:user_id/reminders/:id/delete"
  ],
  [
-  "GET",
-  "/reminders/:id",
-  "GET",
-  "/users/:user_id/reminders/:id"
+	"GET",
+	"/reminders/:id",
+	"GET",
+	"/users/:user_id/reminders/:id"
  ],
  [
-  "GET",
-  "/reminders",
-  "GET",
-  "/users/:user_id/reminders"
+	"GET",
+	"/reminders",
+	"GET",
+	"/users/:user_id/reminders"
  ],
  [
-  "PUT",
-  "/reminders/:id/send-whatsapp",
-  "PATCH",
-  "/users/:user_id/reminders/:id/send-whatsapp"
+	"PUT",
+	"/reminders/:id/send-whatsapp",
+	"PATCH",
+	"/users/:user_id/reminders/:id/send-whatsapp"
  ],
  [
-  "PUT",
-  "/reminders/:id",
-  "PATCH",
-  "/users/:user_id/reminders/:id/update"
+	"PUT",
+	"/reminders/:id",
+	"PATCH",
+	"/users/:user_id/reminders/:id/update"
  ],
  [
-  "GET",
-  "/reports/auctions",
-  "GET",
-  "/users/:user_id/reports/auctions"
+	"GET",
+	"/reports/auctions",
+	"GET",
+	"/users/:user_id/reports/auctions"
  ],
  [
-  "GET",
-  "/reports/balance-sheet",
-  "GET",
-  "/users/:user_id/reports/balance-sheet"
+	"GET",
+	"/reports/balance-sheet",
+	"GET",
+	"/users/:user_id/reports/balance-sheet"
  ],
  [
-  "GET",
-  "/reports/bank-pledge",
-  "GET",
-  "/users/:user_id/reports/bank-pledge"
+	"GET",
+	"/reports/bank-pledge",
+	"GET",
+	"/users/:user_id/reports/bank-pledge"
  ],
  [
-  "GET",
-  "/reports/cash-ledger",
-  "GET",
-  "/users/:user_id/reports/cash-ledger"
+	"GET",
+	"/reports/cash-ledger",
+	"GET",
+	"/users/:user_id/reports/cash-ledger"
  ],
  [
-  "GET",
-  "/reports/day-book",
-  "GET",
-  "/users/:user_id/reports/day-book"
+	"GET",
+	"/reports/day-book",
+	"GET",
+	"/users/:user_id/reports/day-book"
  ],
  [
-  "POST",
-  "/reports/day-book",
-  "POST",
-  "/users/:user_id/reports/day-book"
+	"POST",
+	"/reports/day-book",
+	"POST",
+	"/users/:user_id/reports/day-book"
  ],
  [
-  "PATCH",
-  "/reports/day-book/:id",
-  "PATCH",
-  "/users/:user_id/reports/day-book/:id/update"
+	"PATCH",
+	"/reports/day-book/:id",
+	"PATCH",
+	"/users/:user_id/reports/day-book/:id/update"
  ],
  [
-  "DELETE",
-  "/reports/day-book/:id",
-  "DELETE",
-  "/users/:user_id/reports/day-book/:id/delete"
+	"DELETE",
+	"/reports/day-book/:id",
+	"DELETE",
+	"/users/:user_id/reports/day-book/:id/delete"
  ],
  [
-  "GET",
-  "/reports/communication-history",
-  "GET",
-  "/users/:user_id/reports/communication-history"
+	"GET",
+	"/reports/communication-history",
+	"GET",
+	"/users/:user_id/reports/communication-history"
  ],
  [
-  "GET",
-  "/reports/investments/deposit-register",
-  "GET",
-  "/users/:user_id/reports/investments/deposit-register"
+	"GET",
+	"/reports/investments/deposit-register",
+	"GET",
+	"/users/:user_id/reports/investments/deposit-register"
  ],
  [
-  "PATCH",
-  "/personal-loans/:id",
-  "PATCH",
-  "/users/:user_id/personal-loans/:id"
+	"PATCH",
+	"/personal-loans/:id",
+	"PATCH",
+	"/users/:user_id/personal-loans/:id"
  ],
  [
-  "PATCH",
-  "/investments/:id",
-  "PATCH",
-  "/users/:user_id/investments/:id"
+	"PATCH",
+	"/investments/:id",
+	"PATCH",
+	"/users/:user_id/investments/:id"
  ],
  [
-  "GET",
-  "/reports/disbursement",
-  "GET",
-  "/users/:user_id/reports/disbursement"
+	"GET",
+	"/reports/disbursement",
+	"GET",
+	"/users/:user_id/reports/disbursement"
  ],
  [
-  "GET",
-  "/reports/employee-performance",
-  "GET",
-  "/users/:user_id/reports/employee-performance"
+	"GET",
+	"/reports/employee-performance",
+	"GET",
+	"/users/:user_id/reports/employee-performance"
  ],
  [
-  "GET",
-  "/reports/expense-cashflow",
-  "GET",
-  "/users/:user_id/reports/expense-cashflow"
+	"GET",
+	"/reports/expense-cashflow",
+	"GET",
+	"/users/:user_id/reports/expense-cashflow"
  ],
  [
-  "GET",
-  "/reports/export/:key",
-  "GET",
-  "/users/:user_id/reports/export/:key"
+	"GET",
+	"/reports/export/:key",
+	"GET",
+	"/users/:user_id/reports/export/:key"
  ],
  [
-  "GET",
-  "/reports/form-g",
-  "GET",
-  "/users/:user_id/reports/form-g"
+	"GET",
+	"/reports/form-g",
+	"GET",
+	"/users/:user_id/reports/form-g"
  ],
  [
-  "GET",
-  "/reports/gold-rate-history",
-  "GET",
-  "/users/:user_id/reports/gold-rate-history"
+	"GET",
+	"/reports/gold-rate-history",
+	"GET",
+	"/users/:user_id/reports/gold-rate-history"
  ],
  [
-  "GET",
-  "/reports/gold-release",
-  "GET",
-  "/users/:user_id/reports/gold-release"
+	"GET",
+	"/reports/gold-release",
+	"GET",
+	"/users/:user_id/reports/gold-release"
  ],
  [
-  "GET",
-  "/reports/gold-weight",
-  "GET",
-  "/users/:user_id/reports/gold-weight"
+	"GET",
+	"/reports/gold-weight",
+	"GET",
+	"/users/:user_id/reports/gold-weight"
  ],
  [
-  "GET",
-  "/reports/interest-collection",
-  "GET",
-  "/users/:user_id/reports/interest-collection"
+	"GET",
+	"/reports/interest-collection",
+	"GET",
+	"/users/:user_id/reports/interest-collection"
  ],
  [
-  "GET",
-  "/reports/investments/interest-payout-register",
-  "GET",
-  "/users/:user_id/reports/investments/interest-payout-register"
+	"GET",
+	"/reports/investments/interest-payout-register",
+	"GET",
+	"/users/:user_id/reports/investments/interest-payout-register"
  ],
  [
-  "GET",
-  "/reports/investments/investor-ledger",
-  "GET",
-  "/users/:user_id/reports/investments/investor-ledger"
+	"GET",
+	"/reports/investments/investor-ledger",
+	"GET",
+	"/users/:user_id/reports/investments/investor-ledger"
  ],
  [
-  "GET",
-  "/reports/kyc",
-  "GET",
-  "/users/:user_id/reports/kyc"
+	"GET",
+	"/reports/kyc",
+	"GET",
+	"/users/:user_id/reports/kyc"
  ],
  [
-  "GET",
-  "/reports/loan-extensions",
-  "GET",
-  "/users/:user_id/reports/loan-extensions"
+	"GET",
+	"/reports/loan-extensions",
+	"GET",
+	"/users/:user_id/reports/loan-extensions"
  ],
  [
-  "GET",
-  "/reports/loans/status",
-  "GET",
-  "/users/:user_id/reports/loans/status"
+	"GET",
+	"/reports/loans/status",
+	"GET",
+	"/users/:user_id/reports/loans/status"
  ],
  [
-  "GET",
-  "/reports/investments/maturity-register",
-  "GET",
-  "/users/:user_id/reports/investments/maturity-register"
+	"GET",
+	"/reports/investments/maturity-register",
+	"GET",
+	"/users/:user_id/reports/investments/maturity-register"
  ],
  [
-  "GET",
-  "/reports/outstanding-principal",
-  "GET",
-  "/users/:user_id/reports/outstanding-principal"
+	"GET",
+	"/reports/outstanding-principal",
+	"GET",
+	"/users/:user_id/reports/outstanding-principal"
  ],
  [
-  "GET",
-  "/reports/packets",
-  "GET",
-  "/users/:user_id/reports/packets"
+	"GET",
+	"/reports/packets",
+	"GET",
+	"/users/:user_id/reports/packets"
  ],
  [
-  "GET",
-  "/reports/payment-collection",
-  "GET",
-  "/users/:user_id/reports/payment-collection"
+	"GET",
+	"/reports/payment-collection",
+	"GET",
+	"/users/:user_id/reports/payment-collection"
  ],
  [
-  "GET",
-  "/reports/personal-loans",
-  "GET",
-  "/users/:user_id/reports/personal-loans"
+	"GET",
+	"/reports/personal-loans",
+	"GET",
+	"/users/:user_id/reports/personal-loans"
  ],
  [
-  "GET",
-  "/reports/profit-loss",
-  "GET",
-  "/users/:user_id/reports/profit-loss"
+	"GET",
+	"/reports/profit-loss",
+	"GET",
+	"/users/:user_id/reports/profit-loss"
  ],
  [
-  "PUT",
-  "/superadmin/businesses/:id/expiry",
-  "PATCH",
-  "/superadmin/users/:user_id/businesses/:id/expiry"
+	"PUT",
+	"/superadmin/businesses/:id/expiry",
+	"PATCH",
+	"/superadmin/users/:user_id/businesses/:id/expiry"
  ],
  [
-  "GET",
-  "/superadmin/businesses/:id/overview",
-  "GET",
-  "/superadmin/users/:user_id/businesses/:id/overview"
+	"GET",
+	"/superadmin/businesses/:id/overview",
+	"GET",
+	"/superadmin/users/:user_id/businesses/:id/overview"
  ],
  [
-  "GET",
-  "/superadmin/catalogue",
-  "GET",
-  "/superadmin/users/:user_id/catalogue"
+	"GET",
+	"/superadmin/catalogue",
+	"GET",
+	"/superadmin/users/:user_id/catalogue"
  ],
  [
-  "PUT",
-  "/superadmin/businesses/:id/tier",
-  "PATCH",
-  "/superadmin/users/:user_id/businesses/:id/tier"
+	"PUT",
+	"/superadmin/businesses/:id/tier",
+	"PATCH",
+	"/superadmin/users/:user_id/businesses/:id/tier"
  ],
  [
-  "DELETE",
-  "/superadmin/businesses/:id/logo",
-  "DELETE",
-  "/superadmin/users/:user_id/businesses/:id/logo"
+	"DELETE",
+	"/superadmin/businesses/:id/logo",
+	"DELETE",
+	"/superadmin/users/:user_id/businesses/:id/logo"
  ],
  [
-  "DELETE",
-  "/superadmin/businesses/:id/signature",
-  "DELETE",
-  "/superadmin/users/:user_id/businesses/:id/signature"
+	"DELETE",
+	"/superadmin/businesses/:id/signature",
+	"DELETE",
+	"/superadmin/users/:user_id/businesses/:id/signature"
  ],
  [
-  "POST",
-  "/superadmin/businesses",
-  "POST",
-  "/superadmin/users/:user_id/businesses"
+	"POST",
+	"/superadmin/businesses",
+	"POST",
+	"/superadmin/users/:user_id/businesses"
  ],
  [
-  "DELETE",
-  "/superadmin/businesses/:id",
-  "DELETE",
-  "/superadmin/users/:user_id/businesses/:id/delete"
+	"DELETE",
+	"/superadmin/businesses/:id",
+	"DELETE",
+	"/superadmin/users/:user_id/businesses/:id/delete"
  ],
  [
-  "DELETE",
-  "/superadmin/businesses/:id/payments/:paymentId",
-  "DELETE",
-  "/superadmin/users/:user_id/businesses/:id/payments/:payment_id/delete"
+	"DELETE",
+	"/superadmin/businesses/:id/payments/:paymentId",
+	"DELETE",
+	"/superadmin/users/:user_id/businesses/:id/payments/:payment_id/delete"
  ],
  [
-  "GET",
-  "/superadmin/businesses/:id/admin",
-  "GET",
-  "/superadmin/users/:user_id/businesses/:id/admin"
+	"GET",
+	"/superadmin/businesses/:id/admin",
+	"GET",
+	"/superadmin/users/:user_id/businesses/:id/admin"
  ],
  [
-  "GET",
-  "/superadmin/businesses/:id",
-  "GET",
-  "/superadmin/users/:user_id/businesses/:id"
+	"GET",
+	"/superadmin/businesses/:id",
+	"GET",
+	"/superadmin/users/:user_id/businesses/:id"
  ],
  [
-  "GET",
-  "/superadmin/businesses/:id/signature",
-  "GET",
-  "/superadmin/users/:user_id/businesses/:id/signature"
+	"GET",
+	"/superadmin/businesses/:id/signature",
+	"GET",
+	"/superadmin/users/:user_id/businesses/:id/signature"
  ],
  [
-  "GET",
-  "/superadmin/audit-log",
-  "GET",
-  "/superadmin/users/:user_id/audit-log"
+	"GET",
+	"/superadmin/audit-log",
+	"GET",
+	"/superadmin/users/:user_id/audit-log"
  ],
  [
-  "GET",
-  "/superadmin/businesses",
-  "GET",
-  "/superadmin/users/:user_id/businesses"
+	"GET",
+	"/superadmin/businesses",
+	"GET",
+	"/superadmin/users/:user_id/businesses"
  ],
  [
-  "GET",
-  "/superadmin/businesses/:id/payments",
-  "GET",
-  "/superadmin/users/:user_id/businesses/:id/payments"
+	"GET",
+	"/superadmin/businesses/:id/payments",
+	"GET",
+	"/superadmin/users/:user_id/businesses/:id/payments"
  ],
  [
-  "POST",
-  "/superadmin/desktop-releases",
-  "POST",
-  "/superadmin/users/:user_id/desktop-releases"
+	"POST",
+	"/superadmin/desktop-releases",
+	"POST",
+	"/superadmin/users/:user_id/desktop-releases"
  ],
  [
-  "GET",
-  "/superadmin/desktop-releases",
-  "GET",
-  "/superadmin/users/:user_id/desktop-releases"
+	"GET",
+	"/superadmin/desktop-releases",
+	"GET",
+	"/superadmin/users/:user_id/desktop-releases"
  ],
  [
-  "POST",
-  "/superadmin/desktop-releases/:id/cancel",
-  "POST",
-  "/superadmin/users/:user_id/desktop-releases/:id/cancel"
+	"POST",
+	"/superadmin/desktop-releases/:id/cancel",
+	"POST",
+	"/superadmin/users/:user_id/desktop-releases/:id/cancel"
  ],
  [
-  "GET",
-  "/superadmin/desktop-releases/history",
-  "GET",
-  "/superadmin/users/:user_id/desktop-releases/history"
+	"GET",
+	"/superadmin/desktop-releases/history",
+	"GET",
+	"/superadmin/users/:user_id/desktop-releases/history"
  ],
  [
-  "GET",
-  "/superadmin/desktop-releases/current",
-  "GET",
-  "/superadmin/users/:user_id/desktop-releases/current"
+	"GET",
+	"/superadmin/desktop-releases/current",
+	"GET",
+	"/superadmin/users/:user_id/desktop-releases/current"
  ],
  [
-  "GET",
-  "/superadmin/tiers",
-  "GET",
-  "/superadmin/users/:user_id/tiers"
+	"GET",
+	"/superadmin/tiers",
+	"GET",
+	"/superadmin/users/:user_id/tiers"
  ],
  [
-  "GET",
-  "/superadmin/devtools-pin",
-  "GET",
-  "/superadmin/users/:user_id/devtools-pin"
+	"GET",
+	"/superadmin/devtools-pin",
+	"GET",
+	"/superadmin/users/:user_id/devtools-pin"
  ],
  [
-  "PATCH",
-  "/superadmin/devtools-pin",
-  "PATCH",
-  "/superadmin/users/:user_id/devtools-pin"
+	"PATCH",
+	"/superadmin/devtools-pin",
+	"PATCH",
+	"/superadmin/users/:user_id/devtools-pin"
  ],
  [
-  "POST",
-  "/superadmin/businesses/:id/reactivate",
-  "POST",
-  "/superadmin/users/:user_id/businesses/:id/reactivate"
+	"POST",
+	"/superadmin/businesses/:id/reactivate",
+	"POST",
+	"/superadmin/users/:user_id/businesses/:id/reactivate"
  ],
  [
-  "POST",
-  "/superadmin/businesses/:id/payments",
-  "POST",
-  "/superadmin/users/:user_id/businesses/:id/payments"
+	"POST",
+	"/superadmin/businesses/:id/payments",
+	"POST",
+	"/superadmin/users/:user_id/businesses/:id/payments"
  ],
  [
-  "PUT",
-  "/superadmin/businesses/:id/branch-mode",
-  "PATCH",
-  "/superadmin/users/:user_id/businesses/:id/branch-mode"
+	"PUT",
+	"/superadmin/businesses/:id/branch-mode",
+	"PATCH",
+	"/superadmin/users/:user_id/businesses/:id/branch-mode"
  ],
  [
-  "PUT",
-  "/superadmin/businesses/:id/branding",
-  "PATCH",
-  "/superadmin/users/:user_id/businesses/:id/branding"
+	"PUT",
+	"/superadmin/businesses/:id/branding",
+	"PATCH",
+	"/superadmin/users/:user_id/businesses/:id/branding"
  ],
  [
-  "PUT",
-  "/superadmin/businesses/:id/languages",
-  "PATCH",
-  "/superadmin/users/:user_id/businesses/:id/languages"
+	"PUT",
+	"/superadmin/businesses/:id/languages",
+	"PATCH",
+	"/superadmin/users/:user_id/businesses/:id/languages"
  ],
  [
-  "POST",
-  "/superadmin/businesses/:id/logo",
-  "POST",
-  "/superadmin/users/:user_id/businesses/:id/logo"
+	"POST",
+	"/superadmin/businesses/:id/logo",
+	"POST",
+	"/superadmin/users/:user_id/businesses/:id/logo"
  ],
  [
-  "PUT",
-  "/superadmin/businesses/:id/modules",
-  "PATCH",
-  "/superadmin/users/:user_id/businesses/:id/modules"
+	"PUT",
+	"/superadmin/businesses/:id/modules",
+	"PATCH",
+	"/superadmin/users/:user_id/businesses/:id/modules"
  ],
  [
-  "POST",
-  "/superadmin/businesses/:id/signature",
-  "POST",
-  "/superadmin/users/:user_id/businesses/:id/signature"
+	"POST",
+	"/superadmin/businesses/:id/signature",
+	"POST",
+	"/superadmin/users/:user_id/businesses/:id/signature"
  ],
  [
-  "PUT",
-  "/superadmin/tiers/:id/price",
-  "PATCH",
-  "/superadmin/users/:user_id/tiers/:id/price"
+	"PUT",
+	"/superadmin/tiers/:id/price",
+	"PATCH",
+	"/superadmin/users/:user_id/tiers/:id/price"
  ],
  [
-  "POST",
-  "/superadmin/businesses/:id/suspend",
-  "POST",
-  "/superadmin/users/:user_id/businesses/:id/suspend"
+	"POST",
+	"/superadmin/businesses/:id/suspend",
+	"POST",
+	"/superadmin/users/:user_id/businesses/:id/suspend"
  ],
  [
-  "PUT",
-  "/superadmin/businesses/:id/admin",
-  "PATCH",
-  "/superadmin/users/:user_id/businesses/:id/admin"
+	"PUT",
+	"/superadmin/businesses/:id/admin",
+	"PATCH",
+	"/superadmin/users/:user_id/businesses/:id/admin"
  ],
  [
-  "PUT",
-  "/superadmin/businesses/:id/profile",
-  "PATCH",
-  "/superadmin/users/:user_id/businesses/:id/profile"
+	"PUT",
+	"/superadmin/businesses/:id/profile",
+	"PATCH",
+	"/superadmin/users/:user_id/businesses/:id/profile"
  ],
  [
-  "GET",
-  "/customer/loans/:id/indemnity-bond/esign/status",
-  "GET",
-  "/customers/:customer_id/loans/:id/indemnity-bond/esign/status"
+	"GET",
+	"/customer/loans/:id/indemnity-bond/esign/status",
+	"GET",
+	"/customers/:customer_id/loans/:id/indemnity-bond/esign/status"
  ]
 ];
 
@@ -2024,32 +2024,32 @@ const QUERY_TO_API: Record<string, string> = {"aadhaarStatus":"aadhaar_status","
 
 // Old paths that always answered {items, hasMore, total}, even when no limit was sent
 const ALWAYS_PAGED = new Set<string>([
-  "/cash-movements/loan-sources",
-  "/customers/:id/loans",
-  "/customers/:id/ornaments",
-  "/customers/:id/payments",
-  "/customers/:id/bank-pledges",
-  "/customers/:id/auction-history",
-  "/loans/risk-assessment",
+	"/cash-movements/loan-sources",
+	"/customers/:id/loans",
+	"/customers/:id/ornaments",
+	"/customers/:id/payments",
+	"/customers/:id/bank-pledges",
+	"/customers/:id/auction-history",
+	"/loans/risk-assessment",
 ]);
 
 type CompiledRoute = { method: string; path: string; re: RegExp; params: string[]; statics: number; newMethod: string; newPath: string };
 
 const COMPILED: CompiledRoute[] = ROUTES.map(([method, path, newMethod, newPath]) => {
-  const params: string[] = [];
-  let statics = 0;
-  const re = path
-    .split("/")
-    .map((seg) => {
-      if (seg.startsWith(":")) {
-        params.push(seg.slice(1));
-        return "([^/]+)";
-      }
-      statics++;
-      return seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    })
-    .join("/");
-  return { method, path, re: new RegExp(`^${re}$`), params, statics, newMethod, newPath };
+	const params: string[] = [];
+	let statics = 0;
+	const re = path
+		.split("/")
+		.map((seg) => {
+			if (seg.startsWith(":")) {
+				params.push(seg.slice(1));
+				return "([^/]+)";
+			}
+			statics++;
+			return seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		})
+		.join("/");
+	return { method, path, re: new RegExp(`^${re}$`), params, statics, newMethod, newPath };
 });
 
 // Staff paths a route-table miss may still belong to (the table only lists the routes that existed when it was made).
@@ -2059,130 +2059,130 @@ let cachedToken: string | null = null;
 
 /** Lets synchronous URL builders (downloads, uploads) know who is signed in. */
 export function rememberToken(token: string | null): void {
-  cachedToken = token;
+	cachedToken = token;
 }
 
 function base64UrlDecode(s: string): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
-  let out = "";
-  let buffer = 0;
-  let bits = 0;
-  for (const ch of b64) {
-    const v = chars.indexOf(ch);
-    if (v < 0) continue;
-    buffer = (buffer << 6) | v;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      out += String.fromCharCode((buffer >> bits) & 0xff);
-    }
-  }
-  try {
-    return decodeURIComponent(escape(out));
-  } catch {
-    return out;
-  }
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+	let out = "";
+	let buffer = 0;
+	let bits = 0;
+	for (const ch of b64) {
+		const v = chars.indexOf(ch);
+		if (v < 0) continue;
+		buffer = (buffer << 6) | v;
+		bits += 6;
+		if (bits >= 8) {
+			bits -= 8;
+			out += String.fromCharCode((buffer >> bits) & 0xff);
+		}
+	}
+	try {
+		return decodeURIComponent(escape(out));
+	} catch {
+		return out;
+	}
 }
 
 function identityOf(token: string | null): Identity {
-  if (!token) return {};
-  const part = token.split(".")[1];
-  if (!part) return {};
-  try {
-    return JSON.parse(base64UrlDecode(part)) as Identity;
-  } catch {
-    return {};
-  }
+	if (!token) return {};
+	const part = token.split(".")[1];
+	if (!part) return {};
+	try {
+		return JSON.parse(base64UrlDecode(part)) as Identity;
+	} catch {
+		return {};
+	}
 }
 
 function renameKeys(value: unknown, map: Record<string, string>): unknown {
-  if (Array.isArray(value)) return value.map((v) => renameKeys(v, map));
-  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[map[k] ?? k] = renameKeys(v, map);
-    return out;
-  }
-  return value;
+	if (Array.isArray(value)) return value.map((v) => renameKeys(v, map));
+	if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[map[k] ?? k] = renameKeys(v, map);
+		return out;
+	}
+	return value;
 }
 
 export type ApiRequest = { method: string; path: string; body: unknown; paged: boolean; alwaysPaged: boolean };
 
 /** Rewrites method, path (with query string) and JSON body from the app's old contract to the backend's. */
 export function toApi(method: string, pathWithQuery: string, body: unknown, token?: string | null): ApiRequest {
-  const tok = token === undefined ? cachedToken : token;
-  if (token !== undefined && token !== null) cachedToken = token;
-  const qi = pathWithQuery.indexOf("?");
-  const path = qi < 0 ? pathWithQuery : pathWithQuery.slice(0, qi);
-  const qs = new URLSearchParams(qi < 0 ? "" : pathWithQuery.slice(qi + 1));
-  let newMethod = method.toUpperCase();
-  let newPath = path;
-  let best: { route: CompiledRoute; m: RegExpMatchArray } | null = null;
-  for (const route of COMPILED) {
-    if (route.method !== newMethod) continue;
-    const m = path.match(route.re);
-    if (m && (!best || route.statics > best.route.statics)) best = { route, m };
-  }
-  if (best) {
-    const id = identityOf(tok);
-    let p = best.route.newPath;
-    const values = best.m.slice(1);
-    // :customer_id is the signed-in customer only on the customer surface; elsewhere it is an ordinary path param
-    const customerSurface = p.startsWith("/customers/");
-    const isIdentity = (x: string) => x === ":user_id" || (customerSurface && x === ":customer_id");
-    const newParams = (p.match(/:[A-Za-z0-9_]+/g) ?? []).filter((x) => !isIdentity(x));
-    newParams.forEach((name, i) => {
-      p = p.replace(name, values[i] ?? "");
-    });
-    const self = p.startsWith("/superadmin/") ? id.superAdminUserId : id.employeeId;
-    p = p.replace(":user_id", String(self ?? 0));
-    if (customerSurface) p = p.replace(":customer_id", String(id.customerId ?? 0));
-    newPath = p;
-    newMethod = best.route.newMethod;
-  } else if (STAFF_PREFIXES.some((pre) => path.startsWith(pre))) {
-    // Routes added after the table was generated (ledger edit / delete and the like) were written against the
-    // current contract: the same path, under the signed-in employee.
-    newPath = `/users/${identityOf(tok).employeeId ?? 0}${path}`;
-  }
-  const limit = Number(qs.get("limit") ?? "0");
-  const offset = Number(qs.get("offset") ?? "0");
-  const out = new URLSearchParams();
-  qs.forEach((v, k) => {
-    if (k === "offset") return;
-    out.append(QUERY_TO_API[k] ?? k, v);
-  });
-  // only an explicit offset is turned into a page; endpoints with their own ?page= keep it untouched
-  if (limit > 0 && qs.has("offset") && !out.has("page")) out.set("page", String(Math.floor(Math.max(offset, 0) / limit) + 1));
-  const q = out.toString();
-  let newBody = body;
-  if (typeof body === "string") {
-    const t = body.trim();
-    if (t.startsWith("{") || t.startsWith("[")) {
-      try {
-        newBody = JSON.stringify(renameKeys(JSON.parse(t), FIELD_TO_API));
-      } catch {
-        newBody = body;
-      }
-    }
-  } else if (body && typeof body === "object" && Object.getPrototypeOf(body) === Object.prototype) {
-    newBody = renameKeys(body, FIELD_TO_API);
-  }
-  return { method: newMethod, path: q ? `${newPath}?${q}` : newPath, body: newBody, paged: limit > 0, alwaysPaged: !!best && ALWAYS_PAGED.has(best.route.path) };
+	const tok = token === undefined ? cachedToken : token;
+	if (token !== undefined && token !== null) cachedToken = token;
+	const qi = pathWithQuery.indexOf("?");
+	const path = qi < 0 ? pathWithQuery : pathWithQuery.slice(0, qi);
+	const qs = new URLSearchParams(qi < 0 ? "" : pathWithQuery.slice(qi + 1));
+	let newMethod = method.toUpperCase();
+	let newPath = path;
+	let best: { route: CompiledRoute; m: RegExpMatchArray } | null = null;
+	for (const route of COMPILED) {
+		if (route.method !== newMethod) continue;
+		const m = path.match(route.re);
+		if (m && (!best || route.statics > best.route.statics)) best = { route, m };
+	}
+	if (best) {
+		const id = identityOf(tok);
+		let p = best.route.newPath;
+		const values = best.m.slice(1);
+		// :customer_id is the signed-in customer only on the customer surface; elsewhere it is an ordinary path param
+		const customerSurface = p.startsWith("/customers/");
+		const isIdentity = (x: string) => x === ":user_id" || (customerSurface && x === ":customer_id");
+		const newParams = (p.match(/:[A-Za-z0-9_]+/g) ?? []).filter((x) => !isIdentity(x));
+		newParams.forEach((name, i) => {
+			p = p.replace(name, values[i] ?? "");
+		});
+		const self = p.startsWith("/superadmin/") ? id.superAdminUserId : id.employeeId;
+		p = p.replace(":user_id", String(self ?? 0));
+		if (customerSurface) p = p.replace(":customer_id", String(id.customerId ?? 0));
+		newPath = p;
+		newMethod = best.route.newMethod;
+	} else if (STAFF_PREFIXES.some((pre) => path.startsWith(pre))) {
+		// Routes added after the table was generated (ledger edit / delete and the like) were written against the
+		// current contract: the same path, under the signed-in employee.
+		newPath = `/users/${identityOf(tok).employeeId ?? 0}${path}`;
+	}
+	const limit = Number(qs.get("limit") ?? "0");
+	const offset = Number(qs.get("offset") ?? "0");
+	const out = new URLSearchParams();
+	qs.forEach((v, k) => {
+		if (k === "offset") return;
+		out.append(QUERY_TO_API[k] ?? k, v);
+	});
+	// only an explicit offset is turned into a page; endpoints with their own ?page= keep it untouched
+	if (limit > 0 && qs.has("offset") && !out.has("page")) out.set("page", String(Math.floor(Math.max(offset, 0) / limit) + 1));
+	const q = out.toString();
+	let newBody = body;
+	if (typeof body === "string") {
+		const t = body.trim();
+		if (t.startsWith("{") || t.startsWith("[")) {
+			try {
+				newBody = JSON.stringify(renameKeys(JSON.parse(t), FIELD_TO_API));
+			} catch {
+				newBody = body;
+			}
+		}
+	} else if (body && typeof body === "object" && Object.getPrototypeOf(body) === Object.prototype) {
+		newBody = renameKeys(body, FIELD_TO_API);
+	}
+	return { method: newMethod, path: q ? `${newPath}?${q}` : newPath, body: newBody, paged: limit > 0, alwaysPaged: !!best && ALWAYS_PAGED.has(best.route.path) };
 }
 
 /** Maps a parsed response back to the app's old shape: camelCase keys, and lists as an array or {items, hasMore, total}. */
 export function fromApi(json: unknown, req?: ApiRequest): unknown {
-  if (!json || typeof json !== "object" || Array.isArray(json)) return renameKeys(json, FIELD_FROM_API);
-  const body = { ...(json as Record<string, unknown>) };
-  const msg = body.message as Record<string, unknown> | undefined;
-  if (msg && typeof msg === "object" && !Array.isArray(msg) && "total_pages" in msg && "data" in msg) {
-    const { page, limit, total_pages, data, ...extra } = msg as { page: number; limit: number; total_pages: number; data: unknown; [k: string]: unknown };
-    if (!page && !req?.alwaysPaged) {
-      body.data = data;
-    } else {
-      body.data = { items: data, hasMore: !!page && page < total_pages, limit, offset: page ? (page - 1) * limit : 0, ...extra };
-    }
-    delete body.message;
-  }
-  return renameKeys(body, FIELD_FROM_API);
+	if (!json || typeof json !== "object" || Array.isArray(json)) return renameKeys(json, FIELD_FROM_API);
+	const body = { ...(json as Record<string, unknown>) };
+	const msg = body.message as Record<string, unknown> | undefined;
+	if (msg && typeof msg === "object" && !Array.isArray(msg) && "total_pages" in msg && "data" in msg) {
+		const { page, limit, total_pages, data, ...extra } = msg as { page: number; limit: number; total_pages: number; data: unknown; [k: string]: unknown };
+		if (!page && !req?.alwaysPaged) {
+			body.data = data;
+		} else {
+			body.data = { items: data, hasMore: !!page && page < total_pages, limit, offset: page ? (page - 1) * limit : 0, ...extra };
+		}
+		delete body.message;
+	}
+	return renameKeys(body, FIELD_FROM_API);
 }

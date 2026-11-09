@@ -4,9 +4,9 @@
 let ready = false;
 
 export function offlineReady(): boolean {
-  return ready;
+	return ready;
 }
 
 export function setOfflineReady(on: boolean): void {
-  ready = on;
+	ready = on;
 }

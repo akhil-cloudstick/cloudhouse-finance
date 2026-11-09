@@ -3,20 +3,20 @@
 import { Icon } from "@/common/components/Icon";
 
 type Props = {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  // What the box searches, shown on hover: "Searches: branch name, code, address…"
-  searches: string;
+	value: string;
+	onChange: (value: string) => void;
+	placeholder: string;
+	// What the box searches, shown on hover: "Searches: branch name, code, address…"
+	searches: string;
 };
 
 // The search box every list table uses — the same markup as the Investments list.
 export function TableSearch({ value, onChange, placeholder, searches }: Props) {
-  return (
-    <div className="search">
-      <Icon name="search" />
-      <input className="inp" placeholder={placeholder} title={`Searches: ${searches}`} value={value} onChange={(e) => onChange(e.target.value)} />
-      {value ? <button type="button" className="search-clear" aria-label="Clear search" title="Clear" onClick={() => onChange("")}><Icon name="x" /></button> : null}
-    </div>
-  );
+	return (
+		<div className="search">
+			<Icon name="search" />
+			<input className="inp" placeholder={placeholder} title={`Searches: ${searches}`} value={value} onChange={(e) => onChange(e.target.value)} />
+			{value ? <button type="button" className="search-clear" aria-label="Clear search" title="Clear" onClick={() => onChange("")}><Icon name="x" /></button> : null}
+		</div>
+	);
 }

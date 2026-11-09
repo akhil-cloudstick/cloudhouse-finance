@@ -2,7 +2,7 @@ import { checkCategoryName } from "./cashOfflineChecks";
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import { enqueueAndWait, listLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord } from "@/common/offline";
 import { currentActor } from "@/common/offline/actor";
-import { EXPENSE_CATEGORIES_CHANGED } from "./expenseCategoryService";
+import { deleteCategoryQueued, EXPENSE_CATEGORIES_CHANGED } from "./expenseCategoryService";
 import type { CategoryType, BackendCategory } from "@/modules/cash/types/category-types";
 
 export const CATEGORIES_PAGE_SIZE = 5;
@@ -51,6 +51,7 @@ export function createCategory(type: CategoryType) {
 /* Deletes a Credit / Debit / Self Transfer category. The backend refuses system categories, loan
  * categories and any category that ledger entries still use, answering with the reason. */
 export async function deleteCategoryById(id: number): Promise<void> {
-  await apiFetch<unknown>(`/categories/${id}`, { method: "DELETE" });
+  if (offlineReady()) await deleteCategoryQueued(id, `/categories/${id}`);
+  else await apiFetch<unknown>(`/categories/${id}`, { method: "DELETE" });
   if (typeof window !== "undefined") window.dispatchEvent(new Event(EXPENSE_CATEGORIES_CHANGED));
 }

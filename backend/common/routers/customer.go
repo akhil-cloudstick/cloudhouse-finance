@@ -14,7 +14,7 @@ func CustomerRoutes(e *echo.Echo) *echo.Echo {
 	e.POST(customerPath, common.CreateCustomer, auth.Staff(perms.Create)...)
 	e.GET(customerPath, common.ListCustomers, auth.Staff(perms.Read)...)
 	e.GET(customerPath+"/by-code/:code", common.GetCustomerByCode, auth.Staff(perms.Read)...)
-	e.GET(customerPath+"/:id",common.GetCustomerById, auth.Staff(perms.Read)...)
+	e.GET(customerPath+"/:id", common.GetCustomerById, auth.Staff(perms.Read)...)
 	e.GET(customerPath+"/:id/aadhaar-full", common.GetCustomerAadhaar, auth.Staff(perms.Update)...)
 	e.PATCH(customerPath+"/:id/update", common.UpdateCustomer, auth.Staff(perms.Update)...)
 	e.POST(customerPath+"/:id/verify-pan", common.VerifyPAN, auth.Staff(perms.Update)...)

@@ -49,6 +49,13 @@ type Server struct {
 	db   *gorm.DB
 	raw  *sql.DB
 	echo *echo.Echo
+	path string
+	// gate: reads share it, a replay (see replay.go) holds it alone, because a replay points the handlers at its own transaction
+	gate  sync.RWMutex
+	token string
+	wraw  *sql.DB
+	wdb   *gorm.DB
+	memo  map[string]memoEntry
 }
 
 var (
@@ -86,14 +93,14 @@ func build(dbPath string) (*Server, error) {
 	config.BaseDB = db
 	config.DB = config.NewConnPinner(db)
 
-	s := &Server{db: db, raw: raw}
+	s := &Server{db: db, raw: raw, path: dbPath, token: newToken()}
 	// answers about the session and the business come from the local copy and the saved session, not from server tables
 	auth.SingleBranchHeadOffice = func(context.Context, uint) (uint, bool, error) { return 0, false, nil }
 	auth.HasModule = func(context.Context, uint, string) (bool, error) { return true, nil }
 	auth.TenantIDForHost = func(context.Context, string) (uint, bool) { return 0, false }
 	auth.TenantIDForHostLabel = func(context.Context, string) (uint, bool) { return 0, false }
 	auth.IsAllowed = controllers.IsAllowed
-	auth.LocalStaff = []echo.MiddlewareFunc{s.session, auth.RequireSelf("user_id", "employeeId"), readOnly}
+	auth.LocalStaff = []echo.MiddlewareFunc{s.session, auth.RequireSelf("user_id", "employeeId"), s.readOnly}
 
 	e := echo.New()
 	routers.InitRoutes(e)
@@ -104,6 +111,9 @@ func build(dbPath string) (*Server, error) {
 // Close releases the database file (the app calls it when the store is closed or moved).
 func Close() {
 	if current != nil {
+		if current.wraw != nil {
+			_ = current.wraw.Close()
+		}
 		_ = current.raw.Close()
 		current = nil
 	}
@@ -160,8 +170,12 @@ func (s *Server) session(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-func readOnly(next echo.HandlerFunc) echo.HandlerFunc {
+func (s *Server) readOnly(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// a replay of a waiting change (replay.go) is the one write the copy allows, and it is never committed
+		if h := c.Request().Header.Get(replayHeader); h != "" && h == s.token {
+			return next(c)
+		}
 		if m := c.Request().Method; m != http.MethodGet && m != http.MethodHead {
 			return c.JSON(http.StatusMethodNotAllowed, echo.Map{"success": false, "error": "changes made offline are queued, not applied to the local copy"})
 		}
@@ -171,6 +185,8 @@ func readOnly(next echo.HandlerFunc) echo.HandlerFunc {
 
 // Handle answers one request. path is the route as the app uses it after /api/v1 (for example /users/5/loans).
 func (s *Server) Handle(method, path, query string, headers map[string]string) Response {
+	s.gate.RLock()
+	defer s.gate.RUnlock()
 	s.mu.RLock()
 	bound := s.sess.EmployeeID != 0
 	s.mu.RUnlock()

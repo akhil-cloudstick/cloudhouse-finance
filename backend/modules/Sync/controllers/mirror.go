@@ -189,7 +189,6 @@ func SyncTableRows(c echo.Context) error {
 	if limit > mirrorMaxLimit {
 		limit = mirrorMaxLimit
 	}
-
 	q := config.DB.WithContext(ctx).Table(t.Name).Select(columnList(t))
 	if sql, args := visibleFilter(t, mirrorBranchScope(c)); sql != "" {
 		q = q.Where(sql, args...)

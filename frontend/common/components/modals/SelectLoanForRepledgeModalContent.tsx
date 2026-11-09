@@ -20,46 +20,46 @@ import { FieldError } from "@/common/components/ui/FieldError";
  * caller's already-loaded loan array — that array is the Bank Re-Pledge
  * page's own list, which won't stay complete as loan volume grows. */
 const loanLabel = (l: LoanView) =>
-  `${l.id} — ${l.customerName} (${fmtW(l.totalNetWeight)}, outstanding ${fmt(l.outstanding)})`;
+	`${l.id} — ${l.customerName} (${fmtW(l.totalNetWeight)}, outstanding ${fmt(l.outstanding)})`;
 const searchEligibleLoansPage = (q: string, page: number) =>
-  searchLoansPage(q, page, { excludeBankPledged: true });
+	searchLoansPage(q, page, { excludeBankPledged: true });
 type SelectLoanForRepledgeModalContentProps = { onPicked: (loan: LoanView) => void };
 
 export function SelectLoanForRepledgeModalContent({ onPicked }: SelectLoanForRepledgeModalContentProps) {
-  const { closeModal } = useModal();
-  const [selected, setSelected] = useState<LoanView | null>(null);
-  const [label, setLabel] = useState("");
-  // Shown under the loan picker.
-  const [err, setErr] = useState("");
+	const { closeModal } = useModal();
+	const [selected, setSelected] = useState<LoanView | null>(null);
+	const [label, setLabel] = useState("");
+	// Shown under the loan picker.
+	const [err, setErr] = useState("");
 
-  // Not blanket-disabled on `!selected` — that would block this
-  // validation (and Enter-to-submit, see common/utils/enterToSubmit.ts)
-  // from ever running, silently doing nothing instead of showing a warning.
-  function next() {
-    if (!selected) { setErr("Please search for and pick a loan first."); return; }
-    onPicked(selected);
-  }
+	// Not blanket-disabled on `!selected` — that would block this
+	// validation (and Enter-to-submit, see common/utils/enterToSubmit.ts)
+	// from ever running, silently doing nothing instead of showing a warning.
+	function next() {
+		if (!selected) { setErr("Please search for and pick a loan first."); return; }
+		onPicked(selected);
+	}
 
-  return (
-    <>
-      <div className="hd"><h3>New Bank Re-Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
-        <div className="frow"><div className={err ? "has-err" : undefined}><label className="f">Loan *</label>
-          <SearchableSelect<LoanView>
-            value={label}
-            onChange={(_id, l) => { setSelected(l); setLabel(loanLabel(l)); setErr(""); }}
-            fetchFn={searchEligibleLoansPage}
-            searchHint="Searches: loan number, customer name, customer code, packet number"
-            getLabel={loanLabel}
-            getId={(l) => String(l.numericId)}
-            placeholder="Search by loan or packet number…"
-          /><FieldError msg={err} /></div></div>
-        <p className="notice"><Icon name="shield" /><span>Only loans whose gold isn&apos;t already with a bank are listed. Type a loan number to search, or scroll for more.</span></p>
-      </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
-      </div>
-    </>
-  );
+	return (
+		<>
+			<div className="hd"><h3>New Bank Re-Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd">
+				<div className="frow"><div className={err ? "has-err" : undefined}><label className="f">Loan *</label>
+					<SearchableSelect<LoanView>
+						value={label}
+						onChange={(_id, l) => { setSelected(l); setLabel(loanLabel(l)); setErr(""); }}
+						fetchFn={searchEligibleLoansPage}
+						searchHint="Searches: loan number, customer name, customer code, packet number"
+						getLabel={loanLabel}
+						getId={(l) => String(l.numericId)}
+						placeholder="Search by loan or packet number…"
+					/><FieldError msg={err} /></div></div>
+				<p className="notice"><Icon name="shield" /><span>Only loans whose gold isn&apos;t already with a bank are listed. Type a loan number to search, or scroll for more.</span></p>
+			</div>
+			<div className="ft">
+				<button className="btn ghost" onClick={closeModal}>Cancel</button>
+				<button className="btn" onClick={next}><Icon name="check" /> Next</button>
+			</div>
+		</>
+	);
 }

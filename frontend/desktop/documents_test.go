@@ -97,3 +97,48 @@ func TestOfflineOtherDocumentsRender(t *testing.T) {
 		}
 	}
 }
+
+// A loan made on this PC and not yet sent has no server id, no loan number, no payments and ornaments with temporary negative
+// ids: every document of it must still be made, with the number shown as pending.
+const pendingLoanDoc = `{
+  "loan": {
+    "uuid": "01a1bece-f32e-7000-a9fe-0e5f5bb3439c", "id": 0, "loanNumber": "Pending (number given on sync)", "status": "Pending Approval",
+    "approvalStage": "R1", "openedDate": "2026-11-09", "dueDate": "2027-11-09",
+    "principalAmount": 34698, "eligibleLoanAmount": 34698, "totalNetWeight": 3, "totalGoldValue": 38553,
+    "schemeInterestRate": 10.02, "schemeLtvPercent": 90, "outstandingAmount": 34698, "totalPaid": 0, "interestPaid": 0,
+    "branch": {"id": 1, "name": "Koratty", "code": ""}, "customerId": 0,
+    "customer": {"id": 0, "name": "Adithyan Manoj", "code": "CUST-41", "phone": "8078532693", "address": "Thrissur"},
+    "scheme": {"id": 0, "name": "gold loan test scheme2"},
+    "ornaments": [
+      {"id": -1, "loanId": 0, "name": "bangles", "purity": "22K", "grossWeight": 1, "netWeight": 1, "quantity": 1, "goldValue": 12851, "images": []},
+      {"id": -2, "loanId": 0, "name": "banfle2", "purity": "22K", "grossWeight": 1, "netWeight": 1, "quantity": 1, "goldValue": 12851, "images": []}
+    ],
+    "payments": []
+  },
+  "profile": {"name": "R K Finance", "legalName": "R K Finance Pvt", "addressLine": "Kochi", "kmlRegNo": "123", "brandColor": "#112233"},
+  "singleBranch": true
+}`
+
+func TestOfflineDocumentsRenderForALoanTheServerHasNotNumbered(t *testing.T) {
+	a := &App{}
+	for _, c := range []struct{ kind, lang string }{
+		{"pledge-slip", ""}, {"statement", ""}, {"bond", "en"}, {"bond", "ml"},
+		{"release-agreement", "en"}, {"release-agreement", "ml"}, {"tml-pledge-slip", ""}, {"tml-statement", ""},
+	} {
+		out, err := a.RenderOfflineDocument(c.kind, c.lang, pendingLoanDoc)
+		if err != nil {
+			t.Errorf("%s/%s: %v", c.kind, c.lang, err)
+			continue
+		}
+		if strings.TrimSpace(out) == "" {
+			t.Errorf("%s/%s: empty document", c.kind, c.lang)
+		}
+		if strings.Contains(out, "ZgotmplZ") {
+			t.Errorf("%s/%s: a value was blocked by the template escaper", c.kind, c.lang)
+		}
+		// the person's name is on every one of these except the Malayalam forms, which spell it from the same field in their own script
+		if c.lang != "ml" && !strings.Contains(out, "Adithyan Manoj") {
+			t.Errorf("%s/%s: customer name missing", c.kind, c.lang)
+		}
+	}
+}

@@ -76,7 +76,6 @@ func SyncEntry() echo.MiddlewareFunc {
 			if at, err := time.Parse(time.RFC3339, c.Request().Header.Get(headerOccurredAt)); err == nil && !at.After(time.Now().Add(5*time.Minute)) {
 				entry.OccurredAt = at
 			}
-
 			receipt, claimed, err := claimReceipt(ctx, clientUUID, c.Request().Method, c.Request().URL.Path)
 			if err != nil {
 				log.Printf("sync receipt for %s: %v", clientUUID, err)
@@ -89,7 +88,6 @@ func SyncEntry() echo.MiddlewareFunc {
 				c.Response().Header().Set(headerDuplicate, "true")
 				return c.Blob(receipt.Status, echo.MIMEApplicationJSON, []byte(receipt.Response))
 			}
-
 			c.SetRequest(c.Request().WithContext(config.WithSyncEntry(c.Request().Context(), entry)))
 			rec := &recorder{ResponseWriter: c.Response().Writer}
 			c.Response().Writer = rec

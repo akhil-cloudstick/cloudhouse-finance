@@ -426,7 +426,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
                                     <span key={ref}>
                                       {i > 0 && ", "}
                                       {canViewLoans ? (
-                                        <a href={routeHref(`loan/${ref}`)} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", fontWeight: 700, textDecoration: "underline" }}>{ref}</a>
+                                        <a href={routeHref(`loan/${ref}`)} style={{ color: "inherit", fontWeight: 700, textDecoration: "underline" }}>{ref}</a>
                                       ) : (
                                         <strong>{ref}</strong>
                                       )}

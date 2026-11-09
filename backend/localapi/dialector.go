@@ -112,3 +112,13 @@ func (d dialector) DataTypeOf(field *schema.Field) string {
 func ping(ctx context.Context, p gorm.ConnPool) error {
 	return p.QueryRowContext(ctx, "select 1").Err()
 }
+
+// SavePoint and RollbackTo let a handler's own transaction run inside the one a replay holds open (GORM turns a nested
+// Transaction into a savepoint), so a step the server would refuse is undone without losing the steps before it.
+func (d dialector) SavePoint(tx *gorm.DB, name string) error {
+	return tx.Exec("SAVEPOINT " + name).Error
+}
+
+func (d dialector) RollbackTo(tx *gorm.DB, name string) error {
+	return tx.Exec("ROLLBACK TO SAVEPOINT " + name).Error
+}

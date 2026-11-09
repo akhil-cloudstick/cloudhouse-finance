@@ -33,6 +33,7 @@ interface DesktopApp {
   StoreMirrorBindTenant(tenant: number): Promise<void>;
   LocalApiBind(sessionJson: string): Promise<void>;
   LocalApiGet(path: string, query: string, headers: Record<string, string>): Promise<{ status: number; body: string }>;
+  LocalApiGetPending(path: string, query: string, headers: Record<string, string>, pendingJson: string): Promise<{ status: number; body: string; skipped: number }>;
   StoreMirrorWriteTemp(entryId: string, batch: string): Promise<void>;
   StoreMirrorDropTemp(entryId: string): Promise<void>;
   StoreMirrorState(key: string): Promise<string>;
@@ -52,4 +53,19 @@ interface DesktopRuntime {
 interface Window {
   go?: { main?: { App?: DesktopApp } };
   runtime?: DesktopRuntime;
+}
+
+declare namespace NodeJS {
+  interface ProcessEnv {
+    BACKEND_ORIGIN?: string;
+    DEV_ORIGINS?: string;
+    DESKTOP_BUILD?: string;
+    NEXT_BUILD_CPUS?: string;
+    NEXT_PUBLIC_API_BASE?: string;
+    NEXT_PUBLIC_TENANT_APP_ORIGIN?: string;
+    NEXT_PUBLIC_ENABLE_PLAN_UPGRADE?: string;
+    NEXT_PUBLIC_ENABLE_UPDATE_NOTICE?: string;
+    NEXT_PUBLIC_UPDATE_NOTES?: string;
+    NEXT_PUBLIC_BILLING_PLANS?: string;
+  }
 }

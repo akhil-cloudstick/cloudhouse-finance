@@ -20,10 +20,10 @@ import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/respons
 import { singleFlight } from "@/common/utils/singleFlight";
 
 export type ReportColumn<Row> = {
-  key: string;
-  label: string;
-  numeric?: boolean;
-  render: (row: Row) => React.ReactNode;
+	key: string;
+	label: string;
+	numeric?: boolean;
+	render: (row: Row) => React.ReactNode;
 };
 
 export type ReportTotalItem = { label: string; value: string };
@@ -32,249 +32,249 @@ export type ReportTotalItem = { label: string; value: string };
  * against, so all 16 reports (Part B's endpoints) reuse this single
  * component instead of 16 bespoke ones (see plan Part C.2). */
 export type ReportConfig<Row = any, Totals = any> = {
-  id: string;
-  title: string;
-  description: string;
-  // Tile description on a single-branch plan, where no branch is ever shown
-  // (only set when `description` mentions branches).
-  singleBranchDescription?: string;
-  icon: string;
-  exportKey: ReportKey;
-  fetchFn: (f: ReportFilters) => Promise<ReportResult<Row, Totals>>;
-  columns: ReportColumn<Row>[];
-  totals: (t: Totals) => ReportTotalItem[];
-  rowKey: (row: Row) => string | number;
-  // Extra filter beyond date range + branch — a single dropdown, either the
-  // loan-status report's `status` param or communication-history's
-  // `triggerType` param (reports.Handler's per-report extra query param).
-  extraFilter?: {
-    field: "status" | "triggerType";
-    label: string;
-    options: string[];
-  };
-  // Per-report override for the initial "From" date — every report defaults
-  // to firstOfMonth() unless it supplies this (Form G is the only one that
-  // does, and it renders via its own FormGReportView rather than this
-  // generic ReportConfig path — kept here too in case a future tabular
-  // report needs a non-default range). No other report passes this, so no
-  // other report's default range changes.
-  defaultFromFn?: () => string;
-  // Set for the Personal Loans and Investments reports only — gates the
-  // report card the same way Sidebar.tsx gates those pages' own nav
-  // entries, so a business without the module doesn't see its reports
-  // exist either (the backend refuses the API calls too — see
-  // internal/reports/routes.go).
-  tenantModule?: string;
-  // false for the printed statements (Balance Sheet, P&L): dropping rows
-  // from a statement would leave it unbalanced, so they get no search box.
-  searchable?: boolean;
+	id: string;
+	title: string;
+	description: string;
+	// Tile description on a single-branch plan, where no branch is ever shown
+	// (only set when `description` mentions branches).
+	singleBranchDescription?: string;
+	icon: string;
+	exportKey: ReportKey;
+	fetchFn: (f: ReportFilters) => Promise<ReportResult<Row, Totals>>;
+	columns: ReportColumn<Row>[];
+	totals: (t: Totals) => ReportTotalItem[];
+	rowKey: (row: Row) => string | number;
+	// Extra filter beyond date range + branch — a single dropdown, either the
+	// loan-status report's `status` param or communication-history's
+	// `triggerType` param (reports.Handler's per-report extra query param).
+	extraFilter?: {
+		field: "status" | "triggerType";
+		label: string;
+		options: string[];
+	};
+	// Per-report override for the initial "From" date — every report defaults
+	// to firstOfMonth() unless it supplies this (Form G is the only one that
+	// does, and it renders via its own FormGReportView rather than this
+	// generic ReportConfig path — kept here too in case a future tabular
+	// report needs a non-default range). No other report passes this, so no
+	// other report's default range changes.
+	defaultFromFn?: () => string;
+	// Set for the Personal Loans and Investments reports only — gates the
+	// report card the same way Sidebar.tsx gates those pages' own nav
+	// entries, so a business without the module doesn't see its reports
+	// exist either (the backend refuses the API calls too — see
+	// internal/reports/routes.go).
+	tenantModule?: string;
+	// false for the printed statements (Balance Sheet, P&L): dropping rows
+	// from a statement would leave it unbalanced, so they get no search box.
+	searchable?: boolean;
 };
 
 function firstOfMonth(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+	const d = new Date();
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+	return new Date().toISOString().slice(0, 10);
 }
 
 type ReportViewProps = { config: ReportConfig; onBack: () => void };
 
 export function ReportView({ config, onBack }: ReportViewProps) {
-  const basePageSize = useResponsivePageSize(15, 15);
-  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
-  const toast = useToast();
-  const [branches, setBranches] = useState<BranchView[]>([]);
-  // No branch filter in a single-branch business (every row is its one
-  // branch) or while the global branch selector already scopes the page.
-  const showBranchFilter = useShowBranchFilter();
-  // Single-branch plan: the Branch column is dropped from every report.
-  const showBranch = useShowBranch();
-  const columns = showBranch ? config.columns : config.columns.filter((c) => c.key !== "branchName");
-  // Each report remembers its filters, search and page, so opening a loan from a row and pressing Back returns to
-  // the same view (ReportsPage keys this component by report, so the keys below are read for the right report).
-  const memo = `reports:${config.id}`;
-  // One branch id or several comma-joined (an older saved value may still be a number).
-  const [branchSel, setBranchSel] = usePersistedState<number | string>(`${memo}:branch`, "");
-  const branchId = branchSel ? String(branchSel) : "";
-  const [from, setFrom] = usePersistedState(`${memo}:from`, config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
-  const [to, setTo] = usePersistedState(`${memo}:to`, today());
-  const [extraValue, setExtraValue] = usePersistedState(`${memo}:extra`, "");
-  const [page, setPage] = usePersistedPage(memo);
-  const [q, setQ] = usePersistedState(`${memo}:q`, "");
-  // The box updates instantly; the server is only asked once typing pauses. Starts at the remembered search, so
-  // reopening the report does not look like a changed search (which would send it back to page 1).
-  const [search, setSearch] = useState(() => q.trim());
-  useEffect(() => {
-    const t = setTimeout(() => setSearch(q.trim()), 300);
-    return () => clearTimeout(t);
-  }, [q]);
+	const basePageSize = useResponsivePageSize(15, 15);
+	const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
+	const toast = useToast();
+	const [branches, setBranches] = useState<BranchView[]>([]);
+	// No branch filter in a single-branch business (every row is its one
+	// branch) or while the global branch selector already scopes the page.
+	const showBranchFilter = useShowBranchFilter();
+	// Single-branch plan: the Branch column is dropped from every report.
+	const showBranch = useShowBranch();
+	const columns = showBranch ? config.columns : config.columns.filter((c) => c.key !== "branchName");
+	// Each report remembers its filters, search and page, so opening a loan from a row and pressing Back returns to
+	// the same view (ReportsPage keys this component by report, so the keys below are read for the right report).
+	const memo = `reports:${config.id}`;
+	// One branch id or several comma-joined (an older saved value may still be a number).
+	const [branchSel, setBranchSel] = usePersistedState<number | string>(`${memo}:branch`, "");
+	const branchId = branchSel ? String(branchSel) : "";
+	const [from, setFrom] = usePersistedState(`${memo}:from`, config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
+	const [to, setTo] = usePersistedState(`${memo}:to`, today());
+	const [extraValue, setExtraValue] = usePersistedState(`${memo}:extra`, "");
+	const [page, setPage] = usePersistedPage(memo);
+	const [q, setQ] = usePersistedState(`${memo}:q`, "");
+	// The box updates instantly; the server is only asked once typing pauses. Starts at the remembered search, so
+	// reopening the report does not look like a changed search (which would send it back to page 1).
+	const [search, setSearch] = useState(() => q.trim());
+	useEffect(() => {
+		const t = setTimeout(() => setSearch(q.trim()), 300);
+		return () => clearTimeout(t);
+	}, [q]);
 
-  const [result, setResult] = useState<ReportResult<any, any> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
+	const [result, setResult] = useState<ReportResult<any, any> | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState("");
+	const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
 
-  useEffect(() => {
-    listActiveBranches().then(setBranches).catch(() => { });
-  }, []);
+	useEffect(() => {
+		listActiveBranches().then(setBranches).catch(() => { });
+	}, []);
 
-  const filters: ReportFilters = useMemo(() => {
-    const f: ReportFilters = { from, to, page, pageSize };
-    if (branchId) f.branchId = branchId;
-    if (search) f.search = search;
-    if (config.extraFilter && extraValue) {
-      if (config.extraFilter.field === "status") f.status = extraValue;
-      else f.triggerType = extraValue;
-    }
-    return f;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, branchId, extraValue, search, page, pageSize, config.id]);
+	const filters: ReportFilters = useMemo(() => {
+		const f: ReportFilters = { from, to, page, pageSize };
+		if (branchId) f.branchId = branchId;
+		if (search) f.search = search;
+		if (config.extraFilter && extraValue) {
+			if (config.extraFilter.field === "status") f.status = extraValue;
+			else f.triggerType = extraValue;
+		}
+		return f;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [from, to, branchId, extraValue, search, page, pageSize, config.id]);
 
-  // Reset to page 1 whenever a filter (other than page itself) changes.
-  useResetPageOnChange(setPage, [from, to, branchId, extraValue, search, pageSize, config.id]);
+	// Reset to page 1 whenever a filter (other than page itself) changes.
+	useResetPageOnChange(setPage, [from, to, branchId, extraValue, search, pageSize, config.id]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    config.fetchFn(filters)
-      .then((r) => { if (!cancelled) { setResult(r); setError(""); } })
-      .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : "Could not load report."); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+	useEffect(() => {
+		let cancelled = false;
+		setLoading(true);
+		config.fetchFn(filters)
+			.then((r) => { if (!cancelled) { setResult(r); setError(""); } })
+			.catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : "Could not load report."); })
+			.finally(() => { if (!cancelled) setLoading(false); });
+		return () => { cancelled = true; };
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [filters]);
 
-  // One grouped filter: Branch, the report's own extra dropdown, and Date.
-  // Clearing the date range falls back to the report's default range.
-  const filterCategories: FilterCategory[] = [
-    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
-    ...(config.extraFilter
-      ? [{ key: "extra", label: config.extraFilter.label, kind: "static" as const, options: config.extraFilter.options.map((o) => ({ value: o, label: o })) }]
-      : []),
-    { key: "__date", label: "Date", kind: "date" as const },
-  ];
-  // Several picks are kept comma-joined, the form the API takes them in.
-  const filterValue: FilterValue = {
-    branch: branchId ? branchId.split(",") : [],
-    extra: extraValue ? extraValue.split(",") : [],
-    __dateFrom: from || undefined,
-    __dateTo: to || undefined,
-  };
-  function onFilterChange(next: FilterValue) {
-    setBranchSel(Array.isArray(next.branch) ? next.branch.join(",") : "");
-    setExtraValue(Array.isArray(next.extra) ? next.extra.join(",") : "");
-    setFrom(next.__dateFrom || (config.defaultFromFn ? config.defaultFromFn() : firstOfMonth()));
-    setTo(next.__dateTo || today());
-  }
+	// One grouped filter: Branch, the report's own extra dropdown, and Date.
+	// Clearing the date range falls back to the report's default range.
+	const filterCategories: FilterCategory[] = [
+		...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+		...(config.extraFilter
+			? [{ key: "extra", label: config.extraFilter.label, kind: "static" as const, options: config.extraFilter.options.map((o) => ({ value: o, label: o })) }]
+			: []),
+		{ key: "__date", label: "Date", kind: "date" as const },
+	];
+	// Several picks are kept comma-joined, the form the API takes them in.
+	const filterValue: FilterValue = {
+		branch: branchId ? branchId.split(",") : [],
+		extra: extraValue ? extraValue.split(",") : [],
+		__dateFrom: from || undefined,
+		__dateTo: to || undefined,
+	};
+	function onFilterChange(next: FilterValue) {
+		setBranchSel(Array.isArray(next.branch) ? next.branch.join(",") : "");
+		setExtraValue(Array.isArray(next.extra) ? next.extra.join(",") : "");
+		setFrom(next.__dateFrom || (config.defaultFromFn ? config.defaultFromFn() : firstOfMonth()));
+		setTo(next.__dateTo || today());
+	}
 
-  async function handleExport(format: "xlsx" | "pdf") { return singleFlight("reports:view-export:"+format, async () => {
-    setExporting(format);
-    try {
-      await exportReport(config.exportKey, format, filters);
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Export failed.");
-    } finally {
-      setExporting(null);
-    }
-  }); }
+	async function handleExport(format: "xlsx" | "pdf") { return singleFlight("reports:view-export:"+format, async () => {
+		setExporting(format);
+		try {
+			await exportReport(config.exportKey, format, filters);
+		} catch (e) {
+			toast(e instanceof ApiError ? e.message : "Export failed.");
+		} finally {
+			setExporting(null);
+		}
+	}); }
 
-  const rows = result?.rows ?? [];
-  const totalCount = result?.totalCount ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const totalsItems = result ? config.totals(result.totals) : [];
+	const rows = result?.rows ?? [];
+	const totalCount = result?.totalCount ?? 0;
+	const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+	const totalsItems = result ? config.totals(result.totals) : [];
 
-  return (
-    <>
-      <div className="page-h page-h-stack">
-        <div className="page-h-title">
-          <BackLink onClick={onBack} label="Back to Reports" />
-          <h1>{config.title}</h1>
-          <p>{config.description}</p>
-        </div>
-      </div>
-      <hr className="gold-rule" />
+	return (
+		<>
+			<div className="page-h page-h-stack">
+				<div className="page-h-title">
+					<BackLink onClick={onBack} label="Back to Reports" />
+					<h1>{config.title}</h1>
+					<p>{config.description}</p>
+				</div>
+			</div>
+			<hr className="gold-rule" />
 
-      {/* No wrapping .card here — the KPI totals and the filter row sit
-       * directly on the page, on one line below the title: totals on the
-       * left, filter fields on the right (justify-content:space-between
-       * pins each group to its own edge rather than leaving them flush
-       * together in the middle), instead of each getting its own full-
-       * width block stacked one above the other. */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 4, marginBottom: 23 }}>
-        {/* Plain flex, not `.kpis` (display:grid; repeat(auto-fill,213px))
-         * — a grid with auto-fill track repetition has no well-defined
-         * intrinsic size, so nested as a flex item here (every other
-         * `.kpis` usage sits on its own full-width line instead) it
-         * collapsed to a single column, stacking the two cards vertically
-         * instead of grouping them side by side on the left. `.kpi` itself
-         * (each card's own fixed 213×89px box, flex-shrink:0 so it never
-         * shrinks below that regardless of context) is unaffected either
-         * way. maxWidth:"100%" is what actually lets flexWrap do its job
-         * once there isn't room for every card on one line — flex-wrap
-         * only wraps a container's children once the container itself is
-         * width-constrained; flexShrink:0 alone (refusing to shrink below
-         * its natural, fully-unwrapped width) left this free to just grow
-         * past the viewport with nothing to wrap against instead. */}
-        {totalsItems.length > 0 && (
-          <div className="report-kpis" style={{ display: "flex", flexWrap: "wrap", flexShrink: 0, maxWidth: "100%", gap: 4 }}>
-            {totalsItems.map((t) => (
-              <div className="kpi" key={t.label}>
-                <div className="l">{t.label}</div>
-                <div className="v">{t.value}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+			{/* No wrapping .card here — the KPI totals and the filter row sit
+			 * directly on the page, on one line below the title: totals on the
+			 * left, filter fields on the right (justify-content:space-between
+			 * pins each group to its own edge rather than leaving them flush
+			 * together in the middle), instead of each getting its own full-
+			 * width block stacked one above the other. */}
+			<div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 4, marginBottom: 23 }}>
+				{/* Plain flex, not `.kpis` (display:grid; repeat(auto-fill,213px))
+				 * — a grid with auto-fill track repetition has no well-defined
+				 * intrinsic size, so nested as a flex item here (every other
+				 * `.kpis` usage sits on its own full-width line instead) it
+				 * collapsed to a single column, stacking the two cards vertically
+				 * instead of grouping them side by side on the left. `.kpi` itself
+				 * (each card's own fixed 213×89px box, flex-shrink:0 so it never
+				 * shrinks below that regardless of context) is unaffected either
+				 * way. maxWidth:"100%" is what actually lets flexWrap do its job
+				 * once there isn't room for every card on one line — flex-wrap
+				 * only wraps a container's children once the container itself is
+				 * width-constrained; flexShrink:0 alone (refusing to shrink below
+				 * its natural, fully-unwrapped width) left this free to just grow
+				 * past the viewport with nothing to wrap against instead. */}
+				{totalsItems.length > 0 && (
+					<div className="report-kpis" style={{ display: "flex", flexWrap: "wrap", flexShrink: 0, maxWidth: "100%", gap: 4 }}>
+						{totalsItems.map((t) => (
+							<div className="kpi" key={t.label}>
+								<div className="l">{t.label}</div>
+								<div className="v">{t.value}</div>
+							</div>
+						))}
+					</div>
+				)}
+			</div>
 
-      {error && <div className="notice" style={{ marginBottom: 4 }}>{error}</div>}
+			{error && <div className="notice" style={{ marginBottom: 4 }}>{error}</div>}
 
-      <div className="card tbl-card tbl-card-fill">
-        <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
-          <h3>{config.title}</h3>
-          <div className="sp" />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            {config.searchable !== false && <TableSearch value={q} onChange={setQ} placeholder="Search report…" searches={columns.map((c) => c.label.toLowerCase()).join(", ")} />}
-            <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
-            <ExportMenu busy={exporting} onExport={handleExport} />
-          </div>
-        </div>
-        <div className="tbl-wrap">
-          <table className="tbl tbl-cards tbl-center">
-            <TableCols widths={columns.map((c) => (c.numeric ? 12 : null))} />
-            <thead>
-              <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
-            </thead>
-            {/* A reload keeps the current rows (faded) so the page does not collapse and re-scroll. */}
-            <tbody style={loading && rows.length > 0 ? { opacity: 0.55, transition: "opacity .15s" } : undefined}>
-              {loading && rows.length === 0 ? (
-                <tr><td colSpan={columns.length} className="empty">Loading report…</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td colSpan={columns.length} className="empty">No data for the selected filters.</td></tr>
-              ) : rows.map((row, i) => (
-                // Some reports' rowKey (e.g. interest-collection's
-                // `loanId-paidOn`) isn't guaranteed unique — two rows for the
-                // same loan can share a paidOn timestamp (interest and penal
-                // applied in the same run). The row's own position within
-                // the current page is always unique, so appending it here
-                // guards every report's key, not just that one.
-                <tr key={`${config.rowKey(row)}-${i}`}>
-                  {columns.map((c) => (
-                    <td key={c.key} data-label={c.label} className={c.numeric ? "num" : undefined}>{c.render(row)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <ScrollSentinel enabled={cards && (page < totalPages)} onVisible={more} watch={rows.length} />
-        <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-          <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-          <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-        </div>
-      </div>
-    </>
-  );
+			<div className="card tbl-card tbl-card-fill">
+				<div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
+					<h3>{config.title}</h3>
+					<div className="sp" />
+					<div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+						{config.searchable !== false && <TableSearch value={q} onChange={setQ} placeholder="Search report…" searches={columns.map((c) => c.label.toLowerCase()).join(", ")} />}
+						<FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
+						<ExportMenu busy={exporting} onExport={handleExport} />
+					</div>
+				</div>
+				<div className="tbl-wrap">
+					<table className="tbl tbl-cards tbl-center">
+						<TableCols widths={columns.map((c) => (c.numeric ? 12 : null))} />
+						<thead>
+							<tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
+						</thead>
+						{/* A reload keeps the current rows (faded) so the page does not collapse and re-scroll. */}
+						<tbody style={loading && rows.length > 0 ? { opacity: 0.55, transition: "opacity .15s" } : undefined}>
+							{loading && rows.length === 0 ? (
+								<tr><td colSpan={columns.length} className="empty">Loading report…</td></tr>
+							) : rows.length === 0 ? (
+								<tr><td colSpan={columns.length} className="empty">No data for the selected filters.</td></tr>
+							) : rows.map((row, i) => (
+								// Some reports' rowKey (e.g. interest-collection's
+								// `loanId-paidOn`) isn't guaranteed unique — two rows for the
+								// same loan can share a paidOn timestamp (interest and penal
+								// applied in the same run). The row's own position within
+								// the current page is always unique, so appending it here
+								// guards every report's key, not just that one.
+								<tr key={`${config.rowKey(row)}-${i}`}>
+									{columns.map((c) => (
+										<td key={c.key} data-label={c.label} className={c.numeric ? "num" : undefined}>{c.render(row)}</td>
+									))}
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+				<ScrollSentinel enabled={cards && (page < totalPages)} onVisible={more} watch={rows.length} />
+				<div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+					<button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+					<span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+					<button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+				</div>
+			</div>
+		</>
+	);
 }

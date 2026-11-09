@@ -6,6 +6,7 @@ import { localPledgeId } from "@/common/offline/pledgeRef";
 import { findLocalRequest, localRequestId } from "@/common/offline/requestRef";
 import { canQueue, queueOnly, queueWrite } from "@/common/offline/queueWrite";
 import { setAuctionStage } from "@/common/offline/auctionStages";
+import { loanChangesReplayable } from "@/common/offline/localApi";
 import { assertPayoutFunds, partsOfSplit } from "@/common/offline/funds";
 import { releaseAmountNeeded } from "@/modules/loans/utils/releaseAmount";
 import { changeWithEntry, enqueueAndWait, getLocal, newEntry, offlineReady, removeLocal, upsertLocal, type LocalRecord, type OutboxEntry } from "@/common/offline";
@@ -32,7 +33,7 @@ import {
 import { listSchemes } from "@/modules/schemes/services/schemeService";
 import type { SchemeView } from "@/modules/schemes/types/scheme-types";
 import { printPdfJob } from "@/common/utils/print";
-import { canMakeOffline, printOfflineBondPreview, printOfflineLoanDocument, printOfflinePartialReceipt } from "@/modules/loans/services/loanDocumentsOffline";
+import { canMakeOffline, canRenderOffline, printOfflineBondPreview, printOfflineLoanDocument, printOfflinePartialReceipt, renderOfflineLoanDocument } from "@/modules/loans/services/loanDocumentsOffline";
 import { roundRupee } from "@/common/utils/format";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import type { OrnamentRequestInput, CreateLoanInput, BackendOrnament, BackendLoanPayment, BackendBankPledgeRecord, BackendLoan, OrnamentView, PaymentView, BankPledgeView, LoanView, BackendCustomerOrnamentRow, CustomerOrnamentRowView, BackendCustomerPaymentRow, CustomerPaymentRowView, BackendCustomerBankPledgeRow, CustomerBankPledgeRowView, SaveDraftInput, BackendLoanDraft, IndemnityBondEsignStart, EsignWitnessInput, IndemnityBondDeliverBy, IndemnityBondEsignCheck, LoanFilters, PurityTestInput, SanctionStage, ApprovalStageRecord, ApprovalInput, UpdateLoanInput, PaymentInput, TopUpInput, LoanTopUpView, TopUpApprovalInput, BankPledgeInput, BankPledgeCashTreatment, BankPledgeRecordView, AuctionStage, AuctionSettlementStatus, AuctionSurplusDisposition, AuctionDecisionStatus, AuctionDecisionRequestView, AuctionRecordView, BackendAuctionDecisionRequest, BackendAuctionRecord, BackendCustomerAuctionRow, CustomerAuctionRowView, BackendConcludedAuctionRow, ConcludedAuctionRowView, LoanLedgerEntry, LoanLedgerPage, LoanLedgerQuery, BackendLoanLedgerEntry, BackendLoanRequest, RequestView, LoanRequestFilters, LoanRiskLevel, LoanRiskRow, LoanRiskCounts, ChecklistInput, ReleasePaymentInput, ReleaseApprovalInput, ExtensionApprovalInput, IndemnityBondPreviewInput } from "@/modules/loans/types/loan-types";
@@ -513,7 +514,9 @@ async function hasWaitingChange(uuid: string | undefined): Promise<boolean> {
 
 export async function getLoan(id: number): Promise<LoanView> {
   const waiting = offlineReady() ? localLoanByNumericId(id) : undefined;
-  if (waiting && (await hasWaitingChange(waiting.uuid))) return toView(waiting);
+  // a loan with changes waiting is shown from the local record, unless the local server can apply those changes itself (the
+  // server's own code then works out the balances and interest, as it will once they are sent)
+  if (waiting && (await hasWaitingChange(waiting.uuid)) && !(await loanChangesReplayable(waiting.uuid, id))) return toView(waiting);
   return orLocal(
     async () => toView(await apiFetch<BackendLoan>(`/loans/${id}`)),
     () => {
@@ -531,7 +534,7 @@ export async function getLoan(id: number): Promise<LoanView> {
  * the list call raced against another in-flight /loans request. */
 export async function getLoanByNumber(loanNumber: string): Promise<LoanView> {
   const waiting = offlineReady() ? localLoanByKey(loanNumber) : undefined;
-  if (waiting && (await hasWaitingChange(waiting.uuid))) return toView(waiting);
+  if (waiting && (await hasWaitingChange(waiting.uuid)) && !(await loanChangesReplayable(waiting.uuid, Number(waiting.id ?? 0)))) return toView(waiting);
   const local = () => {
     const rec = localLoanByKey(loanNumber);
     if (!rec) throw new ApiError("Loan not found", 404);
@@ -1468,7 +1471,7 @@ export async function getLoanLedger(loanId: number, q: LoanLedgerQuery, uuid?: s
     if (rec) return buildLocalLedger(rec, q);
   }
   const waiting = offlineReady() ? localRec() : undefined;
-  if (waiting && (await hasWaitingChange(waiting.uuid))) return buildLocalLedger(waiting, q);
+  if (waiting && (await hasWaitingChange(waiting.uuid)) && !(await loanChangesReplayable(waiting.uuid, loanId))) return buildLocalLedger(waiting, q);
   return orLocal(
     () => getLoanLedgerLive(loanId, q),
     () => {
@@ -2204,7 +2207,9 @@ export function canAcceptBankPledge(status: string, bankPledgeStatus: string): b
  *
  * The filename comes from the server's Content-Disposition, so the loan
  * number in it always matches the document's contents. */
-export async function downloadLoanStatement(loanId: number): Promise<void> {
+export async function downloadLoanStatement(loanId: number, uuid?: string): Promise<void> {
+  // a loan this PC made and the server has not numbered yet exists only here: its statement is made here too
+  if (!loanId && uuid && canRenderOffline()) return printOfflineLoanDocument("statement", 0, "en", uuid);
   const token = getAuthToken();
   let res: Response;
   try {
@@ -2213,7 +2218,7 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
     });
   } catch (e) {
     // the server did not answer: the statement is made on this PC from its own copy of the loan and opened in the print dialog
-    if (canMakeOffline(e)) return printOfflineLoanDocument("statement", loanId);
+    if (canMakeOffline(e)) return printOfflineLoanDocument("statement", loanId, "en", uuid);
     throw e;
   }
   if (!res.ok) {
@@ -2254,12 +2259,13 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
  * already-saved loan (numericId) — the NewLoan.tsx pre-submission preview
  * still uses the client-side copy, since there's no loan id yet to render
  * against. */
-export async function downloadIndemnityBondPDF(loanNumericId: number, lang: BondLang): Promise<void> {
+export async function downloadIndemnityBondPDF(loanNumericId: number, lang: BondLang, uuid?: string): Promise<void> {
+  if (!loanNumericId && uuid && canRenderOffline()) return printOfflineLoanDocument("bond", 0, lang, uuid);
   try {
     return await downloadIndemnityBondOnline(loanNumericId, lang);
   } catch (e) {
     // the server did not answer: the pledge agreement is made on this PC from its bundled template and its copy of the loan
-    if (canMakeOffline(e)) return printOfflineLoanDocument("bond", loanNumericId, lang);
+    if (canMakeOffline(e)) return printOfflineLoanDocument("bond", loanNumericId, lang, uuid);
     throw e;
   }
 }
@@ -2306,11 +2312,12 @@ async function pledgeSlipResponse(loanNumericId: number, format?: "html"): Promi
   return res;
 }
 
-export async function downloadPledgeSlipPDF(loanNumericId: number): Promise<void> {
+export async function downloadPledgeSlipPDF(loanNumericId: number, uuid?: string): Promise<void> {
+  if (!loanNumericId && uuid && canRenderOffline()) return printOfflineLoanDocument("pledge-slip", 0, "en", uuid);
   try {
     return await printPdfJob(async () => (await pledgeSlipResponse(loanNumericId)).blob(), undefined, `pledge-slip-${loanNumericId}.pdf`);
   } catch (e) {
-    if (canMakeOffline(e)) return printOfflineLoanDocument("pledge-slip", loanNumericId);
+    if (canMakeOffline(e)) return printOfflineLoanDocument("pledge-slip", loanNumericId, "en", uuid);
     throw e;
   }
 }
@@ -2318,11 +2325,12 @@ export async function downloadPledgeSlipPDF(loanNumericId: number): Promise<void
 /* TML payment receipt (the TML "statement") — rendered server-side from
  * backend/templates/tml_statement.html for the loan's latest payment
  * (GET /loans/:id/statement-receipt) and sent straight to the print dialog. */
-export async function downloadTmlStatementReceipt(loanNumericId: number): Promise<void> {
+export async function downloadTmlStatementReceipt(loanNumericId: number, uuid?: string): Promise<void> {
+  if (!loanNumericId && uuid && canRenderOffline()) return printOfflineLoanDocument("tml-statement", 0, "en", uuid);
   try {
     return await downloadTmlStatementReceiptOnline(loanNumericId);
   } catch (e) {
-    if (canMakeOffline(e)) return printOfflineLoanDocument("tml-statement", loanNumericId);
+    if (canMakeOffline(e)) return printOfflineLoanDocument("tml-statement", loanNumericId, "en", uuid);
     throw e;
   }
 }
@@ -2350,8 +2358,18 @@ async function downloadTmlStatementReceiptOnline(loanNumericId: number): Promise
 /* The same slip as an HTML document, for printing it together with the
  * packet label in one window (LoanDetail.tsx's printSlipAndLabel). Returns
  * the template's own <style> text and body markup. */
-export async function fetchPledgeSlipParts(loanNumericId: number): Promise<{ style: string; body: string }> {
-  const text = await (await pledgeSlipResponse(loanNumericId, "html")).text();
+export async function fetchPledgeSlipParts(loanNumericId: number, uuid?: string): Promise<{ style: string; body: string }> {
+  let text: string;
+  if (!loanNumericId && uuid && canRenderOffline()) {
+    text = await renderOfflineLoanDocument("pledge-slip", 0, "en", uuid);
+  } else {
+    try {
+      text = await (await pledgeSlipResponse(loanNumericId, "html")).text();
+    } catch (e) {
+      if (!canMakeOffline(e)) throw e;
+      text = await renderOfflineLoanDocument("pledge-slip", loanNumericId, "en", uuid);
+    }
+  }
   const doc = new DOMParser().parseFromString(text, "text/html");
   return {
     style: Array.from(doc.querySelectorAll("style")).map((s) => s.textContent || "").join("\n"),
@@ -2406,11 +2424,12 @@ async function downloadPartialReceiptOnline(requestId: number, lang: "en" | "ml"
  * closed loan (loanNumericId) — every current caller (LoanDetail.tsx,
  * Requests.tsx) only reaches this once a loan is closed/release-approved, so
  * there is no pre-save preview variant, unlike the indemnity bond. */
-export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "en" | "ml"): Promise<void> {
+export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "en" | "ml", uuid?: string): Promise<void> {
+  if (!loanNumericId && uuid && canRenderOffline()) return printOfflineLoanDocument("release-agreement", 0, lang, uuid);
   try {
     return await downloadReleaseAgreementOnline(loanNumericId, lang);
   } catch (e) {
-    if (canMakeOffline(e)) return printOfflineLoanDocument("release-agreement", loanNumericId, lang);
+    if (canMakeOffline(e)) return printOfflineLoanDocument("release-agreement", loanNumericId, lang, uuid);
     throw e;
   }
 }
@@ -2524,7 +2543,16 @@ export async function editReleaseRecord(requestId: number, input: { requestedAt?
   await apiFetch(`/loans/requests/${requestId}/release-record`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
-export async function deleteReleaseRecord(requestId: number): Promise<void> {
+export async function deleteReleaseRecord(requestId: number, current?: RequestView): Promise<void> {
+  if (canQueue()) {
+    // the server's own refusals, in its words, when the request is known here
+    if (current?.status === "Approved") throw new ApiError("an approved release request cannot be deleted — the release was completed from it", 409);
+    if (current && (current.paymentRecorded || current.locked || current.recordedPayment > 0)) {
+      throw new ApiError("a payment was already recorded against this release request — delete or edit that payment in the ledger first", 409);
+    }
+    await queueOnly("DELETE", `/loans/requests/${requestId}/release-record`, undefined, undefined);
+    return;
+  }
   await apiFetch(`/loans/requests/${requestId}/release-record`, { method: "DELETE" });
 }
 

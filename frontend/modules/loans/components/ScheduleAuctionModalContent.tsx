@@ -14,50 +14,50 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 type ScheduleAuctionModalContentProps = { loan: LoanView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void };
 
 export function ScheduleAuctionModalContent({ loan, onSaved, onError }: ScheduleAuctionModalContentProps) {
-  const { closeModal } = useModal();
-  const toast = useToast();
-  const today = new Date().toISOString().slice(0, 10);
-  const [date, setDate] = useState(today);
-  const [ref, setRef] = useState("");
-  const [err, setErr] = useState("");
-  const [fe, setFe] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
+	const { closeModal } = useModal();
+	const toast = useToast();
+	const today = new Date().toISOString().slice(0, 10);
+	const [date, setDate] = useState(today);
+	const [ref, setRef] = useState("");
+	const [err, setErr] = useState("");
+	const [fe, setFe] = useState<Record<string, string>>({});
+	const [saving, setSaving] = useState(false);
 
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
 
-  async function save() { return singleFlight("auction-modal:save:2", async () => {
-    setErr(""); setFe({});
-    if (!date) { fail("date", "Please select the auction date."); return; }
-    setSaving(true);
-    try {
-      const rec = await scheduleAuction(loan.numericId, date, ref.trim() || undefined);
-      onSaved(rec);
-      closeModal();
-      toast(`Auction scheduled for ${loan.id}`);
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not schedule the auction — try again.";
-      const field = fieldForMessage(msg, { ref: /reference/i, date: /date/i });
-      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
-      onError?.(); // see IssueNoticeModalContent's onError comment above
-    } finally {
-      setSaving(false);
-    }
-  }); }
+	async function save() { return singleFlight("auction-modal:save:2", async () => {
+		setErr(""); setFe({});
+		if (!date) { fail("date", "Please select the auction date."); return; }
+		setSaving(true);
+		try {
+			const rec = await scheduleAuction(loan.numericId, date, ref.trim() || undefined);
+			onSaved(rec);
+			closeModal();
+			toast(`Auction scheduled for ${loan.id}`);
+		} catch (e) {
+			const msg = e instanceof ApiError ? e.message : "Could not schedule the auction — try again.";
+			const field = fieldForMessage(msg, { ref: /reference/i, date: /date/i });
+			if (field) fail(field, msg); else { setFe({}); setErr(msg); }
+			onError?.(); // see IssueNoticeModalContent's onError comment above
+		} finally {
+			setSaving(false);
+		}
+	}); }
 
-  return (
-    <>
-      <div className="hd"><h3>Schedule Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
-        <div className="frow c2">
-          <div className={fe.date ? "has-err" : undefined}><label className="f">Auction Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); setFe((cur) => ({ ...cur, date: "" })); }} /><FieldError msg={fe.date} /></div>
-          <div className={fe.ref ? "has-err" : undefined}><label className="f">Reference Number</label><input className="inp" value={ref} onChange={(e) => { setRef(e.target.value); setFe((cur) => ({ ...cur, ref: "" })); }} /><FieldError msg={fe.ref} /></div>
-        </div>
-      </div>
-      <div className="ft">
-          {err && <span className="ft-err" role="alert">{err}</span>}
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Schedule"}</button>
-      </div>
-    </>
-  );
+	return (
+		<>
+			<div className="hd"><h3>Schedule Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll">
+				<div className="frow c2">
+					<div className={fe.date ? "has-err" : undefined}><label className="f">Auction Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); setFe((cur) => ({ ...cur, date: "" })); }} /><FieldError msg={fe.date} /></div>
+					<div className={fe.ref ? "has-err" : undefined}><label className="f">Reference Number</label><input className="inp" value={ref} onChange={(e) => { setRef(e.target.value); setFe((cur) => ({ ...cur, ref: "" })); }} /><FieldError msg={fe.ref} /></div>
+				</div>
+			</div>
+			<div className="ft">
+					{err && <span className="ft-err" role="alert">{err}</span>}
+				<button className="btn ghost" onClick={closeModal}>Cancel</button>
+				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Schedule"}</button>
+			</div>
+		</>
+	);
 }

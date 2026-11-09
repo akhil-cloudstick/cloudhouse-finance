@@ -139,7 +139,6 @@ func formatKeyset(at time.Time, id uint) string {
 func SyncPull(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	scope := pullBranchScope(c)
-
 	var since time.Time
 	if raw := c.QueryParam("since"); raw != "" {
 		t, err := time.Parse(time.RFC3339Nano, raw)
@@ -168,7 +167,6 @@ func SyncPull(c echo.Context) error {
 	if limit > maxPullLimit {
 		limit = maxPullLimit
 	}
-
 	lq := config.DB.WithContext(ctx).Unscoped().Model(&models.Loan{})
 	if scope != nil {
 		lq = lq.Where("branch_id = ?", *scope)
@@ -189,7 +187,6 @@ func SyncPull(c echo.Context) error {
 	if err := preloadAll(lq).Find(&rows).Error; err != nil {
 		return common.FailErr(c, err)
 	}
-
 	cq := config.DB.WithContext(ctx).Unscoped().Model(&commonModels.Customer{}).Preload("Branch")
 	if scope != nil {
 		cq = cq.Where("(branch_id = ? OR id IN (SELECT customer_id FROM loans WHERE branch_id = ? AND deleted_at IS NULL))", *scope, *scope)
@@ -212,7 +209,6 @@ func SyncPull(c echo.Context) error {
 	if err := cq.Find(&custs).Error; err != nil {
 		return common.FailErr(c, err)
 	}
-
 	hasMore := false
 	if limit > 0 {
 		if len(rows) > limit {
@@ -224,7 +220,6 @@ func SyncPull(c echo.Context) error {
 			hasMore = true
 		}
 	}
-
 	out := pullResponse{Loans: []pullLoan{}, Customers: []pullCustomer{}, Deleted: pullDeleted{Loans: []string{}, Customers: []string{}}}
 	out.Next = pullNext{Start: start.UTC().Format(time.RFC3339Nano)}
 	if len(rows) > 0 {
@@ -241,7 +236,6 @@ func SyncPull(c echo.Context) error {
 	}
 	out.HasMore = hasMore
 	out.Scope = ScopeLabel(scope)
-
 	live := make([]models.Loan, 0, len(rows))
 	for _, l := range rows {
 		if l.DeletedAt.Valid {
@@ -270,7 +264,6 @@ func SyncPull(c echo.Context) error {
 			out.Customers = append(out.Customers, pullCustomer{CustomerResponse: common.CustomerToResponse(&cu), UUID: cu.UUID})
 		}
 	}
-
 	cursor := start.Add(-pullOverlap)
 	if cursor.Before(since) {
 		cursor = since
@@ -290,7 +283,6 @@ func loadLoanHistory(c echo.Context, loans []models.Loan) (map[uint]pullLoan, er
 		ids[i] = l.ID
 		out[l.ID] = pullLoan{TopUps: []models.LoanTopUp{}, Requests: []pullRequest{}, Auctions: []models.AuctionRecord{}, Packets: []pullPacket{}}
 	}
-
 	var topUps []models.LoanTopUp
 	if err := config.DB.WithContext(ctx).Where("loan_id IN ?", ids).Order("id").Find(&topUps).Error; err != nil {
 		return nil, err
@@ -300,7 +292,6 @@ func loadLoanHistory(c echo.Context, loans []models.Loan) (map[uint]pullLoan, er
 		pl.TopUps = append(pl.TopUps, t)
 		out[t.LoanID] = pl
 	}
-
 	var reqs []models.LoanRequest
 	if err := config.DB.WithContext(ctx).Preload("OrnamentSelections").Where("loan_id IN ?", ids).Order("id").Find(&reqs).Error; err != nil {
 		return nil, err
@@ -328,7 +319,6 @@ func loadLoanHistory(c echo.Context, loans []models.Loan) (map[uint]pullLoan, er
 		pl.Requests = append(pl.Requests, pullRequest{LoanRequest: r, Approvals: a})
 		out[r.LoanID] = pl
 	}
-
 	var auctions []models.AuctionRecord
 	if err := preloadAuctionDetail(config.DB.WithContext(ctx)).Where("loan_id IN ?", ids).Order("id").Find(&auctions).Error; err != nil {
 		return nil, err
@@ -338,7 +328,6 @@ func loadLoanHistory(c echo.Context, loans []models.Loan) (map[uint]pullLoan, er
 		pl.Auctions = append(pl.Auctions, a)
 		out[a.LoanID] = pl
 	}
-
 	var packets []packetModels.Packet
 	if err := config.DB.WithContext(ctx).Preload("Movements").Where("loan_id IN ?", ids).Order("id").Find(&packets).Error; err != nil {
 		return nil, err
@@ -365,7 +354,6 @@ func loadLoanHistory(c echo.Context, loans []models.Loan) (map[uint]pullLoan, er
 func SyncIDs(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	scope := pullBranchScope(c)
-
 	lq := config.DB.WithContext(ctx).Model(&models.Loan{}).Where("deleted_at IS NULL")
 	cq := config.DB.WithContext(ctx).Model(&commonModels.Customer{}).Where("deleted_at IS NULL")
 	if scope != nil {

@@ -8,35 +8,35 @@ export type PermissionMap = Record<string, Record<string, boolean>>;
  * and whether the role holds it — label is the short name used in messages,
  * e.g. "Scheme module". */
 export type PermissionRef = {
-  permissionId: number;
-  name: string;
-  label: string;
-  granted: boolean;
+	permissionId: number;
+	name: string;
+	label: string;
+	granted: boolean;
 };
 /* Admin matrix shapes — see backend/internal/authz.Repository.AdminMatrix.
  * parents must all be on before this one can be; dependents are switched off
  * with it; soft_parents only warn (a picker or panel comes up empty). */
 export type PermissionRow = {
-  id: number;
-  roleId: number;
-  permissionId: number;
-  permission: boolean;
-  permissions: { id: number; name: string; description: string; moduleName: string; isActive: boolean };
-  parents: PermissionRef[];
-  soft_parents: PermissionRef[];
-  dependents: PermissionRef[];
+	id: number;
+	roleId: number;
+	permissionId: number;
+	permission: boolean;
+	permissions: { id: number; name: string; description: string; moduleName: string; isActive: boolean };
+	parents: PermissionRef[];
+	soft_parents: PermissionRef[];
+	dependents: PermissionRef[];
 };
 export type Role = {
-  id: number;
-  name: string;
-  description: string;
-  isActive: boolean;
-  isSystem: boolean;
-  createdAt: string;
-  updatedAt: string;
+	id: number;
+	name: string;
+	description: string;
+	isActive: boolean;
+	isSystem: boolean;
+	createdAt: string;
+	updatedAt: string;
 };
 export type MatrixResponse = {
-  success: boolean;
-  role: Role;
-  data: Record<string, PermissionRow[]>;
+	success: boolean;
+	role: Role;
+	data: Record<string, PermissionRow[]>;
 };

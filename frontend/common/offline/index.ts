@@ -33,88 +33,88 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 /* Who this PC is, as written on each entry: the id the server issued, or the machine id until it has. */
 function deviceLabel(): string {
-  const d = currentDevice();
-  return d?.deviceId ? `dev_${d.deviceId}` : (d?.machineId ?? "");
+	const d = currentDevice();
+	return d?.deviceId ? `dev_${d.deviceId}` : (d?.machineId ?? "");
 }
 
 /* Call once after sign-in. Opens this business's folder, loads the local copy, and starts the cron. */
 let starting: Promise<void> | null = null;
 
 export function startOffline(): Promise<void> {
-  // asked again while the first-use question is still open: wait for that one run, never start a second
-  starting ??= doStartOffline().finally(() => {
-    starting = null;
-  });
-  return starting;
+	// asked again while the first-use question is still open: wait for that one run, never start a second
+	starting ??= doStartOffline().finally(() => {
+		starting = null;
+	});
+	return starting;
 }
 
 async function doStartOffline(): Promise<void> {
-  if (!offlineStore.available() || offlineReady()) return;
-  const business = offlineBusiness();
-  try {
-    // the first time on this PC the user decides where the offline data is kept
-    if (!(await offlineStore.rootChosen())) await askStorageChoice();
-    await offlineStore.open(business, DEVICE_FOLDER);
-    await loadDevice();
-    await loadLocalCopy();
-    await loadCopyStatus();
-    await loadMirrorStatus();
-    await loadAuctionStages();
-    setOfflineReady(true);
-    void bindLocalApi();
-  } catch (e) {
-    setOfflineReady(false);
-    console.error("offline mode could not start", e);
-    return;
-  }
-  setReadCacheEnabled(true);
-  installImageGuard();
-  void flushRememberedLogin();
-  offlineStore.log("info", `offline mode started for ${business} on ${deviceLabel()}`);
-  void drain("start").then(() => warmReadCache());
-  timer = setInterval(() => {
-    void drain("cron");
-    // refresh what is kept for offline use (changes other people made reach this PC's copy)
-    void warmReadCache();
-  }, CRON_MS);
-  window.addEventListener("online", onOnline);
+	if (!offlineStore.available() || offlineReady()) return;
+	const business = offlineBusiness();
+	try {
+		// the first time on this PC the user decides where the offline data is kept
+		if (!(await offlineStore.rootChosen())) await askStorageChoice();
+		await offlineStore.open(business, DEVICE_FOLDER);
+		await loadDevice();
+		await loadLocalCopy();
+		await loadCopyStatus();
+		await loadMirrorStatus();
+		await loadAuctionStages();
+		setOfflineReady(true);
+		void bindLocalApi();
+	} catch (e) {
+		setOfflineReady(false);
+		console.error("offline mode could not start", e);
+		return;
+	}
+	setReadCacheEnabled(true);
+	installImageGuard();
+	void flushRememberedLogin();
+	offlineStore.log("info", `offline mode started for ${business} on ${deviceLabel()}`);
+	void drain("start").then(() => warmReadCache());
+	timer = setInterval(() => {
+		void drain("cron");
+		// refresh what is kept for offline use (changes other people made reach this PC's copy)
+		void warmReadCache();
+	}, CRON_MS);
+	window.addEventListener("online", onOnline);
 }
 
 export function stopOffline(): void {
-  if (timer) clearInterval(timer);
-  timer = null;
-  window.removeEventListener("online", onOnline);
-  setReadCacheEnabled(false);
-  forgetDevice();
-  resetLocalApi();
-  setOfflineReady(false);
+	if (timer) clearInterval(timer);
+	timer = null;
+	window.removeEventListener("online", onOnline);
+	setReadCacheEnabled(false);
+	forgetDevice();
+	resetLocalApi();
+	setOfflineReady(false);
 }
 
 function onOnline() {
-  void drain("network back");
+	void drain("network back");
 }
 
 export function refreshNow(): Promise<boolean> {
-  return pull("refresh");
+	return pull("refresh");
 }
 
 export function newEntry(
-  method: OutboxEntry["method"],
-  path: string,
-  body: unknown,
-  actor: Actor,
-  targets: string[] = [],
-  id: string = uuid7(),
+	method: OutboxEntry["method"],
+	path: string,
+	body: unknown,
+	actor: Actor,
+	targets: string[] = [],
+	id: string = uuid7(),
 ): OutboxEntry {
-  return { id, method, path, body, occurredAt: new Date().toISOString(), actor, deviceId: deviceLabel(), targets };
+	return { id, method, path, body, occurredAt: new Date().toISOString(), actor, deviceId: deviceLabel(), targets };
 }
 
 /* Adds the entry to the outbox and applies the same change to the local copy in ONE database transaction (flushed
  * to disk before this returns), then starts the sender. The screen can show the result as soon as this resolves. */
 export async function enqueue(entry: OutboxEntry, applyLocal: () => Promise<void> | void): Promise<void> {
-  if (!offlineReady()) throw new Error("offline mode is not running");
-  await saveWithEntry(JSON.stringify(entry), applyLocal);
-  void drain("after save");
+	if (!offlineReady()) throw new Error("offline mode is not running");
+	await saveWithEntry(JSON.stringify(entry), applyLocal);
+	void drain("after save");
 }
 
 /* The save every screen uses: the entry and the local change are committed together, the sender is started, and the
@@ -124,13 +124,13 @@ export async function enqueue(entry: OutboxEntry, applyLocal: () => Promise<void
  * (The name is kept from when it waited a few seconds; `undoLocal` is no longer needed because a refused entry is
  * kept for review rather than rolled back.) */
 export async function enqueueAndWait(
-  entry: OutboxEntry,
-  applyLocal: () => Promise<void> | void,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _undoLocal?: () => Promise<void> | void,
+	entry: OutboxEntry,
+	applyLocal: () => Promise<void> | void,
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	_undoLocal?: () => Promise<void> | void,
 ): Promise<"sent" | "pending"> {
-  if (!offlineReady()) throw new Error("offline mode is not running");
-  await saveWithEntry(JSON.stringify(entry), applyLocal);
-  void drain("after save");
-  return "pending";
+	if (!offlineReady()) throw new Error("offline mode is not running");
+	await saveWithEntry(JSON.stringify(entry), applyLocal);
+	void drain("after save");
+	return "pending";
 }

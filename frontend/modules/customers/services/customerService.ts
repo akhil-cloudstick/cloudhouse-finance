@@ -312,6 +312,31 @@ export async function checkAadhaarVerify(customerId: string): Promise<AadhaarVer
   return { status: res.status, customer: res.customer ? toView(res.customer) : undefined, matchedName: res.matchedName, dob: res.dob, failureReasons: res.failureReasons ?? [] };
 }
 
+/* The server's own field checks (customerValidate), run on this PC so a refusal comes before anything is saved. */
+function checkCustomerFields(input: CustomerFormInput): void {
+  const p = (input.phone ?? "").trim();
+  const panIn = (input.pan ?? "").trim().toUpperCase();
+  const aadhaarIn = (input.aadhaar ?? "").replace(/[\s-]/g, "");
+  const bad = (m: string): never => {
+    throw new ApiError(m, 400);
+  };
+  if (!(input.name ?? "").trim()) bad("name is required");
+  if (!p) bad("phone is required");
+  if (!/^\d{10}$/.test(p)) bad("phone must be a 10-digit number");
+  if (!input.branchId) bad("branch is required");
+  if (panIn && !/^[A-Z]{5}\d{4}[A-Z]$/.test(panIn)) bad("PAN must look like ABCDE1234F");
+  if (aadhaarIn && !/^\d{12}$/.test(aadhaarIn)) bad("Aadhaar must be exactly 12 digits");
+  if (/\d/.test(input.nomineeName ?? "")) bad("nominee name must not contain digits");
+  if (/\d/.test(input.nomineeRelation ?? "")) bad("nominee relation must not contain digits");
+  const acct = input.bankAccountNumber ?? "";
+  if (acct && (acct.length > 18 || /\D/.test(acct))) bad("bank account number must be digits only, up to 18 digits");
+  if (input.customerType && input.customerType !== "Borrower" && input.customerType !== "Investor") bad("customer type must be Borrower or Investor");
+  if (input.customerType === "Investor") {
+    if (!input.bankAccountName || !acct || !input.bankIfsc) bad("bank account name, number and IFSC are required");
+    if (!panIn || !aadhaarIn) bad("PAN and Aadhaar are required for an investor");
+  }
+}
+
 export async function createCustomer(input: CustomerFormInput, hint?: { branchName?: string }): Promise<CustomerView> {
   if (!offlineReady()) {
     const rec = await apiFetch<BackendCustomer>("/customers", {
@@ -324,29 +349,7 @@ export async function createCustomer(input: CustomerFormInput, hint?: { branchNa
   // customer on this PC that never reaches the server (and every loan or investment made for them). The same check is
   // made here on this PC's copy, so the person is told before saving.
   // the server's own field checks (customerValidate), first
-  {
-    const p = (input.phone ?? "").trim();
-    const panIn = (input.pan ?? "").trim().toUpperCase();
-    const aadhaarIn = (input.aadhaar ?? "").replace(/[\s-]/g, "");
-    const bad = (m: string): never => {
-      throw new ApiError(m, 400);
-    };
-    if (!(input.name ?? "").trim()) bad("name is required");
-    if (!p) bad("phone is required");
-    if (!/^\d{10}$/.test(p)) bad("phone must be a 10-digit number");
-    if (!input.branchId) bad("branch is required");
-    if (panIn && !/^[A-Z]{5}\d{4}[A-Z]$/.test(panIn)) bad("PAN must look like ABCDE1234F");
-    if (aadhaarIn && !/^\d{12}$/.test(aadhaarIn)) bad("Aadhaar must be exactly 12 digits");
-    if (/\d/.test(input.nomineeName ?? "")) bad("nominee name must not contain digits");
-    if (/\d/.test(input.nomineeRelation ?? "")) bad("nominee relation must not contain digits");
-    const acct = input.bankAccountNumber ?? "";
-    if (acct && (acct.length > 18 || /\D/.test(acct))) bad("bank account number must be digits only, up to 18 digits");
-    if (input.customerType && input.customerType !== "Borrower" && input.customerType !== "Investor") bad("customer type must be Borrower or Investor");
-    if (input.customerType === "Investor") {
-      if (!input.bankAccountName || !acct || !input.bankIfsc) bad("bank account name, number and IFSC are required");
-      if (!panIn || !aadhaarIn) bad("PAN and Aadhaar are required for an investor");
-    }
-  }
+  checkCustomerFields(input);
   const known = listLocal("customers") as unknown as BackendCustomer[];
   const phone = (input.phone ?? "").trim();
   if (phone && known.some((c) => (c.phone ?? "").trim() === phone)) {
@@ -391,11 +394,69 @@ export async function createCustomer(input: CustomerFormInput, hint?: { branchNa
 }
 
 export async function updateCustomer(id: string, input: CustomerFormInput): Promise<CustomerView> {
-  const rec = await apiFetch<BackendCustomer>(`/customers/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(toRequestBody(input)),
+  const path = `/customers/${id}`;
+  const online = async () => toView(await apiFetch<BackendCustomer>(path, { method: "PUT", body: JSON.stringify(toRequestBody(input)) }));
+  if (!offlineReady()) return online();
+  const current = localCustomerRecord(id);
+  if (!current) throw new ApiError("Customer not found", 404);
+  checkCustomerFields(input);
+  // phone and PAN must stay unique, as the server enforces on an edit (the customer's own record is not a clash)
+  const others = (listLocal("customers") as unknown as BackendCustomer[]).filter((c) => c.uuid !== current.uuid);
+  const phone = (input.phone ?? "").trim();
+  if (phone !== (current.phone ?? "").trim() && others.some((c) => (c.phone ?? "").trim() === phone)) {
+    throw new ApiError("phone number is already registered to another customer", 409);
+  }
+  const pan = (input.pan ?? "").trim().toUpperCase();
+  if (pan && pan !== (current.pan ?? "").trim().toUpperCase() && others.some((c) => (c.pan ?? "").trim().toUpperCase() === pan)) {
+    throw new ApiError("PAN is already registered to another customer", 409);
+  }
+  // a customer made on this PC and not sent yet is addressed by the id this PC gave them
+  const target = current.id ? path : `/customers/${UUID_ID}${current.uuid}`;
+  const body = toRequestBody(input);
+  const saved = (): BackendCustomer => {
+    const aadhaar = (input.aadhaar ?? "").replace(/D/g, "");
+    return {
+      ...current,
+      name: input.name,
+      phone: input.phone,
+      dob: input.dob ?? "",
+      address: input.address,
+      branchId: input.branchId,
+      photoUrl: input.photoUrl,
+      identityProofUrl: input.identityProofUrl,
+      addressProofUrl: input.addressProofUrl,
+      kycDocumentUrl: input.kycDocumentUrl,
+      pan: input.pan,
+      // the server keeps the old Aadhaar when none is sent, and shows the last four of the new one when it is
+      aadhaarLast4: aadhaar ? aadhaar.slice(-4) : current.aadhaarLast4,
+      nomineeName: input.nomineeName,
+      nomineeRelation: input.nomineeRelation,
+      nomineePhone: input.nomineePhone,
+      fatherName: input.fatherName,
+      district: input.district,
+      taluk: input.taluk,
+      village: input.village,
+      place: input.place,
+      pinCode: input.pinCode,
+      age: input.age ?? current.age,
+      customerType: input.customerType || current.customerType,
+      bankAccountName: input.bankAccountName,
+      bankAccountNumber: input.bankAccountNumber,
+      bankIfsc: input.bankIfsc,
+      updatedAt: new Date().toISOString(),
+    } as BackendCustomer;
+  };
+  await queueWrite("PUT", target, body, undefined, async () => void (await online()), async () => {
+    const next = saved();
+    await upsertLocal("customers", next as unknown as LocalRecord);
+    // loans on this PC carry the customer's name and phone for their lists
+    for (const l of listLocal("loans") as unknown as BackendLoan[]) {
+      const mine = current.id ? l.customerId === current.id : l.customerId === 0 && l.customer?.name === current.name;
+      if (!mine || !l.customer) continue;
+      await upsertLocal("loans", { ...l, customer: { ...l.customer, name: next.name, phone: next.phone } } as unknown as LocalRecord);
+    }
   });
-  return toView(rec);
+  return toView(saved());
 }
 
 export async function deleteCustomer(id: string): Promise<void> {

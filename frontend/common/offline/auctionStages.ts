@@ -10,33 +10,33 @@ let stages: Record<string, string> = {};
 let writes: Promise<void> = Promise.resolve();
 
 export async function loadAuctionStages(): Promise<void> {
-  try {
-    const text = await offlineStore.readFile(FILE);
-    stages = text ? (JSON.parse(text) as Record<string, string>) : {};
-  } catch {
-    stages = {};
-  }
+	try {
+		const text = await offlineStore.readFile(FILE);
+		stages = text ? (JSON.parse(text) as Record<string, string>) : {};
+	} catch {
+		stages = {};
+	}
 }
 
 /* What the loan's status alone says, for a loan whose case was never read on this PC. */
 function fromStatus(status: string | undefined): string | undefined {
-  if (status === "Auction Eligible") return "AuctionEligible";
-  if (status === "Auctioned" || status === "Auctioned - Balance Due") return "Auctioned";
-  return undefined;
+	if (status === "Auction Eligible") return "AuctionEligible";
+	if (status === "Auctioned" || status === "Auctioned - Balance Due") return "Auctioned";
+	return undefined;
 }
 
 export function auctionStageOf(loanId: number, status?: string): string | undefined {
-  return stages[String(loanId)] ?? fromStatus(status);
+	return stages[String(loanId)] ?? fromStatus(status);
 }
 
 /* `null` forgets the loan's stage (it has no case any more). */
 export function setAuctionStage(loanId: number, stage: string | null): void {
-  const key = String(loanId);
-  if ((stages[key] ?? null) === stage) return;
-  const next = { ...stages };
-  if (stage) next[key] = stage;
-  else delete next[key];
-  stages = next;
-  const snapshot = JSON.stringify(next);
-  writes = writes.then(() => offlineStore.writeFile(FILE, snapshot)).catch(() => {});
+	const key = String(loanId);
+	if ((stages[key] ?? null) === stage) return;
+	const next = { ...stages };
+	if (stage) next[key] = stage;
+	else delete next[key];
+	stages = next;
+	const snapshot = JSON.stringify(next);
+	writes = writes.then(() => offlineStore.writeFile(FILE, snapshot)).catch(() => {});
 }

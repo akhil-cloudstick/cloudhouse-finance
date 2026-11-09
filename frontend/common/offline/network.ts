@@ -7,11 +7,11 @@ export const NETWORK_EVENT = "app:network-state";
 let reachable = true;
 
 export function isReachable(): boolean {
-  return reachable;
+	return reachable;
 }
 
 export function setReachable(next: boolean): void {
-  if (next === reachable) return;
-  reachable = next;
-  if (typeof window !== "undefined") window.dispatchEvent(new Event(NETWORK_EVENT));
+	if (next === reachable) return;
+	reachable = next;
+	if (typeof window !== "undefined") window.dispatchEvent(new Event(NETWORK_EVENT));
 }

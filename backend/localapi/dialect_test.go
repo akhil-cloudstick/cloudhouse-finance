@@ -4,8 +4,8 @@ import "testing"
 
 func TestRewriteTurnsPostgresFormsIntoSQLite(t *testing.T) {
 	cases := map[string]string{
-		`name ILIKE ?`:       `name LIKE ?`,
-		`updated_at < NOW()`: `updated_at < CURRENT_TIMESTAMP`,
+		`name ILIKE ?`:                                `name LIKE ?`,
+		`updated_at < NOW()`:                          `updated_at < CURRENT_TIMESTAMP`,
 		`ROUND(fineness_percent::numeric, 1) = ?`:     `ROUND(fineness_percent, 1) = ?`,
 		`SELECT * FROM loans WHERE id = 1 FOR UPDATE`: `SELECT * FROM loans WHERE id = 1`,
 		`to_char(occurred_on, 'DD-MM-YYYY') LIKE ?`:   `strftime('%d-%m-%Y', occurred_on) LIKE ?`,

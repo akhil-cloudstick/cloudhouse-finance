@@ -16,76 +16,76 @@ type DayBookEntryModalContentProps = { entry?: DayBookRow; onSaved?: () => void 
  * amount. Opened from the Day Book report and from the dashboard's Quick actions. The one error
  * line sits in the footer. */
 export function DayBookEntryModalContent({ entry, onSaved }: DayBookEntryModalContentProps) {
-  const { closeModal } = useModal();
-  const toast = useToast();
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const amountText = (v?: number) => (v ? String(v) : "");
+	const { closeModal } = useModal();
+	const toast = useToast();
+	const now = new Date();
+	const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+	const amountText = (v?: number) => (v ? String(v) : "");
 
-  const [date, setDate] = useState(entry?.date ?? today);
-  const [particulars, setParticulars] = useState(entry?.particulars ?? "");
-  const [debit, setDebit] = useState(amountText(entry?.debit));
-  const [credit, setCredit] = useState(amountText(entry?.credit));
-  const [interest, setInterest] = useState(amountText(entry?.interest));
-  const [err, setErr] = useState("");
-  const [saving, setSaving] = useState(false);
-  const submittingRef = useRef(false);
+	const [date, setDate] = useState(entry?.date ?? today);
+	const [particulars, setParticulars] = useState(entry?.particulars ?? "");
+	const [debit, setDebit] = useState(amountText(entry?.debit));
+	const [credit, setCredit] = useState(amountText(entry?.credit));
+	const [interest, setInterest] = useState(amountText(entry?.interest));
+	const [err, setErr] = useState("");
+	const [saving, setSaving] = useState(false);
+	const submittingRef = useRef(false);
 
-  const num = (s: string) => (s.trim() === "" ? 0 : Number(s));
+	const num = (s: string) => (s.trim() === "" ? 0 : Number(s));
 
-  async function save() { return singleFlight("modal:daybook:save", async () => {
-    if (submittingRef.current) return;
-    const values = { debit: num(debit), credit: num(credit), interest: num(interest) };
-    if (!date) { setErr("Pick the date."); return; }
-    if (!particulars.trim()) { setErr("Enter the particulars."); return; }
-    if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) { setErr("Amounts must be zero or more."); return; }
-    if (!values.debit && !values.credit && !values.interest) { setErr("Enter a debit, credit or interest amount."); return; }
-    submittingRef.current = true;
-    setErr("");
-    setSaving(true);
-    try {
-      const input = { date, particulars: particulars.trim(), ...values };
-      if (entry) await updateDayBookEntry(entry.id, input);
-      else await createDayBookEntry(input);
-      onSaved?.();
-      closeModal();
-      toast(entry ? "Day book entry updated" : "Day book entry added");
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save the entry — try again.");
-    } finally {
-      submittingRef.current = false;
-      setSaving(false);
-    }
-  }); }
+	async function save() { return singleFlight("modal:daybook:save", async () => {
+		if (submittingRef.current) return;
+		const values = { debit: num(debit), credit: num(credit), interest: num(interest) };
+		if (!date) { setErr("Pick the date."); return; }
+		if (!particulars.trim()) { setErr("Enter the particulars."); return; }
+		if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) { setErr("Amounts must be zero or more."); return; }
+		if (!values.debit && !values.credit && !values.interest) { setErr("Enter a debit, credit or interest amount."); return; }
+		submittingRef.current = true;
+		setErr("");
+		setSaving(true);
+		try {
+			const input = { date, particulars: particulars.trim(), ...values };
+			if (entry) await updateDayBookEntry(entry.id, input);
+			else await createDayBookEntry(input);
+			onSaved?.();
+			closeModal();
+			toast(entry ? "Day book entry updated" : "Day book entry added");
+		} catch (e) {
+			setErr(e instanceof ApiError ? e.message : "Could not save the entry — try again.");
+		} finally {
+			submittingRef.current = false;
+			setSaving(false);
+		}
+	}); }
 
-  const clearErr = () => setErr("");
+	const clearErr = () => setErr("");
 
-  return (
-    <>
-      <div className="hd"><h3>{entry ? "Edit Day Book Entry" : "Day Book Entry"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
-        <div className="frow c2">
-          <div><label className="f">Date *</label><DatePicker value={date} max={today} onChange={(v) => { clearErr(); setDate(v); }} /></div>
-          <div><label className="f">Particulars *</label>
-            <input className="inp" placeholder="e.g. Office rent, LN-00144 interest" value={particulars} maxLength={255} autoComplete="off" onChange={(e) => { clearErr(); setParticulars(e.target.value); }} /></div>
-        </div>
-        <div className="frow c2">
-          <div><label className="f">Debit (₹)</label>
-            <input className="inp" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0" value={debit} onChange={(e) => { clearErr(); setDebit(e.target.value); }} /></div>
-          <div><label className="f">Credit (₹)</label>
-            <input className="inp" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0" value={credit} onChange={(e) => { clearErr(); setCredit(e.target.value); }} /></div>
+	return (
+		<>
+			<div className="hd"><h3>{entry ? "Edit Day Book Entry" : "Day Book Entry"}</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll">
+				<div className="frow c2">
+					<div><label className="f">Date *</label><DatePicker value={date} max={today} onChange={(v) => { clearErr(); setDate(v); }} /></div>
+					<div><label className="f">Particulars *</label>
+						<input className="inp" placeholder="e.g. Office rent, LN-00144 interest" value={particulars} maxLength={255} autoComplete="off" onChange={(e) => { clearErr(); setParticulars(e.target.value); }} /></div>
+				</div>
+				<div className="frow c2">
+					<div><label className="f">Debit (₹)</label>
+						<input className="inp" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0" value={debit} onChange={(e) => { clearErr(); setDebit(e.target.value); }} /></div>
+					<div><label className="f">Credit (₹)</label>
+						<input className="inp" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0" value={credit} onChange={(e) => { clearErr(); setCredit(e.target.value); }} /></div>
 
-        </div>
-        <div className="frow c2">
-          <div><label className="f">Interest (₹)</label>
-            <input className="inp" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0" value={interest} onChange={(e) => { clearErr(); setInterest(e.target.value); }} /></div>
-        </div>
-      </div>
-      <div className="ft">
-        <span className="pay-ft-msg">{err}</span>
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : entry ? "Save Changes" : "Add Entry"}</button>
-      </div>
-    </>
-  );
+				</div>
+				<div className="frow c2">
+					<div><label className="f">Interest (₹)</label>
+						<input className="inp" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0" value={interest} onChange={(e) => { clearErr(); setInterest(e.target.value); }} /></div>
+				</div>
+			</div>
+			<div className="ft">
+				<span className="pay-ft-msg">{err}</span>
+				<button className="btn ghost" onClick={closeModal}>Cancel</button>
+				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : entry ? "Save Changes" : "Add Entry"}</button>
+			</div>
+		</>
+	);
 }

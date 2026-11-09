@@ -175,7 +175,7 @@ var tablePermission = map[string]string{
 	"employees": "can view employee module", "banks": "can view bank module", "customers": "can view customer module",
 	"ornament_types": "can view ornament type module", "purity_standards": "can view purity standard module",
 	"roles": "can view role and permission module", "role_permissions": "can view role and permission module",
-	"permissions": "can view role and permission module",
+	"permissions":      "can view role and permission module",
 	"approval_actions": "can view loan module", "approval_category_modes": "can view loan module",
 	"approval_chains": "can view loan module", "approval_stage_settings": "can view loan module",
 	"cash_movements": "can view cash module", "categories": "can view cash module", "expenses": "can view cash module",

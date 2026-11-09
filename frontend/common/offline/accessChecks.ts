@@ -10,27 +10,27 @@ export const SAVED_ON_PC = "Saved on this PC. It applies to everyone when it syn
 type EmployeeRow = { id: number; name: string; role: string; branchId?: number; phone?: string; username?: string };
 
 export async function readRoles(): Promise<Role[] | null> {
-  try {
-    const rows = await apiFetch<Role[]>("/roles");
-    return Array.isArray(rows) ? rows : null;
-  } catch {
-    return null;
-  }
+	try {
+		const rows = await apiFetch<Role[]>("/roles");
+		return Array.isArray(rows) ? rows : null;
+	} catch {
+		return null;
+	}
 }
 
 /* Every employee the list holds, whole (the cached list may be one branch's, so a missing one proves nothing). */
 export async function readEmployees(): Promise<EmployeeRow[] | null> {
-  try {
-    const rows = await apiFetch<EmployeeRow[] | { items?: EmployeeRow[] }>("/employees");
-    const list = Array.isArray(rows) ? rows : rows?.items;
-    return Array.isArray(list) ? list : null;
-  } catch {
-    return null;
-  }
+	try {
+		const rows = await apiFetch<EmployeeRow[] | { items?: EmployeeRow[] }>("/employees");
+		const list = Array.isArray(rows) ? rows : rows?.items;
+		return Array.isArray(list) ? list : null;
+	} catch {
+		return null;
+	}
 }
 
 /* The role the signed-in person holds, from the role list; undefined when it cannot be known. */
 export function actorRoleOf(roles: Role[] | null): Role | undefined {
-  const name = currentActor().role;
-  return roles?.find((r) => r.name === name);
+	const name = currentActor().role;
+	return roles?.find((r) => r.name === name);
 }

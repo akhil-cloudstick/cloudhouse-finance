@@ -23,6 +23,7 @@ const PROD_URL = process.env.NEXT_PUBLIC_API_BASE || "/api/v1";
 
 // Razorpay's hosted checkout script — the one third-party host the app loads.
 export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.js";
+export const PROVIDER_SITE_URL = "https://cloudhousetechnologies.com";
 
 /* Thin fetch wrapper for the Go backend (Gin, `/api/v1/...`). In production
  * the backend serves the built frontend from the same origin, so requests

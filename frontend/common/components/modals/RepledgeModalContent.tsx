@@ -20,7 +20,7 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = {
-  split: /breakdown|split|cheque|upi|cash/i, bank: /bank/i, date: /date/i, rate: /interest rate/i, amount: /amount/i,
+	split: /breakdown|split|cheque|upi|cash/i, bank: /bank/i, date: /date/i, rate: /interest rate/i, amount: /amount/i,
 };
 
 type RepledgeModalContentProps = { loan: LoanView; onSaved: () => void };
@@ -39,251 +39,251 @@ type RepledgeModalContentProps = { loan: LoanView; onSaved: () => void };
  * can't accidentally create a bare, detail-less bank record from this
  * modal. */
 export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProps) {
-  const { closeModal } = useModal();
-  const toast = useToast();
-  const smallScreen = useIsSmallScreen();
-  const today = new Date().toISOString().slice(0, 10);
+	const { closeModal } = useModal();
+	const toast = useToast();
+	const smallScreen = useIsSmallScreen();
+	const today = new Date().toISOString().slice(0, 10);
 
-  const [bank, setBank] = useState("");
-  const [bankId, setBankId] = useState<number | undefined>(undefined);
-  const [bankLabel, setBankLabel] = useState("");
-  const [amt, setAmt] = useState("");
-  const [date, setDate] = useState(today);
-  const [dueDate, setDueDate] = useState("");
-  const [interestRate, setInterestRate] = useState("");
-  const [referenceNumber, setReferenceNumber] = useState("");
-  const [err, setErr] = useState("");
-  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
-  const [fe, setFe] = useState<Record<string, string>>({});
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
-  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
-  const [saving, setSaving] = useState(false);
+	const [bank, setBank] = useState("");
+	const [bankId, setBankId] = useState<number | undefined>(undefined);
+	const [bankLabel, setBankLabel] = useState("");
+	const [amt, setAmt] = useState("");
+	const [date, setDate] = useState(today);
+	const [dueDate, setDueDate] = useState("");
+	const [interestRate, setInterestRate] = useState("");
+	const [referenceNumber, setReferenceNumber] = useState("");
+	const [err, setErr] = useState("");
+	// Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+	const [fe, setFe] = useState<Record<string, string>>({});
+	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+	const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+	const [saving, setSaving] = useState(false);
 
-  /* Defaults to RecordOnly — the harmless choice. Staff must actively opt in to
-   * moving money, rather than being blocked by a required field: leaving this
-   * alone just files a paperwork record. Immutable once saved (a wrong pick is
-   * fixed by voiding the record), so the consequence is spelled out below the
-   * control rather than left to be discovered afterwards. */
-  const [cashTreatment, setCashTreatment] = useState<BankPledgeCashTreatment>("RecordOnly");
-  // How the bank's advance reached the branch — only asked for "CashIn".
-  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
-  const [remaining, setRemaining] = useState(0);
-  const [receivedBankId, setReceivedBankId] = useState<number | undefined>(undefined);
+	/* Defaults to RecordOnly — the harmless choice. Staff must actively opt in to
+	 * moving money, rather than being blocked by a required field: leaving this
+	 * alone just files a paperwork record. Immutable once saved (a wrong pick is
+	 * fixed by voiding the record), so the consequence is spelled out below the
+	 * control rather than left to be discovered afterwards. */
+	const [cashTreatment, setCashTreatment] = useState<BankPledgeCashTreatment>("RecordOnly");
+	// How the bank's advance reached the branch — only asked for "CashIn".
+	const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+	const [remaining, setRemaining] = useState(0);
+	const [receivedBankId, setReceivedBankId] = useState<number | undefined>(undefined);
 
-  // Ornaments that can still go to a bank: not handed back to the customer and not already with a bank.
-  const pledgedIds = useMemo(() => new Set(loan.bankPledges.filter((p) => p.status === "Active").flatMap((p) => p.ornamentIds)), [loan]);
-  const wholeLoanPledged = loan.bankPledges.some((p) => p.status === "Active" && p.ornamentIds.length === 0);
-  const available = loan.ornaments.filter((o) => !o.releasedAt && !wholeLoanPledged && !pledgedIds.has(o.id));
-  const [picked, setPicked] = useState<Set<number>>(() => new Set(available.map((o) => o.id)));
-  const togglePicked = (id: number) => setPicked((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const pickedOrnaments = available.filter((o) => picked.has(o.id));
-  const pickedNet = pickedOrnaments.reduce((s, o) => s + o.netWeight, 0);
-  const pickedValue = pickedOrnaments.reduce((s, o) => s + o.goldValue, 0);
-  // Shown inside the ornament box itself, live, rather than at the foot of the form after a click.
-  const ornamentsMsg = available.length === 0
-    ? "Every ornament on this loan is already pledged or released."
-    : pickedOrnaments.length === 0 ? "Select at least one ornament to pledge." : "";
-  // UPI / Bank Transfer money has to say which bank it reached.
-  const splitBankMissing = cashTreatment === "CashIn" && split.upiAmount + split.bankTransferAmount > 0 && !receivedBankId;
-  // Every mandatory field filled — the Repledge button stays disabled until this holds.
-  const ready = !!bank.trim() && +amt > 0 && !!date && pickedOrnaments.length > 0
-    && (cashTreatment !== "CashIn" || (Math.abs(remaining) < 0.01 && !splitBankMissing));
+	// Ornaments that can still go to a bank: not handed back to the customer and not already with a bank.
+	const pledgedIds = useMemo(() => new Set(loan.bankPledges.filter((p) => p.status === "Active").flatMap((p) => p.ornamentIds)), [loan]);
+	const wholeLoanPledged = loan.bankPledges.some((p) => p.status === "Active" && p.ornamentIds.length === 0);
+	const available = loan.ornaments.filter((o) => !o.releasedAt && !wholeLoanPledged && !pledgedIds.has(o.id));
+	const [picked, setPicked] = useState<Set<number>>(() => new Set(available.map((o) => o.id)));
+	const togglePicked = (id: number) => setPicked((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+	const pickedOrnaments = available.filter((o) => picked.has(o.id));
+	const pickedNet = pickedOrnaments.reduce((s, o) => s + o.netWeight, 0);
+	const pickedValue = pickedOrnaments.reduce((s, o) => s + o.goldValue, 0);
+	// Shown inside the ornament box itself, live, rather than at the foot of the form after a click.
+	const ornamentsMsg = available.length === 0
+		? "Every ornament on this loan is already pledged or released."
+		: pickedOrnaments.length === 0 ? "Select at least one ornament to pledge." : "";
+	// UPI / Bank Transfer money has to say which bank it reached.
+	const splitBankMissing = cashTreatment === "CashIn" && split.upiAmount + split.bankTransferAmount > 0 && !receivedBankId;
+	// Every mandatory field filled — the Repledge button stays disabled until this holds.
+	const ready = !!bank.trim() && +amt > 0 && !!date && pickedOrnaments.length > 0
+		&& (cashTreatment !== "CashIn" || (Math.abs(remaining) < 0.01 && !splitBankMissing));
 
-  async function save() { return singleFlight("modal:repledge:save", async () => {
-    setErr(""); setFe({});
-    // Every problem is shown at once, each beside its own field.
-    const errors: Record<string, string> = {};
-    if (!bank.trim()) errors["bank"] ??= "Please enter the bank to repledge with.";
-    if (!date) errors["date"] ??= "Please select the pledge date.";
-    const amount = +amt;
-    if (!amount || amount <= 0) errors["amount"] ??= "Please enter the pledged amount.";
-    if (pickedOrnaments.length === 0) return;
-    // Everything still free and nothing pledged yet = the usual whole-loan pledge.
-    const wholeLoan = pledgedIds.size === 0 && pickedOrnaments.length === available.length;
-    if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the pledged amount.";
-    if (splitBankMissing) errors["split"] ??= "Select the bank the money came through.";
-    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
-    setSaving(true);
-    try {
-      await recordBankPledge(loan.numericId, {
-        bankId,
-        bankName: bank.trim(),
-        pledgedAmount: amount,
-        pledgeDate: date,
-        bankInterestRate: interestRate ? +interestRate : undefined,
-        referenceNumber: referenceNumber.trim() || undefined,
-        bankPledgeDueDate: dueDate || undefined,
-        cashTreatment,
-        ...(cashTreatment === "CashIn" ? { ...split, receivedBankId } : {}),
-        ...(wholeLoan ? {} : { ornamentIds: pickedOrnaments.map((o) => o.id) }),
-      });
-      onSaved();
-      closeModal();
-      toast(
-        cashTreatment === "CashIn"
-          ? `Gold repledged to ${bank.trim()} — ${fmt(amount)} added to Cash-in-Hand`
-          : `Gold repledged to ${bank.trim()} — recorded only, no cash effect`
-      );
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not record the pledge — try again.";
-      const field = fieldForMessage(msg, SERVER_FIELDS);
-      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
-    } finally {
-      setSaving(false);
-    }
-  }); }
+	async function save() { return singleFlight("modal:repledge:save", async () => {
+		setErr(""); setFe({});
+		// Every problem is shown at once, each beside its own field.
+		const errors: Record<string, string> = {};
+		if (!bank.trim()) errors["bank"] ??= "Please enter the bank to repledge with.";
+		if (!date) errors["date"] ??= "Please select the pledge date.";
+		const amount = +amt;
+		if (!amount || amount <= 0) errors["amount"] ??= "Please enter the pledged amount.";
+		if (pickedOrnaments.length === 0) return;
+		// Everything still free and nothing pledged yet = the usual whole-loan pledge.
+		const wholeLoan = pledgedIds.size === 0 && pickedOrnaments.length === available.length;
+		if (cashTreatment === "CashIn" && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the pledged amount.";
+		if (splitBankMissing) errors["split"] ??= "Select the bank the money came through.";
+		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+		setSaving(true);
+		try {
+			await recordBankPledge(loan.numericId, {
+				bankId,
+				bankName: bank.trim(),
+				pledgedAmount: amount,
+				pledgeDate: date,
+				bankInterestRate: interestRate ? +interestRate : undefined,
+				referenceNumber: referenceNumber.trim() || undefined,
+				bankPledgeDueDate: dueDate || undefined,
+				cashTreatment,
+				...(cashTreatment === "CashIn" ? { ...split, receivedBankId } : {}),
+				...(wholeLoan ? {} : { ornamentIds: pickedOrnaments.map((o) => o.id) }),
+			});
+			onSaved();
+			closeModal();
+			toast(
+				cashTreatment === "CashIn"
+					? `Gold repledged to ${bank.trim()} — ${fmt(amount)} added to Cash-in-Hand`
+					: `Gold repledged to ${bank.trim()} — recorded only, no cash effect`
+			);
+		} catch (e) {
+			const msg = e instanceof ApiError ? e.message : "Could not record the pledge — try again.";
+			const field = fieldForMessage(msg, SERVER_FIELDS);
+			if (field) fail(field, msg); else { setFe({}); setErr(msg); }
+		} finally {
+			setSaving(false);
+		}
+	}); }
 
-  return (
-    <>
-      <div className="hd"><h3>Repledge Gold to Bank — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll repledge-modal-bd">
-        {loan.ornaments.length > 0 && (
-          <section className={"rp-sec" + (ornamentsMsg ? " has-err" : "")}>
-            <div className="rp-sec-h">
-              <span>Gold being pledged</span>
-              <span className="rp-sec-meta">{pickedOrnaments.length} of {loan.ornaments.length} item{loan.ornaments.length > 1 ? "s" : ""} selected · {fmtW(pickedNet)} net</span>
-            </div>
-            <div className="tbl-wrap rp-tbl"><table className="tbl tbl-tight">
-              <TableCols widths={[4, 34, 14, 10, 16, 22]} />
-              <thead><tr><th></th><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Net Wt</th><th className="num">Value</th></tr></thead>
-              <tbody>
-                {loan.ornaments.map((o, i) => (
-                  <tr key={o.id ?? i}>
-                    <td className="rp-idx">
-                      <label className="ccheck" style={{ padding: 0, margin: 0 }}>
-                        <input
-                          type="checkbox"
-                          aria-label={`Pledge ${o.name}`}
-                          disabled={!available.some((a) => a.id === o.id)}
-                          checked={picked.has(o.id)}
-                          onChange={() => togglePicked(o.id)}
-                        />
-                        <span className="mark" />
-                      </label>
-                    </td>
-                    <td style={{ fontWeight: 500 }}>
-                      {o.name}
-                      {!available.some((a) => a.id === o.id) && <span className="chip" style={{ marginLeft: 6 }}>{o.releasedAt ? "Released" : "Already pledged"}</span>}
-                    </td>
-                    <td><span className="chip brand">{o.purity}</span></td>
-                    <td className="num">{o.quantity}</td>
-                    <td className="num">{fmtW(o.netWeight)}</td>
-                    <td className="num">{fmt(o.goldValue)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              {loan.ornaments.length > 1 && (
-                <tfoot><tr>
-                  <td colSpan={4}>Selected total</td>
-                  <td className="num">{fmtW(pickedNet)}</td>
-                  <td className="num">{fmt(pickedValue)}</td>
-                </tr></tfoot>
-              )}
-            </table></div>
-            <FieldError msg={ornamentsMsg} />
-          </section>
-        )}
+	return (
+		<>
+			<div className="hd"><h3>Repledge Gold to Bank — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll repledge-modal-bd">
+				{loan.ornaments.length > 0 && (
+					<section className={"rp-sec" + (ornamentsMsg ? " has-err" : "")}>
+						<div className="rp-sec-h">
+							<span>Gold being pledged</span>
+							<span className="rp-sec-meta">{pickedOrnaments.length} of {loan.ornaments.length} item{loan.ornaments.length > 1 ? "s" : ""} selected · {fmtW(pickedNet)} net</span>
+						</div>
+						<div className="tbl-wrap rp-tbl"><table className="tbl tbl-tight">
+							<TableCols widths={[4, 34, 14, 10, 16, 22]} />
+							<thead><tr><th></th><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Net Wt</th><th className="num">Value</th></tr></thead>
+							<tbody>
+								{loan.ornaments.map((o, i) => (
+									<tr key={o.id ?? i}>
+										<td className="rp-idx">
+											<label className="ccheck" style={{ padding: 0, margin: 0 }}>
+												<input
+													type="checkbox"
+													aria-label={`Pledge ${o.name}`}
+													disabled={!available.some((a) => a.id === o.id)}
+													checked={picked.has(o.id)}
+													onChange={() => togglePicked(o.id)}
+												/>
+												<span className="mark" />
+											</label>
+										</td>
+										<td style={{ fontWeight: 500 }}>
+											{o.name}
+											{!available.some((a) => a.id === o.id) && <span className="chip" style={{ marginLeft: 6 }}>{o.releasedAt ? "Released" : "Already pledged"}</span>}
+										</td>
+										<td><span className="chip brand">{o.purity}</span></td>
+										<td className="num">{o.quantity}</td>
+										<td className="num">{fmtW(o.netWeight)}</td>
+										<td className="num">{fmt(o.goldValue)}</td>
+									</tr>
+								))}
+							</tbody>
+							{loan.ornaments.length > 1 && (
+								<tfoot><tr>
+									<td colSpan={4}>Selected total</td>
+									<td className="num">{fmtW(pickedNet)}</td>
+									<td className="num">{fmt(pickedValue)}</td>
+								</tr></tfoot>
+							)}
+						</table></div>
+						<FieldError msg={ornamentsMsg} />
+					</section>
+				)}
 
-        <div className="rp-sec-h"><span>Bank pledge details</span></div>
-        {/* Small screens pack all 6 fields into a tight 3-col x 2-row grid
-         * (an explicit inline gridTemplateColumns, since `.frow.c3` collapses
-         * to one column below the usual breakpoint — that collapse is right
-         * for every other c3 usage, just not this compact small-screen
-         * layout) to keep the modal short enough that its footer buttons
-         * don't get pushed below the fold. Regular screens keep the
-         * original, more spacious row grouping instead. */}
-        {smallScreen ? (
-          <>
-            <div className="frow rp-grid rp-compact" style={{ gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
-              <div className={fe.bank ? "has-err" : undefined}><label className="f">Bank *</label>
-                <SearchableSelect<BackendBank>
-                  value={bankLabel}
-                  onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); clearFe("bank"); }}
-                  fetchFn={searchBanksPage}
-                  searchHint="Searches: bank name"
-                  getLabel={(b) => b.name}
-                  getId={(b) => String(b.id)}
-                  placeholder="Search for a registered bank…"
-                  portal
-                /><FieldError msg={fe.bank} /></div>
-              <div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
-              <div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
-              <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => { setInterestRate(e.target.value); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
-              <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
-              <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
-            </div>
-          </>
-        ) : (
-          <div className="frow c3 rp-grid">
-            <div className={fe.bank ? "has-err" : undefined}><label className="f">Bank *</label>
-              <SearchableSelect<BackendBank>
-                value={bankLabel}
-                onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); clearFe("bank"); }}
-                fetchFn={searchBanksPage}
-                searchHint="Searches: bank name"
-                getLabel={(b) => b.name}
-                getId={(b) => String(b.id)}
-                placeholder="Search for a registered bank…"
-                portal
-              /><FieldError msg={fe.bank} /></div>
-            <div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
-            <div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
-            <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => { setInterestRate(e.target.value); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
-            <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
-            <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
-          </div>
-        )}
+				<div className="rp-sec-h"><span>Bank pledge details</span></div>
+				{/* Small screens pack all 6 fields into a tight 3-col x 2-row grid
+				 * (an explicit inline gridTemplateColumns, since `.frow.c3` collapses
+				 * to one column below the usual breakpoint — that collapse is right
+				 * for every other c3 usage, just not this compact small-screen
+				 * layout) to keep the modal short enough that its footer buttons
+				 * don't get pushed below the fold. Regular screens keep the
+				 * original, more spacious row grouping instead. */}
+				{smallScreen ? (
+					<>
+						<div className="frow rp-grid rp-compact" style={{ gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
+							<div className={fe.bank ? "has-err" : undefined}><label className="f">Bank *</label>
+								<SearchableSelect<BackendBank>
+									value={bankLabel}
+									onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); clearFe("bank"); }}
+									fetchFn={searchBanksPage}
+									searchHint="Searches: bank name"
+									getLabel={(b) => b.name}
+									getId={(b) => String(b.id)}
+									placeholder="Search for a registered bank…"
+									portal
+								/><FieldError msg={fe.bank} /></div>
+							<div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
+							<div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
+							<div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => { setInterestRate(e.target.value); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
+							<div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
+							<div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
+						</div>
+					</>
+				) : (
+					<div className="frow c3 rp-grid">
+						<div className={fe.bank ? "has-err" : undefined}><label className="f">Bank *</label>
+							<SearchableSelect<BackendBank>
+								value={bankLabel}
+								onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); clearFe("bank"); }}
+								fetchFn={searchBanksPage}
+								searchHint="Searches: bank name"
+								getLabel={(b) => b.name}
+								getId={(b) => String(b.id)}
+								placeholder="Search for a registered bank…"
+								portal
+							/><FieldError msg={fe.bank} /></div>
+						<div className={fe.amount ? "has-err" : undefined}><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
+						<div className={fe.date ? "has-err" : undefined}><label className="f">Pledge Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
+						<div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => { setInterestRate(e.target.value); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
+						<div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
+						<div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
+					</div>
+				)}
 
-        {/* Cash treatment. Not every re-pledge brings money into the branch
-          * till — some are purely book-keeping — so this is an explicit choice
-          * per transaction rather than an assumption. */}
-        <div className="rp-sec-h rp-after-grid"><span>Cash treatment *</span></div>
-        <div>
-          <div className="rp-opts">
-            <label className={"cradio rp-opt" + (cashTreatment === "RecordOnly" ? " on" : "")}>
-              <input
-                type="radio"
-                name="cashTreatment"
-                checked={cashTreatment === "RecordOnly"}
-                onChange={() => setCashTreatment("RecordOnly")}
-              />
-              <span className="mark" />
-              <span>
-                <strong>Record only</strong>
-                <span className="rp-opt-d">No cash effect.</span>
-              </span>
-            </label>
-            <label className={"cradio rp-opt" + (cashTreatment === "CashIn" ? " on" : "")}>
-              <input
-                type="radio"
-                name="cashTreatment"
-                checked={cashTreatment === "CashIn"}
-                onChange={() => setCashTreatment("CashIn")}
-              />
-              <span className="mark" />
-              <span>
-                <strong>Add to Cash-in-Hand</strong>
-                <span className="rp-opt-d">Bank money added to branch cash.</span>
-              </span>
-            </label>
-          </div>
-        </div>
+				{/* Cash treatment. Not every re-pledge brings money into the branch
+					* till — some are purely book-keeping — so this is an explicit choice
+					* per transaction rather than an assumption. */}
+				<div className="rp-sec-h rp-after-grid"><span>Cash treatment *</span></div>
+				<div>
+					<div className="rp-opts">
+						<label className={"cradio rp-opt" + (cashTreatment === "RecordOnly" ? " on" : "")}>
+							<input
+								type="radio"
+								name="cashTreatment"
+								checked={cashTreatment === "RecordOnly"}
+								onChange={() => setCashTreatment("RecordOnly")}
+							/>
+							<span className="mark" />
+							<span>
+								<strong>Record only</strong>
+								<span className="rp-opt-d">No cash effect.</span>
+							</span>
+						</label>
+						<label className={"cradio rp-opt" + (cashTreatment === "CashIn" ? " on" : "")}>
+							<input
+								type="radio"
+								name="cashTreatment"
+								checked={cashTreatment === "CashIn"}
+								onChange={() => setCashTreatment("CashIn")}
+							/>
+							<span className="mark" />
+							<span>
+								<strong>Add to Cash-in-Hand</strong>
+								<span className="rp-opt-d">Bank money added to branch cash.</span>
+							</span>
+						</label>
+					</div>
+				</div>
 
-        {cashTreatment === "CashIn" && (
-          <div className="frow" style={{ marginTop: 10 }}>
-            <div className={fe.split ? "has-err" : undefined}>
-              <SplitPaymentInput totalAmount={+amt || 0} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setReceivedBankId(bid); clearFe("split"); }} />
-              <FieldError msg={fe.split} />
-            </div>
-          </div>
-        )}
+				{cashTreatment === "CashIn" && (
+					<div className="frow" style={{ marginTop: 10 }}>
+						<div className={fe.split ? "has-err" : undefined}>
+							<SplitPaymentInput totalAmount={+amt || 0} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setReceivedBankId(bid); clearFe("split"); }} />
+							<FieldError msg={fe.split} />
+						</div>
+					</div>
+				)}
 
-      </div>
-      <div className="ft">
-          {err && <span className="ft-err" role="alert">{err}</span>}
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || !ready} title={ready ? undefined : "Fill in every field marked * and select at least one ornament"}><Icon name="check" /> {saving ? "Saving…" : "Repledge to Bank"}</button>
-      </div>
-    </>
-  );
+			</div>
+			<div className="ft">
+					{err && <span className="ft-err" role="alert">{err}</span>}
+				<button className="btn ghost" onClick={closeModal}>Cancel</button>
+				<button className="btn" onClick={save} disabled={saving || !ready} title={ready ? undefined : "Fill in every field marked * and select at least one ornament"}><Icon name="check" /> {saving ? "Saving…" : "Repledge to Bank"}</button>
+			</div>
+		</>
+	);
 }

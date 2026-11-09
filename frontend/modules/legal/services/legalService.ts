@@ -15,22 +15,22 @@ import { apiRawFetch, resolveAssetUrl } from "@/common/services/httpClient";
 import type { Provider } from "@/modules/legal/types/legal-types";
 
 export async function fetchProvider(): Promise<Provider | null> {
-  try {
-    const res = await apiRawFetch("/public/provider", { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { data?: Partial<Provider> };
-    const d = body?.data;
-    if (!d?.name) return null;
-    return {
-      name: d.name,
-      legalName: d.legalName || d.name,
-      addressLine: d.addressLine ?? "",
-      contactPhone: d.contactPhone ?? "",
-      supportEmail: d.supportEmail ?? "",
-      website: d.website ?? "",
-      logoUrl: d.logoUrl ? resolveAssetUrl(d.logoUrl) : "",
-    };
-  } catch {
-    return null;
-  }
+	try {
+		const res = await apiRawFetch("/public/provider", { cache: "no-store" });
+		if (!res.ok) return null;
+		const body = (await res.json()) as { data?: Partial<Provider> };
+		const d = body?.data;
+		if (!d?.name) return null;
+		return {
+			name: d.name,
+			legalName: d.legalName || d.name,
+			addressLine: d.addressLine ?? "",
+			contactPhone: d.contactPhone ?? "",
+			supportEmail: d.supportEmail ?? "",
+			website: d.website ?? "",
+			logoUrl: d.logoUrl ? resolveAssetUrl(d.logoUrl) : "",
+		};
+	} catch {
+		return null;
+	}
 }

@@ -1,10 +1,10 @@
 import {
-  BRAND_COLOR_KEY_PREFIX,
-  BRAND_FAVICON_KEY_PREFIX,
-  BRAND_LOGO_KEY_PREFIX,
-  BRAND_TITLE_KEY_PREFIX,
-  BRAND_VARS_KEY_PREFIX,
-  DEFAULT_BRAND_COLOR,
+	BRAND_COLOR_KEY_PREFIX,
+	BRAND_FAVICON_KEY_PREFIX,
+	BRAND_LOGO_KEY_PREFIX,
+	BRAND_TITLE_KEY_PREFIX,
+	BRAND_VARS_KEY_PREFIX,
+	DEFAULT_BRAND_COLOR,
 } from "@/common/config/theme";
 
 /* A blocking inline script that paints the signed-in business's brand colour
@@ -128,10 +128,10 @@ const script = `
 `;
 
 export function BrandPreload() {
-  // suppressHydrationWarning: in the desktop dev shell, DESKTOP_RUNTIME_LOADER
-  // (the sibling script right after this one — see app/(product)/layout.tsx)
-  // rewrites the page via document.write() before React hydrates, which
-  // shifts this node too; same reasoning as that script's own suppression.
-  // eslint-disable-next-line @next/next/no-sync-scripts
-  return <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: script }} />;
+	// suppressHydrationWarning: in the desktop dev shell, DESKTOP_RUNTIME_LOADER
+	// (the sibling script right after this one — see app/(product)/layout.tsx)
+	// rewrites the page via document.write() before React hydrates, which
+	// shifts this node too; same reasoning as that script's own suppression.
+	// eslint-disable-next-line @next/next/no-sync-scripts
+	return <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: script }} />;
 }
