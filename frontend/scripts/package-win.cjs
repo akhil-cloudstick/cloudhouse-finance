@@ -39,6 +39,11 @@ async function applyTenantBranding() {
   }
   const branding = await fetchTenantBranding(apiBase);
   if (!branding) {
+    // A business was named explicitly, so a default-branded exe would be the wrong product: stop instead of shipping it.
+    if ((process.env.DESKTOP_TENANT || "").trim()) {
+      console.error(`DESKTOP_TENANT="${process.env.DESKTOP_TENANT}" is set but its branding could not be fetched from ${apiBase}. Start the backend (or point DESKTOP_API_BASE at a reachable one) and build again.`);
+      process.exit(1);
+    }
     console.warn(`Could not fetch tenant branding from ${apiBase} — building with the default CloudHouse icon/title.`);
     writeWindowTitleOverride(root, null);
     return null;
