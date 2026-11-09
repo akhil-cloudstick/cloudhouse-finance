@@ -81,13 +81,9 @@ export function AuctionDecisionModalContent({
           <Icon name="shield" />
           <span>
             {isShortfall ? (
-              <>The auction realised <b>{fmt(request.amountPaid)}</b>, which did not cover everything owed.{" "}
-              <b>{fmt(request.outstandingAtRequest)}</b> remains outstanding on a loan whose gold has already been sold.
-              The balance is currently frozen — it will only resume accruing interest if you choose to pursue it.</>
+              <><b>{fmt(request.outstandingAtRequest)}</b> still unpaid. Balance frozen.</>
             ) : (
-              <>{loan.customerName} paid <b>{fmt(request.amountPaid)}</b> while this gold was in the auction pipeline.{" "}
-              <b>{fmt(request.outstandingAtRequest)}</b> is still outstanding. The auction is <b>frozen</b> until you
-              decide — no notice, schedule, or sale can proceed.</>
+              <>Customer paid <b>{fmt(request.amountPaid)}</b>. Auction <b>frozen</b>.</>
             )}
           </span>
         </div>

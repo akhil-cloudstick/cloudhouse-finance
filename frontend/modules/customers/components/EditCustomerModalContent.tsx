@@ -2,6 +2,7 @@
 
 import { PAN_RE, AADHAAR_RE, PAN_MESSAGE, AADHAAR_MESSAGE, stripDigits } from "@/common/utils/kyc";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ageFromDob } from "@/common/utils/format";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -27,11 +28,42 @@ const SERVER_FIELDS: Record<string, RegExp> = {
 type EditCustomerModalContentProps = { customer: CustomerView; onSaved?: () => void };
 
 /* The file already on record, shown under its upload field so staff can see what is there before replacing it. */
-function CurrentDoc({ url }: { url: string }) {
-  if (/\.pdf(\?|$)/i.test(url)) {
-    return <a href={url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 6, fontSize: 12.5 }}>View current document (PDF)</a>;
-  }
-  return <SafeImage src={url} alt="Current file" title="Open full size" onClick={() => window.open(url, "_blank", "noopener")} style={{ display: "block", marginTop: 6, maxHeight: 90, maxWidth: "100%", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", objectFit: "cover" }} />;
+function CurrentDoc({ url, onRemove }: { url: string; onRemove: () => void }) {
+  const [viewing, setViewing] = useState(false);
+  const isPdf = /\.pdf(\?|$)/i.test(url);
+  const box = { width: 64, height: 64, borderRadius: 8, border: "1px solid var(--line)", cursor: "pointer", objectFit: "cover" as const };
+  return (
+    <div style={{ position: "relative", display: "inline-block", marginTop: 8 }}>
+      {isPdf ? (
+        <a href={url} target="_blank" rel="noreferrer" title="Open document" style={{ ...box, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>PDF</a>
+      ) : (
+        <SafeImage src={url} alt="Current file" title="View photo" onClick={() => setViewing(true)} style={{ display: "block", ...box }} />
+      )}
+      {/* Local overlay (not openModal): swapping the modal would unmount this form and lose unsaved edits. */}
+      {viewing && createPortal(
+        <div
+          onClick={() => setViewing(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setViewing(false); } }}
+          role="dialog"
+          aria-modal="true"
+          style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "relative", maxWidth: "min(92vw, 900px)", maxHeight: "88vh", background: "var(--bg)", borderRadius: 12, padding: 8, boxShadow: "0 24px 60px -18px rgba(0,0,0,.5)" }}>
+            <button type="button" autoFocus aria-label="Close" onClick={() => setViewing(false)} style={{ position: "absolute", top: -12, right: -12, width: 28, height: 28, borderRadius: "50%", border: "1px solid var(--line)", background: "var(--bg)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
+            <SafeImage src={url} alt="Document" style={{ display: "block", maxWidth: "100%", maxHeight: "84vh", objectFit: "contain", borderRadius: 8 }} />
+          </div>
+        </div>,
+        document.body
+      )}
+      <button
+        type="button"
+        title="Remove current file"
+        aria-label="Remove current file"
+        onClick={onRemove}
+        style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: "50%", border: "1px solid var(--line)", background: "var(--card, #fff)", color: "var(--red)", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+      >×</button>
+    </div>
+  );
 }
 
 /* Edit counterpart to RegisterCustomerModal.tsx's create form, wired to the
@@ -72,6 +104,9 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
   const [identityProofFile, setIdentityProofFile] = useState<File | null>(null);
   const [addressProofFile, setAddressProofFile] = useState<File | null>(null);
   const [kycDocFile, setKycDocFile] = useState<File | null>(null);
+  // Stored documents the user has × -removed; they are saved as blank unless a new file is chosen.
+  const [removed, setRemoved] = useState({ photo: false, identity: false, address: false, kyc: false });
+  const drop = (k: keyof typeof removed) => setRemoved((r) => ({ ...r, [k]: true }));
 
   // "Additional Information" — collapsed by default, all optional, same
   // fields RegisterCustomerModal.tsx's own Additional Information section
@@ -120,10 +155,10 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
     setFe({});
     try {
       const [photoUrl, identityProofUrl, addressProofUrl, kycDocumentUrl] = await Promise.all([
-        photoFile ? uploadFile(photoFile) : Promise.resolve(customer.photoUrl),
-        identityProofFile ? uploadFile(identityProofFile) : Promise.resolve(customer.identityProofUrl),
-        addressProofFile ? uploadFile(addressProofFile) : Promise.resolve(customer.addressProofUrl),
-        kycDocFile ? uploadFile(kycDocFile) : Promise.resolve(customer.kycDocumentUrl),
+        photoFile ? uploadFile(photoFile) : Promise.resolve(removed.photo ? "" : customer.photoUrl),
+        identityProofFile ? uploadFile(identityProofFile) : Promise.resolve(removed.identity ? "" : customer.identityProofUrl),
+        addressProofFile ? uploadFile(addressProofFile) : Promise.resolve(removed.address ? "" : customer.addressProofUrl),
+        kycDocFile ? uploadFile(kycDocFile) : Promise.resolve(removed.kyc ? "" : customer.kycDocumentUrl),
       ]);
 
       await updateCustomer(customer.id, {
@@ -190,12 +225,12 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
 
         <label className="f" style={{ marginTop: 6 }}>Documents</label>
         <div className="frow c3">
-          <div><label className="f">Customer Photograph {customer.photoUrl && <a href={customer.photoUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" camera />{customer.photoUrl && !photoFile && <CurrentDoc url={customer.photoUrl} />}</div>
-          <div><label className="f">Identity Proof {customer.identityProofUrl && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.identityProofUrl && !identityProofFile && <CurrentDoc url={customer.identityProofUrl} />}</div>
-          <div><label className="f">Address Proof {customer.addressProofUrl && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.addressProofUrl && !addressProofFile && <CurrentDoc url={customer.addressProofUrl} />}</div>
+          <div><label className="f">Customer Photograph {customer.photoUrl && !removed.photo && <a href={customer.photoUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" camera />{customer.photoUrl && !photoFile && !removed.photo && <CurrentDoc url={customer.photoUrl} onRemove={() => drop("photo")} />}</div>
+          <div><label className="f">Identity Proof {customer.identityProofUrl && !removed.identity && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.identityProofUrl && !identityProofFile && !removed.identity && <CurrentDoc url={customer.identityProofUrl} onRemove={() => drop("identity")} />}</div>
+          <div><label className="f">Address Proof {customer.addressProofUrl && !removed.address && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.addressProofUrl && !addressProofFile && !removed.address && <CurrentDoc url={customer.addressProofUrl} onRemove={() => drop("address")} />}</div>
         </div>
         <div className="frow c3">
-          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.kycDocumentUrl && !kycDocFile && <CurrentDoc url={customer.kycDocumentUrl} />}</div>
+          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && !removed.kyc && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.kycDocumentUrl && !kycDocFile && !removed.kyc && <CurrentDoc url={customer.kycDocumentUrl} onRemove={() => drop("kyc")} />}</div>
         </div>
 
         <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>

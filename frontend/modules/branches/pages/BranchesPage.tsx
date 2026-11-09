@@ -13,6 +13,9 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { routeHref } from "@/common/services/appRoutes";
 import { TableSearch } from "@/common/components/ui/TableSearch";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { PageBar } from "@/modules/loans/components/PageBar";
+
+const PAGE_SIZE = 10;
 
 /* Centralized branch management — admin-only. Loads real data from the Go
  * backend (`GET /api/v1/branches`), following the Schemes.tsx pattern. */
@@ -29,6 +32,11 @@ export function BranchesPage() {
   const [error, setError] = useState("");
   const [q, setQ] = usePersistedState("branches:q", "");
   const [quota, setQuota] = useState<BranchQuota | null>(null);
+  const [page, setPage] = useState(1);
+  // Clamp so deactivating/searching down to fewer rows never strands the view on an empty page.
+  const lastPage = Math.max(1, Math.ceil((branches?.length ?? 0) / PAGE_SIZE));
+  const curPage = Math.min(page, lastPage);
+  const pageRows = (branches ?? []).slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
 
   async function load() {
     try {
@@ -53,6 +61,7 @@ export function BranchesPage() {
     : "";
 
   // Typing searches on the server (debounced); the first load is immediate.
+  useEffect(() => { setPage(1); }, [q]);
   useEffect(() => {
     const handle = setTimeout(() => { void load(); }, q ? 300 : 0);
     return () => clearTimeout(handle);
@@ -146,7 +155,7 @@ export function BranchesPage() {
                 <tr><th>Branch</th><th>Code</th><th>Address</th><th>Phone</th><th>Status</th><th></th></tr>
               </thead>
               <tbody>
-                {branches.map((b) => (
+                {pageRows.map((b) => (
                   <tr key={b.id}>
                     <td data-label="Branch"><b>{b.name}</b></td>
                     <td data-label="Code">{b.code || "—"}</td>
@@ -168,6 +177,7 @@ export function BranchesPage() {
               </tbody>
             </table>
           </div>
+          <PageBar page={curPage} total={branches.length} pageSize={PAGE_SIZE} onChange={setPage} />
         </div>
       )}
     </>

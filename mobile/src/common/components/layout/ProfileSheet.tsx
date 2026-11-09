@@ -45,7 +45,7 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
         visible={visible && confirmExit}
         onClose={() => setConfirmExit(false)}
         title="Exit business?"
-        message={`You'll be signed out and need to scan ${businessName}'s QR code (or enter its business code) again to sign in.`}
+        message="Scan QR or enter code to sign in."
         confirmLabel="Exit business"
         danger
         onConfirm={() => {

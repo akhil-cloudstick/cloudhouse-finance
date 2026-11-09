@@ -9827,9 +9827,11 @@ table.tbl.lockers-tbl th {
   min-width: 160px !important;
 }
 
-/* ── Customer detail tables as cards: the page stacks and scrolls at <=1100px
- * (it used to switch at 1060px), so the 2-column cards have room. ── */
-@media (max-width: 1100px) {
+/* ── Customer detail: the profile card stacks above the table and the page
+ * scrolls at <=1280px, so the table gets the full width instead of a ~550px
+ * column that needed a sideways scrollbar. Below 1100px the tables
+ * additionally become cards (block further down). ── */
+@media (max-width: 1280px) {
   .page:has(> .page-fill) { overflow-y: auto; }
   .page-fill { flex: 0 0 auto; }
 
@@ -9874,6 +9876,11 @@ table.tbl.lockers-tbl th {
     flex: 0 0 auto;
     min-height: auto;
   }
+  /* Stacked but still a table (1101-1280px): full width, so no sideways scroll is needed. */
+  .cust-360 .tbl { min-width: 0; }
+}
+
+@media (max-width: 1100px) {
   .cust-360 .tbl-card-fill .tbl-wrap:has(> table.tbl-cards) {
     flex: 0 0 auto;
     max-height: none;
