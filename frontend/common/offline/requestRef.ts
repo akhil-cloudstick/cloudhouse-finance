@@ -31,6 +31,16 @@ export function createsEmployee(entry: Pick<OutboxEntry, "method" | "path">): bo
 	return entry.method === "POST" && entry.path === "/employees";
 }
 
+/* An expense made on this PC and not sent yet is listed under a local id; opening or editing it works on the waiting entry. */
+export function createsExpense(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+	return entry.method === "POST" && entry.path === "/expenses";
+}
+
+/* The same for a cash-in, a debit or a self transfer keyed into the ledger (and an expense, which the ledger lists too). */
+export function createsCashEntry(entry: Pick<OutboxEntry, "method" | "path">): boolean {
+	return entry.method === "POST" && (entry.path === "/cash-movements" || entry.path === "/cash-movements/self-transfer" || entry.path === "/expenses");
+}
+
 export function createsInvestment(entry: Pick<OutboxEntry, "method" | "path">): boolean {
 	return entry.method === "POST" && entry.path === "/investments";
 }

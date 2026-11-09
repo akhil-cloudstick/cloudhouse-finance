@@ -9,6 +9,7 @@
 import { offlineStore } from "@/common/services/desktopBridge";
 import { movementRows, pendingMoney, purposeOf, queryOf, round2, whenOf, type Pending } from "./cashAdjust";
 import { listLocal } from "./localCopy";
+import { localRequestId } from "./requestRef";
 import type { OutboxEntry } from "./types";
 
 const CASH_LEDGER = /\/cash-movements\/cash-ledger(\?|$)/;
@@ -47,9 +48,14 @@ function typeOf(p: Pending): string {
 	return p.label && !/^Loan top-up/.test(p.label) ? "" : p.out ? "Loan" : "Collection";
 }
 
+// a cash-in, debit, self transfer or expense keyed in on this PC: the ledger offers Edit on it, as it does for a sent one
+const MANUAL_ENTRY = /^\/(cash-movements|cash-movements\/self-transfer|expenses)$/;
+
 function ledgerRow(p: Pending, n: number, method: string, amount: number, bankId?: number, bankName?: string): Row {
+	const manual = MANUAL_ENTRY.test(p.entry.path);
 	return {
 		id: -n, // not on the server yet; never clashes with a real id
+		...(manual ? { entryId: localRequestId(p.entry.id), editable: true } : {}),
 		date: whenOf(p),
 		description: p.expense ? `${p.category ?? ""}${p.remarks ? ` — ${p.remarks}` : ""}` : purposeOf(p),
 		type: typeOf(p),
@@ -207,7 +213,9 @@ export async function adjustExpenses(path: string, body: string): Promise<string
 		const total = p.parts.reduce((s, x) => s + x.amount, 0);
 		const b = (p.entry.body ?? {}) as { payee?: string; receiptImage?: string };
 		rows.push({
-			id: -n,
+			// stable for the entry, so the Edit form can find it again (n only counts the rows)
+			id: localRequestId(p.entry.id),
+			editable: true,
 			occurredOn: whenOf(p),
 			category: p.category ?? "",
 			amount: total,

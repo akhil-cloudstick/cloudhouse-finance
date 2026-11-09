@@ -1,7 +1,7 @@
 "use client";
 
 import { fmt, fmtDate } from "@/common/utils/format";
-import { particularsFor, refTitleFor, refCellFor, modeCellFor } from "@/modules/cash/utils/ledgerCells";
+import { particularsFor, refTitleFor, refCellFor, modeCellFor, loanNumberFor } from "@/modules/cash/utils/ledgerCells";
 import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
 import { type CashMovementView } from "@/modules/cash/types/cash-types";
 
@@ -17,7 +17,15 @@ export function MovementRow({ m, balance, categoryIds, onChanged }: MovementRowP
 			<td data-label="Mode">{modeCellFor(m.mode)}</td>
 			<td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
 			<td className="num" data-label="Credit" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
-			<td className="num" data-label="Balance">{fmt(balance)}<LedgerEntryActions entryId={m.id} editable={m.editable} onChanged={onChanged} /></td>
+			<td className="num" data-label="Balance">{fmt(balance)}<LedgerEntryActions
+				entryId={m.id}
+				editable={m.editable}
+				onChanged={onChanged}
+				row={m.id < 0 ? {
+					id: m.id, d: m.d, description: m.remarks || m.purpose || m.source || "", type: m.source || (m.type === "out" ? "Debit" : "Credit"), method: m.mode ?? "",
+					reference: loanNumberFor(m), debitOrCredit: m.type === "out" ? "debit" : "credit", amount: m.amount, runningBalance: balance, bankName: m.bankName || m.bank,
+				} : undefined}
+			/></td>
 		</tr>
 	);
 }

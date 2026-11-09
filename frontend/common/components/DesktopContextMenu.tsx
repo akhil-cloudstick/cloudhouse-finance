@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { isDesktop } from "@/common/services/desktopBridge";
 import { PinModal } from "@/common/components/PinModal";
+import { isSyncing } from "@/common/offline/sender";
 
 type MenuState = { x: number; y: number } | null;
 
@@ -20,11 +21,26 @@ export function DesktopContextMenu() {
 			setMenu({ x: e.clientX, y: e.clientY });
 		};
 		const onClickAway = () => setMenu(null);
+		// F12 = Inspect (always through the PIN); Ctrl+Shift+R = the same reload as the menu's, refused while a sync
+		// runs (NetworkIndicator shows the "refresh is paused" notice for that case).
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "F12") {
+				e.preventDefault();
+				setMenu(null);
+				setPinOpen(true);
+			} else if (e.shiftKey && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") {
+				e.preventDefault();
+				if (isSyncing()) return;
+				location.reload();
+			}
+		};
 		window.addEventListener("contextmenu", onContextMenu);
 		window.addEventListener("click", onClickAway);
+		window.addEventListener("keydown", onKey);
 		return () => {
 			window.removeEventListener("contextmenu", onContextMenu);
 			window.removeEventListener("click", onClickAway);
+			window.removeEventListener("keydown", onKey);
 		};
 	}, []);
 
@@ -42,7 +58,7 @@ export function DesktopContextMenu() {
 				>
 					<button
 						type="button"
-						onClick={() => { setMenu(null); location.reload(); }}
+						onClick={() => { setMenu(null); if (!isSyncing()) location.reload(); }}
 						style={menuItemStyle}
 					>
 						Reload

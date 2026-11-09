@@ -116,6 +116,10 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if final && in.Action != models.ApprovalStageRejected {
+		// A UPI / Bank Transfer payout leaves from a bank: without one there is nothing to check the balance of or to debit.
+		if (in.UpiAmount > 0 || in.BankTransferAmount > 0) && in.BankID == nil {
+			return nil, common.NewBadRequest("select the bank for the UPI / Bank Transfer part")
+		}
 		if err := ensurePayoutFunds(ctx, l.BranchID, in.CashAmount, in.BankID, in.UpiAmount+in.BankTransferAmount); err != nil {
 			return nil, err
 		}

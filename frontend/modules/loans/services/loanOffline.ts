@@ -186,6 +186,39 @@ export function applyActionLocally(
   next.sanctionedAmount = rec.principalAmount;
   next.disbursedAmount = roundRupee(rec.principalAmount - charge);
   next.disbursementDate = now;
+  // The payout is also a payment on the loan, as the server records it (Service.Approve): it carries the mode the staff
+  // chose, which the ledger shows in its Method column.
+  const cash = input.cashAmount ?? 0;
+  const upi = input.upiAmount ?? 0;
+  const bank = input.bankTransferAmount ?? 0;
+  const cheque = input.chequeAmount ?? 0;
+  const used = [["Cash", cash], ["UPI", upi], ["Bank Transfer", bank], ["Cheque", cheque]].filter(([, a]) => (a as number) > 0.01);
+  next.payments = [
+    ...(rec.payments ?? []).filter((p) => p.type !== "Disbursement"),
+    {
+      id: 0,
+      loanId: rec.id,
+      amount: next.disbursedAmount,
+      type: "Disbursement",
+      processingFee: 0,
+      processingFeeApplied: 0,
+      paidOn: now,
+      receivedByEmployeeId: actor.id,
+      description: "Loan disbursed",
+      method: used.length === 0 ? "" : used.length === 1 ? (used[0][0] as string) : "Split",
+      cashAmount: cash,
+      upiAmount: upi,
+      bankTransferAmount: bank,
+      chequeAmount: cheque,
+      reference: "",
+      penalInterestApplied: 0,
+      interestApplied: 0,
+      principalApplied: 0,
+      runningBalance: rec.principalAmount,
+      bankId: input.bankId ?? null,
+      createdAt: now,
+    },
+  ];
   return next;
 }
 

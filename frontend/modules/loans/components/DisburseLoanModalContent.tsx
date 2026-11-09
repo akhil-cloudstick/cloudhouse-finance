@@ -42,6 +42,7 @@ export function DisburseLoanModalContent({
 	const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
 	const [remaining, setRemaining] = useState(0);
 	const [bankId, setBankId] = useState<number | undefined>(undefined);
+	const [issue, setIssue] = useState("");
 	const [err, setErr] = useState("");
 	const [fe, setFe] = useState<Record<string, string>>({});
 	const [saving, setSaving] = useState(false);
@@ -57,6 +58,8 @@ export function DisburseLoanModalContent({
 	async function save() { return singleFlight("modal:disburseloan:save", async () => {
 		setErr(""); setFe({});
 		if (!balanced) { setFe({ payments: "The payment breakdown must add up to the payout amount." }); return; }
+		// the breakdown shows its own problem (missing bank, balance too low) under the line it concerns
+		if (issue) return;
 		if (insufficient) { setFe({ payments: "Insufficient balance in hand to disburse this loan." }); return; }
 		setSaving(true);
 		try {
@@ -85,7 +88,7 @@ export function DisburseLoanModalContent({
 			<div className="bd bd-scroll disburse-modal-bd">
 				<div className={fe.payments ? "has-err" : undefined}>
 					<div className="frow">
-						<SplitPaymentInput totalAmount={payout} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); setFe((cur) => (cur.payments ? { ...cur, payments: "" } : cur)); }} />
+						<SplitPaymentInput totalAmount={payout} payout={{ branchId: loan.branchId }} onIssue={setIssue} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); setFe((cur) => (cur.payments ? { ...cur, payments: "" } : cur)); }} />
 					</div>
 					<FieldError msg={fe.payments} />
 				</div>
@@ -99,7 +102,7 @@ export function DisburseLoanModalContent({
 			</div>
 			<div className="ft">
 				<button className="btn ghost" onClick={closeModal}>Cancel</button>
-				<button className="btn" disabled={saving || !balanced || insufficient} onClick={save}>{saving ? (isVerify ? "Verifying…" : "Approving…") : `${actionLabel} ${fmt(payout)}`}</button>
+				<button className="btn" disabled={saving || !balanced || insufficient || !!issue} onClick={save}>{saving ? (isVerify ? "Verifying…" : "Approving…") : `${actionLabel} ${fmt(payout)}`}</button>
 			</div>
 		</>
 	);

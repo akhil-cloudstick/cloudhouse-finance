@@ -1,9 +1,10 @@
 "use client";
 
-import { roundRupee } from "@/common/utils/format";
+import { fmt, roundRupee } from "@/common/utils/format";
 import { useEffect, useState } from "react";
 import { getBank } from "@/modules/banks/services/bankService";
-import { PaymentBreakdownFields, effectiveRows, newPaymentRow, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
+import { useBalanceInHand } from "@/common/hooks/use-balance-in-hand";
+import { PaymentBreakdownFields, effectiveRows, isBankMode, newPaymentRow, type PaymentIssue, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
 
 // Cheque is not a payment mode in the application: Cash, UPI and Bank Transfer only.
 export const SPLIT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
@@ -87,6 +88,11 @@ type SplitPaymentInputProps = {
 	label?: string | null;
 	/** Lines to start from (editing an existing payment); omit for a single Cash line that follows totalAmount. */
 	initialLines?: SplitPaymentLine[];
+	/** Money leaving the business (a disbursement): the Cash part is checked against the branch's balance in hand and the
+	 * bank part against the chosen bank's balance, inside the breakdown. */
+	payout?: { branchId?: number };
+	/** The first problem with the breakdown ("" when none), reported on every change so the parent can hold its submit. */
+	onIssue?: (message: string) => void;
 };
 
 /**
@@ -109,6 +115,8 @@ export function SplitPaymentInput({
 	scrollInternally = true,
 	label,
 	initialLines,
+	payout,
+	onIssue,
 }: SplitPaymentInputProps) {
 	const [rows, setRows] = useState<PaymentRow[]>(() =>
 		initialLines?.length
@@ -143,9 +151,51 @@ export function SplitPaymentInput({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [JSON.stringify(split), remaining, bankId]);
 
+	// Balances of the banks picked, looked up once per bank, for the payout check below.
+	const balanceInHand = useBalanceInHand(payout?.branchId);
+	const [bankBalances, setBankBalances] = useState<Record<string, number>>({});
+	const bankKey = effectiveRows(rows, totalAmount).filter((r) => isBankMode(r.mode) && r.bankId).map((r) => r.bankId).join(",");
+	useEffect(() => {
+		if (!payout || !bankKey) return;
+		bankKey.split(",").filter((id) => !(id in bankBalances)).forEach((id) => {
+			getBank(+id).then((b) => setBankBalances((cur) => ({ ...cur, [id]: b.balance }))).catch(() => {});
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [bankKey, !!payout]);
+
+	// The first problem: a bank mode with no bank, then (for a payout) a part the till or the bank cannot cover.
+	let issue: PaymentIssue | null = null;
+	const used = effectiveRows(rows, totalAmount).filter((r) => +r.amount > 0);
+	const noBank = used.find((r) => isBankMode(r.mode) && !r.bankId);
+	if (noBank) issue = { key: noBank.key, message: "Select the bank for the UPI / Bank Transfer part." };
+	else if (payout) {
+		const cash = roundRupee(used.filter((r) => r.mode === "Cash").reduce((s, r) => s + +r.amount, 0));
+		if (balanceInHand !== null && cash > balanceInHand + 0.005) {
+			issue = { key: null, message: `Insufficient balance in hand: available ${fmt(balanceInHand)}, required ${fmt(cash)}.` };
+		} else {
+			const perBank = new Map<string, { key: number; need: number }>();
+			for (const r of used) {
+				if (!isBankMode(r.mode) || !r.bankId) continue;
+				perBank.set(r.bankId, { key: r.key, need: roundRupee((perBank.get(r.bankId)?.need ?? 0) + +r.amount) });
+			}
+			for (const [id, { key, need }] of perBank) {
+				const have = bankBalances[id];
+				if (have !== undefined && need > have + 0.005) {
+					issue = { key, message: `Insufficient balance in the selected bank: available ${fmt(have)}, required ${fmt(need)}.` };
+					break;
+				}
+			}
+		}
+	}
+	const issueText = issue?.message ?? "";
+	useEffect(() => {
+		onIssue?.(issueText);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [issueText]);
+
 	return (
 		<div className="split-payment" style={{ width: "100%" }}>
-			<PaymentBreakdownFields total={totalAmount} rows={rows} onChange={setRows} scrollInternally={scrollInternally} label={label} />
+			<PaymentBreakdownFields total={totalAmount} rows={rows} onChange={setRows} scrollInternally={scrollInternally} label={label} error={issue} />
 		</div>
 	);
 }

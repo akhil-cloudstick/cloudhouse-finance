@@ -4,13 +4,17 @@ import { currentActor } from "@/common/offline/actor";
 import { assertPayoutFunds } from "@/common/offline/funds";
 import { canQueue, queueOnly } from "@/common/offline/queueWrite";
 import { refuse } from "@/common/offline/validate";
+import { waitingEntries } from "@/common/offline/setupAdjust";
+import { NOT_SYNCED, rewriteUnsent } from "@/common/offline/setupQueue";
+import { createsCashEntry, createsExpense, localRequestId } from "@/common/offline/requestRef";
+import { ApiError } from "@/common/services/httpClient";
 import { checkMovement, checkSelfTransfer, checkExpense, checkGoldSale, expenseFlowIsOff, cachedExpense, requirePending } from "./cashOfflineChecks";
 import { uploadFile } from "@/common/services/uploadService";
 import { categoryLedgerPath } from "./expenseCategoryService";
 import { branchHeader } from "@/common/services/branchSelection";
 import { canMakeOffline } from "@/common/offline/documents";
 import { exportTable, type ExportCell, type ExportTable } from "@/common/offline/exports";
-import type { BackendCashMovement, CashMovementView, CashMovementInput, CashMovementFilters, SelfTransferInput, BackendExpense, ExpenseView, ExpenseFormInput, CashSummary, BackendGoldSale, GoldSaleView, GoldSaleInput, PartyTotals, PartyDateRange, LedgerRowView, BackendLedgerRow, LedgerMode, EntryInfo, EntryUpdateInput } from "@/modules/cash/types/cash-types";
+import type { BackendCashMovement, CashMovementView, CashMovementInput, CashMovementFilters, SelfTransferInput, BackendExpense, ExpenseView, ExpenseFormInput, CashSummary, BackendGoldSale, GoldSaleView, GoldSaleInput, PartyTotals, PartyDateRange, LedgerRowView, BackendLedgerRow, LedgerMode, EntryInfo, EntryUpdateInput, PaymentPartInput } from "@/modules/cash/types/cash-types";
 
 function movementToView(m: BackendCashMovement): CashMovementView {
 	return {
@@ -176,13 +180,97 @@ export async function createSelfTransfer(input: SelfTransferInput): Promise<void
 /* The info popup's data for a cash-in, debit or self-transfer ledger row —
  * `id` is the row's cash movement (CashMovementView.id / LedgerRowView.entryId). */
 export async function getMovementEntry(id: number): Promise<EntryInfo> {
+	// keyed in on this PC and not sent yet: the form is filled from the waiting entry that creates it
+	if (id < 0 && offlineReady()) {
+		const creator = (await waitingEntries()).find((e) => createsCashEntry(e) && localRequestId(e.id) === id);
+		if (!creator) throw new ApiError(NOT_SYNCED, 409);
+		return unsentEntryInfo(id, creator.path, (creator.body ?? {}) as Record<string, unknown>, creator.occurredAt ?? "");
+	}
 	return apiFetch<EntryInfo>(`/cash-movements/${id}/entry`);
+}
+
+/* What the Edit form shows for a cash-in, debit, self transfer or expense that is still waiting to be sent. */
+function unsentEntryInfo(id: number, path: string, b: Record<string, unknown>, recordedAt: string): EntryInfo {
+	const str = (v: unknown) => (typeof v === "string" ? v : "");
+	const parts = ((b.payments as PaymentPartInput[] | undefined)?.length
+		? (b.payments as PaymentPartInput[])
+		: [{ mode: str(b.mode), amount: Number(b.amount) || 0, bankId: b.bankId ?? b.fromBankId }]) as PaymentPartInput[];
+	const base = {
+		editable: true,
+		movementId: id,
+		occurredOn: (str(b.occurredOn) || recordedAt).slice(0, 10),
+		recordedAt,
+		remarks: str(b.remarks),
+		branchId: typeof b.branchId === "number" ? b.branchId : undefined,
+		branchName: "",
+		receiptImage: str(b.receiptImage) || undefined,
+		status: "",
+	};
+	if (path === "/cash-movements/self-transfer") {
+		return {
+			...base,
+			kind: "self_transfer",
+			category: str(b.category),
+			amount: Number(b.amount) || 0,
+			lines: [],
+			fromBankId: b.fromBankId as number | undefined,
+			fromBank: str(b.fromBank),
+			toBankId: b.toBankId as number | undefined,
+			toBank: str(b.toBank),
+		} as EntryInfo;
+	}
+	const isIn = path === "/cash-movements" && b.type === "in";
+	return {
+		...base,
+		kind: isIn ? "cash_in" : "debit",
+		category: path === "/expenses" ? str(b.category) : isIn ? str(b.source) : str(b.purpose),
+		amount: parts.reduce((s, p) => s + (Number(p.amount) || 0), 0),
+		lines: parts.map((p) => ({ movementId: id, mode: p.mode ?? "", amount: Number(p.amount) || 0, bankId: p.bankId })),
+	} as EntryInfo;
+}
+
+/* The waiting entry's body with the edited form applied: the edit makes it a better "create". */
+function editedUnsentBody(path: string, body: Record<string, unknown>, input: EntryUpdateInput): Record<string, unknown> {
+	const next: Record<string, unknown> = { ...body };
+	const set = (key: string, value: unknown) => {
+		if (value !== undefined) next[key] = value;
+	};
+	set("occurredOn", input.occurredOn);
+	set("remarks", input.remarks);
+	set("receiptImage", input.receiptImage);
+	set("branchId", input.branchId);
+	set("mode", input.mode);
+	next.amount = input.amount;
+	if (path === "/cash-movements/self-transfer") {
+		set("category", input.category);
+		set("fromBankId", input.fromBankId);
+		set("fromBank", input.fromBank);
+		set("toBankId", input.toBankId);
+		set("toBank", input.toBank);
+		return next;
+	}
+	if (path === "/expenses") {
+		set("category", input.category);
+		set("fromBankId", input.fromBankId);
+		set("toBankId", input.toBankId);
+	} else {
+		// a cash-in's category is its source; a debit's is its purpose
+		set(body.type === "in" ? "source" : "purpose", input.category);
+		set("bankId", input.bankId);
+	}
+	// the parts replace the whole payment (an entry paid in one mode has none)
+	next.payments = input.payments?.length ? input.payments : undefined;
+	return next;
 }
 
 /* Edits a cash-in, debit or self transfer from the ledger: the whole entry
  * (every payment part, or both legs of a self transfer) is replaced by the
  * edited version. Needs no permission of its own. */
 export async function updateMovementEntry(id: number, input: EntryUpdateInput): Promise<void> {
+	if (id < 0 && offlineReady()) {
+		await rewriteUnsentCashEntry(id, input);
+		return;
+	}
 	if (canQueue()) {
 		await queueOnly("PATCH", `/cash-movements/${id}/update`, input, undefined);
 		return;
@@ -193,6 +281,18 @@ export async function updateMovementEntry(id: number, input: EntryUpdateInput): 
 	});
 }
 
+async function rewriteUnsentCashEntry(id: number, input: EntryUpdateInput): Promise<void> {
+	const creator = (await waitingEntries()).find((e) => createsCashEntry(e) && localRequestId(e.id) === id);
+	if (!creator) throw new ApiError(NOT_SYNCED, 409);
+	const path = creator.path;
+	const current = unsentEntryInfo(id, path, (creator.body ?? {}) as Record<string, unknown>, creator.occurredAt ?? "").kind;
+	// a type change is made by the server when the entry is sent; before that, add it again as the other type
+	if (input.kind && input.kind !== current && !(path === "/expenses" && input.kind === "debit")) {
+		throw new ApiError("The type of an entry that has not synced yet cannot be changed. Delete it and add it again.", 409);
+	}
+	await rewriteUnsent(id, createsCashEntry, (body) => editedUnsentBody(path, body, input));
+}
+
 /* One expense, for opening the Expense Register on it (the dashboard's expense approval "Review"). */
 export async function getExpense(id: number): Promise<ExpenseView> {
 	return expenseToView(await apiFetch<BackendExpense>(`/expenses/${id}`));
@@ -201,12 +301,40 @@ export async function getExpense(id: number): Promise<ExpenseView> {
 /* The Expense Register's Edit form data for a pending or approved expense —
  * `id` is the expense id (ExpenseView.id). */
 export async function getExpenseEntry(id: number): Promise<EntryInfo> {
+	// made on this PC and not sent yet: the form is filled from the waiting entry that creates it
+	if (id < 0 && offlineReady()) {
+		const creator = (await waitingEntries()).find((e) => createsExpense(e) && localRequestId(e.id) === id);
+		if (!creator) throw new ApiError(NOT_SYNCED, 409);
+		const b = (creator.body ?? {}) as ExpenseFormInput;
+		const parts = b.payments?.length ? b.payments : [{ mode: b.mode, amount: b.amount, bankId: b.fromBankId }];
+		return {
+			kind: "debit",
+			viaExpense: true,
+			editable: true,
+			movementId: id,
+			category: b.category,
+			amount: parts.reduce((s, p) => s + (Number(p.amount) || 0), 0),
+			occurredOn: (b.occurredOn ?? creator.occurredAt ?? "").slice(0, 10),
+			recordedAt: creator.occurredAt ?? "",
+			remarks: b.remarks ?? "",
+			branchId: b.branchId,
+			branchName: "",
+			receiptImage: b.receiptImage,
+			lines: parts.map((p) => ({ movementId: id, mode: p.mode ?? "", amount: Number(p.amount) || 0, bankId: p.bankId })),
+			status: "",
+		} as EntryInfo;
+	}
 	return apiFetch<EntryInfo>(`/expenses/${id}/entry`);
 }
 
 /* Saves an edit made in an entry form: from the Expense Register it goes to
  * PATCH /expenses/:id/update, from a ledger row to PATCH /cash-movements/:id/update. */
 export async function saveEntryEdit(info: EntryInfo, input: EntryUpdateInput): Promise<void> {
+	// made on this PC and not sent yet: the edit makes its entry a better "create"
+	if (info.movementId < 0 && offlineReady()) {
+		await rewriteUnsentCashEntry(info.movementId, input);
+		return;
+	}
 	if (canQueue()) {
 		await queueOnly("PATCH", info.viaExpense ? `/expenses/${info.movementId}/update` : `/cash-movements/${info.movementId}/update`, input, undefined);
 		return;

@@ -658,6 +658,10 @@ export async function approveLoan(loanId: number, input: ApprovalInput, uuid?: s
   // the server has not numbered yet. The local copy moves to the next stage in the same step.
   const chain = enabledStages(await fetchApprovalWorkflow().catch(() => []), "loan_sanction");
   // The last stage pays the loan out: refused here, as the server would, when the till or the chosen bank cannot cover it.
+  // A UPI / Bank Transfer payout needs its bank offline too (the server refuses it without one), or nothing would be debited or checked.
+  if (input.action !== "Rejected" && chain.length > 0 && chain[chain.length - 1].key === input.stage && ((input.upiAmount ?? 0) > 0 || (input.bankTransferAmount ?? 0) > 0) && !input.bankId) {
+    throw new ApiError("select the bank for the UPI / Bank Transfer part", 400);
+  }
   if (input.action === "Approved" && chain.length > 0 && chain[chain.length - 1].key === input.stage) await assertPayoutFunds(local.branchId, partsOfSplit(input));
   checkApprovalLocally(local, input, chain);
   const actor = currentActor();
