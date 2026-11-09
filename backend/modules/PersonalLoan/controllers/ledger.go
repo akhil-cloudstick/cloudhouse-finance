@@ -291,6 +291,19 @@ func getLedger(ctx context.Context, loanID uint, branchID *uint, limit, offset i
 		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 			rows[i], rows[j] = rows[j], rows[i]
 		}
+		// The loan's opening rows (payout, then its interest, then any carried balance) all happen at once,
+		// so keep them in that order at the foot of the list instead of showing the interest above the payout.
+		start := len(rows)
+		for start > 0 {
+			k := rows[start-1].Key
+			if k != "disbursement" && k != "interest" && k != "carry-forward" {
+				break
+			}
+			start--
+		}
+		for i, j := start, len(rows)-1; i < j; i, j = i+1, j-1 {
+			rows[i], rows[j] = rows[j], rows[i]
+		}
 	}
 	total := int64(len(rows))
 	if offset > len(rows) {

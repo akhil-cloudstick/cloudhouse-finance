@@ -47,28 +47,27 @@ export function MergeBankModalContent({ source, banks, onSaved }: MergeBankModal
 		}
 	}); }
 
-	return (
-		<>
-			<div className="hd"><h3>Merge Duplicate Bank</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd bd-scroll">
-				<div className="frow"><div className={fe.target ? "has-err" : undefined}><label className="f">Merge "{source.name}" into</label>
-					<Select
-						options={candidates.map((b) => ({ value: String(b.id), label: b.name }))}
-						value={targetId}
-						onChange={setTargetId}
-						placeholder="Select the bank to keep…"
-					/><FieldError msg={fe.target} />
-				</div></div>
-				<div className="notice" style={{ marginTop: 12 }}>
-					<Icon name="shield" /> This will move every transaction and pledge linked to &quot;{source.name}&quot; onto
-					{target ? ` "${target.name}"` : " the bank you pick"} and permanently delete &quot;{source.name}&quot; — this can&apos;t be undone.
-				</div>
-			</div>
-			<div className="ft">
-					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
-				<button className="btn danger" onClick={save} disabled={saving || !target}>{saving ? "Merging…" : "Merge & Delete"}</button>
-			</div>
-		</>
-	);
+  return (
+    <>
+      <div className="hd"><h3>Merge Duplicate Bank</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll">
+        <div className="frow"><div className={fe.target ? "has-err" : undefined}><label className="f">Merge "{source.name}" into</label>
+          <Select
+            options={candidates.map((b) => ({ value: String(b.id), label: b.name }))}
+            value={targetId}
+            onChange={setTargetId}
+            placeholder="Select the bank to keep…"
+          /><FieldError msg={fe.target} />
+        </div></div>
+        <div className="notice" style={{ marginTop: 12 }}>
+          <Icon name="shield" /> Merging deletes &quot;{source.name}&quot; permanently. Can&apos;t be undone.
+        </div>
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
+      </div>
+      <div className="ft">
+        <button className="btn ghost" onClick={closeModal}>Cancel</button>
+        <button className="btn danger" onClick={save} disabled={saving || !target}>{saving ? "Merging…" : "Merge & Delete"}</button>
+      </div>
+    </>
+  );
 }

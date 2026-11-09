@@ -94,65 +94,65 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
 		}
 	}); }
 
-	return (
-		<>
-			<div className="hd"><h3>{b ? "Edit Branch — " + b.name : "Add Branch"}</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd bd-scroll">
-				<div className="frow c2">
-					<div className={fe.name ? "has-err" : undefined}><label className="f">Branch Name *</label>
-						<input
-							className="inp"
-							placeholder="e.g. Koratty"
-							value={name}
-							onChange={(e) => onNameChange(e.target.value)}
-							maxLength={80}
-							autoComplete="off"
-						/><FieldError msg={fe.name} /></div>
-					<div className={fe.code ? "has-err" : undefined}><label className="f">Branch Code *</label>
-						<input
-							className="inp"
-							placeholder="e.g. KOR01"
-							value={code}
-							onChange={(e) => onCodeChange(e.target.value)}
-							maxLength={20}
-							autoComplete="off"
-						/><FieldError msg={fe.code} /></div>
-				</div>
-				<div className="frow"><div className={fe.address ? "has-err" : undefined}><label className="f">Address *</label>
-					<input
-						className="inp"
-						placeholder="Full branch address"
-						value={address}
-						onChange={(e) => onAddressChange(e.target.value)}
-						maxLength={255}
-						autoComplete="off"
-					/><FieldError msg={fe.address} /></div></div>
-				<div className="frow c2">
-					<div className={fe.phone ? "has-err" : undefined}><label className="f">Phone</label>
-						<input
-							className="inp"
-							type="tel"
-							inputMode="numeric"
-							placeholder="10-digit landline/mobile"
-							value={phone}
-							onChange={(e) => onPhoneChange(e.target.value)}
-							maxLength={10}
-							autoComplete="off"
-						/><FieldError msg={fe.phone} /></div>
-					<div><label className="f">Status</label>
-						<Select
-							options={[{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }]}
-							value={isActive ? "1" : "0"}
-							onChange={(v) => setIsActive(v === "1")}
-						/></div>
-				</div>
-				<div className="notice"><Icon name="shield" /> Branches cannot be deactivated while employees, expenses or cash movements still reference them.</div>
-			</div>
-			<div className="ft">
-					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
-				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : b ? "Save Changes" : "Add Branch"}</button>
-			</div>
-		</>
-	);
+  return (
+    <>
+      <div className="hd"><h3>{b ? "Edit Branch — " + b.name : "Add Branch"}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll">
+        <div className="frow c2">
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Branch Name *</label>
+            <input
+              className="inp"
+              placeholder="e.g. Koratty"
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              maxLength={80}
+              autoComplete="off"
+            /><FieldError msg={fe.name} /></div>
+          <div className={fe.code ? "has-err" : undefined}><label className="f">Branch Code *</label>
+            <input
+              className="inp"
+              placeholder="e.g. KOR01"
+              value={code}
+              onChange={(e) => onCodeChange(e.target.value)}
+              maxLength={20}
+              autoComplete="off"
+            /><FieldError msg={fe.code} /></div>
+        </div>
+        <div className="frow"><div className={fe.address ? "has-err" : undefined}><label className="f">Address *</label>
+          <input
+            className="inp"
+            placeholder="Full branch address"
+            value={address}
+            onChange={(e) => onAddressChange(e.target.value)}
+            maxLength={255}
+            autoComplete="off"
+          /><FieldError msg={fe.address} /></div></div>
+        <div className="frow c2">
+          <div className={fe.phone ? "has-err" : undefined}><label className="f">Phone</label>
+            <input
+              className="inp"
+              type="tel"
+              inputMode="numeric"
+              placeholder="10-digit landline/mobile"
+              value={phone}
+              onChange={(e) => onPhoneChange(e.target.value)}
+              maxLength={10}
+              autoComplete="off"
+            /><FieldError msg={fe.phone} /></div>
+          <div><label className="f">Status</label>
+            <Select
+              options={[{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }]}
+              value={isActive ? "1" : "0"}
+              onChange={(v) => setIsActive(v === "1")}
+            /></div>
+        </div>
+        <div className="notice"><Icon name="shield" /> Can&apos;t deactivate while branch is in use.</div>
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
+      </div>
+      <div className="ft">
+        <button className="btn ghost" onClick={closeModal}>Cancel</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : b ? "Save Changes" : "Add Branch"}</button>
+      </div>
+    </>
+  );
 }

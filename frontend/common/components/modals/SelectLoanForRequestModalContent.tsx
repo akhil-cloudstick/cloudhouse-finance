@@ -31,33 +31,33 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
 		onPicked(selected, type);
 	}
 
-	return (
-		<>
-			<div className="hd"><h3>Request Extension / Release</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd bd-scroll">
-				<div className="frow"><div className={err ? "has-err" : undefined}><label className="f">Loan *</label>
-					<Select
-						options={[
-							{ value: "", label: "Select loan…" },
-							...eligible.map((l) => ({ value: l.id, label: `${l.id} — due ${fmtDate(l.due)} (outstanding ₹${l.outstanding.toLocaleString("en-IN")})` })),
-						]}
-						value={loanId}
-						onChange={(v) => { setLoanId(v); setErr(""); }}
-					/><FieldError msg={err} /></div></div>
-				<div className="frow"><div><label className="f">Request Type *</label>
-					<Select
-						options={[{ value: "Extension", label: "Extension" }, { value: "Release", label: "Release" }]}
-						value={type}
-						onChange={(v) => setType(v as "Extension" | "Release")}
-					/></div></div>
-				{eligible.length === 0 && (
-					<p className="notice"><Icon name="shield" /> This customer has no open loans to request an extension or release for.</p>
-				)}
-			</div>
-			<div className="ft">
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
-				<button className="btn" onClick={next}><Icon name="check" /> Next</button>
-			</div>
-		</>
-	);
+  return (
+    <>
+      <div className="hd"><h3>Request Extension / Release</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll">
+        <div className="frow"><div className={err ? "has-err" : undefined}><label className="f">Loan *</label>
+          <Select
+            options={[
+              { value: "", label: "Select loan…" },
+              ...eligible.map((l) => ({ value: l.id, label: `${l.id} — due ${fmtDate(l.due)} (outstanding ₹${l.outstanding.toLocaleString("en-IN")})` })),
+            ]}
+            value={loanId}
+            onChange={(v) => { setLoanId(v); setErr(""); }}
+          /><FieldError msg={err} /></div></div>
+        <div className="frow"><div><label className="f">Request Type *</label>
+          <Select
+            options={[{ value: "Extension", label: "Extension" }, { value: "Release", label: "Release" }]}
+            value={type}
+            onChange={(v) => setType(v as "Extension" | "Release")}
+          /></div></div>
+        {eligible.length === 0 && (
+          <p className="notice"><Icon name="shield" /> Customer has no open loans.</p>
+        )}
+      </div>
+      <div className="ft">
+        <button className="btn ghost" onClick={closeModal}>Cancel</button>
+        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
+      </div>
+    </>
+  );
 }

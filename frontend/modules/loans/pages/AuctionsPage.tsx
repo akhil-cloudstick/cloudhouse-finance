@@ -194,61 +194,57 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
 					)}
 				</div>
 
-				{/* A surplus not yet disposed of is money owed to the customer sitting
-					* in branch cash — surfaced prominently so it cannot be forgotten. */}
-				{/* .notice is display:flex — all text goes inside ONE child element,
-					* or each <b> becomes its own flex column mid-sentence. */}
-				{rec && hasUndisposedSurplus(rec) && (
-					<div className="notice" style={{ marginTop: 12 }}>
-						<Icon name="shield" />
-						<span>
-							<b>{fmt(rec.surplusPayableAmount)}</b> surplus is payable back to {l.customerName} and has not been disposed of
-							yet. Settle the case to refund it or record it as income.
-						</span>
-					</div>
-				)}
+        {/* A surplus not yet disposed of is money owed to the customer sitting
+          * in branch cash — surfaced prominently so it cannot be forgotten. */}
+        {/* .notice is display:flex — all text goes inside ONE child element,
+          * or each <b> becomes its own flex column mid-sentence. */}
+        {rec && hasUndisposedSurplus(rec) && (
+          <div className="notice" style={{ marginTop: 12 }}>
+            <Icon name="shield" />
+            <span>
+              <b>{fmt(rec.surplusPayableAmount)}</b> surplus pending. Settle to refund.
+            </span>
+          </div>
+        )}
 
-				{/* Frozen-pipeline banner. Deliberately explicit that no auction step
-					* can proceed — this is the guarantee that a paying customer's gold is
-					* not sold while their payment is under review. */}
-				{decision && (
-					<div className="notice" style={{ marginTop: 12, borderColor: "var(--red)" }}>
-						<Icon name="shield" />
-						<span>
-							{decision.kind === "Shortfall" ? (
-								<>
-									<b>Shortfall — awaiting authority.</b> The sale realised {fmt(decision.amountPaid)} and left{" "}
-									<b>{fmt(decision.outstandingAtRequest)}</b> owing. A Branch Manager or Management must decide whether to
-									write the balance off or pursue it. The balance is frozen until then.
-								</>
-							) : (
-								<>
-									<b>Decision pending.</b> {fmt(decision.amountPaid)} was paid, leaving {fmt(decision.outstandingAtRequest)}{" "}
-									owing. The auction is frozen — no notice, schedule, or sale can proceed until this is resolved.
-								</>
-							)}
-							{!canDecide && <> Your role can view this but not decide it.</>}
-						</span>
-					</div>
-				)}
+        {/* Frozen-pipeline banner. Deliberately explicit that no auction step
+          * can proceed — this is the guarantee that a paying customer's gold is
+          * not sold while their payment is under review. */}
+        {decision && (
+          <div className="notice" style={{ marginTop: 12, borderColor: "var(--red)" }}>
+            <Icon name="shield" />
+            <span>
+              {decision.kind === "Shortfall" ? (
+                <>
+                  <b>Shortfall</b> — {fmt(decision.outstandingAtRequest)} owing. Awaiting decision.
+                </>
+              ) : (
+                <>
+                  <b>Decision pending.</b> Auction frozen.
+                </>
+              )}
+              {!canDecide && <> View only.</>}
+            </span>
+          </div>
+        )}
 
-				{!decision && (lastAutoDecision || (preSale && partialAuto)) && (
-					<div className="notice" style={{ marginTop: 12 }}>
-						<Icon name="clock" />
-						<span>
-							{lastAutoDecision
-								? lastAutoDecision.kind === "Shortfall"
-									? "Balance pursued automatically — shortfall decisions are switched off in the approval workflow."
-									: "No decision needed — the auction continues automatically (partial-repayment decisions are switched off in the approval workflow)."
-								: "No decision needed for partial repayments — the auction continues automatically."}
-						</span>
-					</div>
-				)}
+        {!decision && (lastAutoDecision || (preSale && partialAuto)) && (
+          <div className="notice" style={{ marginTop: 12 }}>
+            <Icon name="clock" />
+            <span>
+              {lastAutoDecision
+                ? lastAutoDecision.kind === "Shortfall"
+                  ? "Balance pursued automatically."
+                  : "No decision needed. Auction continues."
+                : "No decision needed. Auction continues."}
+            </span>
+          </div>
+        )}
 
 				{balanceDue && !decision && (
 					<div className="notice" style={{ marginTop: 12 }}>
 						<Icon name="shield" />
-						<span>Balance due after auction — collect it as a normal payment.</span>
+						<span>Balance due. Collect as normal payment.</span>
 					</div>
 				)}
 

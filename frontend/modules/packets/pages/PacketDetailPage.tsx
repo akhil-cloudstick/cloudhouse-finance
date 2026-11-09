@@ -82,6 +82,8 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [pickLocker, setPickLocker] = useState(false);
+  // True when the picker is moving a packet already in one locker to another (vs. a first check-in).
+    const [changingLocker, setChangingLocker] = useState(false);
 	const [lockerId, setLockerId] = useState<number | "">("");
 
 	async function load() {
@@ -141,8 +143,9 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
 		setBusy(true);
 		try {
 			await recordMovement(p.id, { toStatus, lockerId: extraLockerId, employeeId: ACTOR_EMPLOYEE_ID });
-			toast(`Packet ${pendingLabel(p.code)} moved to "${toStatus}"`);
+			toast(changingLocker ? `Packet ${p.code} moved to another locker` : `Packet ${pendingLabel(p.code)} moved to "${toStatus}"`);
 			setPickLocker(false);
+      setChangingLocker(false);
 			setLockerId("");
 			await load();
 		} catch (e) {
@@ -278,7 +281,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
 						{!movementLocked && pickLocker && (
 							<div className="frow" style={{ marginBottom: 10 }}>
 								<div style={{ flex: 1 }}>
-									<label className="f">Select locker</label>
+									<label className="f">{changingLocker ? `Move from ${currentLocker?.code ?? "current locker"} to` : "Select locker"}</label>
 									{/* Server-side paginated + searched (5 per page, loads more
 										* as you scroll near the bottom) instead of a plain
 										* <select> over every locker at once — see
@@ -293,7 +296,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
 										searchHint="Searches: locker code"
 										fetchFn={(q, page) =>
 											searchLockersPage(q, page, { activeOnly: true, branchId: p.branchId }).then((res) => ({
-												items: res.items.filter((l) => l.occupied < l.capacity),
+												items: res.items.filter((l) => l.occupied < l.capacity && l.id !== p.currentLockerId),
 												hasMore: res.hasMore,
 											}))
 										}
@@ -303,14 +306,15 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
 									/>
 								</div>
 								<div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-									<button className="btn ghost sm" onClick={() => setPickLocker(false)}>Cancel</button>
-									<button className="btn sm" disabled={busy || lockerId === ""} onClick={() => doMove(PACKET_STATUS.LOCKER_STORED, Number(lockerId))}>Confirm Check-In</button>
+									<button className="btn ghost sm" onClick={() => { setPickLocker(false); setChangingLocker(false); setLockerId(""); }}>Cancel</button>
+									<button className="btn sm" disabled={busy || lockerId === ""} onClick={() => doMove(PACKET_STATUS.LOCKER_STORED, Number(lockerId))}>{changingLocker ? "Confirm Change" : "Confirm Check-In"}</button>
 								</div>
 							</div>
 						)}
 
-						{!movementLocked && canMovePackets && p.status === PACKET_STATUS.LOCKER_STORED && (
+						{!movementLocked && canMovePackets && p.status === PACKET_STATUS.LOCKER_STORED && !pickLocker && (
 							<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn ghost" disabled={busy} onClick={() => { setChangingLocker(true); setPickLocker(true); }}><Icon name="lock" /> Change Locker</button>
 								{canCreateBankPledge && (
 									<button className="btn ghost" disabled={busy} onClick={openBankPledge}><Icon name="bank" /> Repledge to Bank</button>
 								)}

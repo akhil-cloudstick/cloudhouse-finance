@@ -295,68 +295,75 @@ export function SearchableSelect<T>({
 		return () => document.removeEventListener("focusin", onFocusIn);
 	}, [open]);
 
-	// compact-only: recompute the portal's fixed position whenever it opens,
-	// and keep it pinned to the input while the box stays open — the
-	// ancestor doing the scrolling is unknown from here (could be the whole
-	// page or some inner `overflow` container like NewLoan.tsx's table
-	// wrapper), so this listens on window scroll with `capture:true`, which
-	// also catches scroll events bubbling up from any nested scrollable
-	// ancestor.
-	//
-	// Always opens downward, never flips above the input: an "open upward"
-	// heuristic sounds nice in principle, but for a trigger sitting near the
-	// bottom of a scrollable panel (a common case in this app's cards) it put
-	// the box's growth direction entirely at the mercy of how much space
-	// happened to be above — for a long, unpaginated-looking list that meant
-	// the dropdown shooting up past the top of the viewport, looking
-	// disconnected from the field it belongs to ("the dropdown is rising
-	// up"). Opening downward with a hard maxHeight capped to the real
-	// remaining space below is predictable in every case instead: it never
-	// grows past what's actually still on screen, so it's obviously still
-	// "the dropdown for that field" no matter where the field sits.
-	useLayoutEffect(() => {
-		// Stale `coords` left over from the last time this was open is
-		// harmless: the render below gates on `open && coords`, and `open` is
-		// already false here, so there's nothing to clear.
-		if (!floating || !open) return;
-		function reposition() {
-			const el = boxRef.current;
-			if (!el) return;
-			const rect = el.getBoundingClientRect();
-			const spaceBelow = window.innerHeight - rect.bottom;
-			// Caps at exactly ROWS_BOX_HEIGHT (~5 rows) even when there's plenty
-			// of room below — the list scrolls internally for anything past that
-			// (onResultsScroll above), it doesn't keep growing taller. Only
-			// shrinks below that when the field itself is close enough to the
-			// bottom of the viewport that 5 full rows wouldn't fit; 120 is the
-			// floor for that squeeze so it's never so short it's useless.
-			const maxHeight = Math.min(ROWS_BOX_HEIGHT, Math.max(120, spaceBelow - 8));
-			// Clamps left so the (up to 160px-wide) dropdown never runs past the
-			// right edge of the viewport — a bank/purity picker sitting near the
-			// right edge of a modal (e.g. SplitPaymentInput's Bank column) would
-			// otherwise open a box that's partly clipped by the modal's own
-			// overflow:hidden, rather than just the box being narrow.
-			const width = compact ? Math.min(Math.max(rect.width, compactMinWidth), 160) : rect.width;
-			const left = Math.min(rect.left, window.innerWidth - width - 16);
-			setCoords({ top: rect.bottom, left, width: rect.width, maxHeight });
-		}
-		reposition();
-		// Closes on scroll OUTSIDE this dropdown's own results list instead of
-		// repositioning — see Select.tsx's identical fix for why a
-		// `position:fixed`/portaled panel re-anchored mid-scroll reads as a
-		// floating, detached dropdown. Scrolling the results list itself
-		// (onResultsScroll's own infinite-scroll paging) must not close it.
-		function closeOnScroll(e: Event) {
-			if (resultsRef.current?.contains(e.target as Node)) return;
-			setOpen(false);
-		}
-		window.addEventListener("resize", reposition);
-		window.addEventListener("scroll", closeOnScroll, true);
-		return () => {
-			window.removeEventListener("resize", reposition);
-			window.removeEventListener("scroll", closeOnScroll, true);
-		};
-	}, [floating, compact, open]);
+  // compact-only: recompute the portal's fixed position whenever it opens,
+  // and keep it pinned to the input while the box stays open — the
+  // ancestor doing the scrolling is unknown from here (could be the whole
+  // page or some inner `overflow` container like NewLoan.tsx's table
+  // wrapper), so this listens on window scroll with `capture:true`, which
+  // also catches scroll events bubbling up from any nested scrollable
+  // ancestor.
+  //
+  // Always opens downward, never flips above the input: an "open upward"
+  // heuristic sounds nice in principle, but for a trigger sitting near the
+  // bottom of a scrollable panel (a common case in this app's cards) it put
+  // the box's growth direction entirely at the mercy of how much space
+  // happened to be above — for a long, unpaginated-looking list that meant
+  // the dropdown shooting up past the top of the viewport, looking
+  // disconnected from the field it belongs to ("the dropdown is rising
+  // up"). Opening downward with a hard maxHeight capped to the real
+  // remaining space below is predictable in every case instead: it never
+  // grows past what's actually still on screen, so it's obviously still
+  // "the dropdown for that field" no matter where the field sits.
+  useLayoutEffect(() => {
+    // Stale `coords` left over from the last time this was open is
+    // harmless: the render below gates on `open && coords`, and `open` is
+    // already false here, so there's nothing to clear.
+    if (!floating || !open) return;
+    function reposition() {
+      const el = boxRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      // Caps at exactly ROWS_BOX_HEIGHT (~5 rows) even when there's plenty
+      // of room below — the list scrolls internally for anything past that
+      // (onResultsScroll above), it doesn't keep growing taller. Only
+      // shrinks below that when the field itself is close enough to the
+      // bottom of the viewport that 5 full rows wouldn't fit; 120 is the
+      // floor for that squeeze so it's never so short it's useless.
+      const maxHeight = Math.min(ROWS_BOX_HEIGHT, Math.max(120, spaceBelow - 8));
+      // Clamps left so the (up to 160px-wide) dropdown never runs past the
+      // right edge of the viewport — a bank/purity picker sitting near the
+      // right edge of a modal (e.g. SplitPaymentInput's Bank column) would
+      // otherwise open a box that's partly clipped by the modal's own
+      // overflow:hidden, rather than just the box being narrow.
+      const width = compact ? Math.min(Math.max(rect.width, compactMinWidth), 160) : rect.width;
+      const left = Math.min(rect.left, window.innerWidth - width - 16);
+      setCoords({ top: rect.bottom, left, width: rect.width, maxHeight });
+    }
+    reposition();
+    // Closes on scroll OUTSIDE this dropdown's own results list instead of
+    // repositioning — see Select.tsx's identical fix for why a
+    // `position:fixed`/portaled panel re-anchored mid-scroll reads as a
+    // floating, detached dropdown. Scrolling the results list itself
+    // (onResultsScroll's own infinite-scroll paging) must not close it.
+    const openedAt = Date.now();
+    function closeOnScroll(e: Event) {
+      if (resultsRef.current?.contains(e.target as Node)) return;
+      // A scroll right as it opens is the browser scrolling the focused field
+      // into view, not the user scrolling away — don't close on that, but
+      // re-anchor to the field's new position: otherwise the fixed list stays
+      // where the field WAS and floats detached from it (e.g. right after
+      // "+ Add Ornament" focuses a new row and scrolls it into view).
+      if (Date.now() - openedAt < 600) { reposition(); return; }
+      setOpen(false);
+    }
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", closeOnScroll, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", closeOnScroll, true);
+    };
+  }, [floating, compact, open]);
 
 	const showCreateRowForNav = allowCreate && query.trim().length > 0 &&
 		!items.some((it) => getLabel(it).toLowerCase() === query.trim().toLowerCase()) && !loading;
@@ -539,6 +546,9 @@ export function SearchableSelect<T>({
 				autoComplete="off"
 				onChange={(e) => { setQuery(e.target.value); setSearchTerm(e.target.value); setOpen(true); }}
 				onFocus={() => { setSearchTerm(""); setOpen(true); }}
+        // Clicking an already-focused field fires no focus event, so once the
+        // list had closed (Esc, scroll) it could never be reopened by mouse.
+        onClick={() => { if (!open && !disabled) { setSearchTerm(""); setOpen(true); } }}
 				onKeyDown={onInputKeyDown}
 				// Closes the dropdown whenever focus actually leaves this field —
 				// previously it only closed on a document-level click outside, so

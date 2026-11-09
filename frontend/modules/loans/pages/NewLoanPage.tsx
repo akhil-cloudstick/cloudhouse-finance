@@ -436,53 +436,60 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 		setRows((rs) => [...rs, pre || { n: "", p: "22K", w: 0, lessWt: 0, netW: 0, q: 1 }]);
 	}
 
-	// Moves focus into a freshly-added row's own Ornament-type field —
-	// "+ Add Ornament" is an Enter-flow waypoint (enterToSubmit.ts): landing
-	// on it via Enter never clicks it (.focus() only), so it takes an
-	// explicit, separate Enter press while it's already focused to actually
-	// add a row (native "Enter activates the focused button" behavior).
-	// Without moving focus on from there afterward, it would still be the
-	// only thing focus could return to — leaving a THIRD accidental Enter
-	// free to re-click it again. Both the table and card ornament views
-	// render every row at once (CSS `display` toggles which is visible per
-	// breakpoint — see their own JSX comments), so this picks whichever
-	// instance of the newest row's own input is actually laid out
-	// (offsetParent !== null), same visibility check enterToSubmit.ts's own
-	// focusable-list building already uses.
-	useEffect(() => {
-		if (!justAddedRowRef.current) return;
-		justAddedRowRef.current = false;
-		requestAnimationFrame(() => {
-			const inputs = document.querySelectorAll<HTMLInputElement>(".orn-type-td input.inp");
-			const visible = Array.from(inputs).filter((el) => el.offsetParent !== null);
-			visible[visible.length - 1]?.focus();
-		});
-	}, [rows.length]);
-	function delOrnRow(i: number) {
-		setRows((rs) => rs.filter((_, idx) => idx !== i));
-	}
-	function updOrn<K extends keyof OrnRow>(i: number, k: K, v: OrnRow[K]) {
-		// Weight/qty can never go negative, however the value arrives (native
-		// spinner decrement past 0, typed "-", pasted value, etc.) — clamp here
-		// centrally rather than trusting each call site.
-		const clamped = (k === "w" || k === "lessWt" || k === "q") && typeof v === "number" ? (Math.max(0, v) as OrnRow[K]) : v;
-		setRows((rs) => rs.map((r, idx) => {
-			if (idx !== i) return r;
-			// Net Wt is directly editable — editing it derives Less Wt instead
-			// (Gross Wt never changes as a side effect of editing Net/Less Wt).
-			// Clamped to [0, Gross Wt], mirroring the submit-time guard that Less
-			// Wt can't exceed Gross Wt.
-			if (k === "netW" && typeof v === "number") {
-				const netW = Math.min(Math.max(0, v), r.w);
-				return { ...r, netW, lessWt: round3(Math.max(0, r.w - netW)) };
-			}
-			const next = { ...r, [k]: clamped };
-			// Gross Wt/Less Wt are the two inputs that drive Net Wt — any change
-			// to either recomputes it here.
-			if (k === "w" || k === "lessWt") next.netW = round3(Math.max(0, next.w - next.lessWt));
-			return next;
-		}));
-	}
+  // Moves focus into a freshly-added row's own Ornament-type field —
+  // "+ Add Ornament" is an Enter-flow waypoint (enterToSubmit.ts): landing
+  // on it via Enter never clicks it (.focus() only), so it takes an
+  // explicit, separate Enter press while it's already focused to actually
+  // add a row (native "Enter activates the focused button" behavior).
+  // Without moving focus on from there afterward, it would still be the
+  // only thing focus could return to — leaving a THIRD accidental Enter
+  // free to re-click it again. Both the table and card ornament views
+  // render every row at once (CSS `display` toggles which is visible per
+  // breakpoint — see their own JSX comments), so this picks whichever
+  // instance of the newest row's own input is actually laid out
+  // (offsetParent !== null), same visibility check enterToSubmit.ts's own
+  // focusable-list building already uses.
+  useEffect(() => {
+    if (!justAddedRowRef.current) return;
+    justAddedRowRef.current = false;
+    requestAnimationFrame(() => {
+      const inputs = document.querySelectorAll<HTMLInputElement>(".orn-type-td input.inp");
+      const visible = Array.from(inputs).filter((el) => el.offsetParent !== null);
+      // preventScroll: the browser's own scroll-into-view on focus fired a
+      // scroll event, which the (portaled) dropdown treats as "close".
+      const newest = visible[visible.length - 1];
+      if (!newest) return;
+      // Bring the new row into view first (instant, so the dropdown opens
+      // against its final position), then focus without a second scroll.
+      (newest.closest(".orn-card, tr") ?? newest).scrollIntoView({ block: "center", behavior: "instant" });
+      newest.focus({ preventScroll: true });
+    });
+  }, [rows.length]);
+  function delOrnRow(i: number) {
+    setRows((rs) => rs.filter((_, idx) => idx !== i));
+  }
+  function updOrn<K extends keyof OrnRow>(i: number, k: K, v: OrnRow[K]) {
+    // Weight/qty can never go negative, however the value arrives (native
+    // spinner decrement past 0, typed "-", pasted value, etc.) — clamp here
+    // centrally rather than trusting each call site.
+    const clamped = (k === "w" || k === "lessWt" || k === "q") && typeof v === "number" ? (Math.max(0, v) as OrnRow[K]) : v;
+    setRows((rs) => rs.map((r, idx) => {
+      if (idx !== i) return r;
+      // Net Wt is directly editable — editing it derives Less Wt instead
+      // (Gross Wt never changes as a side effect of editing Net/Less Wt).
+      // Clamped to [0, Gross Wt], mirroring the submit-time guard that Less
+      // Wt can't exceed Gross Wt.
+      if (k === "netW" && typeof v === "number") {
+        const netW = Math.min(Math.max(0, v), r.w);
+        return { ...r, netW, lessWt: round3(Math.max(0, r.w - netW)) };
+      }
+      const next = { ...r, [k]: clamped };
+      // Gross Wt/Less Wt are the two inputs that drive Net Wt — any change
+      // to either recomputes it here.
+      if (k === "w" || k === "lessWt") next.netW = round3(Math.max(0, next.w - next.lessWt));
+      return next;
+    }));
+  }
 
 	// Adds a photo to the row from PhotoSourceMenu — a file from the system
 	// (several may be picked at once) or a webcam shot, all arrive as a File.
