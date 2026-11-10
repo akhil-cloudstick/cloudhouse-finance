@@ -10,6 +10,7 @@ import { apiFetchEnveloped } from "@/common/services/httpClient";
 import { offlineStore } from "@/common/services/desktopBridge";
 import { employeeId } from "./session";
 import { setMirror } from "./progress";
+import { sharedData } from "./state";
 
 type Row = Record<string, unknown>;
 type Relation = { table: string; column: string };
@@ -205,6 +206,7 @@ let current: Promise<boolean> | null = null;
 /* Brings every mirrored table up to date and resolves when the pass has finished (true when every table is current). A call
  * made during a pass gets that pass's result and queues one more, so no request is lost. */
 export function syncMirror(why: string): Promise<boolean> {
+	if (sharedData()) return Promise.resolve(false); // the main PC downloads for every PC
 	if (current) {
 		again = true;
 		return current;

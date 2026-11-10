@@ -205,6 +205,53 @@ export const offlineStore = {
   mirrorCounts: () => app()!.StoreMirrorCounts(),
 };
 
+/* The LAN agent (desktop/lan): finds the other PCs running the app on the same network and tests the connection.
+ * `available` is false in a browser and in an older exe that was built before the agent existed. */
+export type LanStatus = LanStatusInfo;
+export type LanPeer = LanPeerInfo;
+export type LanLogEntry = LanLogEntryInfo;
+export type LanStep = LanStepInfo;
+export type LanProbe = LanProbeInfo;
+export type LanMainResult = LanMainResultInfo;
+export type LanDataMode = LanDataModeInfo;
+
+export const lan = {
+  available: (): boolean => isDesktop() && typeof app()?.LanStatus === "function",
+  status: () => app()!.LanStatus!(),
+  peers: async (): Promise<LanPeer[]> => (await app()!.LanPeers!()) ?? [],
+  log: async (): Promise<LanLogEntry[]> => (await app()!.LanLog!()) ?? [],
+  clearLog: () => app()!.LanClearLog!(),
+  selfTest: async (peer: string): Promise<LanStep[]> => (await app()!.LanSelfTest!(peer)) ?? [],
+  testPeer: (target: string) => app()!.LanTestPeer!(target),
+  addPeer: (target: string) => app()!.LanAddPeer!(target),
+  allowAccess: () => app()!.LanAllowAccess!(),
+  /* The main PC: chosen by an admin on any PC; the choice spreads to every PC on the network. */
+  setMain: (id: string) => app()!.LanSetMain!(id),
+  clearMain: () => app()!.LanClearMain!(),
+  /* The business key the server gives every signed-in PC of the business (see common/offline/lanKey.ts). */
+  setKey: (key: string) => app()!.LanSetKey!(key),
+  /* Where this PC's data is (its own store, or the main PC's) and whether the store must be opened again. */
+  dataMode: () => app()!.LanDataMode!(),
+  /* The main PC choice or the key changed: the store may need to be opened again. */
+  onMode: (handler: () => void): (() => void) => {
+    if (!isDesktop() || !window.runtime) return noop;
+    return window.runtime.EventsOn("lan:mode", () => handler());
+  },
+  /* On the main PC: a counter put something in the outbox. */
+  onEntries: (handler: () => void): (() => void) => {
+    if (!isDesktop() || !window.runtime) return noop;
+    return window.runtime.EventsOn("lan:entries", () => handler());
+  },
+  onLog: (handler: (entry: LanLogEntry) => void): (() => void) => {
+    if (!isDesktop() || !window.runtime) return noop;
+    return window.runtime.EventsOn("lan:log", (d) => handler(d as LanLogEntry));
+  },
+  onPeers: (handler: (peers: LanPeer[]) => void): (() => void) => {
+    if (!isDesktop() || !window.runtime) return noop;
+    return window.runtime.EventsOn("lan:peers", (d) => handler((d as LanPeer[] | null) ?? []));
+  },
+};
+
 /* Documents made on this PC from the bundled templates (desktop/documents.go) when the server cannot be reached. */
 export const offlineDocs = {
   available: () => !!app()?.RenderOfflineDocument,

@@ -6,7 +6,7 @@ const { loadEnvConfig } = require("@next/env");
 const {
   fetchTenantBranding,
   generateIconFromLogo,
-  generateIconFromInitials,
+  generateDefaultIcon,
   regenerateWindowsResource,
   writeWindowTitleOverride,
   updateUrl,
@@ -53,11 +53,10 @@ async function applyTenantBranding() {
     if (branding.logoUrl) {
       await generateIconFromLogo(branding.logoUrl, root);
     } else {
-      // No logo yet: an initials icon on the tenant's own colour, never a
-      // stale previous tenant's icon or the platform's.
-      await generateIconFromInitials(branding.name, branding.brandColor, root);
+      // No logo yet: the default logo, never a stale previous tenant's icon.
+      await generateDefaultIcon(root);
     }
-    regenerateWindowsResource(root, run);
+    regenerateWindowsResource(root, run, branding.name);
     console.log(`Applied "${branding.name}" branding (icon + title) for tenant "${branding.slug}".`);
   } catch (err) {
     console.warn(`Could not build a tenant icon (${err.message}) — the exe icon may be stale for this tenant.`);

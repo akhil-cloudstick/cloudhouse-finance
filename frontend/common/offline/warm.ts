@@ -7,6 +7,7 @@
 
 import { quietly, warmAllPages, warmGet, warmJson } from "@/common/services/httpClient";
 import { setAuctionStage } from "./auctionStages";
+import { sharedData } from "./state";
 import { warmImages } from "./imageCache";
 import { listLocal } from "./localCopy";
 import { COPY_STATUS_EVENT } from "./pull";
@@ -297,6 +298,7 @@ export function warmCompleted(): boolean {
  * A call made while a warm-up is running is not lost; it runs once that one ends. */
 export async function warmReadCache(force = false): Promise<void> {
 	if (!employeeId()) return;
+	if (sharedData()) return; // the main PC keeps the read cache for every PC
 	if (running) {
 		rerun = { force: force || !!rerun?.force };
 		return;

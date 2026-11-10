@@ -72,7 +72,42 @@ export async function quietly<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/* A free ngrok tunnel answers a browser-like request with an HTML "visitor warning" page instead of the API. This header
+ * skips that page. Only sent when the API address is an ngrok one, so a real host never sees it (and never needs it
+ * in its CORS list). */
+const VIA_NGROK = (() => {
+  try {
+    return /(^|[.])ngrok(-free)?[.](dev|app|io)$/i.test(new URL(API_BASE).hostname);
+  } catch {
+    return false; // a relative "/api/v1"
+  }
+})();
+
+/* An <img> tag cannot send that header, so through a free ngrok tunnel the logo (and any other picture) would come back as
+ * the warning page and show as a broken image. Such a picture is fetched with the header and handed to the page as a
+ * data: address instead. Anywhere else the address is returned as it is. */
+export async function loadableAssetUrl(url: string): Promise<string> {
+  if (!VIA_NGROK || !url || /^(data:|blob:)/i.test(url)) return url;
+  try {
+    const res = await fetch(url, { headers: { "ngrok-skip-browser-warning": "true" }, cache: "no-store" });
+    if (!res.ok) return url;
+    const blob = await res.blob();
+    if (!blob.type.startsWith("image/")) return url;
+    return await new Promise<string>((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => resolve(url);
+      r.readAsDataURL(blob);
+    });
+  } catch {
+    return url;
+  }
+}
+
 async function networkFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (VIA_NGROK) {
+    init = { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers).entries()), "ngrok-skip-browser-warning": "true" } };
+  }
   try {
     const res = await fetch(url, init);
     setReachable(true); // any answer, even an error status, means the server is there

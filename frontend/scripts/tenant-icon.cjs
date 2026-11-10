@@ -77,10 +77,18 @@ async function fetchTenantBranding(apiBase) {
 
 // Logo trimmed of its empty margins and centred full-size on a transparent square.
 async function generateIconFromLogo(logoUrl, root) {
-  const sharp = require("sharp");
   const res = await fetch(logoUrl);
   if (!res.ok) throw new Error(`logo fetch failed: ${res.status}`);
-  const logoBuffer = Buffer.from(await res.arrayBuffer());
+  await generateIconFromBuffer(Buffer.from(await res.arrayBuffer()), root);
+}
+
+// The default logo (public/cloudhouse-icon.png), for a business that has no logo of its own.
+async function generateDefaultIcon(root) {
+  await generateIconFromBuffer(fs.readFileSync(path.join(root, "public", "cloudhouse-icon.png")), root);
+}
+
+async function generateIconFromBuffer(logoBuffer, root) {
+  const sharp = require("sharp");
 
   const trimmed = await sharp(logoBuffer).ensureAlpha().trim().png().toBuffer();
   const meta = await sharp(trimmed).metadata();
@@ -125,10 +133,31 @@ async function generateIconFromInitials(name, brandColor, root) {
 /* Regenerates desktop/rsrc_windows_amd64.syso from the (now tenant-branded)
  * PNGs in build/windows/ — Go's build tool links whatever .syso sits next to
  * main.go automatically, no further wiring needed. */
-function regenerateWindowsResource(root, run) {
-  run("go", ["run", "github.com/tc-hib/go-winres@latest", "make", "--in", "winres.json", "--out", "../rsrc", "--arch", "amd64"], {
-    cwd: path.join(root, "desktop", "winres"),
-  });
+function regenerateWindowsResource(root, run, name) {
+  const dir = path.join(root, "desktop", "winres");
+  let input = "winres.json";
+  let generated = null;
+  // The business's own name goes into the exe's properties (Task Manager, the file's Details tab, the manifest), not only the title.
+  if (name) {
+    const base = JSON.parse(fs.readFileSync(path.join(dir, "winres.json"), "utf8"));
+    base.RT_MANIFEST["#1"]["0409"].description = name;
+    base.RT_VERSION = {
+      "#1": {
+        "0000": {
+          fixed: { file_version: "0.1.0.0", product_version: "0.1.0.0" },
+          info: { "0409": { CompanyName: name, FileDescription: name, ProductName: name, InternalName: name, LegalCopyright: name } },
+        },
+      },
+    };
+    generated = "winres.tenant.json";
+    fs.writeFileSync(path.join(dir, generated), JSON.stringify(base, null, 2));
+    input = generated;
+  }
+  try {
+    run("go", ["run", "github.com/tc-hib/go-winres@latest", "make", "--in", input, "--out", "../rsrc", "--arch", "amd64"], { cwd: dir });
+  } finally {
+    if (generated) fs.rmSync(path.join(dir, generated), { force: true });
+  }
 }
 
 /* Writes (or removes) the generated file that overrides main.go's default
@@ -151,6 +180,7 @@ function writeWindowTitleOverride(root, name) {
 module.exports = {
   fetchTenantBranding,
   generateIconFromLogo,
+  generateDefaultIcon,
   generateIconFromInitials,
   regenerateWindowsResource,
   writeWindowTitleOverride,

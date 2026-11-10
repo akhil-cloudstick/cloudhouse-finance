@@ -5,6 +5,7 @@ import { useState, type CSSProperties } from "react";
 import { useBranding } from "@/common/providers/BrandingProvider";
 
 import { DEFAULT_LOGO_DISPLAY, DEFAULT_LOGO_SCALE, LOGO_SCALES } from "@/common/config/theme";
+import { BRAND } from "@/common/config/brand";
 
 /* The brand seal, as used by the sidebar, the three auth pages and the
  * DigiLocker callback.
@@ -125,6 +126,15 @@ export default function BrandLogo({ size = 46, className, scalable = true }: Pro
 	 * every later load replays the name and logo from cache before first paint
 	 * (see BrandingProvider's initialBranding), so it is not a visible state
 	 * for a returning user. */
+	if ((!src || failed) && (loaded || cached)) {
+		// No logo of its own (or it would not load): the default logo, once the business is known. Before that the
+		// neutral block below holds the slot, so the default never flashes in ahead of a logo that is still arriving.
+		return (
+			<span style={wrapperStyle} className={className}>
+				<img src={BRAND.markSrc} alt={alt} style={{ objectFit: "contain", width: "100%", height: "100%" }} />
+			</span>
+		);
+	}
 	if (!src || failed) {
 		const initial = alt.trim().charAt(0).toUpperCase();
 		const settled = loaded || cached;

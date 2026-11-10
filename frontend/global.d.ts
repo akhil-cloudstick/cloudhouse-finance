@@ -1,4 +1,105 @@
+// LAN agent (desktop/lan): finding other PCs on the network and testing the connection.
+interface LanStatusInfo {
+  id: string;
+  name: string;
+  version: string;
+  instance: string;
+  httpPort: number;
+  discoveryPort: number;
+  tcpListening: boolean;
+  tcpError: string;
+  udpListening: boolean;
+  udpError: string;
+  beaconsSent: number;
+  beaconsReceived: number;
+  interfaces: { name: string; ip: string; mask: string; broadcast: string; linkLocal: boolean }[] | null;
+  noAddress: string[] | null;
+  peers: number;
+  logPath: string;
+  extraTargets: string[] | null;
+  lastSendErrors: string[] | null;
+  epoch: number;
+  mainId: string;
+  mainName: string;
+  isMain: boolean;
+  mainOnline: boolean;
+  hasKey: boolean;
+  shared: boolean;
+}
+interface LanModeInfo {
+  shared: boolean;
+  mainId: string;
+  mainName: string;
+  mainOnline: boolean;
+  hasKey: boolean;
+  reason: string;
+}
+interface LanDataModeInfo {
+  shared: boolean; // the data this PC is using right now is on the main PC
+  mainId: string;
+  needRestart: boolean; // the main PC choice changed since the store was opened
+  live: LanModeInfo;
+}
+interface LanMainResultInfo {
+  ok: boolean;
+  message: string;
+  epoch: number;
+  mainId: string;
+  mainName: string;
+}
+interface LanPeerInfo {
+  id: string;
+  name: string;
+  ip: string;
+  port: number;
+  ips: string[] | null;
+  version: string;
+  source: "beacon" | "manual";
+  reachable: "unknown" | "yes" | "no";
+  latencyMs: number;
+  detail: string;
+  ageSec: number;
+  isMain: boolean;
+  verified: boolean;
+}
+interface LanLogEntryInfo {
+  time: string;
+  level: "info" | "ok" | "warn" | "error";
+  component: string;
+  message: string;
+}
+interface LanStepInfo {
+  id: string;
+  title: string;
+  status: "pass" | "warn" | "fail" | "skip";
+  detail: string;
+  fix: string;
+}
+interface LanProbeInfo {
+  ip: string;
+  port: number;
+  status: "reachable" | "refused" | "timeout" | "unreachable" | "badreply" | "error";
+  latencyMs: number;
+  message: string;
+  peerId: string;
+  peerName: string;
+  peerVersion: string;
+  via?: string;
+}
+
 interface DesktopApp {
+  LanStatus?(): Promise<LanStatusInfo>;
+  LanPeers?(): Promise<LanPeerInfo[] | null>;
+  LanLog?(): Promise<LanLogEntryInfo[] | null>;
+  LanClearLog?(): Promise<void>;
+  LanSelfTest?(peer: string): Promise<LanStepInfo[] | null>;
+  LanTestPeer?(target: string): Promise<LanProbeInfo>;
+  LanAddPeer?(target: string): Promise<LanProbeInfo>;
+  LanAllowAccess?(): Promise<{ ok: boolean; message: string }>;
+  LanSetKey?(key: string): Promise<void>;
+  LanDataMode?(): Promise<LanDataModeInfo>;
+  LanSetMain?(id: string): Promise<LanMainResultInfo>;
+  LanClearMain?(): Promise<LanMainResultInfo>;
   Version(): Promise<string>;
   Frameless(): Promise<boolean>;
   CheckUpdate(): Promise<void>;

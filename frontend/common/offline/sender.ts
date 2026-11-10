@@ -12,6 +12,7 @@ import { getLocal, removeLocal, upsertLocal } from "./localCopy";
 import { pull } from "./pull";
 import { syncMirror } from "./mirrorSync";
 import { SYNC_STATE_EVENT, syncBusy } from "./progress";
+import { sharedData } from "./state";
 import { sendToReview } from "./review";
 import { warmReadCache } from "./warm";
 import { uploadFileOnline } from "@/common/services/uploadService";
@@ -76,6 +77,8 @@ export async function waitingCount(): Promise<number> {
 
 /* True when the server answered and the outbox is now empty. */
 export async function drain(why: string): Promise<boolean> {
+	// a counter's entries are sent by the main PC (it holds them): sending them from here too would send each one twice
+	if (sharedData()) return false;
 	if (running) {
 		// a sync is already running: one more round is queued behind it, so no trigger is lost
 		again = true;

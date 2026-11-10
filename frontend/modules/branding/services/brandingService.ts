@@ -10,7 +10,7 @@
  *   fetchMyBranding()          the signed-in app's own business, taken from
  *                              the token — there is no id to pass.
  */
-import { apiRawFetch, apiFetchEnveloped, resolveAssetUrl } from "@/common/services/httpClient";
+import { apiRawFetch, apiFetchEnveloped, resolveAssetUrl, loadableAssetUrl } from "@/common/services/httpClient";
 import type { PublicBranding, MyBranding, ConnectCode } from "@/modules/branding/types/branding-types";
 
 /* A bare fetch rather than apiFetch: see the module comment. A failure here
@@ -32,7 +32,7 @@ export async function fetchPublicBranding(code: string | null): Promise<PublicBr
 		// logo_url comes back same-origin-relative, which only resolves correctly
 		// on the web (see resolveAssetUrl) — fixed up once here, at the one place
 		// every caller's logoUrl ultimately comes from.
-		if (data?.logoUrl) data.logoUrl = resolveAssetUrl(data.logoUrl);
+		if (data?.logoUrl) data.logoUrl = await loadableAssetUrl(resolveAssetUrl(data.logoUrl));
 		return data;
 	} catch {
 		return null;
@@ -43,7 +43,7 @@ export async function fetchMyBranding(): Promise<MyBranding> {
 	// no-store — same reasoning as fetchPublicBranding above: this must never
 	// serve a cached response after a superadmin edit.
 	const data = await apiFetchEnveloped<MyBranding>("/branding", { cache: "no-store" });
-	if (data.logoUrl) data.logoUrl = resolveAssetUrl(data.logoUrl);
+	if (data.logoUrl) data.logoUrl = await loadableAssetUrl(resolveAssetUrl(data.logoUrl));
 	return data;
 }
 

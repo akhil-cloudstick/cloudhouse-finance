@@ -152,11 +152,18 @@ func (s *Server) refreshFromCopy(sess Session) Session {
 	return sess
 }
 
+// sessKey carries the signed-in user of one request, for the PC that answers on behalf of another (see HandleAs).
+type sessKey struct{}
+
 func (s *Server) session(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		s.mu.RLock()
 		sess := s.sess
 		s.mu.RUnlock()
+		// a request made for another PC's user carries that user, and never touches the one signed in here
+		if over, ok := c.Request().Context().Value(sessKey{}).(Session); ok {
+			sess = over
+		}
 		if sess.EmployeeID == 0 {
 			return c.JSON(http.StatusUnauthorized, echo.Map{"success": false, "error": "no saved session on this PC"})
 		}
@@ -185,10 +192,33 @@ func (s *Server) readOnly(next echo.HandlerFunc) echo.HandlerFunc {
 
 // Handle answers one request. path is the route as the app uses it after /api/v1 (for example /users/5/loans).
 func (s *Server) Handle(method, path, query string, headers map[string]string) Response {
+	return s.handle(nil, method, path, query, headers)
+}
+
+// HandleAs answers one request for another user than the one signed in here: the main PC answering a counter's read
+// from the shared copy. sess is that user's saved session; the role and branch are read from the copy, as in Bind.
+func (s *Server) HandleAs(sess Session, method, path, query string, headers map[string]string) Response {
+	eff, ok := s.sessionFor(sess)
+	if !ok {
+		return Response{Status: http.StatusUnauthorized, Body: `{"success":false,"error":"the saved session is incomplete"}`}
+	}
+	return s.handle(&eff, method, path, query, headers)
+}
+
+// sessionFor validates another user's session and refreshes its role and branch from the copy (see Bind).
+func (s *Server) sessionFor(sess Session) (Session, bool) {
+	if sess.TenantID == 0 || sess.EmployeeID == 0 || sess.RoleID == 0 {
+		return Session{}, false
+	}
+	return s.refreshFromCopy(sess), true
+}
+
+// handle serves one request as the signed-in user, or as over when it is set.
+func (s *Server) handle(over *Session, method, path, query string, headers map[string]string) Response {
 	s.gate.RLock()
 	defer s.gate.RUnlock()
 	s.mu.RLock()
-	bound := s.sess.EmployeeID != 0
+	bound := over != nil || s.sess.EmployeeID != 0
 	s.mu.RUnlock()
 	if !bound {
 		return Response{Status: http.StatusUnauthorized, Body: `{"success":false,"error":"no saved session on this PC"}`}
@@ -198,6 +228,9 @@ func (s *Server) Handle(method, path, query string, headers map[string]string) R
 		target += "?" + strings.TrimPrefix(query, "?")
 	}
 	req := httptest.NewRequest(method, target, bytes.NewReader(nil))
+	if over != nil {
+		req = req.WithContext(context.WithValue(req.Context(), sessKey{}, *over))
+	}
 	for k, v := range headers {
 		switch strings.ToLower(k) {
 		case "x-branch-id", "accept", "accept-language":

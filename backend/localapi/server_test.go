@@ -2,6 +2,7 @@ package localapi
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,6 +102,71 @@ func TestLocalServerAppliesTheRolesPermissions(t *testing.T) {
 	got := srv.Handle("GET", "/users/9/loans", "limit=10", nil)
 	if got.Status != 403 {
 		t.Errorf("a role without the permission must be refused offline too, got %d %s", got.Status, got.Body)
+	}
+}
+
+// The main PC answers a counter's read from the shared copy, as that counter's user, and never as (or over) the user
+// signed in on the main PC itself.
+func TestMainPCAnswersEachCountersReadAsThatCountersUser(t *testing.T) {
+	path := seed(t)
+	db := openRaw(t, path)
+	for _, q := range []string{ // the manager may view and edit schemes; the clerk has no scheme permission
+		`INSERT INTO permissions (tenant_id, id, name, module_name, is_active) VALUES (0, 3, 'can view scheme module', 'Scheme', 1), (0, 4, 'can update scheme', 'Scheme', 1)`,
+		`INSERT INTO role_permissions (tenant_id, id, role_id, permission_id, permission) VALUES (1, 4, 10, 3, 1), (1, 5, 10, 4, 1)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(Close)
+
+	manager := Session{TenantID: 1, EmployeeID: 7, RoleID: 10, Role: "Manager", BranchID: 1}
+	clerk := Session{TenantID: 1, EmployeeID: 9, RoleID: 11, Role: "Clerk", BranchID: 1}
+
+	// nobody is signed in on the main PC: a counter's request still works, as its own user
+	if got := srv.Handle("GET", "/users/7/loans", "", nil); got.Status != 401 {
+		t.Fatalf("the main PC's own session is empty, want 401, got %d", got.Status)
+	}
+	if got := srv.HandleAs(manager, "GET", "/users/7/loans", "limit=50", nil); got.Status != 200 || !strings.Contains(got.Body, "LN-5") {
+		t.Fatalf("manager counter: %d %s", got.Status, got.Body)
+	}
+	// another counter with a role that may not view loans is refused as itself, in the same moment
+	if got := srv.HandleAs(clerk, "GET", "/users/9/loans", "limit=10", nil); got.Status != 403 {
+		t.Fatalf("clerk counter must be refused, got %d %s", got.Status, got.Body)
+	}
+	// a counter's user cannot read another user's path
+	if got := srv.HandleAs(manager, "GET", "/users/9/loans", "", nil); got.Status != 403 {
+		t.Fatalf("a counter must only read its own path, got %d", got.Status)
+	}
+	// an incomplete session is rejected
+	if got := srv.HandleAs(Session{EmployeeID: 7}, "GET", "/users/7/loans", "", nil); got.Status != 401 {
+		t.Fatalf("an incomplete session must be 401, got %d", got.Status)
+	}
+	// none of that touched the session signed in on the main PC
+	if got := srv.Handle("GET", "/users/7/loans", "", nil); got.Status != 401 {
+		t.Fatalf("serving counters must not bind the main PC's own session, got %d", got.Status)
+	}
+
+	// and with a waiting change: the replay runs as the counter's user and the answers are not shared between users
+	const body = `{"name":"Gold 12 edited","duration_months":12,"ltv_percent":75,"interest_rate":12,"branch_id":1,"is_active":true}`
+	pendingJSON, _ := json.Marshal([]Pending{{Method: "PATCH", Path: "/schemes/1/update", Body: body}})
+	got := srv.GetWithPendingAs(manager, "/users/7/schemes/1", "", nil, string(pendingJSON))
+	if got.Status != 200 || got.Skipped != 0 || !strings.Contains(got.Body, "Gold 12 edited") {
+		t.Fatalf("manager with a waiting change: %d skipped=%d %s", got.Status, got.Skipped, got.Body)
+	}
+	if got := srv.GetWithPendingAs(clerk, "/users/9/schemes/1", "", nil, string(pendingJSON)); got.Status == 200 || strings.Contains(got.Body, "edited") {
+		t.Fatalf("a clerk with no scheme permission must be refused, not answered from the manager's answer: %d %s", got.Status, got.Body)
+	}
+	if got := srv.GetWithPendingAs(manager, "/users/7/schemes/1", "", nil, string(pendingJSON)); got.Status != 200 || !strings.Contains(got.Body, "Gold 12 edited") {
+		t.Fatalf("the manager's own answer must still be right after the clerk asked: %d %s", got.Status, got.Body)
+	}
+	// the copy itself was never changed
+	if got := srv.HandleAs(manager, "GET", "/users/7/schemes/1", "", nil); strings.Contains(got.Body, "edited") {
+		t.Fatalf("a waiting change must not be kept: %s", got.Body)
 	}
 }
 

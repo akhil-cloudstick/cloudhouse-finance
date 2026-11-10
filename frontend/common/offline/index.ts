@@ -2,7 +2,8 @@
  * sends the outbox oldest first, right after a Save and from a 10-minute cron. In a browser none of this runs
  * and the app behaves as before. */
 
-import { offlineStore } from "@/common/services/desktopBridge";
+import { lan, offlineStore } from "@/common/services/desktopBridge";
+import { ensureLanKey } from "./lanKey";
 import { currentDevice, forgetDevice, loadDevice } from "./device";
 import { uuid7 } from "./ids";
 import { installImageGuard } from "./imageCache";
@@ -17,7 +18,7 @@ import { loadMirrorStatus } from "./mirrorSync";
 import { bindLocalApi, resetLocalApi } from "./localApi";
 import { drain } from "./sender";
 import { warmReadCache } from "./warm";
-import { offlineReady, setOfflineReady } from "./state";
+import { offlineReady, setOfflineReady, setSharedData, sharedData } from "./state";
 import type { Actor, OutboxEntry } from "./types";
 
 export { uuid7, refPath } from "./ids";
@@ -54,7 +55,11 @@ async function doStartOffline(): Promise<void> {
 	try {
 		// the first time on this PC the user decides where the offline data is kept
 		if (!(await offlineStore.rootChosen())) await askStorageChoice();
+		// the business key lets this PC join the main PC on the local network; it is asked for before the store opens,
+		// because the store opens on the main PC's data when this PC is a counter
+		await ensureLanKey();
 		await offlineStore.open(business, DEVICE_FOLDER);
+		setSharedData(lan.available() ? (await lan.dataMode()).shared : false);
 		await loadDevice();
 		await loadLocalCopy();
 		await loadCopyStatus();
@@ -64,9 +69,12 @@ async function doStartOffline(): Promise<void> {
 		void bindLocalApi();
 	} catch (e) {
 		setOfflineReady(false);
+		setSharedData(false);
 		console.error("offline mode could not start", e);
+		void offlineStore.log("error", `offline mode could not start: ${e instanceof Error ? e.message : String(e)}`);
 		return;
 	}
+	watchLan();
 	setReadCacheEnabled(true);
 	installImageGuard();
 	void flushRememberedLogin();
@@ -88,6 +96,37 @@ export function stopOffline(): void {
 	forgetDevice();
 	resetLocalApi();
 	setOfflineReady(false);
+	setSharedData(false);
+}
+
+/* Reacts to the local network: when the main PC choice changes the store is opened again on the right data, and on the main
+ * PC a counter's save starts the sending to the server at once. Set up once; the handlers check what is running. */
+let watching = false;
+let reopening = false;
+
+function watchLan(): void {
+	if (watching || !lan.available()) return;
+	watching = true;
+	lan.onMode(() => void reopenIfNeeded());
+	lan.onEntries(() => {
+		if (offlineReady() && !sharedData()) void drain("a counter saved");
+	});
+}
+
+async function reopenIfNeeded(): Promise<void> {
+	if (reopening || !offlineReady()) return;
+	reopening = true;
+	try {
+		const m = await lan.dataMode();
+		if (!m.needRestart) return;
+		offlineStore.log("info", `the main PC choice changed: opening the offline store again (${m.live.reason})`);
+		stopOffline();
+		await startOffline();
+	} catch (e) {
+		offlineStore.log("error", `could not reopen the offline store: ${e instanceof Error ? e.message : String(e)}`);
+	} finally {
+		reopening = false;
+	}
 }
 
 function onOnline() {

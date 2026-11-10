@@ -98,8 +98,13 @@ const framelessWindow = true
 var nonIDChars = regexp.MustCompile(`[^a-z0-9]+`)
 
 // One lock per business, so two different tenants' apps can still run side by side.
+// CLOUDHOUSE_INSTANCE lets a second copy run on the same PC for testing the LAN screen.
 func instanceID() string {
-	return "cloudhouse-finance-" + nonIDChars.ReplaceAllString(strings.ToLower(windowTitle), "-")
+	id := "cloudhouse-finance-" + nonIDChars.ReplaceAllString(strings.ToLower(windowTitle), "-")
+	if inst := strings.ToLower(strings.TrimSpace(os.Getenv("CLOUDHOUSE_INSTANCE"))); inst != "" {
+		id += "-" + nonIDChars.ReplaceAllString(inst, "-")
+	}
+	return id
 }
 
 func main() {
@@ -127,6 +132,7 @@ func main() {
 		Frameless:                framelessWindow,
 		AssetServer:              assetOptions(),
 		OnStartup:                app.startup,
+		OnShutdown:               app.shutdown,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               instanceID(),
 			OnSecondInstanceLaunch: app.onSecondInstanceLaunch,

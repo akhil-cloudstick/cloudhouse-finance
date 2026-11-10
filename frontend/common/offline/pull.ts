@@ -5,6 +5,7 @@
 
 import { apiFetchEnveloped } from "@/common/services/httpClient";
 import { offlineStore } from "@/common/services/desktopBridge";
+import { sharedData } from "./state";
 import { listLocal, mergeLocal, saveLocal } from "./localCopy";
 import { employeeId } from "./session";
 import type { EntityName, OutboxEntry, PullPayload, SyncIds } from "./types";
@@ -114,6 +115,7 @@ let pullAgain = false;
 /* Returns true when the server answered and the local copy was refreshed. A call made while a pull is running (a long
  * download takes minutes) is not lost: one more pull runs when that one ends. */
 export async function pull(why: string): Promise<boolean> {
+	if (sharedData()) return false; // the main PC downloads for every PC
 	if (pullRunning) {
 		pullAgain = true;
 		return false;

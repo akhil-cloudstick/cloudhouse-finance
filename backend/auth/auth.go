@@ -388,7 +388,7 @@ func CORS(allowedOrigins string) echo.MiddlewareFunc {
 				c.Response().Header().Set("Vary", "Origin")
 			}
 			c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Branch-Id, X-Client-Uuid, X-Occurred-At, X-Device-Id, X-Device-Signature")
+			c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Branch-Id, X-Client-Uuid, X-Occurred-At, X-Device-Id, X-Device-Signature, ngrok-skip-browser-warning")
 			c.Response().Header().Set("Access-Control-Expose-Headers", "X-Sync-Duplicate")
 			if c.Request().Method == http.MethodOptions {
 				return c.NoContent(http.StatusNoContent)

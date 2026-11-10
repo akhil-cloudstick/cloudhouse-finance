@@ -47,11 +47,13 @@ const script = `
     // reading the one baked into this build instead. Avoids this earliest,
     // pre-React guess ever landing on "default" (and fetching a stale/wrong
     // cached logo through it) for a desktop build that already names its tenant.
-    var desktopSlug = "";
-    try {
+    var desktopSlug = ${JSON.stringify((process.env.NEXT_PUBLIC_DESKTOP_TENANT || "").trim().toLowerCase())};
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(desktopSlug)) desktopSlug = "";
+    if (!desktopSlug) try {
       var apiBaseHost = new URL(${JSON.stringify(process.env.NEXT_PUBLIC_API_BASE || "")}).hostname.toLowerCase();
       var hl = apiBaseHost.split(".");
-      if (hl.length >= 3 && /^[a-z0-9][a-z0-9-]*$/.test(hl[0])) desktopSlug = hl[0];
+      // a tunnel address (ngrok) names no business: its first label is a random name
+      if (hl.length >= 3 && /^[a-z0-9][a-z0-9-]*$/.test(hl[0]) && !/[.]ngrok(-free)?[.](dev|app|io)$/.test(apiBaseHost)) desktopSlug = hl[0];
     } catch (e) { /* no NEXT_PUBLIC_API_BASE, or it's relative — not a desktop tenant build */ }
     // An explicit ?b=<slug> (forgot/reset-password links) outranks the
     // remembered business — mirrors activeBusinessSlug in tenantSession.ts.

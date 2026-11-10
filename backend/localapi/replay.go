@@ -11,6 +11,7 @@ package localapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -94,6 +95,19 @@ func (s *Server) writable() (*gorm.DB, error) {
 // could not run (a server error of ours, or a record the copy does not hold); when it is not zero the answer is not reliable
 // and the caller should use what it showed before. A change the server would refuse is left out of the answer, as there.
 func (s *Server) HandleWithPending(method, path, query string, headers map[string]string, pending []Pending) (Response, int) {
+	return s.handleWithPending(nil, method, path, query, headers, pending)
+}
+
+// HandleWithPendingAs is HandleWithPending for another user than the one signed in here (see HandleAs).
+func (s *Server) HandleWithPendingAs(sess Session, method, path, query string, headers map[string]string, pending []Pending) (Response, int) {
+	eff, ok := s.sessionFor(sess)
+	if !ok {
+		return Response{Status: http.StatusUnauthorized, Body: `{"success":false,"error":"the saved session is incomplete"}`}, 0
+	}
+	return s.handleWithPending(&eff, method, path, query, headers, pending)
+}
+
+func (s *Server) handleWithPending(over *Session, method, path, query string, headers map[string]string, pending []Pending) (Response, int) {
 	var todo []Pending
 	for _, p := range pending {
 		if p.Method == http.MethodGet || p.Method == "" || reUnresolved.MatchString(p.Path) || reUnresolved.MatchString(p.Body) {
@@ -104,22 +118,26 @@ func (s *Server) HandleWithPending(method, path, query string, headers map[strin
 		}
 	}
 	if len(todo) == 0 {
-		return s.Handle(method, path, query, headers), 0
+		return s.handle(over, method, path, query, headers), 0
 	}
 	s.mu.RLock()
 	sess := s.sess
 	s.mu.RUnlock()
+	if over != nil {
+		sess = *over
+	}
 	if sess.EmployeeID == 0 {
 		return Response{Status: http.StatusUnauthorized, Body: `{"success":false,"error":"no saved session on this PC"}`}, 0
 	}
 
-	key := method + " " + path + "?" + query + "|" + headers["X-Branch-Id"] + "|" + pendingKey(todo)
+	// the answer depends on who asks, so two users never share a remembered answer
+	key := itoa(sess.EmployeeID) + "|" + method + " " + path + "?" + query + "|" + headers["X-Branch-Id"] + "|" + pendingKey(todo)
 	s.gate.Lock()
 	defer s.gate.Unlock()
 	if hit, ok := s.memo[key]; ok && time.Since(hit.at) < memoFor {
 		return hit.resp, hit.skipped
 	}
-	resp, skipped := s.replay(method, path, query, headers, todo, sess)
+	resp, skipped := s.replay(over, method, path, query, headers, todo, sess)
 	if s.memo == nil || len(s.memo) > 64 {
 		s.memo = map[string]memoEntry{}
 	}
@@ -144,7 +162,7 @@ func pendingKey(todo []Pending) string {
 }
 
 // replay runs the waiting changes and then the read in one transaction that is always rolled back. The caller holds the gate.
-func (s *Server) replay(method, path, query string, headers map[string]string, todo []Pending, sess Session) (Response, int) {
+func (s *Server) replay(over *Session, method, path, query string, headers map[string]string, todo []Pending, sess Session) (Response, int) {
 	wdb, err := s.writable()
 	if err != nil {
 		return Response{Status: http.StatusServiceUnavailable, Body: `{"success":false,"error":"the local copy cannot be opened for changes"}`}, len(todo)
@@ -164,7 +182,7 @@ func (s *Server) replay(method, path, query string, headers map[string]string, t
 	skipped := 0
 	base := "/api/v1/users/" + itoa(sess.EmployeeID)
 	for _, p := range todo {
-		rec := s.serve(p.Method, base+p.Path, strings.NewReader(p.Body), headers, true)
+		rec := s.serve(over, p.Method, base+p.Path, strings.NewReader(p.Body), headers, true)
 		// A refusal (400, 409, 422...) is what the server will say too, so that change changes nothing there and the answer
 		// is right without it. What cannot be trusted is a change the copy could not run: an error of ours, or a record the
 		// copy does not hold.
@@ -179,14 +197,17 @@ func (s *Server) replay(method, path, query string, headers map[string]string, t
 	if query != "" {
 		target += "?" + strings.TrimPrefix(query, "?")
 	}
-	rec := s.serve(method, target, bytes.NewReader(nil), headers, false)
+	rec := s.serve(over, method, target, bytes.NewReader(nil), headers, false)
 	return Response{Status: rec.Code, Body: rec.Body.String()}, skipped
 }
 
 // serve runs one request through the route handlers. Only a replay may carry the header that lifts the read-only rule; the
 // header is a secret of this server, and a caller's headers other than the three named here are never copied.
-func (s *Server) serve(method, target string, body io.Reader, headers map[string]string, replay bool) *httptest.ResponseRecorder {
+func (s *Server) serve(over *Session, method, target string, body io.Reader, headers map[string]string, replay bool) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, target, body)
+	if over != nil {
+		req = req.WithContext(context.WithValue(req.Context(), sessKey{}, *over))
+	}
 	for k, v := range headers {
 		switch strings.ToLower(k) {
 		case "x-branch-id", "accept", "accept-language":
@@ -225,12 +246,22 @@ type PendingResponse struct {
 
 // GetWithPending is HandleWithPending for the app: the waiting changes arrive as JSON, [{method, path, body}].
 func (s *Server) GetWithPending(path, query string, headers map[string]string, pendingJSON string) PendingResponse {
+	r, skipped := s.HandleWithPending(http.MethodGet, path, query, headers, parsePending(pendingJSON))
+	return PendingResponse{Status: r.Status, Body: r.Body, Skipped: skipped}
+}
+
+// GetWithPendingAs is GetWithPending for another user than the one signed in here (see HandleAs).
+func (s *Server) GetWithPendingAs(sess Session, path, query string, headers map[string]string, pendingJSON string) PendingResponse {
+	r, skipped := s.HandleWithPendingAs(sess, http.MethodGet, path, query, headers, parsePending(pendingJSON))
+	return PendingResponse{Status: r.Status, Body: r.Body, Skipped: skipped}
+}
+
+func parsePending(pendingJSON string) []Pending {
 	var pending []Pending
 	if pendingJSON != "" {
 		if err := json.Unmarshal([]byte(pendingJSON), &pending); err != nil {
-			pending = nil
+			return nil
 		}
 	}
-	r, skipped := s.HandleWithPending(http.MethodGet, path, query, headers, pending)
-	return PendingResponse{Status: r.Status, Body: r.Body, Skipped: skipped}
+	return pending
 }

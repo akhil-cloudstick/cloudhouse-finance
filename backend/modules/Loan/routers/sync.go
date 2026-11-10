@@ -18,5 +18,7 @@ func SyncRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(syncPath+"/table/:name", syncmirror.SyncTableRows, auth.Staff(perms.Read)...)
 	e.GET(syncPath+"/table/:name/ids", syncmirror.SyncTableIDs, auth.Staff(perms.Read)...)
 	e.GET(syncPath+"/children/:name", syncmirror.SyncChildRows, auth.Staff(perms.Read)...)
+	// every signed-in staff member's PC needs it to join the main PC on the local network, so no extra permission
+	e.GET(syncPath+"/lan-key", syncmirror.SyncLanKey, auth.Staff()...)
 	return e
 }

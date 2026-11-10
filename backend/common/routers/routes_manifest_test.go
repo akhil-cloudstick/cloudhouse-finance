@@ -182,6 +182,7 @@ var routeManifest = map[string]routeSpec{
 	"GET /api/v1/users/:user_id/sync/table/:name":                                         list(),
 	"GET /api/v1/users/:user_id/sync/table/:name/ids":                                     list(),
 	"GET /api/v1/users/:user_id/sync/children/:name":                                      list(),
+	"GET /api/v1/users/:user_id/sync/lan-key":                                             self("the caller's own business key for the local network, derived from the tenant in the token; there is no identifier to substitute"),
 	"GET /api/v1/users/:user_id/loans/next-number":                                        self("next number in the caller's own business sequence, taken from the token; no identifier to substitute"),
 	"GET /api/v1/users/:user_id/loans/:id/approvals":                                      probe("id=loans"),
 	"GET /api/v1/users/:user_id/loans/:id/statement":                                      probe("id=loans"),

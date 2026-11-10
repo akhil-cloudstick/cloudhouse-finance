@@ -98,6 +98,9 @@ const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
 // The desktop app's own origin (Wails); it names no business.
 const DESKTOP_HOST = "wails.localhost";
 
+// Tunnel hosts (ngrok): a random name that is not a business code.
+const TUNNEL_HOST = /(^|\.)ngrok(-free)?\.(dev|app|io)$/;
+
 /* subdomainLabel is the shared rule both businessSlugFromHost() below and the
  * desktop fallback use: given a lowercased host, the first label names a
  * business only when there is something real in front of a qualifying
@@ -129,10 +132,16 @@ function subdomainLabel(host: string): string | null {
  * same-origin web/production setup), which is a no-op for every build that
  * isn't desktop-with-a-tenant-URL. */
 function desktopSlugFromApiBase(): string | null {
+	// A business named at build time (DESKTOP_TENANT) wins: a localhost or shared API address carries no business of its own.
+	const named = (process.env.NEXT_PUBLIC_DESKTOP_TENANT || "").trim().toLowerCase();
+	if (/^[a-z0-9][a-z0-9-]*$/.test(named)) return named;
 	const apiBase = process.env.NEXT_PUBLIC_API_BASE;
 	if (!apiBase) return null;
 	try {
-		return subdomainLabel(new URL(apiBase).hostname.toLowerCase());
+		const host = new URL(apiBase).hostname.toLowerCase();
+		// a tunnel address (ngrok) is just a way to reach the backend: its first label names no business
+		if (TUNNEL_HOST.test(host)) return null;
+		return subdomainLabel(host);
 	} catch {
 		return null; // relative path ("/api/v1") — no host to read
 	}

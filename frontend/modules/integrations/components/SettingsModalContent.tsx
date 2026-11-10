@@ -10,6 +10,7 @@ import { ConnectMobilePanel } from "@/modules/integrations/components/ConnectMob
 import { BusinessProfilePanel } from "@/modules/settings/components/BusinessProfilePanel";
 import { DesktopVersionPanel } from "@/modules/settings/components/DesktopVersionPanel";
 import { OfflinePanel } from "@/modules/settings/components/OfflinePanel";
+import { LanPanel } from "@/modules/settings/components/LanPanel";
 import { isDesktop } from "@/common/services/desktopBridge";
 
 /* One entry per section; `module` is the business module the superadmin
@@ -21,6 +22,7 @@ const SECTIONS: { key: string; label: string; icon: "mobileLink" | "waOutline" |
 	{ key: "whatsapp", label: "WhatsApp", icon: "waOutline", module: "whatsapp", Panel: WhatsAppPanel },
 	// Desktop only (section 7) — never shown on the web build.
 	{ key: "offline", label: "Offline", icon: "bank", desktopOnly: true, Panel: OfflinePanel },
+	{ key: "network", label: "Network", icon: "mobileLink", perm: ["Business_Profile", "can_view_business_profile_module"], desktopOnly: true, Panel: LanPanel },
 	{ key: "version", label: "App Version", icon: "arrowUp", desktopOnly: true, Panel: DesktopVersionPanel },
 ];
 
