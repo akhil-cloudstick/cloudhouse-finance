@@ -152,6 +152,14 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
   // Expense Register narrowed to that expense's day, then highlight its row once it has loaded.
   const pendingExpenseFocus = useRef<number | null>(null);
   useEffect(() => {
+    // Dashboard's "Today's Expenses" card (/ledger/expenses): open the Expense Register on today's expenses.
+    if (focusExpenseId === "expenses") {
+      setActiveCashTab("expenses");
+      setExpCategory([]); setExpMode([]); setExpStatus([]);
+      setExpFrom(realToday); setExpTo(realToday);
+      setExpensesPage(1);
+      return;
+    }
     const id = Number(focusExpenseId);
     if (!focusExpenseId || !Number.isInteger(id) || id <= 0) return;
     setActiveCashTab("expenses");

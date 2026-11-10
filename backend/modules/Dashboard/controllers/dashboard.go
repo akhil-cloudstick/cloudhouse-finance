@@ -17,6 +17,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// needsAttentionPageSize caps the dashboard's Needs Attention card at this many rows per page.
+const needsAttentionPageSize = 13
+
 type NeedsAttentionFilter struct {
 	Query string
 	Kind  string
@@ -102,11 +105,11 @@ func getNeedsAttention(ctx context.Context, page int, branchScope *uint, f Needs
 		page = 1
 	}
 	total := len(items)
-	start := (page - 1) * 15
+	start := (page - 1) * needsAttentionPageSize
 	if start > total {
 		start = total
 	}
-	end := start + 15
+	end := start + needsAttentionPageSize
 	if end > total {
 		end = total
 	}

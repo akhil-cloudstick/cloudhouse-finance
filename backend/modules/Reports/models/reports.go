@@ -12,6 +12,22 @@ type Filter struct {
 	PageSize  int
 	Q         string
 	Status    string
+
+	CustomerIDs []uint
+	SchemeIDs   []uint
+	LoanIDs     []uint
+	BankIDs     []uint
+	EmployeeIDs []uint
+	// SetByNames filters gold-rate-history on the name the rate was signed with (the column is free text).
+	SetByNames         []string
+	InvestorIDs        []uint
+	PlanIDs            []uint
+	ExpenseCategoryIDs []uint
+	Purities           []string
+	PaymentTypes       []string
+	CollectionModes    []string
+	Frequencies        []string
+	Statuses           []string
 }
 
 type Result struct {
@@ -139,17 +155,6 @@ type InterestCollectionTotals struct {
 	TotalInterest float64 `json:"total_interest"`
 	TotalPenal    float64 `json:"total_penal"`
 	Total         float64 `json:"total"`
-}
-
-type OutstandingPrincipalRow struct {
-	BranchName  string  `json:"branch_name"`
-	LoanCount   int     `json:"loan_count"`
-	Outstanding float64 `json:"outstanding"`
-}
-
-type OutstandingPrincipalTotals struct {
-	TotalOutstanding float64 `json:"total_outstanding"`
-	TotalLoans       int     `json:"total_loans"`
 }
 
 type PaymentCollectionRow struct {

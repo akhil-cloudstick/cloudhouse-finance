@@ -16,6 +16,10 @@ export type ReportFilters = {
   // Per-report extra filters.
   status?: string; // /reports/loans/status
   triggerType?: string; // /reports/communication-history
+  // Further per-report filters, each one or several comma-joined values.
+  customerId?: string; schemeId?: string; loanId?: string; bankId?: string; employeeId?: string;
+  investorId?: string; planId?: string; purity?: string; paymentType?: string; collectionMode?: string;
+  expenseCategoryId?: string; frequency?: string; setBy?: string;
 };
 export type ReportResult<Row, Totals> = {
   rows: Row[];
@@ -188,7 +192,7 @@ export type ProfitLossTotals = { totalIncome: number; totalExpenses: number; pro
  * "loans-status" export key — the export key list is a *different* set of
  * strings from the list-endpoint path segments). */
 export type ReportKey =
-  | "disbursement" | "personal-loans" | "loans-status" | "interest-collection" | "outstanding-principal"
+  | "disbursement" | "personal-loans" | "loans-status" | "interest-collection"
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
   | "employee-performance" | "communication-history" | "balance-sheet" | "profit-loss" | "form-g"

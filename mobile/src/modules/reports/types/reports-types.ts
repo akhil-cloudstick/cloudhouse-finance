@@ -9,11 +9,12 @@
 export type ReportFilters = {
   from?: string; // "YYYY-MM-DD"
   to?: string; // "YYYY-MM-DD"
-  branchId?: number;
+  branchId?: string;
   page?: number;
   pageSize?: number;
-  status?: string; // /reports/loans/status
-  triggerType?: string; // /reports/communication-history
+  // Per-report filter selections: query param name -> comma-joined values
+  // (status, trigger_type, customer_id, scheme_id, ...). Sent as-is on both the list and export calls.
+  extra?: Record<string, string>;
   q?: string; // free-text search (sent as `q`)
 };
 export type ReportResult<Row, Totals> = {
@@ -39,8 +40,6 @@ export type InterestCollectionRow = {
   loanId: number; loanNumber: string; paidOn: string; interestApplied: number; penalApplied: number; branchName: string;
 };
 export type InterestCollectionTotals = { totalInterest: number; totalPenal: number; total: number };
-export type OutstandingPrincipalRow = { branchName: string; loanCount: number; outstanding: number };
-export type OutstandingPrincipalTotals = { totalOutstanding: number; totalLoans: number };
 export type PaymentCollectionRow = {
   paymentId: number; loanNumber: string; paidOn: string; amount: number; type: string; branchName: string; employeeName: string;
 };

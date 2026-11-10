@@ -21,6 +21,12 @@ func goldWeight(ctx context.Context, f models.Filter) ([]models.GoldWeightRow, m
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.Purities) > 0 {
+		q = q.Where("o.purity IN ?", f.Purities)
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.GoldWeightTotals{}, err
 	}
@@ -50,6 +56,12 @@ func packetsReport(ctx context.Context, f models.Filter) ([]models.PacketRow, mo
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.LoanIDs) > 0 {
+		q = q.Where("l.id IN ?", f.LoanIDs)
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.PacketTotals{}, err
 	}
@@ -71,12 +83,17 @@ func packetsReport(ctx context.Context, f models.Filter) ([]models.PacketRow, mo
 func goldRateHistory(ctx context.Context, f models.Filter) ([]models.GoldRateHistoryRow, models.GoldRateHistoryTotals, error) {
 	from, to := dateRange(f)
 	var rows []models.GoldRateHistoryRow
-	if err := config.DB.
+	q := config.DB.
 		WithContext(ctx).Table("gold_rates").
 		Select("date, k24, set_by").
 		Where("date >= ? AND date < ?", from, to).
-		Order("date desc").
-		Scan(&rows).Error; err != nil {
+		Order("date desc")
+	// set_by is the free-text name a rate was signed with, so it is filtered on the names themselves
+	// (picked from GoldRateSetByOptions), not through employee ids.
+	if len(f.SetByNames) > 0 {
+		q = q.Where("set_by IN ?", f.SetByNames)
+	}
+	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.GoldRateHistoryTotals{}, err
 	}
 	return rows, models.GoldRateHistoryTotals{Count: len(rows)}, nil

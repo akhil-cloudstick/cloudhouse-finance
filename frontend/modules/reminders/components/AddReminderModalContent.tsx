@@ -11,7 +11,8 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { searchCustomersPage } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
-import { getLoanByNumber } from "@/modules/loans/services/loanService";
+import { searchLoansPage } from "@/modules/loans/services/loanService";
+import { type LoanView } from "@/modules/loans/types/loan-types";
 import { createReminder } from "@/modules/reminders/services/reminderService";
 import { type ReminderView } from "@/modules/reminders/types/reminder-types";
 import { fmtDate } from "@/common/utils/format";
@@ -45,6 +46,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
   const [customerId, setCustomerId] = useState("");
   const [customerLabel, setCustomerLabel] = useState("");
   const [loanId, setLoanId] = useState("");
+  const [loanLabel, setLoanLabel] = useState("");
   const [type, setType] = useState<"Follow-Up" | "Promise-to-Pay" | "Custom">("Follow-Up");
   const [dueDate, setDueDate] = useState(initialDate || new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState("");
@@ -61,19 +63,8 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
     if (!customerId) errors["customer"] ??= "Please select a customer.";
     if (!dueDate) errors["dueDate"] ??= "Please choose a due date.";
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
-    // The loan is typed by its number (LN-00012); the reminder stores the loan's own id.
-    let resolvedLoanId: number | null = null;
-    const typedLoan = loanId.trim();
-    if (typedLoan) {
-      try {
-        const found = await getLoanByNumber(typedLoan.toUpperCase());
-        if (found.customerId !== customerId) { fail("loan", "This loan belongs to a different customer."); return; }
-        resolvedLoanId = found.numericId;
-      } catch {
-        fail("loan", "No loan found with this number.");
-        return;
-      }
-    }
+    // The loan is picked from the selected customer's own loans; the reminder stores the loan's id.
+    const resolvedLoanId: number | null = loanId ? Number(loanId) : null;
     if (!employee) { setErr("You must be signed in to log a reminder."); return; }
 
     setSaving(true);
@@ -114,7 +105,10 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
               searchHint="Searches: customer name, customer code, phone"
               getLabel={(c) => `${c.name} — ${c.code}`}
               getId={(c) => String(c.id)}
-              onChange={(id, c) => { setCustomerId(id); setCustomerLabel(`${c.name} — ${c.code}`); clearFe("customer"); }}
+              onChange={(id, c) => {
+                if (id !== customerId) { setLoanId(""); setLoanLabel(""); }
+                setCustomerId(id); setCustomerLabel(`${c.name} — ${c.code}`); clearFe("customer");
+              }}
             />
             <FieldError msg={fe.customer} />
           </div>
@@ -137,7 +131,19 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
         <div className="frow">
           <div className={fe.loan ? "has-err" : undefined}>
             <label className="f">Loan Number (optional)</label>
-            <input className="inp" placeholder="e.g. LN-00012, if this reminder is about a specific loan" value={loanId} onChange={(e) => { setLoanId(e.target.value); clearFe("loan"); }} />
+            {/* Keyed by customer so changing the customer drops the previous customer's loan. */}
+            <SearchableSelect<LoanView>
+              key={customerId || "no-customer"}
+              value={loanLabel}
+              disabled={!customerId}
+              placeholder={customerId ? "Select a loan of this customer (optional)" : "Select a customer first"}
+              fetchFn={(q, p) => searchLoansPage(q, p, { customerId: Number(customerId) })}
+              searchHint="Searches this customer's loans by loan number"
+              getLabel={(l) => l.loanNumber}
+              getId={(l) => String(l.numericId)}
+              onChange={(id, l) => { setLoanId(id); setLoanLabel(l.loanNumber); clearFe("loan"); }}
+              portal
+            />
             <FieldError msg={fe.loan} />
           </div>
         </div>

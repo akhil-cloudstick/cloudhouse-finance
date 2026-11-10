@@ -7,6 +7,7 @@ import (
 	"cloudhouse/backend/modules/Reports/models"
 	"context"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,13 @@ func expenseCashflow(ctx context.Context, f models.Filter) ([]models.ExpenseCash
 	if len(f.BranchIDs) > 0 {
 		mq = mq.Where("m.branch_id IN ?", f.BranchIDs)
 	}
+	if len(f.CollectionModes) > 0 {
+		mq = mq.Where("LOWER(REPLACE(m.mode, ' ', '_')) IN ?", lowerModes(f.CollectionModes))
+	}
+	// Cash movements carry no expense category, so a category filter leaves only the categorised expenses.
+	if len(f.ExpenseCategoryIDs) > 0 {
+		mq = mq.Where("1 = 0")
+	}
 	var movements []movementRow
 	if err := mq.Scan(&movements).Error; err != nil {
 		return nil, models.ExpenseCashflowTotals{}, err
@@ -51,6 +59,15 @@ func expenseCashflow(ctx context.Context, f models.Filter) ([]models.ExpenseCash
 		Group("date(e.occurred_on), b.name, e.branch_id")
 	if len(f.BranchIDs) > 0 {
 		eq = eq.Where("e.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CollectionModes) > 0 {
+		eq = eq.Where("LOWER(REPLACE(e.mode, ' ', '_')) IN ?", lowerModes(f.CollectionModes))
+	}
+	if len(f.ExpenseCategoryIDs) > 0 {
+		eq = eq.Where("e.category IN (?)", config.DB.WithContext(ctx).Table("categories").Select("name").Where("id IN ?", f.ExpenseCategoryIDs))
+	}
+	if len(f.EmployeeIDs) > 0 {
+		eq = eq.Where("e.id IN ?", f.EmployeeIDs)
 	}
 	var expenses []expenseRow
 	if err := eq.Scan(&expenses).Error; err != nil {
@@ -116,6 +133,9 @@ func kycReport(ctx context.Context, f models.Filter) ([]models.KYCRow, models.KY
 		Order("c.name asc")
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("c.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("c.id IN ?", f.CustomerIDs)
 	}
 	var rows []models.KYCRow
 	if err := q.Scan(&rows).Error; err != nil {
@@ -231,6 +251,19 @@ func communicationHistory(ctx context.Context, f models.Filter, triggerType stri
 	if err != nil {
 		return nil, models.CommunicationHistoryTotals{}, err
 	}
+	if len(f.EmployeeIDs) > 0 {
+		allowed := map[uint]bool{}
+		for _, id := range f.EmployeeIDs {
+			allowed[id] = true
+		}
+		kept := logs[:0]
+		for _, l := range logs {
+			if l.TriggeredByEmployeeID != nil && allowed[*l.TriggeredByEmployeeID] {
+				kept = append(kept, l)
+			}
+		}
+		logs = kept
+	}
 	rows := make([]models.CommunicationHistoryRow, 0, len(logs))
 	var totals models.CommunicationHistoryTotals
 	for _, l := range logs {
@@ -251,4 +284,13 @@ func communicationHistory(ctx context.Context, f models.Filter, triggerType stri
 		}
 	}
 	return rows, totals, nil
+}
+
+// lowerModes normalises payment modes ("Bank Transfer", "bank_transfer") to the lower snake form.
+func lowerModes(modes []string) []string {
+	out := make([]string, 0, len(modes))
+	for _, m := range modes {
+		out = append(out, strings.ReplaceAll(strings.ToLower(strings.TrimSpace(m)), " ", "_"))
+	}
+	return out
 }

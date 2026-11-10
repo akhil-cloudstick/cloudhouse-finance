@@ -103,13 +103,16 @@ export function RateModalContent() {
   const [lastEdited, setLastEdited] = useState<Karat>(null);
 
   function setAuto() {
+    // Coming from Manual, whatever was typed there was never published — drop it
+    // and restart from the last published 24K rate instead of carrying it into Auto.
+    const wasManual = mode === "manual";
     setMode("auto");
     const f22 = latest.fineness22;
     const f18 = latest.fineness18;
     setFineness22(String(f22));
     setFineness18(String(f18));
 
-    let base24 = +rate24;
+    let base24 = wasManual ? latest.k24 || 0 : +rate24;
     if (!(base24 > 0) && +rate22 > 0) {
       base24 = Math.round((+rate22 / f22) * FINENESS_24K);
     }

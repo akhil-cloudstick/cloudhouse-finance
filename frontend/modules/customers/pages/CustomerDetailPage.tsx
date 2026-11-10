@@ -101,6 +101,9 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
   const [reloading, setReloading] = useState(false);
   // Header avatar falls back to initials when the photo URL fails to load.
   const [avatarFailed, setAvatarFailed] = useState(false);
+  // A new photo URL (after the photo is replaced) gets a fresh try — the earlier failure was for the old URL.
+  const photoUrlNow = profile?.customer.photoUrl;
+  useEffect(() => { setAvatarFailed(false); }, [photoUrlNow]);
 
   useEffect(() => {
     if (!routeRef) { setId(undefined); return; }
