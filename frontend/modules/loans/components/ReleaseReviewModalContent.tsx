@@ -436,12 +436,21 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 					)}
 				</div>
 
-				<div className="frow" style={{ marginBottom: 10 }}>
-					<div>
-						<label className="f">Release Date</label>
-						<DatePicker value={releaseDate} min={loan?.opened?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status === "Pending" ? !canDecide : !canEditLedger} />
-					</div>
-				</div>
+        {/* Record Payment, then Release Date beside it — the last two actions of the Verification steps above. */}
+        <div style={{ display: "flex", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
+          <button
+            className="btn ghost sm"
+            style={{ height: 40 }}
+            disabled={req.status !== "Pending" || !canDecide || !loan}
+            onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
+          >
+            <Icon name="coin" /> Record Payment
+          </button>
+          <div style={{ minWidth: 170 }}>
+            <label className="f">Release Date</label>
+            <DatePicker value={releaseDate} min={loan?.opened?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status === "Pending" ? !canDecide : !canEditLedger} />
+          </div>
+        </div>
 
 				{canEditLedger && dateChanged && (
 					<div style={{ display: "flex", gap: 8, marginBottom: 10 }}>

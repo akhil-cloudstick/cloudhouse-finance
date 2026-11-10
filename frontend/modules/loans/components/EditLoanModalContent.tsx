@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MAX_ORN_PHOTOS } from "@/modules/loans/utils/ornamentPhotos";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
@@ -99,13 +100,25 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 	function addRow() {
 		setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", less: "", net: "", qty: "1", photos: [], newPhotos: [] }]);
 	}
+  // At most MAX_ORN_PHOTOS per ornament (saved + new); uploads in flight count too,
+  // since a multi-select delivers several files in one tick.
+  const pendingPhotos = useRef<Record<number, number>>({});
 	async function ornPhotoPicked(i: number, f: File) {
 		if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
+    const inFlight = pendingPhotos.current[i] ?? 0;
+    const have = (rows[i]?.photos.length ?? 0) + (rows[i]?.newPhotos.length ?? 0);
+    if (have + inFlight >= MAX_ORN_PHOTOS) {
+      toast(`Too many photos — an ornament can have at most ${MAX_ORN_PHOTOS}`);
+      return;
+    }
+    pendingPhotos.current[i] = inFlight + 1;
 		try {
 			const url = await uploadFile(f);
 			setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, newPhotos: [...r.newPhotos, url] } : r)));
 		} catch {
 			toast("Could not upload photo — try again");
+    } finally {
+      pendingPhotos.current[i] = Math.max(0, (pendingPhotos.current[i] ?? 1) - 1);
 		}
 	}
 	function dropNewPhoto(i: number, url: string) {
@@ -405,83 +418,82 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 					</div>
 				)}
 
-				<label className="f" style={{ marginTop: 10, display: "block" }}>Ornaments</label>
-				<div className="edit-loan-orn-scroll">
-					{rows.map((r, i) => r.removed ? null : (
-						<div key={i} className={rowErr?.idx === i ? "eln-card has-err" : "eln-card"} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
-							{/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —
-									these rows need the modifier or every field stacks onto its
-									own line instead of sitting side by side. */}
-							<div className="eln-top">
-								<div className="orn-type-td"><label className="f">Name</label>
-									{/* Same ornament-type catalog picker NewLoan.tsx uses; the
-											`orn-type-td` wrapper pins it to the 31px row height the
-											PurityPicker beside it (`.pur-row`) already uses. */}
-									<SearchableSelect<BackendOrnamentType>
-										value={r.name}
-										onChange={(_id, item) => updRow(i, { name: item.name })}
-										fetchFn={searchOrnamentTypesPage}
-										searchHint="Searches: ornament type name"
-										getLabel={(t) => t.name}
-										getId={(t) => String(t.id)}
-										placeholder="Ornament type…"
-										allowCreate
-										onCreate={createOrnamentType}
-									/></div>
-								<div><label className="f">Purity</label>
-									<PurityPicker value={r.purity} onChange={(v) => updRow(i, { purity: v })} /></div>
-								<div><label className="f">Qty</label>
-									<input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
-							</div>
-							{/* Plain `.frow.c3` — this modal now opens `wide` (820px,
-									see LoanDetail.tsx's openModal calls) instead of the
-									default 520px, so the standard 3-up row (used by every
-									other dense form in the app) has enough room without a
-									local override, and gets the same small-screen collapse
-									every other `.frow.c3` row already gets for free. */}
-							<div className="eln-wt">
-								<div><label className="f">Gross (g)</label>
-									<input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.gross} onChange={(e) => setGross(i, e.target.value)} /></div>
-								<div><label className="f">Less (g)</label>
-									<input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.less} onChange={(e) => setLess(i, e.target.value)} /></div>
-								<div><label className="f">Net (g)</label>
-									<input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.net} onChange={(e) => setNet(i, e.target.value)} /></div>
-								<div className="eln-photos">
-								<label className="f">Photos</label>
-								<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-								{r.photos.map((u) => (
-									<SafeImage key={u} src={u} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
-								))}
-								{r.newPhotos.map((u) => (
-									<span key={u} style={{ position: "relative", display: "inline-flex" }}>
-										<SafeImage src={u} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--brand)" }} />
-										<button type="button" title="Remove photo" aria-label="Remove photo"
-											style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, padding: 0, borderRadius: "50%", border: "1px solid var(--line)", background: "var(--card, #fff)", color: "var(--red)", fontSize: 9, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-											onClick={() => dropNewPhoto(i, u)}>✕</button>
-									</span>
-								))}
-								<PhotoSourceMenu
-									multiple
-									onFile={(f) => { void ornPhotoPicked(i, f); }}
-									webcamTitle={`Ornament Photo${r.name ? " — " + r.name : ""}`}
-									trigger={(t) => (
-										<button ref={t.ref} type="button" className="btn plain sm" style={{ height: 38 }} aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}><Icon name="camera" /> Add photo</button>
-									)}
-								/>
-								</div>
-								</div>
-							</div>
-							{rowErr?.idx === i && <FieldError msg={rowErr.msg} />}
-							<div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-								<button className="btn danger sm" onClick={() => removeRow(i)} title="Remove ornament">✕ Remove</button>
-							</div>
-						</div>
-					))}
-				</div>
-				<FieldError msg={fe.ornaments} />
-				<div style={{ padding: "6px 0" }}>
-					<button className="btn plain sm" onClick={addRow}><Icon name="plus" /> Add Ornament</button>
-				</div>
+        <label className="f" style={{ marginTop: 10, display: "block" }}>Ornaments</label>
+        <div className="edit-loan-orn-scroll">
+          {rows.map((r, i) => r.removed ? null : (
+            <div key={i} className={rowErr?.idx === i ? "eln-card has-err" : "eln-card"} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
+              {/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —
+                  these rows need the modifier or every field stacks onto its
+                  own line instead of sitting side by side. */}
+              <div className="eln-top">
+                <div className="orn-type-td"><label className="f">Name</label>
+                  {/* Same ornament-type catalog picker NewLoan.tsx uses; the
+                      `orn-type-td` wrapper pins it to the 31px row height the
+                      PurityPicker beside it (`.pur-row`) already uses. */}
+                  <SearchableSelect<BackendOrnamentType>
+                    value={r.name}
+                    onChange={(_id, item) => updRow(i, { name: item.name })}
+                    fetchFn={searchOrnamentTypesPage}
+                    searchHint="Searches: ornament type name"
+                    getLabel={(t) => t.name}
+                    getId={(t) => String(t.id)}
+                    placeholder="Ornament type…"
+                    allowCreate
+                    onCreate={createOrnamentType}
+                  /></div>
+                <div><label className="f">Purity</label>
+                  <PurityPicker value={r.purity} onChange={(v) => updRow(i, { purity: v })} /></div>
+                <div><label className="f">Qty</label>
+                  <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
+              </div>
+              {/* Plain `.frow.c3` — this modal now opens `wide` (820px,
+                  see LoanDetail.tsx's openModal calls) instead of the
+                  default 520px, so the standard 3-up row (used by every
+                  other dense form in the app) has enough room without a
+                  local override, and gets the same small-screen collapse
+                  every other `.frow.c3` row already gets for free. */}
+              <div className="eln-wt">
+                <div><label className="f">Gross (g)</label>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.gross} onChange={(e) => setGross(i, e.target.value)} /></div>
+                <div><label className="f">Less (g)</label>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.less} onChange={(e) => setLess(i, e.target.value)} /></div>
+                <div><label className="f">Net (g)</label>
+                  <input className="inp" type="text" inputMode="decimal" placeholder="0.000" value={r.net} onChange={(e) => setNet(i, e.target.value)} /></div>
+                {/* Icon-only square actions, bottom-aligned with the inputs. */}
+                <PhotoSourceMenu
+                  multiple
+                  onFile={(f) => { void ornPhotoPicked(i, f); }}
+                  webcamTitle={`Ornament Photo${r.name ? " — " + r.name : ""}`}
+                  trigger={(t) => (
+                    <button ref={t.ref} type="button" className="btn plain eln-sq" title="Add photo" aria-label="Add photo" aria-haspopup="menu" aria-expanded={t.open} onClick={t.toggle}><Icon name="camera" /></button>
+                  )}
+                />
+                <button type="button" className="btn danger eln-sq" onClick={() => removeRow(i)} title="Remove ornament" aria-label="Remove ornament"><Icon name="x" /></button>
+              </div>
+              {/* Third row: photos, only once there are any. */}
+              {(r.photos.length > 0 || r.newPhotos.length > 0) && (
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  {r.photos.map((u) => (
+                    <SafeImage key={u} src={u} style={{ width: 38, height: 38, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
+                  ))}
+                  {r.newPhotos.map((u) => (
+                    <span key={u} style={{ position: "relative", display: "inline-flex" }}>
+                      <SafeImage src={u} style={{ width: 38, height: 38, objectFit: "cover", borderRadius: 6, border: "1px solid var(--brand)" }} />
+                      <button type="button" title="Remove photo" aria-label="Remove photo"
+                        style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, padding: 0, borderRadius: "50%", border: "1px solid var(--line)", background: "var(--card, #fff)", color: "var(--red)", fontSize: 9, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                        onClick={() => dropNewPhoto(i, u)}>✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {rowErr?.idx === i && <FieldError msg={rowErr.msg} />}
+            </div>
+          ))}
+        </div>
+        <FieldError msg={fe.ornaments} />
+        <div style={{ padding: "6px 0" }}>
+          <button className="btn plain sm" onClick={addRow}><Icon name="plus" /> Add Ornament</button>
+        </div>
 
 				<div style={{ padding: "10px 0 2px" }}>
 					<label className="f">Overall Photo</label>

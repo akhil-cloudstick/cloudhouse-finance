@@ -73,9 +73,10 @@ export function RateModalContent() {
 
 	const [mode, setMode] = useState<Mode>("auto");
 
-	// The day the rate is published for — today unless another day is picked; the same rate may be saved for any day.
-	const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
-	const [rateDate, setRateDate] = useState(todayStr());
+  // The day the rate is published for — today unless another day is picked; the same rate may be saved for any day.
+  const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  // Rates are always published for today — there is no date picker.
+  const rateDate = todayStr();
 
 	const [rate24, setRate24] = useState(String(latest.k24 || ""));
 
@@ -87,12 +88,11 @@ export function RateModalContent() {
 	const [rate18, setRate18] = useState(String(latest.k18 || ""));
 	const [fineness18, setFineness18] = useState(String(latest.fineness18));
 
-	const [err, setErr] = useState("");
-	// Validation messages, each shown under the rate it is about; `err` keeps the ones that fit no field.
-	const [fe, setFe] = useState<Record<string, string>>({});
-	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
-	const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
-	const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  // Validation messages, each shown under the rate it is about; `err` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+  const [saving, setSaving] = useState(false);
 
 	// Which karat's rate field staff last actually typed into — the
 	// hierarchy warning below only ever flags THIS one, never whichever
@@ -213,43 +213,37 @@ export function RateModalContent() {
 		if (!(+rate18 > 0)) errors["rate18"] ??= "The 18K rate must be greater than zero.";
 		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
-		if (!rateDate) { fail("date", "Pick the date this rate is for."); return; }
-		// Auto mode saves its fineness so a 24K-only publish (New Gold Loan page) derives 22K/18K the same way.
-		const fineness = mode === "auto" && +fineness22 > 0 && +fineness18 > 0 ? { 22: +fineness22, 18: +fineness18 } : undefined;
-		// All three rates are published for the chosen day, even when they equal the latest row.
-		const jobs: { karat: 24 | 22 | 18; rate: number }[] = [
-			{ karat: 24, rate: +rate24 },
-			{ karat: 22, rate: +rate22 },
-			{ karat: 18, rate: +rate18 },
-		];
+    // Auto mode saves its fineness so a 24K-only publish (New Gold Loan page) derives 22K/18K the same way.
+    const fineness = mode === "auto" && +fineness22 > 0 && +fineness18 > 0 ? { 22: +fineness22, 18: +fineness18 } : undefined;
+    // All three rates are published for the chosen day, even when they equal the latest row.
+    const jobs: { karat: 24 | 22 | 18; rate: number }[] = [
+      { karat: 24, rate: +rate24 },
+      { karat: 22, rate: +rate22 },
+      { karat: 18, rate: +rate18 },
+    ];
 
-		setErr("");
-		setSaving(true);
-		try {
-			await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, fineness, rateDate);
-			refresh();
-			closeModal();
-			toast(rateDate === todayStr() ? "Gold rates published for today" : `Gold rates published for ${rateDate}`);
-		} catch (e) {
-			setErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
-		} finally {
-			setSaving(false);
-		}
-	}); }
+    setErr("");
+    setSaving(true);
+    try {
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, fineness, rateDate);
+      refresh();
+      closeModal();
+      toast("Gold rates published for today");
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
+    } finally {
+      setSaving(false);
+    }
+  }); }
 
-	return (
-		<>
-			<div className="hd"><h3>Set Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd bd-scroll">
-				<div style={{ marginBottom: 14 }}>
-					<label className="f" style={{ marginBottom: 2 }}>Rate date</label>
-					<input className="inp" type="date" style={{ width: 170 }} value={rateDate} onChange={(e) => { setRateDate(e.target.value); clearFe("date"); }} />
-					<FieldError msg={fe.date} />
-				</div>
-				<div className="tabs" style={{ marginBottom: 14 }}>
-					<button className={mode === "auto" ? "on" : ""} onClick={setAuto}>Auto</button>
-					<button className={mode === "manual" ? "on" : ""} onClick={setManual}>Manual</button>
-				</div>
+  return (
+    <>
+      <div className="hd"><h3>Set Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll">
+        <div className="tabs" style={{ marginBottom: 14 }}>
+          <button className={mode === "auto" ? "on" : ""} onClick={setAuto}>Auto</button>
+          <button className={mode === "manual" ? "on" : ""} onClick={setManual}>Manual</button>
+        </div>
 
 				<div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 13 }}>
 					<div>

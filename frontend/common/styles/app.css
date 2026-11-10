@@ -5169,8 +5169,8 @@ table.tbl td {
 /* The clear (×) button inside a search box, vertically centred at its right edge. */
 .search .search-clear {
   position: absolute;
-  right: 20px;
-  top: calc(50% - 2px);
+  right: 10px;
+  top: 50%;
   transform: translateY(-50%);
   width: 24px;
   height: 24px;
@@ -5590,6 +5590,10 @@ table.tbl td {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
+  /* Reserve the scrollbar's width always: typing can add/remove a line (error or
+   * hint text), flipping the scrollbar on/off, which narrowed the content, re-wrapped
+   * the fields and made the inputs visibly jitter. */
+  scrollbar-gutter: stable;
 }
 
 /* A bd-scroll modal whose body is one table (Banks.tsx's BanksModalContent):
@@ -7290,9 +7294,20 @@ table.tbl td {
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(70px, .5fr);
 }
 
+/* gross | less | net | photo | remove — the two icon buttons are 38px squares
+ * pinned to the row's bottom, so they line up with the inputs. */
 .eln-wt {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: start;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 38px 38px;
+  align-items: end;
+}
+
+.eln-sq {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .eln-card .orn-type-td .inp {
@@ -7326,17 +7341,17 @@ table.tbl td {
   }
 
   .eln-wt {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
-
-  .eln-photos {
-    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 38px 38px;
   }
 }
 
 @media (max-width: 420px) {
   .eln-wt {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .eln-wt > .eln-sq,
+  .eln-wt > .ss-wrap {
+    justify-self: start;
   }
 }
 

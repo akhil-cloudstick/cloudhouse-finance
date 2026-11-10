@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MAX_ORN_PHOTOS } from "@/modules/loans/utils/ornamentPhotos";
 import { useData } from "@/common/providers/DataProvider";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -493,14 +494,24 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 
 	// Adds a photo to the row from PhotoSourceMenu — a file from the system
 	// (several may be picked at once) or a webcam shot, all arrive as a File.
-	// A row keeps any number of photos.
+	// A row keeps at most MAX_ORN_PHOTOS photos. Several files can arrive in one
+  // tick (multi-select), so uploads still in flight count toward the limit.
+  const pendingOrnImgs = useRef<Record<number, number>>({});
 	async function ornImgPicked(i: number, f: File) {
 		if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
+    const inFlight = pendingOrnImgs.current[i] ?? 0;
+    if ((rows[i]?.imgs?.length ?? 0) + inFlight >= MAX_ORN_PHOTOS) {
+      toast(`Too many photos — an ornament can have at most ${MAX_ORN_PHOTOS}`);
+      return;
+    }
+    pendingOrnImgs.current[i] = inFlight + 1;
 		try {
 			const url = await uploadFile(f);
 			setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, imgs: [...(r.imgs ?? []), url] } : r)));
 		} catch {
 			toast("Could not upload photo — try again");
+    } finally {
+      pendingOrnImgs.current[i] = Math.max(0, (pendingOrnImgs.current[i] ?? 1) - 1);
 		}
 	}
 	function delOrnImg(i: number, url: string) {
