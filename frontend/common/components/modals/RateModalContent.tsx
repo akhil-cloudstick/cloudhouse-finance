@@ -75,7 +75,8 @@ export function RateModalContent() {
 
   // The day the rate is published for — today unless another day is picked; the same rate may be saved for any day.
   const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
-  const [rateDate, setRateDate] = useState(todayStr());
+  // Rates are always published for today — there is no date picker.
+  const rateDate = todayStr();
 
   const [rate24, setRate24] = useState(String(latest.k24 || ""));
 
@@ -90,7 +91,6 @@ export function RateModalContent() {
   const [err, setErr] = useState("");
   // Validation messages, each shown under the rate it is about; `err` keeps the ones that fit no field.
   const [fe, setFe] = useState<Record<string, string>>({});
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
   const [saving, setSaving] = useState(false);
 
@@ -213,7 +213,6 @@ export function RateModalContent() {
     if (!(+rate18 > 0)) errors["rate18"] ??= "The 18K rate must be greater than zero.";
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
-    if (!rateDate) { fail("date", "Pick the date this rate is for."); return; }
     // Auto mode saves its fineness so a 24K-only publish (New Gold Loan page) derives 22K/18K the same way.
     const fineness = mode === "auto" && +fineness22 > 0 && +fineness18 > 0 ? { 22: +fineness22, 18: +fineness18 } : undefined;
     // All three rates are published for the chosen day, even when they equal the latest row.
@@ -229,7 +228,7 @@ export function RateModalContent() {
       await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, fineness, rateDate);
       refresh();
       closeModal();
-      toast(rateDate === todayStr() ? "Gold rates published for today" : `Gold rates published for ${rateDate}`);
+      toast("Gold rates published for today");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
     } finally {
@@ -241,11 +240,6 @@ export function RateModalContent() {
     <>
       <div className="hd"><h3>Set Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
-        <div style={{ marginBottom: 14 }}>
-          <label className="f" style={{ marginBottom: 2 }}>Rate date</label>
-          <input className="inp" type="date" style={{ width: 170 }} value={rateDate} onChange={(e) => { setRateDate(e.target.value); clearFe("date"); }} />
-          <FieldError msg={fe.date} />
-        </div>
         <div className="tabs" style={{ marginBottom: 14 }}>
           <button className={mode === "auto" ? "on" : ""} onClick={setAuto}>Auto</button>
           <button className={mode === "manual" ? "on" : ""} onClick={setManual}>Manual</button>

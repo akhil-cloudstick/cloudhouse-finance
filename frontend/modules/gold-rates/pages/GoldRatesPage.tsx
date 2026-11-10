@@ -128,15 +128,15 @@ export function GoldRatesPage() {
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-cards">
-            <TableCols widths={[30, 15, 15, 15, 25]} />
+            <TableCols widths={[24, 14, 14, 14, 10, 24]} />
             <thead>
-              <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g</th><th className="num">18K ₹/g</th><th>Published By</th></tr>
+              <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g</th><th className="num">18K ₹/g</th><th style={{ textAlign: "center" }}>Changes</th><th>Published By</th></tr>
             </thead>
             <tbody>
               {loading && !(cards && rows.length > 0) ? (
-                <tr><td colSpan={5} className="empty">Loading rate history…</td></tr>
+                <tr><td colSpan={6} className="empty">Loading rate history…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={5} className="empty">{from || to ? "No rates were published in this date range." : "No rates published yet."}</td></tr>
+                <tr><td colSpan={6} className="empty">{from || to ? "No rates were published in this date range." : "No rates published yet."}</td></tr>
               ) : rows.map((r) => {
                 // One row per day showing its newest rate; the day's changes sit behind it.
                 const entries = r.entries && r.entries.length ? r.entries : [r];
@@ -153,12 +153,12 @@ export function GoldRatesPage() {
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           {expandable && <Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : "rotate(-90deg)", transition: "transform .15s" }} />}
                           {fmtDate(r.date)}
-                          {expandable && <span className="chip">{entries.length} changes</span>}
                         </span>
                       </td>
                       <td className="num" data-label="24K ₹/g">{fmt(r.k24)}</td>
                       <td className="num" data-label="22K ₹/g">{fmt(r.k22)}</td>
                       <td className="num" data-label="18K ₹/g">{fmt(r.k18)}</td>
+                      <td data-label="Changes" style={{ textAlign: "center" }}>{expandable ? entries.length : ""}</td>
                       <td data-label="Published By"><PublishedBy r={r} /></td>
                     </tr>
                     {open && entries.map((e) => (
@@ -167,6 +167,7 @@ export function GoldRatesPage() {
                         <td className="num" data-label="24K ₹/g">{fmt(e.k24)}</td>
                         <td className="num" data-label="22K ₹/g">{fmt(e.k22)}</td>
                         <td className="num" data-label="18K ₹/g">{fmt(e.k18)}</td>
+                        <td data-label="Changes" />
                         <td data-label="Published By"><PublishedBy r={e} /></td>
                       </tr>
                     ))}
