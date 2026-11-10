@@ -355,8 +355,8 @@ async function queueFirst(
   return (after ?? rec) as unknown as BackendLoan;
 }
 
-const NOT_SENT = "This loan has not been sent to the server yet. Try again once it has (it is sent automatically when the connection is back).";
-const NOT_SYNCED = "This loan has not reached the server yet. Its ornaments can be changed once it has.";
+const NOT_SENT = "Loan not sycned.";
+const NOT_SYNCED = "Loan not synced.";
 
 /* A change that has no local picture to update beyond the loan itself: sent as usual, and only when the server does
  * not answer at all it is kept in the outbox and sent later. Ornament changes address the ornament by its server id,
@@ -1742,7 +1742,8 @@ async function planReleasePayment(req: RequestView, loan: BackendLoan, input: Re
     const view = toView(loan);
     const kept = req.isPartial ? view.ornaments.filter((o) => !o.releasedAt && !(req.ornamentIds ?? []).includes(o.id)).map((o) => o.id) : null;
     const needed = releaseAmountNeeded(view, kept);
-    const short = roundMoney(needed - (input.amount + discount));
+    // whole rupees, as the server (RoundMoney): ₹0.20 under the figure is not "short"
+    const short = roundRupee(needed - (input.amount + discount));
     if (short > 0.01) throw new ApiError(`the payment is ₹${short.toFixed(2)} short of the ₹${needed.toFixed(2)} needed to release the gold`, 400);
   }
   const settled = req.isPartial || (next.totalOutstandingBalance ?? 0) <= 0.01;
@@ -1939,7 +1940,20 @@ export async function createReleaseRequest(loanId: number, detail?: string, orna
   }
   await refuseSecondPending(loanId, "Release");
   const queued = await queueFirst(loanId, "/release-request", "POST", body);
-  if (queued) return toRequestView({ id: 0, loanId, loan: queued, type: "Release", status: "Pending", requestedBy: "Staff", detail: detail ?? "", ...(requestedAt ? { requestedAt } : {}) } as unknown as BackendLoanRequest);
+  if (queued) {
+    // what the server will work out when it logs the request: the whole-rupee amount needed to release this gold (every ornament
+    // chosen is a full release), plus any charges (none yet). The toast and the lists show it before the send.
+    const view = toView(queued);
+    const active = view.ornaments.filter((o) => !o.releasedAt);
+    const picked = ornamentIds ?? [];
+    const partial = picked.length > 0 && picked.length < active.length;
+    const kept = partial ? active.filter((o) => !picked.includes(o.id)).map((o) => o.id) : null;
+    return toRequestView({
+      id: 0, loanId, loan: queued, type: "Release", status: "Pending", requestedBy: "Staff", detail: detail ?? "", ...(requestedAt ? { requestedAt } : {}),
+      isPartial: partial, charges: 0, settlementAmount: releaseAmountNeeded(view, kept),
+      ornamentSelections: partial ? picked.map((ornamentId) => ({ ornamentId })) : [],
+    } as unknown as BackendLoanRequest);
+  }
   const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/release-request`, {
     method: "POST",
     body: JSON.stringify(body),

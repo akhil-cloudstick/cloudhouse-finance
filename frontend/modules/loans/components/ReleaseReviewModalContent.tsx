@@ -18,6 +18,7 @@ import { StageTracker } from "@/common/components/StageTracker";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
+import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { FieldError } from "@/common/components/ui/FieldError";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { LedgerPaymentEditModalContent } from "@/modules/loans/components/LedgerPaymentEditModalContent";
@@ -271,6 +272,15 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 		}
 	}); }
 
+	/* Rejecting a release request cannot be undone, and the button sits beside Approve: it asks first, as the extension screen does. */
+	function promptReject() {
+		openModal(
+			<ConfirmModalContent title="Reject Release Request" confirmLabel="Reject" busyLabel="Rejecting…" onConfirm={() => decide("Rejected")}>
+				<p style={{ margin: 0 }}>This rejects the release request for {req.loanNumber}. The gold stays pledged and the request cannot be reopened.</p>
+			</ConfirmModalContent>
+		);
+	}
+
 	async function decide(action: "Approved" | "Rejected") { return singleFlight("modal:releasereview:decide", async () => {
 		setSaving(true);
 		setErr("");
@@ -349,6 +359,8 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
 				<div style={{ margin: "14px 0" }}>
 					<label className="f">Verification</label>
+					{/* the loan's packet, so staff can find the gold: its number and where it is now */}
+					{packet && <div className="ccheck-hint" style={{ margin: "2px 0 6px" }}>Packet <b>{packet.code}</b> · {packet.status}</div>}
 					<div className="ccheck-grid">
 						<label className="ccheck" style={{ padding: "6px 0" }}>
 							<input type="checkbox" checked={req.customerSawGold} disabled={gaveGoldCheckboxDisabled} onChange={(e) => toggleSawGold(e.target.checked)} />
@@ -494,7 +506,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 						{/* Locked (a payment has already been recorded against this
 							* request) removes Reject entirely — see LoanRequest.Locked's
 							* own doc comment (ErrRequestLocked). */}
-						{!req.locked && <button className="btn danger" disabled={saving} onClick={() => decide("Rejected")}>Reject</button>}
+						{!req.locked && <button className="btn danger" disabled={saving} onClick={promptReject}>Reject</button>}
 						<button className="btn" disabled={saving || !req.customerSawGold || !paymentConditionMet} onClick={() => decide("Approved")}>
 							<Icon name="check" /> Approve ({stageName})
 						</button>

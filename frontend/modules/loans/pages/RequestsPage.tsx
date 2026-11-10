@@ -12,6 +12,7 @@ import { usePersistedState, usePersistedPage } from "@/common/hooks/use-persiste
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF } from "@/modules/loans/services/loanService";
 import { type RequestView } from "@/modules/loans/types/loan-types";
+import { listPackets } from "@/modules/packets/services/packetService";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
@@ -61,6 +62,15 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
 	const basePageSize = useResponsivePageSize(15, 15);
 	const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
 	const [reqs, setReqs] = useState<RequestView[]>([]);
+	// packet number of each loan, for the Loan column (only for a role that may see packets)
+	const [packetByLoan, setPacketByLoan] = useState<Record<number, string>>({});
+	const canViewPackets = can("Packet_Management", "can_view_packet_module");
+	useEffect(() => {
+		if (!canViewPackets) return;
+		listPackets()
+			.then((ps) => setPacketByLoan(Object.fromEntries(ps.map((p) => [p.loanId, p.code]))))
+			.catch(() => setPacketByLoan({}));
+	}, [canViewPackets, reqs.length]);
 	const [loading, setLoading] = useState(true);
 	const [page, setPage] = usePersistedPage("requests");
 	const [total, setTotal] = useState(0);
@@ -218,7 +228,11 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
 											<span className="chip" style={{ marginLeft: 4 }}>Partial</span>
 										)}
 									</td>
-									<td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
+									<td data-label="Loan">
+										<a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a>
+										{/* the loan's packet number, so the gold can be found from this list */}
+										{packetByLoan[r.loanNumericId] && <div style={{ color: "var(--muted)", fontSize: 12 }}>Packet {packetByLoan[r.loanNumericId]}</div>}
+									</td>
 									<td data-label="Customer">
 										{r.customerName}
 										{/* a partial release hands back only some ornaments: say so right after the customer */}

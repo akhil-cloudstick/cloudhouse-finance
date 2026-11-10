@@ -560,7 +560,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 			<div className="ft">
 				{/* Never a silently disabled button: whatever is blocking Review
 					* (or the server's last rejection) is spelled out here. */}
-				<span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? "Select a bank" : !splitBalanced ? "The payment breakdown must add up to the amount." : "")) || err}</span>
+				<span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? (releaseRequestId != null ? "" /* a release payment already says it under the Mode / Amount / Bank row */ : "Select a bank") : !splitBalanced ? "The payment breakdown must add up to the amount." : "")) || err}</span>
 				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing || !splitBalanced}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
 			</div>
