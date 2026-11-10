@@ -26,6 +26,17 @@ export type ReportColumn<Row> = {
   render: (row: Row) => React.ReactNode;
 };
 
+type ReportFilterOption = { value: string; label: string };
+export type ReportFilterGroup = {
+  key: string;
+  label: string;
+  // The ReportFilters field this group's (comma-joined) selection is sent as.
+  param: keyof ReportFilters;
+  singleSelect?: boolean;
+  options?: string[] | ReportFilterOption[];
+  fetchOptions?: (search: string, page: number) => Promise<{ items: ReportFilterOption[]; hasMore: boolean }>;
+};
+
 export type ReportTotalItem = { label: string; value: string };
 
 /* One config object per report — the shared shape ReportView renders
@@ -44,14 +55,8 @@ export type ReportConfig<Row = any, Totals = any> = {
   columns: ReportColumn<Row>[];
   totals: (t: Totals) => ReportTotalItem[];
   rowKey: (row: Row) => string | number;
-  // Extra filter beyond date range + branch — a single dropdown, either the
-  // loan-status report's `status` param or communication-history's
-  // `triggerType` param (reports.Handler's per-report extra query param).
-  extraFilter?: {
-    field: "status" | "triggerType";
-    label: string;
-    options: string[];
-  };
+  // Extra filter groups beyond date range + branch, each sent as its `param`.
+  filterGroups?: ReportFilterGroup[];
   // Per-report override for the initial "From" date — every report defaults
   // to firstOfMonth() unless it supplies this (Form G is the only one that
   // does, and it renders via its own FormGReportView rather than this
@@ -99,7 +104,10 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   const branchId = branchSel ? String(branchSel) : "";
   const [from, setFrom] = usePersistedState(`${memo}:from`, config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
   const [to, setTo] = usePersistedState(`${memo}:to`, today());
-  const [extraValue, setExtraValue] = usePersistedState(`${memo}:extra`, "");
+  // Each filter group's selection (comma-joined), persisted per report as one record.
+  const [groupSel, setGroupSel] = usePersistedState<Record<string, string>>(`${memo}:groups`, {});
+  const groups = config.filterGroups ?? [];
+  const groupsKey = groups.map((g) => groupSel[g.key] ?? "").join("|");
   const [page, setPage] = usePersistedPage(memo);
   const [q, setQ] = usePersistedState(`${memo}:q`, "");
   // The box updates instantly; the server is only asked once typing pauses. Starts at the remembered search, so
@@ -123,16 +131,16 @@ export function ReportView({ config, onBack }: ReportViewProps) {
     const f: ReportFilters = { from, to, page, pageSize };
     if (branchId) f.branchId = branchId;
     if (search) f.search = search;
-    if (config.extraFilter && extraValue) {
-      if (config.extraFilter.field === "status") f.status = extraValue;
-      else f.triggerType = extraValue;
+    for (const g of groups) {
+      const v = groupSel[g.key];
+      if (v) (f as Record<string, unknown>)[g.param] = v;
     }
     return f;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, branchId, extraValue, search, page, pageSize, config.id]);
+  }, [from, to, branchId, groupsKey, search, page, pageSize, config.id]);
 
   // Reset to page 1 whenever a filter (other than page itself) changes.
-  useResetPageOnChange(setPage, [from, to, branchId, extraValue, search, pageSize, config.id]);
+  useResetPageOnChange(setPage, [from, to, branchId, groupsKey, search, pageSize, config.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,21 +157,23 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   // Clearing the date range falls back to the report's default range.
   const filterCategories: FilterCategory[] = [
     ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
-    ...(config.extraFilter
-      ? [{ key: "extra", label: config.extraFilter.label, kind: "static" as const, options: config.extraFilter.options.map((o) => ({ value: o, label: o })) }]
-      : []),
+    ...groups.map((g): FilterCategory => {
+      if (g.fetchOptions) return { key: g.key, label: g.label, kind: "async", singleSelect: g.singleSelect, fetchOptions: g.fetchOptions };
+      const options = (g.options ?? []).map((o) => (typeof o === "string" ? { value: o, label: o } : o));
+      return { key: g.key, label: g.label, kind: "static", singleSelect: g.singleSelect, options };
+    }),
     { key: "__date", label: "Date", kind: "date" as const },
   ];
   // Several picks are kept comma-joined, the form the API takes them in.
   const filterValue: FilterValue = {
     branch: branchId ? branchId.split(",") : [],
-    extra: extraValue ? extraValue.split(",") : [],
+    ...Object.fromEntries(groups.map((g) => [g.key, groupSel[g.key] ? groupSel[g.key].split(",") : []])),
     __dateFrom: from || undefined,
     __dateTo: to || undefined,
   };
   function onFilterChange(next: FilterValue) {
     setBranchSel(Array.isArray(next.branch) ? next.branch.join(",") : "");
-    setExtraValue(Array.isArray(next.extra) ? next.extra.join(",") : "");
+    setGroupSel(Object.fromEntries(groups.map((g) => [g.key, Array.isArray(next[g.key]) ? (next[g.key] as string[]).join(",") : ""])));
     setFrom(next.__dateFrom || (config.defaultFromFn ? config.defaultFromFn() : firstOfMonth()));
     setTo(next.__dateTo || today());
   }

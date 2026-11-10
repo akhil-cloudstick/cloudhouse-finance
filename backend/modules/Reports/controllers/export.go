@@ -34,8 +34,6 @@ func reportRows(ctx context.Context, key string, f models.Filter) (rows any, tot
 		return call2(loanStatus(ctx, f, f.Status))
 	case "interest-collection":
 		return call2(interestCollection(ctx, f))
-	case "outstanding-principal":
-		return call2(outstandingPrincipal(ctx, f))
 	case "payment-collection":
 		return call2(paymentCollection(ctx, f))
 	case "gold-weight":

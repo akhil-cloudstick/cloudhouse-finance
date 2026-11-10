@@ -15,6 +15,9 @@ type ModalContextValue = {
 
 const ModalContext = createContext<ModalContextValue | null>(null);
 
+// Length of the close animation (app.css `.modal-bg.closing`) — keep the two in step.
+const CLOSE_MS = 200;
+
 type ModalProviderProps = { children: React.ReactNode };
 
 // Keys that scroll a page, and how far (a fraction of the visible height, or a line).
@@ -63,14 +66,26 @@ export function ModalProvider({ children }: ModalProviderProps) {
   const stack = useRef<{ content: React.ReactNode; wide: boolean }[]>([]);
   const current = useRef<{ content: React.ReactNode; wide: boolean }>({ content: null, wide: false });
 
+  // A closing modal fades/slides out for CLOSE_MS before it is actually removed (or swapped for the modal
+  // beneath it) instead of vanishing the instant it is dismissed.
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    setClosing(false);
+  }, []);
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+
   const show = useCallback((node: React.ReactNode, isWide: boolean) => {
+    // A modal opened while another is mid-fade (close, then straight away open) must not be closed by the pending timer.
+    cancelClose();
     keySeq.current += 1;
     const keyed = isValidElement(node) ? cloneElement(node, { key: keySeq.current }) : node;
     current.current = { content: keyed, wide: isWide };
     setContent(keyed);
     setWide(isWide);
     setOpen(true);
-  }, []);
+  }, [cancelClose]);
 
   const openModal = useCallback((node: React.ReactNode, isWide = false) => {
     stack.current = [];
@@ -83,19 +98,31 @@ export function ModalProvider({ children }: ModalProviderProps) {
   }, [show]);
 
   const closeModal = useCallback(() => {
+    if (closeTimer.current) return; // already fading out
     const parent = stack.current.pop();
-    if (parent) {
-      current.current = parent;
-      setContent(parent.content);
-      setWide(parent.wide);
-      return;
-    }
-    setOpen(false);
+    setClosing(true);
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      setClosing(false);
+      if (parent) {
+        current.current = parent;
+        setContent(parent.content);
+        setWide(parent.wide);
+        return;
+      }
+      setOpen(false);
+    }, CLOSE_MS);
   }, []);
 
   const closeAllModals = useCallback(() => {
     stack.current = [];
-    setOpen(false);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setClosing(true);
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      setClosing(false);
+      setOpen(false);
+    }, CLOSE_MS);
   }, []);
 
   // Enter submits the modal from any plain field, the same way it would in
@@ -134,7 +161,7 @@ export function ModalProvider({ children }: ModalProviderProps) {
       {children}
       <div
         id="modalBg"
-        className={`modal-bg${open ? " open" : ""}`}
+        className={`modal-bg${open ? " open" : ""}${closing ? " closing" : ""}`}
         onMouseDown={(e) => {
           pressStartedOnBackdrop.current = (e.target as HTMLElement).id === "modalBg";
         }}

@@ -31,11 +31,11 @@ type EditCustomerModalContentProps = { customer: CustomerView; onSaved?: () => v
 function CurrentDoc({ url, onRemove }: { url: string; onRemove: () => void }) {
   const [viewing, setViewing] = useState(false);
   const isPdf = /\.pdf(\?|$)/i.test(url);
-  const box = { width: 64, height: 64, borderRadius: 8, border: "1px solid var(--line)", cursor: "pointer", objectFit: "cover" as const };
+  const box = { width: 44, height: 44, borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", objectFit: "cover" as const };
   return (
     <div style={{ position: "relative", display: "inline-block", marginTop: 8 }}>
       {isPdf ? (
-        <a href={url} target="_blank" rel="noreferrer" title="Open document" style={{ ...box, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>PDF</a>
+        <button type="button" title="View document" onClick={() => setViewing(true)} style={{ ...box, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: "var(--card, #fff)", padding: 0, color: "inherit" }}>PDF</button>
       ) : (
         <SafeImage src={url} alt="Current file" title="View photo" onClick={() => setViewing(true)} style={{ display: "block", ...box }} />
       )}
@@ -50,7 +50,9 @@ function CurrentDoc({ url, onRemove }: { url: string; onRemove: () => void }) {
         >
           <div onClick={(e) => e.stopPropagation()} style={{ position: "relative", maxWidth: "min(92vw, 900px)", maxHeight: "88vh", background: "var(--bg)", borderRadius: 12, padding: 8, boxShadow: "0 24px 60px -18px rgba(0,0,0,.5)" }}>
             <button type="button" autoFocus aria-label="Close" onClick={() => setViewing(false)} style={{ position: "absolute", top: -12, right: -12, width: 28, height: 28, borderRadius: "50%", border: "1px solid var(--line)", background: "var(--bg)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
-            <SafeImage src={url} alt="Document" style={{ display: "block", maxWidth: "100%", maxHeight: "84vh", objectFit: "contain", borderRadius: 8 }} />
+            {isPdf
+              ? <iframe src={url} title="Document" style={{ display: "block", width: "min(86vw, 860px)", height: "82vh", border: 0, borderRadius: 8 }} />
+              : <SafeImage src={url} alt="Document" style={{ display: "block", maxWidth: "100%", maxHeight: "84vh", objectFit: "contain", borderRadius: 8 }} />}
           </div>
         </div>,
         document.body
@@ -64,6 +66,19 @@ function CurrentDoc({ url, onRemove }: { url: string; onRemove: () => void }) {
       >×</button>
     </div>
   );
+}
+
+/* Thumbnail of a just-chosen (not yet saved) image, so staff can see the replacement before saving. */
+function NewFilePreview({ file }: { file: File }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setSrc(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  if (!src || !file.type.startsWith("image/")) return null;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="New photograph" title="New photograph (not saved yet)" style={{ display: "block", marginTop: 8, width: 64, height: 64, borderRadius: 8, border: "1px solid var(--line)", objectFit: "cover" }} />;
 }
 
 /* Edit counterpart to RegisterCustomerModal.tsx's create form, wired to the
@@ -203,7 +218,7 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
       <div className="bd bd-scroll">
         <label className="f">Personal Details</label>
         <div className="frow c3">
-          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /><FieldError msg={fe.name} /></div>
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(stripDigits(e.target.value))} /><FieldError msg={fe.name} /></div>
           <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.phone} /></div>
           {showBranch && (
             <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
@@ -225,12 +240,12 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
 
         <label className="f" style={{ marginTop: 6 }}>Documents</label>
         <div className="frow c3">
-          <div><label className="f">Customer Photograph {customer.photoUrl && !removed.photo && <a href={customer.photoUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" camera />{customer.photoUrl && !photoFile && !removed.photo && <CurrentDoc url={customer.photoUrl} onRemove={() => drop("photo")} />}</div>
-          <div><label className="f">Identity Proof {customer.identityProofUrl && !removed.identity && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.identityProofUrl && !identityProofFile && !removed.identity && <CurrentDoc url={customer.identityProofUrl} onRemove={() => drop("identity")} />}</div>
-          <div><label className="f">Address Proof {customer.addressProofUrl && !removed.address && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.addressProofUrl && !addressProofFile && !removed.address && <CurrentDoc url={customer.addressProofUrl} onRemove={() => drop("address")} />}</div>
+          <div><label className="f">Customer Photograph</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" camera />{photoFile && <NewFilePreview file={photoFile} />}{customer.photoUrl && !photoFile && !removed.photo && <CurrentDoc url={customer.photoUrl} onRemove={() => drop("photo")} />}</div>
+          <div><label className="f">Identity Proof</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.identityProofUrl && !identityProofFile && !removed.identity && <CurrentDoc url={customer.identityProofUrl} onRemove={() => drop("identity")} />}</div>
+          <div><label className="f">Address Proof</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.addressProofUrl && !addressProofFile && !removed.address && <CurrentDoc url={customer.addressProofUrl} onRemove={() => drop("address")} />}</div>
         </div>
         <div className="frow c3">
-          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && !removed.kyc && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" title="View current" aria-label="View current" style={{ fontWeight: 400, verticalAlign: "middle" }}><Icon name="eye" style={{ width: 15, height: 15 }} /></a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.kycDocumentUrl && !kycDocFile && !removed.kyc && <CurrentDoc url={customer.kycDocumentUrl} onRemove={() => drop("kyc")} />}</div>
+          <div><label className="f">Supporting KYC Document</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" camera />{customer.kycDocumentUrl && !kycDocFile && !removed.kyc && <CurrentDoc url={customer.kycDocumentUrl} onRemove={() => drop("kyc")} />}</div>
         </div>
 
         <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>
@@ -250,8 +265,8 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
           <Icon name="chevronDown" style={{ transform: showAdditional ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
           Additional Information
         </button>
-        {showAdditional && (
-          <>
+        <div className={`addl-wrap${showAdditional ? " open" : ""}`}>
+          <div className="addl-inner">
             <div className="frow c3" style={{ marginTop: 14 }}>
               <div><label className="f">Guardian Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(stripDigits(e.target.value))} /></div>
               <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
@@ -262,8 +277,8 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
               <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
               <div><label className="f">Pin Code</label><input className="inp" inputMode="numeric" placeholder="6-digit pin code" maxLength={6} value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ""))} /></div>
             </div>
-          </>
-        )}
+          </div>
+        </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

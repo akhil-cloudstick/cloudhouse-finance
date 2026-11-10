@@ -8,12 +8,14 @@ export async function searchBanks(q: string): Promise<BackendBank[]> {
   return rec || [];
 }
 
-/* Page-shaped wrapper for SearchableSelect's fetchFn contract — see
- * ornamentTypesApi.ts's searchOrnamentTypesPage for why this is unpaginated
- * (the bank list is small reference data, same as ornament types). */
+/* Backend-paginated bank search for SearchableSelect's / FilterPanel's fetchFn contract
+ * (`page` is 0-based here; GET /banks takes limit/offset and reports hasMore). */
+export const BANK_SEARCH_PAGE_SIZE = 20;
 export async function searchBanksPage(q: string, page: number): Promise<{ items: BackendBank[]; hasMore: boolean }> {
-  if (page > 0) return { items: [], hasMore: false };
-  return { items: await searchBanks(q), hasMore: false };
+  const params = new URLSearchParams({ limit: String(BANK_SEARCH_PAGE_SIZE), offset: String(page * BANK_SEARCH_PAGE_SIZE) });
+  if (q.trim()) params.set("search", q.trim());
+  const res = await apiFetch<{ items: BackendBank[] | null; hasMore: boolean }>(`/banks?${params}`);
+  return { items: res.items || [], hasMore: !!res.hasMore };
 }
 
 /* Creates a new bank, or — if one with the same name (case insensitive)

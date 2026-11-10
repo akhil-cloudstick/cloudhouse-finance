@@ -7,7 +7,7 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { Select } from "@/common/components/ui/Select";
-import { fetchRoleMatrix, fetchRoles, updateRolePermissions, setAllRolePermissions, createRole, updateRole, deleteRole } from "@/common/services/permissionService";
+import { fetchRoleMatrix, fetchRoles, updateRolePermissions, createRole, updateRole, deleteRole } from "@/common/services/permissionService";
 import { type PermissionRef, type PermissionRow, type Role } from "@/common/types/permission-types";
 
 /* "can create loan" -> "create loan", for "cannot enable …" messages. */
@@ -247,8 +247,27 @@ export function RolesPermissionsPage() {
     return `Please turn on ${missing.map((p) => p.label).join(", ")} first.`;
   }
 
+  // Records an unsaved change, or drops the entry when the value is back to what is saved —
+  // so the Save count only ever counts real differences.
+  function withValue(p: Record<number, boolean>, id: number, value: boolean, saved: boolean) {
+    const next = { ...p };
+    if (value === saved) delete next[id]; else next[id] = value;
+    return next;
+  }
+
+  // The saved (server) state of every loaded permission. `row` comes from
+  // `effective`, which already includes unsaved edits, so comparing against
+  // row.permission left a "reverted" toggle in `pending` and the Save count
+  // never went down.
+  const savedById = useMemo(() => {
+    const m = new Map<number, boolean>();
+    for (const rows of Object.values(matrix ?? {})) for (const r of rows) m.set(r.permissionId, r.permission);
+    return m;
+  }, [matrix]);
+
   function toggle(row: PermissionRow) {
     if (!canUpdateRole || role?.isSystem) return;
+    const savedValue = savedById.get(row.permissionId) ?? row.permission;
     // An out-of-date backend omits the hierarchy; toggling then would skip the
     // blocked/cascade rules silently, so refuse and say why.
     if (row.parents === undefined || row.dependents === undefined) {
@@ -261,13 +280,13 @@ export function RolesPermissionsPage() {
         toast(blockedMessage(row));
         return;
       }
-      setPending((p) => ({ ...p, [row.permissionId]: true }));
+      setPending((p) => withValue(p, row.permissionId, true, savedValue));
       return;
     }
     const goingOff = (row.dependents ?? []).filter(isOn);
     const turnOff = () => setPending((p) => {
-      const next = { ...p, [row.permissionId]: false };
-      for (const d of goingOff) next[d.permissionId] = false;
+      let next = withValue(p, row.permissionId, false, savedValue);
+      for (const d of goingOff) next = withValue(next, d.permissionId, false, d.granted);
       return next;
     });
     if (goingOff.length === 0) {
@@ -304,17 +323,22 @@ export function RolesPermissionsPage() {
     }
   }
 
+  // Grant all / Revoke all only mark every permission as pending — nothing is
+  // saved until Save is clicked, same as ticking the boxes one by one.
   async function setAll(allowed: boolean) {
     if (!employee || !roleId || role?.isSystem || !canUpdateRole) return;
     setSaving(true);
     try {
-      await setAllRolePermissions(employee.id, roleId, allowed);
-      if (role?.name === employee.role) refetchPermissions();
-      toast(`All permissions ${allowed ? "granted" : "revoked"} for ${role?.name}`);
-      const res = await fetchRoleMatrix(employee.id, roleId, search || undefined);
-      setRole(res.role);
-      setMatrix(res.data);
-      setPending({});
+      // A search narrows the loaded matrix, but these buttons cover every permission of the role.
+      const all = search ? (await fetchRoleMatrix(employee.id, roleId)).data : matrix;
+      if (!all) return;
+      const next: Record<number, boolean> = {};
+      for (const rows of Object.values(all)) {
+        for (const r of rows) {
+          if (r.permission !== allowed) next[r.permissionId] = allowed;
+        }
+      }
+      setPending(next);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save your changes. Please try again.");
     } finally {

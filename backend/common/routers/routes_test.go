@@ -803,7 +803,7 @@ func TestCollectionsDoNotLeak(t *testing.T) {
 func exportPaths(pattern string) []string {
 	keys := []string{
 		"loans", "disbursement", "interest-collection", "payment-collection",
-		"outstanding-principal", "gold-weight", "gold-release", "bank-pledge",
+		"gold-weight", "gold-release", "bank-pledge",
 		"auctions", "loan-extensions", "packets", "expense-cashflow", "kyc",
 		"gold-rate-history", "employee-performance", "communication-history",
 	}

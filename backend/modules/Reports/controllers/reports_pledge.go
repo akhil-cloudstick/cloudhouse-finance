@@ -19,6 +19,12 @@ func bankPledge(ctx context.Context, f models.Filter) ([]models.BankPledgeRow, m
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
+	if len(f.BankIDs) > 0 {
+		q = q.Where("r.bank_id IN ?", f.BankIDs)
+	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("r.status IN ?", f.Statuses)
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.BankPledgeTotals{}, err
 	}
@@ -46,6 +52,12 @@ func loanExtensions(ctx context.Context, f models.Filter) ([]models.LoanExtensio
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("req.status IN ?", f.Statuses)
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.LoanExtensionTotals{}, err
 	}
@@ -67,6 +79,12 @@ func goldRelease(ctx context.Context, f models.Filter) ([]models.GoldReleaseRow,
 		Order("req.requested_at desc")
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.LoanIDs) > 0 {
+		q = q.Where("l.id IN ?", f.LoanIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.GoldReleaseTotals{}, err
@@ -91,6 +109,12 @@ func auctionsReport(ctx context.Context, f models.Filter) ([]models.AuctionRow, 
 		Order("r.auction_eligible_date desc")
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.LoanIDs) > 0 {
+		q = q.Where("l.id IN ?", f.LoanIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.AuctionTotals{}, err

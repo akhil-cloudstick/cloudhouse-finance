@@ -122,9 +122,10 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const canReleasePledge = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canReleaseHeldGold = req.status === "Pending" && canDecide && !req.locked && ((packetInLocker && canMovePackets) || (!!activePledge && canReleasePledge));
   const [releasingPacket, setReleasingPacket] = useState(false);
-  const [packetReleasedHere, setPacketReleasedHere] = useState(false);
-  async function releasePacket() { return singleFlight("modal:releasereview:releasePacket", async () => {
-    if (!packet) return;
+  // No checkbox for this: the packet is checked out automatically when staff confirm the customer has
+  // seen the gold (toggleSawGold below). Resolves true once the packet is Released.
+  async function releasePacket(): Promise<boolean> { return (await singleFlight("modal:releasereview:releasePacket", async () => {
+    if (!packet) return false;
     setReleasingPacket(true);
     setErr("");
     try {
@@ -132,15 +133,16 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       await recordMovement(packet.id, { toStatus: PACKET_STATUS.RELEASED, employeeId: 1, remarks: `Released with release request on ${request.loanNumber}` });
       const ps = await listPackets({ loanId: packet.loanId });
       setPacket(ps[0] ?? null);
-      setPacketReleasedHere(true);
       onSaved();
       toast(`Packet ${packet.code} released`);
+      return true;
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not release the packet — try again.");
+      return false;
     } finally {
       setReleasingPacket(false);
     }
-  }); }
+  })) ?? false; }
   const goldHeldReason = loan?.bankPledgeStatus === "Bank Pledged" ? "pledged to a bank" : "checked into a locker";
 
   // Re-fetches this one request after a payment recorded via the general
@@ -189,7 +191,10 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const chain = chainFor(workflow, "loan_release", activeStage ? activeStage.pending : null);
   const stageIndex = activeStage ? chain.findIndex((s) => s.key === activeStage.key) : chain.length;
 
-  const gaveGoldCheckboxDisabled = saving || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || goldStillHeld;
+  // A locker packet no longer blocks the box — ticking it releases the packet first. Only gold that cannot be
+  // released from here (a bank pledge, or no permission to move packets) still does.
+  const packetAutoReleasable = packetInLocker && canMovePackets;
+  const gaveGoldCheckboxDisabled = saving || releasingPacket || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || (goldStillHeld && !packetAutoReleasable);
 
   // Live pre-check for the Top-Up Payment reveal — only meaningful for a
   // partial release (a full release keeps today's plain
@@ -216,6 +221,8 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const paymentConditionMet =req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
   async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
+    // The gold is still in the locker: check the packet out first, then record that the customer has seen it.
+    if (value && packetAutoReleasable && !(await releasePacket())) return;
     setSaving(true);
     setErr("");
     try {
@@ -344,30 +351,11 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
         <div style={{ margin: "14px 0" }}>
           <label className="f">Verification</label>
-          <div className="ccheck-grid">
-            <label className="ccheck" style={{ padding: "6px 0" }}>
-              <input type="checkbox" checked={req.customerSawGold} disabled={gaveGoldCheckboxDisabled} onChange={(e) => toggleSawGold(e.target.checked)} />
-              <span className="mark" />
-              <span>
-                <b>Customer has seen the gold</b>
-                <div className="ccheck-hint">Confirm the customer has been shown the pledged ornaments</div>
-              </span>
-            </label>
-          </div>
-          {((packetInLocker && canMovePackets && canReleaseHeldGold) || packetReleasedHere) && packet && (
-            <div className="ccheck-grid">
-              <label className="ccheck" style={{ padding: "6px 0" }}>
-                <input type="checkbox" checked={packetReleasedHere} disabled={releasingPacket || packetReleasedHere || saving || req.locked} onChange={(e) => { if (e.target.checked) releasePacket(); }} />
-                <span className="mark" />
-                <span>
-                  <b>{packetReleasedHere ? `Packet ${packet.code} released` : `Release packet ${packet.code} from the locker`}</b>
-                  <div className="ccheck-hint">{packetReleasedHere ? "The gold is out of the locker and can be shown to the customer" : "Records the packet as Released, the same as the Release button on the packet page"}</div>
-                </span>
-              </label>
-            </div>
-          )}
+          {/* One full-width two-column grid shared by the checkboxes and by the date / Record Payment row below:
+            * left column = "seen the gold" and the date, right column = bank pledge release and Record Payment. */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 4, alignItems: "start" }}>
+          {/* Bank pledge release comes first: the gold must be out of the bank before the customer can be shown it. */}
           {activePledge && canReleaseHeldGold && loan && (
-            <div className="ccheck-grid">
               <label className="ccheck" style={{ padding: "6px 0" }}>
                 <input
                   type="checkbox"
@@ -392,11 +380,19 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
                 <span className="mark" />
                 <span>
                   <b>Release the bank pledge ({activePledge.bankName})</b>
-                  <div className="ccheck-hint">The gold is pledged to a bank — release it first so it can be shown to the customer</div>
+                  <div className="ccheck-hint" style={{ fontSize: 11 }}>Release it first to show the gold</div>
                 </span>
               </label>
-            </div>
           )}
+            <label className="ccheck" style={{ padding: "6px 0" }}>
+              <input type="checkbox" checked={req.customerSawGold} disabled={gaveGoldCheckboxDisabled} onChange={(e) => toggleSawGold(e.target.checked)} />
+              <span className="mark" />
+              <span>
+                <b>Customer has seen the gold</b>
+                <div className="ccheck-hint">Confirm the customer has been shown the pledged ornaments</div>
+              </span>
+            </label>
+          </div>
           {goldStillHeld && loan && !canReleaseHeldGold && (
             <p className="notice" style={{ marginTop: 8, color: "var(--red)" }}>
               <Icon name="shield" />{" "}
@@ -419,27 +415,35 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           )}
         </div>
 
-        {/* Record Payment, then Release Date beside it — the last two actions of the Verification steps above. */}
-        <div style={{ display: "flex", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
+        {/* Same two columns as the checkboxes above: Release Date (+ tick) on the left, Record Payment on the right. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 10, alignItems: "end", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
+            <div style={{ minWidth: 170 }}>
+              <label className="f">Release Date</label>
+              <DatePicker value={releaseDate} min={loan?.opened?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status === "Pending" ? !canDecide : !canEditLedger} />
+            </div>
+            {/* Tick-only "Save date", level with the date box, shown once the date is changed. */}
+            {canEditLedger && dateChanged && (
+              <button
+                type="button"
+                className="btn ghost"
+                style={{ height: 38, width: 38, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                disabled={saving}
+                onClick={saveReleaseDate}
+                title="Save date"
+                aria-label="Save date"
+              ><Icon name="check" /></button>
+            )}
+          </div>
           <button
             className="btn ghost sm"
-            style={{ height: 40 }}
+            style={{ height: 38, justifySelf: "start" }}
             disabled={req.status !== "Pending" || !canDecide || !loan}
             onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
           >
             <Icon name="coin" /> Record Payment
           </button>
-          <div style={{ minWidth: 170 }}>
-            <label className="f">Release Date</label>
-            <DatePicker value={releaseDate} min={loan?.opened?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status === "Pending" ? !canDecide : !canEditLedger} />
-          </div>
         </div>
-
-        {canEditLedger && dateChanged && (
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <button className="btn ghost sm" disabled={saving} onClick={saveReleaseDate}><Icon name="check" /> Save release date</button>
-          </div>
-        )}
 
         <div className="frow" style={{ marginTop: 14 }}><div className={notesErr ? "has-err" : undefined}><label className="f">Verification Notes</label><input className="inp" value={notes} disabled={!canDecide || req.locked} onChange={(e) => { setNotes(e.target.value); setNotesErr(""); }} onBlur={saveNotes} placeholder="optional" /><FieldError msg={notesErr} /></div></div>
 

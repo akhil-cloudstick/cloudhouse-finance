@@ -10,7 +10,15 @@ import { FormGReportView } from "@/modules/reports/components/FormGReportView";
 import { ReportView, type ReportConfig } from "@/modules/reports/components/ReportView";
 import { LedgerExportView } from "@/modules/reports/components/LedgerExportView";
 import { DayBookReportView } from "@/modules/reports/components/DayBookReportView";
-import { getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollection, getOutstandingPrincipal, getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions, getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory, getEmployeePerformance, getCommunicationHistory, getBalanceSheet, getProfitAndLoss, exportReport, getDepositRegister, getInterestPayoutRegister, getMaturityRegister } from "@/modules/reports/services/reportsService";
+import { getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollection, getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions, getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory, searchGoldRateSetByPage, getEmployeePerformance, getCommunicationHistory, getBalanceSheet, getProfitAndLoss, exportReport, getDepositRegister, getInterestPayoutRegister, getMaturityRegister } from "@/modules/reports/services/reportsService";
+import { searchCustomersPage, searchInvestorsPage } from "@/modules/customers/services/customerService";
+import { searchLoansPage } from "@/modules/loans/services/loanService";
+import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
+import { searchBanksPage } from "@/modules/banks/services/bankService";
+import { listEmployeesPage } from "@/modules/employees/services/employeeService";
+import { searchInvestmentPlansPage } from "@/modules/investments/services/investmentService";
+import { searchExpenseCategoriesPage } from "@/modules/cash/services/expenseCategoryService";
+import { searchPurityStandardsPage } from "@/modules/purity-standards/services/purityStandardService";
 import { type StatementStyle } from "@/modules/reports/types/reports-types";
 import { useIsSmallScreen } from "@/common/utils/responsive";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -44,6 +52,53 @@ function subMonths(dateStr: string, months: number): string {
 
 const dt = fmtDate;
 
+/* Filter-group builders. Async groups page through the backend (never a full list); labels read "Name (CODE)". */
+type Group = NonNullable<ReportConfig["filterGroups"]>[number];
+const withCode = (name: string, code?: string) => (code ? `${name} (${code})` : name);
+const customerGroup = (): Group => ({
+  key: "customer", label: "Customer", param: "customerId",
+  fetchOptions: async (q, p) => { const r = await searchCustomersPage(q, p); return { items: r.items.map((c) => ({ value: c.id, label: withCode(c.name, c.code) })), hasMore: r.hasMore }; },
+});
+const investorGroup = (): Group => ({
+  key: "investor", label: "Investor", param: "investorId",
+  fetchOptions: async (q, p) => { const r = await searchInvestorsPage(q, p); return { items: r.items.map((c) => ({ value: c.id, label: withCode(c.name, c.code) })), hasMore: r.hasMore }; },
+});
+const loanGroup = (): Group => ({
+  key: "loan", label: "Loan", param: "loanId",
+  fetchOptions: async (q, p) => { const r = await searchLoansPage(q, p); return { items: r.items.map((l) => ({ value: String(l.numericId), label: withCode(l.loanNumber, l.customerName) })), hasMore: r.hasMore }; },
+});
+const schemeGroup = (): Group => ({
+  key: "scheme", label: "Scheme", param: "schemeId",
+  fetchOptions: async (q, p) => { const r = await searchActiveSchemesPage(q, p); return { items: r.items.map((x) => ({ value: x.id, label: withCode(x.name, x.code) })), hasMore: r.hasMore }; },
+});
+const bankGroup = (): Group => ({
+  key: "bank", label: "Bank", param: "bankId",
+  fetchOptions: async (q, p) => { const r = await searchBanksPage(q, p); return { items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore }; },
+});
+const employeeGroup = (label = "Employee"): Group => ({
+  key: "employee", label, param: "employeeId",
+  // listEmployeesPage is 1-based, the other pickers are 0-based.
+  fetchOptions: async (q, p) => { const r = await listEmployeesPage(p + 1, 20, q); return { items: r.items.map((e) => ({ value: String(e.id), label: withCode(e.name, e.code) })), hasMore: r.hasMore }; },
+});
+// "Set By" is a free-text name on each gold rate, so the options are those names (backend-paged), not employees.
+const setByGroup = (): Group => ({
+  key: "setBy", label: "Set By", param: "setBy",
+  fetchOptions: async (q, p) => { const r = await searchGoldRateSetByPage(q, p); return { items: r.items.map((n) => ({ value: n, label: n })), hasMore: r.hasMore }; },
+});
+const planGroup = (): Group => ({
+  key: "plan", label: "Plan", param: "planId",
+  fetchOptions: async (q, p) => { const r = await searchInvestmentPlansPage(q, p); return { items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore }; },
+});
+const expenseCategoryGroup = (): Group => ({
+  key: "expenseCategory", label: "Expense Category", param: "expenseCategoryId",
+  fetchOptions: async (q, p) => { const r = await searchExpenseCategoriesPage(q, p); return { items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore }; },
+});
+const purityGroup = (): Group => ({
+  key: "purity", label: "Purity (karat)", param: "purity",
+  fetchOptions: async (q, p) => { const r = await searchPurityStandardsPage(q, p); return { items: r.items.filter((x) => x.karat != null).map((x) => ({ value: String(x.karat), label: x.label || `${x.karat}K` })), hasMore: r.hasMore }; },
+});
+const statusGroup = (options: string[]): Group => ({ key: "status", label: "Status", param: "status", options });
+
 /* One config per report — icon/title/description mirror the old static
  * REPORTS grid (legacy/app.js's `renderReports()`) so the tile grid's look
  * doesn't change; only the click behavior does (see ReportView). */
@@ -56,6 +111,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "disbursement",
     fetchFn: getDisbursement,
     rowKey: (r) => r.loanId,
+    filterGroups: [customerGroup(), schemeGroup()],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },
@@ -75,6 +131,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     tenantModule: "personal_loans",
     fetchFn: getPersonalLoans,
     rowKey: (r) => r.loanId,
+    filterGroups: [customerGroup(), { key: "frequency", label: "Frequency", param: "frequency", options: ["Daily", "Weekly", "Monthly"] }],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },
@@ -101,7 +158,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "loans-status",
     fetchFn: getLoansStatus,
     rowKey: (r) => r.loanId,
-    extraFilter: { field: "status", label: "Status", options: ["Active", "Due Soon", "Overdue", "Defaulted", "Closed"] },
+    filterGroups: [customerGroup(), statusGroup(["Active", "Due Soon", "Overdue", "Defaulted", "Closed"])],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },
@@ -124,6 +181,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "interest-collection",
     fetchFn: getInterestCollection,
     rowKey: (r) => `${r.loanId}-${r.paidOn}`,
+    filterGroups: [customerGroup()],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "branchName", label: "Branch", render: (r) => r.branchName },
@@ -138,22 +196,6 @@ const REPORT_CONFIGS: ReportConfig[] = [
     ],
   },
   {
-    id: "outstanding-principal",
-    title: "Outstanding Principal",
-    description: "Exposure by scheme & branch",
-    singleBranchDescription: "Exposure by scheme",
-    icon: "chart",
-    exportKey: "outstanding-principal",
-    fetchFn: getOutstandingPrincipal,
-    rowKey: (r) => r.branchName,
-    columns: [
-      { key: "branchName", label: "Branch", render: (r) => r.branchName },
-      { key: "loanCount", label: "Loans", numeric: true, render: (r) => r.loanCount },
-      { key: "outstanding", label: "Outstanding", numeric: true, render: (r) => fmt(r.outstanding) },
-    ],
-    totals: (t) => [{ label: "Total Loans", value: String(t.totalLoans) }, { label: "Total Outstanding", value: fmt(t.totalOutstanding) }],
-  },
-  {
     id: "payment-collection",
     title: "Payment Collection",
     description: "Collections by date, branch & employee",
@@ -162,6 +204,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "payment-collection",
     fetchFn: getPaymentCollection,
     rowKey: (r) => r.paymentId,
+    filterGroups: [customerGroup(), { key: "type", label: "Type", param: "paymentType", options: ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement", "Waiver", "Discount", "Auction Sale", "Auction Write-Off"] }],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "paidOn", label: "Paid On", render: (r) => dt(r.paidOn) },
@@ -180,6 +223,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "gold-weight",
     fetchFn: getGoldWeight,
     rowKey: (r) => r.ornamentId,
+    filterGroups: [customerGroup(), purityGroup()],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },
@@ -203,6 +247,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "packets",
     fetchFn: getPackets,
     rowKey: (r) => r.packetId,
+    filterGroups: [customerGroup(), loanGroup()],
     columns: [
       { key: "code", label: "Packet Code", render: (r) => r.code },
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
@@ -223,6 +268,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "bank-pledge",
     fetchFn: getBankPledge,
     rowKey: (r) => r.recordId,
+    filterGroups: [bankGroup(), statusGroup(["Active", "Released"])],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "bankName", label: "Bank", render: (r) => r.bankName },
@@ -241,6 +287,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "loan-extensions",
     fetchFn: getLoanExtensions,
     rowKey: (r) => r.requestId,
+    filterGroups: [customerGroup(), statusGroup(["Pending", "Approved", "Rejected"])],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "requestedAt", label: "Requested", render: (r) => dt(r.requestedAt) },
@@ -258,6 +305,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "gold-release",
     fetchFn: getGoldRelease,
     rowKey: (r) => r.requestId,
+    filterGroups: [customerGroup(), loanGroup()],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },
@@ -275,6 +323,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "auctions",
     fetchFn: getAuctions,
     rowKey: (r) => r.recordId,
+    filterGroups: [customerGroup(), loanGroup()],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "stage", label: "Stage", render: (r) => r.stage },
@@ -292,6 +341,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "expense-cashflow",
     fetchFn: getExpenseCashflow,
     rowKey: (r) => `${r.branchName}-${r.date}`,
+    filterGroups: [expenseCategoryGroup(), { key: "collectionMode", label: "Collection Mode", param: "collectionMode", options: ["Cash", "UPI", "Bank Transfer", "Cheque"] }],
     columns: [
       { key: "date", label: "Date", render: (r) => dt(r.date) },
       { key: "branchName", label: "Branch", render: (r) => r.branchName },
@@ -312,6 +362,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "kyc",
     fetchFn: getKYC,
     rowKey: (r) => r.customerId,
+    filterGroups: [customerGroup()],
     columns: [
       { key: "code", label: "Customer Code", render: (r) => r.code },
       { key: "name", label: "Name", render: (r) => r.name },
@@ -330,6 +381,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "gold-rate-history",
     fetchFn: getGoldRateHistory,
     rowKey: (r) => r.date,
+    filterGroups: [setByGroup()],
     columns: [
       { key: "date", label: "Date", render: (r) => dt(r.date) },
       { key: "k24", label: "24K Rate", numeric: true, render: (r) => fmt(r.k24) },
@@ -345,6 +397,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "employee-performance",
     fetchFn: getEmployeePerformance,
     rowKey: (r) => r.employeeId,
+    filterGroups: [employeeGroup()],
     columns: [
       { key: "employeeCode", label: "Employee ID", render: (r) => r.employeeCode || "—" },
       { key: "name", label: "Employee", render: (r) => r.name },
@@ -365,10 +418,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "communication-history",
     fetchFn: getCommunicationHistory,
     rowKey: (r) => r.id,
-    extraFilter: {
-      field: "triggerType", label: "Trigger Type",
-      options: ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"],
-    },
+    filterGroups: [employeeGroup(), { key: "triggerType", label: "Trigger Type", param: "triggerType", options: ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"] }],
     columns: [
       { key: "recipientName", label: "Recipient", render: (r) => r.recipientName },
       { key: "recipientPhone", label: "Phone", render: (r) => r.recipientPhone },
@@ -429,6 +479,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     tenantModule: "investments",
     fetchFn: getDepositRegister,
     rowKey: (r) => r.investmentId,
+    filterGroups: [investorGroup(), planGroup(), statusGroup(["Active", "Matured", "Closed", "Renewed"])],
     columns: [
       { key: "investmentNumber", label: "Investment ID", render: (r) => r.investmentNumber },
       { key: "customerName", label: "Investor", render: (r) => r.customerName },
@@ -451,6 +502,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     tenantModule: "investments",
     fetchFn: getInterestPayoutRegister,
     rowKey: (r) => `${r.investmentId}-${r.sequenceNo}`,
+    filterGroups: [investorGroup(), planGroup(), statusGroup(["Pending", "Paid"])],
     columns: [
       { key: "investmentNumber", label: "Investment ID", render: (r) => r.investmentNumber },
       { key: "customerName", label: "Investor", render: (r) => r.customerName },
@@ -473,6 +525,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     tenantModule: "investments",
     fetchFn: getMaturityRegister,
     rowKey: (r) => r.investmentId,
+    filterGroups: [investorGroup(), planGroup(), statusGroup(["Active", "Matured", "Closed", "Renewed"])],
     columns: [
       { key: "investmentNumber", label: "Investment ID", render: (r) => r.investmentNumber },
       { key: "customerName", label: "Investor", render: (r) => r.customerName },

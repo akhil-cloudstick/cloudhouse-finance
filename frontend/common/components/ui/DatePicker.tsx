@@ -208,7 +208,12 @@ export function DatePicker({
               })}
             </div>
             <div className="dp-ft">
-              <button type="button" className="btn plain sm" onClick={() => pick(new Date())}>Today</button>
+              <button type="button" className="btn plain sm" onClick={() => {
+                // Today can sit outside min/max (e.g. a From date capped at the To date) — pick the nearest allowed day instead of doing nothing.
+                const now = new Date();
+                const t = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                pick(maxD && t > maxD ? maxD : minD && t < minD ? minD : t);
+              }}>Today</button>
             </div>
           </div>
           <div className={`dp-view${mode === "days" ? " dp-hidden" : ""}`}>

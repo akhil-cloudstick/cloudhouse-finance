@@ -3,16 +3,15 @@ import { getToken } from "@/common/services/tokenStorage";
 import { reportExportUrl } from "@/modules/reports/services/reportsService";
 
 // Downloads a report export (xlsx / pdf) into the cache and returns the file's uri, ready to share or print.
-export async function downloadExport(key: string, format: "xlsx" | "pdf", range: { from?: string; to?: string; q?: string; branchId?: number; status?: string; triggerType?: string }) {
+export async function downloadExport(key: string, format: "xlsx" | "pdf", range: { from?: string; to?: string; q?: string; branchId?: string; extra?: Record<string, string> }) {
   const token = await getToken();
   const targetUri = `${FileSystem.cacheDirectory}${key}-${Date.now()}.${format}`;
   const qs = new URLSearchParams({ format });
   if (range.from) qs.set("from", range.from);
   if (range.to) qs.set("to", range.to);
   if (range.q) qs.set("q", range.q);
-  if (range.branchId) qs.set("branch_id", String(range.branchId));
-  if (range.status) qs.set("status", range.status);
-  if (range.triggerType) qs.set("trigger_type", range.triggerType);
+  if (range.branchId) qs.set("branch_id", range.branchId);
+  for (const [k, v] of Object.entries(range.extra ?? {})) if (v) qs.set(k, v);
   const result = await FileSystem.downloadAsync(reportExportUrl(key, qs), targetUri, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

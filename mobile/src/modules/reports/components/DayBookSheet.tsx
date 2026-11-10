@@ -48,7 +48,7 @@ export function DayBookSheet({ visible, onClose }: DayBookSheetProps) {
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const from = gfDate(fv, "date").from ?? "";
   const to = gfDate(fv, "date").to ?? "";
-  const branchId = gfFirst(fv, "branch") ? Number(gfFirst(fv, "branch")) : undefined;
+  const branchId = gfFirst(fv, "branch") || undefined;
   const [shown, setShown] = useState(PAGE);
   const [editing, setEditing] = useState<DayBookRow | null>(null);
   const [adding, setAdding] = useState(false);

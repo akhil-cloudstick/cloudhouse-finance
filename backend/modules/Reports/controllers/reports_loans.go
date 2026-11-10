@@ -29,6 +29,12 @@ func disbursementReport(ctx context.Context, f models.Filter) ([]models.Disburse
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.SchemeIDs) > 0 {
+		q = q.Where("l.scheme_id IN ?", f.SchemeIDs)
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.DisbursementTotals{}, err
 	}
@@ -80,6 +86,9 @@ func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.L
 			Where("l.status IN ?", storedLoanStatusValues)
 		if len(f.BranchIDs) > 0 {
 			q = q.Where("l.branch_id IN ?", f.BranchIDs)
+		}
+		if len(f.CustomerIDs) > 0 {
+			q = q.Where("l.customer_id IN ?", f.CustomerIDs)
 		}
 		return q
 	}
@@ -137,6 +146,9 @@ func interestCollection(ctx context.Context, f models.Filter) ([]models.Interest
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
 	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.InterestCollectionTotals{}, err
 	}
@@ -147,31 +159,6 @@ func interestCollection(ctx context.Context, f models.Filter) ([]models.Interest
 		totals.TotalPenal += r.PenalApplied
 	}
 	totals.Total = totals.TotalInterest + totals.TotalPenal
-	return rows, totals, nil
-}
-
-func outstandingPrincipal(ctx context.Context, f models.Filter) ([]models.OutstandingPrincipalRow, models.OutstandingPrincipalTotals, error) {
-	openStatuses := []string{"Active", "Due Soon", "Overdue", "Defaulted", "Auction Eligible", "Auctioned - Balance Due"}
-	q := config.DB.
-		WithContext(ctx).Table("loans l").
-		Select(`b.name as branch_name, count(*) as loan_count, COALESCE(sum(l.outstanding_amount), 0) as outstanding`).
-		Joins("LEFT JOIN branches b ON b.id = l.branch_id").
-		Where("l.status IN ?", openStatuses).
-		Where("l.deleted_at IS NULL").
-		Group("b.name")
-	if len(f.BranchIDs) > 0 {
-		q = q.Where("l.branch_id IN ?", f.BranchIDs)
-	}
-	var rows []models.OutstandingPrincipalRow
-	if err := q.Scan(&rows).Error; err != nil {
-		return nil, models.OutstandingPrincipalTotals{}, err
-	}
-	rows = MatchRows(rows, f.Q)
-	var totals models.OutstandingPrincipalTotals
-	for _, r := range rows {
-		totals.TotalOutstanding += r.Outstanding
-		totals.TotalLoans += r.LoanCount
-	}
 	return rows, totals, nil
 }
 
@@ -189,6 +176,12 @@ func paymentCollection(ctx context.Context, f models.Filter) ([]models.PaymentCo
 		Order("p.paid_on desc")
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.PaymentTypes) > 0 {
+		q = q.Where("p.type IN ?", f.PaymentTypes)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.PaymentCollectionTotals{}, err

@@ -1,6 +1,6 @@
 import { apiFetchEnveloped as apiFetch, apiRawFetch, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
-import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, InvestorLedgerRow, InvestorLedgerTotals, InterestCollectionRow, InterestCollectionTotals, OutstandingPrincipalRow, OutstandingPrincipalTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, DayBookRow, DayBookTotals, DayBookInput, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, FormGStatement, FormGOverrides, BalanceSheetRow, BalanceSheetTotals, ProfitLossRow, ProfitLossTotals, ReportKey } from "@/modules/reports/types/reports-types";
+import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, InvestorLedgerRow, InvestorLedgerTotals, InterestCollectionRow, InterestCollectionTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, DayBookRow, DayBookTotals, DayBookInput, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, FormGStatement, FormGOverrides, BalanceSheetRow, BalanceSheetTotals, ProfitLossRow, ProfitLossTotals, ReportKey } from "@/modules/reports/types/reports-types";
 
 function buildQuery(filters: ReportFilters): string {
   const qs = new URLSearchParams();
@@ -12,7 +12,23 @@ function buildQuery(filters: ReportFilters): string {
   if (filters.search) qs.set("search", filters.search);
   if (filters.status) qs.set("status", filters.status);
   if (filters.triggerType) qs.set("trigger_type", filters.triggerType);
+  const extra: [string, string | undefined][] = [
+    ["customer_id", filters.customerId], ["scheme_id", filters.schemeId], ["loan_id", filters.loanId],
+    ["bank_id", filters.bankId], ["employee_id", filters.employeeId], ["investor_id", filters.investorId],
+    ["plan_id", filters.planId], ["purity", filters.purity], ["payment_type", filters.paymentType],
+    ["collection_mode", filters.collectionMode], ["expense_category_id", filters.expenseCategoryId],
+    ["frequency", filters.frequency], ["set_by", filters.setBy],
+  ];
+  for (const [k, v] of extra) if (v) qs.set(k, v);
   return qs.toString();
+}
+
+/* Distinct "Set By" names for the gold-rate-history filter — searchable and paged by the backend (`page` 0-based). */
+export async function searchGoldRateSetByPage(q: string, page: number, limit = 20): Promise<{ items: string[]; hasMore: boolean }> {
+  const qs = new URLSearchParams({ limit: String(limit), offset: String(page * limit) });
+  if (q.trim()) qs.set("search", q.trim());
+  const res = await apiFetch<{ items: string[] | null; hasMore: boolean }>(`/reports/gold-rate-history/set-by?${qs}`);
+  return { items: res.items || [], hasMore: !!res.hasMore };
 }
 
 function fetchReport<Row, Totals>(path: string, filters: ReportFilters): Promise<ReportResult<Row, Totals>> {
@@ -100,9 +116,6 @@ export const getLoansStatus = (f: ReportFilters) =>
 
 export const getInterestCollection = (f: ReportFilters) =>
   fetchReport<InterestCollectionRow, InterestCollectionTotals>("interest-collection", f);
-
-export const getOutstandingPrincipal = (f: ReportFilters) =>
-  fetchReport<OutstandingPrincipalRow, OutstandingPrincipalTotals>("outstanding-principal", f);
 
 export const getPaymentCollection = (f: ReportFilters) =>
   fetchReport<PaymentCollectionRow, PaymentCollectionTotals>("payment-collection", f);

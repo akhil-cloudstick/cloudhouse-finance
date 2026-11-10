@@ -328,30 +328,40 @@ export function CalendarPage() {
                   <li><span className="tx"><small>No events on this day.</small></span></li>
                 ) : openGroup == null ? (
                   <li><span className="tx"><small>Select a circle to see its events.</small></span></li>
-                ) : dayEvents.slice(0, dayVisible).map((e, i) => (
+                ) : dayEvents.slice(0, dayVisible).map((e, i) => {
+                  // The whole entry opens its loan — no separate "Open loan" button.
+                  const loanHref = e.personalLoanId != null && canOpen("personalloan")
+                    ? routeHref(`personalloan/${e.personalLoanId}`)
+                    : e.loanNumber && canOpen("loan") ? routeHref(`loan/${e.loanNumber}`) : null;
+                  const detailText = `${e.detail}${e.loanNumber ? ` · ${e.loanNumber}` : ""}`;
+                  const ellipsis = { display: "block", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" };
+                  const text = (
+                    <>
+                      <b style={ellipsis}>{e.title}</b>
+                      <small style={ellipsis}>{detailText}</small>
+                    </>
+                  );
+                  return (
                   <li key={i}>
                     <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />
                     </span>
-                    <span className="tx" style={{ minWidth: 0, flex: 1 }}>
-                      <b>{e.title}</b>
-                      <small style={{ display: "block", whiteSpace: "normal", overflowWrap: "anywhere" }}>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""}</small>
-                    </span>
+                    {loanHref ? (
+                      <a className="tx" href={loanHref} title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1, color: "inherit", textDecoration: "none", cursor: "pointer" }}>{text}</a>
+                    ) : (
+                      <span className="tx" title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1 }}>{text}</span>
+                    )}
                     {e.reminderId != null && (
                       <span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                         {canUpdateReminders && e.status !== "Done" && (
-                          <button className="btn sm ghost" onClick={() => onComplete(e.reminderId!)}>Done</button>
+                          <button className="btn sm ghost" title="Mark done" aria-label="Mark done" onClick={() => onComplete(e.reminderId!)}><Icon name="check" /></button>
                         )}
-                        {canDeleteReminders && <button className="btn sm ghost" onClick={() => onDelete(e.reminderId!)}>Delete</button>}
+                        {canDeleteReminders && <button className="btn sm ghost" title="Delete" aria-label="Delete" onClick={() => onDelete(e.reminderId!)}><Icon name="x" /></button>}
                       </span>
                     )}
-                    {e.personalLoanId != null && canOpen("personalloan") ? (
-                      <span className="rt"><a className="btn sm ghost" href={routeHref(`personalloan/${e.personalLoanId}`)}>Open loan</a></span>
-                    ) : e.loanNumber && canOpen("loan") ? (
-                      <span className="rt"><a className="btn sm ghost" href={routeHref(`loan/${e.loanNumber}`)}>Open loan</a></span>
-                    ) : null}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
           </div>

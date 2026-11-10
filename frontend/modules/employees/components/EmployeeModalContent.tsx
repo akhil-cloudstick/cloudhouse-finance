@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { stripDigits } from "@/common/utils/kyc";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
@@ -199,7 +200,7 @@ export function EmployeeModalContent({ employee, onSaved }: EmployeeModalContent
       <div className="hd"><h3>{employee ? "Edit Employee — " + employee.name : "Add Employee"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow c2">
-          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Arun Kumar" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" /><FieldError msg={fe.name} /></div>
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Arun Kumar" value={name} onChange={(e) => setName(stripDigits(e.target.value))} maxLength={120} autoComplete="off" /><FieldError msg={fe.name} /></div>
           <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number</label>
             <input
               className="inp"
