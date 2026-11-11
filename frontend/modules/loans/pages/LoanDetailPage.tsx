@@ -1560,7 +1560,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                               {infoIcon({
                                 title: "Loan Sanctioned", kind: "Debit · Sanction",
                                 rows: [["Date", fmtDate(entry.date)], ["Loan", l.loanNumber], ["Sanctioned", fmt(l.sanctionedAmount)], ["Service charge withheld", fmt(l.sanctionedAmount - l.disbursedAmount)], ["Paid out", fmt(part ? part.amount : l.disbursedAmount)], ["Mode", part ? part.mode : (entry.payment?.method || "—")], ["Balance", fmt(entry.balance)]],
-                                description: <>Loan Sanctioned{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(l.disbursedAmount)}</>}{l.sanctionedAmount !== l.disbursedAmount && <><br />Sanctioned {fmt(l.sanctionedAmount)} · ₹{fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge</>}</>,
+                                description: <>Loan Sanctioned{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(l.disbursedAmount)}</>}{l.sanctionedAmount !== l.disbursedAmount && <><br />Sanctioned {fmt(l.sanctionedAmount)} · {fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge</>}</>,
                                 actions: [],
                               })}
                             </td>

@@ -491,7 +491,6 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
         {/* Summary date sits top-right, in the space the KPI cards leave above the tabs. */}
         <div className="cash-side">
         <div className="cash-date-filter">
-          {!isToday && <button type="button" className="btn plain sm" onClick={() => setSummaryDate("")}>Today</button>}
           <DatePicker value={today} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} />
         </div>
         <div className="tabs cash-tabs-row" style={{ flexShrink: 0, marginBottom: 0 }}>

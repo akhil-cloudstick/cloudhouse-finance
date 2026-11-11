@@ -363,7 +363,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
    * against the other's rows (see loansApi.listConcludedAuctionsPage). */
   // Below 1100px the tables are cards: no Prev/Next, the list grows as you
   // scroll (`more` raises pageSize, page stays 1). Above it, pageSize is fixed.
-  const { cards, size: pageSize, more } = useScrollPageSize(15);
+  const { cards, size: pageSize, more } = useScrollPageSize(15, 1400); // 1400: matches the auction-history card breakpoint in app.css
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
   const [conductedPage, setConductedPage] = usePersistedPage("auctions:conducted");
   const [conductedHasMore, setConductedHasMore] = useState(false);
