@@ -279,85 +279,95 @@ export function CalendarPage() {
 				</div>
 				</div>
 
-				<div className="grid">
-					{selectedDay == null ? (
-					<div className="card">
-						<div className="hd"><h3>This Month at a Glance</h3></div>
-						<div className="bd" style={{ paddingTop: 6 }}>
-							<ul className="mini-list">
-								<li><span className="tx"><b>Loan due dates</b><small>{events.filter((e) => e.type === "LoanDue").length} loans due this month</small></span></li>
-								<li><span className="tx"><b>Overdue loans</b><small>{events.filter((e) => e.type === "Overdue").length} loans overdue</small></span></li>
-								<li><span className="tx"><b>Interest reminders</b><small>{events.filter((e) => e.type === "InterestDue").length} scheduled</small></span></li>
-								<li><span className="tx"><b>Scheduled auctions</b><small>{events.filter((e) => e.type === "AuctionScheduled").length} loans scheduled for auction</small></span></li>
-								<li><span className="tx"><b>Customer follow-ups</b><small>{events.filter((e) => e.type === "FollowUp").length} logged</small></span></li>
-								<li><span className="tx"><b>Promise-to-pay dates</b><small>{events.filter((e) => e.type === "PromiseToPay").length} logged</small></span></li>
-							</ul>
-						</div>
-					</div>
-					) : (
-					<div className="card">
-						<div className="hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-							<h3>{fmtDate(toISODate(year, month, selectedDay))}</h3>
-							<button className="btn ghost sm" onClick={() => setSelectedDay(null)}>Month summary</button>
-						</div>
-						<div className="bd no-scrollbar" style={{ paddingTop: 6, maxHeight: 420, overflowY: "auto" }} onScroll={onDayScroll}>
-							{groupsOfDay.length > 0 && (
-								<div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "8px 0 12px" }}>
-									{groupsOfDay.map((g) => {
-										const on = openGroup === g.key;
-										return (
-											<button
-												key={g.key}
-												type="button"
-												onClick={() => setOpenGroup(on ? null : g.key)}
-												aria-pressed={on}
-												title={`${g.label}: ${g.items.length}`}
-												style={{ background: "none", border: 0, padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 64 }}
-											>
-												<span style={{ width: 40, height: 40, borderRadius: "50%", display: "grid", placeContent: "center", fontWeight: 700, fontSize: 14, background: `var(--${g.tone}-bg)`, color: `var(--${g.tone})`, border: `2px solid ${on ? `var(--${g.tone})` : "transparent"}` }}>{g.items.length}</span>
-												<span style={{ fontSize: 10.5, color: on ? "var(--charcoal)" : "var(--muted)", textAlign: "center", lineHeight: 1.2 }}>{g.label}</span>
-											</button>
-										);
-									})}
-								</div>
-							)}
-							<ul className="mini-list">
-								{selectedDay == null ? (
-									<li><span className="tx"><small>Click a day on the calendar to see its events.</small></span></li>
-								) : allDayEvents.length === 0 ? (
-									<li><span className="tx"><small>No events on this day.</small></span></li>
-								) : openGroup == null ? (
-									<li><span className="tx"><small>Select a circle to see its events.</small></span></li>
-								) : dayEvents.slice(0, dayVisible).map((e, i) => (
-									<li key={i}>
-										<span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
-											<Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />
-										</span>
-										<span className="tx" style={{ minWidth: 0, flex: 1 }}>
-											<b>{e.title}</b>
-											<small style={{ display: "block", whiteSpace: "normal", overflowWrap: "anywhere" }}>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""}</small>
-										</span>
-										{e.reminderId != null && (
-											<span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-												{canUpdateReminders && e.status !== "Done" && (
-													<button className="btn sm ghost" onClick={() => onComplete(e.reminderId!)}>Done</button>
-												)}
-												{canDeleteReminders && <button className="btn sm ghost" onClick={() => onDelete(e.reminderId!)}>Delete</button>}
-											</span>
-										)}
-										{e.personalLoanId != null && canOpen("personalloan") ? (
-											<span className="rt"><a className="btn sm ghost" href={routeHref(`personalloan/${e.personalLoanId}`)}>Open loan</a></span>
-										) : e.loanNumber && canOpen("loan") ? (
-											<span className="rt"><a className="btn sm ghost" href={routeHref(`loan/${e.loanNumber}`)}>Open loan</a></span>
-										) : null}
-									</li>
-								))}
-							</ul>
-						</div>
-					</div>
-					)}
-				</div>
-			</div>
-		</>
-	);
+        <div className="grid">
+          {selectedDay == null ? (
+          <div className="card">
+            <div className="hd"><h3>This Month at a Glance</h3></div>
+            <div className="bd" style={{ paddingTop: 6 }}>
+              <ul className="mini-list">
+                <li><span className="tx"><b>Loan due dates</b><small>{events.filter((e) => e.type === "LoanDue").length} loans due this month</small></span></li>
+                <li><span className="tx"><b>Overdue loans</b><small>{events.filter((e) => e.type === "Overdue").length} loans overdue</small></span></li>
+                <li><span className="tx"><b>Interest reminders</b><small>{events.filter((e) => e.type === "InterestDue").length} scheduled</small></span></li>
+                <li><span className="tx"><b>Scheduled auctions</b><small>{events.filter((e) => e.type === "AuctionScheduled").length} loans scheduled for auction</small></span></li>
+                <li><span className="tx"><b>Customer follow-ups</b><small>{events.filter((e) => e.type === "FollowUp").length} logged</small></span></li>
+                <li><span className="tx"><b>Promise-to-pay dates</b><small>{events.filter((e) => e.type === "PromiseToPay").length} logged</small></span></li>
+              </ul>
+            </div>
+          </div>
+          ) : (
+          <div className="card">
+            <div className="hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3>{fmtDate(toISODate(year, month, selectedDay))}</h3>
+              <button className="btn ghost sm" onClick={() => setSelectedDay(null)}>Month summary</button>
+            </div>
+            <div className="bd no-scrollbar" style={{ paddingTop: 6, maxHeight: 420, overflowY: "auto" }} onScroll={onDayScroll}>
+              {groupsOfDay.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "8px 0 12px" }}>
+                  {groupsOfDay.map((g) => {
+                    const on = openGroup === g.key;
+                    return (
+                      <button
+                        key={g.key}
+                        type="button"
+                        onClick={() => setOpenGroup(on ? null : g.key)}
+                        aria-pressed={on}
+                        title={`${g.label}: ${g.items.length}`}
+                        style={{ background: "none", border: 0, padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 64 }}
+                      >
+                        <span style={{ width: 40, height: 40, borderRadius: "50%", display: "grid", placeContent: "center", fontWeight: 700, fontSize: 14, background: `var(--${g.tone}-bg)`, color: `var(--${g.tone})`, border: `2px solid ${on ? `var(--${g.tone})` : "transparent"}` }}>{g.items.length}</span>
+                        <span style={{ fontSize: 10.5, color: on ? "var(--charcoal)" : "var(--muted)", textAlign: "center", lineHeight: 1.2 }}>{g.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <ul className="mini-list">
+                {selectedDay == null ? (
+                  <li><span className="tx"><small>Click a day on the calendar to see its events.</small></span></li>
+                ) : allDayEvents.length === 0 ? (
+                  <li><span className="tx"><small>No events on this day.</small></span></li>
+                ) : openGroup == null ? (
+                  <li><span className="tx"><small>Select a circle to see its events.</small></span></li>
+                ) : dayEvents.slice(0, dayVisible).map((e, i) => {
+                  // The whole entry opens its loan — no separate "Open loan" button.
+                  const loanHref = e.personalLoanId != null && canOpen("personalloan")
+                    ? routeHref(`personalloan/${e.personalLoanId}`)
+                    : e.loanNumber && canOpen("loan") ? routeHref(`loan/${e.loanNumber}`) : null;
+                  const detailText = `${e.detail}${e.loanNumber ? ` · ${e.loanNumber}` : ""}`;
+                  const ellipsis = { display: "block", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" };
+                  const text = (
+                    <>
+                      <b style={ellipsis}>{e.title}</b>
+                      <small style={ellipsis}>{detailText}</small>
+                    </>
+                  );
+                  return (
+                  <li key={i}>
+                    <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
+                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />
+                    </span>
+                    {loanHref ? (
+                      <a className="tx" href={loanHref} title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1, color: "inherit", textDecoration: "none", cursor: "pointer" }}>{text}</a>
+                    ) : (
+                      <span className="tx" title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1 }}>{text}</span>
+                    )}
+                    {e.reminderId != null && (
+                      <span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {canUpdateReminders && e.status !== "Done" && (
+                          <button className="btn sm ghost" title="Mark done" aria-label="Mark done" onClick={() => onComplete(e.reminderId!)}><Icon name="check" /></button>
+                        )}
+                        {canDeleteReminders && <button className="btn sm ghost" title="Delete" aria-label="Delete" onClick={() => onDelete(e.reminderId!)}><Icon name="x" /></button>}
+                      </span>
+                    )}
+                  </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
 }

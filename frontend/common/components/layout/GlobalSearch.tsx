@@ -51,7 +51,7 @@ export default function GlobalSearch({
 
 	useEffect(() => {
 		const q = query.trim();
-		if (q.length < 2) { setLoans([]); setCustomers([]); return; }
+		if (q.length < 1) { setLoans([]); setCustomers([]); return; }
 		let cancelled = false;
 		const handle = setTimeout(() => {
 			if (canOpen("loan")) {
@@ -136,7 +136,7 @@ export default function GlobalSearch({
 		return groups;
 	}
 
-	const groups = query.trim().length >= 2 ? searchAll(query.trim()) : [];
+	const groups = query.trim().length >= 1 ? searchAll(query.trim()) : [];
 	const flatItems = groups.flatMap(([, items]) => items);
 
 	function closeResults() {
@@ -146,7 +146,7 @@ export default function GlobalSearch({
 	function handleChange(v: string) {
 		setQuery(v);
 		setSel(-1);
-		setOpen(v.trim().length >= 2);
+		setOpen(v.trim().length >= 1);
 	}
 
 	function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -197,7 +197,7 @@ export default function GlobalSearch({
 	}, [setExpanded]);
 
 	return (
-		<div className={`gsearch${isExpanded ? " gsearch-expanded" : ""}`} id="gsearch">
+		<div className={`gsearch${isExpanded ? " gsearch-expanded" : ""}${query ? " gsearch-has-query" : ""}`} id="gsearch">
 			<button
 				type="button"
 				className="gsearch-trigger"
@@ -217,14 +217,29 @@ export default function GlobalSearch({
 					id="gsInput"
 					type="text"
 					placeholder="Search loans, customers, schemes…"
-					title="Searches: loans (loan number, customer name, customer code), customers (name, code, phone), schemes (name, code) · type at least 2 characters"
+					title="Searches: loans (loan number, customer name, customer code), customers (name, code, phone), schemes (name, code) · type at least 1 character"
 					autoComplete="off"
 					value={query}
 					onChange={(e) => handleChange(e.target.value)}
-					onFocus={() => { if (query.trim().length >= 2) setOpen(true); }}
+					onFocus={() => { if (query.trim().length >= 1) setOpen(true); }}
 					onKeyDown={handleKeyDown}
 				/>
 				<kbd>/</kbd>
+        {query ? (
+          <button
+            type="button"
+            className="gsearch-clear"
+            aria-label="Clear search"
+            title="Clear"
+            onClick={() => {
+              setQuery("");
+              closeResults();
+              inputRef.current?.focus();
+            }}
+          >
+            ×
+          </button>
+        ) : null}
 				<button
 					type="button"
 					className="gsearch-close"
@@ -263,7 +278,7 @@ export default function GlobalSearch({
 							})}
 						</div>
 					))
-				) : query.trim().length >= 2 ? (
+				) : query.trim().length >= 1 ? (
 					<div className="gs-none">No results for &ldquo;{query.trim()}&rdquo;</div>
 				) : null}
 			</div>

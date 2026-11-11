@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { stripDigits } from "@/common/utils/kyc";
 import { useModal } from "@/common/components/ModalProvider";
 import { Select } from "@/common/components/ui/Select";
 import { createCustomer } from "@/modules/customers/services/customerService";
@@ -130,7 +131,7 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
 			<div className="hd"><h3>Add New Investor</h3><button className="x" onClick={closeModal}>×</button></div>
 			<div className="bd">
 				<div className="frow c2">
-					<div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Radha Menon" value={name} onChange={(e) => setName(e.target.value)} /><FieldError msg={fe.name} /></div>
+					<div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Radha Menon" value={name} onChange={(e) => setName(stripDigits(e.target.value))} /><FieldError msg={fe.name} /></div>
 					<div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.phone} /></div>
 				</div>
 				<div className={showBranch ? "frow c2" : "frow"}>

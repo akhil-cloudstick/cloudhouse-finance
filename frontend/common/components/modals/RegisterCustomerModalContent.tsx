@@ -237,8 +237,8 @@ export function RegisterCustomerModalContent({
 					<Icon name="chevronDown" style={{ transform: showAdditional ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
 					Additional Information
 				</button>
-				{showAdditional && (
-					<>
+				<div className={`addl-wrap${showAdditional ? " open" : ""}`}>
+					<div className="addl-inner">
 						<div className="frow c3" style={{ marginTop: 14 }}>
 							<div><label className="f">Guardian Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(stripDigits(e.target.value))} /></div>
 							<div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
@@ -249,8 +249,8 @@ export function RegisterCustomerModalContent({
 							<div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
 							<div><label className="f">Pin Code</label><input className="inp" inputMode="numeric" placeholder="6-digit pin code" maxLength={6} value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ""))} /></div>
 						</div>
-					</>
-				)}
+					</div>
+				</div>
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}

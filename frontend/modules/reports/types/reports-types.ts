@@ -16,6 +16,10 @@ export type ReportFilters = {
 	// Per-report extra filters.
 	status?: string; // /reports/loans/status
 	triggerType?: string; // /reports/communication-history
+    // Further per-report filters, each one or several comma-joined values.
+    customerId?: string; schemeId?: string; loanId?: string; bankId?: string; employeeId?: string;
+  	investorId?: string; planId?: string; purity?: string; paymentType?: string; collectionMode?: string;
+  	expenseCategoryId?: string; frequency?: string; setBy?: string;
 };
 export type ReportResult<Row, Totals> = {
 	rows: Row[];

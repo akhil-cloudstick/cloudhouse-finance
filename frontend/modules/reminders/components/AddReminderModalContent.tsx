@@ -10,8 +10,10 @@ import { Select } from "@/common/components/ui/Select";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { searchCustomersPage } from "@/modules/customers/services/customerService";
-import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { getLoanByNumber } from "@/modules/loans/services/loanService";
+import { type CustomerView } from "@/modules/customers/types/customer-types";
+import { searchLoansPage } from "@/modules/loans/services/loanService";
+import { type LoanView } from "@/modules/loans/types/loan-types";
 import { createReminder } from "@/modules/reminders/services/reminderService";
 import { type ReminderView } from "@/modules/reminders/types/reminder-types";
 import { fmtDate } from "@/common/utils/format";
@@ -45,6 +47,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
 	const [customerId, setCustomerId] = useState("");
 	const [customerLabel, setCustomerLabel] = useState("");
 	const [loanId, setLoanId] = useState("");
+  	const [loanLabel, setLoanLabel] = useState("");
 	const [type, setType] = useState<"Follow-Up" | "Promise-to-Pay" | "Custom">("Follow-Up");
 	const [dueDate, setDueDate] = useState(initialDate || new Date().toISOString().slice(0, 10));
 	const [note, setNote] = useState("");
@@ -100,56 +103,71 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
 		}
 	}); }
 
-	return (
-		<>
-			<div className="hd"><h3>Add Reminder</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd">
-				<div className="frow">
-					<div className={fe.customer ? "has-err" : undefined}>
-						<label className="f">Customer *</label>
-						<SearchableSelect<CustomerView>
-							value={customerLabel}
-							placeholder="Search by name, code, or phone…"
-							fetchFn={searchCustomersPage}
-							searchHint="Searches: customer name, customer code, phone"
-							getLabel={(c) => `${c.name} — ${c.code}`}
-							getId={(c) => String(c.id)}
-							onChange={(id, c) => { setCustomerId(id); setCustomerLabel(`${c.name} — ${c.code}`); clearFe("customer"); }}
-						/>
-						<FieldError msg={fe.customer} />
-					</div>
-				</div>
-				<div className="frow c2">
-					<div>
-						<label className="f">Type *</label>
-						<Select
-							options={TYPE_OPTIONS}
-							value={type}
-							onChange={(v) => setType(v as typeof type)}
-						/>
-					</div>
-					<div className={fe.dueDate ? "has-err" : undefined}>
-						<label className="f">Due Date *</label>
-						<DatePicker value={dueDate} onChange={(v) => { setDueDate(v); clearFe("dueDate"); }} />
-						<FieldError msg={fe.dueDate} />
-					</div>
-				</div>
-				<div className="frow">
-					<div className={fe.loan ? "has-err" : undefined}>
-						<label className="f">Loan Number (optional)</label>
-						<input className="inp" placeholder="e.g. LN-00012, if this reminder is about a specific loan" value={loanId} onChange={(e) => { setLoanId(e.target.value); clearFe("loan"); }} />
-						<FieldError msg={fe.loan} />
-					</div>
-				</div>
-				<div className="frow">
-					<div><label className="f">Note</label><input className="inp" placeholder="e.g. Call about overdue interest" value={note} onChange={(e) => setNote(e.target.value)} /></div>
-				</div>
-			</div>
-			<div className="ft">
-					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
-				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Add Reminder"}</button>
-			</div>
-		</>
-	);
+  return (
+    <>
+      <div className="hd"><h3>Add Reminder</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd">
+        <div className="frow">
+          <div className={fe.customer ? "has-err" : undefined}>
+            <label className="f">Customer *</label>
+            <SearchableSelect<CustomerView>
+              value={customerLabel}
+              placeholder="Search by name, code, or phone…"
+              fetchFn={searchCustomersPage}
+              searchHint="Searches: customer name, customer code, phone"
+              getLabel={(c) => `${c.name} — ${c.code}`}
+              getId={(c) => String(c.id)}
+              onChange={(id, c) => {
+                if (id !== customerId) { setLoanId(""); setLoanLabel(""); }
+                setCustomerId(id); setCustomerLabel(`${c.name} — ${c.code}`); clearFe("customer");
+              }}
+            />
+            <FieldError msg={fe.customer} />
+          </div>
+        </div>
+        <div className="frow c2">
+          <div>
+            <label className="f">Type *</label>
+            <Select
+              options={TYPE_OPTIONS}
+              value={type}
+              onChange={(v) => setType(v as typeof type)}
+            />
+          </div>
+          <div className={fe.dueDate ? "has-err" : undefined}>
+            <label className="f">Due Date *</label>
+            <DatePicker value={dueDate} onChange={(v) => { setDueDate(v); clearFe("dueDate"); }} />
+            <FieldError msg={fe.dueDate} />
+          </div>
+        </div>
+        <div className="frow">
+          <div className={fe.loan ? "has-err" : undefined}>
+            <label className="f">Loan Number (optional)</label>
+            {/* Keyed by customer so changing the customer drops the previous customer's loan. */}
+            <SearchableSelect<LoanView>
+              key={customerId || "no-customer"}
+              value={loanLabel}
+              disabled={!customerId}
+              placeholder={customerId ? "Select a loan of this customer (optional)" : "Select a customer first"}
+              fetchFn={(q, p) => searchLoansPage(q, p, { customerId: Number(customerId) })}
+              searchHint="Searches this customer's loans by loan number"
+              getLabel={(l) => l.loanNumber}
+              getId={(l) => String(l.numericId)}
+              onChange={(id, l) => { setLoanId(id); setLoanLabel(l.loanNumber); clearFe("loan"); }}
+              portal
+            />
+            <FieldError msg={fe.loan} />
+          </div>
+        </div>
+        <div className="frow">
+          <div><label className="f">Note</label><input className="inp" placeholder="e.g. Call about overdue interest" value={note} onChange={(e) => setNote(e.target.value)} /></div>
+        </div>
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
+      </div>
+      <div className="ft">
+        <button className="btn ghost" onClick={closeModal}>Cancel</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Add Reminder"}</button>
+      </div>
+    </>
+  );
 }

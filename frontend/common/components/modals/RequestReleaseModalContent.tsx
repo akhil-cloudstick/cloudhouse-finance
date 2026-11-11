@@ -162,8 +162,8 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
 				</div>
 				<div className={ornamentsErr ? "has-err" : undefined}>
 				<div className="tbl-wrap rel-orn-wrap"><table className="tbl">
-					<TableCols widths={["36px", 34, 14, 14, 18, 14]} />
-					<thead><tr><th style={{ width: 36 }}></th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th><th></th></tr></thead>
+          			<TableCols widths={["36px", 38, 18, 18, 26]} />
+         			<thead><tr><th style={{ width: 36 }}></th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
 					<tbody>
 						{pledged.map((o) => {
 							const isPending = !!pendingOrnamentIds?.has(o.id);
@@ -171,7 +171,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
 								<tr key={o.id}>
 									{/* The trailing empty span keeps `.ccheck>span:last-child` off the mark; gap 0 so it adds no width. */}
 									<td><label className="ccheck" style={{ gap: 0, alignItems: "center" }}><input type="checkbox" aria-label={`Release ${o.name}`} checked={selected.has(o.id)} onChange={() => toggle(o.id)} /><span className="mark" style={{ marginTop: 0 }} /><span /></label></td>
-									<td>{o.name}</td>
+									<td>{o.name}{isPending && <span className="chip" style={{ color: "var(--red)", display: "table", marginTop: 3 }} title="Already requested for release, not yet approved">Pending release</span>}</td>
 									<td><span className="chip brand">{o.purity}</span></td>
 									<td className="num">{o.netWeight.toFixed(1)}</td>
 									<td className="num">{fmt(o.goldValue)}</td>

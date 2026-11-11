@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest, API_BASE_URL, apiUrl } from "@/common/services/httpClient";
-import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, InterestCollectionRow, InterestCollectionTotals, OutstandingPrincipalRow, OutstandingPrincipalTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, StatementRow, DayBookRow, DayBookTotals, DayBookInput, BalanceSheetTotals, ProfitLossTotals, FormGStatement } from "@/modules/reports/types/reports-types";
+import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, InterestCollectionRow, InterestCollectionTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, StatementRow, DayBookRow, DayBookTotals, DayBookInput, BalanceSheetTotals, ProfitLossTotals, FormGStatement } from "@/modules/reports/types/reports-types";
 
 function fetchReport<Row, Totals>(path: string, filters: ReportFilters) {
   return apiRequest<ReportResult<Row, Totals>>(`/reports/${path}`, {
@@ -9,12 +9,17 @@ function fetchReport<Row, Totals>(path: string, filters: ReportFilters) {
       branch_id: filters.branchId,
       page: filters.page,
       page_size: filters.pageSize,
-      status: filters.status,
-      trigger_type: filters.triggerType,
       q: filters.q,
+      ...filters.extra,
     },
   });
 }
+
+/* Distinct "Set By" names for the gold-rate-history filter — searchable and paged by the backend. */
+export const getGoldRateSetByPage = (p: { q?: string; limit: number; offset: number }) =>
+  apiRequest<{ items: string[] | null; hasMore: boolean }>("/reports/gold-rate-history/set-by", {
+    params: { search: p.q, limit: p.limit, offset: p.offset },
+  }).then((r) => ({ items: r.items ?? [], hasMore: !!r.hasMore }));
 
 /* ---- One function per report endpoint (path segments per routes.go). ---- */
 
@@ -26,9 +31,6 @@ export const getLoansStatus = (f: ReportFilters) =>
 
 export const getInterestCollection = (f: ReportFilters) =>
   fetchReport<InterestCollectionRow, InterestCollectionTotals>("interest-collection", f);
-
-export const getOutstandingPrincipal = (f: ReportFilters) =>
-  fetchReport<OutstandingPrincipalRow, OutstandingPrincipalTotals>("outstanding-principal", f);
 
 export const getPaymentCollection = (f: ReportFilters) =>
   fetchReport<PaymentCollectionRow, PaymentCollectionTotals>("payment-collection", f);

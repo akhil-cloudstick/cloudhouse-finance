@@ -130,6 +130,32 @@ html {
   scroll-behavior: smooth
 }
 
+/* Theme-tinted scrollbars everywhere (modals, tables, page) instead of the
+ * browser's default fat gray bar. Elements with their own rule (.no-scrollbar,
+ * .newloan-root …) keep it, as those set scrollbar-width: none explicitly. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--brand-light) transparent
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px
+}
+
+::-webkit-scrollbar-track {
+  background: transparent
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--brand-light);
+  border-radius: 8px
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand)
+}
+
 body {
   font-family: var(--brand-font-family), var(--font-sans), 'Inter', sans-serif;
   font-size: calc(1em * var(--brand-font-scale));
@@ -371,16 +397,13 @@ h3,
 .nav {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 0 16px
+  padding: 12px 0 16px;
+  scrollbar-width: none
 }
 
 .nav::-webkit-scrollbar {
-  width: 5px
-}
-
-.nav::-webkit-scrollbar-thumb {
-  background: color-mix(in oklab, var(--brand) 30%, transparent);
-  border-radius: 3px
+  display: none;
+  width: 0
 }
 
 .nav .grp {
@@ -638,6 +661,34 @@ h3,
 
 .gsearch-close:hover {
   color: var(--red);
+}
+
+/* Shown only while there is text: one × that clears it, in place of the "/" hint and the collapse ×. */
+.gsearch-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+.gsearch-clear:hover {
+  color: var(--red);
+}
+
+.gsearch.gsearch-has-query input {
+  padding-right: 32px;
+}
+
+.gsearch.gsearch-has-query kbd,
+.gsearch.gsearch-has-query .gsearch-close {
+  display: none !important;
 }
 
 .rate-compact {
@@ -3343,6 +3394,16 @@ button.fi-trigger {
   max-height: 262px;
   overflow-y: auto;
 }
+/* Tighter columns so the table fits the modal width instead of being clipped. */
+.tbl-wrap.rel-orn-wrap .tbl {
+  min-width: 0;
+  width: 100%;
+}
+.tbl-wrap.rel-orn-wrap .tbl th,
+.tbl-wrap.rel-orn-wrap .tbl td {
+  padding-left: 6px;
+  padding-right: 6px;
+}
 .tbl-wrap.rel-orn-wrap thead th {
   position: sticky;
   top: 0;
@@ -4898,7 +4959,8 @@ table.tbl td {
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: flex-end
+    /* date on the table's left edge, tabs on the right */
+    justify-content: space-between
   }
 
   .cash-side .cash-tabs-row {
@@ -5294,6 +5356,29 @@ table.tbl td {
   z-index: 90
 }
 
+/* Closing: the box slides down and fades, the backdrop fades (ModalProvider.tsx, CLOSE_MS = 200). */
+.modal-bg.closing {
+  animation: modalBgOut .2s ease forwards;
+  pointer-events: none
+}
+
+.modal-bg.closing .modal {
+  animation: popOut .2s ease forwards
+}
+
+@keyframes modalBgOut {
+  to {
+    opacity: 0
+  }
+}
+
+@keyframes popOut {
+  to {
+    transform: translateY(14px);
+    opacity: 0
+  }
+}
+
 @keyframes pop {
   from {
     transform: translateY(14px);
@@ -5459,6 +5544,32 @@ table.tbl td {
 .modal .bd {
   padding: 18px 22px;
   font-size: 12px
+}
+
+/* Collapsible "Additional Information" section: always rendered and grown
+ * smoothly (0fr → 1fr) instead of popping in at full height, which made the
+ * modal jump and the inputs shake. Hidden fields are visibility:hidden so
+ * they can't be tabbed into while collapsed. */
+.addl-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .22s ease
+}
+
+.addl-wrap.open {
+  grid-template-rows: 1fr
+}
+
+.addl-inner {
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition: visibility 0s linear .22s
+}
+
+.addl-wrap.open .addl-inner {
+  visibility: visible;
+  transition-delay: 0s
 }
 
 .modal .inp {
@@ -10296,6 +10407,26 @@ table.tbl.lockers-tbl th {
   /* The 980px basis keeps the date and tabs beside the cards from the same width as before. */
   .cash-kpi-row > .kpis.kpis-money { flex: 1 1 980px; min-width: 0; max-width: none !important; gap: 16px; }
   .cash-kpi-row > .cash-side { flex: 0 0 auto; }
+}
+
+/* At laptop/desktop widths where the date + tabs wrap onto their own line under the Ledger cards:
+   one row spanning the table's width — date on the left, tabs on the right. */
+@media (min-width: 1401px) and (max-width: 1800px) {
+  .cash-kpi-row > .cash-side {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-left: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .cash-side .cash-tabs-row {
+    width: auto;
+    flex-basis: auto;
+    margin-left: 0;
+    align-self: center;
+  }
 }
 
 /* ── Phone widths: every plain `.tbl` (labelled by TableCardsObserver) becomes

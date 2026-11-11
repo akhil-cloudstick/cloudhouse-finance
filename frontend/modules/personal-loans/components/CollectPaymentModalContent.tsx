@@ -32,6 +32,11 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
 	const outstanding = roundRupee(loan.outstandingAmount);
 	const defaultAmount = roundRupee(Math.min(loan.installmentAmount, outstanding));
 	const [amount, setAmount] = useState(defaultAmount > 0 ? String(defaultAmount) : "");
+  // How many installments the customer is paying for. Typing a count sets the
+  // amount to count × installment (capped at what is still owed); editing the
+  // amount directly still works for partial/extra payments.
+  const maxInstallments = loan.installmentAmount > 0 ? Math.max(1, Math.min(loan.tenureCount || Infinity, Math.ceil(outstanding / loan.installmentAmount))) : 1;
+  const [count, setCount] = useState(defaultAmount > 0 ? "1" : "");
 	const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
 	const [remaining, setRemaining] = useState(0);
 	const [bankId, setBankId] = useState<number | undefined>(undefined);
@@ -83,8 +88,17 @@ export function CollectPaymentModalContent({ loan, onSaved }: CollectPaymentModa
 					<span>Outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></span>
 					<span>Balance after payment: <strong>{fmt(Math.max(0, loan.outstandingAmount - amt))}</strong></span>
 				</div>
-				<div className="frow">
-					<div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} max={loan.outstandingAmount} placeholder={`e.g. ${defaultAmount}`} value={amount} onChange={(e) => { setAmount(e.target.value); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
+				<div className="frow c2">
+					<div><label className="f">No. of installments</label><input className="inp" type="number" min={1} max={maxInstallments} step={1} placeholder="e.g. 1" value={count} onChange={(e) => {
+            // Can't exceed the installments still to be paid.
+            let v = e.target.value;
+            if (v !== "" && Math.floor(+v) > maxInstallments) v = String(maxInstallments);
+            if (v !== "" && +v < 1) v = "1";
+            setCount(v);
+            const n = Math.floor(+v);
+            if (n > 0) { setAmount(String(roundRupee(Math.min(n * loan.installmentAmount, outstanding)))); clearFe("amount"); }
+          }} /></div>
+          <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} max={loan.outstandingAmount} placeholder={`e.g. ${defaultAmount}`} value={amount} onChange={(e) => { setAmount(e.target.value); setCount(""); clearFe("amount"); }} /><FieldError msg={fe.amount} /></div>
 				</div>
 				<div className="frow" style={{ marginTop: 4 }}>
 					<div className={fe.split ? "has-err" : undefined} style={{ width: "100%", minWidth: 0 }}>

@@ -24,6 +24,15 @@ func depositRegister(ctx context.Context, f models.Filter) ([]models.DepositRegi
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("i.branch_id IN ?", f.BranchIDs)
 	}
+	if len(f.InvestorIDs) > 0 {
+		q = q.Where("i.customer_id IN ?", f.InvestorIDs)
+	}
+	if len(f.PlanIDs) > 0 {
+		q = q.Where("i.plan_id IN ?", f.PlanIDs)
+	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("i.status IN ?", f.Statuses)
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.DepositRegisterTotals{}, err
 	}
@@ -48,6 +57,15 @@ func interestPayoutRegister(ctx context.Context, f models.Filter) ([]models.Inte
 		Order("ip.due_date asc")
 	if len(f.BranchIDs) > 0 {
 		q = q.Where("i.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.InvestorIDs) > 0 {
+		q = q.Where("i.customer_id IN ?", f.InvestorIDs)
+	}
+	if len(f.PlanIDs) > 0 {
+		q = q.Where("i.plan_id IN ?", f.PlanIDs)
+	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("ip.status IN ?", f.Statuses)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.InterestPayoutRegisterTotals{}, err
@@ -76,6 +94,15 @@ func maturityRegister(ctx context.Context, f models.Filter) ([]models.MaturityRe
 			Where("i.deleted_at IS NULL")
 		if len(f.BranchIDs) > 0 {
 			q = q.Where("i.branch_id IN ?", f.BranchIDs)
+		}
+		if len(f.InvestorIDs) > 0 {
+			q = q.Where("i.customer_id IN ?", f.InvestorIDs)
+		}
+		if len(f.PlanIDs) > 0 {
+			q = q.Where("i.plan_id IN ?", f.PlanIDs)
+		}
+		if len(f.Statuses) > 0 {
+			q = q.Where("i.status IN ?", f.Statuses)
 		}
 		return q
 	}

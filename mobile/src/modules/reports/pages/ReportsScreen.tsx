@@ -18,6 +18,7 @@ import {
   emptyGroupedFilter,
   gfDate,
   gfFirst,
+  gfValues,
   type GroupedFilterValue,
   type GFSection,
   ReportRow,
@@ -33,10 +34,17 @@ import {
 } from "@/common/components/ui";
 import { SheetScrollView } from "@/common/components/ui/SheetScrollView";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
+import { listLoansPage } from "@/modules/loans/services/loanService";
+import { listSchemesPage } from "@/modules/schemes/services/schemeService";
+import { listBanksPage } from "@/modules/banks/services/bankService";
+import { listEmployeesPage } from "@/modules/employees/services/employeeService";
+import { listInvestmentPlansPage } from "@/modules/investments/services/investmentService";
+import { listExpenseCategoriesPage } from "@/modules/cash/services/cashService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { TENANT_MODULES, type TenantModule } from "@/common/config/tenantModules";
-import { getAuctions, getBalanceSheet, getBankPledge, getCommunicationHistory, getDepositRegister, getDisbursement, getEmployeePerformance, getExpenseCashflow, getFormG, getGoldRateHistory, getGoldRelease, getGoldWeight, getInterestCollection, getInterestPayoutRegister, getKYC, getLoanExtensions, getLoansStatus, getMaturityRegister, getOutstandingPrincipal, getPackets, getPaymentCollection, getPersonalLoans, getProfitAndLoss } from "@/modules/reports/services/reportsService";
+import { getAuctions, getBalanceSheet, getBankPledge, getCommunicationHistory, getDepositRegister, getDisbursement, getEmployeePerformance, getExpenseCashflow, getFormG, getGoldRateHistory, getGoldRateSetByPage, getGoldRelease, getGoldWeight, getInterestCollection, getInterestPayoutRegister, getKYC, getLoanExtensions, getLoansStatus, getMaturityRegister, getPackets, getPaymentCollection, getPersonalLoans, getProfitAndLoss } from "@/modules/reports/services/reportsService";
 import { downloadExport } from "@/modules/reports/services/reportDownload";
 import { DayBookSheet } from "@/modules/reports/components/DayBookSheet";
 import { type FormGStatement, type ReportFilters, type ReportResult, type StatementRow } from "@/modules/reports/types/reports-types";
@@ -67,9 +75,39 @@ type ReportDef = {
   defaultRange?: () => { from?: string; to?: string };
   tenantModule?: TenantModule;
   href?: string;
-  // The report's own extra single-select dropdown (web ReportView extraFilter).
-  extra?: { field: "status" | "triggerType"; label: string; options: string[] };
+  // Extra filter sections (beyond Branch / Date). Each selection is sent as its `param` (comma-joined) on the fetch and the export.
+  filterGroups?: FilterGroup[];
 };
+type FilterGroup = { key: string; param: string; section: GFSection };
+
+type Page = { q?: string; limit: number; offset: number };
+const staticGroup = (param: string, label: string, options: (string | { value: string; label: string })[]): FilterGroup => ({
+  key: param,
+  param,
+  section: { kind: "static", key: param, label, options: options.map((o) => (typeof o === "string" ? { value: o, label: o } : o)) },
+});
+const asyncGroup = (param: string, label: string, fetchPage: (p: Page) => Promise<{ items: { value: string; label: string }[]; hasMore: boolean }>): FilterGroup => ({
+  key: param,
+  param,
+  section: { kind: "async", key: param, label, fetchPage },
+});
+// Backend-paged (limit/offset + search) option lists — never a full list.
+const customerGroup = (param = "customer_id", label = "Customer") =>
+  asyncGroup(param, label, (p) => listCustomersPage(p).then((r) => ({ items: r.items.map((c) => ({ value: String(c.id), label: c.name })), hasMore: r.hasMore })));
+const loanGroup = () => asyncGroup("loan_id", "Loan", (p) => listLoansPage(p).then((r) => ({ items: r.items.map((l) => ({ value: String(l.id), label: l.loanNumber })), hasMore: r.hasMore })));
+const schemeGroup = () => asyncGroup("scheme_id", "Scheme", (p) => listSchemesPage(p).then((r) => ({ items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore })));
+const bankGroup = () => asyncGroup("bank_id", "Bank", (p) => listBanksPage(p).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })));
+const employeeGroup = (label = "Employee") =>
+  asyncGroup("employee_id", label, (p) => listEmployeesPage(p).then((r) => ({ items: r.items.map((e) => ({ value: String(e.id), label: e.name })), hasMore: r.hasMore })));
+// "Set By" is the free-text name a gold rate was signed with, so the options are those names (paged, searchable).
+const setByGroup = () =>
+  asyncGroup("set_by", "Set By", (p) => getGoldRateSetByPage(p).then((r) => ({ items: r.items.map((n) => ({ value: n, label: n })), hasMore: r.hasMore })));
+const planGroup = () => asyncGroup("plan_id", "Plan", (p) => listInvestmentPlansPage(p).then((r) => ({ items: (r.items ?? []).map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore })));
+const expenseCategoryGroup = () =>
+  asyncGroup("expense_category_id", "Expense Category", (p) =>
+    listExpenseCategoriesPage(p.q ?? "", Math.floor(p.offset / p.limit), p.limit).then((r) => ({ items: r.items.map((c) => ({ value: String(c.id), label: c.name })), hasMore: r.hasMore })),
+  );
+const INVESTMENT_STATUSES = ["Active", "Matured", "Renewed", "Closed"];
 
 const w = (n?: number | null) => `${(n ?? 0).toFixed(2)} g`;
 const firstOfMonth = () => `${todayISO().slice(0, 8)}01`;
@@ -86,6 +124,7 @@ const REPORTS: ReportDef[] = [
     title: "Daily Loan Disbursement",
     group: "Loans & Collections",
     kind: "table",
+    filterGroups: [customerGroup(), schemeGroup()],
     fetch: getDisbursement,
     headline: (t) => inr(t?.totalAmount),
     sub: (t) => `${t?.count ?? 0} loans`,
@@ -96,8 +135,8 @@ const REPORTS: ReportDef[] = [
     title: "Active / Closed / Overdue Loans",
     group: "Loans & Collections",
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("status", "Status", ["Active", "Due Soon", "Overdue", "Defaulted", "Closed"])],
     fetch: getLoansStatus,
-    extra: { field: "status", label: "Status", options: ["Active", "Due Soon", "Overdue", "Defaulted", "Closed"] },
     headline: (t) => `${t?.count ?? 0} loans`,
     sub: (t) => `${t?.active ?? 0} active · ${t?.overdue ?? 0} overdue · ${t?.defaulted ?? 0} defaulted · ${t?.dueSoon ?? 0} due soon · ${t?.closed ?? 0} closed`,
     row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: `Due ${dmy(r.dueDate)}`, amount: inr(r.outstanding), status: r.status, details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Outstanding", v: inr(r.outstanding) }] }),
@@ -107,6 +146,7 @@ const REPORTS: ReportDef[] = [
     title: "Interest & Penal Collection",
     group: "Loans & Collections",
     kind: "table",
+    filterGroups: [customerGroup()],
     fetch: getInterestCollection,
     headline: (t) => inr(t?.total),
     sub: (t) => `${inr(t?.totalInterest)} interest · ${inr(t?.totalPenal)} penal`,
@@ -119,20 +159,11 @@ const REPORTS: ReportDef[] = [
     }),
   },
   {
-    key: "outstanding-principal",
-    title: "Outstanding Principal",
-    group: "Loans & Collections",
-    kind: "table",
-    fetch: getOutstandingPrincipal,
-    headline: (t) => inr(t?.totalOutstanding),
-    sub: (t) => `${t?.totalLoans ?? 0} loans across branches`,
-    row: (r) => ({ name: r.branchName, sub: `${r.loanCount} loans`, amount: inr(r.outstanding), details: [{ k: "Loans", v: String(r.loanCount) }, { k: "Outstanding", v: inr(r.outstanding) }] }),
-  },
-  {
     key: "payment-collection",
     title: "Payment Collection",
     group: "Loans & Collections",
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("payment_type", "Payment Type", ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement", "Auction Sale"])],
     fetch: getPaymentCollection,
     headline: (t) => inr(t?.totalAmount),
     sub: (t) => `${t?.count ?? 0} payments`,
@@ -144,6 +175,7 @@ const REPORTS: ReportDef[] = [
     title: "Gold / Ornament & Weight",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("purity", "Purity", ["24", "22", "20", "18", "14"])],
     fetch: getGoldWeight,
     headline: (t) => w(t?.totalNetWeight),
     sub: (t) => `${w(t?.totalGrossWeight)} gross · ${inr(t?.totalGoldValue)} total value`,
@@ -160,6 +192,7 @@ const REPORTS: ReportDef[] = [
     title: "Packet Tracking & Locker",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), loanGroup()],
     fetch: getPackets,
     headline: (t) => `${t?.count ?? 0} packets`,
     sub: (t) => `${t?.inLocker ?? 0} in locker · ${t?.bankPledged ?? 0} pledged · ${t?.released ?? 0} released`,
@@ -170,6 +203,7 @@ const REPORTS: ReportDef[] = [
     title: "Bank Pledge & Liability",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [bankGroup(), staticGroup("status", "Status", ["Active", "Released"])],
     fetch: getBankPledge,
     headline: (t) => inr(t?.outstandingLiability),
     sub: (t) => `${t?.count ?? 0} pledge records`,
@@ -187,6 +221,7 @@ const REPORTS: ReportDef[] = [
     title: "Loan Extensions",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("status", "Status", ["Pending", "Approved", "Rejected"])],
     fetch: getLoanExtensions,
     headline: (t) => `${t?.count ?? 0} requests`,
     sub: () => "Requested tenure extensions",
@@ -203,6 +238,7 @@ const REPORTS: ReportDef[] = [
     title: "Gold Release / Closure",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), loanGroup()],
     fetch: getGoldRelease,
     headline: (t) => `${t?.count ?? 0} releases`,
     sub: (t) => `${inr(t?.totalSettlement)} total settlement`,
@@ -213,6 +249,7 @@ const REPORTS: ReportDef[] = [
     title: "Auction Reports",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), loanGroup()],
     fetch: getAuctions,
     headline: (t) => `${t?.count ?? 0} auctions`,
     sub: (t) => `${inr(t?.totalSaleAmount)} total sale amount`,
@@ -224,6 +261,7 @@ const REPORTS: ReportDef[] = [
     title: "Expense & Cash Flow",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [staticGroup("collection_mode", "Collection Mode", [{ value: "cash", label: "Cash" }, { value: "upi", label: "UPI" }, { value: "bank_transfer", label: "Bank Transfer" }, { value: "cheque", label: "Cheque" }]), expenseCategoryGroup()],
     fetch: getExpenseCashflow,
     headline: (t) => inr(t?.netCashflow),
     sub: (t) => `${inr(t?.totalCollections)} in · ${inr(t?.totalDisbursements)} out · ${inr(t?.totalExpenses)} expenses`,
@@ -243,6 +281,7 @@ const REPORTS: ReportDef[] = [
     title: "KYC Verification",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [customerGroup()],
     fetch: getKYC,
     headline: (t) => `${t?.count ?? 0} customers`,
     sub: (t) => `${t?.verified ?? 0} verified · ${t?.pending ?? 0} pending`,
@@ -253,6 +292,7 @@ const REPORTS: ReportDef[] = [
     title: "Gold Rate History",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [setByGroup()],
     fetch: getGoldRateHistory,
     headline: (t) => `${t?.count ?? 0} rates`,
     sub: () => "Published daily rates",
@@ -263,6 +303,7 @@ const REPORTS: ReportDef[] = [
     title: "Employee Performance",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [employeeGroup()],
     fetch: getEmployeePerformance,
     headline: (t) => `${t?.totalLoansProcessed ?? 0} loans processed`,
     sub: (t) => `${inr(t?.totalCollections)} collected`,
@@ -283,8 +324,8 @@ const REPORTS: ReportDef[] = [
     title: "Communication History",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [employeeGroup(), staticGroup("trigger_type", "Trigger Type", ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"])],
     fetch: getCommunicationHistory,
-    extra: { field: "triggerType", label: "Trigger Type", options: ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"] },
     headline: (t) => `${t?.count ?? 0} messages`,
     sub: (t) => `${t?.sent ?? 0} sent · ${t?.failed ?? 0} failed`,
     row: (r) => ({ name: r.recipientName, sub: `${r.channel} · ${dmy(r.sentAt)}`, status: r.status, details: [{ k: "Phone", v: r.recipientPhone || "—" }, { k: "Trigger", v: r.triggerType || "—" }] }),
@@ -295,6 +336,7 @@ const REPORTS: ReportDef[] = [
     group: "Branch & Compliance",
     tenantModule: TENANT_MODULES.personalLoans,
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("frequency", "Frequency", ["Daily", "Weekly", "Monthly"])],
     fetch: getPersonalLoans,
     headline: (t) => inr(t?.totalOutstanding),
     sub: (t) => `${t?.count ?? 0} loans · ${inr(t?.totalDisbursed)} disbursed`,
@@ -360,6 +402,7 @@ const REPORTS: ReportDef[] = [
     group: "Investments",
     tenantModule: TENANT_MODULES.investments,
     kind: "table",
+    filterGroups: [customerGroup("investor_id", "Investor"), planGroup(), staticGroup("status", "Status", INVESTMENT_STATUSES)],
     fetch: getDepositRegister,
     headline: (t) => inr(t?.totalPrincipal),
     sub: (t) => `${t?.count ?? 0} deposits`,
@@ -378,6 +421,7 @@ const REPORTS: ReportDef[] = [
     group: "Investments",
     tenantModule: TENANT_MODULES.investments,
     kind: "table",
+    filterGroups: [customerGroup("investor_id", "Investor"), planGroup(), staticGroup("status", "Status", ["Pending", "Paid"])],
     fetch: getInterestPayoutRegister,
     headline: (t) => `${inr(t?.totalPending)} pending`,
     sub: (t) => `${inr(t?.totalPaid)} paid of ${inr(t?.totalDue)}`,
@@ -389,6 +433,7 @@ const REPORTS: ReportDef[] = [
     group: "Investments",
     tenantModule: TENANT_MODULES.investments,
     kind: "table",
+    filterGroups: [customerGroup("investor_id", "Investor"), planGroup(), staticGroup("status", "Status", INVESTMENT_STATUSES)],
     fetch: getMaturityRegister,
     headline: (t) => `${t?.count ?? 0} investments`,
     sub: (t) => `${t?.active ?? 0} active · ${t?.matured ?? 0} matured · ${t?.renewed ?? 0} renewed · ${t?.closed ?? 0} closed`,
@@ -457,8 +502,7 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const from = gfDate(fv, "date").from ?? "";
   const to = gfDate(fv, "date").to ?? "";
-  const branchId = gfFirst(fv, "branch") ? Number(gfFirst(fv, "branch")) : undefined;
-  const extraValue = gfFirst(fv, "extra");
+  const branchId = (fv.options["branch"] ?? []).map((o) => o.value).join(",") || undefined;
   const [printing, setPrinting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -473,16 +517,21 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
 
   const isTable = report?.kind === "table";
   const totalsRef = useRef<any>(null);
-  const extraParams: Pick<ReportFilters, "status" | "triggerType"> =
-    report?.extra && extraValue ? (report.extra.field === "status" ? { status: extraValue } : { triggerType: extraValue }) : {};
-  const filters = { from: from || undefined, to: to || undefined, branchId, ...extraParams };
-  const list = useServerList<any, { from?: string; to?: string; branchId?: number; status?: string; triggerType?: string; rk: string }>({
+  // Each group's selection goes out as its own param (comma-joined) — on the fetch and on the export.
+  const extra: Record<string, string> = {};
+  for (const g of report?.filterGroups ?? []) {
+    const v = gfValues(fv, g.key);
+    if (v.length) extra[g.param] = v.join(",");
+  }
+  const extraKey = JSON.stringify(extra);
+  const filters = { from: from || undefined, to: to || undefined, branchId, extra: Object.keys(extra).length ? extra : undefined };
+  const list = useServerList<any, { from?: string; to?: string; branchId?: string; extraKey: string; rk: string }>({
     key: ["reports", "table"],
-    filters: { ...filters, rk: report?.key ?? "" },
+    filters: { from: filters.from, to: filters.to, branchId, extraKey, rk: report?.key ?? "" },
     enabled: visible && isTable,
     fetchPage: async (p) => {
       const page = Math.floor(p.offset / p.limit) + 1;
-      const res = await report!.fetch!({ page, pageSize: p.limit, q: p.q, from: p.from, to: p.to, branchId: p.branchId, status: p.status, triggerType: p.triggerType });
+      const res = await report!.fetch!({ page, pageSize: p.limit, q: p.q, from: p.from, to: p.to, branchId: p.branchId, extra: filters.extra });
       totalsRef.current = res.totals;
       return { items: res.rows ?? [], hasMore: page * p.limit < (res.totalCount ?? 0), total: res.totalCount };
     },
@@ -554,10 +603,9 @@ function ReportSheet({ report, onClose }: ReportSheetProps) {
           kind: "async" as const,
           key: "branch",
           label: "Branch",
-          single: true,
           fetchPage: (p: { q?: string; limit: number; offset: number }) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
         }]),
-        ...(report.extra ? [{ kind: "static" as const, key: "extra", label: report.extra.label, single: true, options: report.extra.options.map((o) => ({ value: o, label: o })) }] : []),
+        ...(report.filterGroups ?? []).map((g) => g.section),
         { kind: "date", key: "date", label: "Date", hideFrom: report.key === "balance-sheet" },
       ]
     : [];

@@ -236,7 +236,7 @@ export function DashboardPage() {
 	// pending-approval loans, pending Extension/Release requests and
 	// auction-eligible/defaulted loans, orders them, and returns only the
 	// requested page plus the true total count.
-	const NEEDS_ATTENTION_PAGE_SIZE = 15;
+	const NEEDS_ATTENTION_PAGE_SIZE = 13;
 	const [needsAttentionPage, setNeedsAttentionPage] = useState(1);
 	const [needsAttentionItems, setNeedsAttentionItems] = useState<NeedsAttentionItem[]>([]);
 	const [needsAttentionTotal, setNeedsAttentionTotal] = useState(0);
@@ -248,6 +248,10 @@ export function DashboardPage() {
 	}, [needsAttentionPage, canViewLoans]);
 	const needsAttentionPages = Math.max(1, Math.ceil(needsAttentionTotal / NEEDS_ATTENTION_PAGE_SIZE));
 	const needsAttentionPageItems = needsAttentionItems;
+  // The list can shrink while on a later page (an item got handled) — step back instead of showing an empty page.
+  useEffect(() => {
+    if (needsAttentionPage > needsAttentionPages) setNeedsAttentionPage(needsAttentionPages);
+  }, [needsAttentionPage, needsAttentionPages]);
 
 	// "Upcoming Reminders" — real server-side pagination over the merged,
 	// already-sorted (Overdue first, then by date — moved into
@@ -324,7 +328,7 @@ export function DashboardPage() {
 							Quick actions <Icon name="chevronDown" className="docs-dd-chev" />
 						</button>
 						{quickMenuOpen && (
-							<div className="docs-dd-menu" role="menu" style={{ minWidth: 220 }}>
+							<div className="docs-dd-menu" role="menu" style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
 								{canCreateLoans && (
 									<a href={routeHref("newloan")} title="New Loan"><Icon name="plus" /><span className="tx">New Loan</span></a>
 								)}
@@ -379,7 +383,7 @@ export function DashboardPage() {
 						<Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" cls={pendingReq.some((r) => r.type === "Release") ? "amber" : ""} href={link("requests/pending-release")} />
 						<Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} cls="info" href={link("bankpledge")} />
 						<Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href={link("auctions")} />
-						<Kpi l="Today's Expenses" v={fmt(expToday)} href={link("ledger")} />
+						<Kpi l="Today's Expenses" v={fmt(expToday)} href={canOpen("ledger") ? routeHref("ledger", "expenses") : undefined} />
 						<Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={link("reports/interest-penal-collection")} />
 					</div>
 
@@ -394,7 +398,8 @@ export function DashboardPage() {
 						</div>
 					</div>
 
-					<div className="card">
+          {/* flex:none — height follows its rows (at most 13 per page) instead of stretching to fill the column; width stays full. */}
+					<div className="card" style={{ flex: "none" }}>
 						<div className="hd"><h3>Needs Attention</h3></div>
 						<div className="bd" style={{ paddingTop: 6 }}>
 							<ul className="mini-list">
@@ -510,41 +515,48 @@ export function DashboardPage() {
 					 * full page width), both stay their usual side by side selves. */}
          
 
-					<div className="card">
-						<div className="hd"><h3>Upcoming Reminders</h3><div className="sp" />{canOpen("calendar") ? <a href={routeHref("calendar")} style={{ fontSize: 12.5 }}>Calendar →</a> : null}</div>
-						<div className="bd" style={{ paddingTop: 6 }}>
-							<ul className="mini-list">
-								{reminderPageItems.length ? reminderPageItems.map((e, i) => (
-									<li key={i}>
-										<span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : e.type === "FollowUp" || e.type === "PromiseToPay" ? { background: "var(--info-bg)", color: "var(--info)" } : undefined}>
-											<Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
-										</span>
-										<span className="tx"><b>{e.title}</b><small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""} · {fmtDate(e.date)}</small></span>
-										{/* Same target as the calendar's "Open loan"; manual reminders have none and stay plain. */}
-										{e.personalLoanId != null && canOpen("personalloan")
-											? <span className="rt"><a className="btn sm ghost" href={routeHref(`personalloan/${e.personalLoanId}`)}>Open</a></span>
-											: e.personalLoanId == null && e.loanNumber && canOpen("loan")
-												? <span className="rt"><a className="btn sm ghost" href={routeHref(`loan/${e.loanNumber}`)}>Open</a></span>
-												: null}
-										{/* Manual reminders (Follow-Up / Promise-to-Pay / Custom) can be finished or removed right here. */}
-										{e.reminderId != null && (canUpdateReminders || canDeleteReminders) && (
-											<span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-												{canUpdateReminders && e.status !== "Done" && <button className="btn sm ghost" onClick={() => void reminderAction(() => completeReminder(e.reminderId!), "Reminder marked done.")}>Done</button>}
-												{canDeleteReminders && <button className="btn sm ghost" onClick={() => void reminderAction(() => deleteReminder(e.reminderId!), "Reminder deleted.")}>Delete</button>}
-											</span>
-										)}
-									</li>
-								)) : <li><span className="tx"><small>No pending reminders.</small></span></li>}
-							</ul>
-						</div>
-						{reminderPages > 1 && (
-							<div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-								<button className="btn plain sm" disabled={reminderPage <= 1} onClick={() => setReminderPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-								<span style={{ fontSize: 12.5 }}>Page {reminderPage} of {reminderPages}</span>
-								<button className="btn plain sm" disabled={reminderPage >= reminderPages} onClick={() => setReminderPage((p) => Math.min(reminderPages, p + 1))}>Next ›</button>
-							</div>
-						)}
-					</div>
+          <div className="card">
+            <div className="hd"><h3>Upcoming Reminders</h3><div className="sp" />{canOpen("calendar") ? <a href={routeHref("calendar")} style={{ fontSize: 12.5 }}>Calendar →</a> : null}</div>
+            <div className="bd" style={{ paddingTop: 6 }}>
+              <ul className="mini-list">
+                {reminderPageItems.length ? reminderPageItems.map((e, i) => {
+                  // The whole row opens its loan (same target as the calendar); manual reminders without a loan stay plain.
+                  const loanHref = e.personalLoanId != null && canOpen("personalloan")
+                    ? routeHref(`personalloan/${e.personalLoanId}`)
+                    : e.personalLoanId == null && e.loanNumber && canOpen("loan") ? routeHref(`loan/${e.loanNumber}`) : null;
+                  const detailText = `${e.detail}${e.loanNumber ? ` · ${e.loanNumber}` : ""} · ${fmtDate(e.date)}`;
+                  const ellipsis = { display: "block", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" };
+                  const text = (<><b style={ellipsis}>{e.title}</b><small style={ellipsis}>{detailText}</small></>);
+                  return (
+                  <li key={i}>
+                    <span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : e.type === "FollowUp" || e.type === "PromiseToPay" ? { background: "var(--info-bg)", color: "var(--info)" } : undefined}>
+                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
+                    </span>
+                    {loanHref ? (
+                      <a className="tx" href={loanHref} title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1, color: "inherit", textDecoration: "none", cursor: "pointer" }}>{text}</a>
+                    ) : (
+                      <span className="tx" title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1 }}>{text}</span>
+                    )}
+                    {/* Manual reminders (Follow-Up / Promise-to-Pay / Custom) can be finished or removed right here. */}
+                    {e.reminderId != null && (canUpdateReminders || canDeleteReminders) && (
+                      <span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {canUpdateReminders && e.status !== "Done" && <button className="btn sm ghost" title="Mark done" aria-label="Mark done" onClick={() => void reminderAction(() => completeReminder(e.reminderId!), "Reminder marked done.")}><Icon name="check" /></button>}
+                        {canDeleteReminders && <button className="btn sm ghost" title="Delete" aria-label="Delete" onClick={() => void reminderAction(() => deleteReminder(e.reminderId!), "Reminder deleted.")}><Icon name="x" /></button>}
+                      </span>
+                    )}
+                  </li>
+                  );
+                }) : <li><span className="tx"><small>No pending reminders.</small></span></li>}
+              </ul>
+            </div>
+            {reminderPages > 1 && (
+              <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="btn plain sm" disabled={reminderPage <= 1} onClick={() => setReminderPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+                <span style={{ fontSize: 12.5 }}>Page {reminderPage} of {reminderPages}</span>
+                <button className="btn plain sm" disabled={reminderPage >= reminderPages} onClick={() => setReminderPage((p) => Math.min(reminderPages, p + 1))}>Next ›</button>
+              </div>
+            )}
+          </div>
 
 					<div className="card">
 						<div className="hd"><h3>Expense Summary</h3></div>
