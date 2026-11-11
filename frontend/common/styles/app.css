@@ -5259,7 +5259,10 @@ table.tbl td {
   height: 13px
 }
 
-.search:has(.search-clear) input {
+/* Room for the × is always reserved (not only once text is typed). Adding the padding
+ * when the × appeared made the auto-width input jump wider as soon as you typed. */
+.search input,
+.search .inp {
   padding-right: 46px
 }
 
@@ -9785,6 +9788,63 @@ table.tbl.lockers-tbl th {
   .tbl-card:has(> .tbl-wrap.auction-history-tbl-wrap > table.tbl-cards) {
     flex: 0 0 auto;
   }
+}
+
+/* Headers are `white-space: nowrap` in fixed-width columns, so a long label
+ * ("Surplus Disposition") is cut off. On the auction history tables let them
+ * wrap onto a second line and tighten the tracking so every label stays readable. */
+.auction-history-tbl-wrap > table.tbl th {
+  white-space: normal;
+  overflow-wrap: break-word;
+  letter-spacing: .1em;
+  line-height: 1.35;
+  padding-left: 8px;
+  padding-right: 8px;
+  vertical-align: middle;
+}
+.auction-history-tbl-wrap > table.tbl td:not(:first-child):not(:last-child) {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* ── Auction history tables have 10 columns, so their headers get clipped
+ * ("AUCTION DAT", "SURPLUS / SHORT") well before the global 1100px card
+ * breakpoint. Between 1101px and 1400px they switch to cards too — the same
+ * card layout as the ≤1100px rules above, scoped to these two tables. ── */
+@media (min-width: 1101px) and (max-width: 1400px) {
+  .auction-history-tbl-wrap > table.tbl.tbl-cards { display: block; width: 100%; min-width: 0; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards colgroup,
+  .auction-history-tbl-wrap > table.tbl.tbl-cards thead { display: none; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards tbody {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px;
+  }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards tr {
+    display: block; min-width: 0; padding: 6px 14px; border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
+    background: rgba(255, 255, 255, .5);
+  }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td,
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td.num {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0;
+    padding: 7px 0 !important; text-align: right; background: none; white-space: normal; overflow-wrap: anywhere;
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+  }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:last-child { border-bottom: 0; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td::before {
+    content: attr(data-label); flex-shrink: 0; font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); text-align: left;
+  }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:first-child { display: block; text-align: left; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:first-child::before,
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:not([data-label])::before,
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td.empty::before { display: none; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:not([data-label]):not(:first-child) { justify-content: flex-end; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards tr:has(> td.empty) { grid-column: 1 / -1; border: 0; background: none; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td.empty { display: block; text-align: center; }
+  .tbl-wrap.auction-history-tbl-wrap:has(> table.tbl-cards) { max-height: none !important; overflow: visible; }
+  .tbl-card:has(> .tbl-wrap.auction-history-tbl-wrap > table.tbl-cards) { flex: 0 0 auto; min-height: auto; }
+  /* Auctions page scroll-loads (see useScrollPageSize(…, 1400)) instead of Prev/Next here. */
+  .page:has(.auction-history-tbl-wrap, .auctions-tabs) .ft.ft-scroll-hide { display: none; }
 }
 
 /* ── Ledger KPI tiles: share the row evenly instead of leaving dead space
