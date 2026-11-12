@@ -42,18 +42,17 @@ const clampFineness = (v: string) => (v !== "" && +v > 100 ? "100" : v);
 type GoldRateModalProps = { visible: boolean; onClose: () => void };
 
 /* One day in the History tab: the 24K rate, with a chevron to reveal 22K and 18K. */
-function HistoryRate({ r, first }: { r: GoldRate; first: boolean }) {
-  const [open, setOpen] = useState(false);
+function HistoryRate({ r, first, open, onToggle }: { r: GoldRate; first: boolean; open: boolean; onToggle: () => void }) {
   return (
     <View style={[s.histRow, !first && { borderTopWidth: 1, borderTopColor: C.line }]}>
-      <Pressable onPress={() => setOpen((o) => !o)} accessibilityRole="button" accessibilityLabel={open ? "Hide 22K and 18K rates" : "Show 22K and 18K rates"} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Txt style={{ flex: 1, fontSize: 12.5, color: C.muted }}>{`${dmy(r.date || r.createdAt)}${r.setBy ? ` · ${r.setBy}` : ""}`}</Txt>
-        <Txt style={{ fontSize: 13.5, fontWeight: "700", color: C.ink }}>{`24K ${inr(r.k24)}`}</Txt>
+      <Pressable onPress={onToggle} accessibilityRole="button" accessibilityLabel={open ? "Hide 24K, 22K and 18K rates" : "Show 24K, 22K and 18K rates"} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <Txt style={{ flex: 1, fontSize: 12.5, color: C.muted }}>{dmy(r.date || r.createdAt)}</Txt>
+        {r.setBy ? <Txt style={{ fontSize: 12.5, fontWeight: "600", color: C.ink, flexShrink: 1 }} numberOfLines={1}>{r.setBy}</Txt> : null}
         <Chevron open={open} />
       </Pressable>
       {open ? (
         <View style={{ marginTop: 8, gap: 4 }}>
-          {([["22K", r.k22], ["18K", r.k18]] as const).map(([lbl, v]) => (
+          {([["24K", r.k24], ["22K", r.k22], ["18K", r.k18]] as const).map(([lbl, v]) => (
             <View key={lbl} style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <Txt style={{ fontSize: 12.5, color: C.muted }}>{lbl}</Txt>
               <Txt style={{ fontSize: 13, fontWeight: "600", color: C.ink }}>{inr(v)}</Txt>
@@ -80,6 +79,8 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const [fin, setFin] = useState<Record<Karat, string>>({ 24: String(FINENESS_24K), 22: savedFineness(22, now[24], now[22]), 18: savedFineness(18, now[24], now[18]) });
   const [lastEdited, setLastEdited] = useState<Karat | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // History: only one day's rates are expanded at a time.
+  const [openRate, setOpenRate] = useState<GoldRate["id"] | null>(null);
   // The day the rate is for — today unless another day is picked; the same rate may be saved for any day.
   const [rateDate, setRateDate] = useState(todayISO());
 
@@ -248,7 +249,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
             gutter={16}
             emptyText="No rate history yet."
             keyOf={(r) => String(r.id)}
-            renderItem={(r, i) => <HistoryRate r={r} first={i === 0} />}
+            renderItem={(r, i) => <HistoryRate r={r} first={i === 0} open={openRate === r.id} onToggle={() => setOpenRate((o) => (o === r.id ? null : r.id))} />}
           />
         </View>
       )}

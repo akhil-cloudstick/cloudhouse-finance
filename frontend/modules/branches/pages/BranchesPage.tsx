@@ -1,6 +1,7 @@
 "use client";
 
 import { TableCols } from "@/common/components/ui/TableCols";
+import { useErrorToast } from "@/common/hooks/use-error-toast";
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -88,6 +89,7 @@ export function BranchesPage() {
     );
   }
 
+  useErrorToast(error);
   return (
     <>
       <div className="page-h">
@@ -127,11 +129,6 @@ export function BranchesPage() {
         >
           {limitMessage}
         </div>
-      )}
-      {error && (
-        <p style={{ color: "var(--red)", fontSize: 13.5 }}>
-          Something went wrong. Please try again later.
-        </p>
       )}
       {!error && branches === null && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading branches…</p>

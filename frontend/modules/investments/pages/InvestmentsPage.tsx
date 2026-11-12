@@ -11,7 +11,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { useIsSmallScreen, useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { listInvestmentsPage, searchInvestmentPlansPage } from "@/modules/investments/services/investmentService";
-import { listCustomersPage } from "@/modules/customers/services/customerService";
+import { listInvestorsPage } from "@/modules/investments/services/investorService";
 import { type BackendInvestment, type InvestmentStatus } from "@/modules/investments/types/investment-types";
 import { InvestorsModalContent } from "@/modules/investments/components/InvestorsModalContent";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
@@ -48,7 +48,7 @@ export function InvestmentsPage() {
     {
       key: "investor", label: "Investor", kind: "async" as const, searchHint: "Searches: investor name, code, phone",
       fetchOptions: (search: string, p: number) =>
-        listCustomersPage(search, p, { customerType: "Investor" }, 20).then((res) => ({ items: res.items.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })), hasMore: res.hasMore })),
+        listInvestorsPage(search, p, undefined, 20).then((res) => ({ items: res.items.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })), hasMore: res.hasMore })),
     },
     {
       key: "plan", label: "Plan", kind: "async" as const, searchHint: "Searches: plan name",

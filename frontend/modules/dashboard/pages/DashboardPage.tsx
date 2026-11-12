@@ -22,7 +22,7 @@ import { type ExpenseView, type CashSummary } from "@/modules/cash/types/cash-ty
 import { getCalendarEventsPage, completeReminder, deleteReminder } from "@/modules/reminders/services/reminderService";
 import { useToast } from "@/common/components/ToastProvider";
 import { type CalendarEvent } from "@/modules/reminders/types/reminder-types";
-import { listLoanRequests, getInterestCollected, isActiveAuctionCase } from "@/modules/loans/services/loanService";
+import { listLoanRequests, listLoans, getInterestCollected, isActiveAuctionCase, loanDisplayStatus } from "@/modules/loans/services/loanService";
 import { type RequestView } from "@/modules/loans/types/loan-types";
 import { getNeedsAttentionPage, getDashboardLoanStats, type DashboardLoanStats } from "@/modules/dashboard/services/dashboardService";
 import { type NeedsAttentionItem } from "@/modules/dashboard/types/dashboard-types";
@@ -80,7 +80,8 @@ function Donut({ parts }: DonutProps) {
   return (
     <div className="donut-wrap">
       <div className="donut" style={{ background: `conic-gradient(${stops})` }}>
-        <div className="c"><b>{fmt(total)}</b><small>total</small></div>
+        {/* the hole is ~80px wide: shrink the total as it gets longer so it never clips */}
+        <div className="c"><b style={{ fontSize: Math.max(8, Math.min(14, Math.floor(68 / (fmt(total).length * 0.62)))), whiteSpace: "nowrap" }}>{fmt(total)}</b><small>total</small></div>
       </div>
       <ul className="legend">
         {parts.map((p) => (
@@ -230,6 +231,13 @@ export function DashboardPage() {
   // only that widget's data source changes.
   const pendingApprovalLoans = loans.filter((l) => l.status === "Pending Approval");
   const auctionLoans = loans.filter(isActiveAuctionCase);
+  // The tile is labelled "notice stage", so it counts only cases whose auction record is at Notice Issued
+  // (the full active list also holds defaulted / eligible / scheduled / sold cases).
+  const [noticeCount, setNoticeCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!canViewLoans) return;
+    listLoans({ auctionStage: ["NoticeIssued"] }).then((r) => setNoticeCount(r.filter((l) => loanDisplayStatus(l) !== "Closure Requested" && l.status !== "Closed").length)).catch(() => setNoticeCount(null));
+  }, [canViewLoans, loans]);
 
   // "Needs Attention" — real server-side pagination (see
   // modules/dashboard/services/dashboardService.ts): the backend merges
@@ -382,7 +390,7 @@ export function DashboardPage() {
             <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="pending review" cls={pendingReq.some((r) => r.type === "Extension") ? "amber" : ""} href={link("requests/pending-extension")} />
             <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" cls={pendingReq.some((r) => r.type === "Release") ? "amber" : ""} href={link("requests/pending-release")} />
             <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} cls="info" href={link("bankpledge")} />
-            <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href={link("auctions")} />
+            <Kpi l="Auction Cases" v={noticeCount ?? "—"} s="notice stage" cls={noticeCount ? "warn" : ""} href={link("auctions/notice-issued")} />
             <Kpi l="Today's Expenses" v={fmt(expToday)} href={canOpen("ledger") ? routeHref("ledger", "expenses") : undefined} />
             <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={link("reports/interest-penal-collection")} />
           </div>
@@ -398,8 +406,8 @@ export function DashboardPage() {
             </div>
           </div>
 
-          {/* flex:none — height follows its rows (at most 13 per page) instead of stretching to fill the column; width stays full. */}
-          <div className="card" style={{ flex: "none" }}>
+          {/* Fixed height (.fixed-list): rows scroll inside the card. */}
+          <div className="card fixed-list" style={{ "--rows": NEEDS_ATTENTION_PAGE_SIZE } as React.CSSProperties}>
             <div className="hd"><h3>Needs Attention</h3></div>
             <div className="bd" style={{ paddingTop: 6 }}>
               <ul className="mini-list">
@@ -515,7 +523,7 @@ export function DashboardPage() {
            * full page width), both stay their usual side by side selves. */}
          
 
-          <div className="card">
+          <div className="card fixed-list" style={{ "--rows": REMINDERS_PAGE_SIZE } as React.CSSProperties}>
             <div className="hd"><h3>Upcoming Reminders</h3><div className="sp" />{canOpen("calendar") ? <a href={routeHref("calendar")} style={{ fontSize: 12.5 }}>Calendar →</a> : null}</div>
             <div className="bd" style={{ paddingTop: 6 }}>
               <ul className="mini-list">

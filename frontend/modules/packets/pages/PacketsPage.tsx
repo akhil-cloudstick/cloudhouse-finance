@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useErrorToast } from "@/common/hooks/use-error-toast";
 import { useModal } from "@/common/components/ModalProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmtW } from "@/common/utils/format";
@@ -71,6 +72,8 @@ export function PacketsPage() {
   const { size: lockerSize, more: moreLockers } = useScrollPageSize(basePageSize);
   const [packets, setPackets] = useState<PacketView[] | null>(null);
   const [lockers, setLockers] = useState<LockerView[]>([]);
+  // Unfiltered list used only to resolve each packet's own locker code, so the locker filter never blanks it.
+  const [allLockers, setAllLockers] = useState<LockerView[]>([]);
   const [error, setError] = useState("");
   const [lookup, setLookup] = useState("");
   const [lookupErr, setLookupErr] = useState("");
@@ -155,6 +158,7 @@ export function PacketsPage() {
   // locker is added/edited), never on a page/status/search change.
   async function loadLockers() {
     if (!canViewLockers) return;
+    listLockers().then(setAllLockers).catch(() => {});
     try {
       setLockers(await listLockers({ branchId: lockerBranchIds.map(Number), status: lockerStatuses, q: lockerQ || undefined }));
     } catch (e) {
@@ -206,6 +210,7 @@ export function PacketsPage() {
     }
   }
 
+  useErrorToast(error);
   return (
     <>
       <div className="page-h">
@@ -223,11 +228,6 @@ export function PacketsPage() {
       </div>
       {lookupErr && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: -4, marginBottom: 8 }}>{lookupErr}</p>}
       <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
-      {error && (
-        <p style={{ color: "var(--red)", fontSize: 13.5 }}>
-          Something went wrong. Please try again later.
-        </p>
-      )}
       {cards && canViewLockers && (
         <div className="tabs" style={{ marginTop: 4, marginBottom: 8 }}>
           <button className={cardTab === "packets" ? "on" : ""} onClick={() => setCardTab("packets")}>Packets</button>
@@ -265,7 +265,7 @@ export function PacketsPage() {
                   <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No packets yet — packets are created automatically when a loan is opened.</td></tr>
                 )}
                 {(packets || []).map((p) => {
-                  const locker = lockers.find((l) => l.id === p.currentLockerId);
+                  const locker = allLockers.find((l) => l.id === p.currentLockerId);
                   // The loan's own outcome overrides the packet's own
                   // (possibly stale) workflow stage once the gold has been
                   // sold — same override PacketDetail.tsx applies.

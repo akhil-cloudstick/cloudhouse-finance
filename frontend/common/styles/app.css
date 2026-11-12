@@ -3485,7 +3485,8 @@ button.fi-trigger {
 .kpi .s {
   font-size: 11.5px;
   margin-top: 5px;
-  color: var(--muted)
+  color: var(--muted);
+  text-transform: capitalize
 }
 
 /* Cash.tsx's KPI row shows full rupee amounts ("₹1,23,456.00") rather than
@@ -3511,6 +3512,10 @@ button.fi-trigger {
    * same line even when one card also carries a breakdown list below. */
   justify-content: flex-start;
   padding-top: 20px;
+}
+.kpis-money .kpi .l,
+.kpis-money .kpi .kpi-fit {
+  text-transform: capitalize;
 }
 .kpis-money .kpi .l {
   white-space: nowrap;
@@ -5566,8 +5571,13 @@ table.tbl td {
   font-size: 12.5px
 }
 
+/* Messages inside any dialog are plain text: no box, background or border. */
 .modal .notice {
-  font-size: 11.5px
+  font-size: 11.5px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0
 }
 
 .modal .f {
@@ -5896,8 +5906,10 @@ table.tbl td {
 .donut {
   width: 120px;
   height: 120px;
+  min-width: 120px;
+  min-height: 120px;
   border-radius: 50%;
-  flex-shrink: 0;
+  flex: 0 0 120px;
   position: relative
 }
 
@@ -8577,6 +8589,11 @@ table.tbl td {
   font-weight: 700;
 }
 
+.modal .inp.pay-amt[readonly] {
+  background: var(--brand-faint);
+  cursor: not-allowed;
+}
+
 .pay-chips {
   display: flex;
   flex-wrap: wrap;
@@ -10483,4 +10500,39 @@ table.tbl.lockers-tbl th {
   }
   .kpis-strip-item { flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
   .kpis-strip-item .v { overflow-wrap: anywhere; }
+}
+
+/* Loan detail "Additional Information": about four lines, then scrolls with no visible scrollbar */
+.addl-info {
+  max-height: 6em;
+  line-height: 1.5;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  scrollbar-width: none;
+  -ms-overflow-style: none
+}
+
+.addl-info::-webkit-scrollbar {
+  display: none
+}
+
+/* Dashboard list cards (Needs Attention / Upcoming Reminders): fixed height, rows never scroll. */
+.card.fixed-list {
+  display: flex;
+  flex-direction: column;
+  /* One page of rows (--rows, set on the card from its page size) plus the header and pager, so a full page
+   * leaves no blank space; a shorter last page just scrolls/rests inside the same height. */
+  height: calc(var(--rows, 5) * 54px + 112px);
+  flex: none
+}
+
+.card.fixed-list > .bd {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden
+}
+
+.card.fixed-list > .hd,
+.card.fixed-list > .ft {
+  flex: none
 }

@@ -14,6 +14,7 @@ import { OrnamentTypeField } from "@/common/components/OrnamentTypeField";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { ErrorText } from "@/common/components/ErrorText";
 import { UploadField } from "@/common/components/UploadField";
+import { UploadImage } from "@/common/components/BillSheet";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listLockersPage } from "@/modules/lockers/services/lockerService";
@@ -108,7 +109,7 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
       const branchChanged = !!branch && branch.id !== l.branchId;
       const lockerChanged = !!locker && locker.id !== packetLockerId;
       if (canMove && branchChanged && hasPacket && packetLockerId && !locker) throw new Error("__v__Choose a locker in the new branch for the gold.");
-      if (goldRate.data && eligible > 0 && +principal > eligible) throw new Error(`__v__Principal amount cannot exceed the eligible loan amount (${inr(Math.floor(eligible))}).`);
+      if (goldRate.data && eligible > 0 && +principal > eligible) throw new Error("__v__Principal exceeds eligible amount.");
       // A disbursed loan recalculated by a scheme / principal change is looked at first: nothing is saved until the
       // staff member has seen the later payments it affects and pressed Save again (same as web).
       const principalChanged = +principal !== l.principalAmount;
@@ -261,14 +262,25 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
                 <Input keyboardType="decimal-pad" value={r.net} onChangeText={(v) => upd(i, { net: v })} />
               </Field>
             </FieldRow>
-            {r.photos.length ? <Txt style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>{r.photos.length} saved photo{r.photos.length > 1 ? "s" : ""}</Txt> : null}
+            {r.photos.length ? (
+              <>
+                <Txt style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>{r.photos.length} saved photo{r.photos.length > 1 ? "s" : ""}</Txt>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                  {r.photos.map((p) => (
+                    <UploadImage key={p} path={p} title={`${r.name || "Ornament"} photo`} style={{ width: 72, height: 72, borderRadius: 8 }} />
+                  ))}
+                </View>
+              </>
+            ) : null}
             {r.newPhotos.map((url, k) => (
               <UploadField key={`${i}-${k}-${url}`} label={`New photo ${k + 1}`} value={url} allowPdf={false}
                 onChange={(u) => upd(i, { newPhotos: u ? r.newPhotos.map((x, xi) => (xi === k ? u : x)) : r.newPhotos.filter((_, xi) => xi !== k) })} />
             ))}
-            {r.photos.length + r.newPhotos.length < 5 ? (
+            {r.photos.length + r.newPhotos.length < 3 ? (
               <UploadField key={`${i}-add-${r.newPhotos.length}`} label="Add ornament photo" value="" allowPdf={false}
-                onChange={(u) => u && upd(i, { newPhotos: [...r.newPhotos, u] })} />
+                onChange={(u) => u && upd(i, { newPhotos: [...r.newPhotos, u] })}
+                maxFiles={3 - r.photos.length - r.newPhotos.length}
+                onAddMany={(urls) => upd(i, { newPhotos: [...r.newPhotos, ...urls].slice(0, 3 - r.photos.length) })} />
             ) : null}
           </OrnamentCard>
         )
@@ -281,7 +293,7 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
 
       {reviewing && (activeFollowing.length || activeDeps.length || interest.length) ? (
         <View style={{ marginBottom: 12 }}>
-          <NoticeBanner>Review what this change affects, then press Save Changes again to confirm. Nothing is saved yet.</NoticeBanner>
+          <NoticeBanner>Review, then save again.</NoticeBanner>
           {activeFollowing.length ? (
             <>
               <SectionTitle flush>Later payments</SectionTitle>

@@ -170,7 +170,10 @@ export function Sidebar({ route, open, onNavigateSameRoute }: SidebarProps) {
                       // forces that same "start fresh" reload staff expect
                       // from clicking a nav item, even when it's already
                       // the current page.
-                      if (isExactSameRoute) {
+                      // An open report (/reports/<slug>) has a different URL from the Reports menu, so
+                      // that click is a real move back to the menu, not a same-page reload.
+                      const sameUrl = typeof window === "undefined" || window.location.pathname.replace(/\/+$/, "") === routeHref(r).replace(/\/+$/, "");
+                      if (isExactSameRoute && sameUrl) {
                         e.preventDefault();
                         onNavigateSameRoute?.();
                       }

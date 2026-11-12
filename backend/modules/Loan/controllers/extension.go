@@ -164,6 +164,12 @@ func ApproveExtensionRequest(ctx context.Context, requestID uint, branchID *uint
 	if req.ApprovalStage == models.ApprovalStageApproved || req.ApprovalStage == models.ApprovalStageRejected {
 		return nil, common.NewBadRequest("loan request has already been decided")
 	}
+	// Rejecting stays possible so a stale request can be cleared; approving is not.
+	if in.Action == models.ApprovalStageApproved {
+		if err := ensureGoldNotSold(ctx, req.LoanID); err != nil {
+			return nil, err
+		}
+	}
 	stage := req.ApprovalStage
 	if stage == "" {
 		stage = "PendingLoanOfficer"

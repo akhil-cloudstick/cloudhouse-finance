@@ -7,7 +7,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Select } from "@/common/components/ui/Select";
-import { createInvestmentPlan, updateInvestmentPlan, listInvestmentPlans, deleteInvestmentPlan } from "@/modules/investments/services/investmentService";
+import { createInvestmentPlan, updateInvestmentPlan, searchInvestmentPlansPage, deleteInvestmentPlan } from "@/modules/investments/services/investmentService";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
@@ -53,16 +53,19 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
   const { closeModal, openChildModal } = useModal();
   const canDelete = useAuth().can("Investment_Management", "can_delete_investment");
 
-  // Scroll-paginated: 10 plans shown at a time, the next 10 revealed as the
-  // height-capped table is scrolled to its end. The plan list is one small
-  // unpaged fetch, so "pages" are revealed client-side.
+  // Scroll-paginated from the server: 10 plans per request, the next 10 fetched as the
+  // height-capped table is scrolled to its end. Search runs on the server too.
   const PAGE_SIZE = 10;
 
   const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState("");
-  const [page, setPage] = useState(1);
   const [planQ, setPlanQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const pageRef = useRef(1);
+  const reqId = useRef(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<CreatePlanInput>(emptyForm);
@@ -72,39 +75,48 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
   const [fe, setFe] = useState<Record<string, string>>({});
   const fail = (field: string, msg: string) => { setFormErr(""); setFe({ [field]: msg }); };
 
-  async function refresh() {
-    setLoading(true);
+  // Loads page 1 (replacing the list) or the next page (appending). A stale response is dropped.
+  async function load(reset: boolean, q = debouncedQ) {
+    const id = ++reqId.current;
+    const page = reset ? 1 : pageRef.current + 1;
+    if (reset) setLoading(true); else setLoadingMore(true);
     try {
-      setPlans(await listInvestmentPlans(false));
+      const r = await searchInvestmentPlansPage(q, page, PAGE_SIZE);
+      if (id !== reqId.current) return;
+      pageRef.current = page;
+      setPlans((cur) => (reset ? r.items : [...cur, ...r.items]));
+      setHasMore(r.hasMore);
       setError("");
     } catch (e) {
+      if (id !== reqId.current) return;
       setError(e instanceof ApiError ? e.message : "Could not load plans.");
     } finally {
-      setLoading(false);
+      if (id === reqId.current) { setLoading(false); setLoadingMore(false); }
     }
   }
 
-  useEffect(() => { void refresh(); }, []);
+  const refresh = () => load(true);
 
-  // Plans are all loaded already, so the search is applied here (name, type, frequency, status).
-  const needle = planQ.trim().toLowerCase();
-  const matchingPlans = needle
-    ? plans.filter((p) => [p.name, p.interestRateType, p.payoutFrequency, p.isActive ? "active" : "inactive", p.productType].some((v) => String(v ?? "").toLowerCase().includes(needle)))
-    : plans;
-  const shownPlans = matchingPlans.slice(0, page * PAGE_SIZE);
-  const hasMore = shownPlans.length < matchingPlans.length;
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(planQ.trim()), 250);
+    return () => clearTimeout(t);
+  }, [planQ]);
+
+  useEffect(() => { void load(true, debouncedQ); }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shownPlans = plans;
 
   function onWrapScroll() {
     const el = wrapRef.current;
-    if (hasMore && el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) setPage((p) => p + 1);
+    if (hasMore && !loading && !loadingMore && el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) void load(false);
   }
 
   // A batch too short to overflow the table never fires onScroll, so keep
-  // revealing until the rows actually scroll or the list runs out.
+  // fetching until the rows actually scroll or the list runs out.
   useEffect(() => {
     const el = wrapRef.current;
-    if (hasMore && el && el.scrollHeight <= el.clientHeight) setPage((p) => p + 1);
-  }, [shownPlans.length, hasMore, editingId]);
+    if (hasMore && !loading && !loadingMore && el && el.scrollHeight <= el.clientHeight) void load(false);
+  }, [plans.length, hasMore, loading, loadingMore, editingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function startCreate() {
     setEditingId(0);
@@ -188,7 +200,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
         {editingId === null ? (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <input className="inp" style={{ maxWidth: 260 }} placeholder="Search plans…" aria-label="Search plans" value={planQ} onChange={(e) => { setPlanQ(e.target.value); setPage(1); }} />
+              <input className="inp" style={{ maxWidth: 260 }} placeholder="Search plans…" aria-label="Search plans" value={planQ} onChange={(e) => setPlanQ(e.target.value)} />
               <button className="btn sm" onClick={startCreate}>+ New Plan</button>
             </div>
             {error && <div className="notice">{error}</div>}
@@ -198,12 +210,12 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
               <tbody>
                 {loading ? (
                   <tr><td colSpan={9} className="empty compact">Loading…</td></tr>
-                ) : matchingPlans.length === 0 ? (
-                  <tr><td colSpan={9} className="empty compact">{plans.length === 0 ? "No plans yet." : "No plans match your search."}</td></tr>
+                ) : plans.length === 0 ? (
+                  <tr><td colSpan={9} className="empty compact">{debouncedQ ? "No plans match your search." : "No plans yet."}</td></tr>
                 ) : shownPlans.map((p) => (
                   <tr key={p.id} className="click" onClick={() => startEdit(p)}>
                     <td>{p.name}<div className="sub">{p.interestRateType}</div></td>
-                    <td data-label="Type">{p.productType === "Bond" ? <span className="chip info">Bond</span> : "Deposit"}</td>
+                    <td data-label="Type"><span className="chip info">Bond</span></td>
                     <td className="num" data-label="Rate">{p.interestRatePercent}%</td>
                     <td data-label="Frequency">{p.payoutFrequency}</td>
                     <td className="num" data-label="Tenure">{p.tenureMonths}mo</td>
@@ -220,7 +232,7 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
             </table></div>
             {!loading && plans.length > 0 && (
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
-                Showing {shownPlans.length} of {matchingPlans.length}{hasMore ? " — scroll for more" : ""}
+                Showing {shownPlans.length}{loadingMore ? " — loading…" : hasMore ? " — scroll for more" : ""}
               </div>
             )}
           </>

@@ -23,7 +23,7 @@ func TestDaysPastDue_DueDateItselfIsNotPastDue(t *testing.T) {
 }
 
 func TestEnrichStatusFlags_DueDateIsDueSoonNotOverdue(t *testing.T) {
-	l := &models.Loan{Status: models.StatusActive, DueDate: day(2026, time.October, 7)}
+	l := &models.Loan{Status: models.StatusActive, DueDate: day(2026, time.October, 7), TotalOutstandingBalance: 1000}
 	enrichStatusFlags(l, time.Date(2026, time.October, 7, 15, 0, 0, 0, time.UTC))
 	if l.IsOverdue || l.DaysOverdue != 0 {
 		t.Fatalf("a loan due today must not be overdue (overdue=%v days=%d)", l.IsOverdue, l.DaysOverdue)
@@ -32,10 +32,18 @@ func TestEnrichStatusFlags_DueDateIsDueSoonNotOverdue(t *testing.T) {
 		t.Fatal("a loan due today must be due soon")
 	}
 
-	l = &models.Loan{Status: models.StatusActive, DueDate: day(2026, time.October, 7)}
+	l = &models.Loan{Status: models.StatusActive, DueDate: day(2026, time.October, 7), TotalOutstandingBalance: 1000}
 	enrichStatusFlags(l, time.Date(2026, time.October, 8, 9, 0, 0, 0, time.UTC))
 	if !l.IsOverdue || l.DaysOverdue != 1 {
 		t.Fatalf("the day after the due date must be 1d overdue (overdue=%v days=%d)", l.IsOverdue, l.DaysOverdue)
+	}
+}
+
+func TestEnrichStatusFlags_NothingOwedIsNeverOverdue(t *testing.T) {
+	l := &models.Loan{Status: models.StatusOverdue, DueDate: day(2026, time.October, 7)}
+	enrichStatusFlags(l, time.Date(2026, time.November, 12, 9, 0, 0, 0, time.UTC))
+	if l.IsOverdue || l.IsDueSoon || l.IsDefaulted || l.Status != models.StatusClosureRequested {
+		t.Fatalf("a loan with nothing outstanding must read Closure Requested, not overdue (status=%q overdue=%v)", l.Status, l.IsOverdue)
 	}
 }
 

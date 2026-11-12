@@ -132,8 +132,8 @@ func TestCrossTenantIsOptIn(t *testing.T) {
 }
 
 func TestScopedTableSetIsNotEmptyAndHasNoGlobals(t *testing.T) {
-	if len(tenantScopedTables) != 63 {
-		t.Errorf("expected 63 tenant-scoped tables, got %d — update this test "+
+	if len(tenantScopedTables) != 64 {
+		t.Errorf("expected 64 tenant-scoped tables, got %d — update this test "+
 			"deliberately when adding a model, so a new table cannot slip in "+
 			"unfiltered", len(tenantScopedTables))
 	}

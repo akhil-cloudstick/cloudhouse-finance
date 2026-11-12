@@ -69,6 +69,9 @@ type SearchableSelectProps<T> = {
   // position:fixed) — for pickers inside a scrolling modal body (.bd-scroll),
   // whose overflow would otherwise clip the list at the modal footer.
   portal?: boolean;
+  // Opt-in: called with the typed text when focus leaves the field without a result being picked, so a value
+  // that was typed but never confirmed (no Enter / click) is not lost.
+  onBlurText?: (text: string) => void;
 };
 
 /**
@@ -128,6 +131,7 @@ export function SearchableSelect<T>({
   compact = false,
   compactMinWidth = 60,
   portal = false,
+  onBlurText,
 }: SearchableSelectProps<T>) {
   const floating = compact || portal;
   const [query, setQuery] = useState(value);
@@ -561,6 +565,7 @@ export function SearchableSelect<T>({
         onBlur={(e) => {
           if (resultsRef.current?.contains(e.relatedTarget as Node)) return;
           setOpen(false);
+          if (onBlurText && query.trim() && query.trim() !== value) onBlurText(query.trim());
         }}
       />
       {/* Purely a visual "this is a dropdown" cue, matching Select.tsx's own

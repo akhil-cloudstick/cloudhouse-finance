@@ -54,6 +54,10 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
   // report only (see subMonths below).
   const [from, setFrom] = useState(subMonths(today(), 3));
   const [to, setTo] = useState(today());
+  // Named period ("" = custom From/To). The backend owns the period -> date
+  // range + label mapping (FormGPeriodRange), so only the key is sent.
+  const [period, setPeriod] = useState("");
+  const [year, setYear] = useState(new Date().getFullYear());
 
   const [stmt, setStmt] = useState<FormGStatement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,11 +71,11 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
   }, []);
 
   const filters: ReportFilters = useMemo(() => {
-    const f: ReportFilters = { from, to };
+    const f: ReportFilters = period ? { period, year } : { from, to };
     if (branchId) f.branchId = branchId;
     return f;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, branchId]);
+  }, [from, to, branchId, period, year]);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,41 +147,34 @@ export function FormGReportView({ onBack }: FormGReportViewProps) {
       <div className="hd" style={{ flexWrap: "wrap", rowGap: 10, gap: 12, alignItems: "flex-end" }}>
         <h3>Statement</h3>
         <div className="sp" />
-        <div style={{ width: 170 }}>
-          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Quick Range</label>
-          {/* Sets From/To below and resets back to the placeholder — this is
-           * a one-shot action, not a persisted filter value of its own, so
-           * the date range it just set (visible in From/To) is what stays
-           * on screen, not this dropdown's own selection. Current Quarter
-           * runs from that calendar quarter's start up to TODAY (not the
-           * quarter's end) since a statement can't show activity that
-           * hasn't happened yet; Next Quarter, being entirely in the
-           * future, uses its own full start-to-end range. */}
+        <div style={{ width: 200 }}>
+          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Period</label>
           <Select
-            value=""
-            onChange={(v) => {
-              const now = new Date();
-              if (v === "last3") {
-                setFrom(subMonths(today(), 3));
-                setTo(today());
-              } else if (v === "current") {
-                setFrom(toISO(quarterStart(now)));
-                setTo(today());
-              } else if (v === "next") {
-                const nextStart = new Date(quarterStart(now).getFullYear(), quarterStart(now).getMonth() + 3, 1);
-                setFrom(toISO(nextStart));
-                setTo(toISO(quarterEnd(nextStart)));
-              }
-            }}
-            placeholder="Choose a range…"
+            value={period}
+            onChange={(v) => setPeriod(v)}
             options={[
-              { value: "last3", label: "Last 3 Months" },
-              { value: "current", label: "Current Quarter" },
-              { value: "next", label: "Next Quarter" },
+              { value: "", label: "Custom range" },
+              { value: "q1", label: "Q1 (Jan–Mar)" },
+              { value: "q2", label: "Q2 (Apr–Jun)" },
+              { value: "q3", label: "Q3 (Jul–Sep)" },
+              { value: "q4", label: "Q4 (Oct–Dec)" },
+              { value: "annual", label: "Annual / Full year" },
             ]}
           />
         </div>
-        <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
+        {period && (
+          <div style={{ width: 110 }}>
+            <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Year</label>
+            <Select
+              value={String(year)}
+              onChange={(v) => setYear(Number(v))}
+              options={Array.from({ length: 8 }, (_, i) => String(new Date().getFullYear() - i)).map((y) => ({ value: y, label: y }))}
+            />
+          </div>
+        )}
+        {!period && (
+          <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
+        )}
         <ExportMenu busy={exporting} onExport={handleExport} />
       </div>
       </div>
@@ -369,18 +366,3 @@ function subMonths(dateStr: string, months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function toISO(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-/* Calendar-quarter boundaries (Jan–Mar / Apr–Jun / Jul–Sep / Oct–Dec),
- * backing the Quick Range dropdown's "Current Quarter"/"Next Quarter"
- * presets. quarterStart floors to the quarter containing `d`; quarterEnd is
- * that quarter's last calendar day (day 0 of the month after it ends). */
-function quarterStart(d: Date): Date {
-  return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1);
-}
-function quarterEnd(d: Date): Date {
-  const start = quarterStart(d);
-  return new Date(start.getFullYear(), start.getMonth() + 3, 0);
-}

@@ -91,9 +91,6 @@ export function UpgradePlanModal({
             </p>
           </div>
         </div>
-        <div className="ft">
-          <button className="btn" onClick={closeModal}>Done</button>
-        </div>
       </>
     );
   }

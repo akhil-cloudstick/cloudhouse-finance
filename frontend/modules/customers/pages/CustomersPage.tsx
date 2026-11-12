@@ -1,6 +1,7 @@
 "use client";
 
 import { TableCols } from "@/common/components/ui/TableCols";
+import { useErrorToast } from "@/common/hooks/use-error-toast";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { usePersistedState, usePersistedPage, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useEffect, useState } from "react";
@@ -92,6 +93,7 @@ export function CustomersPage() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customers."));
   }
 
+  useErrorToast(error);
   return (
     <>
       <div className="page-h">
@@ -105,11 +107,6 @@ export function CustomersPage() {
         )}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      {error && (
-        <p style={{ color: "var(--red)", fontSize: 13.5 }}>
-          Something went wrong. Please try again later.
-        </p>
-      )}
       <div className="filter-row-right" style={{ marginBottom: 12 }}>
         <FilterPanel
           categories={filterCategories}

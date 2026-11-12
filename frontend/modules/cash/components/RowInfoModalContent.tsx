@@ -63,9 +63,6 @@ export function RowInfoModalContent({ row }: RowInfoModalContentProps) {
           <p style={{ margin: "16px 0 0", fontSize: 13 }}>Bill:<BillLink url={row.receiptImage} title={row.type || "Entry"} /></p>
         ) : null}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
-      </div>
     </>
   );
 }

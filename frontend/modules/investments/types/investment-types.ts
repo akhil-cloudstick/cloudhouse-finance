@@ -20,7 +20,7 @@ export type Engine = "Schedule" | "Live";
 // investmentService.ts's printInvestmentBondPdf below) that a Deposit
 // plan doesn't. See backend/internal/investment/model_plan.go's
 // ProductType* doc comment.
-export type ProductType = "Deposit" | "Bond";
+export type ProductType = "Bond";
 /* Mirrors backend/internal/investment/model_plan.go's InvestmentPlan
  * exactly (only the fields the frontend needs). */
 export type BackendInvestmentPlan = {

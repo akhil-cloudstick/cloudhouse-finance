@@ -37,6 +37,6 @@ func InvestmentRoutes(e *echo.Echo) *echo.Echo {
 
 func InvestmentCustomerRoutes(e *echo.Echo) *echo.Echo {
 	perms := auth.CRUDPermissions("investments")
-	e.GET("/api/v1/users/:user_id/customers/:id/investments", investment.ListInvestmentsForCustomer, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
+	e.GET("/api/v1/users/:user_id/investors/:id/investments", investment.ListInvestmentsForCustomer, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	return e
 }

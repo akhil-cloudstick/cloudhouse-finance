@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Image, View } from "react-native";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -36,7 +36,8 @@ import { getAuction } from "@/modules/auctions/services/auctionService";
 import { dmy, inr } from "@/common/utils/format";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
-import { useUploadSource } from "@/common/components/BillSheet";
+import { UploadImage } from "@/common/components/BillSheet";
+import { PhotoGallery } from "@/common/components/PhotoGallery";
 import { ExtendSheet } from "@/modules/loans/components/ExtendSheet";
 import { ReleaseSheet } from "@/modules/loans/components/ReleaseSheet";
 import { EditLoanSheet } from "@/modules/loans/components/EditLoanSheet";
@@ -77,10 +78,8 @@ type SheetKey =
 type UploadPhotoProps = { path: string; height?: number };
 
 /** An /uploads photo drawn with the Bearer token (uploads are authenticated). */
-function UploadPhoto({ path, height = 160 }: UploadPhotoProps) {
-  const source = useUploadSource(path);
-  if (!source) return null;
-  return <Image source={source} resizeMode="cover" style={{ width: "100%", height, borderRadius: 10, backgroundColor: C.card, marginTop: 8 }} />;
+function UploadPhoto({ path, height = 160, title }: UploadPhotoProps & { title?: string }) {
+  return <UploadImage path={path} title={title} style={{ width: "100%", height, borderRadius: 10, marginTop: 8 }} />;
 }
 
 const RECORD_TABS =["overview", "ledger", "ornaments", "history"] as const;
@@ -500,7 +499,7 @@ export default function LoanDetailScreen() {
               {l.overallPhotoUrl ? (
                 <>
                   <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 10 }}>Loan photo</Txt>
-                  <UploadPhoto path={l.overallPhotoUrl} height={200} />
+                  <UploadPhoto path={l.overallPhotoUrl} height={200} title="Loan photo" />
                 </>
               ) : null}
             </Card>
@@ -544,9 +543,7 @@ export default function LoanDetailScreen() {
                     { k: "Status", v: o.releasedAt ? `Released ${dmy(o.releasedAt)}` : "Held", color: o.releasedAt ? C.green : undefined },
                   ]}
                 />
-                {(o.images ?? []).map((im) => (
-                  <UploadPhoto key={im.id} path={im.imageUrl} />
-                ))}
+                <PhotoGallery paths={(o.images ?? []).map((im) => im.imageUrl)} title={`${o.name} photos`} />
               </Card>
             ))
           )

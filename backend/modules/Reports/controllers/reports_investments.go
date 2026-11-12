@@ -16,7 +16,7 @@ func depositRegister(ctx context.Context, f models.Filter) ([]models.DepositRegi
 		Select(`i.id as investment_id, i.investment_number, i.principal_amount, i.interest_rate_percent as interest_rate,
 			i.start_date, i.maturity_date, i.status, b.name as branch_name, c.name as customer_name, p.name as plan_name`).
 		Joins("LEFT JOIN branches b ON b.id = i.branch_id").
-		Joins("LEFT JOIN customers c ON c.id = i.customer_id").
+		Joins("LEFT JOIN investors c ON c.id = i.customer_id").
 		Joins("LEFT JOIN investment_plans p ON p.id = i.plan_id").
 		Where("i.start_date >= ? AND i.start_date < ?", from, to).
 		Where("i.deleted_at IS NULL").
@@ -52,7 +52,7 @@ func interestPayoutRegister(ctx context.Context, f models.Filter) ([]models.Inte
 		Select(`i.id as investment_id, i.investment_number, c.name as customer_name,
 			ip.sequence_no, ip.due_date, ip.amount, ip.status, ip.paid_at`).
 		Joins("JOIN investments i ON i.id = ip.investment_id").
-		Joins("LEFT JOIN customers c ON c.id = i.customer_id").
+		Joins("LEFT JOIN investors c ON c.id = i.customer_id").
 		Where("ip.due_date >= ? AND ip.due_date < ?", from, to).
 		Order("ip.due_date asc")
 	if len(f.BranchIDs) > 0 {
@@ -89,7 +89,7 @@ func maturityRegister(ctx context.Context, f models.Filter) ([]models.MaturityRe
 		q := config.DB.
 			WithContext(ctx).Table("investments i").
 			Joins("LEFT JOIN branches b ON b.id = i.branch_id").
-			Joins("LEFT JOIN customers c ON c.id = i.customer_id").
+			Joins("LEFT JOIN investors c ON c.id = i.customer_id").
 			Where("i.maturity_date >= ? AND i.maturity_date < ?", from, to).
 			Where("i.deleted_at IS NULL")
 		if len(f.BranchIDs) > 0 {

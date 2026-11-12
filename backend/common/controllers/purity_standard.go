@@ -132,7 +132,11 @@ func FindPurityStandardOrCreate(ctx context.Context, in PurityStandardCreateInpu
 
 func ListPurityStandards(c echo.Context) error {
 	ctx := auth.RequestContext(c)
-	rec, err := listPurityStandards(ctx, c.QueryParam("search"))
+	search := c.QueryParam("search")
+	if search == "" {
+		search = c.QueryParam("q") // the web client sends ?q=
+	}
+	rec, err := listPurityStandards(ctx, search)
 	if err != nil {
 		return FailErr(c, err)
 	}

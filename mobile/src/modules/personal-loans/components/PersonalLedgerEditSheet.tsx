@@ -58,7 +58,7 @@ export function PersonalLedgerEditSheet({ loanId, entry: p, bankId: savedBankId,
       if (!p) throw new Error("No entry");
       if (mode === "delete") return deletePersonalLoanPayment(loanId, p.id, dry);
       if (!(total > 0)) throw new Error("Enter a valid amount.");
-      if (!pay?.ready) throw new Error(`The payment breakdown must add up to the amount (${inr(total)}) and every UPI / Bank Transfer line needs its bank.`);
+      if (!pay?.ready) throw new Error("Check breakdown and banks.");
       const breakdown = { ...pay.split, chequeAmount: 0, bankId: pay.bankId };
       return isDisbursement
         ? editPersonalLoanDisbursement(loanId, { disbursedAt: date, ...breakdown }, dry)

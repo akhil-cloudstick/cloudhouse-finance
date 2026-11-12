@@ -459,6 +459,33 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 
 func listLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) {
 	limit, offset := f.Limit, f.Offset
+	// The Active and Closure Requested tabs go by the status a loan actually reads as, not the saved one (which can
+	// lag: a cleared loan still saved Active, a past-term loan in arrears still saved Active). The open book is
+	// loaded and judged after the read-time flags are set.
+	var wantStatus map[string]bool
+	if !f.OnlyDefaulted && !f.AllAuctionCases && f.Servicing == "" && len(f.ServicingIn) == 0 {
+		want := append([]string{}, f.StatusIn...)
+		if f.Status != "" {
+			want = append(want, f.Status)
+		}
+		for _, s := range want {
+			if s == models.StatusActive || s == models.StatusClosureRequested {
+				wantStatus = map[string]bool{}
+				for _, w := range want {
+					wantStatus[w] = true
+				}
+				f.Status = ""
+				f.StatusIn = []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue, models.StatusClosureRequested}
+				for _, w := range want {
+					if w != models.StatusActive && w != models.StatusClosureRequested {
+						f.StatusIn = append(f.StatusIn, w)
+					}
+				}
+				f.Limit, f.Offset = 0, 0
+				break
+			}
+		}
+	}
 	if f.OnlyDefaulted || f.AllAuctionCases || f.Servicing != "" || len(f.ServicingIn) > 0 {
 		f.Limit, f.Offset = 0, 0
 	}
@@ -469,7 +496,9 @@ func listLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) 
 	for i := range loans {
 		enrichLoan(ctx, &loans[i])
 	}
-	if f.OnlyDefaulted {
+	if wantStatus != nil {
+		loans, total = pageKept(loans, limit, offset, func(l *models.Loan) bool { return wantStatus[effectiveStatus(l)] })
+	} else if f.OnlyDefaulted {
 		loans, total = pageKept(loans, limit, offset, func(l *models.Loan) bool { return l.IsDefaulted && AvailableForAuction(l) })
 	} else if f.AllAuctionCases {
 		loans, total = pageKept(loans, limit, offset, isAuctionCase)
@@ -1051,7 +1080,20 @@ func isGoldSold(status string) bool {
 }
 
 func isLoanTerminal(status string) bool {
-	return status == models.StatusClosed || status == models.StatusRejected || status == models.StatusAuctioned || status == "Defaulted"
+	return status == models.StatusClosed || status == models.StatusRejected || isGoldSold(status) || status == "Defaulted"
+}
+
+// ensureGoldNotSold stops a request that is already in flight (raised before the auction) from being carried
+// through for a loan whose gold has since been auctioned.
+func ensureGoldNotSold(ctx context.Context, loanID uint) error {
+	l, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return common.NewNotFound("loan not found")
+	}
+	if isGoldSold(l.Status) {
+		return common.NewBadRequest("this loan's gold has been auctioned — extension or release is no longer possible")
+	}
+	return nil
 }
 
 func getCustomer360(ctx context.Context, customerID uint, from, to *time.Time) (*Customer360, error) {
@@ -1095,6 +1137,11 @@ func listLoansForCustomer(ctx context.Context, customerID uint, from, to *time.T
 
 func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 	now := time.Now()
+	// The agreement is dated the day the loan was opened, not the day it is printed.
+	agreementOn := l.OpenedDate
+	if agreementOn.IsZero() {
+		agreementOn = now
+	}
 	age := common.AgeFromDOB(l.Customer.DOB, now)
 	if age == 0 && l.Customer.Age != nil && *l.Customer.Age > 0 {
 		age = *l.Customer.Age // no date of birth on file: the entered age stands in
@@ -1141,9 +1188,9 @@ func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 		PrincipalAmount: l.PrincipalAmount,
 		InterestRate:    l.SchemeInterestRate,
 		Ornaments:       ornaments,
-		Day:             now.Day(),
-		Month:           now.Month().String(),
-		Year:            now.Year(),
+		Day:             agreementOn.Day(),
+		Month:           agreementOn.Month().String(),
+		Year:            agreementOn.Year(),
 		BusinessName:    businessName(ctx),
 		LegalName:       legalName,
 		AddressLine:     addressLine,
@@ -1288,7 +1335,12 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	}
 	if len(f.AuctionStages) > 0 {
 		// the loan's latest auction record is at one of these stages
-		q = q.Where("EXISTS (SELECT 1 FROM auction_records ar WHERE ar.loan_id = loans.id AND ar.stage IN ? AND ar.id = (SELECT MAX(id) FROM auction_records WHERE loan_id = loans.id))", f.AuctionStages)
+		// A case still before the sale (eligible / notice / scheduled) is not live once the loan is cleared or closed,
+		// so a loan paid off or released with a stale record left at one of those stages is not counted.
+		q = q.Where("EXISTS (SELECT 1 FROM auction_records ar WHERE ar.loan_id = loans.id AND ar.stage IN ? AND ar.id = (SELECT MAX(id) FROM auction_records WHERE loan_id = loans.id)"+
+			" AND (ar.stage NOT IN ? OR loans.status NOT IN ?))", f.AuctionStages,
+			[]string{models.AuctionStageEligible, models.AuctionStageNotice, models.AuctionStageScheduled},
+			[]string{models.StatusClosed, models.StatusRejected, models.StatusClosureRequested})
 	}
 	if len(f.LoanIDs) > 0 {
 		q = q.Where("loans.id IN ?", f.LoanIDs)
@@ -1300,11 +1352,17 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		case common.IsDigitQuery(f.Query) && f.ExcludeBankPledged:
 			// a number finds a loan by the start of its loan number (or packet number), not by digits inside a customer's code
 			q = q.Where("("+common.NumericPrefixSQL("loans.loan_number")+" OR EXISTS (SELECT 1 FROM packets pk WHERE pk.loan_id = loans.id AND "+common.NumericPrefixSQL("pk.code")+"))", common.NumericPrefixArg(f.Query), common.NumericPrefixArg(f.Query))
+		case common.IsDigitQuery(f.Query) && f.BankPledgeStatus == models.BankPledgeStatusPledged:
+			// Bank Re-pledge Active tab: a number may also be a customer code or part of a bank name (as on History)
+			q = q.Where("("+common.NumericPrefixSQL("loans.loan_number")+" OR customers.code ILIKE ? OR EXISTS (SELECT 1 FROM bank_pledge_records bpq WHERE bpq.loan_id = loans.id AND bpq.status = ? AND bpq.bank_name ILIKE ?))", common.NumericPrefixArg(f.Query), like, models.BankPledgeStatusRecordActive, like)
 		case common.IsDigitQuery(f.Query):
 			q = q.Where("("+common.NumericPrefixSQL("loans.loan_number")+")", common.NumericPrefixArg(f.Query))
 		case f.ExcludeBankPledged:
 			// the bank re-pledge picker also finds a loan by its packet number
 			q = q.Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR EXISTS (SELECT 1 FROM packets pk WHERE pk.loan_id = loans.id AND pk.code ILIKE ?)", like, like, like, like)
+		case f.BankPledgeStatus == models.BankPledgeStatusPledged:
+			// the Bank Re-pledge Active tab also finds a loan by the bank holding its gold
+			q = q.Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR EXISTS (SELECT 1 FROM bank_pledge_records bpq WHERE bpq.loan_id = loans.id AND bpq.status = ? AND bpq.bank_name ILIKE ?)", like, like, like, models.BankPledgeStatusRecordActive, like)
 		default:
 			q = q.Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
 		}
@@ -1333,7 +1391,9 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	}
 	if f.ExcludeBankPledged {
 		// a loan with only some ornaments pledged can still take another pledge; only a whole-loan pledge excludes it
-		q = q.Where("(loans.bank_pledge_status <> ? OR NOT EXISTS (SELECT 1 FROM bank_pledge_records bp WHERE bp.loan_id = loans.id AND bp.status = ? AND bp.ornament_ids = 'null'))", models.BankPledgeStatusPledged, models.BankPledgeStatusRecordActive)
+		// A pledge that lists every ornament id explicitly covers the whole loan too, so a loan stays
+		// eligible only while it has an unreleased ornament that no active pledge covers.
+		q = q.Where("(loans.bank_pledge_status <> ? OR (NOT EXISTS (SELECT 1 FROM bank_pledge_records bp WHERE bp.loan_id = loans.id AND bp.status = ? AND bp.ornament_ids = 'null') AND EXISTS (SELECT 1 FROM ornaments o WHERE o.loan_id = loans.id AND o.released_at IS NULL AND NOT EXISTS (SELECT 1 FROM bank_pledge_records bp2 WHERE bp2.loan_id = loans.id AND bp2.status = ? AND bp2.ornament_ids::jsonb @> to_jsonb(o.id)))))", models.BankPledgeStatusPledged, models.BankPledgeStatusRecordActive, models.BankPledgeStatusRecordActive)
 		q = q.Where("loans.status NOT IN ?", models.BankPledgeIneligibleStatuses)
 	}
 	if f.BankPledgeStatus != "" {

@@ -78,6 +78,19 @@ func focusMatches(rows []ledgerSourceRow, f ledgerFocus) (exact, fallback int) {
 	exact, fallback = -1, -1
 	same := func(a float64) bool { return a-f.amount < 0.005 && f.amount-a < 0.005 }
 	for i, r := range rows {
+		if f.paymentID > 0 {
+			// Exact id: that payment's own row (its same-amount split row first), nothing else.
+			if r.Memo || !f.matchesPayment(r) {
+				continue
+			}
+			if exact < 0 && same(r.Amount) {
+				exact = i
+			}
+			if fallback < 0 {
+				fallback = i
+			}
+			continue
+		}
 		if r.Memo || !same(r.Amount) {
 			continue
 		}

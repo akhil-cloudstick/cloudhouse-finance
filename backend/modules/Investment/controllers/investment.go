@@ -265,20 +265,15 @@ func engineOrDefault(e string) string {
 	return e
 }
 
+// Every plan is a Bond. A blank or the retired "Deposit" value (an older client, an old import) is read as Bond.
 func productTypeOrDefault(t string) string {
-	if t == "" {
-		return "Deposit"
+	if t == "" || t == "Deposit" {
+		return "Bond"
 	}
 	return t
 }
 
-func validateProductType(t string) bool {
-	switch t {
-	case "Deposit", "Bond":
-		return true
-	}
-	return false
-}
+func validateProductType(t string) bool { return t == "Bond" }
 
 func SaveInvestmentPlan(ctx context.Context, in PlanInput) (*models.InvestmentPlan, error) {
 	engine := engineOrDefault(in.Engine)
@@ -386,8 +381,9 @@ func SaveInvestment(ctx context.Context, in CreateInput) (*models.Investment, er
 	if in.PrincipalAmount <= 0 {
 		return nil, common.NewBadRequest("principal amount must be greater than zero")
 	}
-	if _, err := common.FindCustomerByID(ctx, in.CustomerID); err != nil {
-		return nil, err
+	// CustomerID names the investor (investors are their own table; the column kept its old name).
+	if _, err := common.FindInvestorByID(ctx, in.CustomerID); err != nil {
+		return nil, common.NewNotFound("investor not found")
 	}
 	plan, err := findPlanByID(ctx, in.PlanID)
 	if err != nil {
@@ -1015,27 +1011,18 @@ func clampMoney(v float64) float64 {
 }
 
 func ensureCustomerExists(ctx context.Context, customerID uint) error {
-	if _, err := common.FindCustomerByID(ctx, customerID); err != nil {
-		return common.NewNotFound("customer not found")
+	if _, err := common.FindInvestorByID(ctx, customerID); err != nil {
+		return common.NewNotFound("investor not found")
 	}
 	return nil
 }
 
-func notifyInterestPayout(ctx context.Context, customerID uint, investmentNumber string, amount float64) error {
-	common.NotifyCustomer(ctx, customerID, "investment_interest_payout",
-		"Interest payout received",
-		fmt.Sprintf("Your interest payout of %.2f for investment %s has been paid.", amount, investmentNumber),
-		"Investment", 0)
-	return nil
-}
+// notifyInterestPayout / notifyInvestmentMatured used to push an in-app notification to the investor
+// as a customer. Investors are no longer customers (they have no customer-app login, and an investor
+// id can equal an unrelated customer's id), so there is nobody to notify and these do nothing.
+func notifyInterestPayout(_ context.Context, _ uint, _ string, _ float64) error { return nil }
 
-func notifyInvestmentMatured(ctx context.Context, customerID uint, investmentNumber string) error {
-	common.NotifyCustomer(ctx, customerID, "investment_matured",
-		"Investment matured",
-		fmt.Sprintf("Your investment %s has matured. Please contact us to close or renew it.", investmentNumber),
-		"Investment", 0)
-	return nil
-}
+func notifyInvestmentMatured(_ context.Context, _ uint, _ string) error { return nil }
 
 func investmentDB() config.Conn { return config.DB }
 
@@ -1172,8 +1159,8 @@ func findInvestments(ctx context.Context, f ListFilter) ([]models.Investment, in
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
-		q = q.Joins("JOIN customers ON customers.id = investments.customer_id").
-			Where("investments.investment_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
+		q = q.Joins("JOIN investors ON investors.id = investments.customer_id").
+			Where("investments.investment_number ILIKE ? OR investors.name ILIKE ? OR investors.code ILIKE ?", like, like, like)
 	}
 	var total int64
 	if f.Limit > 0 {
@@ -1246,10 +1233,10 @@ func findPendingPayoutsForCalendar(ctx context.Context, branchID *uint) ([]Calen
 		WithContext(ctx).Table("investment_payouts").
 		Select("investment_payouts.due_date AS due_date, investment_payouts.amount AS amount, "+
 			"investments.id AS investment_id, investments.investment_number AS investment_number, "+
-			"investments.customer_id AS customer_id, customers.name AS customer_name, "+
+			"investments.customer_id AS customer_id, investors.name AS customer_name, "+
 			"investments.branch_id AS branch_id").
 		Joins("JOIN investments ON investments.id = investment_payouts.investment_id").
-		Joins("JOIN customers ON customers.id = investments.customer_id").
+		Joins("JOIN investors ON investors.id = investments.customer_id").
 		Where("investment_payouts.status = ?", "Pending").
 		Where("investments.status IN ?", []string{models.StatusActive, models.StatusMatured})
 	if branchID != nil {

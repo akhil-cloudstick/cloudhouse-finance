@@ -1,6 +1,7 @@
 "use client";
 
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useErrorToast } from "@/common/hooks/use-error-toast";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -132,6 +133,7 @@ export function SchemesPage() {
     );
   }
 
+  useErrorToast(error);
   return (
     <>
       <div className="page-h" >
@@ -162,11 +164,6 @@ export function SchemesPage() {
           size="md"
         />
       </div>
-      {error && (
-        <p style={{ color: "var(--red)", fontSize: 13.5 }}>
-          Something went wrong. Please try again later.
-        </p>
-      )}
       {!error && schemes === null && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading schemes…</p>
       )}
