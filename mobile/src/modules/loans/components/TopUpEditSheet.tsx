@@ -42,7 +42,7 @@ export function TopUpEditSheet({ loanId, loanStart, topUp: t, mode, onClose }: P
       if (mode === "delete") return deleteLoanTopUp(loanId, t.id, dry);
       const amt = Number(amount);
       if (!(amt > 0)) throw new Error("Enter a valid amount.");
-      if (!pay?.ready) throw new Error(`The payout breakdown must add up to the amount (${inr(amt)}) and every UPI / Bank Transfer line needs its bank.`);
+      if (!pay?.ready) throw new Error("Check breakdown and banks.");
       return editLoanTopUp(loanId, t.id, { occurredOn: date, amount: amt, reference, cashAmount: pay.split.cashAmount, upiAmount: pay.split.upiAmount, bankTransferAmount: pay.split.bankTransferAmount, bankId: pay.bankId }, dry);
     },
     onSuccess: (res, dry) => {

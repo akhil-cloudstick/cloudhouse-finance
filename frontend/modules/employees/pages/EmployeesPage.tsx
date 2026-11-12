@@ -1,6 +1,7 @@
 "use client";
 
 import { TableCols } from "@/common/components/ui/TableCols";
+import { useErrorToast } from "@/common/hooks/use-error-toast";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
@@ -99,6 +100,7 @@ export function EmployeesPage() {
     );
   }
 
+  useErrorToast(error);
   return (
     <>
       <div className="page-h">
@@ -112,11 +114,6 @@ export function EmployeesPage() {
         )}
       </div>
       <hr className="gold-rule rule-lg" />
-      {error && (
-        <p style={{ color: "var(--red)", fontSize: 13.5 }}>
-          Something went wrong. Please try again later.
-        </p>
-      )}
       {!error && employees === null && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading employees…</p>
       )}

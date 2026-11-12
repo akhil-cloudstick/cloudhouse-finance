@@ -14,7 +14,7 @@ type MonthGridProps = {
   min?: string;
   max?: string;
   gutter?: number;
-  /** Always render 6 week rows so the height never changes between months. */
+  /** Always render 6 week rows so the height never changes between months (default; pass false to opt out). */
   fixedRows?: boolean;
   /** Reports the measured total height of the grid (weekday row + days). */
   onHeight?: (h: number) => void;
@@ -30,7 +30,7 @@ export function MonthGrid({
   min,
   max,
   gutter = 18,
-  fixedRows,
+  fixedRows = true,
   onHeight,
 }: MonthGridProps) {
   const cells = useMemo(() => {

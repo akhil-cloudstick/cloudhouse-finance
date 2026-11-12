@@ -4,6 +4,7 @@ import { fmt, fmtDate } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import type { LoanView } from "@/modules/loans/types/loan-types";
 import { navigate } from "@/common/services/appRoutes";
+import { loanDisplayStatus } from "@/modules/loans/services/loanService";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
 /* Ported from legacy/app.js's `loanRow(l)` — the shared row-builder used by
@@ -21,15 +22,7 @@ import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
  * enrichStatusFlags in loan/accrual.go), so lean on those plus the same
  * arrears check refreshServicingStatus itself uses (outstanding interest or
  * penal interest still owed) rather than the possibly-stale l.status. */
-function displayStatus(l: LoanView): string {
-  if (l.isDefaulted) return "Defaulted";
-  if (l.isOverdue) {
-    const inArrears = l.outstandingInterest > 0.01 || l.outstandingPenalInterest > 0.01;
-    return inArrears ? "Overdue" : "Active";
-  }
-  if (l.isDueSoon) return "Due Soon";
-  return l.status;
-}
+const displayStatus = loanDisplayStatus;
 
 type LoanRowProps = { loan: LoanView };
 

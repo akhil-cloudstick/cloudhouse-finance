@@ -15,6 +15,7 @@ import { useBranding } from "@/common/providers/BrandingProvider";
 import GlobalSearch from "./GlobalSearch";
 import { AccountMenu } from "./AccountMenu";
 import { DesktopUpdatePopup } from "./DesktopUpdatePopup";
+import { reportTitleFromSlug } from "@/modules/reports/pages/ReportsPage";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
@@ -70,6 +71,8 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
   // create-only role, whose parent is the Loans list.
   // The trail reads like a normal path: Shop / Parent page / Current page.
   // Top-level routes have no parent, so they show just Shop / Page.
+  // An open report adds a third level: Shop / Reports / <report title>.
+  const reportTitle = route === "reports" ? reportTitleFromSlug(arg) : undefined;
   const parentRoute = PARENT_ROUTE[route];
   const parentHref = parentRoute && canOpen(parentRoute) ? routeHref(parentRoute) : undefined;
   const linkStyle = { color: "inherit", textDecoration: "none" } as const;
@@ -92,7 +95,15 @@ export function Topbar({ route, arg, onBurger }: TopbarProps) {
             &nbsp;/&nbsp;
           </>
         )}
-        <b>{crumb}</b>
+        {reportTitle ? (
+          <>
+            <a href={routeHref("reports")} style={linkStyle}>{crumb}</a>
+            &nbsp;/&nbsp;
+            <b>{reportTitle}</b>
+          </>
+        ) : (
+          <b>{crumb}</b>
+        )}
       </span>
       <GlobalSearch isOpen={searchOpen} onToggle={setSearchOpen} />
       <a

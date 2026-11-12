@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
-import { fmt, fmtDate, localToday } from "@/common/utils/format";
+import { fmt, localToday } from "@/common/utils/format";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { AddEntryModalContent } from "@/modules/cash/components/AddEntryModalContent";
 import { ReceiptViewModalContent } from "@/modules/cash/components/ReceiptViewModalContent";
@@ -82,8 +82,6 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
   const realToday = localToday();
   const [summaryDate, setSummaryDate] = usePersistedState("cash:summary-date", "");
   const today = summaryDate && summaryDate <= realToday ? summaryDate : realToday;
-  const isToday = today === realToday;
-  const dayLabel = isToday ? "today" : fmtDate(today);
 
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
@@ -443,14 +441,14 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
 
       <div className="cash-kpi-row" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
         <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
-          <Kpi l={`Opening Cash (${dayLabel})`} v={fmt(summary?.openingCash || 0)} s="carried forward" />
+          <Kpi l="Opening Cash" v={fmt(summary?.openingCash || 0)} s="carried forward" />
           {/* Backend's `collections` is every cash-in movement for the day —
               Savings top-ups, bank pledges and loan repayments alike, not just
               interest/principal (see cash.SummaryService.GetExpectedCash), so
               show `collectionsBreakdown` under the total rather than leaving the
               reader to guess what the one figure is made of. */}
           <Kpi
-            l={`Cash In (${dayLabel})`}
+            l="Cash In"
             v={fmt(summary?.collections || 0)}
             cls="ok"
             parts={[
@@ -465,7 +463,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
               loan principal handed out, manual "Take Cash Out" withdrawals,
               and bank-pledge releases all land here. */}
           <Kpi
-            l={`Cash Out (${dayLabel})`}
+            l="Cash Out"
             v={fmt(summary?.disbursements || 0)}
             parts={[
               ["Loan disbursements", summary?.disbursementsBreakdown?.loanDisbursements || 0],
@@ -475,7 +473,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
               ["Withdrawals", summary?.disbursementsBreakdown?.withdrawals || 0],
             ]}
           />
-          <Kpi l={`Expenses (${dayLabel})`} v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
+          <Kpi l="Expenses" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
           <Kpi
             l="Balance in Hand"
             v={fmt((summary?.cashInHand || 0) + (summary?.bankBalance || 0))}

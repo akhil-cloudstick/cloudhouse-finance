@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useErrorToast } from "@/common/hooks/use-error-toast";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
@@ -33,6 +34,7 @@ export function SettingsPage() {
   }
 
   useEffect(() => { load(); }, []);
+  useErrorToast(error);
 
   return (
     <>
@@ -40,11 +42,6 @@ export function SettingsPage() {
         <div><h1>Settings</h1><p>Admin-only · third-party integration API keys, encrypted at rest</p></div>
       </div>
       <hr className="gold-rule" />
-      {error && (
-        <p style={{ color: "var(--red)", fontSize: 13.5 }}>
-          Something went wrong. Please try again later.
-        </p>
-      )}
       {!error && keys === null && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading settings…</p>
       )}

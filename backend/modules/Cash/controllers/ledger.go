@@ -69,6 +69,7 @@ type ledgerSourceRow struct {
 	Type           string
 	Method         string
 	Reference      string
+	LoanNumber     string // searchable on its own, even where Reference is a payment reference
 	Amount         float64
 	RunningBalance float64
 	BankID         *uint
@@ -362,10 +363,11 @@ func scanCashMovementsForLedger(db *gorm.DB, whereCol string, whereArg uint, fro
 	}
 	q := db.Table("cash_movements m").
 		Select(`m.id, m.occurred_on, m.type, m.source, m.purpose, m.mode, m.amount,
-			m.bank_id, bk.name as bank_name, m.party_customer_id, c.name as customer_name,
+			m.bank_id, bk.name as bank_name, m.party_customer_id, COALESCE(c.name, inv.name) as customer_name,
 			lcs.loan_number as loan_number`).
 		Joins("LEFT JOIN banks bk ON bk.id = m.bank_id").
 		Joins("LEFT JOIN customers c ON c.id = m.party_customer_id").
+		Joins("LEFT JOIN investors inv ON inv.id = m.party_investor_id").
 		Joins("LEFT JOIN loan_cash_sources lcs ON lcs.cash_movement_id = m.id").
 		Where("m."+whereCol, whereArg).
 		Where("m.source IS DISTINCT FROM ?", "Collection").
@@ -394,6 +396,7 @@ func scanCashMovementsForLedger(db *gorm.DB, whereCol string, whereArg uint, fro
 			Type:         m.Source,
 			Method:       m.Mode,
 			Reference:    refOrPurpose(m.LoanNumber, m.Purpose),
+			LoanNumber:   m.LoanNumber,
 			Amount:       m.Amount,
 			BankID:       m.BankID,
 			BankName:     m.BankName,
@@ -499,6 +502,7 @@ func scanLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg uint, from
 			Type:           p.Type,
 			Method:         p.Method,
 			Reference:      p.Reference,
+			LoanNumber:     p.LoanNumber,
 			Amount:         p.Amount,
 			RunningBalance: p.RunningBalance,
 			BankID:         p.BankID,
@@ -564,6 +568,7 @@ func scanPersonalLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg ui
 				Type:           "Renewal",
 				Method:         p.Method,
 				Reference:      personalLoanRef(p.LoanNumber, p.Reference),
+				LoanNumber:     p.LoanNumber,
 				Amount:         p.Amount,
 				RunningBalance: p.RunningBalance,
 				CustomerID:     p.CustomerID,
@@ -583,6 +588,7 @@ func scanPersonalLoanPaymentsForLedger(db *gorm.DB, whereCol string, whereArg ui
 			Type:           "Collection",
 			Method:         p.Method,
 			Reference:      personalLoanRef(p.LoanNumber, p.Reference),
+			LoanNumber:     p.LoanNumber,
 			Amount:         p.Amount,
 			RunningBalance: p.RunningBalance,
 			BankID:         p.BankID,
@@ -654,7 +660,7 @@ func discountLedgerRow(id, loanID uint, on time.Time, kind, method, loanNumber s
 	}
 	return ledgerSourceRow{
 		Kind: "loan_discount", ID: id, LoanID: loanID, Date: on, Description: label + " — " + loanNumber, Type: "Discount",
-		Method: method, Reference: loanNumber, Amount: amount, RunningBalance: runningBalance,
+		Method: method, Reference: loanNumber, LoanNumber: loanNumber, Amount: amount, RunningBalance: runningBalance,
 		CustomerID: customerID, CustomerName: customerName, IsOut: true, Memo: true,
 	}
 }
@@ -985,10 +991,11 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, br
 	}
 	q := db.Table("cash_movements m").
 		Select(`m.id, m.occurred_on, m.type, m.source, m.purpose, m.mode, m.amount,
-			m.bank_id, bk.name as bank_name, m.party_customer_id, c.name as customer_name,
+			m.bank_id, bk.name as bank_name, m.party_customer_id, COALESCE(c.name, inv.name) as customer_name,
 			lcs.loan_number as loan_number`).
 		Joins("LEFT JOIN banks bk ON bk.id = m.bank_id").
 		Joins("LEFT JOIN customers c ON c.id = m.party_customer_id").
+		Joins("LEFT JOIN investors inv ON inv.id = m.party_investor_id").
 		Joins("LEFT JOIN loan_cash_sources lcs ON lcs.cash_movement_id = m.id").
 		Where("m.mode = ?", mode).
 		Where("m.source IS DISTINCT FROM ?", "Collection").
@@ -1021,6 +1028,7 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, br
 			Type:         m.Source,
 			Method:       m.Mode,
 			Reference:    refOrPurpose(m.LoanNumber, m.Purpose),
+			LoanNumber:   m.LoanNumber,
 			Amount:       m.Amount,
 			BankID:       m.BankID,
 			BankName:     m.BankName,
@@ -1181,6 +1189,7 @@ func scanPersonalLoanPaymentsForModeLedger(db *gorm.DB, mode string, bankIDs []u
 			Type:           "Collection",
 			Method:         p.Method,
 			Reference:      personalLoanRef(p.LoanNumber, p.Reference),
+			LoanNumber:     p.LoanNumber,
 			Amount:         p.Amount,
 			BankID:         p.BankID,
 			BankName:       p.BankName,

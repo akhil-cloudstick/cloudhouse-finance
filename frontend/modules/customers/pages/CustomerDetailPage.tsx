@@ -8,7 +8,8 @@ import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
+import { DeleteWithBlockersModalContent, type DeleteBlocker } from "@/common/components/modals/DeleteWithBlockersModalContent";
+import { listPersonalLoansForCustomer } from "@/modules/personal-loans/services/personalLoanService";
 import { fmt, fmtW, initials, fmtDate, ageFromDob } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
@@ -384,62 +385,36 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
                     onClick={(e) => {
                       e.preventDefault();
                       setActionsMenuOpen(false);
-                      const activeLoans = cLoans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Auctioned");
-                      const hasActiveLoans = activeLoans.length > 0 || (profile?.activeLoanCount ?? 0) > 0;
-                      const activeLoanRefs = activeLoans.map((l) => l.loanNumber || l.id).filter(Boolean);
+                      const customerId = id;
+                      if (!customerId) return;
+                      // Fetched fresh (not from the page's cached loan list) every time the dialog opens,
+                      // regains focus or is refreshed, so deleting a loan in another tab clears it here.
+                      const loadBlockers = async (): Promise<DeleteBlocker[]> => {
+                        const [gold, personal] = await Promise.all([
+                          listCustomerLoansPage(customerId, 1, undefined, 200).then((r) => r.items).catch(() => []),
+                          listPersonalLoansForCustomer(Number(customerId)).catch(() => []),
+                        ]);
+                        return [
+                          ...gold
+                            .filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Auctioned")
+                            .map((l): DeleteBlocker => ({ key: `g${l.id}`, kind: "Gold loan", ref: l.loanNumber || String(l.id), status: l.status, href: canViewLoans ? routeHref("loan", l.loanNumber || String(l.id)) : undefined })),
+                          ...(personal ?? []).map((p): DeleteBlocker => ({ key: `p${p.id}`, kind: "Personal loan", ref: p.loanNumber, status: p.status, href: canOpen("personalloan") ? routeHref("personalloan", String(p.id)) : undefined })),
+                        ];
+                      };
 
                       openModal(
-                        <ConfirmModalContent
+                        <DeleteWithBlockersModalContent
                           title="Delete Customer Permanently"
-                          confirmLabel="Delete Permanently"
-                          busyLabel="Deleting…"
-                          disabled={hasActiveLoans}
-                          message={
-                            <>
-                              This permanently deletes <strong>{c.name}</strong> ({c.code}). This cannot be undone.
-                            </>
-                          }
-                          onConfirm={async () => {
-                            if (!id || hasActiveLoans) return;
-                            await hardDeleteCustomer(id);
+                          name={c.name}
+                          code={c.code}
+                          loadBlockers={loadBlockers}
+                          blockedHint="Delete or close these first (they open in a new tab), then come back — this updates by itself."
+                          onDelete={async () => {
+                            await hardDeleteCustomer(customerId);
                             toast("Customer deleted permanently");
                             navigate("customers");
                           }}
-                        >
-                          {hasActiveLoans && (
-                            <div
-                              style={{
-                                marginTop: 14,
-                                padding: "12px 14px",
-                                background: "rgba(239, 68, 68, 0.08)",
-                                border: "1px solid var(--red)",
-                                borderRadius: 6,
-                                color: "var(--red)",
-                                fontSize: 13,
-                                lineHeight: 1.5,
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                                <Icon name="warning" /> Active Loans Warning
-                              </div>
-                              Cannot delete this customer — {activeLoanRefs.length > 0 ? (
-                                <>
-                                  the following loan(s) are still active:{" "}
-                                  {activeLoanRefs.map((ref, i) => (
-                                    <span key={ref}>
-                                      {i > 0 && ", "}
-                                      {canViewLoans ? (
-                                        <a href={routeHref(`loan/${ref}`)} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", fontWeight: 700, textDecoration: "underline" }}>{ref}</a>
-                                      ) : (
-                                        <strong>{ref}</strong>
-                                      )}
-                                    </span>
-                                  ))}
-                                </>
-                              ) : <>this customer has active loan(s)</>}. Active loans must be closed or deleted first.
-                            </div>
-                          )}
-                        </ConfirmModalContent>
+                        />
                       );
                     }}
                   >
@@ -715,20 +690,22 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 4} className={activeTable === 4 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
-                  <TableCols widths={[12, 22, 22, 22, 22]} />
-                  <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
+                  <TableCols widths={[11, 15, 14, 15, 15, 15, 15]} />
+                  <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Expenses</th><th className="num">Net Proceeds</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
                   <tbody>
                     {!canViewAuctions ? (
-                      <tr><td colSpan={5} className="empty compact">You don't have permission to view auction history.</td></tr>
+                      <tr><td colSpan={7} className="empty compact">You don't have permission to view auction history.</td></tr>
                     ) : auctionPager.items.length === 0 ? (
-                      <tr><td colSpan={5} className="empty compact">No auction records yet.</td></tr>
+                      <tr><td colSpan={7} className="empty compact">No auction records yet.</td></tr>
                     ) : auctionPager.items.map((a) => (
                       <tr key={a.id}>
                         <td data-label="Loan">{canViewLoans ? <a href={routeHref(`loan/${a.loanNumber}`)}>{a.loanNumber}</a> : a.loanNumber}</td>
                         <td data-label="Stage"><StatusChip status={a.stage} /></td>
                         <td data-label="Auction Date" className="td-date">{fmtDate(a.auctionDate)}</td>
                         <td data-label="Sale Amount" className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
-                        <td data-label="Surplus / Shortfall" className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
+                        <td data-label="Expenses" className="num">{a.saleAmount && a.auctionExpenses ? fmt(a.auctionExpenses) : "—"}</td>
+                        <td data-label="Net Proceeds" className="num">{a.saleAmount ? fmt(a.saleAmount - (a.auctionExpenses || 0)) : "—"}</td>
+                        <td data-label="Surplus / Shortfall" className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? `${a.surplusShortfall >= 0 ? "+" : "−"}${fmt(Math.abs(a.surplusShortfall))}` : "—"}</td>
                       </tr>
                     ))}
                   </tbody>

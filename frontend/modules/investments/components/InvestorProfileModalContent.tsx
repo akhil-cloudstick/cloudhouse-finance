@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
-import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { ApiError } from "@/common/services/httpClient";
-import { routeHref } from "@/common/services/appRoutes";
 import { fmtDate } from "@/common/utils/format";
-import { getCustomer, verificationLabel } from "@/modules/customers/services/customerService";
+import { verificationLabel } from "@/modules/customers/services/customerService";
+import { getInvestor } from "@/modules/investments/services/investorService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { ProofLink } from "@/modules/customers/components/ProofLink";
 
@@ -16,13 +15,12 @@ type InvestorProfileModalContentProps = { customerId: number };
  * detail page's header. The full, editable profile stays on the customer page. */
 export function InvestorProfileModalContent({ customerId }: InvestorProfileModalContentProps) {
   const { closeModal } = useModal();
-  const canOpen = useCanOpenRoute();
   const [investor, setInvestor] = useState<CustomerView | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    getCustomer(String(customerId))
+    getInvestor(String(customerId))
       .then((c) => { if (!cancelled) setInvestor(c); })
       .catch((e) => { if (!cancelled) setError(e instanceof ApiError ? e.message : "Could not load the investor."); });
     return () => { cancelled = true; };
@@ -58,12 +56,6 @@ export function InvestorProfileModalContent({ customerId }: InvestorProfileModal
             <ProofLink label="Identity Proof" url={investor.identityProofUrl} />
             <ProofLink label="Address Proof" url={investor.addressProofUrl} />
           </div>
-        )}
-      </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
-        {investor && canOpen("customer") && (
-          <a className="btn" href={routeHref("customer", investor.code || investor.id)} onClick={closeModal}>Open full profile</a>
         )}
       </div>
     </>

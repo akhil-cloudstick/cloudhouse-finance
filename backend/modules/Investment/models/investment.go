@@ -15,12 +15,13 @@ const (
 
 type Investment struct {
 	config.TenantScoped
-	ID                      uint                    `json:"id" gorm:"primaryKey"`
-	InvestmentNumber        string                  `json:"investment_number" gorm:"index;size:20"`
-	BranchID                uint                    `json:"branch_id" gorm:"not null"`
-	Branch                  commonModels.Branch     `json:"branch" gorm:"foreignKey:BranchID"`
-	CustomerID              uint                    `json:"customer_id" gorm:"not null"`
-	Customer                commonModels.Customer   `json:"customer" gorm:"foreignKey:CustomerID"`
+	ID               uint                `json:"id" gorm:"primaryKey"`
+	InvestmentNumber string              `json:"investment_number" gorm:"index;size:20"`
+	BranchID         uint                `json:"branch_id" gorm:"not null"`
+	Branch           commonModels.Branch `json:"branch" gorm:"foreignKey:BranchID"`
+	CustomerID       uint                `json:"customer_id" gorm:"not null"`
+	// Customer is the investor holding the investment (an investors row; the column kept its old name).
+	Customer                commonModels.Investor   `json:"customer" gorm:"foreignKey:CustomerID"`
 	PlanID                  uint                    `json:"plan_id" gorm:"not null"`
 	Plan                    InvestmentPlan          `json:"plan" gorm:"foreignKey:PlanID"`
 	CreatedByEmployeeID     uint                    `json:"created_by_employee_id"`

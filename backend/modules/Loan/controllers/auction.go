@@ -181,7 +181,12 @@ func resolveAuctionAfterPayment(ctx context.Context, l *models.Loan, p *models.L
 			} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
-			l.Status = models.StatusActive
+			// Nothing left owed (principal too): the loan is waiting only for the gold hand-over, not back to servicing.
+			if outstanding <= 0.01 {
+				l.Status = models.StatusClosureRequested
+			} else {
+				l.Status = models.StatusActive
+			}
 			if err := tx.Save(l).Error; err != nil {
 				return err
 			}
@@ -1014,7 +1019,10 @@ func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, stages
 		Select("auction_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
 		Joins("JOIN loans ON loans.id = auction_records.loan_id").
 		Joins("JOIN customers ON customers.id = loans.customer_id").
-		Where("auction_records.stage IN (?, ?)", models.AuctionStageSettled, models.AuctionStageWithdrawn)
+		// A sale that is recorded but not yet settled (a surplus still to be paid out) is stage Auctioned.
+		// It belongs in the history from the moment the sale is entered, not only once it is settled —
+		// otherwise stepping back from the surplus-settlement step made the record vanish from every list.
+		Where("(auction_records.stage IN (?, ?) OR (auction_records.stage = ? AND auction_records.sale_amount > 0))", models.AuctionStageSettled, models.AuctionStageWithdrawn, models.AuctionStageAuctioned)
 	if branchID != nil {
 		q = q.Where("loans.branch_id = ?", *branchID)
 	}

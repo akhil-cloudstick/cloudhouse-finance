@@ -147,6 +147,8 @@ export function RateModalContent() {
       if (+fineness22 > 0) setRate22(String(rateForFineness(k24, +fineness22)));
       if (+fineness18 > 0) setRate18(String(rateForFineness(k24, +fineness18)));
       clearFe("rate22"); clearFe("rate18");
+    } else if (mode === "auto" && !(k24 > 0)) {
+      setRate22(""); setRate18("");
     }
   }
   function editRate22(v: string) {

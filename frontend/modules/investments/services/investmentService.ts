@@ -125,7 +125,7 @@ export function matureInvestment(
 }
 
 export function listInvestmentsForCustomer(customerId: number): Promise<BackendInvestment[]> {
-  return apiFetch<BackendInvestment[]>(`/customers/${customerId}/investments`);
+  return apiFetch<BackendInvestment[]>(`/investors/${customerId}/investments`);
 }
 
 export function addCashToInvestment(investmentId: number, input: AddCashInput): Promise<BackendInvestment> {

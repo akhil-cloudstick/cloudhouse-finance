@@ -149,7 +149,6 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
         ) : null}
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
         {info.editable && canDeleteLedger && (
           <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => openChildModal(<DeleteEntryModalContent entryId={entryId} label={info.category} onDeleted={() => { onChanged?.(); closeAllModals(); }} />)}>
             <Icon name="trash" /> Delete

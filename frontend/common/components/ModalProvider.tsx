@@ -104,7 +104,9 @@ export function ModalProvider({ children }: ModalProviderProps) {
     closeTimer.current = setTimeout(() => {
       closeTimer.current = null;
       setClosing(false);
-      if (parent) {
+      // A parent with no content (nothing was really open beneath) must close the overlay, not
+      // leave an empty box showing only its top accent line.
+      if (parent && parent.content != null) {
         current.current = parent;
         setContent(parent.content);
         setWide(parent.wide);

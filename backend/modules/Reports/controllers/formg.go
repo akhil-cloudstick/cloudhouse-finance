@@ -123,20 +123,42 @@ func formGLenderParticulars(ctx context.Context) (name, address string) {
 	return name, address
 }
 
+// FormGPeriodRange is the single period mapping for Form G. The app has no
+// fiscal-year setting, so quarters are calendar quarters. Returns inclusive
+// start/end dates and the display name (without the year).
+func FormGPeriodRange(period string, year int) (start, end time.Time, name string, ok bool) {
+	var m0, m1 time.Month
+	switch period {
+	case "q1":
+		m0, m1, name = time.January, time.March, "Q1 (Jan–Mar)"
+	case "q2":
+		m0, m1, name = time.April, time.June, "Q2 (Apr–Jun)"
+	case "q3":
+		m0, m1, name = time.July, time.September, "Q3 (Jul–Sep)"
+	case "q4":
+		m0, m1, name = time.October, time.December, "Q4 (Oct–Dec)"
+	case "annual":
+		m0, m1, name = time.January, time.December, "Annual / Full year"
+	default:
+		return start, end, "", false
+	}
+	start = time.Date(year, m0, 1, 0, 0, 0, 0, time.UTC)
+	end = time.Date(year, m1+1, 0, 0, 0, 0, 0, time.UTC)
+	return start, end, name, true
+}
+
 func formGPeriodLabel(f models.Filter) string {
 	if f.From == nil || f.To == nil {
 		return "Period: all available data"
 	}
-	days := f.To.Sub(*f.From).Hours() / 24
 	const layout = "02/01/2006"
-	switch {
-	case days >= 350 && days <= 380:
-		return fmt.Sprintf("Year ending %s", f.To.Format(layout))
-	case days >= 80 && days <= 100:
-		return fmt.Sprintf("Quarter ending %s", f.To.Format(layout))
-	default:
-		return fmt.Sprintf("Period %s to %s", f.From.Format(layout), f.To.Format(layout))
+	rng := fmt.Sprintf("%s to %s", f.From.Format(layout), f.To.Format(layout))
+	if f.PeriodName != "" {
+		if _, _, name, ok := FormGPeriodRange(f.PeriodName, f.From.Year()); ok {
+			return fmt.Sprintf("%s %d · %s", name, f.From.Year(), rng)
+		}
 	}
+	return "Custom period " + rng
 }
 
 func goldLoansAdvanced(ctx context.Context, f models.Filter, from, to time.Time) (loanMovementAgg, error) {

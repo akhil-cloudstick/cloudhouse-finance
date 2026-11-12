@@ -63,6 +63,15 @@ export function PurityPicker({
     onChange(formatPurity(unit, num));
   }
 
+  // A purity typed but never confirmed (no Enter / click) is still taken when the field loses focus,
+  // so the loan is not saved with the previous purity. Out-of-range or non-numeric text is ignored.
+  function commitTyped(text: string) {
+    const num = Number(text);
+    if (!Number.isFinite(num)) return;
+    if (unit === "karat" ? !isKaratInRange(num) : !isFinenessInRange(num)) return;
+    onChange(formatPurity(unit, num));
+  }
+
   async function onCreate(query: string): Promise<BackendPurityStandard> {
     const num = Number(query.trim());
     // Shown as a toast rather than inside the dropdown, where the text got truncated.
@@ -189,6 +198,7 @@ export function PurityPicker({
             placeholder={unit === "karat" ? `22 (${MIN_KARAT}-${MAX_KARAT})` : "91.6"}
             allowCreate
             onCreate={onCreate}
+            onBlurText={commitTyped}
             createLabel="+ XX number"
             disabled={disabled}
             compact

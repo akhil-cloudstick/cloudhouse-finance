@@ -1205,7 +1205,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                         </div>
                         <div style={row}>
                           <span>Charge method</span>
-                          <div style={{ width: 170 }}>
+                          <div style={{ width: 170, flex: "0 0 170px", boxSizing: "border-box" }}>
                             <Select
                               value={chargeMode}
                               onChange={(v) => setChargeMode(v as "WithheldFromPayout" | "AddedToPrincipal")}
@@ -1280,7 +1280,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                             toast(`Loan amount rounded off to ${fmt(rounded)}`);
                           }
                         }}
-                        style={{ flex: "0 0 120px", minWidth: 0, padding: "3px 8px", textAlign: "right", fontWeight: 600, color: "var(--brand-deep)", fontSize: 13.5 }}
+                        // Same 170px border-box width as the Charge method dropdown above, so both end on one right edge.
+                        style={{ flex: "0 0 170px", width: 170, boxSizing: "border-box", minWidth: 0, padding: "3px 8px", textAlign: "right", fontWeight: 600, color: "var(--brand-deep)", fontSize: 13.5 }}
                       />
                     </div>
                     {principalExceedsEligible && (

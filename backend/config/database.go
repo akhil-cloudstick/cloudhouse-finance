@@ -57,9 +57,6 @@ func InitDB() {
 	if dir := os.Getenv("MIGRATIONS_DIR"); dir != "" {
 		migrationsDir = dir
 	}
-	migrations := &migrate.FileMigrationSource{
-		Dir: migrationsDir,
-	}
 	ctx := context.Background()
 	lock, err := sqlDB.Conn(ctx)
 	if err != nil {
@@ -75,7 +72,11 @@ func InitDB() {
 		}
 	}
 	migrate.SetIgnoreUnknown(true)
-	n, err := migrate.Exec(sqlDB, "postgres", migrations, migrate.Up)
+	migrations, err := migrationSource(sqlDB, migrationsDir)
+	var n int
+	if err == nil {
+		n, err = migrate.Exec(sqlDB, "postgres", migrations, migrate.Up)
+	}
 	lock.ExecContext(ctx, `SELECT pg_advisory_unlock($1)`, 7281946301)
 	lock.Close()
 	if err != nil {

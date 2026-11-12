@@ -109,6 +109,15 @@ export function CalendarPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Coming back to this tab (a payment may have been taken in another tab or on another device) refetches, so a
+  // reminder that has since been paid or completed does not linger until a manual refresh.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", onVisible); };
+  }, [load]);
+
   const eventsByDay = useMemo(() => {
     const map = new Map<number, CalendarEvent[]>();
     for (const e of events) {

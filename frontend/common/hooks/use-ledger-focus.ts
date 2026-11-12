@@ -17,8 +17,9 @@ import { useEffect, useRef } from "react";
  *     (rememberedLedgerPage).
  * sessionStorage only: per-tab, and the page works the same without it. */
 
-type Origin = { path: string; scope: string; rowKey: string; page: number; date: string; amount: string };
-type Arrival = { path: string; date: string; amount: string; fromPath: string };
+type Origin = { path: string; scope: string; rowKey: string; page: number; date: string; amount: string; ref?: string };
+// ref (data-ledger-ref, e.g. "lp:42" = loan_payments.id 42) pins the exact payment followed.
+type Arrival = { path: string; date: string; amount: string; fromPath: string; ref?: string };
 
 const ORIGINS_KEY = "ledgerFocus:origins";
 const ARRIVAL_KEY = "ledgerFocus:arrival";
@@ -66,6 +67,7 @@ function onLedgerLinkClick(e: MouseEvent) {
   const path = window.location.pathname;
   const date = row.dataset.ledgerDate || "";
   const amount = row.dataset.ledgerAmount || "";
+  const ref = row.dataset.ledgerRef || "";
   // Arriving fresh at a ledger starts it clean — drop whatever row was
   // remembered for it from an earlier visit.
   const rest = origins();
@@ -79,9 +81,10 @@ function onLedgerLinkClick(e: MouseEvent) {
       page: Number(table?.dataset.ledgerPage) || 1,
       date,
       amount,
+      ref,
     },
   });
-  write(ARRIVAL_KEY, { path: url.pathname, date, amount, fromPath: path } satisfies Arrival);
+  write(ARRIVAL_KEY, { path: url.pathname, date, amount, ref, fromPath: path } satisfies Arrival);
 }
 
 if (typeof window !== "undefined") {
@@ -163,14 +166,15 @@ export function ledgerFocusIndex(scope: string, rows: { key: string; date: strin
  * as a request — the remembered row's key when back on this ledger, else
  * the date + amount of the transaction just drilled in from — so the server
  * can answer with the page that holds it. null when there is none. */
-export function ledgerFocusTarget(scope: string): { key: string } | { date: string; amount: number } | null {
+export function ledgerFocusTarget(scope: string): { key: string } | { date: string; amount: number; payment?: number } | null {
   if (typeof window === "undefined") return null;
   const path = window.location.pathname;
   const o = origins()[path];
   if (o && o.scope === scope) return o.rowKey ? { key: o.rowKey } : null;
   const a = read<Arrival>(ARRIVAL_KEY);
   if (!a || a.path !== path || a.amount === "" || !Number.isFinite(Number(a.amount))) return null;
-  return { date: a.date, amount: Number(a.amount) };
+  const payment = /^lp:(\d+)$/.exec(a.ref || "")?.[1];
+  return { date: a.date, amount: Number(a.amount), ...(payment ? { payment: Number(payment) } : {}) };
 }
 
 /* Highlights and scrolls to the remembered row once the ledger's rows are
@@ -199,8 +203,14 @@ export function useLedgerFocus(scope: string, ready: boolean, deps: unknown[] = 
       if (!row) {
         const a = read<Arrival>(ARRIVAL_KEY);
         if (a && a.path === path) {
-          row = rows.find((r) => r.dataset.ledgerDate === a.date && sameAmount(r.dataset.ledgerAmount, a.amount))
-            ?? rows.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount));
+          if (a.ref) {
+            // The exact payment followed: its own row only, never another loan's with the same date and amount.
+            const own = rows.filter((r) => r.dataset.ledgerRef === a.ref);
+            row = own.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount)) ?? own[0];
+          } else {
+            row = rows.find((r) => r.dataset.ledgerDate === a.date && sameAmount(r.dataset.ledgerAmount, a.amount))
+              ?? rows.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount));
+          }
         }
       }
       if (!row) return;

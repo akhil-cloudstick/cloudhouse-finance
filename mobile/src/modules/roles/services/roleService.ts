@@ -1,5 +1,5 @@
 import { apiRequest, apiRequestEnveloped } from "@/common/services/httpClient";
-import type { RoleRecord, MatrixResponse } from "@/modules/roles/types/role-types";
+import type { RoleRecord, MatrixResponse, PermissionRow } from "@/modules/roles/types/role-types";
 
 export function fetchRoles(): Promise<RoleRecord[]> {
   return apiRequestEnveloped<RoleRecord[]>("/roles");
@@ -12,10 +12,28 @@ export function fetchRoles(): Promise<RoleRecord[]> {
 // apiRequestEnveloped silently returned just the inner `data` object and
 // dropped `role`, which left `res.role`/`res.data` both undefined here and
 // the screen stuck on its loading state forever.
-export function fetchRoleMatrix(actingEmployeeId: number, roleId: number, search?: string): Promise<MatrixResponse> {
-  return apiRequest<MatrixResponse>(`/employees/${actingEmployeeId}/permissions`, {
+// The API layer renames snake_case response keys to camelCase (permission_id →
+// permissionId, role_id → roleId). The screen is keyed on `permission_id`, so
+// without this every row's id was undefined: all rows shared one key, ticking one
+// ticked all, and Save sent no usable ids ("Nothing to save").
+type Idish = { permission_id?: number; permissionId?: number };
+const withPermissionId = <T extends Idish>(x: T): T => ({ ...x, permission_id: x.permission_id ?? x.permissionId });
+const normaliseRow = (r: PermissionRow): PermissionRow => {
+  const row = r as PermissionRow & { roleId?: number };
+  return {
+    ...withPermissionId(row),
+    role_id: row.role_id ?? row.roleId ?? 0,
+    parents: row.parents?.map(withPermissionId),
+    soft_parents: row.soft_parents?.map(withPermissionId),
+    dependents: row.dependents?.map(withPermissionId),
+  };
+};
+
+export async function fetchRoleMatrix(actingEmployeeId: number, roleId: number, search?: string): Promise<MatrixResponse> {
+  const res = await apiRequest<MatrixResponse>(`/employees/${actingEmployeeId}/permissions`, {
     params: { role_id: roleId, search },
   });
+  return { ...res, data: Object.fromEntries(Object.entries(res.data ?? {}).map(([mod, rows]) => [mod, rows.map(normaliseRow)])) };
 }
 
 export function updateRolePermissions(

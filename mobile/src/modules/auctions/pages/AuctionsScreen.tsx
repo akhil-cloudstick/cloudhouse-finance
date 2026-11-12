@@ -232,7 +232,7 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
             statusTone={ss >= 0 ? "closed" : "overdue"}
             details={[
               { k: "Customer", v: r.customerName || "—" },
-              { k: "Stage", v: r.stage === "Settled" ? "Sale completed" : r.stage },
+              { k: "Stage", v: r.stage === "Settled" ? "Sale completed" : r.stage === "Auctioned" ? "Sold — settlement pending" : r.stage },
               { k: "Outcome", v: AUCTION_OUTCOME_LABELS[r.finalSettlementStatus ?? "Pending"] },
             ]}
             actions={[{ label: "View Loan", onPress: () => openLoan(r.loanId) }]}

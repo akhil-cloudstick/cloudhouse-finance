@@ -252,11 +252,12 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 		// amount ("5,000" and "5000" both find 5000.00).
 		amount := searchAmountLike(search)
 		q = q.Where(
-			"purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ? OR mode ILIKE ? OR remarks ILIKE ?"+
+			"purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ? OR mode ILIKE ? OR remarks ILIKE ? OR loan_number ILIKE ?"+
 				" OR party_customer_id IN (SELECT id FROM customers WHERE name ILIKE ?)"+
+				" OR party_investor_id IN (SELECT id FROM investors WHERE name ILIKE ?)"+
 				" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ?"+
 				" OR CAST(amount AS TEXT) LIKE ?",
-			like, like, like, like, like, like, like, like, amount)
+			like, like, like, like, like, like, like, like, like, like, amount)
 	}
 	return q
 }
@@ -917,7 +918,7 @@ func RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, inves
 		SourceType: "investment_deposit", SourceID: &investmentID,
 	}
 	if customerID != 0 {
-		base.PartyCustomerID = &customerID
+		base.PartyInvestorID = &customerID
 	}
 	if occurredOn.IsZero() {
 		base.OccurredOn = time.Now()
@@ -950,7 +951,7 @@ func RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, inves
 		base.OccurredOn = occurredOn
 	}
 	if customerID != 0 {
-		base.PartyCustomerID = &customerID
+		base.PartyInvestorID = &customerID
 	}
 	return recordSplitCashMovement(ctx, base, amount, []splitComponent{
 		{models.CashModeCash, cashAmount},

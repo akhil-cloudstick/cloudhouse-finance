@@ -104,7 +104,7 @@ export function ReleaseSheet({
         {unpaid ? (
           <WarningBanner>Final settlement must be fully paid before this loan can be released.</WarningBanner>
         ) : bankPledged ? (
-          <WarningBanner>This loan&apos;s ornament is still pledged to a bank — release it from the bank pledge before completing the release.</WarningBanner>
+          <WarningBanner>Release bank pledge first.</WarningBanner>
         ) : (
           <NoticeBanner>Ready to complete — hands the gold back and closes the loan.</NoticeBanner>
         )}
@@ -116,7 +116,7 @@ export function ReleaseSheet({
           onPress={() => {
             // Gates explained on press (not a silently disabled button); the backend enforces both regardless.
             if (unpaid) return setError("Final settlement must be fully paid before this loan can be released.");
-            if (bankPledged) return setError("This loan's ornament is still pledged to a bank — release the ornament from the bank pledge before completing the release.");
+            if (bankPledged) return setError("Release bank pledge first.");
             setError(null);
             complete.mutate();
           }}

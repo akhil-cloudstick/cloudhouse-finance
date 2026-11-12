@@ -107,12 +107,31 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
   // Re-fetches whatever page is currently on screen — used both by the
   // page-change effect below and after a decision/review-save, so an admin
   // working through page 3 isn't bounced back to page 1 every time.
+  // A dashboard tile arrives with a preset: the remembered (stale) filters must not be fetched first, and a slow
+  // earlier response must never overwrite the preset's list — that was the intermittent "entire page" load.
+  // Applied DURING render (before any effect/fetch) and re-applied whenever the preset changes, so it also wins
+  // when this page is already mounted (tile clicked again / other tile) and over any remembered filters.
+  const [appliedPreset, setAppliedPreset] = useState<string | undefined>(undefined);
+  const presetReady = !presetType || appliedPreset === presetType;
+  if (presetType && appliedPreset !== presetType) {
+    setAppliedPreset(presetType);
+    setStatus("Pending");
+    setType(presetType);
+    setFromDate("");
+    setToDate("");
+    setQInput("");
+    setQ("");
+    setPage(1);
+  }
+  const fetchSeq = useRef(0);
   const refresh = useCallback(() => {
+    if (presetType && !presetReady) return;
+    const seq = ++fetchSeq.current;
     listLoanRequestsPage(page, { status: status || undefined, type: type || undefined, q: q || undefined, from: fromDate || undefined, to: toDate || undefined }, pageSize)
-      .then((res) => { setReqs(res.items); setTotal(res.total); })
-      .catch(() => { setReqs([]); setTotal(0); })
-      .finally(() => setLoading(false));
-  }, [page, status, type, q, fromDate, toDate, pageSize]);
+      .then((res) => { if (seq === fetchSeq.current) { setReqs(res.items); setTotal(res.total); } })
+      .catch(() => { if (seq === fetchSeq.current) { setReqs([]); setTotal(0); } })
+      .finally(() => { if (seq === fetchSeq.current) setLoading(false); });
+  }, [page, status, type, q, fromDate, toDate, pageSize, presetType, presetReady]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -124,10 +143,6 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
   // Arrived from a dashboard Extension / Gold Release tile: that type's Pending list.
   useEffect(() => {
     if (!presetType) return;
-    setStatus("Pending");
-    setType(presetType);
-    setPage(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetType]);
   useEffect(() => {
     if (!focusLoanNumber) return;

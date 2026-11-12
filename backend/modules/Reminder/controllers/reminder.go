@@ -6,6 +6,7 @@ import (
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/config"
 	loan "cloudhouse/backend/modules/Loan/controllers"
+	loanModels "cloudhouse/backend/modules/Loan/models"
 	personalLoan "cloudhouse/backend/modules/PersonalLoan/controllers"
 	"cloudhouse/backend/modules/Reminder/models"
 	"context"
@@ -46,6 +47,8 @@ type Filter struct {
 	Query      string
 	Limit      int
 	Offset     int
+	// Open keeps only actionable reminders: not Done and not on a closed/rejected/auctioned loan.
+	Open bool
 }
 
 type CreateInput struct {
@@ -117,6 +120,11 @@ func findReminders(ctx context.Context, f Filter) ([]models.Reminder, int64, err
 	}
 	if f.Status != "" {
 		q = q.Where("reminders.status = ?", f.Status)
+	}
+	if f.Open {
+		q = q.Where("reminders.status <> ?", "Done").
+			Where("NOT EXISTS (SELECT 1 FROM loans cl WHERE cl.id = reminders.loan_id AND cl.status IN ?)",
+				[]string{"Closed", "Rejected", "Auctioned", "Auctioned - Balance Due"})
 	}
 	if f.From != nil {
 		q = q.Where("reminders.due_date >= ?", *f.From)
@@ -288,6 +296,10 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		return nil, 0, err
 	}
 	now := truncateDay(time.Now())
+	interestPaid, err := interestPaymentDates(ctx, loans)
+	if err != nil {
+		return nil, 0, err
+	}
 	for _, l := range loans {
 		if branchID != nil && l.BranchID != *branchID {
 			continue
@@ -331,7 +343,7 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		if due.Before(interestTo) {
 			interestTo = due
 		}
-		for _, occ := range monthlyOccurrences(l.OpenedDate, from, interestTo) {
+		for _, occ := range unsettledInterestOccurrences(l.OpenedDate, from, interestTo, due, interestPaid[l.ID]) {
 			events = append(events, models.CalendarEvent{
 				Date:         occ.Format("2006-01-02"),
 				Type:         "InterestDue",
@@ -446,7 +458,7 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		})
 	}
 	from2, to2 := from, to
-	reminders, _, err := findReminders(ctx, Filter{From: &from2, To: &to2, BranchID: branchID})
+	reminders, _, err := findReminders(ctx, Filter{From: &from2, To: &to2, BranchID: branchID, Open: true})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -540,6 +552,80 @@ func filterCalendarEvents(events []models.CalendarEvent, query string) []models.
 func truncateDay(t time.Time) time.Time {
 	u := t.UTC()
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// interestPaymentDates is, per loan, the dates its interest payments were recorded (oldest first).
+// Discounts and waivers are not payments, so they do not count.
+func interestPaymentDates(ctx context.Context, loans []loanModels.Loan) (map[uint][]time.Time, error) {
+	out := map[uint][]time.Time{}
+	if len(loans) == 0 {
+		return out, nil
+	}
+	ids := make([]uint, len(loans))
+	for i, l := range loans {
+		ids[i] = l.ID
+	}
+	var rows []struct {
+		LoanID uint
+		PaidOn time.Time
+	}
+	if err := config.DB.WithContext(ctx).Table("loan_payments").
+		Select("loan_id, paid_on").
+		Where("loan_id IN ? AND interest_applied > 0 AND type NOT IN ?", ids, []string{loanModels.PaymentTypeDiscount, loanModels.PaymentTypeWaiver}).
+		Order("paid_on asc, id asc").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.LoanID] = append(out[r.LoanID], truncateDay(r.PaidOn))
+	}
+	return out, nil
+}
+
+// unsettledInterestOccurrences are the monthly interest reminders in [from, to] that have NOT been paid.
+// Each interest payment settles the earliest still-open reminder that falls on or before the next one
+// due after the payment: paying ahead clears the coming reminder, paying late clears the oldest overdue
+// one. The reminder on the day the loan was opened is not a payable one and is never settled.
+func unsettledInterestOccurrences(openedDate, from, to, due time.Time, paid []time.Time) []time.Time {
+	all := monthlyOccurrences(openedDate, openedDate, due)
+	settled := make([]bool, len(all))
+	opened := truncateDay(openedDate)
+	for i, occ := range all {
+		if occ.Equal(opened) {
+			settled[i] = true
+		}
+	}
+	for _, p := range paid {
+		limit := len(all) - 1
+		for i, occ := range all {
+			// Interest taken on the opening day (paid in advance) belongs to the first month, so the
+			// opening-day entry is skipped when working out which reminder a payment is for.
+			if occ.Equal(opened) {
+				continue
+			}
+			if !occ.Before(p) {
+				limit = i
+				break
+			}
+		}
+		for j := 0; j <= limit; j++ {
+			if !settled[j] {
+				settled[j] = true
+				break
+			}
+		}
+	}
+	var out []time.Time
+	for _, occ := range monthlyOccurrences(openedDate, from, to) {
+		for i, a := range all {
+			if a.Equal(occ) {
+				if !settled[i] || occ.Equal(opened) {
+					out = append(out, occ)
+				}
+				break
+			}
+		}
+	}
+	return out
 }
 
 // monthlyOccurrences returns the monthly anniversaries of openedDate that fall

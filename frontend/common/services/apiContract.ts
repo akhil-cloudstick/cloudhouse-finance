@@ -883,9 +883,51 @@ const ROUTES: [string, string, string, string][] = [
  ],
  [
   "GET",
-  "/customers/:id/investments",
+  "/investors/:id/investments",
   "GET",
-  "/users/:user_id/customers/:id/investments"
+  "/users/:user_id/investors/:id/investments"
+ ],
+ [
+  "GET",
+  "/investors",
+  "GET",
+  "/users/:user_id/investors"
+ ],
+ [
+  "POST",
+  "/investors",
+  "POST",
+  "/users/:user_id/investors"
+ ],
+ [
+  "GET",
+  "/investors/by-code/:code",
+  "GET",
+  "/users/:user_id/investors/by-code/:code"
+ ],
+ [
+  "GET",
+  "/investors/:id",
+  "GET",
+  "/users/:user_id/investors/:id"
+ ],
+ [
+  "GET",
+  "/investors/:id/aadhaar-full",
+  "GET",
+  "/users/:user_id/investors/:id/aadhaar-full"
+ ],
+ [
+  "PUT",
+  "/investors/:id",
+  "PATCH",
+  "/users/:user_id/investors/:id/update"
+ ],
+ [
+  "DELETE",
+  "/investors/:id/hard-delete",
+  "DELETE",
+  "/users/:user_id/investors/:id/hard-delete"
  ],
  [
   "GET",

@@ -337,6 +337,8 @@ function partyRangeParams(range?: PartyDateRange): URLSearchParams {
   if (range?.focusAmount != null) {
     params.set("focusAmount", String(range.focusAmount));
     if (range.focusDate) params.set("focusDate", range.focusDate);
+    // The exact loan_payments.id followed — so another loan's same-amount payment is never picked.
+    if (range.focusPayment) params.set("focusPayment", String(range.focusPayment));
   }
   return params;
 }

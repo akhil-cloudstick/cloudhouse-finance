@@ -45,11 +45,13 @@ type CashMovement struct {
 	CounterBankRef     *commonModels.Bank     `json:"counter_bank_ref,omitempty" gorm:"foreignKey:CounterBankID"`
 	PartyCustomerID    *uint                  `json:"party_customer_id"`
 	PartyCustomer      *commonModels.Customer `json:"party_customer,omitempty" gorm:"foreignKey:PartyCustomerID"`
-	ExpenseID          *uint                  `json:"expense_id"`
-	ReceiptImage       string                 `json:"receipt_image,omitempty" gorm:"type:text"`
-	SourceType         string                 `json:"source_type,omitempty" gorm:"size:40;index:idx_cash_movements_source,priority:1"`
-	SourceID           *uint                  `json:"source_id,omitempty" gorm:"index:idx_cash_movements_source,priority:2"`
-	Remarks            string                 `json:"remarks" gorm:"size:500"`
+	// PartyInvestorID names the investor on an investment deposit / payout (investors are their own table).
+	PartyInvestorID *uint  `json:"party_investor_id,omitempty"`
+	ExpenseID       *uint  `json:"expense_id"`
+	ReceiptImage    string `json:"receipt_image,omitempty" gorm:"type:text"`
+	SourceType      string `json:"source_type,omitempty" gorm:"size:40;index:idx_cash_movements_source,priority:1"`
+	SourceID        *uint  `json:"source_id,omitempty" gorm:"index:idx_cash_movements_source,priority:2"`
+	Remarks         string `json:"remarks" gorm:"size:500"`
 	// IsManual marks a line a person keyed in (cash-in, debit, self transfer): the ledger offers Edit on it.
 	IsManual  bool      `json:"editable" gorm:"not null;default:false"`
 	CreatedAt time.Time `json:"created_at"`

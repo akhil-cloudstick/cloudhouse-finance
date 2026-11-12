@@ -63,7 +63,7 @@ export function InvestmentLedgerEditSheet({ investmentId, row: r, mode, live, mi
       if (!r) throw new Error("No entry");
       if (mode === "delete") return deleteInvestmentLedgerEntry(investmentId, r.id, dry);
       if (!(total > 0)) throw new Error("Enter a valid amount.");
-      if (!pay?.ready) throw new Error(`The payment breakdown must add up to the amount (${inr(total)}) and every UPI / Bank Transfer line needs its bank.`);
+      if (!pay?.ready) throw new Error("Check breakdown and banks.");
       return editInvestmentLedgerEntry(
         investmentId,
         r.id,

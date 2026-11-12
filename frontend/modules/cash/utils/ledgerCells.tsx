@@ -54,7 +54,17 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
   // the Auction expenses ledger that the expense category below would give.
   if (m.purpose && /^Auction (sale proceeds|surplus settlement)/.test(m.purpose)) {
     const loanNo = loanNumberFor(m);
-    if (loanNo.startsWith("LN-")) return <LedgerRefLink kind="auction" id={`history:${loanNo}`} label={text || "Auction"} />;
+    if (loanNo.startsWith("LN-")) {
+      const link = <LedgerRefLink kind="auction" id={`history:${loanNo}`} label={text || "Auction"} />;
+      // The settlement's remarks ride on the cash movement; show them under the entry.
+      if (!m.remarks) return link;
+      return (
+        <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 1.3 }}>
+          {link}
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>{m.remarks}</span>
+        </span>
+      );
+    }
   }
   const category = expenseCategoryOf(m.purpose);
   const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;

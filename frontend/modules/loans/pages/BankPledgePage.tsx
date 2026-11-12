@@ -242,7 +242,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
       <div className="page-h">
         <div><h1>Bank &amp; Gold Re-Pledge</h1><p>Customer gold re-pledged with external banks</p></div>
         <div className="sp" />
-        <TableSearch placeholder="Search loan no, bank, customer…" searches="loan number, customer name, customer code · bank name on the History tab only" value={q} onChange={setQ} />
+        <TableSearch placeholder="Search loan no, bank, customer…" searches="loan number, customer name, customer code, bank name" value={q} onChange={setQ} />
         {canViewBanks && <button className="btn ghost" onClick={() => openModal(<BanksModalContent />, true)}><Icon name="bank" /> Banks</button>}
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>

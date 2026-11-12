@@ -10,7 +10,6 @@ import { useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVESTMENT_LEDGER_PAGE_SIZE, INVESTMENT_PAGE_SIZE, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf, closeInvestment, deleteInvestment } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
-import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { InvestorProfileModalContent } from "@/modules/investments/components/InvestorProfileModalContent";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModalContent";
 import { PayInterestModalContent } from "@/modules/investments/components/PayInterestModalContent";
@@ -400,9 +399,6 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         <div className="hd">
           <h3>Ledger</h3>
           <div className="sp" />
-          {investment.customerId ? (
-            <LedgerRefLink kind="customer" id={investment.customerId} label={`${investorName || "Investor"} — customer ledger`} />
-          ) : null}
         </div>
         {ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
         <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="investment-ledger">

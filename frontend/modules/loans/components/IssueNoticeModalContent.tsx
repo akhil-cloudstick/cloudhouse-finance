@@ -28,14 +28,13 @@ type IssueNoticeModalContentProps = { loan: LoanView; onSaved: (rec: AuctionReco
 export function IssueNoticeModalContent({ loan, onSaved, onError }: IssueNoticeModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
-  const [remarks, setRemarks] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function save() { return singleFlight("auction-modal:save:1", async () => {
     setSaving(true);
     try {
-      const rec = await issueAuctionNotice(loan.numericId, remarks.trim() || undefined);
+      const rec = await issueAuctionNotice(loan.numericId);
       onSaved(rec);
       closeModal();
       toast(`Notice sent for ${loan.id} via WhatsApp`);
@@ -61,7 +60,6 @@ export function IssueNoticeModalContent({ loan, onSaved, onError }: IssueNoticeM
       <div className="bd bd-scroll">
         <div className="frow"><div><label className="f">Channel</label>
           <p style={{ fontSize: 13.5, margin: "4px 0 0" }}>{NOTICE_CHANNELS.join(" · ")} — sent automatically</p></div></div>
-        <div className="frow"><div><label className="f">Remarks</label><input className="inp" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

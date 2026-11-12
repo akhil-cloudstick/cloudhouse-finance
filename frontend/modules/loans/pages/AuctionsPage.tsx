@@ -20,7 +20,7 @@ import { ScheduleAuctionModalContent } from "@/modules/loans/components/Schedule
 import { IssueNoticeModalContent } from "@/modules/loans/components/IssueNoticeModalContent";
 import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { FilterPanel, type FilterCategory } from "@/common/components/ui/FilterPanel";
-import { getAuctionRecord, getLoanByNumber, releaseBankPledge, markAuctionEligible, listConcludedAuctionsPage, listLoans, pendingDecision, hasUndisposedSurplus, isActiveAuctionCase, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
+import { loanDisplayStatus, getAuctionRecord, getLoanByNumber, releaseBankPledge, markAuctionEligible, listConcludedAuctionsPage, listLoans, pendingDecision, hasUndisposedSurplus, isActiveAuctionCase, AUCTION_STAGES, AUCTION_STAGE_LABELS, AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type ConcludedAuctionRowView, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 import { useScrollPageSize } from "@/common/utils/responsive";
@@ -172,7 +172,7 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
 
   return (
     <div className="card gtop" style={{ marginBottom: 16 }}>
-      <div className="hd"><h3>{l.id} — {l.customerName}</h3><div className="sp" /><StatusChip status={l.isDefaulted ? "Defaulted" : l.status} /></div>
+      <div className="hd"><h3>{l.id} — {l.customerName}</h3><div className="sp" /><StatusChip status={loanDisplayStatus(l)} /></div>
       <div className="bd">
         <div style={{ marginBottom: 14 }}>
           <StageTracker
@@ -294,10 +294,10 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
         {!frozen && canAct && can("Auction_Workflow", "can_settle_auction") && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
           <button className="btn sm" disabled={checkingRec} onClick={openSettleModal}><Icon name="check" /> {checkingRec ? "Checking…" : "Settle Surplus"}</button>
         )}
-        {/* The letter is the final notice, so it is available from the moment the notice
-          * is issued — not only after a sale date is set or the auction is over. */}
-        {rec && (rec.stage === "NoticeIssued" || rec.stage === "AuctionScheduled" || rec.stage === "Auctioned" || rec.stage === "Settled") && (
-          <button className="btn sm ghost" onClick={() => printAuctionLetter(l, toast)}><Icon name="doc" /> Print Auction Letter</button>
+        {/* The printed notice belongs to the Issue Notice stage only: it is there from the moment the
+          * notice is issued until the auction is scheduled. */}
+        {rec && rec.stage === "NoticeIssued" && (
+          <button className="btn sm ghost" onClick={() => printAuctionLetter(l, toast)}><Icon name="doc" /> Notice</button>
         )}
       </div>
     </div>
@@ -314,7 +314,9 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   const { can } = useAuth();  // A link from a ledger line (an auction's proceeds or surplus settlement) arrives as "history:<loan number>": it opens
   // the Auction History for that loan. Any other focus keeps landing on Active Cases.
   const historyFocus = !!focusLoanNumber && focusLoanNumber.startsWith("history:");
-  const focusLoan = historyFocus ? focusLoanNumber!.slice("history:".length) : focusLoanNumber;
+  // The dashboard's Auction Cases tile arrives as "notice-issued": it opens Active Cases filtered to that stage.
+  const noticePreset = focusLoanNumber === "notice-issued";
+  const focusLoan = noticePreset ? undefined : historyFocus ? focusLoanNumber!.slice("history:".length) : focusLoanNumber;
   const [tab, setTab] = useState<"active" | "history">(historyFocus ? "history" : "active");
   const { openModal } = useModal();
   // One search box shared by both tabs — Active Cases filters client-side
@@ -329,6 +331,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   // Auction status (stage) filter, applied by the backend on both tabs.
   const [stages, setStages] = usePersistedState<string[]>("auctions:stages", []);
   const stagesKey = stages.join(",");
+  useEffect(() => { if (noticePreset) { setStages(["NoticeIssued"]); setQ(""); } }, [noticePreset]); // eslint-disable-line react-hooks/exhaustive-deps
   // History's own filter: only sales that left a surplus to settle, or fell short. Both ticked (or none) shows every sale.
   const [outcomes, setOutcomes] = usePersistedState<string[]>("auctions:outcome", []);
   const outcome = outcomes.length === 1 && (outcomes[0] === "surplus" || outcomes[0] === "shortfall") ? outcomes[0] : "";
@@ -393,7 +396,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
    * case needing the most attention would drop off the page. */
   // With a status filter the server decides which cases match; only in-flight stages apply here.
   const auctionEligibleCases = stages.length
-    ? (activeStages.length ? (stageLoans ?? []) : [])
+    ? (activeStages.length ? (stageLoans ?? []).filter((l) => l.status === "Auctioned" || (loanDisplayStatus(l) !== "Closure Requested" && l.status !== "Closed")) : [])
     : [...loans.filter(isActiveAuctionCase), ...soldLoans.filter((s) => !loans.some((l) => l.numericId === s.numericId))];
   const trimmedQ = q.trim().toLowerCase();
   const allCases = trimmedQ
@@ -471,7 +474,11 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
       rows={[
         ["Loan", r.loanNumber], ["Customer", r.customerName], ["Auction date", fmtDate(r.auctionDate)],
         ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"], ["Net proceeds", fmt(r.saleAmount - (r.auctionExpenses || 0))],
+        // Due at sale = net proceeds minus surplus (or plus shortfall); the backend stores surplusShortfall = net - due.
+        ["Amount due at auction", fmt(Math.max(0, r.saleAmount - (r.auctionExpenses || 0) - r.surplusShortfall))],
         [r.surplusShortfall >= 0 ? "Surplus" : "Shortfall", fmt(Math.abs(r.surplusShortfall))], ["Outcome", AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]],
+        // The remarks recorded on this auction: each decision (keep / pursue / write-off) and the settlement.
+        ...r.decisionRequests.filter((d) => d.decisionRemarks).map((d, i, all) => [all.length > 1 ? `Decision remarks ${i + 1}` : "Decision remarks", d.decisionRemarks] as [string, string]),
         ...(r.surplusRemarks ? [["Settlement remarks", r.surplusRemarks] as [string, string]] : []),
       ]}
       description={<>Auction sale of {fmt(r.saleAmount)} less {fmt(r.auctionExpenses)} expenses.{r.surplusDisposition ? <><br />Surplus {r.surplusDisposition === "RefundedToCustomer" ? "refunded to the customer" : "kept as income"}.</> : null}</>}
@@ -645,13 +652,11 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
               </table>
               <ScrollSentinel enabled={cards && conductedHasMore && !conductedLoading} onVisible={more} watch={conducted.length} />
             </div>
-            <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {!cards && <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={conductedPage <= 1} onClick={() => changeConductedPage(Math.max(1, conductedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {conductedPage} of {conductedTotalPages}</span>
               <button className="btn plain sm" disabled={conductedPage >= conductedTotalPages} onClick={() => changeConductedPage(Math.min(conductedTotalPages, conductedPage + 1))}>Next ›</button>
-              <div className="sp" />
-              <span>Gold that was actually sold at auction, with what it realised and how the surplus or shortfall was resolved.</span>
-            </div>
+            </div>}
           </div>
 
           {/* Cases that closed without a sale. Separated because they have no
@@ -691,11 +696,11 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
               </table>
               <ScrollSentinel enabled={cards && closedHasMore && !closedLoading} onVisible={more} watch={closedWithoutSale.length} />
             </div>
-            <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {!cards && <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={closedPage <= 1} onClick={() => changeClosedPage(Math.max(1, closedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {closedPage} of {closedTotalPages}</span>
               <button className="btn plain sm" disabled={closedPage >= closedTotalPages} onClick={() => changeClosedPage(Math.min(closedTotalPages, closedPage + 1))}>Next ›</button>
-            </div>
+            </div>}
           </div>
         </>
       )}

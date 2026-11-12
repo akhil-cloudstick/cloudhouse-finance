@@ -37,6 +37,7 @@ import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { listSchemesPage } from "@/modules/schemes/services/schemeService";
+import { listPurityStandards } from "@/modules/purity-standards/services/purityStandardService";
 import { listBanksPage } from "@/modules/banks/services/bankService";
 import { listEmployeesPage } from "@/modules/employees/services/employeeService";
 import { listInvestmentPlansPage } from "@/modules/investments/services/investmentService";
@@ -107,7 +108,26 @@ const expenseCategoryGroup = () =>
   asyncGroup("expense_category_id", "Expense Category", (p) =>
     listExpenseCategoriesPage(p.q ?? "", Math.floor(p.offset / p.limit), p.limit).then((r) => ({ items: r.items.map((c) => ({ value: String(c.id), label: c.name })), hasMore: r.hasMore })),
   );
-const INVESTMENT_STATUSES = ["Active", "Matured", "Renewed", "Closed"];
+// Purity as an ornament stores it ("22K") so the report's exact match works; same options as web.
+// Falls back to 24K–10K when the purity-standard list is empty or unavailable.
+const purityGroup = (): FilterGroup =>
+  asyncGroup("purity", "Purity (karat)", async (p) => {
+    let karats: number[] = [];
+    try {
+      const r = await listPurityStandards();
+      karats = (Array.isArray(r) ? r : []).map((x: { karat?: number }) => x.karat).filter((k): k is number => k != null);
+    } catch {
+      /* fall back below */
+    }
+    if (karats.length === 0) karats = Array.from({ length: 15 }, (_, i) => 24 - i);
+    const term = (p.q ?? "").trim().toLowerCase();
+    const items = [...new Set(karats)]
+      .sort((a, b) => b - a)
+      .map((k) => ({ value: `${k}K`, label: `${k}K` }))
+      .filter((o) => !term || o.label.toLowerCase().includes(term));
+    return { items, hasMore: false };
+  });
+const INVESTMENT_STATUSES =["Active", "Matured", "Renewed", "Closed"];
 
 const w = (n?: number | null) => `${(n ?? 0).toFixed(2)} g`;
 const firstOfMonth = () => `${todayISO().slice(0, 8)}01`;
@@ -163,7 +183,7 @@ const REPORTS: ReportDef[] = [
     title: "Payment Collection",
     group: "Loans & Collections",
     kind: "table",
-    filterGroups: [customerGroup(), staticGroup("payment_type", "Payment Type", ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement", "Auction Sale"])],
+    filterGroups: [customerGroup(), staticGroup("payment_type", "Payment Type", ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement", "Waiver", "Discount", "Auction Sale", "Auction Write-Off"])],
     fetch: getPaymentCollection,
     headline: (t) => inr(t?.totalAmount),
     sub: (t) => `${t?.count ?? 0} payments`,
@@ -175,7 +195,7 @@ const REPORTS: ReportDef[] = [
     title: "Gold / Ornament & Weight",
     group: "Gold & Custody",
     kind: "table",
-    filterGroups: [customerGroup(), staticGroup("purity", "Purity", ["24", "22", "20", "18", "14"])],
+    filterGroups: [customerGroup(), purityGroup()],
     fetch: getGoldWeight,
     headline: (t) => w(t?.totalNetWeight),
     sub: (t) => `${w(t?.totalGrossWeight)} gross · ${inr(t?.totalGoldValue)} total value`,

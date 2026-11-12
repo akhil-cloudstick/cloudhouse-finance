@@ -20,7 +20,7 @@ var tenantScopedTables = map[string]bool{
 	"branches": true, "schemes": true, "gold_rates": true, "employees": true,
 	"cash_movements": true, "expenses": true, "opening_cash_balances": true,
 	"categories": true, "cash_sources": true, "expense_categories": true, "loan_cash_sources": true,
-	"customers": true, "loans": true, "ornaments": true,
+	"customers": true, "investors": true, "loans": true, "ornaments": true,
 	"ornament_purity_tests": true, "ornament_images": true,
 	"loan_approvals": true, "loan_payments": true,
 	"bank_pledge_records": true, "bank_pledge_events": true,

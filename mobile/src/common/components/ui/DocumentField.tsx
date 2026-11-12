@@ -49,6 +49,19 @@ export async function fromLibrary(): Promise<PickedFile | null> {
   return { uri: a.uri, name: a.fileName || "image.jpg", mimeType: a.mimeType || "image/jpeg" };
 }
 
+/** Gallery pick of up to `limit` photos in one go. */
+export async function fromLibraryMany(limit: number): Promise<PickedFile[]> {
+  const res = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: "images",
+    quality: 0.35,
+    exif: false,
+    allowsMultipleSelection: limit > 1,
+    selectionLimit: Math.max(1, limit),
+  });
+  if (res.canceled || !res.assets?.length) return [];
+  return res.assets.slice(0, Math.max(1, limit)).map((a) => ({ uri: a.uri, name: a.fileName || "image.jpg", mimeType: a.mimeType || "image/jpeg" }));
+}
+
 export async function fromFiles(): Promise<PickedFile | null> {
   const res = await DocumentPicker.getDocumentAsync({
     type: ["application/pdf", "image/*"],

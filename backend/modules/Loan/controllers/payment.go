@@ -563,7 +563,19 @@ func insertPayment(ctx context.Context, p *models.LoanPayment) error {
 }
 
 func createPaymentTx(ctx context.Context, tx *gorm.DB, p *models.LoanPayment) error {
-	return paymentDbOr(ctx, tx).Create(p).Error
+	db := paymentDbOr(ctx, tx)
+	if err := db.Create(p).Error; err != nil {
+		return err
+	}
+	// A repayment answers the loan's open follow-up / promise-to-pay reminders: they are finished work and
+	// must stop showing. Discounts and waivers are not repayments, so they leave the reminders alone.
+	if p.LoanID != 0 && p.Amount > 0 && p.Type != models.PaymentTypeDiscount && p.Type != models.PaymentTypeWaiver {
+		if err := db.Exec("UPDATE reminders SET status = ?, updated_at = ? WHERE loan_id = ? AND status <> ? AND deleted_at IS NULL",
+			"Done", time.Now(), p.LoanID, "Done").Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func setCashTransactionGroupID(ctx context.Context, paymentID uint, groupID string) error {

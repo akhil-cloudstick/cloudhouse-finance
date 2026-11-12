@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from "react-native";
 import { C, Field, Sheet, SheetListItem, Txt } from "@/common/components/ui";
-import { fromCamera, fromFiles, fromLibrary, PermissionError } from "@/common/components/ui/DocumentField";
+import { fromCamera, fromFiles, fromLibrary, fromLibraryMany, PermissionError } from "@/common/components/ui/DocumentField";
 import { uploadFile } from "@/common/services/uploadService";
 import { type PickedFile } from "@/common/types/upload-types";
 import { API_ORIGIN, ApiError } from "@/common/services/httpClient";
-import { BillSheet, useUploadSource } from "./BillSheet";
+import { BillSheet, UploadImage, useUploadSource } from "./BillSheet";
 import { useAuth } from "@/common/providers/AuthProvider";
 
 type UploadFieldProps = {
@@ -14,6 +14,10 @@ type UploadFieldProps = {
   onChange: (url: string) => void;
   allowPdf?: boolean;
   emptyText?: string;
+  /** With `onAddMany`, the gallery lets you pick up to this many photos at once. */
+  maxFiles?: number;
+  /** Receives every uploaded URL from a multi-photo gallery pick (instead of `onChange` one at a time). */
+  onAddMany?: (urls: string[]) => void;
 };
 
 /** Prototype dashed upload tile ("Tap to add a photo" / "Tap to upload").
@@ -24,6 +28,8 @@ export function UploadField({
   onChange,
   allowPdf = true,
   emptyText,
+  maxFiles = 1,
+  onAddMany,
 }: UploadFieldProps) {
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -57,6 +63,24 @@ export function UploadField({
     }
   }
 
+  // Several photos picked from the gallery in one go: upload them all, then hand back the URLs together.
+  async function pickMany() {
+    setChoosing(false);
+    setError(null);
+    try {
+      const files = await fromLibraryMany(maxFiles);
+      if (!files.length) return;
+      setBusy(true);
+      const urls: string[] = [];
+      for (const f of files) urls.push(await uploadFile(f));
+      onAddMany?.(urls);
+    } catch (e) {
+      setError(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const isImage = !!value && !/\.pdf$/i.test(value);
   // /uploads/* is only served to a signed-in caller — send the session token.
   const thumbSource = useUploadSource(value || "");
@@ -74,9 +98,13 @@ export function UploadField({
         ) : value ? (
           <View style={s.done}>
             {isImage ? (
-              <Pressable onPress={() => setViewing(true)} hitSlop={6}>
-                <Image source={preview} style={s.thumb} />
-              </Pressable>
+              localThumb ? (
+                <Pressable onPress={() => setViewing(true)} hitSlop={6}>
+                  <Image source={preview} style={s.thumb} />
+                </Pressable>
+              ) : (
+                <UploadImage path={value} title={label} style={s.thumb} />
+              )
             ) : null}
             <Txt style={s.doneTxt} numberOfLines={1}>
               {name ?? "Attached"}
@@ -107,7 +135,11 @@ export function UploadField({
       {error ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 6 }}>{error}</Txt> : null}
       <Sheet visible={choosing} onClose={() => setChoosing(false)} title={label} maxHeightPct={50}>
         <SheetListItem first icon="scan" title="Take a photo" onPress={() => pick(fromCamera)} />
-        <SheetListItem icon="doc" title="Choose from gallery" onPress={() => pick(fromLibrary)} />
+        <SheetListItem
+          icon="doc"
+          title={onAddMany && maxFiles > 1 ? `Choose from gallery (up to ${maxFiles})` : "Choose from gallery"}
+          onPress={() => (onAddMany ? pickMany() : pick(fromLibrary))}
+        />
         {allowPdf ? <SheetListItem icon="note" title="Choose a file" sub="PDF or image" onPress={() => pick(fromFiles)} /> : null}
       </Sheet>
     </Field>

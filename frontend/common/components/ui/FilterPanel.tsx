@@ -113,6 +113,18 @@ function CategoryOptionList({
     // until the user switched tabs away and back or typed in its search box.
   }, [isAsync, category.key, search, loadPage]);
 
+  // A small page (5 rows) can leave the list shorter than its box, so there is nothing to scroll and the next
+  // page would never load: keep loading until the list overflows or there is no more.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!isAsync || !el || loading || !hasMore) return;
+    if (el.scrollHeight <= el.clientHeight + 1) {
+      const next = page + 1;
+      setPage(next);
+      loadPage(next, search, true);
+    }
+  }, [asyncItems, hasMore, loading, isAsync, page, search, loadPage]);
+
   function onScroll() {
     const el = listRef.current;
     if (!el || category.kind !== "async" || loading || !hasMore) return;

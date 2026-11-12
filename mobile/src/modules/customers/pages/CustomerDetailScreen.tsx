@@ -354,6 +354,7 @@ export default function CustomerDetailScreen() {
   // Once the open tab has loaded, the other tabs are fetched in the background so switching is instant.
   const [warm, setWarm] = useState(false);
   const canUpdateLoan = useAuth().can("Loan_Management", "can_update_loan");
+  const canUpdate = useAuth().can("Customer_Management", "can_update_customer");
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["customer", id],
@@ -551,7 +552,21 @@ export default function CustomerDetailScreen() {
             ["Additional document", data.kycDocumentUrl],
           ] as const
         ).map(([label, url], i) => (
-          <DetailRow key={label} first={i === 0} k={label} v={url ? <BillLink path={url} title={label} icon /> : "—"} />
+          <DetailRow
+            key={label}
+            first={i === 0}
+            k={label}
+            v={
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+                {url ? <BillLink path={url} title={label} icon /> : <Txt style={{ color: C.muted }}>—</Txt>}
+                {canUpdate ? (
+                  <Pressable onPress={() => setEditOpen(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`${url ? "Replace" : "Add"} ${label}`}>
+                    <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep }}>{url ? "Replace" : "Add"}</Txt>
+                  </Pressable>
+                ) : null}
+              </View>
+            }
+          />
         ))}
       </Card>
       {totals.data ? (

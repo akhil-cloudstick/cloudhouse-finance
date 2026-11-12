@@ -120,7 +120,7 @@ export function BanksSheet({ visible, onClose }: BanksSheetProps) {
     return (
       <Sheet visible={visible} onClose={() => setView({ kind: "list" })} title="Delete Bank" maxHeightPct={55}>
         <View style={{ marginTop: 10 }}>
-          <WarningBanner>{`Permanently delete "${bank.name}"? This can't be undone. If it's still linked to any transactions or pledges, deletion will be blocked.`}</WarningBanner>
+          <WarningBanner>Delete bank permanently?</WarningBanner>
         </View>
         {errText(error)}
         <BtnRow2>

@@ -98,7 +98,6 @@ export function EsignStatusModalContent({ title, loanNumber, signers, check, onC
         {done && <p style={{ color: "var(--green)", fontSize: 12.5 }}>All signatures are verified. The signed document is saved.</p>}
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
         {!done && <button className="btn" onClick={() => void refresh(true)} disabled={checking}>{checking ? "Checking…" : "Check status"}</button>}
       </div>
     </>

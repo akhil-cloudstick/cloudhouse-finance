@@ -49,7 +49,8 @@ import { OrnamentTypeField } from "./OrnamentTypeField";
 // rules as the web NewLoan form: blocked until today's gold rate is
 // published, ornament value = net wt × rate for its purity (quantity is not multiplied in), principal
 // capped at the scheme's LTV-eligible amount.
-type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; lessWeight: string; quantity: string; imgs: string[] };
+type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; lessWeight: string; quantity: string; imgs: string[]; netText?: string };
+const MAX_ORNAMENT_PHOTOS = 3;
 const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "22", grossWeight: "", lessWeight: "", quantity: "1", imgs: [] };
 const KARATS = ["24", "23", "22", "21", "20", "18", "16", "14", "12", "10"];
 const FINENESS = ["99.9", "99.5", "91.6", "87.5", "83.3", "75", "58.5", "41.7"];
@@ -131,6 +132,8 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
   const [branch, setBranch] = useState<{ id: number; name: string } | null>(ownBranch);
   const [locker, setLocker] = useState<Locker | null>(null);
   const [rows, setRows] = useState<OrnRow[]>([{ ...emptyRow }]);
+  // The "what's missing" message only appears once Create Loan has been pressed.
+  const [tried, setTried] = useState(false);
   // A manually typed principal, and the eligible amount it was typed against (`at`; null = restored from a
   // draft). It is dropped whenever the eligible amount changes (ornaments, scheme or rate edited), so the
   // field never keeps an amount computed against different gold — it falls back to the eligible amount.
@@ -208,9 +211,9 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
                     : overallPhotoRequired && !overallPhoto
                       ? "Add the overall photo of the pledged gold."
                       : null;
-  const canSubmit = canCreate && missingReason === null;
 
   const reset = () => {
+    setTried(false);
     setCustomer(null);
     setScheme(null);
     setBranch(ownBranch);
@@ -360,10 +363,10 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
   return (
     <Sheet visible={visible} onClose={onClose} title="Create New Loan" maxHeightPct={80}>
       {!canCreate ? (
-        <NoticeBanner>You don&apos;t have permission to create a loan. Contact a Loan Operator, Branch Manager, or Administrator.</NoticeBanner>
+        <NoticeBanner>No permission to create.</NoticeBanner>
       ) : null}
       {canCreate && goldRate.data !== undefined && !isTodaySet ? (
-        <WarningBanner>Today&apos;s gold rate hasn&apos;t been published yet — loan creation is blocked until it is. Set it from the dashboard gold rate.</WarningBanner>
+        <WarningBanner>Today&apos;s gold rate missing.</WarningBanner>
       ) : null}
 
       <AsyncSelect<Customer>
@@ -455,15 +458,25 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
             </FieldRow>
             <FieldRow>
               <Field label="Gross Wt (g)">
-                <Input keyboardType="decimal-pad" placeholder="0.0" value={r.grossWeight} onChangeText={(v) => update(i, { grossWeight: v })} />
+                <Input keyboardType="decimal-pad" placeholder="0.0" value={r.grossWeight} onChangeText={(v) => update(i, { grossWeight: v, netText: undefined })} />
               </Field>
               <Field label="Less Wt (g)">
-                <Input keyboardType="decimal-pad" placeholder="0.0" value={r.lessWeight} onChangeText={(v) => update(i, { lessWeight: v })} style={bad ? { borderColor: C.red } : undefined} />
+                <Input keyboardType="decimal-pad" placeholder="0.0" value={r.lessWeight} onChangeText={(v) => update(i, { lessWeight: v, netText: undefined })} style={bad ? { borderColor: C.red } : undefined} />
               </Field>
             </FieldRow>
             {bad ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 8 }}>Less Wt cannot be greater than Gross Wt</Txt> : null}
             <Field label="Net Wt (g)">
-              <Input value={r.grossWeight ? trim3(netOf(r)) : ""} editable={false} placeholder="Auto" />
+              <Input
+                keyboardType="decimal-pad"
+                placeholder="Auto"
+                value={r.netText ?? (r.grossWeight ? trim3(netOf(r)) : "")}
+                onChangeText={(v) => {
+                  // Net is gross − less, so editing it sets the less weight.
+                  const g = Number(r.grossWeight) || 0;
+                  const net = Math.min(Number(v) || 0, g);
+                  update(i, { netText: v, lessWeight: v === "" || !g ? r.lessWeight : trim3(Math.max(0, g - net)) });
+                }}
+              />
             </Field>
             {r.imgs.map((url, k) => (
               <UploadField
@@ -474,12 +487,14 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
                 allowPdf={false}
               />
             ))}
-            {r.imgs.length < 5 ? (
+            {r.imgs.length < MAX_ORNAMENT_PHOTOS ? (
               <UploadField
                 key={`${i}-add-${r.imgs.length}`}
                 label={r.imgs.length ? "Add another photo" : "Ornament photo"}
                 value=""
-                onChange={(u) => u && update(i, { imgs: [...r.imgs, u] })}
+                onChange={(u) => u && update(i, { imgs: [...r.imgs, u].slice(0, MAX_ORNAMENT_PHOTOS) })}
+                maxFiles={MAX_ORNAMENT_PHOTOS - r.imgs.length}
+                onAddMany={(urls) => update(i, { imgs: [...r.imgs, ...urls].slice(0, MAX_ORNAMENT_PHOTOS) })}
                 allowPdf={false}
               />
             ) : null}
@@ -566,7 +581,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      {canCreate && !error ? <ErrorText>{missingReason}</ErrorText> : null}
+      {canCreate && !error && tried && missingReason ? <ErrorText>{missingReason}</ErrorText> : null}
       <BtnRow2>
         {canCreate ? (
           <PrimaryButton
@@ -577,7 +592,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
             disabled={!branch || !hasDraftContent}
           />
         ) : null}
-        <PrimaryButton label="Create Loan" onPress={() => submit.mutate()} loading={submit.isPending} disabled={!canSubmit} />
+        <PrimaryButton label="Create Loan" onPress={() => (missingReason ? setTried(true) : submit.mutate())} loading={submit.isPending} disabled={!canCreate} />
       </BtnRow2>
     </Sheet>
   );
