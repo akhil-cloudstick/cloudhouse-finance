@@ -27,7 +27,9 @@ export { changeWithEntry, getLocal, listLocal, removeLocal, subscribeLocal, upse
 export type { Actor, EntityName, LocalRecord, OutboxEntry } from "./types";
 
 // how often the sender and the pull run on their own (a save, coming back online and the manual button run at once)
-const CRON_MS = 10 * 60_000;
+const CRON_MS = 60_000; // send + pull + business tables: incremental, so a minute is cheap and new server data reaches the screens quickly
+const WARM_EVERY = 3; // the heavier refresh of the kept lists runs on every third tick
+let ticks = 0;
 const DEVICE_FOLDER = "pc"; // the folder is already per Windows user, so one folder is one PC
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -55,9 +57,20 @@ async function doStartOffline(): Promise<void> {
 	try {
 		// the first time on this PC the user decides where the offline data is kept
 		if (!(await offlineStore.rootChosen())) await askStorageChoice();
-		// the business key lets this PC join the main PC on the local network; it is asked for before the store opens,
-		// because the store opens on the main PC's data when this PC is a counter
-		await ensureLanKey();
+		// The business key lets this PC join the main PC on the local network.
+		// A counter opens on the main PC's data, so it needs the business key first. Every other PC (a single PC with no
+		// local network, or the main PC) gets it in the background: launch never waits on the network for it.
+		let counter = false;
+		try {
+			if (lan.available()) {
+				const m = await lan.dataMode();
+				counter = !!(m.shared || m.live?.shared);
+			}
+		} catch {
+			/* no answer about the mode: treated as a PC of its own */
+		}
+		if (counter) await ensureLanKey();
+		else void ensureLanKey();
 		await offlineStore.open(business, DEVICE_FOLDER);
 		setSharedData(lan.available() ? (await lan.dataMode()).shared : false);
 		await loadDevice();
@@ -65,8 +78,8 @@ async function doStartOffline(): Promise<void> {
 		await loadCopyStatus();
 		await loadMirrorStatus();
 		await loadAuctionStages();
+		await bindLocalApi(); // bound BEFORE offline mode is announced, so the first read can already be answered from this PC's copy (never throws)
 		setOfflineReady(true);
-		void bindLocalApi();
 	} catch (e) {
 		setOfflineReady(false);
 		setSharedData(false);
@@ -83,7 +96,7 @@ async function doStartOffline(): Promise<void> {
 	timer = setInterval(() => {
 		void drain("cron");
 		// refresh what is kept for offline use (changes other people made reach this PC's copy)
-		void warmReadCache();
+		if (++ticks % WARM_EVERY === 0) void warmReadCache();
 	}, CRON_MS);
 	window.addEventListener("online", onOnline);
 }
@@ -108,17 +121,19 @@ function watchLan(): void {
 	if (watching || !lan.available()) return;
 	watching = true;
 	lan.onMode(() => void reopenIfNeeded());
+	// this PC's data file was replaced by a move: what the page loaded from the old one must be loaded again
+	lan.onReload(() => void reopenIfNeeded(true));
 	lan.onEntries(() => {
 		if (offlineReady() && !sharedData()) void drain("a counter saved");
 	});
 }
 
-async function reopenIfNeeded(): Promise<void> {
+async function reopenIfNeeded(force = false): Promise<void> {
 	if (reopening || !offlineReady()) return;
 	reopening = true;
 	try {
 		const m = await lan.dataMode();
-		if (!m.needRestart) return;
+		if (!force && !m.needRestart) return;
 		offlineStore.log("info", `the main PC choice changed: opening the offline store again (${m.live.reason})`);
 		stopOffline();
 		await startOffline();

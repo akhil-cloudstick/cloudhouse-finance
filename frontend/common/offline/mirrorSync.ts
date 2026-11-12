@@ -139,7 +139,8 @@ async function syncIncremental(t: TableMeta, by: Map<string, TableMeta>): Promis
 		const state: Record<string, string> = page.has_more
 			? { [posKey]: JSON.stringify({ since, after: page.next.after, start: page.next.start }) }
 			: { [cursorKey]: page.cursor, [posKey]: "" };
-		await offlineStore.mirrorApply(JSON.stringify({ tables: Array.from(batch.values()), state }));
+		if (live.length || dead.length) changes++;
+			await offlineStore.mirrorApply(JSON.stringify({ tables: Array.from(batch.values()), state }));
 		if (!page.has_more) return;
 		after = page.next.after;
 		start = page.next.start;
@@ -151,6 +152,7 @@ async function syncWhole(t: TableMeta): Promise<void> {
 	page.rows ??= [];
 	const hash = hashOf(JSON.stringify(page.rows));
 	if ((await offlineStore.mirrorState(`hash.${t.name}`)) === hash) return;
+	changes++;
 	await offlineStore.mirrorApply(JSON.stringify({ tables: [{ table: t.name, truncate: true, rows: page.rows }], state: { [`hash.${t.name}`]: hash } }));
 }
 
@@ -165,6 +167,7 @@ async function dropGone(tables: TableMeta[]): Promise<void> {
 			continue;
 		}
 		const gone = local.filter((id) => !live.has(id));
+		if (gone.length) changes++;
 		if (gone.length === 0) continue;
 		for (const part of chunks(gone, 500)) {
 			await offlineStore.mirrorApply(JSON.stringify({ tables: [{ table: t.name, delete: part }] }));
@@ -205,6 +208,13 @@ let current: Promise<boolean> | null = null;
 
 /* Brings every mirrored table up to date and resolves when the pass has finished (true when every table is current). A call
  * made during a pass gets that pass's result and queues one more, so no request is lost. */
+/* Counts the times a sync brought newer rows (or removed gone ones) into this PC's tables. The sender watches it to tell
+ * "the server answered" from "something is new", so open pages are refreshed only when there is something to show. */
+let changes = 0;
+export function mirrorChanges(): number {
+	return changes;
+}
+
 export function syncMirror(why: string): Promise<boolean> {
 	if (sharedData()) return Promise.resolve(false); // the main PC downloads for every PC
 	if (current) {

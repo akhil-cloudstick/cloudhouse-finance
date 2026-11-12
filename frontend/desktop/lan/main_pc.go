@@ -120,7 +120,7 @@ func (a *Agent) ClearMain() MainResult {
 func (a *Agent) afterMainChange() {
 	a.emitPeers()
 	a.modeChanged() // where this PC keeps its data may have changed
-	go a.sendBeacons()
+	a.goSafe("send beacons", a.sendBeacons)
 }
 
 // maybeAdopt takes another PC's choice when it is newer than ours (or wins an equal-version tie).

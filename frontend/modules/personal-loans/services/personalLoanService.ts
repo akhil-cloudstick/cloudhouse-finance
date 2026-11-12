@@ -26,7 +26,7 @@ export type CreatePersonalLoanHint = { customerName: string; customerCode: strin
  * and sent when the connection is there, the customer first, as the entry points at the customer by its uuid. Otherwise the
  * loan is created on the server exactly as before, so its real number comes back. */
 export async function createPersonalLoan(input: CreatePersonalLoanInput, hint?: CreatePersonalLoanHint): Promise<BackendPersonalLoan> {
-	if (offlineReady() && hint && typeof input.customerId === "string") return queuePersonalLoan(input, hint);
+	if (offlineReady() && hint) return queuePersonalLoan(input, hint);
 	try {
 		// quiet: with no answer the loan is queued below, so no "couldn't reach" pop-up is wanted
 		return await quietly(() => apiFetch<BackendPersonalLoan>("/personal-loans", { method: "POST", body: JSON.stringify(input) }));

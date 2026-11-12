@@ -214,6 +214,7 @@ export type LanStep = LanStepInfo;
 export type LanProbe = LanProbeInfo;
 export type LanMainResult = LanMainResultInfo;
 export type LanDataMode = LanDataModeInfo;
+export type LanMoveResult = LanMoveResultInfo;
 
 export const lan = {
   available: (): boolean => isDesktop() && typeof app()?.LanStatus === "function",
@@ -228,6 +229,14 @@ export const lan = {
   /* The main PC: chosen by an admin on any PC; the choice spreads to every PC on the network. */
   setMain: (id: string) => app()!.LanSetMain!(id),
   clearMain: () => app()!.LanClearMain!(),
+  /* Makes this PC the main PC and brings the current main PC's data with it (copied, checked, then swapped in). Takes a
+   * while for a large data file; progress is in the log. */
+  moveMain: () => app()!.LanMoveMain!(),
+  /* This PC's data file was replaced (a move): the offline data must be opened again. */
+  onReload: (handler: () => void): (() => void) => {
+    if (!isDesktop() || !window.runtime) return noop;
+    return window.runtime.EventsOn("lan:reload", () => handler());
+  },
   /* The business key the server gives every signed-in PC of the business (see common/offline/lanKey.ts). */
   setKey: (key: string) => app()!.LanSetKey!(key),
   /* Where this PC's data is (its own store, or the main PC's) and whether the store must be opened again. */

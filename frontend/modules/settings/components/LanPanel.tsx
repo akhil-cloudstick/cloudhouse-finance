@@ -28,7 +28,7 @@ export function LanPanel() {
 	const [level, setLevel] = useState<"all" | "warn">("all");
 	const [text, setText] = useState("");
 	// the choice waiting for the admin's confirmation ("self" and "peer" choose a PC, "clear" removes the main PC)
-	const [confirm, setConfirm] = useState<{ kind: "self" | "peer" | "clear"; id: string; name: string } | null>(null);
+	const [confirm, setConfirm] = useState<{ kind: "self" | "peer" | "clear" | "move"; id: string; name: string } | null>(null);
 	const logRef = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
 
@@ -113,7 +113,7 @@ export function LanPanel() {
 		if (!confirm) return;
 		const c = confirm;
 		setConfirm(null);
-		const r = await run("main", () => (c.kind === "clear" ? lan.clearMain() : lan.setMain(c.id)));
+		const r = await run<{ message: string }>("main", () => (c.kind === "clear" ? lan.clearMain() : c.kind === "move" ? lan.moveMain() : lan.setMain(c.id)));
 		if (r) setMessage(r.message);
 	}
 
@@ -183,15 +183,30 @@ export function LanPanel() {
 					</span>
 				)}
 				{dataMode && dataMode.live.reason && <span style={hint}>{dataMode.live.reason}</span>}
+				{dataMode && dataMode.handover.moved > 0 && dataMode.handover.left === 0 && (
+					<span style={{ fontSize: 13, color: "#1a8d5f" }}>
+						{dataMode.handover.moved} entr{dataMode.handover.moved === 1 ? "y" : "ies"} this PC had not sent yet {dataMode.handover.moved === 1 ? "was" : "were"} handed to the main PC, which will send {dataMode.handover.moved === 1 ? "it" : "them"}.
+					</span>
+				)}
+				{dataMode && dataMode.handover.left > 0 && (
+					<span className="sa-error" style={{ fontSize: 13 }}>
+						{dataMode.handover.left} unsent entr{dataMode.handover.left === 1 ? "y is" : "ies are"} still only on this PC ({dataMode.handover.error}). They are safe here and are handed to the main PC the next time this PC signs in.
+					</span>
+				)}
 
 				{confirm ? (
 					<div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 12px", border: "1px solid var(--line)", borderRadius: 8 }}>
 						<span style={{ fontSize: 13 }}>
 							{confirm.kind === "clear"
 								? "Remove the main PC? No PC will be the main PC afterwards."
-								: confirm.kind === "self"
-									? "Make this PC the main PC? The other PCs will be told straight away."
-									: `Make ${confirm.name} the main PC? All PCs, including this one, will use it.`}
+								: confirm.kind === "move"
+									? `Move the main PC to this PC? Everything on ${status?.mainName || "the main PC"} is copied here and checked first. Saving pauses for a moment on every PC. Nothing is deleted: ${status?.mainName || "the main PC"} keeps its own copy, and this PC's previous file is kept as a backup.`
+									: confirm.kind === "self"
+										? "Make this PC the main PC? The other PCs will be told straight away."
+										: `Make ${confirm.name} the main PC? All PCs, including this one, will use it.`}
+							{(confirm.kind === "self" || confirm.kind === "peer") && status?.mainId && !status.mainOnline
+								? ` ${status.mainName} is not on the network, so its data cannot be copied. Its unsent entries stay on it and are handed to the new main PC when it comes back.`
+								: ""}
 						</span>
 						<div style={{ display: "flex", gap: 8 }}>
 							<button type="button" className="btn sm" disabled={!!busy} onClick={() => void applyMain()}>Yes, confirm</button>
@@ -200,10 +215,17 @@ export function LanPanel() {
 					</div>
 				) : (
 					<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-						{status && !status.isMain && (
-							<button type="button" className="btn sm" disabled={!!busy} onClick={() => setConfirm({ kind: "self", id: status.id, name: status.name })}>
-								Make this the main PC
+						{status && !status.isMain && status.mainId && status.mainOnline && status.hasKey ? (
+							<button type="button" className="btn sm" disabled={!!busy} onClick={() => setConfirm({ kind: "move", id: status.id, name: status.name })}>
+								{busy === "main" ? "Moving… (see the log)" : "Move the main PC to this PC"}
 							</button>
+						) : (
+							status &&
+							!status.isMain && (
+								<button type="button" className="btn sm" disabled={!!busy} onClick={() => setConfirm({ kind: "self", id: status.id, name: status.name })}>
+									Make this the main PC
+								</button>
+							)
 						)}
 						{status && status.mainId && (
 							<button type="button" className="btn sm" disabled={!!busy} onClick={() => setConfirm({ kind: "clear", id: "", name: "" })}>
@@ -278,6 +300,11 @@ export function LanPanel() {
 
 			<div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
 				<strong>Other PCs ({peers.length})</strong>
+				{status && status.mainId && status.mainOnline && (
+					<p style={hint}>
+						To move the main PC to another PC, open the app on that PC and press <b>Move the main PC to this PC</b>. The data is copied from {status.isMain ? "this PC" : status.mainName} and checked first.
+					</p>
+				)}
 				{peers.length === 0 ? (
 					<p style={hint}>No other PC found yet. Plug in the cable, open the app on the other PC, and wait up to a minute. If nothing appears, run the self-test.</p>
 				) : (
@@ -307,7 +334,7 @@ export function LanPanel() {
 										</td>
 										<td style={{ padding: "6px 0", textAlign: "right" }}>
 											<div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
-												{!p.isMain && (
+												{!p.isMain && !(status?.mainId && status.mainOnline) && (
 													<button type="button" className="btn sm" disabled={!!busy} onClick={() => setConfirm({ kind: "peer", id: p.id, name: p.name })}>
 														Make main
 													</button>

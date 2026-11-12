@@ -258,9 +258,9 @@ func (a *Agent) Start() {
 	a.startUDP()
 	a.startHTTP()
 	a.wg.Add(3)
-	go a.beaconLoop()
-	go a.expireLoop()
-	go a.probeLoop()
+	a.goSafe("beacon loop", a.beaconLoop)
+	a.goSafe("expire loop", a.expireLoop)
+	a.goSafe("probe loop", a.probeLoop)
 }
 
 // Stop ends the background work and closes the ports.
@@ -298,7 +298,7 @@ func (a *Agent) startUDP() {
 	a.mu.Unlock()
 	a.log.Log("ok", "BEACON", "listening for other PCs on UDP %d", a.cfg.DiscoveryPort)
 	a.wg.Add(1)
-	go a.listenLoop(c)
+	a.goSafe("listen loop", func() { a.listenLoop(c) })
 }
 
 func (a *Agent) startHTTP() {
@@ -319,10 +319,10 @@ func (a *Agent) startHTTP() {
 	a.mu.Unlock()
 	a.log.Log("ok", "PING", "answering connection tests on TCP %d", a.cfg.HTTPPort)
 	a.wg.Add(1)
-	go func() {
+	a.goSafe("http server", func() {
 		defer a.wg.Done()
 		_ = a.srv.Serve(ln)
-	}()
+	})
 }
 
 func (a *Agent) handlePing(w http.ResponseWriter, r *http.Request) {
@@ -686,18 +686,20 @@ func (a *Agent) probeAll() {
 	var wg sync.WaitGroup
 	for _, t := range targets {
 		wg.Add(1)
-		go func(t target) {
+		t := t
+		a.goSafe("probe peer", func() {
 			defer wg.Done()
 			res := Probe(t.ip, t.port, probeWait)
 			a.applyProbe(t.id, res, false)
 			if res.Status == "reachable" {
 				a.adoptFromReply(res)
 			}
-		}(t)
+		})
 	}
 	for _, m := range manual {
 		wg.Add(1)
-		go func(m string) {
+		m := m
+		a.goSafe("probe added PC", func() {
 			defer wg.Done()
 			host, port := splitTarget(m, a.cfg.HTTPPort)
 			res := Probe(host, port, probeWait)
@@ -705,7 +707,7 @@ func (a *Agent) probeAll() {
 				a.upsertManual(res)
 				a.adoptFromReply(res)
 			}
-		}(m)
+		})
 	}
 	wg.Wait()
 }

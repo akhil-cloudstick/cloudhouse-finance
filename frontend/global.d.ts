@@ -39,6 +39,13 @@ interface LanDataModeInfo {
   mainId: string;
   needRestart: boolean; // the main PC choice changed since the store was opened
   live: LanModeInfo;
+  // unsent entries this PC handed to the main PC when it joined it (moved), and any still only on this PC (left)
+  handover: { moved: number; left: number; error: string };
+}
+interface LanMoveResultInfo {
+  ok: boolean;
+  message: string;
+  backup: string; // where this PC's own previous data file was kept
 }
 interface LanMainResultInfo {
   ok: boolean;
@@ -96,6 +103,7 @@ interface DesktopApp {
   LanTestPeer?(target: string): Promise<LanProbeInfo>;
   LanAddPeer?(target: string): Promise<LanProbeInfo>;
   LanAllowAccess?(): Promise<{ ok: boolean; message: string }>;
+  LanMoveMain?(): Promise<LanMoveResultInfo>;
   LanSetKey?(key: string): Promise<void>;
   LanDataMode?(): Promise<LanDataModeInfo>;
   LanSetMain?(id: string): Promise<LanMainResultInfo>;

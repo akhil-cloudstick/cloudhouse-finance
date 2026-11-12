@@ -9,7 +9,8 @@ import { LoansProvider } from "@/modules/loans/store/LoansProvider";
 import { GoldRatesProvider } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { ModalProvider } from "@/common/components/ModalProvider";
 import { ToastProvider, useToast } from "@/common/components/ToastProvider";
-import { ENTRY_REFUSED_EVENT } from "@/common/offline/live";
+import { DATA_CHANGED_EVENT, ENTRY_REFUSED_EVENT } from "@/common/offline/live";
+import { isDesktop } from "@/common/services/desktopBridge";
 import { UNREACHABLE_EVENT } from "@/common/services/httpClient";
 import { OfflineStoragePrompt } from "@/common/components/OfflineStoragePrompt";
 import { TooltipLayer } from "@/common/components/TooltipLayer";
@@ -51,6 +52,7 @@ import { SettingsPage } from "@/modules/settings/pages/SettingsPage";
 import { RolesPermissionsPage } from "@/modules/roles/pages/RolesPermissionsPage";
 import { BillingPage } from "@/modules/billing/pages/BillingPage";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { SyncBanner } from "@/common/components/layout/SyncBanner";
 import { ModeLedgerPage } from "@/modules/cash/pages/ModeLedgerPage";
 import { ROUTE_ALIASES } from "@/common/config/routes";
 import { ROUTE_PERMISSIONS, baseRoute, routeAllowed, routeEntitled, setNavigationGuard } from "@/common/config/routePermissions";
@@ -209,6 +211,27 @@ function AppShellInner() {
 	// (a real "start fresh" reload of that page's own state), same as a
 	// genuine route change already does.
 	const [reloadSeq, setReloadSeq] = useState(0);
+
+	// Desktop: when the sync brought newer data from the server into this PC's copy, the open page is refreshed so it shows
+	// it. Never while the person is typing, while a modal is open, or on a form page: that would throw their work away.
+	useEffect(() => {
+		if (!isDesktop()) return;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const onChanged = () => {
+			clearTimeout(timer);
+			timer = setTimeout(() => {
+				const el = document.activeElement as HTMLElement | null;
+				const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+				if (typing || document.querySelector(".modal-bg.open") || route === "newloan") return;
+				setReloadSeq((n) => n + 1);
+			}, 800);
+		};
+		window.addEventListener(DATA_CHANGED_EVENT, onChanged);
+		return () => {
+			clearTimeout(timer);
+			window.removeEventListener(DATA_CHANGED_EVENT, onChanged);
+		};
+	}, [route]);
 
 	// The navigation guard navigate() consults (common/config/routePermissions.ts):
 	// a link, button or KPI card to a page this role can't open is refused
@@ -371,6 +394,7 @@ function AppShellInner() {
 			<Sidebar route={route} open={sidebarOpen} onNavigateSameRoute={() => setReloadSeq((n) => n + 1)} />
 			<div className="main">
 				<Topbar route={route} arg={arg} onBurger={() => setSidebarOpen((v) => !v)} />
+					<SyncBanner />
 				<main className="page" id="view" ref={pageRef}>
 					{/* The global branch selection is part of the key: switching branch
 						* remounts the page so every list/KPI refetches under the new

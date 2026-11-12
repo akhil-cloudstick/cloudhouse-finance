@@ -3,8 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useLayoutEffect } from "react";
 import { startOffline, stopOffline } from "@/common/offline";
 import { offlineLogin, rememberLogin } from "@/common/offline/loginCache";
-import { ApiError } from "@/common/services/httpClient";
-import { offlineStore } from "@/common/services/desktopBridge";
+import { ApiError, quietly } from "@/common/services/httpClient";
+import { offlineReady } from "@/common/offline/state";
+import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
+import { isReachable } from "@/common/offline/network";
+import { clearAuthExpired, consumeExpiredMarker } from "@/common/offline/syncProblem";
 import { login as loginRequest } from "@/common/services/authService";
 import { type AuthEmployee, type LoginResponse } from "@/common/types/auth-types";
 import { fetchMyPermissions } from "@/common/services/permissionService";
@@ -160,6 +163,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 		try {
 			const data = await fetchApprovalWorkflow();
 			if (data.length) setApprovalWorkflow(data);
+				// Desktop answered from this PC's copy: bring the server's current configuration in behind it (see loadPermissions)
+				if (isDesktop() && offlineReady()) {
+					void quietly(() => fetchApprovalWorkflow())
+						.then((fresh) => {
+							if (fresh.length) setApprovalWorkflow(fresh);
+						})
+						.catch(() => undefined);
+				}
 		} catch {
 			/* keep whatever is already loaded (defaults on first load) */
 		}
@@ -176,9 +187,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
 			setPermissions(data);
 			setPermissionsFailed(false);
 			writePermissionsRaw(activeBusinessSlug(), JSON.stringify(data));
+				// Desktop reads this PC's own copy first, so the grants are re-read from the server in the background (never
+				// from a days-old copy for long): a change made there takes effect here as soon as the server answers. No answer
+				// (offline) changes nothing.
+				if (isDesktop() && offlineReady()) {
+					void quietly(() => fetchMyPermissions(emp.id))
+						.then((fresh) => {
+							setPermissions(fresh);
+							writePermissionsRaw(activeBusinessSlug(), JSON.stringify(fresh));
+						})
+						.catch(() => undefined);
+				}
 		} catch {
 			setPermissions({});
 			setPermissionsFailed(true);
+				// Desktop with no connection (the request got no answer at all): keep working on the grants kept from the last
+				// sign-in instead of blanking the app. A server that answers (401/403) still fails closed, as above.
+				if (isDesktop() && !isReachable()) {
+					const kept = readPermissionsRaw();
+					if (kept) {
+						try {
+							setPermissions(JSON.parse(kept) as PermissionMap);
+							setPermissionsFailed(false);
+						} catch {
+							/* an unreadable copy keeps the fail-closed state */
+						}
+					}
+				}
 		} finally {
 			setPermissionsLoaded(true);
 		}
@@ -200,6 +235,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
 		setSelectedBranchIdState(getSelectedBranchId());
 
+		// the last run ended with the server refusing this sign-in: this run starts at the sign-in page
+		if (isDesktop() && consumeExpiredMarker()) clearSession();
 		const storedToken = readToken();
 		const storedEmployee = readEmployeeRaw();
 		if (storedToken && isTokenValid(storedToken)) {
@@ -240,6 +277,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 			const code = businessCode?.trim() || businessCodeForRequest();
 			let res: LoginResponse;
 			try {
+				// Desktop and the computer reports no connection at all: go straight to the saved sign-in, no waiting on the network
+				if (offlineStore.available() && typeof navigator !== "undefined" && navigator.onLine === false) throw new ApiError("", 0);
 				res = await loginRequest(identifier, password, code);
 				// Saved before this returns: the moment login() finishes the page moves into the app, and that would cut a
 				// save still running in the background short. Bounded, so a slow disk can never hold the sign-in up.
@@ -257,6 +296,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 				} else throw e;
 			}
 			writeSession(code || null, res.token, JSON.stringify(res.employee));
+			clearAuthExpired(); // a fresh sign-in: the waiting changes go out under it
 			// A fresh sign-in starts at "all branches" rather than reopening
 			// whatever a previous session under this business chose.
 			clearSelectedBranch(code || null);

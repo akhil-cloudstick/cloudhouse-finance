@@ -134,6 +134,9 @@ func (s *Server) handleWithPending(over *Session, method, path, query string, he
 	key := itoa(sess.EmployeeID) + "|" + method + " " + path + "?" + query + "|" + headers["X-Branch-Id"] + "|" + pendingKey(todo)
 	s.gate.Lock()
 	defer s.gate.Unlock()
+	if s.closed {
+		return unavailable, 0
+	}
 	if hit, ok := s.memo[key]; ok && time.Since(hit.at) < memoFor {
 		return hit.resp, hit.skipped
 	}

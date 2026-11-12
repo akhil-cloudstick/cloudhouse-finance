@@ -63,6 +63,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.lan.Stop()
+	markCleanExit()
 }
 
 // Opening the app again brings the already-running window to the front instead of a second window.

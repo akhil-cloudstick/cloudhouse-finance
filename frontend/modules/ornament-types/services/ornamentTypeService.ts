@@ -1,4 +1,7 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { enqueueAndWait, newEntry, offlineReady } from "@/common/offline";
+import { currentActor } from "@/common/offline/actor";
+import { localRequestId } from "@/common/offline/requestRef";
 import type { BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
 
 /* Server-side search (by name) — backs the ornament-type SearchableSelect
@@ -21,6 +24,17 @@ export async function searchOrnamentTypesPage(q: string, page: number): Promise<
  * insensitive) already exists — returns the existing row instead (the
  * backend's find-or-create behaviour). */
 export async function createOrnamentType(name: string): Promise<BackendOrnamentType> {
+	// Desktop with offline mode running: an existing type of that name is reused; otherwise the type is queued for the server
+	// and offered at once under a local id (loans carry the ornament's name, not the type's id, so nothing depends on it).
+	if (offlineReady()) {
+		const clean = name.trim();
+		const existing = (await searchOrnamentTypes(clean).catch(() => [] as BackendOrnamentType[])).find((t) => t.name.toLowerCase() === clean.toLowerCase());
+		if (existing) return existing;
+		const entry = newEntry("POST", "/ornament-types", { name: clean }, currentActor());
+		await enqueueAndWait(entry, () => undefined, () => undefined);
+		const now = new Date().toISOString();
+		return { id: localRequestId(entry.id), name: clean, createdAt: now, updatedAt: now };
+	}
 	return apiFetch<BackendOrnamentType>("/ornament-types", {
 		method: "POST",
 		body: JSON.stringify({ name }),

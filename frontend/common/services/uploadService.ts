@@ -13,6 +13,11 @@ export async function fetchUploadFile(url: string): Promise<Response> {
 		return local ? fetch(local) : new Response(null, { status: 404 });
 	}
 	try {
+		// offline mode running: a picture this PC already holds is shown from here, without asking the server
+		if (offlineReady()) {
+			const held = await recallImage(url);
+			if (held) return fetch(held);
+		}
 		const res = await fetchWithSession(url);
 		// a picture that loads is kept on this PC, so it can be shown when the server does not answer
 		if (res.ok) void res.clone().blob().then((b) => rememberImage(url, b));
@@ -30,6 +35,8 @@ export async function fetchUploadFile(url: string): Promise<Response> {
  * endpoint (backend/internal/upload) and returns the stored /uploads/... URL. */
 export async function uploadFile(file: File): Promise<string> {
 	try {
+		// the computer reports no connection at all: keep the file on this PC at once, no waiting on the network
+		if (offlineReady() && typeof navigator !== "undefined" && navigator.onLine === false) return keepPhoto(file);
 		return await uploadFileOnline(file);
 	} catch (e) {
 		// Desktop with no answer from the server: keep the file on this PC and carry a placeholder in its place;

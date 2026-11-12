@@ -56,15 +56,26 @@ type Server struct {
 	wraw  *sql.DB
 	wdb   *gorm.DB
 	memo  map[string]memoEntry
+	// closed is set (under the gate, so after every read in flight has finished) when the database file is released; a read
+	// that was waiting for the gate then answers 503 instead of running against a closed file
+	closed bool
 }
 
 var (
+	// lifeMu keeps Open and Close from running at the same time, and guards once and current
+	lifeMu  sync.Mutex
 	once    sync.Once
 	current *Server
 )
 
 // Open starts the local server on the PC's database file. The first call builds it; later calls return the same one.
 func Open(dbPath string) (*Server, error) {
+	lifeMu.Lock()
+	defer lifeMu.Unlock()
+	// the store was moved to another folder: the old file is released and the server is built on the new one
+	if current != nil && current.path != dbPath {
+		closeLocked()
+	}
 	var err error
 	once.Do(func() { current, err = build(dbPath) })
 	if err != nil {
@@ -110,16 +121,31 @@ func build(dbPath string) (*Server, error) {
 
 // Close releases the database file (the app calls it when the store is closed or moved).
 func Close() {
+	lifeMu.Lock()
+	defer lifeMu.Unlock()
+	closeLocked()
+}
+
+// closeLocked releases the file. The gate is taken exclusively first, so every read and replay still running finishes before
+// the file is closed, and any that arrive afterwards see `closed`. The caller holds lifeMu.
+func closeLocked() {
 	if current != nil {
-		if current.wraw != nil {
-			_ = current.wraw.Close()
+		s := current
+		s.gate.Lock()
+		s.closed = true
+		if s.wraw != nil {
+			_ = s.wraw.Close()
 		}
-		_ = current.raw.Close()
+		_ = s.raw.Close()
+		s.gate.Unlock()
 		current = nil
 	}
 	once = sync.Once{}
 	auth.LocalStaff = nil
 }
+
+// unavailable is the answer once the local copy has been closed (the store is being moved or the app is shutting down).
+var unavailable = Response{Status: http.StatusServiceUnavailable, Body: `{"success":false,"error":"the local copy is not available right now"}`}
 
 // Bind sets who is signed in. Call it at sign-in and when the session changes.
 func (s *Server) Bind(sess Session) error {
@@ -217,6 +243,9 @@ func (s *Server) sessionFor(sess Session) (Session, bool) {
 func (s *Server) handle(over *Session, method, path, query string, headers map[string]string) Response {
 	s.gate.RLock()
 	defer s.gate.RUnlock()
+	if s.closed {
+		return unavailable
+	}
 	s.mu.RLock()
 	bound := over != nil || s.sess.EmployeeID != 0
 	s.mu.RUnlock()

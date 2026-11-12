@@ -255,3 +255,106 @@ func TestAPCWithoutAMainPCOrKeyKeepsUsingItsOwnStore(t *testing.T) {
 		t.Fatalf("own store: %q", got)
 	}
 }
+
+// A PC that worked on its own and has unsent entries joins the main PC: the entries (pending and refused), their photos and
+// the passwords typed for them all move to the main PC, are removed here only once it has them, and doing it again changes
+// nothing.
+func TestJoiningHandsOverEverythingQueuedBeforeAndNothingIsLost(t *testing.T) {
+	mainPC, counter := twoPCs(t)
+
+	// the counter works alone first (no main PC yet) and queues three entries, one of them refused by the server
+	if err := counter.StoreOpen("biz", "pc"); err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(counter.StoreSaveEntry(`{"id":"e1","method":"POST","path":"/customers","body":{"photo":"local-photo:p1","password":"secret:e1"},"targets":["e1"]}`, nil))
+	must(counter.StoreSaveEntry(`{"id":"e2","method":"POST","path":"/cash"}`, nil))
+	must(counter.StoreAppendOutbox(`{"id":"e3","method":"POST","path":"/loans"}`))
+	must(counter.StoreMarkReview("e3", "the server said no"))
+	must(counter.StoreWriteFile("photos/p1.json", `{"name":"a.jpg","type":"image/jpeg","data":"AAAA"}`))
+	must(counter.StoreWriteFile("data/pending_secrets.json", `{"e1":"pw-one","unrelated":"stays"}`))
+
+	// the main PC has its own entry already
+	must(mainPC.StoreOpen("biz", "pc"))
+	must(mainPC.StoreAppendOutbox(`{"id":"m1"}`))
+
+	// the admin chooses the main PC and the counter signs in again: it now uses the main PC's data
+	chooseMain(t, mainPC, counter)
+	must(counter.StoreOpen("biz", "pc"))
+	if !counter.isShared() {
+		t.Fatal("the counter must now use the main PC's data")
+	}
+	if h := counter.LanDataMode().Handover; h.Moved != 3 || h.Left != 0 || h.Error != "" {
+		t.Fatalf("hand-over result: %+v", h)
+	}
+
+	// everything is on the main PC, after what it already had
+	if got := idsOf(mainPC.store.ReadAllOutbox()); got != "m1,e1,e2,e3" {
+		t.Fatalf("the main PC's outbox: %q", got)
+	}
+	if review, _ := mainPC.store.ReadReview(); len(review) != 1 || !strings.Contains(review[0], "the server said no") {
+		t.Fatalf("the refused entry must stay in review with its reason: %v", review)
+	}
+	if got, _ := mainPC.store.ReadFile("photos/p1.json"); !strings.Contains(got, "AAAA") {
+		t.Fatalf("the entry's photo did not reach the main PC: %q", got)
+	}
+	var mainSecrets map[string]string
+	raw, _ := mainPC.store.ReadFile("data/pending_secrets.json")
+	_ = json.Unmarshal([]byte(raw), &mainSecrets)
+	if mainSecrets["e1"] != "pw-one" {
+		t.Fatalf("the password typed for the entry did not reach the main PC: %q", raw)
+	}
+	if _, leaked := mainSecrets["unrelated"]; leaked {
+		t.Fatalf("a password that belongs to no handed-over entry must not be copied: %q", raw)
+	}
+
+	// nothing is left behind on the counter, and its unrelated password is untouched
+	if got := idsOf(counter.store.ReadAllOutbox()); got != "" {
+		t.Fatalf("entries are still on the counter after the main PC confirmed them: %q", got)
+	}
+	local := counter.localSecrets()
+	if _, still := local["e1"]; still || local["unrelated"] != "stays" {
+		t.Fatalf("the counter's own passwords after the hand-over: %v", local)
+	}
+
+	// the counter reads the main PC's outbox now, and opening again changes nothing (no duplicates)
+	if got := idsOf(counter.StoreReadAllOutbox()); got != "m1,e1,e2,e3" {
+		t.Fatalf("the counter does not see the shared outbox: %q", got)
+	}
+	must(counter.StoreOpen("biz", "pc"))
+	if h := counter.LanDataMode().Handover; h.Moved != 0 || h.Left != 0 {
+		t.Fatalf("a second open has nothing to hand over: %+v", h)
+	}
+	if got := idsOf(mainPC.store.ReadAllOutbox()); got != "m1,e1,e2,e3" {
+		t.Fatalf("a repeat duplicated entries on the main PC: %q", got)
+	}
+}
+
+// If the main PC cannot be reached part way, nothing is deleted here: every entry is still on this PC, the hand-over says
+// how many are left and why, and the next open continues it.
+func TestAnInterruptedHandoverLosesNothingAndSaysWhy(t *testing.T) {
+	mainPC, counter := twoPCs(t)
+	if err := counter.StoreOpen("biz", "pc"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a1", "a2"} {
+		if err := counter.StoreAppendOutbox(`{"id":"` + id + `","method":"POST","path":"/cash"}`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chooseMain(t, mainPC, counter)
+	mainPC.lan.Stop() // the main PC closes before the hand-over
+
+	h := counter.migrateLocalEntries()
+	if h.Moved != 0 || h.Left != 2 || h.Error == "" {
+		t.Fatalf("hand-over with the main PC gone: %+v", h)
+	}
+	if got := idsOf(counter.store.ReadAllOutbox()); got != "a1,a2" {
+		t.Fatalf("entries were lost or removed although the main PC never confirmed them: %q", got)
+	}
+}

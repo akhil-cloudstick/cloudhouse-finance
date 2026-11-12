@@ -45,3 +45,6 @@ export async function refuse(id: string, r: Refusal): Promise<void> {
 export function refusalOf(id: string): Refusal | undefined {
 	return refused.get(id);
 }
+
+// The business tables on this PC took in newer data from the server (see mirrorSync.ts): open pages may refresh.
+export const DATA_CHANGED_EVENT = "app:data-changed";

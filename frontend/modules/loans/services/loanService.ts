@@ -4,7 +4,7 @@ import { isSmallScreen } from "@/common/utils/responsive";
 import { offlineStore } from "@/common/services/desktopBridge";
 import { localPledgeId } from "@/common/offline/pledgeRef";
 import { findLocalRequest, localRequestId } from "@/common/offline/requestRef";
-import { canQueue, queueOnly, queueWrite } from "@/common/offline/queueWrite";
+import { canQueue, queueOnly, queueWrite, settleSend } from "@/common/offline/queueWrite";
 import { setAuctionStage } from "@/common/offline/auctionStages";
 import { loanChangesReplayable } from "@/common/offline/localApi";
 import { assertPayoutFunds, partsOfSplit } from "@/common/offline/funds";
@@ -271,6 +271,10 @@ export async function deleteDraft(draftId: number): Promise<void> {
 
 /* Attaches one photo to an already-created ornament. */
 export async function addOrnamentImage(ornamentId: number, imageUrl: string): Promise<unknown> {
+  if (offlineReady() && ornamentId > 0) {
+    await queueRawIfUnreachable(OFFLINE_FIRST, "POST", `/loans/ornaments/${ornamentId}/images`, { imageUrl });
+    return undefined;
+  }
   try {
     return await apiFetch(`/loans/ornaments/${ornamentId}/images`, {
       method: "POST",
@@ -366,8 +370,12 @@ async function queueRawIfUnreachable(e: unknown, method: "POST" | "PUT" | "DELET
   const rec = loanId ? localLoanByNumericId(loanId) : undefined;
   const entry = newEntry(method, path, body, currentActor(), rec?.uuid ? [rec.uuid] : []);
   await enqueueAndWait(entry, () => undefined, () => undefined);
+  await settleSend(); // no local picture to show: let the send and the pull land first so the reloaded loan is current
   return true;
 }
+
+// Offline mode running: these changes go to the outbox first, the same path as when the server does not answer.
+const OFFLINE_FIRST = new ApiError("", 0);
 
 async function orLocal<T>(live: () => Promise<T>, local: () => T): Promise<T> {
   try {
@@ -550,6 +558,14 @@ export async function getLoanByNumber(loanNumber: string): Promise<LoanView> {
 }
 
 export async function addOrnament(loanId: number, input: OrnamentRequestInput): Promise<LoanView> {
+  if (offlineReady() && loanId) {
+    const uuid = localLoanByNumericId(loanId)?.uuid;
+    if (uuid) {
+      checkOrnamentLocally(input);
+      await queueRawIfUnreachable(OFFLINE_FIRST, "POST", `/loans/uuid:${uuid}/ornaments`, input, loanId);
+      return toView(localLoanByNumericId(loanId)!);
+    }
+  }
   if (!loanId && offlineReady()) throw new ApiError(NOT_SYNCED, 0);
   if (offlineReady()) checkOrnamentLocally(input);
   try {
@@ -566,6 +582,11 @@ export async function addOrnament(loanId: number, input: OrnamentRequestInput): 
 }
 
 export async function updateOrnament(ornamentId: number, input: OrnamentRequestInput): Promise<LoanView> {
+  if (offlineReady() && ornamentId > 0) {
+    checkOrnamentLocally(input);
+    await queueRawIfUnreachable(OFFLINE_FIRST, "PUT", `/loans/ornaments/${ornamentId}`, input);
+    return placeholderLoanView();
+  }
   if (ornamentId < 0 && offlineReady()) throw new ApiError(NOT_SYNCED, 0);
   if (offlineReady()) checkOrnamentLocally(input);
   try {
@@ -583,6 +604,10 @@ export async function updateOrnament(ornamentId: number, input: OrnamentRequestI
 /* Refused server-side if this is the loan's last remaining ornament, or if
  * the loan is already Closed/Auctioned — see backend Service.DeleteOrnament. */
 export async function deleteOrnament(ornamentId: number): Promise<LoanView> {
+  if (offlineReady() && ornamentId > 0) {
+    await queueRawIfUnreachable(OFFLINE_FIRST, "DELETE", `/loans/ornaments/${ornamentId}`, undefined);
+    return placeholderLoanView();
+  }
   if (ornamentId < 0 && offlineReady()) throw new ApiError(NOT_SYNCED, 0);
   try {
     const rec = await apiFetch<BackendLoan>(`/loans/ornaments/${ornamentId}`, { method: "DELETE" });
@@ -600,6 +625,10 @@ function placeholderLoanView(): LoanView {
 }
 
 export async function recordPurityTest(ornamentId: number, input: PurityTestInput): Promise<BackendOrnament> {
+  if (offlineReady() && ornamentId > 0) {
+    await queueRawIfUnreachable(OFFLINE_FIRST, "POST", `/loans/ornaments/${ornamentId}/purity-test`, input);
+    return {} as BackendOrnament;
+  }
   try {
     return await apiFetch<BackendOrnament>(`/loans/ornaments/${ornamentId}/purity-test`, {
       method: "POST",
@@ -644,7 +673,14 @@ export async function listLoanApprovals(loanId: number): Promise<ApprovalStageRe
   return (await apiFetch<ApprovalStageRecord[]>(`/loans/${loanId}/approvals`)) || [];
 }
 
-export async function approveLoan(loanId: number, input: ApprovalInput, uuid?: string): Promise<LoanView> {
+/* The local copy's uuid for a loan the caller named only by its number: a loan this PC holds is always addressed by its uuid, so
+ * it can be changed whether or not the server has numbered it. */
+function resolveLoanUuid(loanId: number, uuid?: string): string | undefined {
+  return uuid ?? (offlineReady() && loanId > 0 ? localLoanByNumericId(loanId)?.uuid : undefined);
+}
+
+export async function approveLoan(loanId: number, input: ApprovalInput, uuidIn?: string): Promise<LoanView> {
+  const uuid = resolveLoanUuid(loanId, uuidIn);
   const ref = loanId || !uuid ? String(loanId) : `uuid:${uuid}`;
   const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
   if (!offlineReady() || !local) {
@@ -702,7 +738,8 @@ async function waitingLoanEdit(uuid: string): Promise<OutboxEntry | null> {
   return found;
 }
 
-export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: string): Promise<LoanView> {
+export async function updateLoan(loanId: number, input: UpdateLoanInput, uuidIn?: string): Promise<LoanView> {
+  const uuid = resolveLoanUuid(loanId, uuidIn);
   const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
   // Desktop: the change goes into the outbox first and shows on this loan at once; the sender posts it.
   if (offlineReady() && local && uuid) {
@@ -746,7 +783,17 @@ export async function updateLoan(loanId: number, input: UpdateLoanInput, uuid?: 
  * no undo. Gated server-side by its own "can hard delete loan" permission,
  * independent of the ordinary "can delete loan" grant — see backend
  * Service.HardDeleteLoan's own doc comment for the full cascade. */
-export async function hardDeleteLoan(loanId: number, uuid?: string): Promise<void> {
+export async function hardDeleteLoan(loanId: number, uuidIn?: string): Promise<void> {
+  const uuid = resolveLoanUuid(loanId, uuidIn);
+  // A loan this PC holds that the server has numbered: the delete goes into the outbox first and the loan leaves the list now.
+  if (offlineReady() && loanId > 0 && uuid) {
+    const held = getLocal("loans", uuid) as unknown as BackendLoan | undefined;
+    if (held) {
+      const entry = newEntry("DELETE", `/loans/uuid:${uuid}/hard-delete`, undefined, currentActor(), [uuid]);
+      await enqueueAndWait(entry, () => removeLocal("loans", uuid), () => upsertLocal("loans", held as unknown as LocalRecord));
+      return;
+    }
+  }
   // A loan this PC made that the server has never seen: deleting it just cancels what was waiting to be sent.
   if (offlineReady() && !loanId && uuid) {
     for (const line of await offlineStore.readAllOutbox()) {
@@ -771,7 +818,8 @@ export async function hardDeleteLoan(loanId: number, uuid?: string): Promise<voi
   }
 }
 
-export async function recordPayment(loanId: number, input: PaymentInput, uuid?: string): Promise<LoanView> {
+export async function recordPayment(loanId: number, input: PaymentInput, uuidIn?: string): Promise<LoanView> {
+  const uuid = resolveLoanUuid(loanId, uuidIn);
   const local = uuid ? (getLocal("loans", uuid) as unknown as BackendLoan | undefined) : undefined;
   if (!offlineReady() || !local) {
     const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/payments`, {
@@ -1626,7 +1674,10 @@ async function queueRequestAction(
   // the loan as it is once this decision is applied (a payment, a closure, a new due date), kept in the local copy
   local?: { uuid: string; after: BackendLoan },
 ): Promise<RequestView | null> {
-  if (!offlineReady() || requestId === 0) return null;
+  if (!offlineReady()) return null;
+  // a request made on this PC that has no entry to point at: the server has no such request to act on, so say so clearly
+  // instead of sending a request for /requests/0 to the server
+  if (requestId === 0) throw new ApiError("This request has not reached the server yet. Try again in a moment, once it has synced.", 409);
   // a request made on this PC and not sent yet is addressed by the entry that creates it (see requestRef.ts)
   if (requestId < 0) {
     const found = await findLocalRequest(requestId);

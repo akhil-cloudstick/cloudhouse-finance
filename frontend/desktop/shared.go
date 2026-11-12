@@ -9,6 +9,7 @@ import (
 
 	"cloudhouse/backend/localapi"
 	"cloudhouse/desktop/lan"
+	"cloudhouse/desktop/localstore"
 )
 
 // Shared data. When a main PC has been chosen and this PC is not it, this PC does not keep the business data in a file of
@@ -23,13 +24,20 @@ import (
 
 // sharedState is what StoreOpen decided for this PC.
 type sharedState struct {
-	mu       sync.Mutex
-	shared   bool             // storage calls go to the main PC
-	mainID   string           // the main PC they go to
-	sess     localapi.Session // the signed-in user on this PC, for reads the main PC answers
-	sessSet  bool
-	business string // the business and device the store was opened for (on the main PC: also what its hub serves)
-	device   string
+	mu        sync.Mutex
+	shared    bool             // storage calls go to the main PC
+	mainID    string           // the main PC they go to
+	sess      localapi.Session // the signed-in user on this PC, for reads the main PC answers
+	sessSet   bool
+	business  string // the business and device the store was opened for (on the main PC: also what its hub serves)
+	device    string
+	handover  handover   // what handing this PC's unsent entries to the main PC did when it joined (see migrate.go)
+	secretsMu sync.Mutex // the main PC adds a joining PC's passwords to its own file one at a time
+
+	// moving the main PC (see move.go)
+	moveMu      sync.Mutex // one move at a time
+	frozenUntil time.Time  // on the old main PC: saving is paused until then
+	moveFile    string     // on the old main PC: the snapshot being copied
 }
 
 func (a *App) isShared() bool {
@@ -71,6 +79,7 @@ func (a *App) openStore(business, device string) error {
 	if !m.Shared {
 		a.sh.mu.Lock()
 		a.sh.shared, a.sh.mainID = false, ""
+		a.sh.handover = handover{}
 		a.sh.mu.Unlock()
 		return a.ensureOpen(business, device)
 	}
@@ -85,9 +94,13 @@ func (a *App) openStore(business, device string) error {
 	if _, err := a.lan.Call("Open", business, device); err != nil {
 		return err
 	}
+	// whatever this PC queued before it joined moves to the main PC first, so it is still sent. A hand-over that stops
+	// part way does not stop the PC from working: what is left stays safe here and is handed over the next time.
+	h := a.migrateLocalEntries()
 	a.sh.mu.Lock()
 	a.sh.shared, a.sh.mainID = true, m.MainID
 	a.sh.business, a.sh.device = business, device
+	a.sh.handover = h
 	a.sh.mu.Unlock()
 	return nil
 }
@@ -98,16 +111,17 @@ type LanDataMode struct {
 	MainID      string       `json:"mainId"`      // ... this main PC
 	NeedRestart bool         `json:"needRestart"` // the main PC choice changed since the store was opened
 	Live        lan.ModeInfo `json:"live"`        // what the choice is now
+	Handover    handover     `json:"handover"`    // unsent entries this PC handed to the main PC when it joined
 }
 
 // LanDataMode tells the page where the data is and whether the store must be opened again.
 func (a *App) LanDataMode() LanDataMode {
 	live := a.lan.Mode()
 	a.sh.mu.Lock()
-	shared, mainID := a.sh.shared, a.sh.mainID
+	shared, mainID, h := a.sh.shared, a.sh.mainID, a.sh.handover
 	a.sh.mu.Unlock()
 	need := live.Shared != shared || (live.Shared && live.MainID != mainID)
-	return LanDataMode{Shared: shared, MainID: mainID, NeedRestart: need, Live: live}
+	return LanDataMode{Shared: shared, MainID: mainID, NeedRestart: need, Live: live, Handover: h}
 }
 
 // LanSetKey stores the business key the server gave this PC at sign-in.
@@ -145,6 +159,9 @@ func (r routedStore) AppendOutbox(line string) error {
 	if r.a.isShared() {
 		return rcall(r.a, "AppendOutbox", line)
 	}
+	if err := r.a.writeGate(); err != nil {
+		return err
+	}
 	return r.a.store.AppendOutbox(line)
 }
 
@@ -166,6 +183,9 @@ func (r routedStore) DeleteOutboxEntry(id string) error {
 	if r.a.isShared() {
 		return rcall(r.a, "DeleteOutboxEntry", id)
 	}
+	if err := r.a.writeGate(); err != nil {
+		return err
+	}
 	return r.a.store.DeleteOutboxEntry(id)
 }
 
@@ -180,6 +200,9 @@ func (r routedStore) SaveEntry(line string, files map[string]string) error {
 	if r.a.isShared() {
 		return rcall(r.a, "SaveEntry", line, files)
 	}
+	if err := r.a.writeGate(); err != nil {
+		return err
+	}
 	return r.a.store.SaveEntry(line, files)
 }
 
@@ -187,12 +210,18 @@ func (r routedStore) ChangeEntry(id, line string, files map[string]string) error
 	if r.a.isShared() {
 		return rcall(r.a, "ChangeEntry", id, line, files)
 	}
+	if err := r.a.writeGate(); err != nil {
+		return err
+	}
 	return r.a.store.ChangeEntry(id, line, files)
 }
 
 func (r routedStore) MarkReview(id, message string) error {
 	if r.a.isShared() {
 		return rcall(r.a, "MarkReview", id, message)
+	}
+	if err := r.a.writeGate(); err != nil {
+		return err
 	}
 	return r.a.store.MarkReview(id, message)
 }
@@ -208,6 +237,9 @@ func (r routedStore) RetryReview(id string) error {
 	if r.a.isShared() {
 		return rcall(r.a, "RetryReview", id)
 	}
+	if err := r.a.writeGate(); err != nil {
+		return err
+	}
 	return r.a.store.RetryReview(id)
 }
 
@@ -222,12 +254,18 @@ func (r routedStore) WriteFile(name, content string) error {
 	if r.a.isShared() && !localOnlyFile(name) {
 		return rcall(r.a, "WriteFile", name, content)
 	}
+	if err := r.a.writeGate(); err != nil {
+		return err
+	}
 	return r.a.store.WriteFile(name, content)
 }
 
 func (r routedStore) MirrorApply(batch string) error {
 	if r.a.isShared() {
 		return rcall(r.a, "MirrorApply", batch)
+	}
+	if err := r.a.writeGate(); err != nil {
+		return err
 	}
 	return r.a.store.MirrorApply(batch)
 }
@@ -236,6 +274,9 @@ func (r routedStore) MirrorBindTenant(tenant int64) error {
 	if r.a.isShared() {
 		return rcall(r.a, "MirrorBindTenant", tenant)
 	}
+	if err := r.a.writeGate(); err != nil {
+		return err
+	}
 	return r.a.store.MirrorBindTenant(tenant)
 }
 
@@ -243,12 +284,18 @@ func (r routedStore) MirrorWriteTemp(entryID, batch string) error {
 	if r.a.isShared() {
 		return rcall(r.a, "MirrorWriteTemp", entryID, batch)
 	}
+	if err := r.a.writeGate(); err != nil {
+		return err
+	}
 	return r.a.store.MirrorWriteTemp(entryID, batch)
 }
 
 func (r routedStore) MirrorDropTemp(entryID string) error {
 	if r.a.isShared() {
 		return rcall(r.a, "MirrorDropTemp", entryID)
+	}
+	if err := r.a.writeGate(); err != nil {
+		return err
 	}
 	return r.a.store.MirrorDropTemp(entryID)
 }
@@ -361,10 +408,15 @@ func (v *argv) files(i int) map[string]string {
 }
 
 func (h hubBackend) Call(method string, args []json.RawMessage) (any, error) {
+	if mutating[method] { // the main PC is being moved: nothing may change while its data is copied
+		if err := h.a.writeGate(); err != nil {
+			return nil, err
+		}
+	}
 	res, err := h.run(method, args)
 	if err == nil {
 		switch method {
-		case "AppendOutbox", "SaveEntry", "ChangeEntry", "RetryReview":
+		case "AppendOutbox", "SaveEntry", "ChangeEntry", "RetryReview", "ImportEntry":
 			// a counter put something in the outbox here: this main PC's page can start sending it at once
 			h.a.lan.Notify("lan:entries", nil)
 		}
@@ -387,6 +439,42 @@ func (h hubBackend) run(method string, args []json.RawMessage) (any, error) {
 			return nil, v.err
 		}
 		return nil, a.store.AppendOutbox(line)
+	case "MoveFreeze": // the main PC is being moved to the PC that asks (see move.go)
+		toID, toName := v.str(0), v.str(1)
+		if v.err != nil {
+			return nil, v.err
+		}
+		return nil, a.moveFreeze(toID, toName)
+	case "MoveSnapshot":
+		return a.moveSnapshot()
+	case "MoveRead":
+		var offset int64
+		var length int
+		v.get(0, &offset)
+		v.get(1, &length)
+		if v.err != nil {
+			return nil, v.err
+		}
+		return a.moveRead(offset, length)
+	case "MoveDone":
+		var ok bool
+		v.get(0, &ok)
+		a.moveDone(ok)
+		return nil, nil
+	case "ImportEntry": // an entry handed over by a PC that is joining (see migrate.go)
+		var e localstore.ExportedEntry
+		v.get(0, &e)
+		if v.err != nil {
+			return nil, v.err
+		}
+		return a.store.ImportEntry(e)
+	case "ImportSecrets":
+		var secrets map[string]string
+		v.get(0, &secrets)
+		if v.err != nil {
+			return nil, v.err
+		}
+		return nil, a.importSecrets(secrets)
 	case "ReadOutbox":
 		return a.store.ReadOutbox()
 	case "ReadAllOutbox":

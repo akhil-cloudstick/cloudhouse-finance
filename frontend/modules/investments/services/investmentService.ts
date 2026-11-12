@@ -20,7 +20,8 @@ import type { InvestmentStatus, BackendInvestmentPlan, CreatePlanInput, BackendI
 export async function createInvestmentPlan(input: CreatePlanInput): Promise<BackendInvestmentPlan> {
 	try {
 		// quiet: with no answer the plan is queued below, so no "couldn't reach" pop-up is wanted
-		return await quietly(() => apiFetch<BackendInvestmentPlan>("/investment-plans", { method: "POST", body: JSON.stringify(input) }));
+		if (offlineReady()) throw new ApiError("", 0); // offline mode running: the plan is queued at once (the catch below), the server is not asked first
+			return await quietly(() => apiFetch<BackendInvestmentPlan>("/investment-plans", { method: "POST", body: JSON.stringify(input) }));
 	} catch (e) {
 		if (!(offlineReady() && e instanceof ApiError && e.status === 0)) throw e;
 		// the server's own plan checks (SaveInvestmentPlan)
@@ -88,7 +89,7 @@ export type CreateInvestmentHint = { customerName: string; customerCode: string;
  * when the connection is there, after the investor and the plan, which the entry points at by their uuid / plan ref. Otherwise
  * the investment is created on the server exactly as before, so its real number comes back. */
 export async function createInvestment(input: CreateInvestmentInput, hint?: CreateInvestmentHint): Promise<BackendInvestment> {
-	if (offlineReady() && hint && (typeof input.customerId === "string" || input.planId < 0)) return queueInvestment(input, hint);
+	if (offlineReady() && hint) return queueInvestment(input, hint);
 	try {
 		return await quietly(() => apiFetch<BackendInvestment>("/investments", { method: "POST", body: JSON.stringify(input) }));
 	} catch (e) {

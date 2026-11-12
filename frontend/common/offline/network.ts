@@ -15,3 +15,6 @@ export function setReachable(next: boolean): void {
 	reachable = next;
 	if (typeof window !== "undefined") window.dispatchEvent(new Event(NETWORK_EVENT));
 }
+
+// The computer itself says it is off the network: show it at once instead of waiting for a request to fail.
+if (typeof window !== "undefined") window.addEventListener("offline", () => setReachable(false));

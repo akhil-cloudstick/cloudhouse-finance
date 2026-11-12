@@ -76,6 +76,8 @@ export async function getLatestGoldRate(): Promise<GoldRateView | null> {
 }
 
 export async function publishGoldRate(input: GoldRatePublishInput): Promise<GoldRateView> {
+	// offline mode running: the rate is queued at once, the server is not asked first
+	if (offlineReady()) return (await queueIfUnreachable(new ApiError("", 0), { [input.karat]: input.rate }, input.setBy))!;
 	try {
 		// quiet: when the server does not answer the rate is queued below, so no "couldn't reach" pop-up is wanted
 		const rec = await quietly(() =>
@@ -95,6 +97,7 @@ export async function publishGoldRate(input: GoldRatePublishInput): Promise<Gold
 /* Publishes every changed karat as ONE history row (keys 24/22/18). `fineness` (keys 22/18) saves the Auto-mode
  * fineness with it; omitted, the last one carries forward. */
 export async function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string, fineness?: Partial<Record<22 | 18, number>>, date?: string): Promise<GoldRateView> {
+	if (offlineReady()) return (await queueIfUnreachable(new ApiError("", 0), rates, setBy, fineness, date))!;
 	try {
 		const rec = await quietly(() =>
 			apiFetch<BackendGoldRate>("/gold-rates", {

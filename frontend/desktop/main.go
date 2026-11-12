@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -108,6 +109,7 @@ func instanceID() string {
 }
 
 func main() {
+	setupCrashLog()
 	update.WaitForPreviousInstance(os.Args[1:])
 	update.CleanupOld()
 	if framelessWindow {
@@ -121,6 +123,8 @@ func main() {
 		// during `npm run start`. Errors only, same as the backend's own
 		// terminal output.
 		LogLevel: logger.ERROR,
+		// the web view process dying closes the app; its report goes to webview.log so the cause is not lost
+		Logger: logger.NewFileLogger(filepath.Join(crashDir(), "webview.log")),
 		// No native right-click menu at all — the app draws its own
 		// (DesktopContextMenu.tsx), PIN-gating Inspect every time.
 		EnableDefaultContextMenu: false,
@@ -137,7 +141,7 @@ func main() {
 			UniqueId:               instanceID(),
 			OnSecondInstanceLaunch: app.onSecondInstanceLaunch,
 		},
-		Bind:                     []any{app},
+		Bind: []any{app},
 	})
 	if err != nil {
 		log.Fatal(err)

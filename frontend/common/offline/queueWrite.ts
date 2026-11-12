@@ -7,6 +7,19 @@ import { enqueueAndWait, newEntry, offlineReady } from "./index";
 import { currentActor } from "./actor";
 import { refLocalRecordPath } from "./requestRef";
 import { ApiError } from "@/common/services/httpClient";
+import { isReachable } from "./network";
+import { isSyncing } from "./sender";
+
+/* For a change that has no local picture to show (an ornament edit, say): the screen reloads the record right after the save,
+ * and the PC reads its own copy first, so it would still show the old values. This waits - at most a few seconds - for the
+ * sender to finish sending, pulling and refreshing that copy. It does not wait at all when the server is known to be out of
+ * reach, so a save offline is as instant as any other; the change is in the outbox either way. */
+export async function settleSend(maxMs = 6000): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  if (!isReachable()) return;
+  const until = Date.now() + maxMs;
+  while (Date.now() < until && isSyncing()) await new Promise((r) => setTimeout(r, 150));
+}
 
 export function canQueue(): boolean {
 	return offlineReady();

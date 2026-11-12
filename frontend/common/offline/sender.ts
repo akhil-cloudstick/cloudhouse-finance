@@ -7,11 +7,12 @@
 
 import { offlineStore } from "@/common/services/desktopBridge";
 import { replayRequest } from "@/common/services/httpClient";
-import { ENTRIES_SENT_EVENT, ENTRY_REFUSED_EVENT, isRefusal, isWatched, refuse } from "./live";
+import { DATA_CHANGED_EVENT, ENTRIES_SENT_EVENT, ENTRY_REFUSED_EVENT, isRefusal, isWatched, refuse } from "./live";
 import { getLocal, removeLocal, upsertLocal } from "./localCopy";
 import { pull } from "./pull";
-import { syncMirror } from "./mirrorSync";
+import { mirrorChanges, syncMirror } from "./mirrorSync";
 import { SYNC_STATE_EVENT, syncBusy } from "./progress";
+import { clearAuthExpired, markAuthExpired, setStuck } from "./syncProblem";
 import { sharedData } from "./state";
 import { sendToReview } from "./review";
 import { warmReadCache } from "./warm";
@@ -26,6 +27,7 @@ import type { EntityName, OutboxEntry } from "./types";
 
 let running = false;
 let again = false;
+let lastMirrorChanges = 0;
 
 export { SYNC_STATE_EVENT } from "./progress";
 
@@ -122,8 +124,9 @@ export async function drain(why: string): Promise<boolean> {
 				let packetId = 0;
 				if (loanId) {
 					try {
-						const { apiFetchEnveloped } = await import("@/common/services/httpClient");
-						const found = await apiFetchEnveloped<{ id: number }[] | { items?: { id: number }[] }>(`/packets?loanId=${loanId}`);
+						const { apiFetchEnveloped, quietly } = await import("@/common/services/httpClient");
+						// asks the server itself (quietly): this PC's own copy cannot know the id the server just gave the packet
+						const found = await quietly(() => apiFetchEnveloped<{ id: number }[] | { items?: { id: number }[] }>(`/packets?loanId=${loanId}`));
 						packetId = (Array.isArray(found) ? found : found?.items ?? [])[0]?.id ?? 0;
 					} catch {
 						stopped = true; // no answer: try again with the next send
@@ -203,6 +206,10 @@ export async function drain(why: string): Promise<boolean> {
 				stopped = true;
 				// an unknown or switched-off PC: forget the key so the next send registers again (a switched-off PC is refused there)
 				if (r.status === 401 && /not registered|could not be verified/.test(r.message ?? "")) await forgetRegistration();
+					// the server no longer accepts this sign-in: keep working, ask to sign in again (see syncProblem.ts)
+					else if (r.status === 401) markAuthExpired();
+					// the server answered with an error: the change waits and is tried again; the banner says so
+					else if (r.status !== 0) setStuck(true);
 				// no answer is normal offline; an answer that was not "saved" is unexpected and goes to the log
 				if (r.status !== 0) offlineStore.log("error", `entry ${entry.id} ${entry.method} ${entry.path}: ${r.status} ${r.message ?? ""}`);
 				break;
@@ -222,6 +229,11 @@ export async function drain(why: string): Promise<boolean> {
 	} finally {
 		running = false;
 		announce();
+	}
+	// every waiting entry went out: nothing is stuck and the server accepts this sign-in
+	if (!stopped) {
+		setStuck(false);
+		clearAuthExpired();
 	}
 	if (again) {
 		again = false;
@@ -243,6 +255,15 @@ export async function drain(why: string): Promise<boolean> {
 	if (sent > 0) window.dispatchEvent(new Event(ENTRIES_SENT_EVENT));
 	// the server answered: the business tables catch up too, and the sync is not finished until they have
 	const mirrored = pulled ? await syncMirror(sent > 0 ? "after send" : why) : false;
+	// screens read this PC's copy first, so they refresh once more now that the copy holds what the server sent back
+	// (the first event above fires before the business tables have caught up)
+	if (sent > 0 || mirrored) window.dispatchEvent(new Event(ENTRIES_SENT_EVENT));
+	// only when rows really changed (not merely because the server answered): open pages may refresh (see AppShell)
+	const seen = mirrorChanges();
+	if (seen !== lastMirrorChanges) {
+		lastMirrorChanges = seen;
+		window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
+	}
 	if (stopped) return false;
 	return sent > 0 || pulled || mirrored;
 }

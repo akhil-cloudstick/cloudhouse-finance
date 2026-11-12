@@ -171,3 +171,38 @@ func TestMainPCAnswersEachCountersReadAsThatCountersUser(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(m.Run()) }
+
+// A read that arrives after the copy was closed (the store moved, the app closing) answers 503 and never touches the closed file;
+// Open on another path builds a fresh server instead of returning the old one.
+func TestReadsAfterCloseAnswerUnavailableAndOpenFollowsAMovedFile(t *testing.T) {
+	first, err := Open(seed(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Bind(Session{TenantID: 1, EmployeeID: 7, RoleID: 10, Role: "Manager", BranchID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	Close()
+	if got := first.Handle("GET", "/users/7/loans", "", nil); got.Status != 503 {
+		t.Fatalf("a read after Close must answer 503, got %d %s", got.Status, got.Body)
+	}
+	if got, skipped := first.HandleWithPending("GET", "/users/7/loans/5", "", nil, []Pending{{Method: "PATCH", Path: "/loans/5", Body: "{}"}}); got.Status != 503 || skipped != 0 {
+		t.Fatalf("a replay after Close must answer 503, got %d (skipped %d)", got.Status, skipped)
+	}
+
+	a, err := Open(seed(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(seed(t)) // a different file: the first server is released and a new one is built
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(Close)
+	if a == b {
+		t.Fatal("Open on a moved file must build a new server, not return the old one")
+	}
+	if got := a.Handle("GET", "/users/7/loans", "", nil); got.Status != 503 {
+		t.Fatalf("the replaced server must answer 503, got %d", got.Status)
+	}
+}
