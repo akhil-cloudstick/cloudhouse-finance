@@ -208,8 +208,14 @@ export function useLedgerFocus(scope: string, ready: boolean, deps: unknown[] = 
             const own = rows.filter((r) => r.dataset.ledgerRef === a.ref);
             row = own.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount)) ?? own[0];
           } else {
-            row = rows.find((r) => r.dataset.ledgerDate === a.date && sameAmount(r.dataset.ledgerAmount, a.amount))
-              ?? rows.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount));
+            // No exact payment id (e.g. a sanction/top-up row). Two loans can share the same date and
+            // amount, so prefer the row that names the loan the user came from (/loan/LN-00069).
+            const loanNo = /\/loan\/([^/?#]+)/i.exec(a.fromPath)?.[1];
+            const byLoan = (list: HTMLElement[]) =>
+              loanNo ? list.find((r) => (r.textContent || "").toUpperCase().includes(decodeURIComponent(loanNo).toUpperCase())) : undefined;
+            const sameDateAmt = rows.filter((r) => r.dataset.ledgerDate === a.date && sameAmount(r.dataset.ledgerAmount, a.amount));
+            const sameAmt = rows.filter((r) => sameAmount(r.dataset.ledgerAmount, a.amount));
+            row = byLoan(sameDateAmt) ?? sameDateAmt[0] ?? byLoan(sameAmt) ?? sameAmt[0];
           }
         }
       }
