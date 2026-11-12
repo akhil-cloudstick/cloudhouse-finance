@@ -11,7 +11,8 @@ import { ReportView, type ReportConfig } from "@/modules/reports/components/Repo
 import { LedgerExportView } from "@/modules/reports/components/LedgerExportView";
 import { DayBookReportView } from "@/modules/reports/components/DayBookReportView";
 import { getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollection, getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions, getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory, searchGoldRateSetByPage, getEmployeePerformance, getCommunicationHistory, getBalanceSheet, getProfitAndLoss, exportReport, getDepositRegister, getInterestPayoutRegister, getMaturityRegister } from "@/modules/reports/services/reportsService";
-import { searchCustomersPage, searchInvestorsPage } from "@/modules/customers/services/customerService";
+import { searchCustomersPage } from "@/modules/customers/services/customerService";
+import { searchInvestorsPage } from "@/modules/investments/services/investorService";
 import { searchLoansPage } from "@/modules/loans/services/loanService";
 import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
 import { searchBanksPage } from "@/modules/banks/services/bankService";
@@ -57,45 +58,58 @@ type Group = NonNullable<ReportConfig["filterGroups"]>[number];
 const withCode = (name: string, code?: string) => (code ? `${name} (${code})` : name);
 const customerGroup = (): Group => ({
   key: "customer", label: "Customer", param: "customerId",
-  fetchOptions: async (q, p) => { const r = await searchCustomersPage(q, p); return { items: r.items.map((c) => ({ value: c.id, label: withCode(c.name, c.code) })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchCustomersPage(q, p - 1); return { items: r.items.map((c) => ({ value: c.id, label: withCode(c.name, c.code) })), hasMore: r.hasMore }; },
 });
 const investorGroup = (): Group => ({
   key: "investor", label: "Investor", param: "investorId",
-  fetchOptions: async (q, p) => { const r = await searchInvestorsPage(q, p); return { items: r.items.map((c) => ({ value: c.id, label: withCode(c.name, c.code) })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchInvestorsPage(q, p - 1); return { items: r.items.map((c) => ({ value: c.id, label: withCode(c.name, c.code) })), hasMore: r.hasMore }; },
 });
 const loanGroup = (): Group => ({
   key: "loan", label: "Loan", param: "loanId",
-  fetchOptions: async (q, p) => { const r = await searchLoansPage(q, p); return { items: r.items.map((l) => ({ value: String(l.numericId), label: withCode(l.loanNumber, l.customerName) })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchLoansPage(q, p - 1); return { items: r.items.map((l) => ({ value: String(l.numericId), label: withCode(l.loanNumber, l.customerName) })), hasMore: r.hasMore }; },
 });
 const schemeGroup = (): Group => ({
   key: "scheme", label: "Scheme", param: "schemeId",
-  fetchOptions: async (q, p) => { const r = await searchActiveSchemesPage(q, p); return { items: r.items.map((x) => ({ value: x.id, label: withCode(x.name, x.code) })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchActiveSchemesPage(q, p - 1); return { items: r.items.map((x) => ({ value: x.id, label: withCode(x.name, x.code) })), hasMore: r.hasMore }; },
 });
 const bankGroup = (): Group => ({
   key: "bank", label: "Bank", param: "bankId",
-  fetchOptions: async (q, p) => { const r = await searchBanksPage(q, p); return { items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchBanksPage(q, p - 1); return { items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore }; },
 });
 const employeeGroup = (label = "Employee"): Group => ({
   key: "employee", label, param: "employeeId",
-  // listEmployeesPage is 1-based, the other pickers are 0-based.
-  fetchOptions: async (q, p) => { const r = await listEmployeesPage(p + 1, 20, q); return { items: r.items.map((e) => ({ value: String(e.id), label: withCode(e.name, e.code) })), hasMore: r.hasMore }; },
+  // FilterPanel asks for 1-based pages: listEmployeesPage is 1-based, the other pickers are 0-based (p - 1).
+  fetchOptions: async (q, p) => { const r = await listEmployeesPage(p, 20, q); return { items: r.items.map((e) => ({ value: String(e.id), label: withCode(e.name, e.code) })), hasMore: r.hasMore }; },
 });
 // "Set By" is a free-text name on each gold rate, so the options are those names (backend-paged), not employees.
 const setByGroup = (): Group => ({
   key: "setBy", label: "Set By", param: "setBy",
-  fetchOptions: async (q, p) => { const r = await searchGoldRateSetByPage(q, p); return { items: r.items.map((n) => ({ value: n, label: n })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchGoldRateSetByPage(q, p - 1); return { items: r.items.map((n) => ({ value: n, label: n })), hasMore: r.hasMore }; },
 });
 const planGroup = (): Group => ({
   key: "plan", label: "Plan", param: "planId",
-  fetchOptions: async (q, p) => { const r = await searchInvestmentPlansPage(q, p); return { items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchInvestmentPlansPage(q, p - 1); return { items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore }; },
 });
 const expenseCategoryGroup = (): Group => ({
   key: "expenseCategory", label: "Expense Category", param: "expenseCategoryId",
-  fetchOptions: async (q, p) => { const r = await searchExpenseCategoriesPage(q, p); return { items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchExpenseCategoriesPage(q, p - 1); return { items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore }; },
 });
 const purityGroup = (): Group => ({
   key: "purity", label: "Purity (karat)", param: "purity",
-  fetchOptions: async (q, p) => { const r = await searchPurityStandardsPage(q, p); return { items: r.items.filter((x) => x.karat != null).map((x) => ({ value: String(x.karat), label: x.label || `${x.karat}K` })), hasMore: r.hasMore }; },
+  // Options are plain karats ("22K"): that is how an ornament's purity is stored, so the value matches it exactly.
+  // When the purity-standard list is empty or unavailable, the usual karats 24K–10K are offered instead.
+  fetchOptions: async (q, p) => {
+    let karats: number[] = [];
+    try {
+      const r = await searchPurityStandardsPage("", p - 1);
+      karats = r.items.map((x) => x.karat).filter((k): k is number => k != null);
+    } catch { /* fall back below */ }
+    if (karats.length === 0 && p <= 1) karats = Array.from({ length: 15 }, (_, i) => 24 - i);
+    const term = q.trim().toLowerCase();
+    const items = [...new Set(karats)].sort((a, b) => b - a).map((k) => ({ value: `${k}K`, label: `${k}K` }))
+      .filter((o) => !term || o.label.toLowerCase().includes(term));
+    return { items, hasMore: false };
+  },
 });
 const statusGroup = (options: string[]): Group => ({ key: "status", label: "Status", param: "status", options });
 
@@ -581,6 +595,12 @@ const DAY_BOOK_TILE = {
 /* "Daily Loan Disbursement" → "daily-loan-disbursement": the report's segment in /reports/<slug>. */
 function reportSlug(title: string): string {
 	return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/* Title of the report a /reports/<slug> URL points at — backs the Topbar breadcrumb. */
+export function reportTitleFromSlug(slug?: string): string | undefined {
+  if (!slug) return undefined;
+  return [...REPORT_CONFIGS, FORM_G_TILE, LEDGER_EXPORT_TILE, DAY_BOOK_TILE].find((r) => reportSlug(r.title) === slug)?.title;
 }
 
 export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }) {

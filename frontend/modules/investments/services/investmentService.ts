@@ -288,7 +288,7 @@ function queueMature(path: string, investmentId: number, input: object): Promise
 }
 
 export function listInvestmentsForCustomer(customerId: number): Promise<BackendInvestment[]> {
-	return apiFetch<BackendInvestment[]>(`/customers/${customerId}/investments`);
+  return apiFetch<BackendInvestment[]>(`/investors/${customerId}/investments`);
 }
 
 export async function addCashToInvestment(investmentId: number, input: AddCashInput): Promise<BackendInvestment> {

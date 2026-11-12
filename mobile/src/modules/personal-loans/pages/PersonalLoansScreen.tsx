@@ -33,6 +33,7 @@ import {
   SearchInput,
   ServerFlatList,
   Sheet,
+  SheetListItem,
   StatusChip,
   Txt,
   WarningBanner,
@@ -409,6 +410,8 @@ function PersonalLoanDetailSheet({
   const id = loanId ?? 0;
   const [tab, setTab] = useState<DetailTab>("schedule");
   const [bondBusy, setBondBusy] = useState<PersonalLoanBondLang | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [bondOpen, setBondOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { can } = useAuth();
   // Editing / deleting a ledger entry recalculates the loan, so each has its own grant (shared with the gold-loan ledger).
@@ -419,6 +422,8 @@ function PersonalLoanDetailSheet({
   useEffect(() => {
     setTab("schedule");
     setError(null);
+    setInfoOpen(false);
+    setBondOpen(false);
   }, [loanId]);
 
   const qc = useQueryClient();
@@ -482,54 +487,11 @@ function PersonalLoanDetailSheet({
         </Txt>
         <StatusChip label={l.status} />
       </View>
-      <FieldGrid
-        style={{ marginBottom: 14 }}
-        items={[
-          { k: "Principal", v: inr(l.principalAmount) },
-          { k: "Interest", v: `${inr(l.interestAmount)} (${l.interestType === "Flat" ? "Flat" : `${l.interestValue}%`})` },
-          { k: "Disbursed", v: inr(l.disbursedAmount) },
-          { k: "Outstanding", v: inr(l.outstandingAmount), color: C.brandDeep },
-          { k: "Frequency", v: `${l.frequency} · ${inr(l.installmentAmount)}/${PER[l.frequency] ?? l.frequency}` },
-          { k: "Total paid", v: inr(l.totalPaid), color: C.green },
-        ]}
-      />
-      {inChain ? (
-        <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
-          <Txt style={{ fontSize: 12, fontWeight: "700", marginBottom: 8 }}>Approval</Txt>
-          <ApprovalChainPanel
-            flow="personal_loan"
-            pending={l.approvalStage}
-            status={l.status === "Pending Approval" ? "Pending" : l.status === "Rejected" ? "Rejected" : "Approved"}
-            rejectionRemarks={(approvals.data ?? []).find((a) => a.action === "Rejected")?.remarks}
-            noun="Personal loan"
-            rejectMessage={`Reject ${l.loanNumber}? Nothing is disbursed.`}
-            canDecide={canUpdate}
-            decide={(input) => approvePersonalLoan(l.id, input)}
-            onSaved={() => {
-              setError(null);
-              qc.invalidateQueries({ queryKey: ["personalLoans"] });
-              qc.invalidateQueries({ queryKey: ["personalLoan", String(l.id)] });
-              qc.invalidateQueries({ queryKey: ["personalLoanApprovals", String(l.id)] });
-              qc.invalidateQueries({ queryKey: ["personalLoanSchedule", l.id] });
-            }}
-            onError={setError}
-          />
-          {(approvals.data ?? []).map((a) => (
-            <Txt key={a.id} style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
-              {dmy(a.createdAt)} · {a.action} at {stageByKey(wf, "personal_loan", a.stage)?.label ?? a.stage}
-              {a.actorRole ? ` by ${a.actorRole}` : ""}
-              {a.remarks ? ` — ${a.remarks}` : ""}
-            </Txt>
-          ))}
-        </Card>
-      ) : null}
-      {l.penalCycleCount > 0 ? (
-        <WarningBanner>
-          Penal interest applied {l.penalCycleCount} time(s) — {inr(l.totalPenalInterestCharged)} added at {l.penalInterestRate}% p.a.
-        </WarningBanner>
-      ) : null}
-      <PrimaryButton label={bondBusy === "en" ? "Downloading…" : "Download Bond — English"} variant="outline" loading={bondBusy === "en"} onPress={() => downloadBond("en")} style={{ marginBottom: 8 }} />
-      <PrimaryButton label={bondBusy === "ml" ? "Downloading…" : "Download Bond — Malayalam"} variant="outline" loading={bondBusy === "ml"} onPress={() => downloadBond("ml")} style={{ marginBottom: 12 }} />
+      {/* The loan's description lives in a modal; the bond downloads sit behind one button. */}
+      <BtnRow2 style={{ marginBottom: 12 }}>
+        <PrimaryButton label="Loan Details" variant="outline" onPress={() => setInfoOpen(true)} />
+        <PrimaryButton label={bondBusy ? "Downloading…" : "Download Bond"} variant="outline" loading={!!bondBusy} onPress={() => setBondOpen(true)} />
+      </BtnRow2>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PillTabs
         inSheet
@@ -677,6 +639,62 @@ function PersonalLoanDetailSheet({
           <PrimaryButton label="Renew Loan" onPress={() => onRenew(l)} />
         </BtnRow2>
       ) : null}
+    </Sheet>
+    <Sheet visible={infoOpen && !!l} onClose={() => setInfoOpen(false)} title="Loan details" maxHeightPct={85}>
+      {l ? (
+        <View style={{ paddingTop: 12 }}>
+        <FieldGrid
+          style={{ marginBottom: 14 }}
+          items={[
+            { k: "Principal", v: inr(l.principalAmount) },
+            { k: "Interest", v: `${inr(l.interestAmount)} (${l.interestType === "Flat" ? "Flat" : `${l.interestValue}%`})` },
+            { k: "Disbursed", v: inr(l.disbursedAmount) },
+            { k: "Outstanding", v: inr(l.outstandingAmount), color: C.brandDeep },
+            { k: "Frequency", v: `${l.frequency} · ${inr(l.installmentAmount)}/${PER[l.frequency] ?? l.frequency}` },
+            { k: "Total paid", v: inr(l.totalPaid), color: C.green },
+          ]}
+        />
+        {inChain ? (
+          <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
+            <Txt style={{ fontSize: 12, fontWeight: "700", marginBottom: 8 }}>Approval</Txt>
+            <ApprovalChainPanel
+              flow="personal_loan"
+              pending={l.approvalStage}
+              status={l.status === "Pending Approval" ? "Pending" : l.status === "Rejected" ? "Rejected" : "Approved"}
+              rejectionRemarks={(approvals.data ?? []).find((a) => a.action === "Rejected")?.remarks}
+              noun="Personal loan"
+              rejectMessage={`Reject ${l.loanNumber}? Nothing is disbursed.`}
+              canDecide={canUpdate}
+              decide={(input) => approvePersonalLoan(l.id, input)}
+              onSaved={() => {
+                setError(null);
+                qc.invalidateQueries({ queryKey: ["personalLoans"] });
+                qc.invalidateQueries({ queryKey: ["personalLoan", String(l.id)] });
+                qc.invalidateQueries({ queryKey: ["personalLoanApprovals", String(l.id)] });
+                qc.invalidateQueries({ queryKey: ["personalLoanSchedule", l.id] });
+              }}
+              onError={setError}
+            />
+            {(approvals.data ?? []).map((a) => (
+              <Txt key={a.id} style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
+                {dmy(a.createdAt)} · {a.action} at {stageByKey(wf, "personal_loan", a.stage)?.label ?? a.stage}
+                {a.actorRole ? ` by ${a.actorRole}` : ""}
+                {a.remarks ? ` — ${a.remarks}` : ""}
+              </Txt>
+            ))}
+          </Card>
+        ) : null}
+        {l.penalCycleCount > 0 ? (
+          <WarningBanner>
+            Penal interest applied {l.penalCycleCount} time(s) — {inr(l.totalPenalInterestCharged)} added at {l.penalInterestRate}% p.a.
+          </WarningBanner>
+        ) : null}
+        </View>
+      ) : null}
+    </Sheet>
+    <Sheet visible={bondOpen} onClose={() => setBondOpen(false)} title="Download bond" maxHeightPct={50}>
+      <SheetListItem first icon="doc" title="English" sub="Bond in English" onPress={() => { setBondOpen(false); void downloadBond("en"); }} />
+      <SheetListItem icon="doc" title="Malayalam" sub="Bond in Malayalam" onPress={() => { setBondOpen(false); void downloadBond("ml"); }} />
     </Sheet>
     <PersonalLedgerEditSheet
       loanId={id}

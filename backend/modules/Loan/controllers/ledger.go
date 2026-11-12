@@ -250,7 +250,9 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 		if accruing {
 			interestKey, penalKey = fmt.Sprintf("interest-accruing-%d", i), fmt.Sprintf("penal-accruing-%d", i)
 		}
-		if p := accrualTriggerPayment(a.CreatedAt, payments); p != nil {
+		if p := accrualTriggerPayment(a.CreatedAt, payments); p != nil && ledgerDate(a.AccruedOn) >= ledgerDate(p.PaidOn) {
+			// only the charge that runs up to the payment moves onto the payment's date; a month completed earlier
+			// stays on its own month-end date instead of piling onto the payment day
 			at = a.CreatedAt
 			if !at.Before(p.PaidOn) {
 				at = p.PaidOn.Add(-time.Millisecond)
@@ -292,10 +294,11 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 	}
 	interestAt := catchUpFor(func(p *models.LoanPayment) float64 { return p.InterestApplied })
 	penalAt := catchUpFor(func(p *models.LoanPayment) float64 { return p.PenalInterestApplied })
-	if missing := l.AccruedInterest - recordedInterest; missing > 0.01 {
+	// whole rupees only: a gap of a few paise would show as a ₹0 row
+	if missing := l.AccruedInterest - recordedInterest; common.RoundMoney(missing) >= 1 {
 		sources = append(sources, ledgerSource{kind: "interest", date: ledgerDate(interestAt), sortKey: ledgerSortKey(interestAt), rank: 2, accrualAmount: common.RoundMoney(missing), note: "interest-earlier"})
 	}
-	if missing := l.AccruedPenalInterest - recordedPenal; missing > 0.01 {
+	if missing := l.AccruedPenalInterest - recordedPenal; common.RoundMoney(missing) >= 1 {
 		sources = append(sources, ledgerSource{kind: "penal", date: ledgerDate(penalAt), sortKey: ledgerSortKey(penalAt), rank: 3, accrualAmount: common.RoundMoney(missing), note: "penal-earlier"})
 	}
 	for i := range auctions {
@@ -478,6 +481,12 @@ func ledgerFocusIndex(rows []LoanLedgerEntry, q LoanLedgerQuery) int {
 	if q.FocusKey != "" {
 		for i, r := range rows {
 			if r.Key == q.FocusKey {
+				return i
+			}
+		}
+		// "payment-<id>" (from a cash ledger row) names a payment, not one of its component rows.
+		for i, r := range rows {
+			if strings.HasPrefix(r.Key, q.FocusKey+"-") {
 				return i
 			}
 		}

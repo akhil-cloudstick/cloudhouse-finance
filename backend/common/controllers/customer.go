@@ -15,6 +15,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var customerPhoneRe = regexp.MustCompile(`^\d{10}$`)
@@ -180,9 +181,10 @@ func insertCustomer(ctx context.Context, c *commonModels.Customer) error {
 func findCustomers(ctx context.Context, f CustomerFilter) ([]commonModels.Customer, int64, error) {
 	var customers []commonModels.Customer
 	q := config.DB.
-		WithContext(ctx).Preload("Branch").Order("id asc")
+		WithContext(ctx).Preload("Branch")
 	if f.Query != "" {
 		if IsDigitQuery(f.Query) {
+			q = q.Order(clause.Expr{SQL: NumericExactFirstOrder("code"), Vars: []any{NumericExactFirstArg(f.Query)}})
 			// A number finds a customer by ID or by the start of a phone number — not by
 			// digits that merely occur somewhere inside a phone number or code.
 			q = q.Where("("+NumericPrefixSQL("code")+" OR phone LIKE ?)", NumericPrefixArg(f.Query), f.Query+"%")
@@ -207,6 +209,7 @@ func findCustomers(ctx context.Context, f CustomerFilter) ([]commonModels.Custom
 	if f.CustomerType != "" {
 		q = q.Where("customer_type = ?", f.CustomerType)
 	}
+	q = q.Order("id asc")
 	var total int64
 	if f.Limit > 0 {
 		if err := q.Session(&gorm.Session{}).Model(&commonModels.Customer{}).Count(&total).Error; err != nil {
@@ -293,7 +296,18 @@ func customerMaxCodeSuffix(ctx context.Context) (int, error) {
 	return maxSuffix, err
 }
 
+// customerValidate checks a borrower. Investors live in their own table (see investor.go), so a
+// customer can no longer be typed "Investor".
 func customerValidate(in CustomerCreateInput) error {
+	if in.CustomerType != "" && in.CustomerType != "Borrower" {
+		return NewBadRequest("customer type must be Borrower — investors are managed under Investments")
+	}
+	return partyValidate(in, false)
+}
+
+// partyValidate holds the checks a borrower and an investor share; an investor must also carry
+// bank details, PAN and Aadhaar.
+func partyValidate(in CustomerCreateInput, investor bool) error {
 	if in.Name == "" {
 		return NewBadRequest("name is required")
 	}
@@ -323,17 +337,13 @@ func customerValidate(in CustomerCreateInput) error {
 	if in.BankAccountNumber != "" && (len(in.BankAccountNumber) > 18 || strings.Trim(in.BankAccountNumber, "0123456789") != "") {
 		return NewBadRequest("bank account number must be digits only, up to 18 digits")
 	}
-	switch in.CustomerType {
-	case "", "Borrower":
-	case "Investor":
+	if investor {
 		if in.BankAccountName == "" || in.BankAccountNumber == "" || in.BankIFSC == "" {
 			return NewBadRequest("bank account name, number and IFSC are required")
 		}
 		if in.PAN == "" || in.Aadhaar == "" {
 			return NewBadRequest("PAN and Aadhaar are required for an investor")
 		}
-	default:
-		return NewBadRequest("customer type must be Borrower or Investor")
 	}
 	return nil
 }

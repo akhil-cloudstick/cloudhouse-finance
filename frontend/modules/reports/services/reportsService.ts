@@ -11,6 +11,8 @@ function buildQuery(filters: ReportFilters): string {
 	const qs = new URLSearchParams();
 	if (filters.from) qs.set("from", filters.from);
 	if (filters.to) qs.set("to", filters.to);
+  if (filters.period) qs.set("period", filters.period);
+  if (filters.year) qs.set("year", String(filters.year));
 	if (filters.branchId) qs.set("branch_id", String(filters.branchId));
 	if (filters.page) qs.set("page", String(filters.page));
 	if (filters.pageSize) qs.set("page_size", String(filters.pageSize));

@@ -213,7 +213,6 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
 			</div>
 			<div className="ft">
 				<span className="pay-ft-msg">{err}</span>
-				<button className="btn ghost" onClick={closeModal}>Close</button>
 				{pending && stageKey && canActOnStage && canDecide && (
 					<>
 						<button className="btn danger" disabled={saving} onClick={promptReject}>Reject</button>

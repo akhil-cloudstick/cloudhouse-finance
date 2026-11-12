@@ -14,6 +14,7 @@ func ledgerRowMatches(r ledgerSourceRow, needle string) bool {
 		r.Date.Format("02-01-2006"),
 		r.Date.Format("2006-01-02"),
 		r.Reference,
+		r.LoanNumber,
 		r.Description,
 		r.Method,
 		r.BankName,

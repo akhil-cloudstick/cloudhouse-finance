@@ -9,6 +9,8 @@
 export type ReportFilters = {
 	from?: string; // "YYYY-MM-DD"
 	to?: string; // "YYYY-MM-DD"
+  period?: string; // Form G: q1|q2|q3|q4|annual (backend resolves from/to + label)
+  year?: number;
 	branchId?: number | string; // one id, or several comma-joined
 	page?: number;
 	pageSize?: number;

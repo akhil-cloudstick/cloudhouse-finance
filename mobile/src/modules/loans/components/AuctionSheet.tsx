@@ -170,9 +170,9 @@ export function AuctionSheet({
                 {decisionReq.kind === "Shortfall"
                   ? `Shortfall — awaiting authority. The sale realised ${inr(decisionReq.amountPaid)} and left ${inr(decisionReq.outstandingAtRequest)} owing.`
                   : `Decision pending. ${inr(decisionReq.amountPaid)} was paid, leaving ${inr(decisionReq.outstandingAtRequest)} owing. No notice, schedule, or sale can proceed until this is resolved.`}
-                {!canDecideThis ? " Your role can view this but not decide it." : ""}
+                {!canDecideThis ? " View only." : ""}
               </WarningBanner>
-              {decisionFlowOff ? <NoticeBanner>Decisions are now switched off for new cases, but this one was raised before that change and still needs a decision.</NoticeBanner> : null}
+              {decisionFlowOff ? <NoticeBanner>Older case needs decision.</NoticeBanner> : null}
               {canDecideThis ? (
                 <>
                   <Field label="Decision">

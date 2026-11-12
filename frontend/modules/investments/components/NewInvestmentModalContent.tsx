@@ -8,7 +8,7 @@ import { fmt } from "@/common/utils/format";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { Select } from "@/common/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
-import { searchInvestorsPage } from "@/modules/customers/services/customerService";
+import { searchInvestorsPage } from "@/modules/investments/services/investorService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { CreateInvestorModalContent } from "@/modules/investments/components/CreateInvestorModalContent";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -33,7 +33,7 @@ type NewInvestmentModalContentProps = { onSaved: () => void; /** Set to correct 
  * CreateInvestment). */
 export function NewInvestmentModalContent({ onSaved, investment }: NewInvestmentModalContentProps) {
 	const editing = !!investment;
-	const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
+  const canCreateCustomer = useAuth().can("Investment_Management", "can_create_investment");
 	const { closeModal } = useModal();
 	const toast = useToast();
 

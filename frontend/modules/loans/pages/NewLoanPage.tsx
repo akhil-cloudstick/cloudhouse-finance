@@ -67,6 +67,7 @@ import { navigate } from "@/common/services/appRoutes";
 // NetWeight × rate with no quantity factor — this frontend calc was the
 // one out of step, not the backend.
 type OrnRow = { n: string; p: string; w: number; lessWt: number; netW: number; q: number; imgs?: string[] };
+const blankOrnRow = (): OrnRow => ({ n: "", p: "22K", w: 0, lessWt: 0, netW: 0, q: 1 });
 
 // A focused <input type="number"> steps its value on mouse-wheel scroll, so
 // scrolling the page past a weight/qty field silently changes it. Dropping
@@ -266,7 +267,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 	const [schemeObj, setSchemeObj] = useState<SchemeView | null>(null);
 	const [schemeLabel, setSchemeLabel] = useState("");
 	const [lockerId, setLockerId] = useState<number | "">("");
-	const [rows, setRows] = useState<OrnRow[]>([]);
+  // One ornament row is always open — the form never shows an empty table.
+  const [rows, setRows] = useState<OrnRow[]>(() => [blankOrnRow()]);
 	// Staff can override the disbursed principal instead of always taking the
 	// scheme-LTV-computed eligible amount as-is (e.g. rounding down, or
 	// sanctioning less than the max eligible). Prefilled to the eligible
@@ -434,7 +436,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 		// Ornament type starts blank — it must be explicitly picked (or created)
 		// via the SearchableSelect below, never silently defaulted.
 		justAddedRowRef.current = true;
-		setRows((rs) => [...rs, pre || { n: "", p: "22K", w: 0, lessWt: 0, netW: 0, q: 1 }]);
+    setRows((rs) => [...rs, pre || blankOrnRow()]);
 	}
 
   // Moves focus into a freshly-added row's own Ornament-type field —
@@ -467,7 +469,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     });
   }, [rows.length]);
   function delOrnRow(i: number) {
-    setRows((rs) => rs.filter((_, idx) => idx !== i));
+    // The last remaining row can't be removed — one is always open.
+    setRows((rs) => (rs.length <= 1 ? rs : rs.filter((_, idx) => idx !== i)));
   }
   function updOrn<K extends keyof OrnRow>(i: number, k: K, v: OrnRow[K]) {
     // Weight/qty can never go negative, however the value arrives (native
@@ -653,7 +656,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 		setSchemeLabel("");
 		setLockerId("");
 		setLockerLabel("");
-		setRows([]);
+    setRows([blankOrnRow()]);
 		setOverallPhoto("");
 		setPrincipalOverride("");
 		setPrincipalExceedsEligible(false);
@@ -682,7 +685,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 				.then((k) => setLockerLabel(lockerLabelOf(k)))
 				.catch(() => {/* locker may have since been deleted — leave the label blank */});
 		}
-		setRows(d.ornaments.map((o) => ({
+    const draftRows: OrnRow[] = d.ornaments.map((o) => ({
 			n: o.name,
 			p: o.purity || "22K",
 			w: o.grossWeight,
@@ -695,7 +698,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 			q: o.quantity,
 			// Drafts saved before multi-photo only have the single imageUrl.
 			...(o.imageUrls?.length ? { imgs: o.imageUrls } : o.imageUrl ? { imgs: [o.imageUrl] } : {}),
-		})));
+    }));
+    setRows(draftRows.length ? draftRows : [blankOrnRow()]);
 		setOverallPhoto(d.overallPhotoUrl || "");
 		// Restoring rows changes the eligible amount, which normally clears a
 		// stale manual override (see the effect on roundedEligible). Here the
@@ -1074,7 +1078,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 										{ornPhotoCell(i)}
 									</td>
 									<td style={{ textAlign: "center", paddingLeft: 2 }}>
-										<button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
+                    <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" disabled={rows.length <= 1} onClick={() => delOrnRow(i)}>✕</button>
 									</td>
 								</tr>
 							))}
@@ -1116,7 +1120,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 										<label className="f">Qty</label>
 										<input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box", textAlign: "center" }} type="number" onWheel={blurOnWheel} min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
 									</div>
-									<button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, marginTop: 20, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
+                  <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, marginTop: 20, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" disabled={rows.length <= 1} onClick={() => delOrnRow(i)}>✕</button>
 								</div>
 								<div>
 									<label className="f">Purity</label>
@@ -1213,7 +1217,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 												</div>
 												<div style={row}>
 													<span>Charge method</span>
-													<div style={{ width: 170 }}>
+                          <div style={{ width: 170, flex: "0 0 170px", boxSizing: "border-box" }}>
 														<Select
 															value={chargeMode}
 															onChange={(v) => setChargeMode(v as "WithheldFromPayout" | "AddedToPrincipal")}
@@ -1288,7 +1292,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
 														toast(`Loan amount rounded off to ${fmt(rounded)}`);
 													}
 												}}
-												style={{ flex: "0 0 120px", minWidth: 0, padding: "3px 8px", textAlign: "right", fontWeight: 600, color: "var(--brand-deep)", fontSize: 13.5 }}
+                        // Same 170px border-box width as the Charge method dropdown above, so both end on one right edge.
+                        style={{ flex: "0 0 170px", width: 170, boxSizing: "border-box", minWidth: 0, padding: "3px 8px", textAlign: "right", fontWeight: 600, color: "var(--brand-deep)", fontSize: 13.5 }}
 											/>
 										</div>
 										{principalExceedsEligible && (

@@ -7,7 +7,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Select } from "@/common/components/ui/Select";
-import { createInvestmentPlan, updateInvestmentPlan, listInvestmentPlans, deleteInvestmentPlan } from "@/modules/investments/services/investmentService";
+import { createInvestmentPlan, updateInvestmentPlan, searchInvestmentPlansPage, deleteInvestmentPlan } from "@/modules/investments/services/investmentService";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
@@ -17,15 +17,15 @@ import { type BackendInvestmentPlan, type CreatePlanInput, type InterestRateType
 // alternative left in the UI, so the create/edit form no longer offers a
 // choice; every plan is created/saved as "Bond" (see form submission below).
 const emptyForm: CreatePlanInput = {
-	name: "",
-	interestRateType: "Simple",
-	interestRatePercent: 0,
-	payoutFrequency: "Monthly",
-	tenureMonths: 12,
-	minPrincipal: 0,
-	isActive: true,
-	engine: "Schedule",
-	productType: "Bond",
+  name: "",
+  interestRateType: "Simple",
+  interestRatePercent: 0,
+  payoutFrequency: "Monthly",
+  tenureMonths: 12,
+  minPrincipal: 0,
+  isActive: true,
+  engine: "Schedule",
+  productType: "Bond",
 };
 
 /* Fixed Payout (backend Engine "Schedule") now also offers Quarterly
@@ -38,7 +38,7 @@ const FIXED_PAYOUT_FREQUENCIES: PayoutFrequency[] = ["Monthly", "Quarterly", "Ye
 
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = {
-	name: /name/i, rate: /interest rate|rate/i, frequency: /frequency|payout/i, tenure: /tenure/i, minPrincipal: /minimum|principal/i,
+  name: /name/i, rate: /interest rate|rate/i, frequency: /frequency|payout/i, tenure: /tenure/i, minPrincipal: /minimum|principal/i,
 };
 
 type InvestmentPlansModalContentProps = { onChanged: () => void };
@@ -50,246 +50,258 @@ type InvestmentPlansModalContentProps = { onChanged: () => void };
  * for one plan at a time, inline in the same modal rather than a second
  * nested modal. */
 export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalContentProps) {
-	const { closeModal, openChildModal } = useModal();
-	const canDelete = useAuth().can("Investment_Management", "can_delete_investment");
+  const { closeModal, openChildModal } = useModal();
+  const canDelete = useAuth().can("Investment_Management", "can_delete_investment");
 
-	// Scroll-paginated: 10 plans shown at a time, the next 10 revealed as the
-	// height-capped table is scrolled to its end. The plan list is one small
-	// unpaged fetch, so "pages" are revealed client-side.
-	const PAGE_SIZE = 10;
+  // Scroll-paginated from the server: 10 plans per request, the next 10 fetched as the
+  // height-capped table is scrolled to its end. Search runs on the server too.
+  const PAGE_SIZE = 10;
 
-	const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState("");
-	const [page, setPage] = useState(1);
-	const [planQ, setPlanQ] = useState("");
-	const wrapRef = useRef<HTMLDivElement>(null);
-	const [editingId, setEditingId] = useState<number | null>(null);
-	const [form, setForm] = useState<CreatePlanInput>(emptyForm);
-	const [saving, setSaving] = useState(false);
-	const [formErr, setFormErr] = useState("");
-	// Validation messages, each shown under the field it is about; `formErr` keeps the ones that fit no field.
-	const [fe, setFe] = useState<Record<string, string>>({});
-	const fail = (field: string, msg: string) => { setFormErr(""); setFe({ [field]: msg }); };
+  const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState("");
+  const [planQ, setPlanQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const pageRef = useRef(1);
+  const reqId = useRef(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<CreatePlanInput>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [formErr, setFormErr] = useState("");
+  // Validation messages, each shown under the field it is about; `formErr` keeps the ones that fit no field.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const fail = (field: string, msg: string) => { setFormErr(""); setFe({ [field]: msg }); };
 
-	async function refresh() {
-		setLoading(true);
-		try {
-			setPlans(await listInvestmentPlans(false));
-			setError("");
-		} catch (e) {
-			setError(e instanceof ApiError ? e.message : "Could not load plans.");
-		} finally {
-			setLoading(false);
-		}
-	}
+  // Loads page 1 (replacing the list) or the next page (appending). A stale response is dropped.
+  async function load(reset: boolean, q = debouncedQ) {
+    const id = ++reqId.current;
+    const page = reset ? 1 : pageRef.current + 1;
+    if (reset) setLoading(true); else setLoadingMore(true);
+    try {
+      const r = await searchInvestmentPlansPage(q, page, PAGE_SIZE);
+      if (id !== reqId.current) return;
+      pageRef.current = page;
+      setPlans((cur) => (reset ? r.items : [...cur, ...r.items]));
+      setHasMore(r.hasMore);
+      setError("");
+    } catch (e) {
+      if (id !== reqId.current) return;
+      setError(e instanceof ApiError ? e.message : "Could not load plans.");
+    } finally {
+      if (id === reqId.current) { setLoading(false); setLoadingMore(false); }
+    }
+  }
 
-	useEffect(() => { void refresh(); }, []);
+  const refresh = () => load(true);
 
-	// Plans are all loaded already, so the search is applied here (name, type, frequency, status).
-	const needle = planQ.trim().toLowerCase();
-	const matchingPlans = needle
-		? plans.filter((p) => [p.name, p.interestRateType, p.payoutFrequency, p.isActive ? "active" : "inactive", p.productType].some((v) => String(v ?? "").toLowerCase().includes(needle)))
-		: plans;
-	const shownPlans = matchingPlans.slice(0, page * PAGE_SIZE);
-	const hasMore = shownPlans.length < matchingPlans.length;
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(planQ.trim()), 250);
+    return () => clearTimeout(t);
+  }, [planQ]);
 
-	function onWrapScroll() {
-		const el = wrapRef.current;
-		if (hasMore && el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) setPage((p) => p + 1);
-	}
+  useEffect(() => { void load(true, debouncedQ); }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// A batch too short to overflow the table never fires onScroll, so keep
-	// revealing until the rows actually scroll or the list runs out.
-	useEffect(() => {
-		const el = wrapRef.current;
-		if (hasMore && el && el.scrollHeight <= el.clientHeight) setPage((p) => p + 1);
-	}, [shownPlans.length, hasMore, editingId]);
+  const shownPlans = plans;
 
-	function startCreate() {
-		setEditingId(0);
-		setForm(emptyForm);
-		setFormErr("");
-		setFe({});
-	}
+  function onWrapScroll() {
+    const el = wrapRef.current;
+    if (hasMore && !loading && !loadingMore && el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) void load(false);
+  }
 
-	function startEdit(p: BackendInvestmentPlan) {
-		setEditingId(p.id);
-		setForm({
-			name: p.name,
-			interestRateType: p.interestRateType,
-			interestRatePercent: p.interestRatePercent,
-			payoutFrequency: p.payoutFrequency,
-			tenureMonths: p.tenureMonths,
-			minPrincipal: p.minPrincipal,
-			isActive: p.isActive,
-			engine: p.engine,
-			productType: "Bond",
-		});
-		setFormErr("");
-		setFe({});
-	}
+  // A batch too short to overflow the table never fires onScroll, so keep
+  // fetching until the rows actually scroll or the list runs out.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (hasMore && !loading && !loadingMore && el && el.scrollHeight <= el.clientHeight) void load(false);
+  }, [plans.length, hasMore, loading, loadingMore, editingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// Returning from the confirm remounts this modal, which reloads the list.
-	function confirmDelete(p: BackendInvestmentPlan) {
-		openChildModal(
-			<ConfirmModalContent
-				title="Delete Plan"
-				confirmLabel="Delete Plan"
-				busyLabel="Deleting…"
-				danger
-				message={<>Delete the plan <strong>{p.name}</strong>? A plan already used by an investment can&apos;t be deleted — mark it inactive instead.</>}
-				onConfirm={async () => { await deleteInvestmentPlan(p.id); onChanged(); }}
-			/>
-		);
-	}
+  function startCreate() {
+    setEditingId(0);
+    setForm(emptyForm);
+    setFormErr("");
+    setFe({});
+  }
 
-	async function save() {
-		// Every problem is shown at once, each beside its own field.
-		const errors: Record<string, string> = {};
-		if (!form.name.trim()) errors["name"] ??= "Please enter a plan name.";
-		if (form.interestRatePercent < 0) errors["rate"] ??= "Interest rate must not be negative.";
-		if (form.tenureMonths <= 0) errors["tenure"] ??= "Tenure must be greater than zero.";
-		// The tenure/frequency divisibility rule only applies to Fixed Payout
-		// plans (whose payout schedule steps in whole calendar-month periods) —
-		// Single Payout plans accrue continuously and pay out once at maturity,
-		// with nothing to divide evenly.
-		if (form.engine === "Schedule") {
-			const stepMonths = form.payoutFrequency === "Yearly" ? 12 : form.payoutFrequency === "Quarterly" ? 3 : 1;
-			if (form.tenureMonths % stepMonths !== 0) errors["tenure"] ??= `Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`;
-		}
-		if (Object.keys(errors).length) { setFormErr(""); setFe(errors); return; }
+  function startEdit(p: BackendInvestmentPlan) {
+    setEditingId(p.id);
+    setForm({
+      name: p.name,
+      interestRateType: p.interestRateType,
+      interestRatePercent: p.interestRatePercent,
+      payoutFrequency: p.payoutFrequency,
+      tenureMonths: p.tenureMonths,
+      minPrincipal: p.minPrincipal,
+      isActive: p.isActive,
+      engine: p.engine,
+      productType: "Bond",
+    });
+    setFormErr("");
+    setFe({});
+  }
 
-		setSaving(true);
-		setFormErr("");
-		setFe({});
-		try {
-			if (editingId) {
-				await updateInvestmentPlan(editingId, form);
-			} else {
-				await createInvestmentPlan(form);
-			}
-			setEditingId(null);
-			await refresh();
-			onChanged();
-		} catch (e) {
-			const msg = e instanceof ApiError ? e.message : "Could not save the plan — try again.";
-			const field = fieldForMessage(msg, SERVER_FIELDS);
-			if (field) fail(field, msg); else setFormErr(msg);
-		} finally {
-			setSaving(false);
-		}
-	}
+  // Returning from the confirm remounts this modal, which reloads the list.
+  function confirmDelete(p: BackendInvestmentPlan) {
+    openChildModal(
+      <ConfirmModalContent
+        title="Delete Plan"
+        confirmLabel="Delete Plan"
+        busyLabel="Deleting…"
+        danger
+        message={<>Delete the plan <strong>{p.name}</strong>? A plan already used by an investment can&apos;t be deleted — mark it inactive instead.</>}
+        onConfirm={async () => { await deleteInvestmentPlan(p.id); onChanged(); }}
+      />
+    );
+  }
 
-	return (
-		<>
-			<div className="hd"><h3>Investment Plans</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd">
-				{editingId === null ? (
-					<>
-						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
-							<input className="inp" style={{ maxWidth: 260 }} placeholder="Search plans…" aria-label="Search plans" value={planQ} onChange={(e) => { setPlanQ(e.target.value); setPage(1); }} />
-							<button className="btn sm" onClick={startCreate}>+ New Plan</button>
-						</div>
-						{error && <div className="notice">{error}</div>}
-						<div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl tbl-cards-sm tbl-compact">
-							<TableCols widths={[19, 9, 7, 11, 8, 13, 12, 10, canDelete ? "150px" : "76px"]} />
-							<thead><tr><th>Name</th><th>Type</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
-							<tbody>
-								{loading ? (
-									<tr><td colSpan={9} className="empty compact">Loading…</td></tr>
-								) : matchingPlans.length === 0 ? (
-									<tr><td colSpan={9} className="empty compact">{plans.length === 0 ? "No plans yet." : "No plans match your search."}</td></tr>
-								) : shownPlans.map((p) => (
-									<tr key={p.id} className="click" onClick={() => startEdit(p)}>
-										<td>{p.name}<div className="sub">{p.interestRateType}</div></td>
-										<td data-label="Type">{p.productType === "Bond" ? <span className="chip info">Bond</span> : "Deposit"}</td>
-										<td className="num" data-label="Rate">{p.interestRatePercent}%</td>
-										<td data-label="Frequency">{p.payoutFrequency}</td>
-										<td className="num" data-label="Tenure">{p.tenureMonths}mo</td>
-										<td className="num" data-label="Min Principal">{fmt(p.minPrincipal)}</td>
-										<td data-label="Payout">{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
-										<td data-label="Status"><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
-										<td className="tbl-acts" style={{ whiteSpace: "nowrap" }}>
-											<button className="btn plain sm" onClick={(e) => { e.stopPropagation(); startEdit(p); }}>Edit</button>
-											{canDelete && <button className="btn plain sm" style={{ color: "var(--red)" }} onClick={(e) => { e.stopPropagation(); confirmDelete(p); }}>Delete</button>}
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table></div>
-						{!loading && plans.length > 0 && (
-							<div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
-								Showing {shownPlans.length} of {matchingPlans.length}{hasMore ? " — scroll for more" : ""}
-							</div>
-						)}
-					</>
-				) : (
-					<>
-						<div className="frow c2">
-							<div className={fe.name ? "has-err" : undefined}><label className="f">Plan Name *</label><input className="inp" placeholder="e.g. Gold Saver 12mo" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><FieldError msg={fe.name} /></div>
-							<div><label className="f">Interest Rate Type *</label>
-								<Select
-									value={form.interestRateType}
-									onChange={(v) => setForm({ ...form, interestRateType: v as InterestRateType })}
-									options={(["Simple", "Compound"] as InterestRateType[]).map((t) => ({ value: t, label: t }))}
-								/>
-							</div>
-						</div>
-						<div className="frow c2">
-							<div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 8" value={form.interestRatePercent || ""} onChange={(e) => setForm({ ...form, interestRatePercent: +e.target.value || 0 })} /><FieldError msg={fe.rate} /></div>
-							<div><label className="f">Payout *</label>
-								<Select
-									value={form.engine}
-									onChange={(v) => setForm({
-										...form,
-										engine: v as Engine,
-										// Reset frequency to Monthly (the shared default)
-										// whenever the allowed set changes, so a stray
-										// Quarterly value can't survive a switch back to
-										// Fixed Payout.
-										payoutFrequency: "Monthly",
-									})}
-									options={(["Schedule", "Live"] as Engine[]).map((e) => ({
-										value: e,
-										label: e === "Live" ? "Single Payout (accumulates, paid at maturity)" : "Fixed Payout",
-									}))}
-								/>
-							</div>
-						</div>
-						{form.engine === "Schedule" && (
-							<div className="frow c2">
-								<div className={fe.frequency ? "has-err" : undefined}><label className="f">Payout Frequency *</label>
-									<Select
-										value={form.payoutFrequency}
-										onChange={(v) => setForm({ ...form, payoutFrequency: v as PayoutFrequency })}
-										options={FIXED_PAYOUT_FREQUENCIES.map((f) => ({ value: f, label: f }))}
-									/><FieldError msg={fe.frequency} />
-								</div>
-								<div />
-							</div>
-						)}
-						<div className="frow c2">
-							<div className={fe.tenure ? "has-err" : undefined}><label className="f">Tenure (months) *</label><input className="inp" type="number" min={1} placeholder="e.g. 12" value={form.tenureMonths || ""} onChange={(e) => setForm({ ...form, tenureMonths: +e.target.value || 0 })} /><FieldError msg={fe.tenure} /></div>
-							<div className={fe.minPrincipal ? "has-err" : undefined}><label className="f">Minimum Principal (₹)</label><input className="inp" type="number" min={0} placeholder="e.g. 10000" value={form.minPrincipal || ""} onChange={(e) => setForm({ ...form, minPrincipal: +e.target.value || 0 })} /><FieldError msg={fe.minPrincipal} /></div>
-						</div>
-						<div className="frow"><div>
-							<label className="cradio" style={{ fontSize: 13 }}>
-								<input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
-								<span className="mark" /><span>Active — offered for new investments</span>
-							</label>
-						</div></div>
-						{formErr && <div className="notice" style={{ marginTop: 10 }}>{formErr}</div>}
-					</>
-				)}
-			</div>
-			{/* List view closes from the header × alone — no footer Close. */}
-			{editingId !== null && (
-				<div className="ft">
-					<button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={() => setEditingId(null)}>Back</button>
-					<button className="btn" disabled={saving} onClick={save}>{saving ? "Saving…" : editingId ? "Save Changes" : "Create Plan"}</button>
-				</div>
-			)}
-		</>
-	);
+  async function save() {
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (!form.name.trim()) errors["name"] ??= "Please enter a plan name.";
+    if (form.interestRatePercent < 0) errors["rate"] ??= "Interest rate must not be negative.";
+    if (form.tenureMonths <= 0) errors["tenure"] ??= "Tenure must be greater than zero.";
+    // The tenure/frequency divisibility rule only applies to Fixed Payout
+    // plans (whose payout schedule steps in whole calendar-month periods) —
+    // Single Payout plans accrue continuously and pay out once at maturity,
+    // with nothing to divide evenly.
+    if (form.engine === "Schedule") {
+      const stepMonths = form.payoutFrequency === "Yearly" ? 12 : form.payoutFrequency === "Quarterly" ? 3 : 1;
+      if (form.tenureMonths % stepMonths !== 0) errors["tenure"] ??= `Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`;
+    }
+    if (Object.keys(errors).length) { setFormErr(""); setFe(errors); return; }
+
+    setSaving(true);
+    setFormErr("");
+    setFe({});
+    try {
+      if (editingId) {
+        await updateInvestmentPlan(editingId, form);
+      } else {
+        await createInvestmentPlan(form);
+      }
+      setEditingId(null);
+      await refresh();
+      onChanged();
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Could not save the plan — try again.";
+      const field = fieldForMessage(msg, SERVER_FIELDS);
+      if (field) fail(field, msg); else setFormErr(msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="hd"><h3>Investment Plans</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd">
+        {editingId === null ? (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <input className="inp" style={{ maxWidth: 260 }} placeholder="Search plans…" aria-label="Search plans" value={planQ} onChange={(e) => setPlanQ(e.target.value)} />
+              <button className="btn sm" onClick={startCreate}>+ New Plan</button>
+            </div>
+            {error && <div className="notice">{error}</div>}
+            <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl tbl-cards-sm tbl-compact">
+              <TableCols widths={[19, 9, 7, 11, 8, 13, 12, 10, canDelete ? "150px" : "76px"]} />
+              <thead><tr><th>Name</th><th>Type</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={9} className="empty compact">Loading…</td></tr>
+                ) : plans.length === 0 ? (
+                  <tr><td colSpan={9} className="empty compact">{debouncedQ ? "No plans match your search." : "No plans yet."}</td></tr>
+                ) : shownPlans.map((p) => (
+                  <tr key={p.id} className="click" onClick={() => startEdit(p)}>
+                    <td>{p.name}<div className="sub">{p.interestRateType}</div></td>
+                    <td data-label="Type"><span className="chip info">Bond</span></td>
+                    <td className="num" data-label="Rate">{p.interestRatePercent}%</td>
+                    <td data-label="Frequency">{p.payoutFrequency}</td>
+                    <td className="num" data-label="Tenure">{p.tenureMonths}mo</td>
+                    <td className="num" data-label="Min Principal">{fmt(p.minPrincipal)}</td>
+                    <td data-label="Payout">{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
+                    <td data-label="Status"><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
+                    <td className="tbl-acts" style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn plain sm" onClick={(e) => { e.stopPropagation(); startEdit(p); }}>Edit</button>
+                      {canDelete && <button className="btn plain sm" style={{ color: "var(--red)" }} onClick={(e) => { e.stopPropagation(); confirmDelete(p); }}>Delete</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+            {!loading && plans.length > 0 && (
+              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
+                Showing {shownPlans.length}{loadingMore ? " — loading…" : hasMore ? " — scroll for more" : ""}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="frow c2">
+              <div className={fe.name ? "has-err" : undefined}><label className="f">Plan Name *</label><input className="inp" placeholder="e.g. Gold Saver 12mo" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><FieldError msg={fe.name} /></div>
+              <div><label className="f">Interest Rate Type *</label>
+                <Select
+                  value={form.interestRateType}
+                  onChange={(v) => setForm({ ...form, interestRateType: v as InterestRateType })}
+                  options={(["Simple", "Compound"] as InterestRateType[]).map((t) => ({ value: t, label: t }))}
+                />
+              </div>
+            </div>
+            <div className="frow c2">
+              <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 8" value={form.interestRatePercent || ""} onChange={(e) => setForm({ ...form, interestRatePercent: +e.target.value || 0 })} /><FieldError msg={fe.rate} /></div>
+              <div><label className="f">Payout *</label>
+                <Select
+                  value={form.engine}
+                  onChange={(v) => setForm({
+                    ...form,
+                    engine: v as Engine,
+                    // Reset frequency to Monthly (the shared default)
+                    // whenever the allowed set changes, so a stray
+                    // Quarterly value can't survive a switch back to
+                    // Fixed Payout.
+                    payoutFrequency: "Monthly",
+                  })}
+                  options={(["Schedule", "Live"] as Engine[]).map((e) => ({
+                    value: e,
+                    label: e === "Live" ? "Single Payout (accumulates, paid at maturity)" : "Fixed Payout",
+                  }))}
+                />
+              </div>
+            </div>
+            {form.engine === "Schedule" && (
+              <div className="frow c2">
+                <div className={fe.frequency ? "has-err" : undefined}><label className="f">Payout Frequency *</label>
+                  <Select
+                    value={form.payoutFrequency}
+                    onChange={(v) => setForm({ ...form, payoutFrequency: v as PayoutFrequency })}
+                    options={FIXED_PAYOUT_FREQUENCIES.map((f) => ({ value: f, label: f }))}
+                  /><FieldError msg={fe.frequency} />
+                </div>
+                <div />
+              </div>
+            )}
+            <div className="frow c2">
+              <div className={fe.tenure ? "has-err" : undefined}><label className="f">Tenure (months) *</label><input className="inp" type="number" min={1} placeholder="e.g. 12" value={form.tenureMonths || ""} onChange={(e) => setForm({ ...form, tenureMonths: +e.target.value || 0 })} /><FieldError msg={fe.tenure} /></div>
+              <div className={fe.minPrincipal ? "has-err" : undefined}><label className="f">Minimum Principal (₹)</label><input className="inp" type="number" min={0} placeholder="e.g. 10000" value={form.minPrincipal || ""} onChange={(e) => setForm({ ...form, minPrincipal: +e.target.value || 0 })} /><FieldError msg={fe.minPrincipal} /></div>
+            </div>
+            <div className="frow"><div>
+              <label className="cradio" style={{ fontSize: 13 }}>
+                <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
+                <span className="mark" /><span>Active — offered for new investments</span>
+              </label>
+            </div></div>
+            {formErr && <div className="notice" style={{ marginTop: 10 }}>{formErr}</div>}
+          </>
+        )}
+      </div>
+      {/* List view closes from the header × alone — no footer Close. */}
+      {editingId !== null && (
+        <div className="ft">
+          <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={() => setEditingId(null)}>Back</button>
+          <button className="btn" disabled={saving} onClick={save}>{saving ? "Saving…" : editingId ? "Save Changes" : "Create Plan"}</button>
+        </div>
+      )}
+    </>
+  );
 }

@@ -399,13 +399,11 @@ func seedCustomers(ctx context.Context, st *state, rep *Report) error {
 			Age:             intPtr(f.Age),
 			DOB:             st.clk.today.AddDate(-f.Age, 0, 0),
 		}
+		in.CustomerType = "Borrower"
 		if f.Investor {
-			in.CustomerType = "Investor"
 			in.BankAccountName = f.BankAccountName
 			in.BankAccountNumber = f.BankAccountNumber
 			in.BankIFSC = f.BankIFSC
-		} else {
-			in.CustomerType = "Borrower"
 		}
 		if f.Aadhaar != "" {
 			if config.AadhaarCipher != nil {
@@ -421,6 +419,14 @@ func seedCustomers(ctx context.Context, st *state, rep *Report) error {
 			return fmt.Errorf("create customer %q: %w", f.Name, err)
 		}
 		st.customerIDs = append(st.customerIDs, c.ID)
+		// An investor fixture is also an investor record (its own table), so investments have someone to point at.
+		if f.Investor {
+			investor, err := common.SaveInvestor(ctx, in)
+			if err != nil {
+				return fmt.Errorf("create investor %q: %w", f.Name, err)
+			}
+			st.investorIDs = append(st.investorIDs, investor.ID)
+		}
 	}
 	for i, id := range st.customerIDs {
 		plan := customerKYCPlan[i%len(customerKYCPlan)]
@@ -1628,14 +1634,9 @@ func seedInvestments(ctx context.Context, st *state, rep *Report) error {
 	if len(st.planIDs) == 0 {
 		return fmt.Errorf("no active investment plans to invest into")
 	}
-	var investors []uint
-	for i, f := range customerFixtures {
-		if f.Investor && i < len(st.customerIDs) {
-			investors = append(investors, st.customerIDs[i])
-		}
-	}
+	investors := st.investorIDs
 	if len(investors) == 0 {
-		investors = st.customerIDs
+		return fmt.Errorf("no investors were seeded to invest from")
 	}
 	ids := make([]uint, 0, 12)
 	for i := 0; i < 12; i++ {

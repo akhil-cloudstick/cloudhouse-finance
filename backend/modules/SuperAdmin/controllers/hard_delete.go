@@ -46,6 +46,7 @@ var hardDeleteOrder = []string{
 	"cash_movements",
 	"customer_otp",
 	"customer_device_tokens",
+	"investors",
 	"customers",
 	"investment_plans",
 	"schemes",
@@ -102,7 +103,7 @@ var hardDeleteChildOf = map[string]struct{ fk, parent string }{
 	"reminders":                  {"customer_id", "customers"},
 	"personal_loans":             {"customer_id", "customers"},
 	"loan_drafts":                {"customer_id", "customers"},
-	"investments":                {"customer_id", "customers"},
+	"investments":                {"customer_id", "investors"},
 	"loans":                      {"customer_id", "customers"},
 	"cash_movements":             {"party_customer_id", "customers"},
 }

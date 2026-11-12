@@ -167,7 +167,7 @@ function NewRoleSheet({ visible, onClose, onCreated }: NewRoleSheetProps) {
     <Sheet visible={visible} onClose={onClose} title="New Role" maxHeightPct={75}>
       <TextField label="Role name" placeholder="e.g. Regional Auditor" value={name} onChangeText={setName} />
       <TextField label="Description" placeholder="What this role is for" value={desc} onChangeText={setDesc} />
-      <NoticeBanner>A new role starts with every permission granted — revoke what it shouldn&apos;t have after creating it.</NoticeBanner>
+      <NoticeBanner>New roles get everything.</NoticeBanner>
       {error ? <ErrorText>{error}</ErrorText> : null}
       <PrimaryButton label="Create Role" onPress={onCreate} loading={busy} disabled={!name.trim()} />
     </Sheet>

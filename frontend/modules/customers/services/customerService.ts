@@ -11,7 +11,7 @@ import { toView as toLoanView, toAuctionRecordView, toCustomerOrnamentRowView, t
 import { type BackendLoan, type LoanView, type BackendCustomerOrnamentRow, type CustomerOrnamentRowView, type BackendCustomerPaymentRow, type CustomerPaymentRowView, type BackendCustomerBankPledgeRow, type CustomerBankPledgeRowView, type BackendCustomerAuctionRow, type CustomerAuctionRowView } from "@/modules/loans/types/loan-types";
 import type { BackendCustomer, CustomerView, CustomerFormInput, PanVerificationResult, AadhaarVerificationStart, AadhaarVerificationCheck, Customer360View, BackendCustomer360 } from "@/modules/customers/types/customer-types";
 
-function toView(c: BackendCustomer): CustomerView {
+export function toView(c: BackendCustomer): CustomerView {
   return {
     // a customer the server has not numbered yet is known by the id the PC gave them
     id: c.id ? String(c.id) : c.uuid ? UUID_ID + c.uuid : "",
@@ -64,7 +64,7 @@ export function verificationLabel(c: { panStatus: string; aadhaarStatus: string 
   return "Unverified";
 }
 
-function toRequestBody(input: CustomerFormInput) {
+export function toRequestBody(input: CustomerFormInput) {
   return {
     name: input.name,
     phone: input.phone,
@@ -221,25 +221,6 @@ export async function searchBorrowersPage(q: string, page: number): Promise<{ it
     () => {
       // the borrowers on this PC, including one registered here that the server has not numbered yet
       const all = localCustomers().filter((c) => c.customerType !== "Investor" && matchesCustomer(c, q));
-      const from = page * CUSTOMER_PAGE_SIZE;
-      return { items: all.slice(from, from + CUSTOMER_PAGE_SIZE).map(toView), hasMore: from + CUSTOMER_PAGE_SIZE < all.length };
-    },
-  );
-}
-
-/* Same as searchCustomersPage, narrowed to Investor customers only — backs
- * the investor picker in the New Investment flow
- * (modules/investments/components/NewInvestmentModalContent.tsx). */
-export async function searchInvestorsPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
-  const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE), customerType: "Investor" });
-  return orLocal(
-    async () => {
-      const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
-      return { items: [...(rec?.items || []).map(toView), ...(page === 0 ? unsentCustomers(q, "Investor") : [])], hasMore: !!rec?.hasMore };
-    },
-    () => {
-      // the investors on this PC, including one registered here that the server has not numbered yet
-      const all = localCustomers().filter((c) => c.customerType === "Investor" && matchesCustomer(c, q));
       const from = page * CUSTOMER_PAGE_SIZE;
       return { items: all.slice(from, from + CUSTOMER_PAGE_SIZE).map(toView), hasMore: from + CUSTOMER_PAGE_SIZE < all.length };
     },

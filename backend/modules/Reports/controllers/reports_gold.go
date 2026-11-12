@@ -4,6 +4,9 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Reports/models"
 	"context"
+	"math"
+	"strconv"
+	"strings"
 )
 
 func goldWeight(ctx context.Context, f models.Filter) ([]models.GoldWeightRow, models.GoldWeightTotals, error) {
@@ -25,7 +28,14 @@ func goldWeight(ctx context.Context, f models.Filter) ([]models.GoldWeightRow, m
 		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
 	}
 	if len(f.Purities) > 0 {
-		q = q.Where("o.purity IN ?", f.Purities)
+		// an ornament's purity is stored as "22K" or as a fineness such as "75%", so a picked karat matches both
+		purities := append([]string(nil), f.Purities...)
+		for _, p := range f.Purities {
+			if k, err := strconv.Atoi(strings.TrimSuffix(strings.ToUpper(strings.TrimSpace(p)), "K")); err == nil && k > 0 && k <= 24 {
+				purities = append(purities, strconv.FormatFloat(math.Round(float64(k)/24*1000)/10, 'f', -1, 64)+"%")
+			}
+		}
+		q = q.Where("o.purity IN ?", purities)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.GoldWeightTotals{}, err

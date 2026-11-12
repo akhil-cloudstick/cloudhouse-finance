@@ -761,7 +761,14 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/customers/:id/auction-history` | `GET /api/v1/users/:user_id/customers/:id/auction-history` |
 | `GET /api/v1/customers/:id/bank-pledges` | `GET /api/v1/users/:user_id/customers/:id/bank-pledges` |
 | `DELETE /api/v1/customers/:id/hard-delete` | `DELETE /api/v1/users/:user_id/customers/:id/hard-delete` |
-| `GET /api/v1/customers/:id/investments` | `GET /api/v1/users/:user_id/customers/:id/investments` |
+| `GET /api/v1/investors/:id/investments` | `GET /api/v1/users/:user_id/investors/:id/investments` |
+| `GET /api/v1/investors` | `GET /api/v1/users/:user_id/investors` |
+| `POST /api/v1/investors` | `POST /api/v1/users/:user_id/investors` |
+| `GET /api/v1/investors/by-code/:code` | `GET /api/v1/users/:user_id/investors/by-code/:code` |
+| `GET /api/v1/investors/:id` | `GET /api/v1/users/:user_id/investors/:id` |
+| `GET /api/v1/investors/:id/aadhaar-full` | `GET /api/v1/users/:user_id/investors/:id/aadhaar-full` |
+| `PUT /api/v1/investors/:id` | `PATCH /api/v1/users/:user_id/investors/:id/update` |
+| `DELETE /api/v1/investors/:id/hard-delete` | `DELETE /api/v1/users/:user_id/investors/:id/hard-delete` |
 | `GET /api/v1/customers/:id/loans` | `GET /api/v1/users/:user_id/customers/:id/loans` |
 | `GET /api/v1/customers/:id/ornaments` | `GET /api/v1/users/:user_id/customers/:id/ornaments` |
 | `GET /api/v1/customers/:id/payments` | `GET /api/v1/users/:user_id/customers/:id/payments` |

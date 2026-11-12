@@ -28,7 +28,7 @@ import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { ledgerFocusTarget, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { canRenderOffline } from "@/common/offline/documents";
-import { getLoanByNumber, linkedDiscountOf, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF, listLoanRequests, startPledgeSlipEsign, checkPledgeSlipEsign } from "@/modules/loans/services/loanService";
+import { loanDisplayStatus, getLoanByNumber, linkedDiscountOf, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF, listLoanRequests, startPledgeSlipEsign, checkPledgeSlipEsign } from "@/modules/loans/services/loanService";
 import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView, type RequestView, type EsignWitnessInput } from "@/modules/loans/types/loan-types";
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
@@ -317,7 +317,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 			kinds: ledgerKinds.length ? ledgerKinds : undefined,
 			limit: LEDGER_PAGE_SIZE,
 			offset: (ledgerPage - 1) * LEDGER_PAGE_SIZE,
-			...(focus ? ("key" in focus ? { focusKey: focus.key } : { focusDate: focus.date, focusAmount: focus.amount }) : {}),
+			...(focus ? ("key" in focus ? { focusKey: focus.key } : focus.payment ? { focusKey: `payment-${focus.payment}` } : { focusDate: focus.date, focusAmount: focus.amount }) : {}),
 		}, loan.uuid)
 			.then((page) => {
 				if (cancelled) return;
@@ -383,7 +383,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 	// Once the gold is auctioned there is nothing left to extend or release.
 	const goldSold = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
 	// Paid off in full and waiting only for the gold to be released: nothing left to record.
-	const fullyPaid = l.status === "Closure Requested" && l.totalOutstandingBalance <= 0.01;
+  // A loan cleared by its payments (never put through a release request) reads Active once nothing is owed, whatever
+  // it was before, so this is judged on the balance, not on the status.
+  const fullyPaid = !isFinished && !goldSold && l.status !== "Pending Approval" && l.totalOutstandingBalance <= 0.01;
 
 	// Opens the slide viewer over every photo of the ornament (one photo just
 	// shows without the arrows/thumbnails).
@@ -459,6 +461,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 		"data-ledger-key": e.key,
 		"data-ledger-date": e.date,
 		"data-ledger-amount": e.amount,
+    "data-ledger-ref": e.kind === "payment" ? `lp:${e.row.id}` : undefined,
 	});
 	const topUpStageView = pendingTopUp ? stageByPending(workflow, "loan_topup", pendingTopUp.approvalStage) : null;
 	const topUpChain = pendingTopUp ? chainFor(workflow, "loan_topup", pendingTopUp.approvalStage) : [];
@@ -1161,8 +1164,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 							l.status still reads "Overdue" backend-side, so without this
 							guard the title showed both "Overdue" and "Defaulted" chips
 							side by side for the same loan. */}
-					{!l.isDefaulted && <StatusChip status={l.status} />}
-					{l.isDefaulted && <StatusChip status="Defaulted" />}
+          {/* One status only — loanDisplayStatus picks Defaulted / Overdue / Due Soon / Active / Closure Requested / … */}
+          <StatusChip status={loanDisplayStatus(l)} />
 					{/* A past-term loan whose interest is paid off comes back from the
 							backend as "Active" (see refreshServicingStatus in
 							loan/accrual.go). isOverdue stays true — the term really has
@@ -1172,8 +1175,6 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 							itself, or the title would show two identical chips. */}
 					{/* An auctioned loan's own status already says where it stands — no
 							extra Overdue / Due Soon chip beside it. */}
-					{!goldSold && !l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
-					{!goldSold && !l.isOverdue && l.isDueSoon && l.status !== "Due Soon" && <StatusChip status="Due Soon" />}
 					</h1>
 				</div>
 				{/* Everything from here down is one right-aligned group rather than
@@ -1193,10 +1194,10 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 				<div className="page-h-actions">
 					{approvalButtons ? approvalButtons : (
 						!isFinished && l.status !== "Pending Approval" && !fullyPaid && canUpdateLoans && (
-							<button className="btn" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />, true)}><Icon name="coin" /> Record Payment</button>
+              <button className="btn" disabled={goldSold && l.totalOutstandingBalance <= 0.01} title={goldSold && l.totalOutstandingBalance <= 0.01 ? "Nothing outstanding on this auctioned loan" : undefined} onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />, true)}><Icon name="coin" /> Record Payment</button>
 						)
 					)}
-					{l.status === "Closure Requested" && canUpdateLoans && (
+          {(l.status === "Closure Requested" || fullyPaid) && canUpdateLoans && (
 						// Only actually disabled while the request is in flight — the
 						// settlement/pledge gates below are enforced (and explained) by
 						// doCompleteRelease itself via a toast, since a plain `disabled`
@@ -1535,7 +1536,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 							{l.additionalInfo && (
 								<div className="i" style={{ gridColumn: "1 / -1" }}>
 									<div className="k">Additional Information</div>
-									<div className="v" style={{ whiteSpace: "pre-wrap", fontWeight: 400 }}>{l.additionalInfo}</div>
+                  {/* about four lines tall, then it scrolls (wheel / touch) with no visible scrollbar */}
+                  <div className="v addl-info" style={{ whiteSpace: "pre-wrap", fontWeight: 400 }}>{l.additionalInfo}</div>
 								</div>
 							)}
 							{l.overallPhotoUrl && (
@@ -1583,7 +1585,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 															{infoIcon({
 																title: "Loan Sanctioned", kind: "Debit · Sanction",
 																rows: [["Date", fmtDate(entry.date)], ["Loan", l.loanNumber], ["Sanctioned", fmt(l.sanctionedAmount)], ["Service charge withheld", fmt(l.sanctionedAmount - l.disbursedAmount)], ["Paid out", fmt(part ? part.amount : l.disbursedAmount)], ["Mode", part ? part.mode : (entry.payment?.method || "—")], ["Balance", fmt(entry.balance)]],
-																description: <>Loan Sanctioned{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(l.disbursedAmount)}</>}{l.sanctionedAmount !== l.disbursedAmount && <><br />Sanctioned {fmt(l.sanctionedAmount)} · ₹{fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge</>}</>,
+                                description: <>Loan Sanctioned{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(l.disbursedAmount)}</>}{l.sanctionedAmount !== l.disbursedAmount && <><br />Sanctioned {fmt(l.sanctionedAmount)} · {fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge</>}</>,
 																actions: [],
 															})}
 														</td>
@@ -1651,14 +1653,14 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 													<tr key={entry.key} {...ledgerRowAttrs(entry)}>
 														<td data-label="Date">{fmtDate(entry.date)}</td>
 														<td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
-														<td data-label="Particulars">Auction Surplus {fmt(a.surplusPayableAmount)}</td>
+                            <td data-label="Particulars">Auction Surplus {fmt(a.surplusPayableAmount)}{a.surplusRemarks && <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{a.surplusRemarks}</span>}</td>
 														<td data-label="Method">{refunded ? "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
 														<td className="num" style={{ color: refunded ? "var(--red)" : undefined }} data-label="Debit">{refunded ? fmt(a.surplusPayableAmount) : "—"}</td>
 														<td className="num" data-label="Credit">—</td>
 														<td className="num" data-label="Balance">—
 															{infoIcon({
 																title: "Auction Surplus", kind: "Auction · Surplus",
-																rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Surplus", fmt(a.surplusPayableAmount)], ["Status", note]],
+                                rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Surplus", fmt(a.surplusPayableAmount)], ["Status", baseNote], ...(a.surplusRemarks ? [["Remarks", a.surplusRemarks] as [string, string]] : [])],
 																description: <>Auction Surplus {fmt(a.surplusPayableAmount)}<br />{note}</>,
 																actions: [
 																	...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("surplus", "edit") }] : []),
@@ -1687,7 +1689,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 														<td data-label="Particulars">Loan Top-Up</td>
 														<td data-label="Method">
 															{modeParts.length === 0 ? "—" : modeParts.map(([m, v], i) => (
-																<Fragment key={m}>{i > 0 && " · "}{modeCellFor(m)}{v > 0 && ` ${fmt(v)}`}</Fragment>
+                                <Fragment key={m}>{i > 0 && " · "}{modeCellFor(m)}</Fragment>
 															))}
 														</td>
 														<td className="num" style={{ color: "var(--red)" }} data-label="Debit">{fmt(part ? part.amount : t.amount)}</td>

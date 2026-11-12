@@ -258,11 +258,7 @@ export default function BankPledgeScreen() {
           <>
             <View style={{ marginTop: 10 }}>
               <WarningBanner>
-                {`Cancels the ${inr(voidTarget.pledge.pledgedAmount)} pledge of ${voidTarget.loanNumber} to ${voidTarget.pledge.bankName} entered in error.${
-                  voidTarget.pledge.cashTreatment === "CashIn"
-                    ? ` A compensating cash-out of ${inr(voidTarget.pledge.pledgedAmount)} will be booked.`
-                    : " No cash will move — this pledge was recorded only."
-                } The record stays in history for audit. Use Release instead if the gold is actually being returned.`}
+                Cancels erroneous pledge.
               </WarningBanner>
             </View>
             <Field label="Reason *">

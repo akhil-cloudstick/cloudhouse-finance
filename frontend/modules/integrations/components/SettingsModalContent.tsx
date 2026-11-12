@@ -69,9 +69,6 @@ export function SettingsModalContent({ initialSection }: SettingsModalContentPro
 					</section>
 				</div>
 			</div>
-			<div className="ft">
-				<button className="btn" onClick={closeModal}>Close</button>
-			</div>
 		</>
 	);
 }

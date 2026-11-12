@@ -107,7 +107,6 @@ export function LockerDetailModalContent({ locker, canUpdate, canDelete, onChang
 				</div>
 			)}
 			<div className="ft">
-				<button className="btn ghost" onClick={closeModal}>Close</button>
 				{canUpdate && <button className="btn" onClick={() => openModal(<LockerModalContent key={locker.id} locker={locker} onSaved={onChanged} />)}>Edit</button>}
 				{canDelete && (confirmDelete
 					? <button className="btn danger" onClick={remove} disabled={deleting}>{deleting ? "Deleting…" : "Confirm Delete"}</button>

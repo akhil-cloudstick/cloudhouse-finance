@@ -498,7 +498,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 									)}
 									<div className={fe.amount ? "has-err" : undefined}>
 										<label className="f">Amount (₹) *</label>
-										<input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} onBlur={() => {
+                    <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} readOnly={mode === "Full Settlement"} onChange={(e) => setAmount(e.target.value)} onBlur={() => {
 											// Rupees only: a typed amount with paise is rounded to the nearest rupee.
 											const n = +amt;
 											if (amt.trim() && Number.isFinite(n) && n > 0 && n !== roundRupee(n)) {

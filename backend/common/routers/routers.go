@@ -16,6 +16,7 @@ func CommonRoutes(e *echo.Echo) *echo.Echo {
 	DeviceRoutes(e)
 	EmployeeRoutes(e)
 	GoldRateRoutes(e)
+	InvestorRoutes(e)
 	OrnamentTypeRoutes(e)
 	PublicRoutes(e)
 	PurityStandardRoutes(e)

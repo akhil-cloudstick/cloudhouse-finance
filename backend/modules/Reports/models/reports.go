@@ -5,13 +5,15 @@ import (
 )
 
 type Filter struct {
-	From      *time.Time
-	To        *time.Time
-	BranchIDs []uint
-	Page      int
-	PageSize  int
-	Q         string
-	Status    string
+	From *time.Time
+	To   *time.Time
+	// PeriodName is the Form G named period (q1..q4 / annual) that produced From/To, if any.
+	PeriodName string
+	BranchIDs  []uint
+	Page       int
+	PageSize   int
+	Q          string
+	Status     string
 
 	CustomerIDs []uint
 	SchemeIDs   []uint

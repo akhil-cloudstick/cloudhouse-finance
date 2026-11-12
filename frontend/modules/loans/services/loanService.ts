@@ -1252,7 +1252,27 @@ export const CASH_TREATMENT_LABELS: Record<BankPledgeCashTreatment, string> = {
  * counts with it too, so the tile and the page agree. "Auctioned - Balance Due"
  * stays in so a short-sale case keeps showing while its shortfall is open. */
 export function isActiveAuctionCase(l: LoanView): boolean {
-  return l.isDefaulted || l.status === "Auction Eligible" || l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
+  // A loan cleared by payment is never a live case, whatever its saved status or an old auction record says.
+  const sold = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
+  if (!sold && (l.status === "Closure Requested" || l.status === "Closed" || l.totalOutstandingBalance <= 0.01)) return false;
+  return l.isDefaulted || l.status === "Auction Eligible" || sold;
+}
+
+/* The ONE status a loan reads as — used by every row and header so a loan never shows two. Saved statuses that are not
+ * servicing states (Pending Approval, Closure Requested, Auction…, Closed, Rejected) stand as they are; a loan with
+ * nothing left to pay is Closure Requested; otherwise Defaulted, Overdue (past term with interest/penal owed),
+ * Due Soon, or Active. Mirrors the backend's effectiveStatus, which the status tabs filter by. */
+export function loanDisplayStatus(l: LoanView): string {
+  switch (l.status) {
+    case "Active": case "Due Soon": case "Overdue": case "Auction Eligible": break;
+    default: return l.status;
+  }
+  if (l.totalOutstandingBalance <= 0.01) return "Closure Requested";
+  if (l.status === "Auction Eligible") return l.status;
+  if (l.isDefaulted) return "Defaulted";
+  if (l.isOverdue) return l.outstandingInterest > 0.01 || l.outstandingPenalInterest > 0.01 ? "Overdue" : "Active";
+  if (l.isDueSoon) return "Due Soon";
+  return "Active";
 }
 
 export const AUCTION_STAGES = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned", "Settled"] as const;

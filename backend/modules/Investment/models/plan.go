@@ -34,7 +34,7 @@ type InvestmentPlan struct {
 	PayoutFrequency     string         `json:"payout_frequency" gorm:"not null;size:10"`
 	TenureMonths        int            `json:"tenure_months" gorm:"not null"`
 	Engine              string         `json:"engine" gorm:"not null;size:10;default:'Schedule'"`
-	ProductType         string         `json:"product_type" gorm:"not null;size:10;default:'Deposit'"`
+	ProductType         string         `json:"product_type" gorm:"not null;size:10;default:'Bond'"`
 	MinPrincipal        float64        `json:"min_principal" gorm:"not null;type:numeric(16,2);default:0"`
 	IsActive            bool           `json:"is_active" gorm:"not null;default:true"`
 	CreatedAt           time.Time      `json:"created_at"`

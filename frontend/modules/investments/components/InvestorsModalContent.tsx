@@ -9,7 +9,11 @@ import { navigate } from "@/common/services/appRoutes";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
-import { getCustomer, listCustomersPage } from "@/modules/customers/services/customerService";
+import { getInvestor, listInvestorsPage, hardDeleteInvestor } from "@/modules/investments/services/investorService";
+import { listInvestmentsForCustomer } from "@/modules/investments/services/investmentService";
+import { DeleteWithBlockersModalContent, type DeleteBlocker } from "@/common/components/modals/DeleteWithBlockersModalContent";
+import { routeHref } from "@/common/services/appRoutes";
+import { useToast } from "@/common/components/ToastProvider";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { listInvestmentsPage } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment } from "@/modules/investments/types/investment-types";
@@ -88,7 +92,13 @@ function InvestorInvestments({ customerId, from, to }: InvestorInvestmentsProps)
  * start date; more investors load as the list is scrolled. */
 export function InvestorsModalContent() {
 	const { closeModal, openChildModal } = useModal();
-	const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
+  const toast = useToast();
+  const { can } = useAuth();
+  // Investors are managed with the investment permissions (they are their own records, not customers).
+  const canCreateInvestor = can("Investment_Management", "can_create_investment");
+  const canEditInvestor = can("Investment_Management", "can_update_investment");
+  const canDeleteInvestor = can("Investment_Management", "can_delete_investment");
+  const [reloadTick, setReloadTick] = useState(0);
 	const [investorIds, setInvestorIds] = useState<string[]>([]);
 	const [from, setFrom] = useState("");
 	const [to, setTo] = useState("");
@@ -108,7 +118,7 @@ export function InvestorsModalContent() {
 		{
 			key: "investor", label: "Investor", kind: "async", searchHint: "Searches: investor name, code, phone",
 			fetchOptions: (search: string, p: number) =>
-				listCustomersPage(search, p, { customerType: "Investor" }, 20).then((res) => ({ items: res.items.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })), hasMore: res.hasMore })),
+        listInvestorsPage(search, p, undefined, 20).then((res) => ({ items: res.items.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` })), hasMore: res.hasMore })),
 		},
 		{ key: "__date", label: "Start date", kind: "date" },
 	];
@@ -118,8 +128,8 @@ export function InvestorsModalContent() {
 	useEffect(() => {
 		let live = true;
 		const load = investorIds.length
-			? Promise.all(investorIds.map((id) => getCustomer(id))).then((items) => ({ items, hasMore: false, total: items.length }))
-			: listCustomersPage("", page, { customerType: "Investor" }, PAGE_SIZE);
+      ? Promise.all(investorIds.map((id) => getInvestor(id))).then((items) => ({ items, hasMore: false, total: items.length }))
+      : listInvestorsPage("", page, undefined, PAGE_SIZE);
 		load
 			.then((res) => {
 				if (!live) return;
@@ -132,7 +142,7 @@ export function InvestorsModalContent() {
 			.finally(() => { if (live) setLoadedKey(reqKey); });
 		return () => { live = false; };
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- investorIds is tracked by its joined key
-	}, [investorKey, page]);
+  }, [investorKey, page, reloadTick]);
 
 	const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 	function goTo(p: number) { setOpenId(null); setPage(p); }
@@ -142,7 +152,7 @@ export function InvestorsModalContent() {
 			<div className="hd"><h3>Investors</h3><button className="x" onClick={closeModal}>×</button></div>
 			<div className="bd">
 				<div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 10 }}>
-					{canCreateCustomer && <button className="btn sm" onClick={() => openChildModal(<CreateInvestorModalContent onCreated={() => closeModal()} />)}>+ New Investor</button>}
+          {canCreateInvestor && <button className="btn sm" onClick={() => openChildModal(<CreateInvestorModalContent onCreated={() => { closeModal(); setReloadTick((n) => n + 1); }} />)}>+ New Investor</button>}
 					<FilterPanel
 						categories={filterCategories}
 						value={filterValue}
@@ -157,15 +167,45 @@ export function InvestorsModalContent() {
 				</div>
 				{error && <div className="notice">{error}</div>}
 				<div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged"><table className="tbl tbl-cards-sm tbl-compact">
-					<TableCols widths={[45, 25, 20, 10]} />
-					<thead><tr><th>Investor</th><th>Phone</th><th>Branch</th><th style={{ width: 40 }}></th></tr></thead>
+          <TableCols widths={[38, 24, 22, 16]} />
+          <thead><tr><th>Investor</th><th>Phone</th><th>Branch</th><th></th></tr></thead>
 					<tbody>
 						{loading && investors.length === 0 ? (
 							<tr><td colSpan={4} className="empty compact">Loading…</td></tr>
 						) : investors.length === 0 ? (
 							<tr><td colSpan={4} className="empty compact">No investors yet.</td></tr>
 						) : investors.map((c) => (
-							<InvestorRows key={c.id} investor={c} open={openId === c.id} onToggle={() => setOpenId(openId === c.id ? null : c.id)} from={from} to={to} />
+              <InvestorRows
+                key={c.id}
+                investor={c}
+                open={openId === c.id}
+                onToggle={() => setOpenId(openId === c.id ? null : c.id)}
+                from={from}
+                to={to}
+                onEdit={canEditInvestor ? () => openChildModal(<CreateInvestorModalContent edit={c} onCreated={() => { closeModal(); toast("Investor updated"); setReloadTick((n) => n + 1); }} />) : undefined}
+                onDelete={canDeleteInvestor ? () => {
+                  // Investments still held block the delete; they are listed as links and the list refreshes by itself.
+                  const loadBlockers = async (): Promise<DeleteBlocker[]> =>
+                    (await listInvestmentsForCustomer(Number(c.id))).map((i) => ({
+                      key: String(i.id), kind: "Investment", ref: i.investmentNumber, status: i.status, href: routeHref("investment", String(i.id)),
+                    }));
+                  openChildModal(
+                    <DeleteWithBlockersModalContent
+                      title="Delete Investor Permanently"
+                      name={c.name}
+                      code={c.code}
+                      loadBlockers={loadBlockers}
+                      blockedHint="Close and delete these investments first (they open in a new tab), then come back — this updates by itself."
+                      onDelete={async () => {
+                        await hardDeleteInvestor(c.id);
+                        toast("Investor deleted permanently");
+                        setOpenId(null);
+                        setReloadTick((n) => n + 1);
+                      }}
+                    />
+                  );
+                } : undefined}
+              />
 						))}
 					</tbody>
 				</table></div>
@@ -180,16 +220,22 @@ export function InvestorsModalContent() {
 	);
 }
 
-type InvestorRowsProps = { investor: CustomerView; open: boolean; onToggle: () => void; from: string; to: string };
+type InvestorRowsProps = { investor: CustomerView; open: boolean; onToggle: () => void; from: string; to: string; onEdit?: () => void; onDelete?: () => void };
 
-function InvestorRows({ investor, open, onToggle, from, to }: InvestorRowsProps) {
+function InvestorRows({ investor, open, onToggle, from, to, onEdit, onDelete }: InvestorRowsProps) {
 	return (
 		<>
 			<tr className="click" onClick={onToggle} aria-expanded={open}>
 				<td><span className="id">{investor.code}</span><span className="sub">{investor.name}</span></td>
 				<td data-label="Phone">{investor.phone || "—"}</td>
 				<td data-label="Branch">{investor.branchName || "—"}</td>
-				<td className="td-chev"><Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .15s" }} /></td>
+        <td className="td-chev" style={{ whiteSpace: "nowrap" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+            {onEdit && <button type="button" title="Edit investor" aria-label="Edit investor" onClick={(e) => { e.stopPropagation(); onEdit(); }} style={{ border: 0, background: "none", cursor: "pointer", padding: 4, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}><Icon name="edit" /></button>}
+            {onDelete && <button type="button" title="Delete investor" aria-label="Delete investor" onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ border: 0, background: "none", cursor: "pointer", padding: 4, color: "var(--red)", display: "inline-flex", alignItems: "center" }}><Icon name="trash" /></button>}
+            <Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .15s", verticalAlign: "middle" }} />
+          </div>
+        </td>
 			</tr>
 			{open && (
 				<tr><td colSpan={4} style={{ background: "var(--brand-faint)" }}>

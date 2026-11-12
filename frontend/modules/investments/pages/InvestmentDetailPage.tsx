@@ -10,7 +10,6 @@ import { useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVESTMENT_LEDGER_PAGE_SIZE, INVESTMENT_PAGE_SIZE, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf, closeInvestment, deleteInvestment } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
-import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { InvestorProfileModalContent } from "@/modules/investments/components/InvestorProfileModalContent";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModalContent";
 import { PayInterestModalContent } from "@/modules/investments/components/PayInterestModalContent";
@@ -33,473 +32,470 @@ import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 /* Same click-paginated table pattern as personal-loans/components/
  * PersonalLoanDetail.tsx's usePagedTable + Pager. */
 function usePagedTable<T>(fetchPage: (page: number, size: number) => Promise<{ items: T[]; hasMore: boolean }>, resetKey: unknown, baseSize: number) {
-	const [items, setItems] = useState<T[]>([]);
-	const [page, setPage] = useState(1);
-	const [hasMore, setHasMore] = useState(false);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState("");
-	// Below the card breakpoint the pager is hidden and the list grows on scroll instead.
-	const { cards, size, more } = useScrollPageSize(baseSize);
-	const hasRows = useRef(false);
-	hasRows.current = items.length > 0;
-	const seq = useRef(0);
+  const [items, setItems] = useState<T[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  // Below the card breakpoint the pager is hidden and the list grows on scroll instead.
+  const { cards, size, more } = useScrollPageSize(baseSize);
+  const hasRows = useRef(false);
+  hasRows.current = items.length > 0;
+  const seq = useRef(0);
 
-	const load = useCallback(async (p: number) => {
-		const my = ++seq.current;
-		if (!(cards && hasRows.current)) setLoading(true);
-		try {
-			const res = await fetchPage(cards ? 0 : p - 1, size);
-			if (my !== seq.current) return;
-			setItems(res.items);
-			setHasMore(res.hasMore);
-			setError("");
-		} catch (e) {
-			if (my !== seq.current) return;
-			setError(e instanceof ApiError ? e.message : "Could not load.");
-		} finally {
-			if (my === seq.current) setLoading(false);
-		}
-	}, [fetchPage, cards, size]);
+  const load = useCallback(async (p: number) => {
+    const my = ++seq.current;
+    if (!(cards && hasRows.current)) setLoading(true);
+    try {
+      const res = await fetchPage(cards ? 0 : p - 1, size);
+      if (my !== seq.current) return;
+      setItems(res.items);
+      setHasMore(res.hasMore);
+      setError("");
+    } catch (e) {
+      if (my !== seq.current) return;
+      setError(e instanceof ApiError ? e.message : "Could not load.");
+    } finally {
+      if (my === seq.current) setLoading(false);
+    }
+  }, [fetchPage, cards, size]);
 
-	useEffect(() => { setPage(1); }, [resetKey, cards]);
-	useEffect(() => { void load(page); }, [load, page]);
+  useEffect(() => { setPage(1); }, [resetKey, cards]);
+  useEffect(() => { void load(page); }, [load, page]);
 
-	const totalPages = hasMore ? page + 1 : page;
-	return { items, page, setPage, totalPages, loading, error, reload: () => load(page), cards, hasMore, more };
+  const totalPages = hasMore ? page + 1 : page;
+  return { items, page, setPage, totalPages, loading, error, reload: () => load(page), cards, hasMore, more };
 }
 
 type PagerProps = { page: number; totalPages: number; onChange: (p: number) => void };
 
 function Pager({ page, totalPages, onChange }: PagerProps) {
-	return (
-		<div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
-			<button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
-			<span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
-			<button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
-		</div>
-	);
+  return (
+    <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+      <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
+      <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
+      <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+    </div>
+  );
 }
 
 type InvestmentDetailPageProps = { id?: string };
 
 export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
-	const { can } = useAuth();
-	const canExport = can("Ledger_Export", "can_export_ledger");
-	const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
-	const toast = useToast();
-	const canUpdate = can("Investment_Management", "can_update_investment");
-	const canDelete = can("Investment_Management", "can_delete_investment");
-	// Editing/deleting a ledger entry recalculates the investment, so each has its own grant (shared with the gold-loan ledger).
-	const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
-	const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
+  const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
+  const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
+  const toast = useToast();
+  const canUpdate = can("Investment_Management", "can_update_investment");
+  const canDelete = can("Investment_Management", "can_delete_investment");
+  // Editing/deleting a ledger entry recalculates the investment, so each has its own grant (shared with the gold-loan ledger).
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
 
-	const [investment, setInvestment] = useState<BackendInvestment | null>(null);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState("");
-	const [printingBond, setPrintingBond] = useState(false);
-	const [printingStatement, setPrintingStatement] = useState(false);
+  const [investment, setInvestment] = useState<BackendInvestment | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [printingBond, setPrintingBond] = useState(false);
+  const [printingStatement, setPrintingStatement] = useState(false);
 
-	const {
-		open: cashMenuOpen,
-		setOpen: setCashMenuOpen,
-		menuRef: cashMenuRef,
-		triggerRef: cashMenuTriggerRef,
-		onKeyDown: onCashMenuKeyDown,
-	} = useDropdownMenu<HTMLDivElement>();
-	const {
-		open: docsMenuOpen,
-		setOpen: setDocsMenuOpen,
-		menuRef: docsMenuRef,
-		triggerRef: docsMenuTriggerRef,
-		onKeyDown: onDocsMenuKeyDown,
-	} = useDropdownMenu<HTMLDivElement>();
+  const {
+    open: cashMenuOpen,
+    setOpen: setCashMenuOpen,
+    menuRef: cashMenuRef,
+    triggerRef: cashMenuTriggerRef,
+    onKeyDown: onCashMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
+  const {
+    open: docsMenuOpen,
+    setOpen: setDocsMenuOpen,
+    menuRef: docsMenuRef,
+    triggerRef: docsMenuTriggerRef,
+    onKeyDown: onDocsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
-	// `id` is the numeric id, or an investment number ("INV-00003") when
-	// reached from a ledger reference — resolved to the numeric id first.
-	const [numericId, setNumericId] = useState(() => Number(id) || 0);
-	useEffect(() => {
-		if (Number(id)) { setNumericId(Number(id)); return; }
-		if (!id) return;
-		resolveInvestmentNumber(id)
-			.then(setNumericId)
-			.catch((e) => { setError(e instanceof ApiError ? e.message : "Investment not found."); setLoading(false); });
-	}, [id]);
+  // `id` is the numeric id, or an investment number ("INV-00003") when
+  // reached from a ledger reference — resolved to the numeric id first.
+  const [numericId, setNumericId] = useState(() => Number(id) || 0);
+  useEffect(() => {
+    if (Number(id)) { setNumericId(Number(id)); return; }
+    if (!id) return;
+    resolveInvestmentNumber(id)
+      .then(setNumericId)
+      .catch((e) => { setError(e instanceof ApiError ? e.message : "Investment not found."); setLoading(false); });
+  }, [id]);
 
-	// The ledger is paged on the server (the running balance is computed over the whole ledger there).
-	const ledgerTable = usePagedTable<InvestmentLedgerRow>(
-		useCallback((page, size) => (numericId ? getInvestmentLedgerPage(numericId, page, size) : Promise.resolve({ items: [], hasMore: false })), [numericId]),
-		numericId,
-		INVESTMENT_LEDGER_PAGE_SIZE
-	);
-	const ledger = ledgerTable.items;
-	const ledgerLoading = ledgerTable.loading;
-	const ledgerError = ledgerTable.error;
-	const refreshLedger = ledgerTable.reload;
-	useLedgerFocus("investment-ledger", !ledgerLoading, [ledger]);
+  // The ledger is paged on the server (the running balance is computed over the whole ledger there).
+  const ledgerTable = usePagedTable<InvestmentLedgerRow>(
+    useCallback((page, size) => (numericId ? getInvestmentLedgerPage(numericId, page, size) : Promise.resolve({ items: [], hasMore: false })), [numericId]),
+    numericId,
+    INVESTMENT_LEDGER_PAGE_SIZE
+  );
+  const ledger = ledgerTable.items;
+  const ledgerLoading = ledgerTable.loading;
+  const ledgerError = ledgerTable.error;
+  const refreshLedger = ledgerTable.reload;
+  useLedgerFocus("investment-ledger", !ledgerLoading, [ledger]);
 
-	const refreshInvestment = useCallback(async () => {
-		if (!numericId) return;
-		setLoading(true);
-		setError("");
-		try {
-			const rec = await getInvestment(numericId);
-			setInvestment(rec);
-			// An id link gets the investment number (INV-00003) written into the address bar.
-			if (id && Number(id) && rec.investmentNumber) window.history.replaceState(window.history.state, "", routeHref("investment", rec.investmentNumber) + window.location.search);
-		} catch (e) {
-			setError(e instanceof ApiError ? e.message : "Could not load this investment.");
-		} finally {
-			setLoading(false);
-		}
-	}, [numericId, id]);
+  const refreshInvestment = useCallback(async () => {
+    if (!numericId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const rec = await getInvestment(numericId);
+      setInvestment(rec);
+      // An id link gets the investment number (INV-00003) written into the address bar.
+      if (id && Number(id) && rec.investmentNumber) window.history.replaceState(window.history.state, "", routeHref("investment", rec.investmentNumber) + window.location.search);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not load this investment.");
+    } finally {
+      setLoading(false);
+    }
+  }, [numericId, id]);
 
-	useEffect(() => { void refreshInvestment(); }, [refreshInvestment]);
+  useEffect(() => { void refreshInvestment(); }, [refreshInvestment]);
 
-	const schedule = usePagedTable<BackendInvestmentPayout>(
-		useCallback((page, size) => getInvestmentSchedulePage(numericId, page, size), [numericId]),
-		numericId,
-		INVESTMENT_PAGE_SIZE
-	);
+  const schedule = usePagedTable<BackendInvestmentPayout>(
+    useCallback((page, size) => getInvestmentSchedulePage(numericId, page, size), [numericId]),
+    numericId,
+    INVESTMENT_PAGE_SIZE
+  );
 
-	// A ledger edit/delete can change the totals, the schedule and the ledger's running balances.
-	const onLedgerChanged = () => { void refreshInvestment(); schedule.reload(); void refreshLedger(); };
+  // A ledger edit/delete can change the totals, the schedule and the ledger's running balances.
+  const onLedgerChanged = () => { void refreshInvestment(); schedule.reload(); void refreshLedger(); };
 
-	if (loading) return <div className="notice">Loading investment…</div>;
-	if (error || !investment) return <div className="notice">{error || "Investment not found."}</div>;
+  if (loading) return <div className="notice">Loading investment…</div>;
+  if (error || !investment) return <div className="notice">{error || "Investment not found."}</div>;
 
-	const isLive = investment.engine === "Live";
-	// Nothing left owed (principal paid back, interest withdrawn): it can be closed before maturity, no cash moves.
-	// A scheduled investment only pays its principal back once closed at maturity, so this is live-engine only.
-	const nothingOwed = isLive && investment.outstandingPrincipal < 0.01 && investment.outstandingInterest < 0.01;
+  const isLive = investment.engine === "Live";
+  // Nothing left owed (principal paid back, interest withdrawn): it can be closed before maturity, no cash moves.
+  // A scheduled investment only pays its principal back once closed at maturity, so this is live-engine only.
+  const nothingOwed = isLive && investment.outstandingPrincipal < 0.01 && investment.outstandingInterest < 0.01;
 
-	function openMarkPaid(payout: BackendInvestmentPayout) {
-		if (!investment) return;
-		openModal(
-			<MarkPayoutPaidModalContent
-				investmentId={investment.id}
-				payout={payout}
-				onSaved={async () => {
-					toast(`${payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of ${fmt(payout.amount)} recorded as paid`);
-					await refreshInvestment();
-					schedule.reload();
-					void refreshLedger();
-				}}
-			/>
-		);
-	}
+  function openMarkPaid(payout: BackendInvestmentPayout) {
+    if (!investment) return;
+    openModal(
+      <MarkPayoutPaidModalContent
+        investmentId={investment.id}
+        payout={payout}
+        onSaved={async () => {
+          toast(`${payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of ${fmt(payout.amount)} recorded as paid`);
+          await refreshInvestment();
+          schedule.reload();
+          void refreshLedger();
+        }}
+      />
+    );
+  }
 
-	function openPayInterest() {
-		if (!investment) return;
-		openModal(<PayInterestModalContent investmentId={investment.id} investmentNumber={investment.investmentNumber} onSaved={() => { void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true);
-	}
+  function openPayInterest() {
+    if (!investment) return;
+    openModal(<PayInterestModalContent investmentId={investment.id} investmentNumber={investment.investmentNumber} onSaved={() => { void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true);
+  }
 
-	function openMaturity() {
-		if (!investment) return;
-		openModal(<MaturityModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />);
-	}
+  function openMaturity() {
+    if (!investment) return;
+    openModal(<MaturityModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />);
+  }
 
-	async function handlePrintBond() { return singleFlight("investment:print-bond", async () => {
-		if (!investment) return;
-		setPrintingBond(true);
-		try {
-			await printInvestmentBondPdf(investment.id);
-		} catch (e) {
-			toast(e instanceof ApiError ? e.message : "Could not print the agreement — try again.");
-		} finally {
-			setPrintingBond(false);
-		}
-	}); }
+  async function handlePrintBond() { return singleFlight("investment:print-bond", async () => {
+    if (!investment) return;
+    setPrintingBond(true);
+    try {
+      await printInvestmentBondPdf(investment.id);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not print the agreement — try again.");
+    } finally {
+      setPrintingBond(false);
+    }
+  }); }
 
-	async function handlePrintStatement() { return singleFlight("investment:print-statement", async () => {
-		if (!investment) return;
-		setPrintingStatement(true);
-		try {
-			await printInvestmentStatementPdf(investment.id);
-		} catch (e) {
-			toast(e instanceof ApiError ? e.message : "Could not print the statement — try again.");
-		} finally {
-			setPrintingStatement(false);
-		}
-	}); }
+  async function handlePrintStatement() { return singleFlight("investment:print-statement", async () => {
+    if (!investment) return;
+    setPrintingStatement(true);
+    try {
+      await printInvestmentStatementPdf(investment.id);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not print the statement — try again.");
+    } finally {
+      setPrintingStatement(false);
+    }
+  }); }
 
-	function openAddCash() {
-		if (!investment) return;
-		openModal(
-			<AddInvestmentCashModalContent
-				investment={investment}
-				onSaved={async () => {
-					toast("Cash added to this investment");
-					await refreshInvestment();
-					void refreshLedger();
-				}}
-			/>
-		);
-	}
+  function openAddCash() {
+    if (!investment) return;
+    openModal(
+      <AddInvestmentCashModalContent
+        investment={investment}
+        onSaved={async () => {
+          toast("Cash added to this investment");
+          await refreshInvestment();
+          void refreshLedger();
+        }}
+      />
+    );
+  }
 
-	function openWithdraw() {
-		if (!investment) return;
-		openModal(
-			<WithdrawInvestmentModalContent
-				investment={investment}
-				onSaved={async () => {
-					toast("Withdrawal recorded");
-					await refreshInvestment();
-					void refreshLedger();
-				}}
-			/>
-		);
-	}
+  function openWithdraw() {
+    if (!investment) return;
+    openModal(
+      <WithdrawInvestmentModalContent
+        investment={investment}
+        onSaved={async () => {
+          toast("Withdrawal recorded");
+          await refreshInvestment();
+          void refreshLedger();
+        }}
+      />
+    );
+  }
 
-	function openClose() {
-		if (!investment) return;
-		const { id, investmentNumber } = investment;
-		openModal(
-			<ConfirmModalContent
-				title="Close Investment"
-				confirmLabel="Close Investment"
-				busyLabel="Closing…"
-				danger={false}
-				message={<>Close <strong>{investmentNumber}</strong>? Nothing is owed, so no cash moves.</>}
-				onConfirm={async () => {
-					await closeInvestment(id);
-					toast(`${investmentNumber} closed`);
-					await refreshInvestment();
-					schedule.reload();
-					void refreshLedger();
-				}}
-			/>
-		);
-	}
+  function openClose() {
+    if (!investment) return;
+    const { id, investmentNumber } = investment;
+    openModal(
+      <ConfirmModalContent
+        title="Close Investment"
+        confirmLabel="Close Investment"
+        busyLabel="Closing…"
+        danger={false}
+        message={<>Close <strong>{investmentNumber}</strong>? Nothing is owed, so no cash moves.</>}
+        onConfirm={async () => {
+          await closeInvestment(id);
+          toast(`${investmentNumber} closed`);
+          await refreshInvestment();
+          schedule.reload();
+          void refreshLedger();
+        }}
+      />
+    );
+  }
 
-	function openDelete() {
-		if (!investment) return;
-		const { id, investmentNumber } = investment;
-		openModal(
-			<ConfirmModalContent
-				title="Delete Investment"
-				confirmLabel="Delete Investment"
-				busyLabel="Deleting…"
-				danger
-				message={<>Delete <strong>{investmentNumber}</strong> and reverse all its cash entries? This can&apos;t be undone.</>}
-				onConfirm={async () => {
-					await deleteInvestment(id);
-					toast(`${investmentNumber} deleted`);
-					navigate("investments");
-				}}
-			/>
-		);
-	}
+  function openDelete() {
+    if (!investment) return;
+    const { id, investmentNumber } = investment;
+    openModal(
+      <ConfirmModalContent
+        title="Delete Investment"
+        confirmLabel="Delete Investment"
+        busyLabel="Deleting…"
+        danger
+        message={<>Delete <strong>{investmentNumber}</strong> and reverse all its cash entries? This can&apos;t be undone.</>}
+        onConfirm={async () => {
+          await deleteInvestment(id);
+          toast(`${investmentNumber} deleted`);
+          navigate("investments");
+        }}
+      />
+    );
+  }
 
-	const investorName = investment.customer?.name || investment.customer?.code || "";
+  const investorName = investment.customer?.name || investment.customer?.code || "";
 
-	return (
-		<>
-			<div className="page-h">
-				<div>
-					<h1>{investment.investmentNumber}</h1>
-					<p style={{ margin: "2px 0 0", fontSize: 13.5, color: "var(--muted)", display: "flex", alignItems: "center", gap: 8 }}>
-						<button
-							type="button"
-							title="View investor profile"
-							onClick={() => openModal(<InvestorProfileModalContent customerId={investment.customerId} />)}
-							style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", textDecoration: "underline dotted" }}
-						>
-							{investorName}
-						</button>
-						{investment.plan?.name ? ` · ${investment.plan.name}` : ""}
-						<StatusChip status={investment.status} />
-					</p>
-				</div>
-				<div className="sp" />
-				<div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
-					<button
-						ref={docsMenuTriggerRef}
-						className="btn plain"
-						onClick={() => setDocsMenuOpen((v) => !v)}
-						aria-haspopup="menu"
-						aria-expanded={docsMenuOpen}
-					>
-						<Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
-					</button>
-					{docsMenuOpen && (
-						<div className="docs-dd-menu" role="menu">
-							<a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
-								<Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
-							</a>
-							{canExport && (
-								<a href="#" title="Print Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); void handlePrintStatement(); }}>
-									<Icon name="doc" /><span className="tx">{printingStatement ? "Opening…" : "Print Statement"}</span>
-								</a>
-							)}
-						</div>
-					)}
-				</div>
-				{canUpdate && isLive && (investment.status === "Active" || investment.status === "Matured") && (
-					<div className="docs-dd" ref={cashMenuRef} onKeyDown={onCashMenuKeyDown}>
-						<button
-							ref={cashMenuTriggerRef}
-							className="btn"
-							onClick={() => setCashMenuOpen((v) => !v)}
-							aria-haspopup="menu"
-							aria-expanded={cashMenuOpen}
-						>
-							<Icon name="coin" /> Cash <Icon name="chevronDown" className="docs-dd-chev" />
-						</button>
-						{cashMenuOpen && (
-							<div className="docs-dd-menu" role="menu">
-								{investment.status === "Active" && <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openAddCash(); }}>
-									<Icon name="plus" /><span className="tx">Add Cash</span>
-								</a>}
-								<a href="#" title="Withdraw" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openWithdraw(); }}>
-									<Icon name="coin" /><span className="tx">Withdraw</span>
-								</a>
-							</div>
-						)}
-					</div>
-				)}
-				{canUpdate && !isLive && (investment.status === "Active" || investment.status === "Matured") && (
-					<button className="btn" onClick={openPayInterest}><Icon name="coin" /> Pay Interest</button>
-				)}
-				{canUpdate && investment.status === "Matured" && (
-					<button className="btn" onClick={openMaturity}>Close / Renew</button>
-				)}
-				{canUpdate && nothingOwed && (investment.status === "Active" || investment.status === "Matured") && (
-					<button className="btn" onClick={openClose}><Icon name="check" /> Close Investment</button>
-				)}
-				{canUpdate && investment.status === "Active" && !investment.renewedFromInvestmentId && !investment.renewedToInvestmentId && !investment.totalInterestPaid && !investment.interestWithdrawn && (
-					<button className="btn" onClick={() => openModal(<NewInvestmentModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true)}><Icon name="edit" /> Edit</button>
-				)}
-				{canDelete && (
-					<button className="btn danger" onClick={openDelete}><Icon name="trash" /> Delete</button>
-				)}
-			</div>
-			<hr className="gold-rule" />
+  return (
+    <>
+      <div className="page-h">
+        <div>
+          <h1>{investment.investmentNumber}</h1>
+          <p style={{ margin: "2px 0 0", fontSize: 13.5, color: "var(--muted)", display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              type="button"
+              title="View investor profile"
+              onClick={() => openModal(<InvestorProfileModalContent customerId={investment.customerId} />)}
+              style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", textDecoration: "underline dotted" }}
+            >
+              {investorName}
+            </button>
+            {investment.plan?.name ? ` · ${investment.plan.name}` : ""}
+            <StatusChip status={investment.status} />
+          </p>
+        </div>
+        <div className="sp" />
+        <div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
+          <button
+            ref={docsMenuTriggerRef}
+            className="btn plain"
+            onClick={() => setDocsMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={docsMenuOpen}
+          >
+            <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
+          </button>
+          {docsMenuOpen && (
+            <div className="docs-dd-menu" role="menu">
+              <a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
+                <Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
+              </a>
+              {canExport && (
+                <a href="#" title="Print Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); void handlePrintStatement(); }}>
+                  <Icon name="doc" /><span className="tx">{printingStatement ? "Opening…" : "Print Statement"}</span>
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+        {canUpdate && isLive && (investment.status === "Active" || investment.status === "Matured") && (
+          <div className="docs-dd" ref={cashMenuRef} onKeyDown={onCashMenuKeyDown}>
+            <button
+              ref={cashMenuTriggerRef}
+              className="btn"
+              onClick={() => setCashMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={cashMenuOpen}
+            >
+              <Icon name="coin" /> Cash <Icon name="chevronDown" className="docs-dd-chev" />
+            </button>
+            {cashMenuOpen && (
+              <div className="docs-dd-menu" role="menu">
+                {investment.status === "Active" && <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openAddCash(); }}>
+                  <Icon name="plus" /><span className="tx">Add Cash</span>
+                </a>}
+                <a href="#" title="Withdraw" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openWithdraw(); }}>
+                  <Icon name="coin" /><span className="tx">Withdraw</span>
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+        {canUpdate && !isLive && (investment.status === "Active" || investment.status === "Matured") && (
+          <button className="btn" onClick={openPayInterest}><Icon name="coin" /> Pay Interest</button>
+        )}
+        {canUpdate && investment.status === "Matured" && (
+          <button className="btn" onClick={openMaturity}>Close / Renew</button>
+        )}
+        {canUpdate && nothingOwed && (investment.status === "Active" || investment.status === "Matured") && (
+          <button className="btn" onClick={openClose}><Icon name="check" /> Close Investment</button>
+        )}
+        {canUpdate && investment.status === "Active" && !investment.renewedFromInvestmentId && !investment.renewedToInvestmentId && !investment.totalInterestPaid && !investment.interestWithdrawn && (
+          <button className="btn" onClick={() => openModal(<NewInvestmentModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true)}><Icon name="edit" /> Edit</button>
+        )}
+        {canDelete && (
+          <button className="btn danger" onClick={openDelete}><Icon name="trash" /> Delete</button>
+        )}
+      </div>
+      <hr className="gold-rule" />
 
-			<div className="kpis" style={{ marginBottom: 16 }}>
-				<div className="kpi"><div className="l">Principal</div><div className="v">{fmt(investment.principalAmount)}</div></div>
-				<div className="kpi"><div className="l">Interest Rate</div><div className="v">{investment.interestRatePercent}%</div><div className="s">{investment.interestRateType} · {investment.payoutFrequency}</div></div>
-				{isLive ? (
-					<div className="kpi"><div className="l">Outstanding Interest</div><div className="v">{fmt(investment.outstandingInterest)}</div></div>
-				) : (
-					<div className="kpi"><div className="l">Interest Paid</div><div className="v">{fmt(investment.totalInterestPaid)}</div></div>
-				)}
-				<div className="kpi"><div className="l">Maturity Date</div><div className="v" style={{ fontSize: 17 }}>{fmtDate(investment.maturityDate)}</div></div>
-				{investment.renewedFromInvestmentId && (
-					<div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`investment/${investment.renewedFromInvestmentId}`)}>Investment #{investment.renewedFromInvestmentId}</a></div></div>
-				)}
-				{investment.renewedToInvestmentId && (
-					<div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`investment/${investment.renewedToInvestmentId}`)}>Investment #{investment.renewedToInvestmentId}</a></div></div>
-				)}
-			</div>
+      <div className="kpis" style={{ marginBottom: 16 }}>
+        <div className="kpi"><div className="l">Principal</div><div className="v">{fmt(investment.principalAmount)}</div></div>
+        <div className="kpi"><div className="l">Interest Rate</div><div className="v">{investment.interestRatePercent}%</div><div className="s">{investment.interestRateType} · {investment.payoutFrequency}</div></div>
+        {isLive ? (
+          <div className="kpi"><div className="l">Outstanding Interest</div><div className="v">{fmt(investment.outstandingInterest)}</div></div>
+        ) : (
+          <div className="kpi"><div className="l">Interest Paid</div><div className="v">{fmt(investment.totalInterestPaid)}</div></div>
+        )}
+        <div className="kpi"><div className="l">Maturity Date</div><div className="v" style={{ fontSize: 17 }}>{fmtDate(investment.maturityDate)}</div></div>
+        {investment.renewedFromInvestmentId && (
+          <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`investment/${investment.renewedFromInvestmentId}`)}>Investment #{investment.renewedFromInvestmentId}</a></div></div>
+        )}
+        {investment.renewedToInvestmentId && (
+          <div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`investment/${investment.renewedToInvestmentId}`)}>Investment #{investment.renewedToInvestmentId}</a></div></div>
+        )}
+      </div>
 
-			{/* The investment's ledger — opening deposit, then every Add Cash/
-				* Withdraw (Live) or paid payout (Schedule). Balance is the principal
-				* still owed to the investor after each row. */}
-			<div className={isLive ? undefined : "inv-detail-grid"}>
-			<div className="card tbl-card tbl-card-fill" style={isLive ? { marginBottom: 16 } : undefined}>
-				<div className="hd">
-					<h3>Ledger</h3>
-					<div className="sp" />
-					{investment.customerId ? (
-						<LedgerRefLink kind="customer" id={investment.customerId} label={`${investorName || "Investor"} — customer ledger`} />
-					) : null}
-				</div>
-				{ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
-				<div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="investment-ledger">
-					<TableCols widths={["112px", "108px", null, "88px", null, null, null]} />
-					<thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
-					<tbody>
-						{ledgerLoading ? (
-							<tr><td colSpan={7} className="empty compact">Loading…</td></tr>
-						) : ledger.length === 0 ? (
-							<tr><td colSpan={7} className="empty compact">No ledger entries yet.</td></tr>
-						) : ledger.map((r) => {
-							const split = [
-								r.principalAmount > 0 && `Principal ${fmt(r.principalAmount)}`,
-								r.interestAmount > 0 && `Interest ${fmt(r.interestAmount)}`,
-							].filter(Boolean).join(" · ");
-							return (
-								<tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount}>
-									<td data-label="Date">{fmtDate(r.date)}</td>
-									<td data-label="Ref No" style={{ whiteSpace: "nowrap" }}>{r.reference || "—"}</td>
-									<td data-label="Particulars">
-										{r.description || r.type}
-										{split && r.debitOrCredit === "debit" && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{split}</div>}
-									</td>
-									<td data-label="Method">
-										{modeCellFor(r.method)}
-									</td>
-									<td data-label="Debit" className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
-									<td data-label="Credit" className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-									<td data-label="Balance" className="num">
-										{fmt(r.runningBalance)}
-										{(() => {
-											// Edit / Delete live in the entry's info popup and open on top of it
-											const done = () => { onLedgerChanged(); closeAllModals(); };
-											const actions: LedgerInfoAction[] = [];
-											if (r.editable && canEditLedger) actions.push({ label: "Edit", icon: "edit", run: () => openChildModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="edit" live={investment.engine === "Live"} minDate={investment.startDate?.slice(0, 10) || undefined} onSaved={done} />, true) });
-											if (r.deletable && canDeleteLedger) actions.push({ label: "Delete", icon: "trash", danger: true, run: () => openChildModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="delete" live={investment.engine === "Live"} onSaved={done} />, true) });
-											return (
-												<span className="ledger-info">
-													<button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}
-														onClick={() => openModal(<LoanLedgerInfoModalContent
-															title={r.description || r.type}
-															kind={(r.debitOrCredit === "debit" ? "Debit · " : "Credit · ") + r.type}
-															rows={[
-																["Date", fmtDate(r.date)], ["Reference", r.reference || "—"], ["Amount", fmt(r.amount)],
-																["Mode", r.method || "—"], ["Balance", fmt(r.runningBalance)],
-															]}
-															description={<>{r.description || r.type}{split ? <><br />{split}</> : null}</>}
-															actions={actions}
-														/>)}><Icon name="info" /></button>
-												</span>
-											);
-										})()}
-									</td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table></div>
-				<ScrollSentinel enabled={ledgerTable.cards && ledgerTable.hasMore && !ledgerTable.loading} onVisible={ledgerTable.more} watch={ledgerTable.items.length} />
-				<Pager page={ledgerTable.page} totalPages={ledgerTable.totalPages} onChange={ledgerTable.setPage} />
-			</div>
+      {/* The investment's ledger — opening deposit, then every Add Cash/
+        * Withdraw (Live) or paid payout (Schedule). Balance is the principal
+        * still owed to the investor after each row. */}
+      <div className={isLive ? undefined : "inv-detail-grid"}>
+      <div className="card tbl-card tbl-card-fill" style={isLive ? { marginBottom: 16 } : undefined}>
+        <div className="hd">
+          <h3>Ledger</h3>
+          <div className="sp" />
+        </div>
+        {ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
+        <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="investment-ledger">
+          <TableCols widths={["112px", "108px", null, "88px", null, null, null]} />
+          <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
+          <tbody>
+            {ledgerLoading ? (
+              <tr><td colSpan={7} className="empty compact">Loading…</td></tr>
+            ) : ledger.length === 0 ? (
+              <tr><td colSpan={7} className="empty compact">No ledger entries yet.</td></tr>
+            ) : ledger.map((r) => {
+              const split = [
+                r.principalAmount > 0 && `Principal ${fmt(r.principalAmount)}`,
+                r.interestAmount > 0 && `Interest ${fmt(r.interestAmount)}`,
+              ].filter(Boolean).join(" · ");
+              return (
+                <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount}>
+                  <td data-label="Date">{fmtDate(r.date)}</td>
+                  <td data-label="Ref No" style={{ whiteSpace: "nowrap" }}>{r.reference || "—"}</td>
+                  <td data-label="Particulars">
+                    {r.description || r.type}
+                    {split && r.debitOrCredit === "debit" && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{split}</div>}
+                  </td>
+                  <td data-label="Method">
+                    {modeCellFor(r.method)}
+                  </td>
+                  <td data-label="Debit" className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
+                  <td data-label="Credit" className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
+                  <td data-label="Balance" className="num">
+                    {fmt(r.runningBalance)}
+                    {(() => {
+                      // Edit / Delete live in the entry's info popup and open on top of it
+                      const done = () => { onLedgerChanged(); closeAllModals(); };
+                      const actions: LedgerInfoAction[] = [];
+                      if (r.editable && canEditLedger) actions.push({ label: "Edit", icon: "edit", run: () => openChildModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="edit" live={investment.engine === "Live"} minDate={investment.startDate?.slice(0, 10) || undefined} onSaved={done} />, true) });
+                      if (r.deletable && canDeleteLedger) actions.push({ label: "Delete", icon: "trash", danger: true, run: () => openChildModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="delete" live={investment.engine === "Live"} onSaved={done} />, true) });
+                      return (
+                        <span className="ledger-info">
+                          <button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}
+                            onClick={() => openModal(<LoanLedgerInfoModalContent
+                              title={r.description || r.type}
+                              kind={(r.debitOrCredit === "debit" ? "Debit · " : "Credit · ") + r.type}
+                              rows={[
+                                ["Date", fmtDate(r.date)], ["Reference", r.reference || "—"], ["Amount", fmt(r.amount)],
+                                ["Mode", r.method || "—"], ["Balance", fmt(r.runningBalance)],
+                              ]}
+                              description={<>{r.description || r.type}{split ? <><br />{split}</> : null}</>}
+                              actions={actions}
+                            />)}><Icon name="info" /></button>
+                        </span>
+                      );
+                    })()}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+        <ScrollSentinel enabled={ledgerTable.cards && ledgerTable.hasMore && !ledgerTable.loading} onVisible={ledgerTable.more} watch={ledgerTable.items.length} />
+        <Pager page={ledgerTable.page} totalPages={ledgerTable.totalPages} onChange={ledgerTable.setPage} />
+      </div>
 
-			{!isLive && (
-				<div className="card tbl-card tbl-card-fill">
-					<div className="hd"><h3>Interest Payout Schedule</h3></div>
-					{schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-					<div className="tbl-wrap"><table className="tbl tbl-center tbl-cards inv-schedule-tbl">
-						<TableCols widths={[9, 22, 18, 21, 30]} />
-						<thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th></tr></thead>
-						<tbody>
-							{schedule.loading ? (
-								<tr><td colSpan={5} className="empty compact">Loading…</td></tr>
-							) : schedule.items.length === 0 ? (
-								<tr><td colSpan={5} className="empty compact">No payouts scheduled.</td></tr>
-							) : schedule.items.map((p) => (
-								<tr key={p.id}>
-									<td data-label="#">{p.sequenceNo}</td>
-									<td data-label="Due Date">{fmtDate(p.dueDate)}</td>
-									<td data-label="Amount" className="num">{fmt(p.amount)}</td>
-									<td data-label="Type">{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
-									{/* Mark Paid sits beside its Pending chip rather than in a column of its own, which
-											stood empty once every payout was paid. */}
-									<td data-label="Status">
-										<StatusChip status={p.status} />
-										{canUpdate && p.status === "Pending" && (
-											<button className="btn plain sm" style={{ marginLeft: 6 }} onClick={() => openMarkPaid(p)}>Mark Paid</button>
-										)}
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table></div>
-					<ScrollSentinel enabled={schedule.cards && schedule.hasMore && !schedule.loading} onVisible={schedule.more} watch={schedule.items.length} />
-					<Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
-				</div>
-			)}
-			</div>
-		</>
-	);
+      {!isLive && (
+        <div className="card tbl-card tbl-card-fill">
+          <div className="hd"><h3>Interest Payout Schedule</h3></div>
+          {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
+          <div className="tbl-wrap"><table className="tbl tbl-center tbl-cards inv-schedule-tbl">
+            <TableCols widths={[9, 22, 18, 21, 30]} />
+            <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th></tr></thead>
+            <tbody>
+              {schedule.loading ? (
+                <tr><td colSpan={5} className="empty compact">Loading…</td></tr>
+              ) : schedule.items.length === 0 ? (
+                <tr><td colSpan={5} className="empty compact">No payouts scheduled.</td></tr>
+              ) : schedule.items.map((p) => (
+                <tr key={p.id}>
+                  <td data-label="#">{p.sequenceNo}</td>
+                  <td data-label="Due Date">{fmtDate(p.dueDate)}</td>
+                  <td data-label="Amount" className="num">{fmt(p.amount)}</td>
+                  <td data-label="Type">{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
+                  {/* Mark Paid sits beside its Pending chip rather than in a column of its own, which
+                      stood empty once every payout was paid. */}
+                  <td data-label="Status">
+                    <StatusChip status={p.status} />
+                    {canUpdate && p.status === "Pending" && (
+                      <button className="btn plain sm" style={{ marginLeft: 6 }} onClick={() => openMarkPaid(p)}>Mark Paid</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+          <ScrollSentinel enabled={schedule.cards && schedule.hasMore && !schedule.loading} onVisible={schedule.more} watch={schedule.items.length} />
+          <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
+        </div>
+      )}
+      </div>
+    </>
+  );
 }

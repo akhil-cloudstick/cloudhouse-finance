@@ -1,5 +1,5 @@
 import React, { createContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, BackHandler, Easing, Keyboard, LayoutAnimation, Platform, Pressable, View, StyleSheet, useWindowDimensions, type KeyboardEvent } from "react-native";
+import { Animated, BackHandler, Easing, Keyboard, LayoutAnimation, Platform, Pressable, View, StyleSheet, useWindowDimensions, type HostInstance, type KeyboardEvent } from "react-native";
 import { Gesture, GestureDetector, type LegacyPanGesture } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/common/theme/colors";
@@ -248,7 +248,15 @@ export function BottomSheetModal({
   };
   const fullH = { current: fullOverlayH };
   const resizedBy = keyboardHeight && overlayH ? Math.max(0, fullOverlayH - overlayH) : 0;
-  const lift = Math.max(0, keyboardHeight - resizedBy);
+  // Android: the lift is measured directly (how far the overlay's bottom edge
+  // sits below the keyboard's top), set in the same render as keyboardHeight.
+  // The old "keyboard height minus how much the window shrank" maths briefly
+  // counted the keyboard twice when the keyboard event landed before the
+  // overlay's resize layout — a visible gap above the keyboard that then
+  // snapped shut.
+  const [androidLift, setAndroidLift] = useState(0);
+  const overlayRef = useRef<HostInstance>(null);
+  const lift = Platform.OS === "ios" ? Math.max(0, keyboardHeight - resizedBy) : androidLift;
   const availH = overlayH || win.height;
   useEffect(() => {
     if (!visible) return;
@@ -257,18 +265,41 @@ export function BottomSheetModal({
     const ios = Platform.OS === "ios";
     const animate = (e: KeyboardEvent) => {
       if (ios && e.duration) LayoutAnimation.configureNext({ duration: e.duration, update: { type: LayoutAnimation.Types.keyboard } });
+      else if (!ios) LayoutAnimation.configureNext({ duration: 140, update: { type: LayoutAnimation.Types.easeOut } });
     };
+    let raf = 0;
     const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", (e) => {
-      animate(e);
-      setKeyboardHeight(e.endCoordinates.height);
+      if (ios) {
+        animate(e);
+        setKeyboardHeight(e.endCoordinates.height);
+        return;
+      }
+      // Let a window resize (if this device does one) lay out first, then measure.
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = requestAnimationFrame(() => {
+          const finish = (l: number) => {
+            animate(e);
+            setAndroidLift(l);
+            setKeyboardHeight(e.endCoordinates.height);
+          };
+          const node = overlayRef.current;
+          if (!node) return finish(0);
+          node.measureInWindow((_x, y, _w, h) => finish(Math.max(0, Math.round(y + h - e.endCoordinates.screenY))));
+        });
+      });
     });
     const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", (e) => {
+      cancelAnimationFrame(raf);
       animate(e);
+      setAndroidLift(0);
       setKeyboardHeight(0);
     });
     return () => {
+      cancelAnimationFrame(raf);
       show.remove();
       hide.remove();
+      setAndroidLift(0);
       setKeyboardHeight(0);
     };
   }, [visible]);
@@ -290,7 +321,7 @@ export function BottomSheetModal({
     sheetStore.set(
       id,
       // No touches while sliding out, so taps land on the page underneath.
-      <View style={styles.overlay} pointerEvents={visible ? "box-none" : "none"} onLayout={(e) => onOverlayLayout(e.nativeEvent.layout.height)}>
+      <View ref={overlayRef} collapsable={false} style={styles.overlay} pointerEvents={visible ? "box-none" : "none"} onLayout={(e) => onOverlayLayout(e.nativeEvent.layout.height)}>
         {/* Backdrop dims in step with the sheet's position, so a drag or close
             fades it out instead of it vanishing in one frame at unmount. */}
         <Animated.View style={[StyleSheet.absoluteFill, bare ? styles.backdropBare : styles.backdrop, { opacity: backdropOpacity }]}>
@@ -328,7 +359,7 @@ export function BottomSheetModal({
       </View>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, visible, moving, maxHeightPct, keyboardHeight, lift, availH, insets.bottom, insets.top, win.height, children, dragGesture, dragToClose, scrollCtx, bare]);
+  }, [mounted, visible, moving, maxHeightPct, keyboardHeight, lift, androidLift, availH, insets.bottom, insets.top, win.height, children, dragGesture, dragToClose, scrollCtx, bare]);
 
   useEffect(() => () => sheetStore.remove(id), [id]);
 

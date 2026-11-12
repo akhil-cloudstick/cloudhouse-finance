@@ -14,7 +14,7 @@ var extraParents = map[string][]string{
 		"can create upload",
 	},
 	"can create personal loan":       {"can view personal loan module", "can view customer module"},
-	"can create investment":          {"can view investment module", "can view customer module"},
+	"can create investment":          {"can view investment module", "can create upload"},
 	"can create reminder":            {"can view reminder module", "can view customer module"},
 	"can view bank pledge module":    {"can view loan module"},
 	"can update packet":              {"can view packet module", "can view locker module"},

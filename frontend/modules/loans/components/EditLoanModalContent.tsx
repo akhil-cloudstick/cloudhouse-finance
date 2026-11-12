@@ -148,10 +148,15 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 	// principal the save then rejected. rateForPurityFull reads the same
 	// stored K22/K18 the backend's own rateForPurity does. NewLoan.tsx
 	// itself is untouched — this fix is scoped to this modal only.
-	const totalGoldValue = activeRows.reduce(
-		(s, r) => s + (+r.net || 0) * (rateForPurityFull(goldRate, r.purity) ?? 0),
-		0
-	);
+  // An ornament left as it was keeps the value it was given when it was saved (that stored value is what the
+  // backend adds up for the eligible amount). Only a new or changed ornament is valued at today's rate; valuing
+  // every row at today's rate made the eligible amount — and so the highest principal allowed — drop whenever
+  // the gold rate had fallen since the loan was opened.
+  const totalGoldValue = activeRows.reduce((s, r) => {
+    const saved = r.id != null ? loan.ornaments.find((o) => o.id === r.id) : undefined;
+    const unchanged = saved && saved.purity === r.purity && Math.abs((+r.net || 0) - saved.netWeight) < 0.0005;
+    return s + (unchanged ? saved.goldValue : (+r.net || 0) * (rateForPurityFull(goldRate, r.purity) ?? 0));
+  }, 0);
 	// Rounded to paise like the backend's common.RoundMoney — the raw float can
 	// carry hidden digits past the two shown, which made the exact eligible
 	// amount typed into Principal fail the "cannot exceed" check.

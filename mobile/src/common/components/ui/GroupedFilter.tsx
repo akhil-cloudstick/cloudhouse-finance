@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
@@ -139,6 +139,9 @@ function StaticPicker({ section, selected, onPick }: StaticPickerProps) {
 
 // Cap on how far the filter sheet rises, as a % of screen height — the shared picker cap.
 const SHEET_MAX_PCT = PICKER_MAX_PCT;
+const MAX_VISIBLE_TABS = 3;
+// Height of the options area, as a share of the window — the same for every filter.
+const FILTER_BODY_PCT = 0.4;
 
 type GroupedFilterProps = {
   title?: string;
@@ -161,6 +164,11 @@ export function GroupedFilter({
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const count = groupedFilterCount(value);
   const active = sections.find((s) => s.key === activeKey) ?? sections[0];
+  // At most 3 group tabs show at once (each a third of the row); any more scroll sideways.
+  const [tabsW, setTabsW] = useState(0);
+  const winH = useWindowDimensions().height;
+  const bodyH = Math.max(280, Math.round(winH * FILTER_BODY_PCT));
+  const tabW = sections.length > MAX_VISIBLE_TABS && tabsW ? Math.floor((tabsW - 32 - 8 * (MAX_VISIBLE_TABS - 1)) / MAX_VISIBLE_TABS) : 0;
 
   // Hardware back, drag down, outside tap and the footer button all just close the sheet.
   const close = () => setOpen(false);
@@ -202,12 +210,19 @@ export function GroupedFilter({
         maxHeightPct={SHEET_MAX_PCT}
         scroll={false}
       >
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={st.tabsScroll} contentContainerStyle={st.tabs}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={st.tabsScroll}
+          contentContainerStyle={st.tabs}
+          onLayout={(e) => setTabsW(e.nativeEvent.layout.width)}
+        >
           {sections.map((s) => {
             const on = s.key === active?.key;
             const n = tabCount(s);
             return (
-              <Pressable key={s.key} onPress={() => setActiveKey(s.key)} style={[st.tab, on && st.tabOn]}>
+              <Pressable key={s.key} onPress={() => setActiveKey(s.key)} style={[st.tab, tabW ? { width: tabW, justifyContent: "center" } : null, on && st.tabOn]}>
                 <Txt style={[st.tabTxt, on && st.tabTxtOn]} numberOfLines={1}>{s.label}</Txt>
                 {n > 0 ? (
                   <View style={[st.tabCount, on && st.tabCountOn]}>
@@ -218,8 +233,9 @@ export function GroupedFilter({
             );
           })}
         </ScrollView>
-        {/* Natural height: a short section opens small, a long one stops at the cap and scrolls. */}
-        <View style={st.body}>
+        {/* One standard height for every filter section (it only gives way when the keyboard
+            leaves less room); whatever is longer scrolls inside it. */}
+        <View style={[st.body, { height: bodyH }]}>
           {!active ? null : active.kind === "date" ? (
             <View style={st.dateWrap}>
               <FieldRow>

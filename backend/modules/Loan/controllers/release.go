@@ -222,6 +222,9 @@ func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, i
 	if req.Status != models.RequestStatusPending {
 		return nil, common.NewBadRequest("loan request has already been decided")
 	}
+	if err := ensureGoldNotSold(ctx, req.LoanID); err != nil {
+		return nil, err
+	}
 	if !checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
 		return nil, common.NewPermissionDenied("Access denied", "can verify release checklist")
 	}
@@ -259,6 +262,9 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	}
 	if req.Status != models.RequestStatusPending {
 		return nil, common.NewBadRequest("loan request has already been decided")
+	}
+	if err := ensureGoldNotSold(ctx, req.LoanID); err != nil {
+		return nil, err
 	}
 	pastManagerForDriftTopUp := req.IsPartial && req.Locked &&
 		req.ApprovalStage != models.ApprovalStageApproved && req.ApprovalStage != models.ApprovalStageRejected
@@ -404,6 +410,12 @@ func ApproveReleaseRequest(ctx context.Context, requestID uint, branchID *uint, 
 	}
 	if req.ApprovalStage == models.ApprovalStageApproved || req.ApprovalStage == models.ApprovalStageRejected {
 		return nil, common.NewBadRequest("loan request has already been decided")
+	}
+	// Rejecting stays possible so a stale request can be cleared; approving is not.
+	if in.Action == models.ApprovalStageApproved {
+		if err := ensureGoldNotSold(ctx, req.LoanID); err != nil {
+			return nil, err
+		}
 	}
 	if in.Action == models.ApprovalStageRejected && req.Locked {
 		return nil, common.NewConflict("release request is locked after payment")
@@ -586,6 +598,9 @@ func completeRelease(ctx context.Context, loanID uint, branchID *uint, employeeI
 	l, err := GetLoan(ctx, loanID, branchID)
 	if err != nil {
 		return nil, err
+	}
+	if isGoldSold(l.Status) {
+		return nil, common.NewBadRequest("this loan's gold has been auctioned — it can no longer be released to the customer")
 	}
 	if l.BankPledgeStatus == models.BankPledgeStatusPledged {
 		return nil, common.NewBadRequest("release the bank pledge first")

@@ -217,9 +217,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
   const actionable = canAct && !frozen;
   // Each step is also service-checked against its own Auction Workflow permission.
   const can_ = (k: string) => actionable && can("Auction_Workflow", k);
-  const days = loan.daysOverdue ?? 0;
   const isDefaulted = !!loan.isDefaulted;
-  const customer = loan.customer?.name ?? "The customer";
 
   const backBtn = view > 0 ? <PrimaryButton label="Back" variant="outline" onPress={() => setView((v) => v - 1)} /> : null;
   const nextBtn = <PrimaryButton label="Continue" variant="outline" onPress={() => setView((v) => v + 1)} />;
@@ -237,7 +235,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
             <SectionTitle flush style={{ marginTop: 16 }}>
               Case concluded
             </SectionTitle>
-            <NoticeBanner>This loan&apos;s gold was already sold at auction — see Auction History for the outcome.</NoticeBanner>
+            <NoticeBanner>Gold already sold.</NoticeBanner>
             {balanceDue ? <NoticeBanner>Balance due after auction — collect it as a normal payment.</NoticeBanner> : null}
           </>
         );
@@ -248,7 +246,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
           </SectionTitle>
           {isDefaulted ? (
             <NoticeBanner>
-              {`${customer} is a defaulted loan. Marking it Auction Eligible opens its auction case — the next step is issuing the notice.`}
+              Marking opens auction case.
             </NoticeBanner>
           ) : null}
           {errText(frozen ? null : error)}
@@ -407,8 +405,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
         ) : balanceDue ? (
           <>
             <NoticeBanner>
-              Balance due after auction — this loan has returned to normal collection. Record payments against it as usual; the auction will close itself once
-              the balance is cleared.
+              Balance due after auction.
             </NoticeBanner>
             <BtnRow2>{backBtn}</BtnRow2>
           </>
@@ -461,11 +458,11 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
         <View style={{ marginTop: 12 }}>
           <WarningBanner>
             {decisionReq.kind === "Shortfall"
-              ? `Shortfall — awaiting authority. The sale realised ${inr(decisionReq.amountPaid)} and left ${inr(decisionReq.outstandingAtRequest)} owing.`
-              : `Decision pending. ${inr(decisionReq.amountPaid)} was paid, leaving ${inr(decisionReq.outstandingAtRequest)} owing. No notice, schedule, or sale can proceed until this is resolved.`}
-            {!canDecide ? " Your role can view this but not decide it." : ""}
+              ? "Shortfall — awaiting authority."
+              : "Decision pending."}
+            {!canDecide ? " View only." : ""}
           </WarningBanner>
-          {decisionFlowOff ? <NoticeBanner>Decisions are now switched off for new cases, but this one was raised before that change and still needs a decision.</NoticeBanner> : null}
+          {decisionFlowOff ? <NoticeBanner>Older case needs decision.</NoticeBanner> : null}
           {canDecide ? (
             <>
               <Field label="Decision">

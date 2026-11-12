@@ -75,7 +75,22 @@ func hardDeleteCustomer(ctx context.Context, id uint) error {
 		}
 	}
 	db := customerDB()
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Personal loans deleted earlier are soft-deleted rows that still point at the customer (and hold
+		// installments, payments and history), and so are loan drafts; they would stop the delete on a
+		// foreign key, so they go first. Live personal loans were already refused above.
+		for _, stmt := range []string{
+			"DELETE FROM personal_loan_installments WHERE personal_loan_id IN (SELECT id FROM personal_loans WHERE customer_id = ? AND deleted_at IS NOT NULL)",
+			"DELETE FROM personal_loan_payments WHERE personal_loan_id IN (SELECT id FROM personal_loans WHERE customer_id = ? AND deleted_at IS NOT NULL)",
+			"DELETE FROM personal_loan_history WHERE personal_loan_id IN (SELECT id FROM personal_loans WHERE customer_id = ? AND deleted_at IS NOT NULL)",
+			"DELETE FROM personal_loans WHERE customer_id = ? AND deleted_at IS NOT NULL",
+			"DELETE FROM loan_draft_ornaments WHERE draft_id IN (SELECT id FROM loan_drafts WHERE customer_id = ?)",
+			"DELETE FROM loan_drafts WHERE customer_id = ?",
+		} {
+			if err := tx.Exec(stmt, rec.ID).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Exec("DELETE FROM customer_device_tokens WHERE customer_id = ?", rec.ID).Error; err != nil {
 			return err
 		}
@@ -92,4 +107,9 @@ func hardDeleteCustomer(ctx context.Context, id uint) error {
 		}
 		return tx.Unscoped().Delete(&commonModels.Customer{}, rec.ID).Error
 	})
+	if err != nil && strings.Contains(err.Error(), "SQLSTATE 23503") {
+		// Something else still points at this customer; say so instead of a bare database error.
+		return NewConflict("Cannot delete this customer — other records (loans, personal loans or ledger entries) are still linked to them. Delete or close those first.")
+	}
+	return err
 }

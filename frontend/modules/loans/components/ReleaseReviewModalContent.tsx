@@ -452,7 +452,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           </div>
           <button
             className="btn ghost sm"
-            style={{ height: 38, justifySelf: "start" }}
+            style={{ height: 38, justifySelf: "end" }}
             disabled={req.status !== "Pending" || !canDecide || !loan}
             onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
           >

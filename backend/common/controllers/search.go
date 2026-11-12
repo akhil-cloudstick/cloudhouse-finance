@@ -32,3 +32,18 @@ func NumericPrefixArg(q string) string {
 	}
 	return stripped + "%"
 }
+
+// NumericExactFirstOrder is an ORDER BY fragment that puts the record whose code number IS the typed
+// number ahead of the ones that merely start with it or match a phone ("9" lists CUST-09 before
+// CUST-90 and before every phone starting 9). Pair it with NumericExactFirstArg.
+func NumericExactFirstOrder(col string) string {
+	return "(ltrim(regexp_replace(" + col + ", '[^0-9]', '', 'g'), '0') = ?) DESC"
+}
+
+// NumericExactFirstArg is the argument for NumericExactFirstOrder; a term of only zeros matches nothing.
+func NumericExactFirstArg(q string) string {
+	if stripped := strings.TrimLeft(q, "0"); stripped != "" {
+		return stripped
+	}
+	return "-"
+}

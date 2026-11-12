@@ -77,6 +77,22 @@ func parseFilter(c echo.Context) (models.Filter, error) {
 		}
 		f.To = &t
 	}
+	// Form G named period (period=q1..q4|annual, year=YYYY) overrides from/to.
+	if p := c.QueryParam("period"); p != "" && p != "custom" {
+		year := time.Now().Year()
+		if y := c.QueryParam("year"); y != "" {
+			n, err := strconv.Atoi(y)
+			if err != nil || n < 2000 || n > 2200 {
+				return models.Filter{}, errors.New("year must be a 4-digit year")
+			}
+			year = n
+		}
+		start, end, _, ok := FormGPeriodRange(p, year)
+		if !ok {
+			return models.Filter{}, errors.New("period must be q1, q2, q3, q4 or annual")
+		}
+		f.From, f.To, f.PeriodName = &start, &end, p
+	}
 	// branch_id is one or more comma-separated ids, kept inside the caller's branch scope.
 	for _, part := range strings.Split(c.QueryParam("branch_id"), ",") {
 		if part = strings.TrimSpace(part); part == "" {

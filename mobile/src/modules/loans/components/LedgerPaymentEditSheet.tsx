@@ -65,7 +65,7 @@ export function LedgerPaymentEditSheet({ loanId, loanStart, payment: p, mode, on
         if (!discountReason.trim()) throw new Error("A discount needs a reason.");
         return editLedgerPayment(loanId, p.id, { paidOn: date, amount: amt, discountReason: discountReason.trim(), discountMode: "Cash", discountKind, ...(reverse ? { reversePacket: true } : {}) }, dry);
       }
-      if (!pay?.ready) throw new Error(`The payment breakdown must add up to the amount (${inr(amt)}) and every UPI / Bank Transfer line needs its bank.`);
+      if (!pay?.ready) throw new Error("Check breakdown and banks.");
       return editLedgerPayment(
         loanId,
         p.id,

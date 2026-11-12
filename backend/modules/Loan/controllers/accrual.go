@@ -807,6 +807,10 @@ func refreshServicingStatus(l *models.Loan, asOf time.Time) bool {
 	if !inArrears {
 		want = models.StatusActive
 	}
+	// Nothing left to pay — principal, interest, penal and fees all cleared: the loan waits only for the gold hand-over.
+	if l.OutstandingAmount <= 0 && !inArrears && l.OutstandingProcessingFee <= moneyEpsilon {
+		want = models.StatusClosureRequested
+	}
 	if want == l.Status {
 		return false
 	}
@@ -837,7 +841,16 @@ func daysPastDue(dueDate, asOf time.Time) int {
 func enrichStatusFlags(l *models.Loan, asOf time.Time) {
 	switch l.Status {
 	// A loan awaiting sanction is not being serviced yet, so it is never due or overdue.
-	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusPendingApproval:
+	// A loan in Closure Requested is waiting only for the gold hand-over, so it is no longer due, overdue or defaulted.
+	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusPendingApproval, models.StatusClosureRequested:
+		return
+	}
+	// A loan with nothing owed cannot be due soon, overdue or defaulted, whatever its due date says.
+	if l.TotalOutstandingBalance < moneyEpsilon {
+		// Fully paid: Closure Requested (waiting only for the gold hand-over), not Active, whatever it was before.
+		if l.Status == models.StatusOverdue || l.Status == models.StatusDueSoon || l.Status == models.StatusActive || l.Status == models.StatusAuctionEligible {
+			l.Status = models.StatusClosureRequested
+		}
 		return
 	}
 	if overdueDays := daysPastDue(l.DueDate, asOf); overdueDays > 0 {
