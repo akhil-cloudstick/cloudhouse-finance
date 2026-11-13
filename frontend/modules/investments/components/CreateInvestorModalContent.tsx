@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { stripDigits, panLiveError } from "@/common/utils/kyc";
 import { useModal } from "@/common/components/ModalProvider";
 import { Select } from "@/common/components/ui/Select";
+import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import { searchBorrowersPage } from "@/modules/customers/services/customerService";
 import { createInvestor, updateInvestor, getInvestorAadhaarFull } from "@/modules/investments/services/investorService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
@@ -52,6 +54,9 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
   const [bankAccountNumber, setBankAccountNumber] = useState(edit?.bankAccountNumber ?? "");
   const [bankIfsc, setBankIfsc] = useState(edit?.bankIfsc ?? "");
 
+  // An existing customer picked to become an investor: the form is filled from them; their Aadhaar is carried over by the server.
+  const [fromCustomer, setFromCustomer] = useState<CustomerView | null>(null);
+  const [customerLabel, setCustomerLabel] = useState("");
   const [err, setErr] = useState("");
   // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
   const [fe, setFe] = useState<Record<string, string>>({});
@@ -95,7 +100,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
     if (!/^\d{10}$/.test(p)) errors["phone"] ??= "Please enter a valid 10-digit mobile number.";
     if (!branchId) errors["branch"] ??= "Please select a branch.";
     if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) errors["pan"] ??= "Please enter a valid PAN (e.g. ABCDE1234F).";
-    if (!(edit && !aadhaar.trim()) && !/^\d{12}$/.test(aadhaar.trim())) errors["aadhaar"] ??= "Please enter a valid 12-digit Aadhaar number.";
+    if (!((edit || fromCustomer) && !aadhaar.trim()) && !/^\d{12}$/.test(aadhaar.trim())) errors["aadhaar"] ??= "Please enter a valid 12-digit Aadhaar number.";
     if (!bankAccountName.trim()) errors["bankAccountName"] ??= "Please enter the bank account holder's name.";
     if (!bankAccountNumber.trim()) errors["bankAccountNumber"] ??= "Please enter the bank account number.";
     if (!bankIfsc.trim()) errors["bankIfsc"] ??= "Please enter the bank IFSC code.";
@@ -124,7 +129,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         bankAccountNumber: bankAccountNumber.trim(),
         bankIfsc: bankIfsc.trim().toUpperCase(),
       };
-      const c = edit ? await updateInvestor(edit.id, input) : await createInvestor(input);
+      const c = edit ? await updateInvestor(edit.id, input) : await createInvestor(input, fromCustomer?.id);
       onCreated(c);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create investor.";
@@ -139,6 +144,27 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
     <>
       <div className="hd"><h3>{edit ? "Edit Investor" : "Add New Investor"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
+        {!edit && (
+          <div className="frow">
+            <div><label className="f">Existing customer (optional)</label>
+              <SearchableSelect<CustomerView>
+                value={customerLabel}
+                onChange={(_id, c) => {
+                  setFromCustomer(c); setCustomerLabel(`${c.name} (${c.code})`); setFe({}); setErr("");
+                  setName(c.name ?? ""); setPhone(c.phone ?? ""); setAddress(c.address ?? ""); setPan(c.pan ?? "");
+                  setBankAccountName(c.bankAccountName ?? ""); setBankAccountNumber(c.bankAccountNumber ?? ""); setBankIfsc(c.bankIfsc ?? "");
+                  if (c.branchId && !branchLocked) setBranchId(c.branchId);
+                }}
+                fetchFn={searchBorrowersPage}
+                searchHint="Searches: customer name, code, phone"
+                getLabel={(c) => `${c.name} (${c.code})`}
+                getId={(c) => c.id}
+                placeholder="Search a customer to add as investor…"
+              />
+              {fromCustomer && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Filled from {fromCustomer.name}. Their Aadhaar number on file is used; add bank details if missing.</div>}
+            </div>
+          </div>
+        )}
         <div className="frow c2">
           <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Radha Menon" value={name} onChange={(e) => setName(stripDigits(e.target.value))} /><FieldError msg={fe.name} /></div>
           <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.phone} /></div>
@@ -159,7 +185,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         </div>
         <div className="frow c2">
           <div className={fe.pan || panLiveError(pan) ? "has-err" : undefined}><label className="f">PAN *</label><input className="inp" placeholder="e.g. ABCDE1234F" maxLength={10} value={pan} onChange={(e) => { setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setFe((cur) => ({ ...cur, pan: "" })); }} /><FieldError msg={fe.pan || panLiveError(pan)} /></div>
-          <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number *</label><input className="inp" inputMode="numeric" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
+          <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number *</label><input className="inp" inputMode="numeric" placeholder={fromCustomer ? "Taken from the customer record" : "12-digit Aadhaar"} maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
         </div>
         <div className="frow"><div className={fe.bankAccountName ? "has-err" : undefined}><label className="f">Bank Account Holder Name *</label><input className="inp" placeholder="As per bank records" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} /><FieldError msg={fe.bankAccountName} /></div></div>
         <div className="frow c2">
@@ -168,9 +194,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
-      <div className="ft">
-        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving} onClick={save}>{saving ? (edit ? "Saving…" : "Creating…") : (edit ? "Save Changes" : "Create Investor")}</button>
+      <div className="ft">        <button className="btn" disabled={saving} onClick={save}>{saving ? (edit ? "Saving…" : "Creating…") : (edit ? "Save Changes" : "Create Investor")}</button>
       </div>
     </>
   );

@@ -331,7 +331,8 @@ type indemnityBondPreviewRequest struct {
 	PrincipalAmount float64                        `json:"principal_amount"`
 	InterestRate    float64                        `json:"interest_rate"`
 	DueDate         string                         `json:"due_date"`
-	Ornaments       []indemnityBondPreviewOrnament `json:"ornaments"`
+	OpenedDate      string                         `json:"opened_date"`
+	Ornaments      []indemnityBondPreviewOrnament `json:"ornaments"`
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -535,7 +536,9 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		DueDate:            dueDateOrBlank(data.DueDate),
 	}
 	td.CustomerName = orBlank(data.CustomerName)
-	td.LoanDateDisplay = time.Now().Format("02-01-2006")
+	if data.Day == 0 || data.Year <= 1 {
+		td.DateDisplay = ""
+	}
 	if !data.OpenedDate.IsZero() {
 		td.LoanDateDisplay = data.OpenedDate.Format("02-01-2006")
 	}
@@ -1024,8 +1027,15 @@ func PreviewIndemnityBondPDF(c echo.Context) error {
 			Value:       o.Value,
 		})
 	}
-	now := time.Now()
+	// the loan's opening date, as sent; with none the date lines stay blank rather than showing today
+	var opened time.Time
+	if req.OpenedDate != "" {
+		if d, err := time.Parse("2006-01-02", req.OpenedDate); err == nil {
+			opened = d
+		}
+	}
 	data := BondData{
+		OpenedDate:      opened,
 		LoanNumber:      req.LoanNumber,
 		CustomerName:    req.Name,
 		Age:             age,
@@ -1037,9 +1047,9 @@ func PreviewIndemnityBondPDF(c echo.Context) error {
 		PrincipalAmount: req.PrincipalAmount,
 		InterestRate:    req.InterestRate,
 		Ornaments:       ornaments,
-		Day:             now.Day(),
-		Month:           now.Month().String(),
-		Year:            now.Year(),
+		Day:             opened.Day(),
+		Month:           opened.Month().String(),
+		Year:            opened.Year(),
 		DueDate:         dueDate,
 	}
 	fillLenderProfile(auth.RequestContext(c), &data)

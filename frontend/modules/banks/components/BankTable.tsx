@@ -241,7 +241,6 @@ function ConfirmDeleteBank({ bank, onSaved, onMergeInstead }: ConfirmDeleteBankP
         )}
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn danger" onClick={confirm} disabled={saving}>{saving ? "Deleting…" : "Delete"}</button>
       </div>
     </>

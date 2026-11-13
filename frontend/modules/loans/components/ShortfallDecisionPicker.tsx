@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { fmt } from "@/common/utils/format";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { canActAtStage, firstStage } from "@/common/services/approvalWorkflowService";
@@ -57,7 +58,7 @@ export function ShortfallDecisionPicker({ shortfall, value, onChange, canDecide 
           {value.decision && (
             <div style={{ marginTop: 8 }}>
               <label className="f">Reason *</label>
-              <input className="inp" value={value.remarks} placeholder="Why this decision" onChange={(e) => onChange({ ...value, remarks: e.target.value })} />
+              <NoteField value={value.remarks} placeholder="Why this decision" onChange={(v) => onChange({ ...value, remarks: v })} />
             </div>
           )}
         </>

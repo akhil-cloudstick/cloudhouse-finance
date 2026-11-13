@@ -42,10 +42,11 @@ import { CalendarPage } from "@/modules/reminders/pages/CalendarPage";
 import { BranchesPage } from "@/modules/branches/pages/BranchesPage";
 import { BanksPage } from "@/modules/banks/pages/BanksPage";
 import { PartyLedgerPage } from "@/modules/cash/pages/PartyLedgerPage";
-import { syncFilterSection } from "@/common/hooks/use-persisted-state";
+import { syncFilterSection, resetSearchOnNavigation } from "@/common/hooks/use-persisted-state";
 import { BranchLedgerPage } from "@/modules/branches/pages/BranchLedgerPage";
 import { SettingsPage } from "@/modules/settings/pages/SettingsPage";
 import { RolesPermissionsPage } from "@/modules/roles/pages/RolesPermissionsPage";
+import { SupportPage } from "@/modules/support/pages/SupportPage";
 import { BillingPage } from "@/modules/billing/pages/BillingPage";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ModeLedgerPage } from "@/modules/cash/pages/ModeLedgerPage";
@@ -184,6 +185,8 @@ function View({ route, arg }: ViewProps) {
       return <RolesPermissionsPage />;
     case "billing":
       return <BillingPage />;
+    case "support":
+      return <SupportPage />;
     case "settings":
       return <SettingsPage />;
     case "dashboard":
@@ -196,7 +199,7 @@ function AppShellInner() {
   const { route, arg } = useAppRoute();
   // Runs during render on purpose: it must clear a section's remembered
   // filters BEFORE the page below mounts and reads them (idempotent).
-  if (typeof window !== "undefined") syncFilterSection(route);
+  if (typeof window !== "undefined") { syncFilterSection(route); resetSearchOnNavigation(route); }
   const { loaded: brandingLoaded } = useBranding();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Bumped whenever the sidebar's own page is clicked again (see

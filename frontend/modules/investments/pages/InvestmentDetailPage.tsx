@@ -415,7 +415,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
                 r.interestAmount > 0 && `Interest ${fmt(r.interestAmount)}`,
               ].filter(Boolean).join(" · ");
               return (
-                <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount}>
+                <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount} data-ledger-ref={`i:${r.id}`}>
                   <td data-label="Date">{fmtDate(r.date)}</td>
                   <td data-label="Ref No" style={{ whiteSpace: "nowrap" }}>{r.reference || "—"}</td>
                   <td data-label="Particulars">

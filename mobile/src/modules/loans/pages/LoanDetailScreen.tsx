@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -61,6 +61,7 @@ import { TopUpReviewPanel } from "@/modules/loans/components/TopUpReviewPanel";
 
 type SheetKey =
   | "actions"
+  | "info"
   | "documents"
   | "collect"
   | "extend"
@@ -493,7 +494,10 @@ export default function LoanDetailScreen() {
               {l.additionalInfo ? (
                 <>
                   <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 10 }}>Additional information</Txt>
-                  <Txt style={{ fontSize: 13, color: C.ink, marginTop: 2 }}>{l.additionalInfo}</Txt>
+                  <Pressable onPress={() => setOpen("info")} accessibilityRole="button" accessibilityLabel="Open additional information">
+                    <Txt numberOfLines={2} style={{ fontSize: 13, color: C.ink, marginTop: 2 }}>{l.additionalInfo}</Txt>
+                    <Txt style={{ fontSize: 11, fontWeight: "700", color: C.brandDeep, marginTop: 2 }}>Tap to read</Txt>
+                  </Pressable>
                 </>
               ) : null}
               {l.overallPhotoUrl ? (
@@ -540,7 +544,7 @@ export default function LoanDetailScreen() {
                     { k: "Net", v: `${o.netWeight.toFixed(3)} g` },
                     { k: "Qty", v: String(o.quantity) },
                     { k: "Gold value", v: inr(o.goldValue) },
-                    { k: "Status", v: o.releasedAt ? `Released ${dmy(o.releasedAt)}` : "Held", color: o.releasedAt ? C.green : undefined },
+                    { k: "Status", v: o.releasedAt ? `Released ${dmy(o.releasedAt)}` : (l.bankPledges ?? []).some((p) => p.status === "Active" && (!p.ornamentIds || p.ornamentIds.length === 0 || p.ornamentIds.includes(o.id))) ? "Pledged to Bank" : "Held", color: o.releasedAt ? C.green : undefined },
                   ]}
                 />
                 <PhotoGallery paths={(o.images ?? []).map((im) => im.imageUrl)} title={`${o.name} photos`} />
@@ -554,6 +558,11 @@ export default function LoanDetailScreen() {
       </PScroll>
 
       {/* ---- Actions ---- */}
+      <Sheet visible={open === "info"} onClose={() => setOpen(null)} title="Additional information" maxHeightPct={50}>
+        <ScrollView style={{ maxHeight: 66, marginTop: 8 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+          <Txt style={{ fontSize: 13.5, lineHeight: 22, color: C.ink }}>{l.additionalInfo}</Txt>
+        </ScrollView>
+      </Sheet>
       <Sheet visible={open === "actions"} onClose={() => setOpen(null)} title="Loan Actions">
         {(() => {
           const items: React.ReactNode[] = [];

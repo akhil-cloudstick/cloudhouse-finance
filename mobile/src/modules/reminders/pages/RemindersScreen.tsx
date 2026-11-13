@@ -241,12 +241,12 @@ export default function RemindersScreen() {
                       e.loanId && canViewLoans
                         ? () => openPage(`/loans/${e.loanId}`)
                         : e.personalLoanId != null && canViewPersonalLoans
-                          ? () => openPage(`/personal-loans?id=${e.personalLoanId}&from=reminders`)
+                          ? () => openPage(`/personal-loans/${e.personalLoanId}`)
                           : undefined
                     }
                     onOpenLoan={
                       e.personalLoanId != null && canViewPersonalLoans
-                        ? () => openPage(`/personal-loans?id=${e.personalLoanId}&from=reminders`)
+                        ? () => openPage(`/personal-loans/${e.personalLoanId}`)
                         : undefined
                     }
                     onDone={e.reminderId != null && canUpdateReminder && e.status !== "Done" ? () => done.mutate(e.reminderId!) : undefined}

@@ -99,7 +99,7 @@ export function ConnectMobilePanel() {
     <>
       <div className="set-head"><h4>Link Mobile</h4></div>
       <p className="set-sub">Sign in to the <b>CloudHouse Staff</b> app on your phone for {businessName}.</p>
-      <div className="set-link">
+      <div className="set-link set-link-fixed">
         <div className="set-visual">
           {failed ? (
             <div className="set-ph"><Icon name="smartphone" /><span>Could not generate a connect code. Check your connection and try again.</span></div>

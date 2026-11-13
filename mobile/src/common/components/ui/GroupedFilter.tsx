@@ -180,12 +180,13 @@ export function GroupedFilter({
 
   return (
     <>
-      <Pressable disabled={disabled} onPress={() => setOpen(true)} style={[st.pill, disabled && { opacity: 0.5 }, style]}>
-        <Txt style={st.pillTxt}>Filters</Txt>
-        <View style={st.count}>
-          <Txt style={st.countTxt}>{count}</Txt>
-        </View>
-        <PIcon name="chevdown" color={C.brandDeep} />
+      <Pressable disabled={disabled} onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={title} style={[st.pill, disabled && { opacity: 0.5 }, style]}>
+        <PIcon name="filter" color={C.ink} size={17} />
+        {count > 0 ? (
+          <View style={st.count}>
+            <Txt style={st.countTxt}>{count}</Txt>
+          </View>
+        ) : null}
       </Pressable>
       <Sheet
         visible={open}
@@ -258,8 +259,8 @@ export function GroupedFilter({
 }
 
 const st = StyleSheet.create({
-  pill: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: C.brandFaint, paddingVertical: 8, paddingHorizontal: 13, borderRadius: 999, alignSelf: "flex-start" },
-  pillTxt: { fontSize: 12.5, fontWeight: "700", color: C.brandDeep },
+  pill: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.card, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 11, borderWidth: 1, borderColor: C.line },
+  pillTxt: { fontSize: 13, fontWeight: "700", color: C.ink },
   count: { backgroundColor: C.brandDeep, minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 3, alignItems: "center", justifyContent: "center" },
   countTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
   headRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },

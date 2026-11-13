@@ -265,7 +265,8 @@ export function PacketsPage() {
                   <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No packets yet — packets are created automatically when a loan is opened.</td></tr>
                 )}
                 {(packets || []).map((p) => {
-                  const locker = allLockers.find((l) => l.id === p.currentLockerId);
+                  // The packet carries its own locker code from the API: unaffected by the locker filter or permission.
+                  const lockerCode = p.lockerCode || allLockers.find((l) => l.id === p.currentLockerId)?.code;
                   // The loan's own outcome overrides the packet's own
                   // (possibly stale) workflow stage once the gold has been
                   // sold — same override PacketDetail.tsx applies.
@@ -277,7 +278,7 @@ export function PacketsPage() {
                       <td data-label="Customer">{p.customerName}</td>
                       <td className="num" data-label="Items">{p.itemCount}</td>
                       <td className="num" data-label="Weight">{fmtW(p.totalWeight)}</td>
-                      <td data-label="Locker">{locker ? locker.code : "—"}</td>
+                      <td data-label="Locker">{lockerCode || "—"}</td>
                       <td data-label="Status"><StatusChip status={displayStatus} /></td>
                     </tr>
                   );

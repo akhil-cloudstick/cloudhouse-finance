@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"strings"
 	"testing"
 
 	"cloudhouse/backend/modules/Cash/models"
@@ -30,6 +31,23 @@ func TestValidateMovementMode(t *testing.T) {
 		}
 		if err == nil && c.bankNil && m.BankID != nil {
 			t.Errorf("%s: bank id should be cleared", c.name)
+		}
+	}
+}
+
+// cash_movements has no loan_number column: a search clause that names one makes every search query fail
+// (nothing is returned for any field). The number is looked up through its real tables instead.
+func TestMovementSearchClauseUsesRealColumns(t *testing.T) {
+	clause, args := movementSearchClause("LN-00007")
+	if strings.Contains(strings.ReplaceAll(clause, "loan_cash_sources WHERE loan_number", ""), " loan_number ILIKE ? OR") {
+		t.Fatalf("bare loan_number column on cash_movements: %s", clause)
+	}
+	if n := strings.Count(clause, "?"); n != len(args) {
+		t.Fatalf("%d placeholders, %d args", n, len(args))
+	}
+	for _, col := range []string{"purpose", "source", "bank", "mode", "remarks", "occurred_on", "amount", "loan_cash_sources", "categories"} {
+		if !strings.Contains(clause, col) {
+			t.Fatalf("search clause misses %s", col)
 		}
 	}
 }

@@ -128,9 +128,7 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
         )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {locker ? "Save Changes" : "Add Locker"}</button>
+      <div className="ft">        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {locker ? "Save Changes" : "Add Locker"}</button>
       </div>
     </>
   );

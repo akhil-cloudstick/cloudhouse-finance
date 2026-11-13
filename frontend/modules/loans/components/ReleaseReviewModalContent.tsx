@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -89,6 +90,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
   });
 
+  const [earlierLocked, setEarlierLocked] = useState<number[]>([]);
   useEffect(() => {
     getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
   }, [request.loanNumericId]);
@@ -109,16 +111,20 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // Shown again after a popup it opened (payment, bank pledge release) closes: pick up what that changed.
   useEffect(() => { refreshRequest(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const goldStillHeld = loan?.bankPledgeStatus === "Bank Pledged" || packet?.status === "Locker Stored";
+  const releasingIds = loan ? (req.isPartial ? req.ornamentIds : loan.ornaments.filter((o) => !o.releasedAt).map((o) => o.id)) : [];
+  // Only the ornaments of THIS request count; a pledge with no ornament list covers the whole loan.
+  const scopedPledges = loan ? loan.bankPledges.filter((bp) => bp.status === "Active" && (!bp.ornamentIds || bp.ornamentIds.length === 0 || bp.ornamentIds.some((id) => releasingIds.includes(id)))) : [];
+  const pledgedHere = scopedPledges.length > 0;
+  const goldStillHeld = pledgedHere || packet?.status === "Locker Stored";
   // The gold sitting in a locker can be checked out right here instead of from the packet page: ticking the
   // box records the packet as Released, the same move the packet page's Release button makes, and that is
   // what lets the customer be shown the gold below. A bank-pledged loan still has to be released from its
   // own page first.
   const canMovePackets = can("Packet_Management", "can_update_packet");
-  const packetInLocker = loan?.bankPledgeStatus !== "Bank Pledged" && packet?.status === "Locker Stored";
+  const packetInLocker = !pledgedHere && packet?.status === "Locker Stored";
   // Gold pledged to a bank is released the same way: the box opens the usual Release Bank Pledge popup
   // (it needs the repayment split for a cash-in pledge) and returns here once it is done.
-  const activePledge = loan?.bankPledgeStatus === "Bank Pledged" ? loan.bankPledges.find((bp) => bp.status === "Active") : undefined;
+  const activePledge = scopedPledges[0];
   const canReleasePledge = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canReleaseHeldGold = req.status === "Pending" && canDecide && !req.locked && ((packetInLocker && canMovePackets) || (!!activePledge && canReleasePledge));
   const [releasingPacket, setReleasingPacket] = useState(false);
@@ -143,7 +149,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       setReleasingPacket(false);
     }
   })) ?? false; }
-  const goldHeldReason = loan?.bankPledgeStatus === "Bank Pledged" ? "pledged to a bank" : "checked into a locker";
+  const goldHeldReason = pledgedHere ? "pledged to a bank" : "checked into a locker";
 
   // Re-fetches this one request after a payment recorded via the general
   // Record Payment modal — that modal returns a LoanView, not the updated
@@ -154,6 +160,14 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       const all = await listLoanRequests({ loanId: request.loanNumericId });
       const fresh = all.find((r) => r.id === req.id);
       if (fresh) setReq(fresh);
+      // Ornaments of earlier open release requests are left out of this request's amount (mirrors the backend).
+      const ids = new Set<number>();
+      for (const r of all) {
+        if (r.type !== "Release" || r.id >= req.id || (r.status !== "Pending" && r.status !== "Approved")) continue;
+        if (r.ornamentIds.length > 0) r.ornamentIds.forEach((id) => ids.add(id));
+        else if (!(r.status === "Approved" && r.isPartial)) loan?.ornaments.forEach((o) => { if (!o.releasedAt) ids.add(o.id); });
+      }
+      setEarlierLocked([...ids]);
     } catch {
       /* keep the possibly-stale request rather than blocking the modal */
     }
@@ -215,8 +229,8 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // paymentRecorded alone or it would show a stale "must record payment"
   // warning for a release that's actually ready to go.
   const neededNum = loan
-    ? releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)
-    : 0;
+    ? releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null, earlierLocked)
+: 0;
   const neededText = loan ? fmt(neededNum) : "the minimum amount";
   const paymentConditionMet =req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
@@ -399,7 +413,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
               This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
               {/* Real route links (the old "#bankpledge/…" hash form opened the
                 * dashboard), and plain text for a role that can't open them. */}
-              {loan.bankPledgeStatus === "Bank Pledged" ? (
+              {pledgedHere ? (
                 canOpen("bankpledge") ? (
                   <a href={routeHref(`bankpledge/${loan.id}`)} onClick={closeModal}>Bank &amp; Gold Re-Pledge</a>
                 ) : (
@@ -439,13 +453,13 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
             className="btn ghost sm"
             style={{ height: 38, justifySelf: "end" }}
             disabled={req.status !== "Pending" || !canDecide || !loan}
-            onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
+            onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null, earlierLocked)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
           >
             <Icon name="coin" /> Record Payment
           </button>
         </div>
 
-        <div className="frow" style={{ marginTop: 14 }}><div className={notesErr ? "has-err" : undefined}><label className="f">Verification Notes</label><input className="inp" value={notes} disabled={!canDecide || req.locked} onChange={(e) => { setNotes(e.target.value); setNotesErr(""); }} onBlur={saveNotes} placeholder="optional" /><FieldError msg={notesErr} /></div></div>
+        <div className="frow" style={{ marginTop: 14 }}><div className={notesErr ? "has-err" : undefined}><label className="f">Verification Notes</label><NoteField value={notes} disabled={!canDecide || req.locked} onChange={(v) => { setNotes(v); setNotesErr(""); }} onBlur={saveNotes} placeholder="Optional" /><FieldError msg={notesErr} /></div></div>
 
         {showTopUp && loan && (
           <div style={{ marginTop: 12 }}>

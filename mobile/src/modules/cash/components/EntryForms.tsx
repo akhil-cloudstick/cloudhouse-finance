@@ -77,21 +77,21 @@ const rowsOf = (edit: EntryInfo): PaymentRow[] =>
 
 const branchOf = (edit?: EntryInfo) => (edit?.branchId ? { id: edit.branchId, name: edit.branchName } : null);
 
-const ENTRY_TYPES = ["credit", "debit", "self"] as const;
+const ENTRY_TYPES = ["debit", "credit", "self"] as const;
 type EntryType = (typeof ENTRY_TYPES)[number];
-const ENTRY_LABELS = { credit: "Credit (Cash In)", debit: "Debit (Expense)", self: "Self Transfer" } as const;
+const ENTRY_LABELS = { debit: "Debit (Expense)", credit: "Credit (Cash In)", self: "Self Transfer" } as const;
 
 type AddEntrySheetProps = { visible: boolean; onClose: () => void };
 
 // The Ledger's single "Add Entry" sheet — a Credit / Debit / Self Transfer
 // switch on top, each tab one form (mirrors web's AddEntryModal).
 export function AddEntrySheet({ visible, onClose }: AddEntrySheetProps) {
-  const [type, setType] = useState<EntryType>("credit");
+  const [type, setType] = useState<EntryType>("debit");
   // Bumped per open so each tab starts from a clean form.
   const [session, setSession] = useState(0);
   useEffect(() => {
     if (visible) {
-      setType("credit");
+      setType("debit");
       setSession((n) => n + 1);
     }
   }, [visible]);
@@ -143,7 +143,7 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
   const [bank, setBank] = useState<Bank | null>(goldEdit?.lines[0]?.bankId ? ({ id: goldEdit.lines[0].bankId, name: goldEdit.lines[0].bankName ?? "", createdAt: "", updatedAt: "" } as Bank) : null);
   const [branch, setBranch] = useOwnBranch(branchOf(edit));
   // Uploaded "/uploads/..." URL of the bill, "" when none.
-  const [receiptImage, setReceiptImage] = useState("");
+  const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
   const [error, setError] = useState<string | null>(null);
   const bankRequired = mode === "UPI" || mode === "Bank Transfer";
@@ -307,7 +307,7 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
   const [payRows, setPayRows] = useState<PaymentRow[]>(() => (edit ? rowsOf(edit) : [newPaymentRow()]));
   const [branch, setBranch] = useOwnBranch(branchOf(edit));
   // Uploaded "/uploads/..." URL of the receipt/bill photo, "" when none.
-  const [receiptImage, setReceiptImage] = useState("");
+  const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
   const [error, setError] = useState<string | null>(null);
   const branchId = branch?.id;
@@ -353,7 +353,7 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
         label="Category"
         placeholder="Search or add a category"
         queryKey={["expense-categories", "picker"]}
-        fetcher={async (q) => (await listExpenseCategoriesPage(q, 0, PICKER_PAGE_SIZE)).items ?? []}
+        fetcher={async (q) => (await listExpenseCategoriesPage(q, 0, PICKER_PAGE_SIZE, true)).items ?? []}
         selectedLabel={category?.name}
         onSelect={(c) => {
           setCategory(c);
@@ -414,7 +414,7 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
   const [fromBank, setFromBank] = useState<Bank | null>(edit?.fromBankId ? ({ id: edit.fromBankId, name: edit.fromBank ?? "", createdAt: "", updatedAt: "" } as Bank) : null);
   const [toBank, setToBank] = useState<Bank | null>(edit?.toBankId ? ({ id: edit.toBankId, name: edit.toBank ?? "", createdAt: "", updatedAt: "" } as Bank) : null);
   const [branch, setBranch] = useOwnBranch(branchOf(edit));
-  const [receiptImage, setReceiptImage] = useState("");
+  const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
   const [error, setError] = useState<string | null>(null);
   const branchId = branch?.id;

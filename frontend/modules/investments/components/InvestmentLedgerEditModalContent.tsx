@@ -167,7 +167,6 @@ export function InvestmentLedgerEditModalContent({ investmentId, row: r, mode, l
       </div>
       <div className="ft">
         {err && <div role="alert" style={{ flex: 1, minWidth: 0, color: "var(--danger, #c0392b)", fontSize: 12.5 }}>{err.replace(/(\d{4})-(\d{2})-(\d{2})/g, "$3-$2-$1")}</div>}
-        <button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
         <button className="btn" onClick={submit} disabled={saving}>
           <Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : preview ? (mode === "delete" ? "Confirm delete" : "Confirm") : "Preview the change"}
         </button>

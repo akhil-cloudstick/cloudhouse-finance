@@ -222,7 +222,7 @@ export function BranchLedgerPage({ id }: BranchLedgerPageProps) {
                   return { m, balance: running };
                 });
                 return withBalance.reverse().map(({ m, balance }) => (
-                  <tr key={m.id} data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
+                  <tr key={m.id} data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount} data-ledger-ref={`m:${m.id}`}>
                     <td data-label="Date">{fmtDate(m.d)}</td>
                     <td className="ledger-ref" data-label="Ref No" title={refTitleFor(m)}>{refCellFor(m)}</td>
                     <td data-label="Particulars" style={{ textAlign: "center" }}>{m.purpose || m.source || "—"}</td>

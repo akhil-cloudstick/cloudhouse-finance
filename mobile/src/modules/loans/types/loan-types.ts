@@ -353,6 +353,8 @@ export type SanctionStage = string;
 export type UpdateLoanInput = {
   schemeId?: number;
   principalAmount?: number;
+  /** The loan's opening date (YYYY-MM-DD); undefined leaves it. The due date and interest follow it. */
+  openedDate?: string;
   /** undefined leaves it alone; "" clears it. */
   overallPhotoUrl?: string;
   /** undefined leaves it alone; "" clears it (max 2000 chars). */

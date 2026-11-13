@@ -1,62 +1,19 @@
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
-import React, { useEffect, useRef, useState } from "react";
-import { Pressable, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import * as FileSystem from "expo-file-system/legacy";
-import { presentFile } from "@/common/utils/presentFile";
-import {
-  AccRow,
-  AsyncSelect,
-  Buffering,
-  BtnRow2,
-  C,
-  Card,
-  ChipToggle,
-  EmptyText,
-  FabCorner,
-  Field,
-  FieldGrid,
-  GroupedFilter,
-  emptyGroupedFilter,
-  gfValues,
-  type GFSection,
-  type GroupedFilterValue,
-  FieldRow,
-  FlatHeader,
-  Input,
-  PillTabs,
-  PIcon,
-  PrimaryButton,
-  RepayItem,
-  Screen,
-  SearchInput,
-  ServerFlatList,
-  Sheet,
-  SheetListItem,
-  StatusChip,
-  Txt,
-  WarningBanner,
-  toast,
-} from "@/common/components/ui";
-import { ApprovalChainPanel } from "@/common/components/ApprovalChainPanel";
-import { isFlowOff, stageByKey, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
-import { SheetScrollView } from "@/common/components/ui/SheetScrollView";
+import { AccRow, AsyncSelect, Buffering, C, Card, ChipToggle, FabCorner, Field, FieldGrid, GroupedFilter, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue, FieldRow, FlatHeader, Input, PrimaryButton, Screen, SearchFilterRow, ServerFlatList, Sheet, Txt, WarningBanner, toast } from "@/common/components/ui";
+import { isFlowOff, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listCustomers } from "@/modules/customers/services/customerService";
-import { createBank, listBanksPage } from "@/modules/banks/services/bankService";
-import type { Bank } from "@/modules/banks/types/bank-types";
-import { ApiError } from "@/common/services/httpClient";
-import { getToken } from "@/common/services/tokenStorage";
-import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
-import { approvePersonalLoan, createPersonalLoan, editPersonalLoan, getPersonalLoan, getPersonalLoanSchedulePage, listPersonalLoanApprovals, listPersonalLoanPaymentsPage, listPersonalLoansPage, previewRenewal, recordPersonalLoanPayment, renewPersonalLoan, personalLoanBondUrl } from "@/modules/personal-loans/services/personalLoanService";
-import { type Frequency, type InterestType, type PersonalLoan, type PersonalLoanInstallment, type PersonalLoanPayment, type PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
-import { dmy, inr, todayISO } from "@/common/utils/format";
+import { createPersonalLoan, editPersonalLoan, listPersonalLoansPage, previewRenewal, recordPersonalLoanPayment, renewPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
+import { type Frequency, type InterestType, type PersonalLoan } from "@/modules/personal-loans/types/personal-loan-types";
+import { inr } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
-import { PersonalLedgerEditSheet } from "@/modules/personal-loans/components/PersonalLedgerEditSheet";
-import { loadErrorText, userMessage } from "@/common/services/apiErrors";
+import { userMessage } from "@/common/services/apiErrors";
 
 // Personal Loans — prototype #header-personalloans + #page-personalloans and
 // the pl-filter / pl-create / pl-collect / pl-detail / pl-renew sheets.
@@ -64,8 +21,7 @@ import { loadErrorText, userMessage } from "@/common/services/apiErrors";
 // params on GET /personal-loans; rows page in 10 at a time.
 
 const FREQS = ["Daily", "Weekly", "Monthly"] as const;
-const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer"] as const;
-const PER: Record<Frequency, string> = { Daily: "day", Weekly: "wk", Monthly: "mo" };
+export const PER: Record<Frequency, string> = { Daily: "day", Weekly: "wk", Monthly: "mo" };
 
 // "Pending approval" lists loans waiting in the tenant's "personal_loan"
 // approval chain (status filter is server-side).
@@ -82,7 +38,7 @@ const FILTER_SECTIONS: GFSection[] = [
   },
 ];
 
-const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
+export const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 
 // Mirrors the web NewPersonalLoanModal's client-side preview of the
 // backend's computeInterest — the backend recomputes and is the source of truth.
@@ -100,21 +56,13 @@ export default function PersonalLoansScreen() {
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("personalLoans:filters", emptyGroupedFilter());
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [detailId, setDetailId] = useState<number | null>(null);
   const [collectLoan, setCollectLoan] = useState<PersonalLoan | null>(null);
-  const [renewLoan, setRenewLoan] = useState<PersonalLoan | null>(null);
-  const [editLoan, setEditLoan] = useState<PersonalLoan | null>(null);
 
-  // ?id=<personal loan id> (dashboard "Needs attention") opens its detail.
-  // &from=reminders (a reminder opened it): closing the detail goes back to Reminders.
-  const params = useLocalSearchParams<{ id?: string; t?: string; from?: string }>();
-  const cameFromReminders = useRef(false);
+  // ?id=<personal loan id> (old deep link) opens that loan's page.
+  const params = useLocalSearchParams<{ id?: string; t?: string }>();
   useEffect(() => {
-    if (params.id && Number(params.id)) {
-      cameFromReminders.current = params.from === "reminders";
-      setDetailId(Number(params.id));
-    }
-  }, [params.id, params.t, params.from]);
+    if (params.id && Number(params.id)) router.push(`/personal-loans/${Number(params.id)}` as never);
+  }, [params.id, params.t]);
 
   const freqs = gfValues(fv, "freq");
   const statuses = gfValues(fv, "status");
@@ -134,10 +82,12 @@ export default function PersonalLoansScreen() {
         emptyText={list.search || filterCount ? "No personal loans match your search." : "No personal loans yet."}
         header={
           <View style={{ paddingTop: 12 }}>
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingBottom: 8 }} />
-            <View style={{ paddingHorizontal: 18, paddingBottom: 10 }}>
-              <GroupedFilter title="Filter personal loans" sections={FILTER_SECTIONS} value={fv} onChange={setFv} style={{ alignSelf: "flex-start" }} />
-            </View>
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search by loan ID or customer name"
+              filter={<GroupedFilter title="Filter personal loans" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
+            />
           </View>
         }
         renderItem={(l, i) => (
@@ -154,7 +104,7 @@ export default function PersonalLoansScreen() {
             ]}
             actions={[
               { label: "Collect Payment", disabled: !canUpdate || l.status !== "Active", onPress: () => setCollectLoan(l) },
-              { label: "View", primary: true, onPress: () => setDetailId(l.id) },
+              { label: "View", primary: true, onPress: () => router.push(`/personal-loans/${l.id}` as never) },
             ]}
           />
         )}
@@ -165,34 +115,10 @@ export default function PersonalLoansScreen() {
         onClose={() => setCreateOpen(false)}
         onCreated={(loan) => {
           setCreateOpen(false);
-          setDetailId(loan.id);
+          router.push(`/personal-loans/${loan.id}` as never);
         }}
-      />
-      <CreatePersonalLoanSheet visible={!!editLoan} loan={editLoan} onClose={() => setEditLoan(null)} onCreated={() => setEditLoan(null)} />
-      <PersonalLoanDetailSheet
-        loanId={detailId}
-        onClose={() => {
-          setDetailId(null);
-          if (cameFromReminders.current) {
-            cameFromReminders.current = false;
-            if (router.canGoBack()) router.back();
-          }
-        }}
-        onOpenLoan={setDetailId}
-        canUpdate={canUpdate}
-        onCollect={setCollectLoan}
-        onRenew={setRenewLoan}
-        onEdit={setEditLoan}
       />
       <CollectSheet loan={collectLoan} onClose={() => setCollectLoan(null)} />
-      <RenewSheet
-        loan={renewLoan}
-        onClose={() => setRenewLoan(null)}
-        onRenewed={(newId) => {
-          setRenewLoan(null);
-          setDetailId(newId);
-        }}
-      />
     </Screen>
   );
 }
@@ -208,7 +134,7 @@ const penalIsDefault = (l: PersonalLoan) => (l.interestType === "Percentage" ? l
 // ---------------------------------------------------------------------------
 // Create Personal Loan (prototype #pl-create-modal)
 // ---------------------------------------------------------------------------
-function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: CreatePersonalLoanSheetProps) {
+export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: CreatePersonalLoanSheetProps) {
   const qc = useQueryClient();
   const editing = !!loan;
   // Tenant's "personal_loan" flow on → the loan is created "Pending
@@ -380,334 +306,6 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: CreatePe
   );
 }
 
-// ---------------------------------------------------------------------------
-// Detail (prototype #pl-detail-modal): Schedule / Payment History /
-// Schedule History, each paged from the server inside the sheet.
-// ---------------------------------------------------------------------------
-const DETAIL_TABS = ["schedule", "payments", "history"] as const;
-type DetailTab = (typeof DETAIL_TABS)[number];
-
-type PersonalLoanDetailSheetProps = {
-  loanId: number | null;
-  onClose: () => void;
-  onOpenLoan: (id: number) => void;
-  canUpdate: boolean;
-  onCollect: (l: PersonalLoan) => void;
-  onRenew: (l: PersonalLoan) => void;
-  onEdit: (l: PersonalLoan) => void;
-};
-
-function PersonalLoanDetailSheet({
-  loanId,
-  onClose,
-  onOpenLoan,
-  canUpdate,
-  onCollect,
-  onRenew,
-  onEdit,
-}: PersonalLoanDetailSheetProps) {
-  const visible = loanId != null;
-  const id = loanId ?? 0;
-  const [tab, setTab] = useState<DetailTab>("schedule");
-  const [bondBusy, setBondBusy] = useState<PersonalLoanBondLang | null>(null);
-  const [infoOpen, setInfoOpen] = useState(false);
-  const [bondOpen, setBondOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { can } = useAuth();
-  // Editing / deleting a ledger entry recalculates the loan, so each has its own grant (shared with the gold-loan ledger).
-  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
-  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
-  const [editing, setEditing] = useState<{ entry: PersonalLoanPayment; bankId: number | null; mode: "edit" | "delete" } | null>(null);
-
-  useEffect(() => {
-    setTab("schedule");
-    setError(null);
-    setInfoOpen(false);
-    setBondOpen(false);
-  }, [loanId]);
-
-  const qc = useQueryClient();
-  const wf = useApprovalWorkflow();
-  const loan = useQuery({ queryKey: ["personalLoan", String(id)], queryFn: () => getPersonalLoan(id), enabled: visible });
-  // Approval chain (tenant's "personal_loan" flow) — only for a loan that
-  // went through it (approvalStage set).
-  const inChain = !!loan.data?.approvalStage;
-  const approvals = useQuery({
-    queryKey: ["personalLoanApprovals", String(id)],
-    queryFn: () => listPersonalLoanApprovals(id),
-    enabled: visible && inChain,
-  });
-  const schedule = useServerList<PersonalLoanInstallment>({
-    key: ["personalLoanSchedule", id],
-    fetchPage: (p) => getPersonalLoanSchedulePage(id, p.limit, p.offset),
-    enabled: visible && tab === "schedule",
-  });
-  const payments = useServerList<PersonalLoanPayment>({
-    key: ["personalLoanPayments", id],
-    fetchPage: (p) => listPersonalLoanPaymentsPage(id, p.limit, p.offset),
-    enabled: visible && tab === "payments",
-  });
-
-  // Renewal chain: one hop each way (renewedFromLoanId / renewedToLoanId).
-  const olderId = loan.data?.renewedFromLoanId ?? null;
-  const newerId = loan.data?.renewedToLoanId ?? null;
-  const older = useQuery({ queryKey: ["personalLoan", String(olderId)], queryFn: () => getPersonalLoan(olderId!), enabled: visible && tab === "history" && !!olderId });
-  const newer = useQuery({ queryKey: ["personalLoan", String(newerId)], queryFn: () => getPersonalLoan(newerId!), enabled: visible && tab === "history" && !!newerId });
-
-  async function downloadBond(lang: PersonalLoanBondLang) {
-    const l = loan.data;
-    if (!l || bondBusy) return;
-    setBondBusy(lang);
-    setError(null);
-    try {
-      const token = await getToken();
-      const targetUri = `${FileSystem.cacheDirectory}bond-${l.loanNumber}-${lang}.pdf`;
-      const result = await withPrintProgress(() =>
-        FileSystem.downloadAsync(personalLoanBondUrl(l.id, lang), targetUri, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-      );
-      if (result.status < 200 || result.status >= 300) throw new ApiError(result.status, "", undefined);
-      await presentFile(result.uri, { mimeType: "application/pdf", title: "Personal loan bond" });
-    } catch (e) {
-      setError(errMsg(e, "Could not download the bond."));
-    } finally {
-      setBondBusy(null);
-    }
-  }
-
-  const l = loan.data;
-  const title = l ? `${l.loanNumber} — ${l.customer?.name ?? `Customer #${l.customerId}`}` : "Personal Loan";
-
-  const header = l ? (
-    <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600" }}>
-          Opened {dmy(l.openedDate)} · {l.tenureCount} installments
-        </Txt>
-        <StatusChip label={l.status} />
-      </View>
-      {/* The loan's description lives in a modal; the bond downloads sit behind one button. */}
-      <BtnRow2 style={{ marginBottom: 12 }}>
-        <PrimaryButton label="Loan Details" variant="outline" onPress={() => setInfoOpen(true)} />
-        <PrimaryButton label={bondBusy ? "Downloading…" : "Download Bond"} variant="outline" loading={!!bondBusy} onPress={() => setBondOpen(true)} />
-      </BtnRow2>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PillTabs
-        inSheet
-        tabs={DETAIL_TABS}
-        value={tab}
-        onChange={setTab}
-        labels={{ schedule: "Schedule", payments: "Payment History", history: "Schedule History" }}
-      />
-    </View>
-  ) : null;
-
-  const chainRow = (x: PersonalLoan, label: string, first: boolean) => (
-    <Pressable
-      key={x.id}
-      onPress={() => onOpenLoan(x.id)}
-      style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11, borderTopWidth: first ? 0 : 1, borderTopColor: C.line }}
-    >
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Txt style={{ fontWeight: "700", fontSize: 12.5 }}>{x.loanNumber}</Txt>
-        <Txt style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>
-          {label} · Opened {dmy(x.openedDate)}
-        </Txt>
-      </View>
-      <PIcon name="chevright" color={C.muted} />
-    </Pressable>
-  );
-
-  let body: React.ReactNode;
-  if (!visible) body = null;
-  else if (loan.isLoading) body = <Buffering block />;
-  else if (loan.isError || !l) body = <EmptyText>{loadErrorText(loan.error) ?? "This loan no longer exists."}</EmptyText>;
-  else if (tab === "schedule")
-    body = (
-      <ServerFlatList
-        list={schedule}
-        items={schedule.items}
-        inSheet
-        gutter={16}
-        header={header}
-        emptyText="No installments."
-        keyOf={(s) => String(s.id)}
-        renderItem={(s, i) => {
-          const missed = s.status !== "Paid" && s.dueDate.slice(0, 10) < todayISO();
-          const value = s.status === "Paid" ? `Paid ${inr(s.paidAmount || s.amount)}` : s.status === "PartiallyPaid" ? `Part ${inr(s.paidAmount)} / ${inr(s.amount)}` : missed ? "Missed" : `Due ${inr(s.amount)}`;
-          return (
-            <RepayItem
-              first={i === 0}
-              label={`#${s.sequenceNo} · ${dmy(s.dueDate)}`}
-              value={value}
-              labelColor={missed ? C.red : undefined}
-              valueColor={s.status === "Paid" ? C.green : missed ? C.red : s.status === "PartiallyPaid" ? C.amber : C.ink}
-            />
-          );
-        }}
-      />
-    );
-  else if (tab === "payments")
-    body = (
-      <ServerFlatList
-        list={payments}
-        items={payments.items}
-        inSheet
-        gutter={16}
-        header={header}
-        emptyText="No payments yet."
-        keyOf={(p) => p.key ?? String(p.id)}
-        renderItem={(p) => {
-          // Ledger rows: one per disbursement / charge / payment mode-share. Only the first row of a payment (and the
-          // disbursement) can be corrected; a split payment's amount is the sum of its rows.
-          const kind = p.kind ?? "payment";
-          const isPayment = kind === "payment" && p.id > 0 && (!p.part || p.part.index === 0);
-          const isDisbursement = kind === "disbursement";
-          const showEdit = canEditLedger && (isPayment || isDisbursement);
-          const showDelete = canDeleteLedger && isPayment; // the disbursement is the loan's start and cannot be deleted
-          const sameId = (x: PersonalLoanPayment) => x.kind === p.kind && x.id === p.id;
-          const bankId = p.bankId ?? payments.items.find((x) => sameId(x) && x.bankId)?.bankId ?? null;
-          const entry = isPayment ? { ...p, amount: payments.items.filter((x) => x.kind === "payment" && x.id === p.id).reduce((s, x) => s + x.amount, 0) || p.amount } : p;
-          const isDebit = (p.debit ?? 0) > 0;
-          const shown = isDebit ? (p.debit ?? 0) : p.credit ?? p.amount;
-          return (
-            <AccRow
-              id={dmy(p.date ?? p.paidOn)}
-              name={p.particulars || `Payment${p.reference ? ` · ${p.reference}` : ""}`}
-              sub={[p.mode ?? p.method, p.bankName, p.refNo || p.reference].filter(Boolean).join(" · ") || undefined}
-              amount={`${isDebit ? "−" : "+"}${inr(shown)}`}
-              amountColor={isDebit ? C.red : C.green}
-              details={[
-                { k: "Debit", v: isDebit ? inr(p.debit) : "—", color: isDebit ? C.red : C.muted },
-                { k: "Credit", v: !isDebit ? inr(shown) : "—", color: !isDebit ? C.green : C.muted },
-                { k: "Balance", v: inr(p.balance ?? p.runningBalance), color: C.brandDeep },
-              ]}
-              actions={
-                showEdit || showDelete
-                  ? [
-                      ...(showEdit ? [{ label: "Edit", onPress: () => setEditing({ entry, bankId, mode: "edit" as const }) }] : []),
-                      ...(showDelete ? [{ label: "Delete", danger: true, onPress: () => setEditing({ entry, bankId, mode: "delete" as const }) }] : []),
-                    ]
-                  : undefined
-              }
-            />
-          );
-        }}
-      />
-    );
-  else
-    body = (
-      <SheetScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-        {header}
-        <View style={{ paddingHorizontal: 16 }}>
-          {(olderId && older.isLoading) || (newerId && newer.isLoading) ? (
-            <Buffering block />
-          ) : (
-            <>
-              {older.data && olderId ? chainRow(older.data, "Renewed into this loan", true) : null}
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11, borderTopWidth: older.data && olderId ? 1 : 0, borderTopColor: C.line }}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Txt style={{ fontWeight: "700", fontSize: 12.5 }}>{l.loanNumber} (this loan)</Txt>
-                  <Txt style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>Opened {dmy(l.openedDate)}</Txt>
-                </View>
-                <StatusChip label={l.status} />
-              </View>
-              {newer.data && newerId ? chainRow(newer.data, "Renewed from this loan", false) : null}
-              {!olderId && !newerId ? <Txt style={{ paddingVertical: 12, paddingHorizontal: 2, color: C.muted, fontSize: 12.5 }}>No prior renewals for this loan.</Txt> : null}
-            </>
-          )}
-        </View>
-      </SheetScrollView>
-    );
-
-  const active = l?.status === "Active";
-  // Terms can be corrected only while nothing is built on them (the server enforces the same).
-  const editable = !!l && canUpdate && (l.status === "Active" || l.status === "Pending Approval") && !l.renewedFromLoanId && !l.renewedToLoanId && !l.totalPaid && !l.totalPenalInterestCharged;
-  return (
-    <>
-    <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={90} scroll={false}>
-      <View style={{ flexShrink: 1 }}>{body}</View>
-      {l && editable ? (
-        <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
-          <PrimaryButton label="Edit Loan" variant="outline" onPress={() => onEdit(l)} />
-        </View>
-      ) : null}
-      {l && canUpdate && active ? (
-        <BtnRow2 style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 }}>
-          <PrimaryButton label="Collect Payment" variant="outline" onPress={() => onCollect(l)} />
-          <PrimaryButton label="Renew Loan" onPress={() => onRenew(l)} />
-        </BtnRow2>
-      ) : null}
-    </Sheet>
-    <Sheet visible={infoOpen && !!l} onClose={() => setInfoOpen(false)} title="Loan details" maxHeightPct={85}>
-      {l ? (
-        <View style={{ paddingTop: 12 }}>
-        <FieldGrid
-          style={{ marginBottom: 14 }}
-          items={[
-            { k: "Principal", v: inr(l.principalAmount) },
-            { k: "Interest", v: `${inr(l.interestAmount)} (${l.interestType === "Flat" ? "Flat" : `${l.interestValue}%`})` },
-            { k: "Disbursed", v: inr(l.disbursedAmount) },
-            { k: "Outstanding", v: inr(l.outstandingAmount), color: C.brandDeep },
-            { k: "Frequency", v: `${l.frequency} · ${inr(l.installmentAmount)}/${PER[l.frequency] ?? l.frequency}` },
-            { k: "Total paid", v: inr(l.totalPaid), color: C.green },
-          ]}
-        />
-        {inChain ? (
-          <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
-            <Txt style={{ fontSize: 12, fontWeight: "700", marginBottom: 8 }}>Approval</Txt>
-            <ApprovalChainPanel
-              flow="personal_loan"
-              pending={l.approvalStage}
-              status={l.status === "Pending Approval" ? "Pending" : l.status === "Rejected" ? "Rejected" : "Approved"}
-              rejectionRemarks={(approvals.data ?? []).find((a) => a.action === "Rejected")?.remarks}
-              noun="Personal loan"
-              rejectMessage={`Reject ${l.loanNumber}? Nothing is disbursed.`}
-              canDecide={canUpdate}
-              decide={(input) => approvePersonalLoan(l.id, input)}
-              onSaved={() => {
-                setError(null);
-                qc.invalidateQueries({ queryKey: ["personalLoans"] });
-                qc.invalidateQueries({ queryKey: ["personalLoan", String(l.id)] });
-                qc.invalidateQueries({ queryKey: ["personalLoanApprovals", String(l.id)] });
-                qc.invalidateQueries({ queryKey: ["personalLoanSchedule", l.id] });
-              }}
-              onError={setError}
-            />
-            {(approvals.data ?? []).map((a) => (
-              <Txt key={a.id} style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
-                {dmy(a.createdAt)} · {a.action} at {stageByKey(wf, "personal_loan", a.stage)?.label ?? a.stage}
-                {a.actorRole ? ` by ${a.actorRole}` : ""}
-                {a.remarks ? ` — ${a.remarks}` : ""}
-              </Txt>
-            ))}
-          </Card>
-        ) : null}
-        {l.penalCycleCount > 0 ? (
-          <WarningBanner>
-            Penal interest applied {l.penalCycleCount} time(s) — {inr(l.totalPenalInterestCharged)} added at {l.penalInterestRate}% p.a.
-          </WarningBanner>
-        ) : null}
-        </View>
-      ) : null}
-    </Sheet>
-    <Sheet visible={bondOpen} onClose={() => setBondOpen(false)} title="Download bond" maxHeightPct={50}>
-      <SheetListItem first icon="doc" title="English" sub="Bond in English" onPress={() => { setBondOpen(false); void downloadBond("en"); }} />
-      <SheetListItem icon="doc" title="Malayalam" sub="Bond in Malayalam" onPress={() => { setBondOpen(false); void downloadBond("ml"); }} />
-    </Sheet>
-    <PersonalLedgerEditSheet
-      loanId={id}
-      entry={editing?.entry ?? null}
-      bankId={editing?.bankId}
-      minDate={(l?.disbursedAt || l?.openedDate || "").slice(0, 10) || undefined}
-      mode={editing?.mode ?? "edit"}
-      onClose={() => setEditing(null)}
-    />
-    </>
-  );
-}
-
 type CollectSheetProps = { loan: PersonalLoan | null; onClose: () => void };
 
 // ---------------------------------------------------------------------------
@@ -720,7 +318,7 @@ const roundRupee = (n: number) => {
   return n < 0 ? -r : r;
 };
 
-function CollectSheet({ loan, onClose }: CollectSheetProps) {
+export function CollectSheet({ loan, onClose }: CollectSheetProps) {
   const qc = useQueryClient();
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
@@ -799,7 +397,7 @@ type RenewSheetProps = { loan: PersonalLoan | null; onClose: () => void; onRenew
 // ---------------------------------------------------------------------------
 // Renew Loan (prototype #pl-renew-modal) with the server renewal preview.
 // ---------------------------------------------------------------------------
-function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
+export function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
   const qc = useQueryClient();
   const [principal, setPrincipal] = useState("");
   const [interestType, setInterestType] = useState<InterestType>("Flat");

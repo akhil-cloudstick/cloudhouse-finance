@@ -98,7 +98,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
         // were when this request was raised. Reveal the Record Payment
         // prompt instead of just showing the raw error.
         setNeedsPayment(true);
-        setErr("Outstanding interest/penal interest must be paid before this extension can be approved — record a payment, then try approving again.");
+        setErr("Clear the outstanding interest before approving.");
       } else {
         setErr(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
       }
@@ -217,7 +217,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
           <>
             <button className="btn danger" disabled={saving} onClick={promptReject}>Reject</button>
             <button className="btn" disabled={saving} onClick={() => decide("Approved")}>
-              <Icon name="check" /> {finalStage ? "Extend" : `Approve (${stageView?.label ?? stageKey})`}
+              <Icon name="check" /> {finalStage ? "Extend" : "Approve"}
             </button>
           </>
         )}

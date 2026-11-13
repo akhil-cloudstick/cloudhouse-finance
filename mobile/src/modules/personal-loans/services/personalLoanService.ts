@@ -40,6 +40,11 @@ export function editPersonalLoan(id: number, input: Partial<CreatePersonalLoanIn
   return apiRequest<PersonalLoan>(`/personal-loans/${id}`, { method: "PATCH", body: input });
 }
 
+// Deletes a loan and reverses its disbursement; the backend refuses one with payments or in a renewal.
+export function deletePersonalLoan(id: number) {
+  return apiRequest<unknown>(`/personal-loans/${id}`, { method: "DELETE" });
+}
+
 export function recordPersonalLoanPayment(
   id: number,
   input: {

@@ -104,7 +104,7 @@ export default function GlobalSearch({
         href: routeHref("schemes"),
         ic: "doc",
         t: s.name,
-        s: s.rate + "% p.a. · " + s.ltv + "% LTV · penal " + s.penal + "%/m",
+        s: s.rate + "% p.a. · " + (s.ltvBased ? s.ltv + "% LTV · penal " : "no LTV · penal ") + s.penal + "%/m",
         chip: s.active ? "Active" : "Inactive",
       }));
     if (schs.length) groups.push(["Schemes", schs]);

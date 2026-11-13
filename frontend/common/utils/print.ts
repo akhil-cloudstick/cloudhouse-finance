@@ -221,7 +221,18 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
      * div sizes independently. */
     .lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px;height:auto}
     .muted{color:${C.muted};font-size:12.5px}
-    @media print{.noprint{display:none}}
+    /* Long text (descriptions, remarks, additional info) wraps inside its box and continues on the next line. */
+    body{overflow-wrap:anywhere;word-break:break-word}
+    table{table-layout:auto;max-width:100%}
+    th,td,p,li,div{overflow-wrap:anywhere;word-break:break-word;min-width:0}
+    /* A zero page margin is what makes browsers leave out their own date / title / URL header and footer;
+       the margin the page needs comes from the body padding instead. */
+    @page{size:A4;margin:0}
+    @media print{
+      .noprint{display:none}
+      body{margin:0 auto;padding:12mm 14mm;max-width:none;box-sizing:border-box;width:100%}
+      tr{page-break-inside:avoid}
+    }
   </style></head><body>${body}
   <div class="noprint" style="text-align:center;margin-top:30px">
     <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print</button></div>

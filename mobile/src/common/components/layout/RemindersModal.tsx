@@ -75,7 +75,7 @@ export function RemindersModal({ visible, onClose }: RemindersModalProps) {
                   : e.personalLoanId != null && canViewPersonalLoans
                     ? () => {
                         onClose();
-                        openPage(`/personal-loans?id=${e.personalLoanId}&from=reminders`);
+                        openPage(`/personal-loans/${e.personalLoanId}`);
                       }
                     : undefined
               }

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View } from "react-native";
-import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, SummaryCard, emptyGroupedFilter, gfFirst, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, SummaryCard, emptyGroupedFilter, gfFirst, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
@@ -67,12 +67,13 @@ export default function BankManagementScreen() {
                 <SummaryCard title="Net bank balance" stats={[{ n: fmtBalance(netBalance), l: "Across all banks" }]} />
               </View>
             ) : null}
-            {showBranch ? (
-              <View style={{ paddingHorizontal: 18, paddingTop: 8 }}>
-                <GroupedFilter title="Filter banks" sections={sections} value={fv} onChange={setFv} />
-              </View>
-            ) : null}
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by bank, branch, IFSC or account no." style={{ paddingTop: 8 }} />
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search by bank, branch, IFSC or account no."
+              filter={showBranch ? <GroupedFilter title="Filter banks" sections={sections} value={fv} onChange={setFv} /> : undefined}
+              style={{ paddingTop: 8 }}
+            />
           </View>
         }
         renderItem={(b, i) => (

@@ -96,16 +96,14 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
             <Icon name="shield" />
             <span>
               {preview >= 0
-                ? (preview > 0.01 ? <>Amount payable <b>{fmt(preview)}</b></> : <>Loan will be closed</>)
+                ? <>Loan will be closed</>
                 : <>Balance owing <b>{fmt(Math.abs(preview))}</b></>}
             </span>
           </div>
         )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Sale"}</button>
+      <div className="ft">        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Sale"}</button>
       </div>
     </>
   );

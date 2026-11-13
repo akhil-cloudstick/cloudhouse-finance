@@ -18,7 +18,7 @@ import {
   PillTabs,
   PrimaryButton,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   ServerFlatList,
   Sheet,
   Txt,
@@ -108,12 +108,10 @@ export default function BankPledgeScreen() {
     openPage(`/loans/${id}`);
   };
 
+  const filterBtn = <GroupedFilter title="Filter pledges" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />;
   const header = (
     <>
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={TAB_LABELS} />
-      <View style={{ paddingHorizontal: 18, paddingTop: 10 }}>
-        <GroupedFilter title="Filter pledges" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
-      </View>
     </>
   );
 
@@ -142,7 +140,7 @@ export default function BankPledgeScreen() {
           header={
             <>
               {header}
-              <SearchInput value={active.search} onChangeText={active.setSearch} placeholder="Search by loan ID, bank, or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
+              <SearchFilterRow value={active.search} onChangeText={active.setSearch} placeholder="Search by loan ID, bank, or customer name" filter={filterBtn} style={{ paddingTop: 12, paddingBottom: 8 }} />
             </>
           }
           renderItem={(l, i) => {
@@ -203,7 +201,7 @@ export default function BankPledgeScreen() {
           header={
             <>
               {header}
-              <SearchInput value={history.search} onChangeText={history.setSearch} placeholder="Search by loan ID, bank, or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
+              <SearchFilterRow value={history.search} onChangeText={history.setSearch} placeholder="Search by loan ID, bank, or customer name" filter={filterBtn} style={{ paddingTop: 12, paddingBottom: 8 }} />
             </>
           }
           renderItem={(r) => (

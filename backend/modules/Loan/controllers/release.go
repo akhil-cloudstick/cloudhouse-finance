@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 type ReleaseRequestInput struct {
@@ -125,19 +126,29 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 	if requestedBy == "" {
 		requestedBy = models.RequestedByStaff
 	}
-	pending, _, err := FindLoanRequests(ctx, LoanRequestFilter{LoanID: loanID, Status: models.RequestStatusPending})
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range pending {
-		if r.Type == models.RequestTypeRelease {
-			return nil, common.NewConflict("a release has already been requested for this loan and is waiting for approval")
-		}
-	}
 	active := make([]models.Ornament, 0, len(l.Ornaments))
 	for _, o := range l.Ornaments {
 		if o.ReleasedAt == nil {
 			active = append(active, o)
+		}
+	}
+	// Only ornaments already named by a pending or approved-but-incomplete release block a new request; the
+	// loan's other ornaments can still be requested. An empty selection means every active ornament.
+	blocked, err := ornamentsInOpenRelease(ctx, loanID, active, 0)
+	if err != nil {
+		return nil, err
+	}
+	if len(blocked) > 0 {
+		wanted := in.OrnamentIDs
+		if len(wanted) == 0 {
+			for _, o := range active {
+				wanted = append(wanted, o.ID)
+			}
+		}
+		for _, id := range wanted {
+			if blocked[id] {
+				return nil, common.NewConflict("a release has already been requested for one or more of these ornaments")
+			}
 		}
 	}
 	isPartial := false
@@ -206,6 +217,39 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 		return nil, err
 	}
 	return created, nil
+}
+
+// ornamentsInOpenRelease returns the ids of the given active ornaments already covered by a Pending release request
+// or an Approved one that has not been handed over yet. A request with no selections covers every active ornament.
+// With beforeID > 0 only requests created before that id count (the ones that lock ornaments for request beforeID).
+func ornamentsInOpenRelease(ctx context.Context, loanID uint, active []models.Ornament, beforeID uint) (map[uint]bool, error) {
+	var reqs []models.LoanRequest
+	q := config.DB.WithContext(ctx).Preload("OrnamentSelections").
+		Where("loan_id = ? AND type = ? AND status IN ?", loanID, models.RequestTypeRelease,
+			[]string{models.RequestStatusPending, models.RequestStatusApproved})
+	if beforeID > 0 {
+		q = q.Where("id < ?", beforeID)
+	}
+	if err := q.Find(&reqs).Error; err != nil {
+		return nil, err
+	}
+	out := map[uint]bool{}
+	for i := range reqs {
+		r := &reqs[i]
+		if len(r.OrnamentSelections) == 0 {
+			if r.Status == models.RequestStatusApproved && r.IsPartial {
+				continue
+			}
+			for _, o := range active {
+				out[o.ID] = true
+			}
+			continue
+		}
+		for _, sel := range r.OrnamentSelections {
+			out[sel.OrnamentID] = true
+		}
+	}
+	return out, nil
 }
 
 func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, in ChecklistInput) (*models.LoanRequest, error) {
@@ -582,12 +626,23 @@ func partialReleaseRemainingGoldValue(ctx context.Context, req *models.LoanReque
 	for _, sel := range req.OrnamentSelections {
 		selected[sel.OrnamentID] = true
 	}
+	// Ornaments locked by an earlier open release request are excluded entirely (not kept collateral).
+	var active []models.Ornament
+	for _, o := range all {
+		if o.ReleasedAt == nil {
+			active = append(active, o)
+		}
+	}
+	locked, err := ornamentsInOpenRelease(ctx, req.LoanID, active, req.ID)
+	if err != nil {
+		return 0, err
+	}
 	var remaining float64
 	for _, o := range all {
 		if o.ReleasedAt != nil {
 			continue
 		}
-		if !selected[o.ID] {
+		if !selected[o.ID] && !locked[o.ID] {
 			remaining += o.GoldValue
 		}
 	}
@@ -601,16 +656,6 @@ func completeRelease(ctx context.Context, loanID uint, branchID *uint, employeeI
 	}
 	if isGoldSold(l.Status) {
 		return nil, common.NewBadRequest("this loan's gold has been auctioned — it can no longer be released to the customer")
-	}
-	if l.BankPledgeStatus == models.BankPledgeStatusPledged {
-		return nil, common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
-	}
-	hasActivePledge, err := hasActive(ctx, loanID)
-	if err != nil {
-		return nil, err
-	}
-	if hasActivePledge {
-		return nil, common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
 	}
 	paidInFull := l.TotalOutstandingBalance <= 0.01
 	var approved *models.LoanRequest
@@ -630,6 +675,9 @@ func completeRelease(ctx context.Context, loanID uint, branchID *uint, employeeI
 			return nil, common.NewNotFound("this loan has no approved release request")
 		}
 		approved = nil
+	}
+	if err := ensureReleasingGoldNotPledged(ctx, loanID, approved); err != nil {
+		return nil, err
 	}
 	if approved != nil && approved.IsPartial {
 		return completePartialRelease(ctx, l, approved)
@@ -711,15 +759,55 @@ func pledgeReleaseRemark(treatment string) string {
 }
 
 func findApprovedReleaseByLoanID(ctx context.Context, loanID uint) (*models.LoanRequest, error) {
-	var req models.LoanRequest
+	var reqs []models.LoanRequest
 	err := config.DB.
 		WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").
 		Where("loan_id = ? AND type = ? AND status = ?", loanID, models.RequestTypeRelease, models.RequestStatusApproved).
-		Order("id desc").First(&req).Error
+		Order("id desc").Find(&reqs).Error
 	if err != nil {
 		return nil, err
 	}
-	return &req, nil
+	if len(reqs) == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	// Several partial releases can be approved at once; prefer the newest one that still has ornaments to hand over.
+	for i := range reqs {
+		if !(reqs[i].IsPartial && partialReleaseSpent(ctx, &reqs[i])) {
+			return &reqs[i], nil
+		}
+	}
+	return &reqs[0], nil
+}
+
+// ensureReleasingGoldNotPledged refuses a release while any ornament being handed over is still with a bank. Only
+// the ornaments of this release count; a pledge over other ornaments does not block it. A pledge with no ornament
+// list covers the whole loan.
+func ensureReleasingGoldNotPledged(ctx context.Context, loanID uint, approved *models.LoanRequest) error {
+	pledges, err := findBankPledgeByLoanID(ctx, loanID)
+	if err != nil {
+		return err
+	}
+	var releasing map[uint]bool
+	if approved != nil && approved.IsPartial {
+		releasing = map[uint]bool{}
+		for _, sel := range approved.OrnamentSelections {
+			releasing[sel.OrnamentID] = true
+		}
+	}
+	for _, p := range pledges {
+		if p.Status != models.BankPledgeStatusRecordActive {
+			continue
+		}
+		if releasing == nil || len(p.OrnamentIDs) == 0 {
+			return common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+		}
+		for _, id := range p.OrnamentIDs {
+			if releasing[id] {
+				return common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+			}
+		}
+	}
+	return nil
 }
 
 func findPendingReleaseByLoanID(ctx context.Context, loanID uint) (*models.LoanRequest, error) {

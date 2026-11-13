@@ -44,6 +44,26 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M14 3v4h4M10 12h5M10 16h5" />
     </>
   ),
+  mail: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="m4 7 8 6 8-6" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </>
+  ),
+  headset: (
+    <>
+      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+      <rect x="3" y="14" width="4" height="6" rx="1.5" />
+      <rect x="17" y="14" width="4" height="6" rx="1.5" />
+      <path d="M19 20c0 1.5-2 2-5 2" />
+    </>
+  ),
   chat: <path d="M4 5h16v11H8l-4 4z" />,
   whatsapp: (
     <path

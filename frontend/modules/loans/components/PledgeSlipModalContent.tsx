@@ -66,9 +66,7 @@ export function PledgeSlipModalContent({ loanNumber, customerName, customerPhone
         </p>
         {err && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 12 }}>{err}</p>}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal} disabled={busy}>Cancel</button>
-        <button className="btn" onClick={confirm} disabled={busy}>{busy ? "Preparing…" : "Send for eSign →"}</button>
+      <div className="ft">        <button className="btn" onClick={confirm} disabled={busy}>{busy ? "Preparing…" : "Send for eSign →"}</button>
       </div>
     </>
   );

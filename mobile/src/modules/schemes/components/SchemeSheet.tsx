@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { C, ChipToggle, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropdown, Txt } from "@/common/components/ui";
+import { SwitchToggle } from "@/common/components/ui/SwitchToggle";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { BranchField, useOwnBranch } from "@/modules/cash/components/EntryFormParts";
 import { createScheme, toggleSchemeActive, updateScheme } from "@/modules/schemes/services/schemeService";
@@ -85,6 +86,8 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const [interestRate, setInterestRate] = useState("");
   const [durationMonths, setDurationMonths] = useState("");
   const [ltvPercent, setLtvPercent] = useState("");
+  // Off: loans on this scheme are not limited by the gold's value, so there is no LTV to enter.
+  const [ltvBased, setLtvBased] = useState(true);
   const [method, setMethod] = useState<Method>(METHODS[0]);
   const isMultiple = method === "Multiple interest";
   const [tiers, setTiers] = useState<TierDraft[]>(EMPTY_TIERS);
@@ -104,7 +107,8 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
     setName(sc?.name ?? "");
     setInterestRate(sc ? String(sc.interestRate) : "");
     setDurationMonths(sc ? String(sc.durationMonths) : "");
-    setLtvPercent(sc ? String(sc.ltvPercent) : "");
+    setLtvPercent(sc && sc.ltvBased !== false ? String(sc.ltvPercent) : "");
+    setLtvBased(sc ? sc.ltvBased !== false : true);
     setMethod(sc && (METHODS as readonly string[]).includes(sc.interestMethod ?? "") ? (sc.interestMethod as Method) : METHODS[0]);
     setTiers(sc?.rateTiers?.length ? sc.rateTiers.map((t, i, a) => ({ days: i === a.length - 1 ? "" : String(t.days), rate: String(t.rate) })) : EMPTY_TIERS);
     setMinDays(sc ? String(sc.minimumDays || 0) : "30");
@@ -129,7 +133,8 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         rateTiers: isMultiple ? tiers.map((t, i) => ({ days: i === tiers.length - 1 ? 0 : parseInt(t.days, 10), rate: Number(t.rate) })) : [],
         minimumDays: parseInt(minDays, 10) || 0,
         durationMonths: Number(durationMonths),
-        ltvPercent: Number(ltvPercent),
+        ltvBased,
+        ltvPercent: ltvBased ? Number(ltvPercent) : 0,
         interestMethod: method,
         accrualBasis,
         penalRate: penalRate ? Number(penalRate) : undefined,
@@ -189,10 +194,16 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         <Field label="Duration (months)">
           <Input placeholder="e.g. 6" keyboardType="number-pad" value={durationMonths} onChangeText={(t) => setDurationMonths(t.replace(/\D/g, ""))} />
         </Field>
-        <Field label="LTV (%)">
-          <Input placeholder="e.g. 75" keyboardType="decimal-pad" value={ltvPercent} onChangeText={(t) => setLtvPercent(num(t))} />
-        </Field>
+        {ltvBased ? (
+          <Field label="LTV (%)">
+            <Input placeholder="e.g. 75" keyboardType="decimal-pad" value={ltvPercent} onChangeText={(t) => setLtvPercent(num(t))} />
+          </Field>
+        ) : null}
       </FieldRow>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <Txt style={{ fontSize: 13, color: C.ink, flex: 1, paddingRight: 12 }}>Loan amount is limited by gold LTV</Txt>
+        <SwitchToggle value={ltvBased} onValueChange={setLtvBased} />
+      </View>
       <FieldRow>
         <Field label="Interest calculation">
           <ThemeDropdown<Method> value={method} options={methods} onChange={setMethod} labelOf={(m) => METHOD_LABELS[m]} />
@@ -282,7 +293,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         label="Save Scheme"
         onPress={submit}
         loading={save.isPending}
-        disabled={!name || !(penalRate !== "" && Number(penalRate) >= 0 && Number(penalRate) <= 60) || (!isMultiple && !interestRate) || !durationMonths || !ltvPercent || (chargeSet && !chargeValue)}
+        disabled={!name || !(penalRate !== "" && Number(penalRate) >= 0 && Number(penalRate) <= 60) || (!isMultiple && !interestRate) || !durationMonths || (ltvBased && !ltvPercent) || (chargeSet && !chargeValue)}
       />
     </Sheet>
   );

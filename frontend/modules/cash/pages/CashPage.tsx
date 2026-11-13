@@ -10,7 +10,7 @@ import { Icon } from "@/common/components/Icon";
 import { fmt, localToday } from "@/common/utils/format";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { AddEntryModalContent } from "@/modules/cash/components/AddEntryModalContent";
-import { ReceiptViewModalContent } from "@/modules/cash/components/ReceiptViewModalContent";
+import { ExpenseInfoModalContent } from "@/modules/cash/components/ExpenseInfoModalContent";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
@@ -58,7 +58,7 @@ function withRunningBalance(items: CashMovementView[], topBalance: number): { m:
  * balance, and the Expected Cash in Hand figure all come from the Go API
  * (backend/internal/cash) instead of localStorage. */
 export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
-  const { openModal } = useModal();
+  const { openModal, openChildModal } = useModal();
   const toast = useToast();
   // Recording cash movements and expenses is a create; closing a loan movement is an update.
   // Whatever the role can't do is hidden outright (see Customers.tsx).
@@ -596,32 +596,35 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
                 <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
               </button>
             )}
-            <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 12 }}>Total {fmt(expenseSum)}</span>
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack" data-ledger-scope="cash-expenses" data-ledger-page={expensesPage}>
-              <TableCols widths={[12, 22, 13, 11, ...(showBranch ? [14] : []), 12, 8, 8]} />
-              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th>{showBranch && <th>Branch</th>}<th>Status</th><th style={{ textAlign: "center" }}>Edit</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
+              <TableCols widths={[13, 24, 14, 12, ...(showBranch ? [15] : []), 14, 8]} />
+              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th>{showBranch && <th>Branch</th>}<th>Status</th><th style={{ textAlign: "center" }}>Info</th></tr></thead>
               <tbody>
                 {!idsReady
-                  ? <tr><td colSpan={showBranch ? 8 : 7} className="empty">Loading…</td></tr>
+                  ? <tr><td colSpan={showBranch ? 7 : 6} className="empty">Loading…</td></tr>
                   : expenses.length
                   ? expenses.map((e) => (
                     <ExpenseRow
                       key={e.id}
                       e={e}
                       categoryId={categoryIdByName[e.cat.toLowerCase()]}
-                      onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
                       canApprove={canUpdateCash && (canActAtStage({ role, isSystem }, expenseStage(e)) || (isSystem && !expenseStage(e)))}
                       awaiting={expenseStage(e)?.label}
                       busy={decidingExpenseId === e.id}
                       onApprove={() => onApproveExpense(e)}
                       onReject={() => onRejectExpense(e)}
-                      onEdit={() => openModal(<EditEntryModalContent entryId={e.id} viaExpense onSaved={refresh} />)}
-                      onEditPledge={canEditLedger && e.bankPledgeId && e.bankPledgeLoanId ? () => void pledgeActions.pledge(e.bankPledgeLoanId!, e.bankPledgeId!, "edit") : undefined}
+                      onInfo={() => {
+                        const viaPledge = !e.editable && canEditLedger && e.bankPledgeId && e.bankPledgeLoanId;
+                        const onEdit = e.editable
+                          ? () => openChildModal(<EditEntryModalContent entryId={e.id} viaExpense onSaved={refresh} />)
+                          : viaPledge ? () => void pledgeActions.pledge(e.bankPledgeLoanId!, e.bankPledgeId!, "edit") : undefined;
+                        openModal(<ExpenseInfoModalContent e={e} showBranch={showBranch} onEdit={onEdit} />);
+                      }}
                     />
                   ))
-                  : <tr><td colSpan={showBranch ? 8 : 7} className="empty">No expenses recorded yet.</td></tr>}
+                  : <tr><td colSpan={showBranch ? 7 : 6} className="empty">No expenses recorded yet.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -651,9 +654,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
               }}
               hideChips
             />
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
-              Total profit {fmt(goldSales.reduce((s, g) => s + g.profit, 0))}
-            </span>          </div>
+          </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack ledger-nowrap">
               <TableCols widths={[10, 14, 11, 11, 11, 9, 11, ...(showBranch ? [10] : []), 13]} />

@@ -12,7 +12,7 @@ import {
   PillTabs,
   PktCard,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   ServerFlatList,
   Txt,
   openPage,
@@ -239,16 +239,18 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
         header={
           <>
             {header}
-            <SearchInput
+            <SearchFilterRow
               value={list.search}
               onChangeText={list.setSearch}
               placeholder="Search by loan ID, packet ID, locker ID, or customer name"
-              style={{ paddingTop: 12, paddingBottom: 8 }}
+              style={{ paddingTop: 12, paddingBottom: lockerId ? 8 : 14 }}
+              filter={<GroupedFilter title="Filters" sections={sections} value={fv} onChange={setFv} />}
             />
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingHorizontal: 18, marginBottom: 14 }}>
-              <GroupedFilter title="Filters" sections={sections} value={fv} onChange={setFv} />
-              {lockerId ? <PillButton label={`Locker ${lockerCode(lockerId) ?? `#${lockerId}`} ✕`} onPress={() => setLockerId(undefined)} /> : null}
-            </View>
+            {lockerId ? (
+              <View style={{ flexDirection: "row", paddingHorizontal: 18, marginBottom: 14 }}>
+                <PillButton label={`Locker ${lockerCode(lockerId) ?? `#${lockerId}`} ✕`} onPress={() => setLockerId(undefined)} />
+              </View>
+            ) : null}
           </>
         }
         renderItem={(p) => {
@@ -325,10 +327,13 @@ function LockersTab({ header, onOpen }: LockersTabProps) {
         header={
           <>
             {header}
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search locker, loan, packet or customer" style={{ paddingTop: 12, paddingBottom: 8 }} />
-            <View style={{ paddingHorizontal: 18, marginBottom: 14, alignItems: "flex-start" }}>
-              <GroupedFilter title="Filter lockers" sections={sections} value={fv} onChange={setFv} />
-            </View>
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search locker, loan, packet or customer"
+              style={{ paddingTop: 12, paddingBottom: 14 }}
+              filter={<GroupedFilter title="Filter lockers" sections={sections} value={fv} onChange={setFv} />}
+            />
           </>
         }
         renderItem={(l) => {

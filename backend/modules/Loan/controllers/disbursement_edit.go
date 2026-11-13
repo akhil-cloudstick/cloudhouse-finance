@@ -82,7 +82,7 @@ func checkEligible(l *models.Loan, f disbursementFigures) error {
 	if l.ServiceChargeMode == commonModels.ServiceChargeModeAddedToPrincipal {
 		capped = common.RoundMoney(f.Sanctioned - f.ServiceCharge)
 	}
-	if capped > common.RoundMoney(l.EligibleLoanAmount)+0.01 {
+	if l.SchemeLTVPercent > 0 && capped > common.RoundMoney(l.EligibleLoanAmount)+0.01 {
 		return common.NewBadRequest(fmt.Sprintf("amount ₹%.2f cannot exceed the eligible loan amount ₹%.2f (based on scheme LTV)", capped, l.EligibleLoanAmount))
 	}
 	return nil

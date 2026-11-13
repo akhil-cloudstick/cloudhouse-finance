@@ -181,7 +181,6 @@ export function NewInvestmentModalContent({ onSaved, investment }: NewInvestment
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
       <div className="ft">
-        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
         <button className="btn" disabled={saving} onClick={save}>{editing ? (saving ? "Saving…" : "Save Changes") : saving ? "Creating…" : "Create Investment"}</button>
       </div>
     </>

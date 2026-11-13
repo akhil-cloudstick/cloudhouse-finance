@@ -289,7 +289,11 @@ func GetExpenseCategoryLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listLedgerByCategory(ctx, cat.Name, auth.GetBranchScope(c), fromDate, toDate, limit, offset)
+	list := listLedgerByCategory
+	if cat.IsCommon {
+		list = listLedgerByCommonCategory // shared category: Credit In rows belong here too
+	}
+	rec, total, totals, err := list(ctx, cat.Name, auth.GetBranchScope(c), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

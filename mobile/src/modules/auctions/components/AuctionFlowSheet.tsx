@@ -18,7 +18,6 @@ import {
   SectionTitle,
   Sheet,
   Stepper,
-  ThemeDropdown,
   Txt,
   WarningBanner,
 } from "@/common/components/ui";
@@ -56,7 +55,6 @@ import type { Loan } from "@/modules/loans/types/loan-types";
 
 
 const STEPS = ["Eligible", "Notice", "Schedule", "Conduct", "Settle"];
-const NOTICE_TYPES = ["Registered post", "SMS + Email", "In-person"];
 const DISPOSITIONS = ["RefundedToCustomer", "RecordedAsIncome"] as const;
 const DISPOSITION_LABELS: Record<AuctionSurplusDisposition, string> = {
   RefundedToCustomer: "Refund to customer",
@@ -109,9 +107,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
   useEffect(() => setView(current), [current, visible]);
 
   const [error, setError] = useState<string | null>(null);
-  const [noticeType, setNoticeType] = useState(NOTICE_TYPES[0]);
   const [noticeDate, setNoticeDate] = useState(todayISO());
-  const [deadline, setDeadline] = useState("");
   const [auctionDate, setAuctionDate] = useState("");
   const [reference, setReference] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
@@ -127,9 +123,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
   useEffect(() => {
     if (!visible) return;
     setError(null);
-    setNoticeType(NOTICE_TYPES[0]);
     setNoticeDate(todayISO());
-    setDeadline("");
     setAuctionDate("");
     setReference("");
     setSaleAmount("");
@@ -162,7 +156,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
     mutationFn: () =>
       issueAuctionNotice(
         loanId,
-        [noticeType, noticeDate ? `issued ${dmy(noticeDate)}` : null, deadline ? `respond by ${dmy(deadline)}` : null].filter(Boolean).join(" · ")
+        noticeDate ? `issued ${dmy(noticeDate)}` : undefined
       ),
     onSuccess: (d) => onOk(d),
     onError,
@@ -281,11 +275,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: AuctionFlowSheetPro
           ) : (
             <>
               {noPerm}
-              <Field label="Notice type">
-                <ThemeDropdown<string> value={noticeType} options={NOTICE_TYPES} onChange={setNoticeType} labelOf={(v) => v} />
-              </Field>
               <DateField label="Notice date" value={noticeDate} onChange={setNoticeDate} max={todayISO()} />
-              <DateField label="Response deadline" value={deadline} onChange={setDeadline} min={noticeDate || undefined} clearable />
               {errText(frozen ? null : error)}
               {can_("can_issue_auction_notice") ? <PrimaryButton label="Issue Notice" onPress={() => notice.mutate()} loading={notice.isPending} /> : null}
             </>

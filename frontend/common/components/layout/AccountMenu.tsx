@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
+import { navigate } from "@/common/services/appRoutes";
 import { useBranchSwitch } from "@/common/hooks/use-branch-switch";
 import { SettingsModalContent } from "@/modules/integrations/components/SettingsModalContent";
 import {
@@ -194,6 +195,10 @@ export function AccountMenu() {
           <button type="button" role="menuitem" className="acct-item" onClick={() => openSettings()}>
             <span className="i"><Icon name="gear" /></span>
             <span className="lbl">Settings</span>
+          </button>
+          <button type="button" role="menuitem" className="acct-item" onClick={() => { setOpen(false); navigate("support"); }}>
+            <span className="i"><Icon name="headset" /></span>
+            <span className="lbl">Support</span>
           </button>
           <div className="acct-sep" />
           <button type="button" role="menuitem" className="acct-item danger" onClick={signOut}>

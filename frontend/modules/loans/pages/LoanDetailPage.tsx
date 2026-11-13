@@ -21,6 +21,7 @@ import {
 } from "@/common/services/approvalWorkflowService";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
+import { AdditionalInfoView } from "@/common/components/ui/AdditionalInfoView";
 import { fmt, fmtW, fmtDate, fmtDateTime, fmtToday } from "@/common/utils/format";
 import { rupeesInWords } from "@/common/utils/numberToWords";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
@@ -779,7 +780,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
           <tr><th>Date of Loan</th><td>${fmtDate(l.opened)}</td><th>Date of Maturity</th><td>${fmtDate(l.due)}</td></tr>
           <tr><th>Rate of Interest</th><td>${l.schemeRate}% p.a.</td><th>Status</th><td>${l.status}</td></tr>
           <tr><th>Nature of Security</th><td colspan="3">${esc(security)}</td></tr>
-          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${esc(l.additionalInfo)}</td></tr>` : ""}
+          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3" style="word-break:break-word;overflow-wrap:anywhere;white-space:normal;max-width:0;width:100%">${esc(l.additionalInfo)}</td></tr>` : ""}
         </table>
         <p><b>True account of the transaction with the debtor:</b></p>
         <table>
@@ -1513,8 +1514,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               {l.additionalInfo && (
                 <div className="i" style={{ gridColumn: "1 / -1" }}>
                   <div className="k">Additional Information</div>
-                  {/* about four lines tall, then it scrolls (wheel / touch) with no visible scrollbar */}
-                  <div className="v addl-info" style={{ whiteSpace: "pre-wrap", fontWeight: 400 }}>{l.additionalInfo}</div>
+                  <div className="v"><AdditionalInfoView text={l.additionalInfo} /></div>
                 </div>
               )}
               {l.overallPhotoUrl && (
@@ -1675,7 +1675,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                               {fmt(entry.balance)}
                               {infoIcon({
                                 title: "Loan Top-Up", kind: "Debit · Top-up",
-                                rows: [["Date", fmtDate(entry.date)], ["Reference", t.reference || "—"], ["Amount", fmt(part ? part.amount : t.amount)], ["Eligible at top-up", fmt(t.eligibleAmountAtTopUp)], ["Mode", modeParts.length === 0 ? "—" : modeParts.map(([m, v]) => v > 0 ? `${m} ${fmt(v)}` : m).join(" · ")], ["Balance", fmt(entry.balance)]],
+                                rows: [["Date", fmtDate(entry.date)], ["Reference", t.reference || "—"], ["Amount", fmt(part ? part.amount : t.amount)], ["Eligible at top-up", fmt(t.eligibleAmountAtTopUp)], ["Mode", modeParts.length === 0 ? "—" : modeParts.map(([m]) => m).join(" · ")], ["Balance", fmt(entry.balance)]],
                                 description: <>Loan Top-Up of {fmt(t.amount)}{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(t.amount)}</>}<br />Eligible at top-up {fmt(t.eligibleAmountAtTopUp)}</>,
                                 actions: (!part || part.index === 0) && t.status === "Active" ? [
                                   ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openChildModal(<TopUpEditModalContent loanId={l.numericId} topUp={t} mode="edit" minDate={l.opened?.slice(0, 10) || undefined} onSaved={savedEdit} />, true) }] : []),
@@ -1804,6 +1804,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                        * marks it Auctioned without touching the ornaments — so for those the loan's status is the truth. */
                       : l.status === "Closed" ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title="Gold handed back to the customer when the loan closed">Released</span>
                       : l.status === "Auctioned" || l.status === "Auctioned - Balance Due" ? <span className="chip" style={{ color: "var(--red)" }} title="Sold in the auction">Auctioned</span>
+                      : l.bankPledges.some((p) => p.status === "Active" && (!p.ornamentIds || p.ornamentIds.length === 0 || p.ornamentIds.includes(o.id))) ? <span className="chip" title="Pledged to a bank">Pledged to Bank</span>
                       : <span className="chip">Held</span>}</td>
                   </tr>
                 ))}

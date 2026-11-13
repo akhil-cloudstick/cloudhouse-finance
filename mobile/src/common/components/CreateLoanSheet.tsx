@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AsyncSelect,
@@ -120,6 +120,7 @@ type CreateLoanSheetProps = { visible: boolean; onClose: () => void; /** Start w
 
 export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraft }: CreateLoanSheetProps) {
   const qc = useQueryClient();
+  const lockersAllFull = useRef(false);
   const { employee, can } = useAuth();
   const canCreate = can("Loan_Management", "can_create_loan");
   // Only a cross-branch user picks another branch — everyone else books into
@@ -182,10 +183,13 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
   const totalNet = valid.reduce((sum, r) => sum + netOf(r), 0);
   const goldValue = valid.reduce((sum, r) => sum + valueOf(r), 0);
   // Floored, like web, so the figure shown is never above what the server accepts.
-  const eligible = scheme ? Math.floor((goldValue * scheme.ltvPercent) / 100) : 0;
+  // A scheme not based on gold LTV has no eligible amount and no cap: any amount can be entered, and the gold value
+  // is still stored with the loan for releases.
+  const ltvBased = !scheme || scheme.ltvBased !== false;
+  const eligible = scheme && ltvBased ? Math.floor((goldValue * scheme.ltvPercent) / 100) : 0;
   // The principal field is prefilled with the eligible amount; typing is clamped to it.
   const pActive = pEdit && (pEdit.at === eligible || pEdit.at === null) ? pEdit : null;
-  const principal = pActive ? (pActive.v === "" ? "" : String(Math.min(+pActive.v || 0, eligible))) : eligible > 0 ? String(eligible) : "";
+  const principal = pActive ? (pActive.v === "" ? "" : String(ltvBased ? Math.min(+pActive.v || 0, eligible) : +pActive.v || 0)) : ltvBased && eligible > 0 ? String(eligible) : "";
   const showExceeds = exceeds && pActive?.at === eligible;
   const hasCharge = !!scheme && !!scheme.serviceChargeType && scheme.serviceChargeType !== "None";
   // The first mandatory thing still missing, in form order. Create Loan stays disabled until there is none
@@ -278,7 +282,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not create loan."),
   });
 
-  const schemeLabel = (sc: Scheme) => `${sc.name} — ${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%${sc.interestMethod ? ` · ${sc.interestMethod}` : ""}`;
+  const schemeLabel = (sc: Scheme) => `${sc.name} — ${sc.interestRate}% · ${sc.durationMonths}mo${sc.ltvBased === false ? "" : ` · LTV ${sc.ltvPercent}%`}${sc.interestMethod ? ` · ${sc.interestMethod}` : ""}`;
 
   // ---- Saved drafts — a half-entered loan kept per employee. They are listed from the Loans screen's
   // "Draft loans" button, which hands one back through `initialDraft`. ----
@@ -423,7 +427,13 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         label="Locker (optional)"
         placeholder="Assign later, or search locker code"
         queryKey={["lockers", "loan-picker", branch?.id]}
-        fetcher={async (q) => (await listLockersPage({ branchId: branch?.id, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+        fetcher={async (q) => {
+          const all = (await listLockersPage({ branchId: branch?.id, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? [];
+          const free = all.filter((l) => (l.occupied ?? 0) < l.capacity);
+          lockersAllFull.current = all.length > 0 && free.length === 0;
+          return free;
+        }}
+        emptyText={() => (lockersAllFull.current ? "All lockers full" : undefined)}
         selectedLabel={locker ? `${locker.code} (${locker.occupied}/${locker.capacity} packets)` : undefined}
         onClear={() => setLocker(null)}
         onSelect={setLocker}
@@ -511,9 +521,9 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
           items={[
             { k: "Total Net Wt", v: `${+totalNet.toFixed(2)} g` },
             { k: "Gold Value", v: inr(Math.round(goldValue)) },
-            { k: "LTV", v: scheme ? `${scheme.ltvPercent}%` : "—" },
+            ...(ltvBased ? [{ k: "LTV", v: scheme ? `${scheme.ltvPercent}%` : "—" }] : []),
             { k: "Interest method", v: scheme?.interestMethod || "—" },
-            { k: "Eligible Amount", v: inr(eligible), color: C.brandDeep },
+            ...(ltvBased ? [{ k: "Eligible Amount", v: inr(eligible), color: C.brandDeep }] : []),
           ]}
         />
       </Card>
@@ -531,13 +541,13 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
       <Field label="Amount (₹)">
         <Input
           keyboardType="number-pad"
-          placeholder={eligible ? inr(eligible) : "₹"}
+          placeholder={ltvBased && eligible ? inr(eligible) : "₹"}
           value={principal}
           onChangeText={(v) => {
             // Digits only; the field is clamped to the eligible amount (a figure the server would refuse is never kept).
             const clean = v.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
             const num = clean === "" ? 0 : +clean;
-            if (num > eligible) {
+            if (ltvBased && num > eligible) {
               setPEdit({ v: String(eligible), at: eligible });
               setExceeds(true);
             } else {
@@ -578,7 +588,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         );
       })()}
       <Field label="Additional information">
-        <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline />
+        <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline maxLength={150} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       {canCreate && !error && tried && missingReason ? <ErrorText>{missingReason}</ErrorText> : null}

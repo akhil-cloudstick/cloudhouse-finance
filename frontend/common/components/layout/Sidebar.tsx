@@ -32,7 +32,7 @@ const NAV: [string, NavItem[]][] = [
     { route: "newloan", title: "New Gold Loan", icon: "plus" },
     { route: "schemes", title: "Loan Schemes", icon: "doc" },
     { route: "goldrates", title: "Gold Rates", icon: "coin" },
-    { route: "requests", title: "Extensions & Release", icon: "unlock" },
+    { route: "requests", title: "Extension & Release", icon: "unlock" },
     { route: "loanrisk", title: "Loan Risk", icon: "warning" },
     { route: "personalloans", title: "Personal Loans", icon: "note" },
     { route: "investments", title: "Investments", icon: "coin" },

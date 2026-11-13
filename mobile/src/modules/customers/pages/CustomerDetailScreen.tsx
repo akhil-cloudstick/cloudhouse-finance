@@ -35,6 +35,9 @@ import {
   useShell,
   toast,
 } from "@/common/components/ui";
+import { fromCamera, fromFiles, fromLibrary, PermissionError } from "@/common/components/ui/DocumentField";
+import { uploadFile } from "@/common/services/uploadService";
+import { updateCustomer } from "@/modules/customers/services/customerService";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
 import { useServerList, type ServerList, type ServerPage } from "@/common/hooks/use-server-list";
 import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
@@ -73,6 +76,66 @@ const TABS = ["Loans", "Ornaments", "Payments", "Bank Pledges", "Auctions", "Led
 type Tab = (typeof TABS)[number];
 
 const hasDate = (v?: string | null) => !!v && !v.startsWith("0001");
+
+const KYC_FIELDS: Record<string, "photoUrl" | "identityProofUrl" | "addressProofUrl" | "kycDocumentUrl"> = {
+  Photograph: "photoUrl",
+  "Identity proof": "identityProofUrl",
+  "Address proof": "addressProofUrl",
+  "Additional document": "kycDocumentUrl",
+};
+
+/** One KYC document row: eye icon to view (Replace lives in the viewer); "Add" picks a file inline when empty. */
+function KycDoc({ customer, label, url, canUpdate }: { customer: Customer; label: string; url?: string | null; canUpdate: boolean }) {
+  const qc = useQueryClient();
+  const [choosing, setChoosing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const field = KYC_FIELDS[label];
+  const allowPdf = label !== "Photograph";
+  async function pick(run: () => Promise<import("@/common/types/upload-types").PickedFile | null>) {
+    setChoosing(false);
+    try {
+      const file = await run();
+      if (!file) return;
+      setBusy(true);
+      const newUrl = await uploadFile(file);
+      const x = customer as Customer & Record<string, any>;
+      await updateCustomer(customer.id, {
+        name: customer.name, phone: customer.phone, dob: customer.dob ? String(customer.dob).slice(0, 10) : undefined, address: customer.address || undefined,
+        branchId: customer.branchId, pan: customer.pan || undefined, nomineeName: customer.nomineeName || undefined,
+        nomineeRelation: customer.nomineeRelation || undefined, nomineePhone: customer.nomineePhone || undefined,
+        photoUrl: customer.photoUrl || undefined, identityProofUrl: customer.identityProofUrl || undefined,
+        addressProofUrl: customer.addressProofUrl || undefined, kycDocumentUrl: customer.kycDocumentUrl || undefined,
+        [field]: newUrl,
+        customerType: x.customerType || undefined, fatherName: x.fatherName || undefined, age: x.age || undefined, district: x.district || undefined,
+        taluk: x.taluk || undefined, village: x.village || undefined, place: x.place || undefined, pinCode: x.pinCode || undefined,
+        bankAccountName: x.bankAccountName || undefined, bankAccountNumber: x.bankAccountNumber || undefined, bankIfsc: x.bankIfsc || undefined,
+      });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["customer", String(customer.id)] });
+      toast.success("Saved", `${label} updated`);
+    } catch (e) {
+      toast.error("Upload failed", e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const replace = canUpdate ? () => setChoosing(true) : undefined;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+      {busy ? <Txt style={{ color: C.muted }}>Uploading…</Txt> : url ? <BillLink path={url} title={label} icon onReplace={replace} /> : <Txt style={{ color: C.muted }}>—</Txt>}
+      {!url && !busy && canUpdate ? (
+        <Pressable onPress={() => setChoosing(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Add ${label}`}>
+          <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep }}>Add</Txt>
+        </Pressable>
+      ) : null}
+      <Sheet visible={choosing} onClose={() => setChoosing(false)} title={label} maxHeightPct={50}>
+        <SheetListItem first icon="scan" title="Take a photo" onPress={() => pick(fromCamera)} />
+        <SheetListItem icon="doc" title="Choose from gallery" onPress={() => pick(fromLibrary)} />
+        {allowPdf ? <SheetListItem icon="note" title="Choose a file" sub="PDF or image" onPress={() => pick(fromFiles)} /> : null}
+      </Sheet>
+    </View>
+  );
+}
 
 function ageFromDob(dob: string): number {
   const birth = new Date(+dob.slice(0, 4), +dob.slice(5, 7) - 1, +dob.slice(8, 10));
@@ -558,12 +621,7 @@ export default function CustomerDetailScreen() {
             k={label}
             v={
               <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
-                {url ? <BillLink path={url} title={label} icon /> : <Txt style={{ color: C.muted }}>—</Txt>}
-                {canUpdate ? (
-                  <Pressable onPress={() => setEditOpen(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`${url ? "Replace" : "Add"} ${label}`}>
-                    <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep }}>{url ? "Replace" : "Add"}</Txt>
-                  </Pressable>
-                ) : null}
+                <KycDoc customer={data} label={label} url={url} canUpdate={canUpdate} />
               </View>
             }
           />

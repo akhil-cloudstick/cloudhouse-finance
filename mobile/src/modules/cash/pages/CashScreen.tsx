@@ -15,6 +15,7 @@ import {
   PillTabs,
   Screen,
   SearchInput,
+  SearchFilterRow,
   ServerFlatList,
   Txt,
   toast,
@@ -160,19 +161,22 @@ export default function CashScreen() {
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />
       <View style={{ paddingTop: 12 }}>
         {tab === "movements" ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 18, paddingBottom: 8 }}>
-            <View style={{ flex: 1 }}>
-              <SearchInput value={movements.search} onChangeText={movements.setSearch} placeholder="Search by purpose or source" style={{ paddingHorizontal: 0, paddingBottom: 0 }} />
-            </View>
-            <Pressable onPress={() => setMovementFilterSheetOpen(true)} style={fs.filterBtn}>
-              <Txt style={fs.filterBtnTxt}>Filters</Txt>
-              {filterCount > 0 ? (
-                <View style={fs.filterBadge}>
-                  <Txt style={fs.filterBadgeTxt}>{filterCount}</Txt>
-                </View>
-              ) : null}
-            </Pressable>
-          </View>
+          <SearchFilterRow
+            value={movements.search}
+            onChangeText={movements.setSearch}
+            placeholder="Search by purpose or source"
+            style={{ paddingBottom: 8 }}
+            filter={
+              <Pressable onPress={() => setMovementFilterSheetOpen(true)} style={fs.filterBtn}>
+                <Txt style={fs.filterBtnTxt}>Filters</Txt>
+                {filterCount > 0 ? (
+                  <View style={fs.filterBadge}>
+                    <Txt style={fs.filterBadgeTxt}>{filterCount}</Txt>
+                  </View>
+                ) : null}
+              </Pressable>
+            }
+          />
         ) : tab === "expenses" ? (
           <SearchInput value={expenses.search} onChangeText={expenses.setSearch} placeholder="Search by category" style={{ paddingBottom: 8 }} />
         ) : (

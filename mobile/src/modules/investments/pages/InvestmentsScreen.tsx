@@ -1,52 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
+import { useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PICKER_MAX_PCT } from "@/common/components/ui/Sheet";
-import {
-  AccRow,
-  AsyncSelect,
-  Buffering,
-  BtnRow2,
-  C,
-  Card,
-  DateField,
-  ChipMultiSelect,
-  ChipToggle,
-  EmptyText,
-  FabMenu,
-  Field,
-  FieldGrid,
-  FieldRow,
-  FiltersBar,
-  FlatHeader,
-  Input,
-  NoticeBanner,
-  PillTabs,
-  PrimaryButton,
-  Screen,
-  SearchInput,
-  SectionTitle,
-  ServerFlatList,
-  Sheet,
-  SheetListItem,
-  StatusChip,
-  ThemeDropdown,
-  Txt,
-  toast,
-} from "@/common/components/ui";
+import { AccRow, AsyncSelect, Buffering, C, Card, DateField, ChipMultiSelect, ChipToggle, FabMenu, Field, FieldGrid, FieldRow, FilterButton, FlatHeader, Input, PrimaryButton, Screen, SearchFilterRow, SearchInput,ServerFlatList, Sheet, SheetListItem, StatusChip, ThemeDropdown, Txt, toast } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { listCustomers } from "@/modules/customers/services/customerService";
-import { ApiError } from "@/common/services/httpClient";
-import { addCashToInvestment, createInvestment, editInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
-import { InvestmentLedgerEditSheet } from "@/modules/investments/components/InvestmentLedgerEditSheet";
-import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InvestmentLedgerRow, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
+import { listInvestorsPage } from "@/modules/investments/services/investorService";
+import { ActionGroup } from "@/common/components/ActionGroup";
+import { addCashToInvestment, createInvestment, editInvestment, createInvestmentPlan, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
+import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
-import { previewInvestmentBondPdf, previewInvestmentStatementPdf } from "@/modules/investments/utils/investmentBond";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
-import { isUserCancel, loadErrorText, userMessage } from "@/common/services/apiErrors";
+import { userMessage } from "@/common/services/apiErrors";
 
 // Investments — prototype #header-investments + #page-investments and the
 // inv-filter / inv-create / investment-plans / inv-plan-create / inv-detail /
@@ -65,6 +33,7 @@ const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 const planLabel = (p: InvestmentPlan) => `${p.name} — ${p.interestRatePercent}% · ${p.engine === "Live" ? "Single payout" : p.payoutFrequency} · ${p.tenureMonths}mo`;
 
 export default function InvestmentsScreen() {
+  const router = useRouter();
   const { can } = useAuth();
   const canCreate = can("Investment_Management", "can_create_investment");
   const canUpdate = can("Investment_Management", "can_update_investment");
@@ -75,7 +44,6 @@ export default function InvestmentsScreen() {
 
   const [plansOpen, setPlansOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [detailId, setDetailId] = useState<number | null>(null);
 
   const filters: Filters = { status: statuses.length ? statuses.join(",") : undefined };
   const list = useServerList<Investment, Filters>({ key: ["investments", "list"], persistKey: "investments", filters, fetchPage: (p) => listInvestmentsPage(p) });
@@ -108,15 +76,20 @@ export default function InvestmentsScreen() {
         emptyText={list.search || statuses.length > 0 ? "No investments match your search." : "No investments yet."}
         header={
           <View style={{ paddingTop: 12 }}>
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by investment ID or investor name" style={{ paddingBottom: 8 }} />
-            <FiltersBar
-              count={statuses.length}
-              summary={`${statuses.length ? statuses.join(", ") : "All investments"}${list.total != null ? ` · ${list.total}` : ""}`}
-              onPress={() => {
-                setDraft(statuses);
-                setFilterOpen(true);
-              }}
-              style={{ marginTop: 0, marginBottom: 10 }}
+            <ActionGroup actions={[{ key: "investors", label: "Investors", icon: "user", onPress: () => router.push("/investments/investors" as never) }]} style={{ marginHorizontal: 16, marginBottom: 10 }} />
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search by investment ID or investor name"
+              filter={
+                <FilterButton
+                  count={statuses.length}
+                  onPress={() => {
+                    setDraft(statuses);
+                    setFilterOpen(true);
+                  }}
+                />
+              }
             />
           </View>
         }
@@ -132,7 +105,7 @@ export default function InvestmentsScreen() {
               { k: "Rate", v: `${inv.interestRatePercent}% p.a. · ${inv.interestRateType}` },
               { k: "Maturity date", v: dmy(inv.maturityDate) },
             ]}
-            actions={[{ label: "View", primary: true, onPress: () => setDetailId(inv.id) }]}
+            actions={[{ label: "View", primary: true, onPress: () => router.push(`/investments/${inv.id}` as never) }]}
           />
         )}
       />
@@ -156,10 +129,9 @@ export default function InvestmentsScreen() {
         onClose={() => setCreateOpen(false)}
         onCreated={(inv) => {
           setCreateOpen(false);
-          setDetailId(inv.id);
+          router.push(`/investments/${inv.id}` as never);
         }}
       />
-      <InvestmentDetailSheet investmentId={detailId} onClose={() => setDetailId(null)} canUpdate={canUpdate} />
     </Screen>
   );
 }
@@ -366,12 +338,12 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
 }
 
 // `investment` set: corrects that investment (only before any interest or payout) instead of opening a new one.
-type CreateInvestmentSheetProps = { visible: boolean; onClose: () => void; onCreated: (inv: Investment) => void; investment?: Investment | null };
+type CreateInvestmentSheetProps = { presetCustomer?: Customer | null; visible: boolean; onClose: () => void; onCreated: (inv: Investment) => void; investment?: Investment | null };
 
 // ---------------------------------------------------------------------------
 // Create Investment (prototype #inv-create-modal)
 // ---------------------------------------------------------------------------
-function CreateInvestmentSheet({ visible, onClose, onCreated, investment }: CreateInvestmentSheetProps) {
+export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCreated, investment }: CreateInvestmentSheetProps) {
   const qc = useQueryClient();
   const editing = !!investment;
   const [startDate, setStartDate] = useState("");
@@ -383,13 +355,13 @@ function CreateInvestmentSheet({ visible, onClose, onCreated, investment }: Crea
 
   useEffect(() => {
     if (visible) {
-      setCustomer(null);
+      setCustomer(presetCustomer ?? null);
       setPlan(investment?.plan ?? null);
       setPrincipal(investment ? String(investment.principalAmount) : "");
       setStartDate(investment ? investment.startDate.slice(0, 10) : "");
       setError(null);
     }
-  }, [visible, investment]);
+  }, [visible, investment, presetCustomer]);
 
   const plans = useQuery({ queryKey: ["investmentPlans", "active"], queryFn: () => listInvestmentPlans(true), enabled: visible });
   const principalNum = +principal || 0;
@@ -433,9 +405,9 @@ function CreateInvestmentSheet({ visible, onClose, onCreated, investment }: Crea
       ) : (
       <AsyncSelect<Customer>
         label="Investor"
-        placeholder="Search existing customer by name, ID or phone"
-        queryKey={["customers", "picker"]}
-        fetcher={(q) => listCustomers(q || undefined)}
+        placeholder="Search investor by name, ID or phone"
+        queryKey={["investors", "picker"]}
+        fetcher={async (q) => (await listInvestorsPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
         selectedLabel={customer ? `${customer.name} · ${customer.code ?? ""}` : undefined}
         onClear={() => setCustomer(null)}
         onSelect={setCustomer}
@@ -486,246 +458,6 @@ function CreateInvestmentSheet({ visible, onClose, onCreated, investment }: Crea
   );
 }
 
-type InvestmentDetailSheetProps = { investmentId: number | null; onClose: () => void; canUpdate: boolean };
-
-// ---------------------------------------------------------------------------
-// Detail (prototype #inv-detail-modal) + schedule / transactions (paged)
-// ---------------------------------------------------------------------------
-function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentDetailSheetProps) {
-  const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
-  const qc = useQueryClient();
-  const visible = investmentId != null;
-  const id = investmentId ?? 0;
-  const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | "payInterest" | "edit" | null>(null);
-  const [payout, setPayout] = useState<InvestmentPayout | null>(null);
-  const [printing, setPrinting] = useState(false);
-
-  const investment = useQuery({ queryKey: ["investment", String(id)], queryFn: () => getInvestment(id), enabled: visible });
-  const inv = investment.data;
-  const isLive = inv?.engine === "Live";
-
-  const schedule = useServerList<InvestmentPayout>({
-    key: ["investmentSchedule", id],
-    fetchPage: (p) => getInvestmentSchedulePage(id, p.limit, p.offset),
-    enabled: visible && !!inv && !isLive,
-  });
-  // The ledger (every deposit, withdrawal and payout with its running balance) — the Live engine's only list, and a
-  // second tab on a scheduled investment. Rows carry what Edit / Delete need.
-  const [view, setView] = useState<"schedule" | "ledger">("schedule");
-  const showLedger = isLive || view === "ledger";
-  const ledger = useServerList<InvestmentLedgerRow>({
-    key: ["investmentLedger", id],
-    fetchPage: (p) => getInvestmentLedgerPage(id, p.limit, p.offset).then((r) => ({ ...r, items: r.items ?? [] })),
-    enabled: visible && !!inv && showLedger,
-  });
-  const auth = useAuth();
-  // Editing / deleting a ledger entry recalculates the investment, so each has its own grant (shared with the gold-loan ledger).
-  const canEditLedger = auth.can("Loan_Management", "can_edit_ledger_entry");
-  const canDeleteLedger = auth.can("Loan_Management", "can_delete_ledger_entry");
-  const [editing, setEditing] = useState<{ row: InvestmentLedgerRow; mode: "edit" | "delete" } | null>(null);
-
-  useEffect(() => {
-    setAction(null);
-    setPayout(null);
-  }, [investmentId]);
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["investment", String(id)] });
-    qc.invalidateQueries({ queryKey: ["investmentLedger", id] });
-    qc.invalidateQueries({ queryKey: ["investmentSchedule", id] });
-    qc.invalidateQueries({ queryKey: ["investments"] });
-    for (const key of ["investmentTransactions", "ledger", "cash-summary", "cash-movements"]) qc.invalidateQueries({ queryKey: [key] });
-  };
-
-  async function printStatement() {
-    if (!inv) return;
-    setPrinting(true);
-    try {
-      await previewInvestmentStatementPdf(inv.id, inv.investmentNumber);
-    } catch (e) {
-      if (isUserCancel(e)) return;
-      toast.error("Preview failed", errMsg(e, "Could not open the statement."));
-    } finally {
-      setPrinting(false);
-    }
-  }
-
-  async function printBond() {
-    if (!inv) return;
-    setPrinting(true);
-    try {
-      await previewInvestmentBondPdf(inv.id, inv.investmentNumber);
-    } catch (e) {
-      if (isUserCancel(e)) return;
-      toast.error("Preview failed", errMsg(e, "Could not open the agreement."));
-    } finally {
-      setPrinting(false);
-    }
-  }
-
-  const title = inv ? `${inv.investmentNumber} — ${inv.customer?.name ?? `Customer #${inv.customerId}`}` : "Investment";
-
-  const header = inv ? (
-    <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600" }}>Started {dmy(inv.startDate)}</Txt>
-        <StatusChip label={inv.status} />
-      </View>
-      <FieldGrid
-        style={{ marginBottom: 16 }}
-        items={[
-          { k: "Plan", v: inv.plan?.name ?? "—" },
-          { k: "Principal", v: inr(inv.principalAmount) },
-          { k: "Rate", v: `${inv.interestRatePercent}% p.a. ${inv.interestRateType}` },
-          { k: "Maturity", v: dmy(inv.maturityDate) },
-          { k: "Tenure", v: `${inv.tenureMonths} months` },
-          { k: "Payout", v: isLive ? "Single payout" : inv.payoutFrequency },
-          ...(isLive
-            ? [
-                { k: "Outstanding principal", v: inr(inv.outstandingPrincipal) },
-                { k: "Outstanding interest", v: inr(inv.outstandingInterest), color: C.brandDeep },
-              ]
-            : [{ k: "Interest paid", v: inr(inv.totalInterestPaid), color: C.green }]),
-        ]}
-      />
-      {inv.renewedFromInvestmentId || inv.renewedToInvestmentId ? (
-        <NoticeBanner>
-          {[
-            inv.renewedFromInvestmentId ? `Renewed from Investment #${inv.renewedFromInvestmentId}` : null,
-            inv.renewedToInvestmentId ? `Renewed to Investment #${inv.renewedToInvestmentId}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </NoticeBanner>
-      ) : null}
-      {canExport ? (
-        <PrimaryButton label="Print Statement" variant="outline" loading={printing} onPress={printStatement} style={{ marginBottom: 10 }} />
-      ) : null}
-      {inv.plan?.productType === "Bond" ? (
-        <PrimaryButton label="Print Agreement" variant="outline" loading={printing} onPress={printBond} style={{ marginBottom: 10 }} />
-      ) : null}
-      {canUpdate && inv.status === "Active" && !inv.renewedFromInvestmentId && !inv.renewedToInvestmentId && !inv.totalInterestPaid && !inv.interestWithdrawn ? (
-        <PrimaryButton label="Edit Investment" variant="outline" onPress={() => setAction("edit")} style={{ marginBottom: 10 }} />
-      ) : null}
-      {canUpdate && isLive && (inv.status === "Active" || inv.status === "Matured") ? (
-        <BtnRow2 style={{ marginBottom: 10 }}>
-          {inv.status === "Active" ? <PrimaryButton label="Add Cash" variant="outline" onPress={() => setAction("addCash")} /> : null}
-          <PrimaryButton label="Withdraw" variant="outline" onPress={() => setAction("withdraw")} />
-        </BtnRow2>
-      ) : null}
-      {canUpdate && !isLive && (inv.status === "Active" || inv.status === "Matured") ? (
-        <PrimaryButton label="Pay Interest" variant="outline" onPress={() => setAction("payInterest")} style={{ marginBottom: 10 }} />
-      ) : null}
-      {canUpdate && inv.status === "Matured" ? <PrimaryButton label="Close / Renew" onPress={() => setAction("mature")} style={{ marginBottom: 10 }} /> : null}
-      {isLive ? (
-        <SectionTitle flush style={{ marginTop: 8 }}>
-          Ledger
-        </SectionTitle>
-      ) : (
-        <PillTabs inSheet tabs={["schedule", "ledger"] as const} value={view} onChange={setView} labels={{ schedule: "Payout schedule", ledger: "Ledger" }} />
-      )}
-    </View>
-  ) : null;
-
-  let body: React.ReactNode = null;
-  if (!visible) body = null;
-  else if (investment.isLoading) body = <Buffering block />;
-  else if (investment.isError || !inv) body = <EmptyText>{loadErrorText(investment.error) ?? "This investment no longer exists."}</EmptyText>;
-  else if (showLedger)
-    body = (
-      <ServerFlatList
-        list={ledger}
-        items={ledger.items}
-        inSheet
-        gutter={16}
-        header={header}
-        emptyText="No ledger entries yet."
-        keyOf={(r) => r.id}
-        renderItem={(r) => {
-          const isDebit = r.debitOrCredit === "debit";
-          const canE = !!r.editable && canEditLedger;
-          const canD = !!r.deletable && canDeleteLedger;
-          return (
-            <AccRow
-              id={r.type}
-              idColor={isDebit ? C.red : C.green}
-              name={dmy(r.date)}
-              sub={[r.method, r.reference].filter(Boolean).join(" · ") || r.description || undefined}
-              amount={`${isDebit ? "−" : "+"}${inr(r.amount)}`}
-              amountColor={isDebit ? C.red : C.green}
-              details={[
-                { k: "Description", v: r.description || "—" },
-                { k: "Principal", v: inr(r.principalAmount) },
-                { k: "Interest", v: inr(r.interestAmount) },
-                { k: "Balance", v: inr(r.runningBalance), color: C.brandDeep },
-              ]}
-              actions={
-                canE || canD
-                  ? [
-                      ...(canE ? [{ label: "Edit", onPress: () => setEditing({ row: r, mode: "edit" as const }) }] : []),
-                      ...(canD ? [{ label: "Delete", danger: true, onPress: () => setEditing({ row: r, mode: "delete" as const }) }] : []),
-                    ]
-                  : undefined
-              }
-            />
-          );
-        }}
-      />
-    );
-  else
-    body = (
-      <ServerFlatList
-        list={schedule}
-        items={schedule.items}
-        inSheet
-        gutter={16}
-        header={header}
-        emptyText="No payouts scheduled."
-        keyOf={(p) => String(p.id)}
-        renderItem={(p) => (
-          <AccRow
-            id={`#${p.sequenceNo}`}
-            name={dmy(p.dueDate)}
-            sub={p.isPrincipalReturn ? "Principal return" : "Interest payout"}
-            amount={inr(p.amount)}
-            status={p.status}
-            details={[
-              { k: "Due date", v: dmy(p.dueDate) },
-              { k: "Paid on", v: p.paidAt ? dmy(p.paidAt) : "—" },
-            ]}
-            actions={canUpdate && p.status === "Pending" ? [{ label: "Mark Paid", primary: true, onPress: () => setPayout(p) }] : undefined}
-          />
-        )}
-      />
-    );
-
-  return (
-    <>
-      <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={85} scroll={false}>
-        <View style={{ flexShrink: 1 }}>{body}</View>
-      </Sheet>
-      {inv ? (
-        <>
-          <CreateInvestmentSheet visible={action === "edit"} investment={inv} onClose={() => setAction(null)} onCreated={() => setAction(null)} />
-          <AddCashSheet inv={inv} visible={action === "addCash"} onClose={() => setAction(null)} onDone={invalidate} />
-          <WithdrawSheet inv={inv} visible={action === "withdraw"} onClose={() => setAction(null)} onDone={invalidate} />
-          <CloseRenewSheet inv={inv} visible={action === "mature"} onClose={() => setAction(null)} onDone={invalidate} />
-          <PayInterestSheet inv={inv} visible={action === "payInterest"} onClose={() => setAction(null)} onDone={invalidate} />
-          <MarkPaidSheet inv={inv} payout={payout} onClose={() => setPayout(null)} onDone={invalidate} />
-          <InvestmentLedgerEditSheet
-            investmentId={inv.id}
-            row={editing?.row ?? null}
-            mode={editing?.mode ?? "edit"}
-            live={isLive}
-            minDate={inv.startDate?.slice(0, 10) || undefined}
-            onClose={() => setEditing(null)}
-          />
-        </>
-      ) : null}
-    </>
-  );
-}
-
 type ActionProps = { inv: Investment; visible: boolean; onClose: () => void; onDone: () => void };
 
 type ModeFieldProps = { value: PaymentMode; onChange: (m: PaymentMode) => void };
@@ -739,7 +471,7 @@ function ModeField({ value, onChange }: ModeFieldProps) {
 }
 
 // prototype #inv-addcash-modal
-function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
+export function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
@@ -776,7 +508,7 @@ function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
 }
 
 // prototype #inv-withdraw-modal
-function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
+export function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [from, setFrom] = useState<(typeof WITHDRAW_FROM)[number]>("Interest");
   const [interest, setInterest] = useState("");
   const [principal, setPrincipal] = useState("");
@@ -832,7 +564,7 @@ function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
 }
 
 // prototype #inv-closerenew-modal
-function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
+export function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [act, setAct] = useState<"Close" | "Renew">("Close");
   const [plan, setPlan] = useState<InvestmentPlan | null>(null);
   const [principal, setPrincipal] = useState("");
@@ -892,7 +624,7 @@ type PayInterestSheetProps = { inv: Investment; visible: boolean; onClose: () =>
 
 // Pay several months of a scheduled investment's interest in one go — the amount is applied to the oldest
 // unpaid months in order, each in full, so it has to be a whole number of months (same as web).
-function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetProps) {
+export function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetProps) {
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -964,7 +696,7 @@ function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetPro
 type MarkPaidSheetProps = { inv: Investment; payout: InvestmentPayout | null; onClose: () => void; onDone: () => void };
 
 // Mark a scheduled payout paid — picks the payment mode for the full amount.
-function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
+export function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {

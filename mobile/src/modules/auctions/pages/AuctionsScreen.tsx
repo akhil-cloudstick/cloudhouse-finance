@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import {
   AccRow,
   C,
+  DetailRow,
   FlatHeader,
   GroupedFilter,
   emptyGroupedFilter,
@@ -12,16 +13,19 @@ import {
   type GroupedFilterValue,
   PillTabs,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   ServerFlatList,
+  Sheet,
   SubTabs,
   openPage,
 } from "@/common/components/ui";
+import { useAuth } from "@/common/providers/AuthProvider";
+import { AuctionSaleEditSheet } from "@/modules/auctions/components/AuctionSaleEditSheet";
 import { AuctionFlowSheet } from "@/modules/auctions/components/AuctionFlowSheet";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { getAuction, listConcludedAuctions } from "@/modules/auctions/services/auctionService";
-import { inr } from "@/common/utils/format";
+import { dmy, inr } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { AUCTION_OUTCOME_LABELS, pendingDecision, type AuctionRecord, type AuctionStage, type ConcludedAuctionRow } from "@/modules/auctions/types/auction-types";
 
@@ -81,11 +85,13 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
 
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const stageCsv = gfValues(fv, "stage").join(",");
-  const list = useServerList<Loan, { auctionCase?: string; auction_stage?: string }>({
+  const list = useServerList<Loan, { auction_stage?: string; auction_case?: string }>({
     key: ["loans", "auctions"],
-    filters: stageCsv ? { auction_stage: stageCsv } : { auctionCase: "all" },
+    // With no status chosen: the whole pipeline plus defaulted loans that can still be marked Auction Eligible.
+    filters: stageCsv ? { auction_stage: stageCsv } : { auction_case: "all" },
     fetchPage: (p) => listLoansPage(p),
   });
+  useEffect(() => { void list.refetch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Always hand the sheet the live row from the list (a snapshot would keep the pre-change status after a mutation).
   const liveFlowLoan = flowLoan ? list.items.find((x) => x.id === flowLoan.id) ?? flowLoan : null;
@@ -102,10 +108,13 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
         header={
           <>
             {tabs}
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
-            <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
-              <GroupedFilter title="Filter cases" sections={stageSections(ACTIVE_STAGES)} value={fv} onChange={setFv} />
-            </View>
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search by loan ID or customer name"
+              style={{ paddingTop: 12, paddingBottom: 12 }}
+              filter={<GroupedFilter title="Filter cases" sections={stageSections(ACTIVE_STAGES)} value={fv} onChange={setFv} />}
+            />
           </>
         }
         renderItem={(l, i) => (
@@ -171,6 +180,9 @@ type AuctionHistoryProps = { tabs: React.ReactNode };
 function AuctionHistory({ tabs }: AuctionHistoryProps) {
   const openLoan = useOpenLoan();
   const [hist, setHist] = useState<Hist>("conducted");
+  const canEdit = useAuth().can("Loan_Management", "can_edit_ledger_entry");
+  const [info, setInfo] = useState<ConcludedAuctionRow | null>(null);
+  const [editing, setEditing] = useState<ConcludedAuctionRow | null>(null);
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   // History's own filter, for the Auctions Conducted table only: sales that left a surplus to settle, or fell short.
   // Both ticked (or none) shows every sale.
@@ -181,8 +193,11 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
     filters: { hasSale: hist === "conducted", ...(outcome ? { outcome } : {}) },
     fetchPage: async (p) => listConcludedAuctions(p),
   });
+  // Switching to this tab refetches, so a sale or settlement recorded since the last visit shows without a manual refresh.
+  useEffect(() => { void list.refetch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
+    <>
     <ServerFlatList
       list={list}
       items={list.items}
@@ -191,12 +206,13 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
       header={
         <>
           {tabs}
-          <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
-          {hist === "conducted" ? (
-            <View style={{ paddingHorizontal: 18, paddingBottom: 10 }}>
-              <GroupedFilter title="Filter history" sections={OUTCOME_SECTIONS} value={fv} onChange={setFv} />
-            </View>
-          ) : null}
+          <SearchFilterRow
+            value={list.search}
+            onChangeText={list.setSearch}
+            placeholder="Search by loan ID or customer name"
+            style={{ paddingTop: 12, paddingBottom: 10 }}
+            filter={hist === "conducted" ? <GroupedFilter title="Filter history" sections={OUTCOME_SECTIONS} value={fv} onChange={setFv} /> : undefined}
+          />
           <View style={{ paddingHorizontal: 18 }}>
             <SubTabs tabs={HIST} value={hist} onChange={setHist} labels={HIST_LABELS} />
           </View>
@@ -235,10 +251,34 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
               { k: "Stage", v: r.stage === "Settled" ? "Sale completed" : r.stage === "Auctioned" ? "Sold — settlement pending" : r.stage },
               { k: "Outcome", v: AUCTION_OUTCOME_LABELS[r.finalSettlementStatus ?? "Pending"] },
             ]}
-            actions={[{ label: "View Loan", onPress: () => openLoan(r.loanId) }]}
+            actions={[
+              { label: "Info", onPress: () => setInfo(r) },
+              ...(canEdit ? [{ label: "Edit", onPress: () => setEditing(r) }] : []),
+              { label: "View Loan", onPress: () => openLoan(r.loanId) },
+            ]}
           />
         );
       }}
     />
+    <Sheet visible={!!info} onClose={() => setInfo(null)} title={info ? `Auction — ${info.loanNumber}` : "Auction"} maxHeightPct={80}>
+      {info ? (
+        <View style={{ paddingTop: 8 }}>
+          <DetailRow first k="Customer" v={info.customerName || "—"} />
+          <DetailRow k="Auction date" v={info.auctionDate ? dmy(info.auctionDate) : "—"} />
+          <DetailRow k="Reference" v={info.auctionReferenceNumber || "—"} />
+          <DetailRow k="Sale amount" v={inr(info.saleAmount ?? 0)} />
+          <DetailRow k="Auction expenses" v={info.auctionExpenses ? inr(info.auctionExpenses) : "—"} />
+          <DetailRow k="Net proceeds" v={inr((info.saleAmount ?? 0) - (info.auctionExpenses ?? 0))} />
+          <DetailRow k={(info.surplusShortfall ?? 0) >= 0 ? "Surplus" : "Shortfall"} v={inr(Math.abs(info.surplusShortfall ?? 0))} />
+          <DetailRow k="Outcome" v={AUCTION_OUTCOME_LABELS[info.finalSettlementStatus ?? "Pending"]} />
+          {info.surplusRemarks ? <DetailRow k="Settlement remarks" v={info.surplusRemarks} /> : null}
+          {(info.decisionRequests ?? []).filter((d) => d.decisionRemarks).map((d, i) => (
+            <DetailRow key={d.id} k={`Decision remarks ${i + 1}`} v={d.decisionRemarks} />
+          ))}
+        </View>
+      ) : null}
+    </Sheet>
+    <AuctionSaleEditSheet auction={editing} onClose={() => setEditing(null)} />
+    </>
   );
 }

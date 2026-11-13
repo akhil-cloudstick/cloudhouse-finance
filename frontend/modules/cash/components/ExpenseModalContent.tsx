@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -192,15 +193,13 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
         <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
         <div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
-          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => { setRemarks(e.target.value); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
+          <NoteField placeholder="Optional notes" value={remarks} onChange={(v) => { setRemarks(v); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
       </div>
       {/* Outside the scrolling body so a blocked save is never hidden below the fold. */}
       {(loanWarning || err) && (
         <div style={{ padding: "8px 22px 0", color: "var(--red)", fontSize: 12.5 }}>{loanWarning || err}</div>
       )}
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Expense"}</button>
+      <div className="ft">        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Expense"}</button>
       </div>
     </>
   );

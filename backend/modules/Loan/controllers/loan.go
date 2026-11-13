@@ -87,6 +87,8 @@ type CreateInput struct {
 type UpdateLoanInput struct {
 	SchemeID        *uint
 	PrincipalAmount *float64
+	// The loan's opening date; nil leaves it. The due date and the interest follow it.
+	OpenedDate *time.Time
 	// How the payout of a loan already paid out was made; nil leaves the saved breakdown as it is.
 	CashAmount         *float64
 	UpiAmount          *float64
@@ -313,6 +315,7 @@ func recalculateTotals(l *models.Loan, ornaments []models.Ornament) {
 	}
 	l.TotalNetWeight = totalNet
 	l.TotalGoldValue = totalValue
+	// A scheme that is not based on gold LTV has no eligible amount; the gold value is still kept for releases.
 	l.EligibleLoanAmount = totalValue * (l.SchemeLTVPercent / 100)
 }
 
@@ -337,6 +340,9 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	// whatever branch the request names.
 	if cust.BranchID != 0 {
 		in.BranchID = cust.BranchID
+	}
+	if len([]rune(strings.TrimSpace(in.AdditionalInfo))) > 150 {
+		return nil, common.NewBadRequest("additional information cannot be longer than 150 characters")
 	}
 	branchOK, err := common.BranchExists(ctx, in.BranchID)
 	if err != nil {
@@ -414,7 +420,7 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 		finalPrincipal = common.RoundMoney(in.PrincipalAmount + rec.ServiceChargeAmount)
 	}
 	// a paisa of slack: the screen rounds the eligible amount to 2 decimals from its own float sum
-	if common.RoundMoney(in.PrincipalAmount) > common.RoundMoney(rec.EligibleLoanAmount)+0.01 {
+	if rec.SchemeLTVPercent > 0 && common.RoundMoney(in.PrincipalAmount) > common.RoundMoney(rec.EligibleLoanAmount)+0.01 {
 		return nil, common.NewBadRequest("principal amount cannot exceed the eligible loan amount")
 	}
 	rec.EligibleLoanAmount = common.RoundMoney(rec.EligibleLoanAmount)
@@ -608,8 +614,8 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 	var info *string
 	if in.AdditionalInfo != nil {
 		v := strings.TrimSpace(*in.AdditionalInfo)
-		if len([]rune(v)) > 2000 {
-			return nil, common.NewBadRequest("additional information cannot be longer than 2000 characters")
+		if len([]rune(v)) > 150 {
+			return nil, common.NewBadRequest("additional information cannot be longer than 150 characters")
 		}
 		info = &v
 	}
@@ -644,11 +650,21 @@ func updateLoanFields(ctx context.Context, loanID uint, in UpdateLoanInput) (*mo
 	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
 		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount))
 	wasDisbursed := l.DisbursementDate != nil
+	dateChanged := in.OpenedDate != nil && dayOf(*in.OpenedDate) != dayOf(l.OpenedDate)
+	if dateChanged && dayOf(*in.OpenedDate) > dayOf(time.Now()) {
+		return nil, common.NewBadRequest("opening date cannot be in the future")
+	}
 	payoutGiven := in.CashAmount != nil || in.UpiAmount != nil || in.BankTransferAmount != nil || in.BankID != nil
-	if wasDisbursed && (materialChange || payoutGiven) {
+	if wasDisbursed && (materialChange || payoutGiven || dateChanged) {
 		return updateDisbursedLoanInPlace(ctx, l, in)
 	}
 	priorDisbursed := l.DisbursedAmount
+	if dateChanged {
+		// not paid out yet, so nothing has accrued: the term simply starts on the new date
+		l.OpenedDate = *in.OpenedDate
+		l.LastAccrualDate = l.OpenedDate
+		l.DueDate = addMonths(l.OpenedDate, l.SchemeDurationMonths)
+	}
 	if in.SchemeID != nil {
 		sch, err := common.FindSchemeByID(ctx, *in.SchemeID)
 		if err != nil {
@@ -688,7 +704,7 @@ func updateLoanFields(ctx context.Context, loanID uint, in UpdateLoanInput) (*mo
 			capped = l.PrincipalAmount / (1 + l.ServiceChargeValue/100)
 		}
 	}
-	if common.RoundMoney(capped) > common.RoundMoney(l.EligibleLoanAmount)+0.01 {
+	if l.SchemeLTVPercent > 0 && common.RoundMoney(capped) > common.RoundMoney(l.EligibleLoanAmount)+0.01 {
 		return nil, common.NewBadRequest(fmt.Sprintf("principal amount ₹%.2f cannot exceed the eligible loan amount ₹%.2f (based on scheme LTV)", capped, l.EligibleLoanAmount))
 	}
 	if in.SchemeID != nil || in.PrincipalAmount != nil {
@@ -789,18 +805,22 @@ func disbursedLoanEdit(ctx context.Context, l *models.Loan, in UpdateLoanInput) 
 		}
 		newScheme = sch
 	}
+	ups, err := activeTopUpsInOrder(ctx, config.DB.WithContext(ctx), l.ID)
+	if err != nil {
+		return nil, err
+	}
+	var topUpSum float64
+	for _, t := range ups {
+		topUpSum = common.RoundMoney(topUpSum + t.Amount)
+	}
 	edit := &EditDisbursementInput{CashAmount: in.CashAmount, UpiAmount: in.UpiAmount, BankTransferAmount: in.BankTransferAmount, BankID: in.BankID}
+	// the opening date of a paid-out loan is its disbursement date: moving it shifts the due date and redoes the interest
+	if in.OpenedDate != nil && dayOf(*in.OpenedDate) != dayOf(l.OpenedDate) {
+		edit.DisbursedOn = in.OpenedDate
+	}
 	if in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount) {
 		if *in.PrincipalAmount <= 0 {
 			return nil, common.NewBadRequest("principal amount must be greater than zero")
-		}
-		ups, err := activeTopUpsInOrder(ctx, config.DB.WithContext(ctx), l.ID)
-		if err != nil {
-			return nil, err
-		}
-		var topUpSum float64
-		for _, t := range ups {
-			topUpSum = common.RoundMoney(topUpSum + t.Amount)
 		}
 		sanctioned := common.RoundMoney(*in.PrincipalAmount - topUpSum)
 		edit.SanctionedAmount = &sanctioned
@@ -814,12 +834,16 @@ func disbursedLoanEdit(ctx context.Context, l *models.Loan, in UpdateLoanInput) 
 			if newScheme == nil {
 				return nil
 			}
-			chargeType, chargeValue, chargeMode, chargeAmount := loan.ServiceChargeType, loan.ServiceChargeValue, loan.ServiceChargeMode, loan.ServiceChargeAmount
 			loan.SchemeID = newScheme.ID
 			// the loan was loaded with its old scheme attached; saving it would write that scheme's id back over the new one
 			loan.Scheme = *newScheme
 			applySchemeSnapshot(loan, newScheme)
-			loan.ServiceChargeType, loan.ServiceChargeValue, loan.ServiceChargeMode, loan.ServiceChargeAmount = chargeType, chargeValue, chargeMode, chargeAmount
+			// the service charge follows the new scheme, worked out on the amount the loan will start with
+			sanctioned := common.RoundMoney(loan.PrincipalAmount - topUpSum)
+			if edit.SanctionedAmount != nil {
+				sanctioned = common.RoundMoney(*edit.SanctionedAmount)
+			}
+			loan.ServiceChargeAmount = common.RoundMoney(computeServiceChargeAmount(loan.ServiceChargeType, loan.ServiceChargeValue, sanctioned))
 			loan.DueDate = addMonths(loan.OpenedDate, newScheme.DurationMonths)
 			ornaments, err := FindByLoanID(ctx, loan.ID)
 			if err != nil {
@@ -1682,10 +1706,19 @@ func UpdateLoan(c echo.Context) error {
 	if (req.BranchID != nil || req.LockerID != nil) && !auth.IsCrossBranchRole(c) {
 		return common.FailErr(c, common.NewForbidden("changing a loan's branch or locker needs the permission to view all branches"))
 	}
+	var openedOn *time.Time
+	if req.OpenedDate != nil && strings.TrimSpace(*req.OpenedDate) != "" {
+		d, err := parsePaidOn(strings.TrimSpace(*req.OpenedDate))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid opened_date: expected YYYY-MM-DD"})
+		}
+		openedOn = &d
+	}
 	actorEmployeeID, actorRole, _ := auth.ActorFromContext(c)
 	rec, err := updateLoan(auth.RequestContext(c), loanID, UpdateLoanInput{
 		SchemeID:        req.SchemeID,
 		PrincipalAmount: req.PrincipalAmount,
+		OpenedDate:      openedOn,
 		OverallPhotoURL: req.OverallPhotoURL,
 		AdditionalInfo:  req.AdditionalInfo,
 		CashAmount:      req.CashAmount, UpiAmount: req.UpiAmount, BankTransferAmount: req.BankTransferAmount, BankID: req.BankID,

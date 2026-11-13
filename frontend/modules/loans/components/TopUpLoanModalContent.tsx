@@ -167,7 +167,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
       <div className="hd"><h3>Top Up Loan — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-          <div><Icon name="coin" /> Available headroom: <b>{fmt(headroom)}</b></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="coin" /><span>Available headroom: <b>{fmt(headroom)}</b></span></div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>Eligible {fmt(loan.eligibleLoanAmount)} − Outstanding {fmt(loan.outstanding)}</div>
         </div>
         {hasArrears && (
@@ -210,9 +210,7 @@ export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initi
           </div>
         )}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? (needsApproval ? "Submitting…" : "Recording…") : hasArrears && settleMode === "require" ? "Pay Interest First" : needsApproval ? "Submit for Approval" : "Top Up"}</button>
+      <div className="ft">        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? (needsApproval ? "Submitting…" : "Recording…") : hasArrears && settleMode === "require" ? "Pay Interest First" : needsApproval ? "Submit for Approval" : "Top Up"}</button>
       </div>
     </>
   );

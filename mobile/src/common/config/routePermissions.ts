@@ -19,6 +19,7 @@ export type PermissionRef =readonly [moduleKey: string, permissionKey: string];
 
 export const ROUTE_PERMISSIONS: Record<string, readonly PermissionRef[]> = {
   dashboard: [],
+  support: [],
   customers: [["Customer_Management", "can_view_customer_module"]],
   loans: [["Loan_Management", "can_view_loan_module"]],
   schemes: [["Scheme_Management", "can_view_scheme_module"]],

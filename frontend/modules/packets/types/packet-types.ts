@@ -38,6 +38,7 @@ export type BackendPacket = {
   releasedOrnaments?: NestedOrnament[];
   status: string;
   currentLockerId: number | null;
+  lockerCode?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -92,6 +93,7 @@ export type PacketView = {
   items: PacketItemView[];
   status: string;
   currentLockerId: number | null;
+  lockerCode: string;
 };
 export type MovementView = {
   id: number;

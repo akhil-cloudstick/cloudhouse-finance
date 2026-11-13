@@ -124,9 +124,9 @@ export function createCashSource(name: string) {
 
 export const EXPENSE_CATEGORIES_PAGE_SIZE = 5;
 
-export function listExpenseCategoriesPage(q: string, page: number, pageSize: number = EXPENSE_CATEGORIES_PAGE_SIZE) {
+export function listExpenseCategoriesPage(q: string, page: number, pageSize: number = EXPENSE_CATEGORIES_PAGE_SIZE, selectable = false) {
   return apiRequest<{ items: ExpenseCategory[]; hasMore: boolean }>("/expense-categories", {
-    params: { q: q || undefined, limit: pageSize, offset: page * pageSize },
+    params: { q: q || undefined, limit: pageSize, offset: page * pageSize, selectable: selectable ? 1 : undefined },
   });
 }
 

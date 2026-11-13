@@ -23,6 +23,7 @@ export function listLoansPage(params: {
   // Auction case buckets, computed server-side (replaces the old on-phone
   // isDefaulted filter): eligible | defaulted | auctioned_balance_due.
   auctionCase?: string;
+  auction_case?: string; // all | eligible | defaulted | auctioned_balance_due (snake_case as the backend reads it)
   auction_stage?: string; // comma-joined auction stages (sent snake_case as the backend reads it)
   bankPledgeStatus?: string;
   excludeBankPledged?: boolean;

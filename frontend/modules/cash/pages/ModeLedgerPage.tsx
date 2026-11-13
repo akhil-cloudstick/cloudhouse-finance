@@ -133,7 +133,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
     getModeLedger(
       mode,
       page,
-      { ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment } : {}), fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined, search: search || undefined },
+      { ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment, focusRef: target.ref } : {}), fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined, search: search || undefined },
       pageSize
     )
       .then(({ items, total, totalDebit, totalCredit, focusPage }) => {
@@ -273,7 +273,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
                     r.description.match(/—\s*(PL-\S+)\s*$/i)?.[1] ||
                     null;
                   return (
-                  <tr key={`${r.type}-${r.id}-${r.method}-${i}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : undefined}>
+                  <tr key={`${r.type}-${r.id}-${r.method}-${i}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : r.ref}>
                     <td data-label="Date">{fmtDate(r.d)}</td>
                     <td data-label="Ref No">
                       {loanRef ? (

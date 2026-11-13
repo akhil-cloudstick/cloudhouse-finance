@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { fmt, roundRupee } from "@/common/utils/format";
@@ -118,7 +119,7 @@ export function WithdrawInvestmentModalContent({
           )}
         </div>
         <div className="frow">
-          <div><label className="f">Reference</label><input className="inp" placeholder="Optional note" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+          <div><label className="f">Reference</label><NoteField placeholder="Optional note" value={reference} onChange={setReference} /></div>
         </div>
         <div className="frow">
           <div className={fe.split ? "has-err" : undefined}>
@@ -128,9 +129,7 @@ export function WithdrawInvestmentModalContent({
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || total <= 0 || !balanced} onClick={save}>{saving ? "Withdrawing…" : "Withdraw"}</button>
+      <div className="ft">        <button className="btn" disabled={saving || total <= 0 || !balanced} onClick={save}>{saving ? "Withdrawing…" : "Withdraw"}</button>
       </div>
     </>
   );

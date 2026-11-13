@@ -295,6 +295,19 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 		}
 	}
 	recordPledgeEvent(ctx, p, "Released", actorID, actorRole, pledgeReleaseRemark(p.CashTreatment))
+	if !stillPledged {
+		// The gold is back with the branch: a defaulted loan now enters the auction process (Auction Eligible),
+		// so its stored status is right; Auctioned is still set only by the sale.
+		if fresh, ferr := findLoanByID(ctx, loanID); ferr == nil {
+			accrueAndSave(ctx, fresh)
+			enrichLoan(ctx, fresh)
+			if fresh.IsDefaulted {
+				if _, aerr := openAuctionEligibility(ctx, loanID, branchID, actorID, actorRole); aerr != nil {
+					log.Printf("auto auction-eligible after bank release failed for loan %d: %v", loanID, aerr)
+				}
+			}
+		}
+	}
 	return GetLoan(ctx, l.ID, nil)
 }
 

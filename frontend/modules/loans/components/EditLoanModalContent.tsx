@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useEffect, useRef, useState } from "react";
 import { MAX_ORN_PHOTOS } from "@/modules/loans/utils/ornamentPhotos";
 import { useModal } from "@/common/components/ModalProvider";
@@ -7,7 +8,8 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { PurityPicker } from "@/common/components/PurityPicker";
-import { fmt, roundRupee } from "@/common/utils/format";
+import { fmt, roundRupee, schemeOptionLabel } from "@/common/utils/format";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { rateForPurityFull } from "@/common/utils/purity";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
@@ -53,6 +55,12 @@ type EditLoanModalContentProps = { loan: LoanView; onSaved: () => void };
  * the loan for the sanction chain (ApprovalStage resets, Status goes back
  * to Pending Approval), so the warning below fires the moment either one
  * differs from what the loan already has; ornament-only edits do not. */
+// Local calendar date as YYYY-MM-DD (not UTC, so late evening does not read as tomorrow).
+function localISO(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProps) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -61,6 +69,10 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   const [schemeId, setSchemeId] = useState(loan.schemeId); // string, matches SchemeView.id
   const [schemeLabel, setSchemeLabel] = useState(`${loan.schemeName}`);
   const [schemeLtv, setSchemeLtv] = useState(loan.schemeLtv);
+  // the newly picked scheme's service charge terms (null while the loan's own scheme is kept)
+  const [schemeObj, setSchemeObj] = useState<SchemeView | null>(null);
+  // The loan's opening date; changing it moves the due date and redoes the interest from the new date.
+  const [openedDate, setOpenedDate] = useState(loan.opened);
   const [principal, setPrincipal] = useState(String(loan.principal));
   const [rows, setRows] = useState<OrnRow[]>(loan.ornaments.map(toRow));
   const [overallPhoto, setOverallPhoto] = useState(loan.overallPhotoUrl);
@@ -159,6 +171,8 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   // Rounded to paise like the backend's common.RoundMoney — the raw float can
   // carry hidden digits past the two shown, which made the exact eligible
   // amount typed into Principal fail the "cannot exceed" check.
+  // A scheme not based on gold LTV (LTV 0) puts no cap on the amount.
+  const ltvBased = schemeLtv > 0;
   const eligibleLoanAmount = roundRupee(((totalGoldValue * schemeLtv) / 100));
 
   // Mirrors the backend's own materialChange check in Service.UpdateLoan —
@@ -170,7 +184,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   // under it) instead of waiting for Save to refuse it.
   const capToEligible = (value: string) => {
     const n = +value;
-    return eligibleLoanAmount > 0 && n > eligibleLoanAmount ? String(Math.floor(eligibleLoanAmount)) : value;
+    return ltvBased && eligibleLoanAmount > 0 && n > eligibleLoanAmount ? String(Math.floor(eligibleLoanAmount)) : value;
   };
 
   // A loan already paid out: how its payout was made can be corrected here too. The total follows the principal
@@ -180,9 +194,12 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   const disbursement = [...loan.payments].reverse().find((p) => p.type === "Disbursement");
   const principalNum = +principal > 0 ? +principal : loan.principal;
   const newSanctioned = (loan.sanctionedAmount || loan.principal) + (principalNum - loan.principal);
-  const serviceCharge = loan.serviceChargeType === "Percent"
-    ? Math.round(newSanctioned * (loan.serviceChargeValue ?? 0)) / 100
-    : loan.serviceChargeAmount;
+  const useNew = schemeObj !== null && schemeId !== loan.schemeId;
+  const chargeType = useNew ? schemeObj.serviceChargeType : loan.serviceChargeType;
+  const chargeValue = useNew ? schemeObj.serviceChargeValue : (loan.serviceChargeValue ?? 0);
+  const serviceCharge = chargeType === "Percent"
+    ? Math.round(newSanctioned * chargeValue) / 100
+    : useNew ? (chargeType === "Flat" ? chargeValue : 0) : loan.serviceChargeAmount;
   const payout = roundRupee((newSanctioned - serviceCharge));
   const payoutLines: SplitPaymentLine[] | undefined = disbursement ? [
     disbursement.cashAmount > 0 && { mode: "Cash" as const, amount: String(disbursement.cashAmount) },
@@ -257,7 +274,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     // Amount field above, not a stale pre-edit figure — the backend
     // recomputes and enforces this independently on save too, but this
     // gives immediate feedback consistent with what's already on screen.
-    if (roundRupee(+principal) > eligibleLoanAmount) errors["principal"] ??= `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`;
+    if (ltvBased && roundRupee(+principal) > eligibleLoanAmount) errors["principal"] ??= `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`;
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     if (showBranch && branchChanged && hasPacket && packetLocker && !lockerSel) {
@@ -321,6 +338,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
       await updateLoan(loan.numericId, {
         schemeId: schemeId !== loan.schemeId ? Number(schemeId) : undefined,
         principalAmount: +principal !== loan.principal ? +principal : undefined,
+        openedDate: openedDate && openedDate !== loan.opened ? openedDate : undefined,
         overallPhotoUrl: overallPhoto !== loan.overallPhotoUrl ? overallPhoto : undefined,
         additionalInfo: additionalInfo.trim() !== (loan.additionalInfo || "").trim() ? additionalInfo.trim() : undefined,
         ...goldChoicesOf(activeDeps, chosenDeps),
@@ -351,30 +369,40 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
           <div className={fe.scheme ? "has-err" : undefined}><label className="f">Scheme</label>
             <SearchableSelect<SchemeView>
               value={schemeLabel}
-              onChange={(id, item) => { setFe((cur) => ({ ...cur, scheme: "" })); setSchemeId(id); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); setSchemeLtv(item.ltv); }}
+              onChange={(id, item) => { setFe((cur) => ({ ...cur, scheme: "" })); setSchemeId(id); setSchemeObj(item); setSchemeLabel(schemeOptionLabel(item)); setSchemeLtv(item.ltvBased ? item.ltv : 0); }}
               fetchFn={searchActiveSchemesPage}
               searchHint="Searches: scheme name, scheme code"
-              getLabel={(s) => `${s.name} — ${s.ltv}% LTV @ ${s.rate}%`}
+              getLabel={schemeOptionLabel}
               getId={(s) => s.id}
               placeholder="Search active schemes…"
             /><FieldError msg={fe.scheme} /></div>
           <div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹)</label>
-            <input className="inp" type="number" min={1} max={eligibleLoanAmount} value={principal} onChange={(e) => { setPrincipal(capToEligible(e.target.value)); setFe((cur) => ({ ...cur, principal: "" })); }} /><FieldError msg={fe.principal} />
-            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+            <input className="inp" type="number" min={1} max={ltvBased ? eligibleLoanAmount : undefined} value={principal} onChange={(e) => { setPrincipal(capToEligible(e.target.value)); setFe((cur) => ({ ...cur, principal: "" })); }} /><FieldError msg={fe.principal} />
+            {ltvBased && <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
               Max {fmt(eligibleLoanAmount)} (based on scheme LTV)
-            </p>
+            </p>}
           </div>
         </div>
         <div className="frow c2">
           <div>
-            <label className="f">Eligible Loan Amount</label>
-            <input className="inp" value={fmt(eligibleLoanAmount)} disabled />
+            <label className="f">Loan Date</label>
+            <DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} />
           </div>
-          <div>
-            <label className="f">LTV</label>
-            <input className="inp" value={`${schemeLtv}%`} disabled />
-          </div>
+          {ltvBased && (
+            <div>
+              <label className="f">Eligible Loan Amount</label>
+              <input className="inp" value={fmt(eligibleLoanAmount)} disabled />
+            </div>
+          )}
         </div>
+        {ltvBased && (
+          <div className="frow c2">
+            <div>
+              <label className="f">LTV</label>
+              <input className="inp" value={`${schemeLtv}%`} disabled />
+            </div>
+          </div>
+        )}
 
         {showBranch && (
           <div className="frow c2" style={{ marginBottom: 14 }}>
@@ -520,15 +548,13 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
           Total net weight: {fmt(activeRows.reduce((s, r) => s + (+r.net || 0) * (+r.qty || 1), 0)).replace("₹", "")}g · eligible amount updates on save
         </p>
         <label className="f" htmlFor="edit-additional-info" style={{ marginTop: 10 }}>Additional Information</label>
-        <textarea id="edit-additional-info" className="inp" rows={3} maxLength={2000} placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChange={(e) => setAdditionalInfo(e.target.value)} style={{ resize: "vertical", width: "100%" }} />
+        <NoteField id="edit-additional-info" placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChange={setAdditionalInfo} />
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       {/* The sticky-within-`.modal-bg` treatment this used to declare inline
           is now on `.modal .ft` in app.css, for every modal — nothing needed
           here beyond the class. */}
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
+      <div className="ft">        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
       </div>
     </>
   );

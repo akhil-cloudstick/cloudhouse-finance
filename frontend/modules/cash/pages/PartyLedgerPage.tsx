@@ -146,7 +146,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
     const target = focusPending.current ? ledgerFocusTarget("party") : null;
     const range = {
       fromDate: fromDate || undefined, toDate: toDate || undefined, search: search || undefined,
-      ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment } : {}),
+      ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment, focusRef: target.ref } : {}),
     };
     const call =
       kind === "bank" ? getBankLedger(numericId, page, { ...range, modes: modeValues }, pageSize)
@@ -274,7 +274,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
                 return (
                 // A loan ledger mixes movement and expense ids (plus the
                 // id-less opening row), so key by position there.
-                <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : undefined}>
+                <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : r.ref}>
                   <td data-label="Date">{fmtDate(r.d)}</td>
                   <td data-label="Ref No">
                     {loanRef ? (

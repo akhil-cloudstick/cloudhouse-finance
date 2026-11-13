@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AccRow, C, FabMenu, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, gfValues, useShell } from "@/common/components/ui";
+import { AccRow, C, FabMenu, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, gfValues, useShell } from "@/common/components/ui";
 import { LoanDraftsSheet } from "@/common/components/LoanDraftsSheet";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import {
@@ -106,14 +106,14 @@ export default function LoansScreen() {
         emptyText={list.search ? "No loans match your search." : "No loans found."}
         header={
           <>
-            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-              <GroupedFilter title="Filter loans" sections={loanFilterSections(showBranchFilter, showBranchFilter ? gfValues(filters, "branch") : [])} value={filters} onChange={setFilters} />
+            <View style={{ paddingTop: 12 }}>
+              <SearchFilterRow
+                value={list.search}
+                onChangeText={list.setSearch}
+                placeholder="Search this list by loan ID or customer name"
+                filter={<GroupedFilter title="Filter loans" sections={loanFilterSections(showBranchFilter, showBranchFilter ? gfValues(filters, "branch") : [])} value={filters} onChange={setFilters} />}
+              />
             </View>
-            <SearchInput
-              value={list.search}
-              onChangeText={list.setSearch}
-              placeholder="Search this list by loan ID or customer name"
-            />
           </>
         }
         contentStyle={{ paddingTop: 0 }}

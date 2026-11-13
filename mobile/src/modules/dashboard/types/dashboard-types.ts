@@ -29,6 +29,7 @@ export type DashboardSummary = {
 export type DashboardActivity = {
   type: string;
   label: string;
+  personal?: boolean;
   customerName: string;
   customerCode?: string;
   loanNumber?: string;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AsyncSelect, Buffering, BtnRow2, C, Card, Field, FieldGrid, Input, MoveItem, PrimaryButton, SectionTitle, Sheet, Stepper, Txt, WarningBanner } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -30,6 +30,7 @@ type PacketDetailBodyProps = { packetId: number; onOpenLoan: (loanId: number) =>
 /** Packet detail body — used by the Packets sheet and the /packets/[id]
  * route (deep links from loan detail / release review). */
 export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps) {
+  const lockersAllFull = useRef(false);
   const qc = useQueryClient();
   const { employee, can } = useAuth();
   const canMove = can("Packet_Management", "can_update_packet");
@@ -250,7 +251,13 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
           queryKey={["lockers", "picker", branchId]}
           // A locker physically lives at one branch; `status=active` returns
           // only active lockers that still have room.
-          fetcher={async (q) => (await listLockersPage({ branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+          fetcher={async (q) => {
+            const all = (await listLockersPage({ branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? [];
+            const free = all.filter((x) => (x.occupied ?? 0) < x.capacity);
+            lockersAllFull.current = all.length > 0 && free.length === 0;
+            return free;
+          }}
+          emptyText={() => (lockersAllFull.current ? "All lockers full" : undefined)}
           selectedLabel={locker ? `${locker.code} (${locker.occupied}/${locker.capacity})` : undefined}
           onClear={() => setLocker(null)}
           onSelect={(l) => {

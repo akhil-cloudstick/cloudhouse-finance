@@ -57,7 +57,6 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: SelectLoanForRep
         <p className="notice"><Icon name="shield" /><span>Only loans whose gold isn&apos;t already with a bank are listed. Type a loan number to search, or scroll for more.</span></p>
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={next}><Icon name="check" /> Next</button>
       </div>
     </>

@@ -517,6 +517,7 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 		if undo {
 			rec.SaleAmount, rec.AuctionExpenses, rec.SurplusShortfall, rec.SurplusPayableAmount = 0, 0, 0, 0
 			rec.SurplusDisposition, rec.SurplusPaidOutMovementID = "", nil
+			rec.DuePrincipal, rec.DueInterest, rec.DuePenal, rec.DueTotal = nil, nil, nil, nil
 		} else {
 			rec.SaleAmount, rec.AuctionExpenses, rec.SurplusShortfall, rec.SurplusPayableAmount = out.Sale, out.Expenses, out.Diff, out.Surplus
 		}

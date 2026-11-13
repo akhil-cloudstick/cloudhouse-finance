@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -97,30 +98,27 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
     <>
       <div className="hd"><h3>Settle Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
-        <div className="notice" style={{ marginBottom: 16 }}>
+        <div className="notice" style={{ marginBottom: 14, fontSize: 12 }}>
           <Icon name="gavel" />
-          <span>
-            The gold sold for {fmt(rec.saleAmount)} and cleared the full amount owed.
-            A surplus of <b>{fmt(surplus)}</b> remains. What should happen to it?
-          </span>
+          <span>Sold for {fmt(rec.saleAmount)}, full amount cleared. Surplus <b>{fmt(surplus)}</b> remains.</span>
         </div>
         <div className="frow"><div className={fe.disposition ? "has-err" : undefined}>
           <label className="f">Surplus Disposition *</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-            <label className="cradio" style={{ fontSize: 13 }}>
+            <label className="cradio" style={{ fontSize: 12.5 }}>
               <input type="radio" name="disposition" checked={disposition === "RefundedToCustomer"} onChange={() => { setDisposition("RefundedToCustomer"); setFe({}); }} />
               <span className="mark" />
               <span>
                 <strong className="cradio-title">Refund to customer</strong>
-                <span className="cradio-detail">a cash-out of {fmt(surplus)} will be booked and the money handed back to {loan.customerName}.</span>
+                <span className="cradio-detail">{fmt(surplus)} is booked as cash-out to {loan.customerName}.</span>
               </span>
             </label>
-            <label className="cradio" style={{ fontSize: 13 }}>
+            <label className="cradio" style={{ fontSize: 12.5 }}>
               <input type="radio" name="disposition" checked={disposition === "RecordedAsIncome"} onChange={() => { setDisposition("RecordedAsIncome"); setFe({}); }} />
               <span className="mark" />
               <span>
                 <strong className="cradio-title">Record as company income</strong>
-                <span className="cradio-detail">the money stays in the till. No further cash movement is created, since the full proceeds were already booked in at sale time.</span>
+                <span className="cradio-detail">stays in the till; no further cash movement.</span>
               </span>
             </label>
           </div>
@@ -136,14 +134,11 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: Settl
         )}
         <div className="frow"><div className={fe.remarks ? "has-err" : undefined}>
           <label className="f">Remarks {disposition === "RecordedAsIncome" ? "*" : ""}</label>
-          <input className="inp" value={remarks} onChange={(e) => { setRemarks(e.target.value); setFe((cur) => ({ ...cur, remarks: "" })); }} placeholder="reason / reference" maxLength={255} /><FieldError msg={fe.remarks} />
+          <NoteField value={remarks} onChange={(v) => { setRemarks(v); setFe((cur) => ({ ...cur, remarks: "" })); }} placeholder="Reason / reference" /><FieldError msg={fe.remarks} />
         </div></div>
-        <p style={{ fontSize: 12, color: "var(--muted)" }}>This can only be recorded once — a surplus cannot be disposed of twice.</p>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        {/* Not blanket-disabled on `!disposition` — that would block save()'s
+      <div className="ft">        {/* Not blanket-disabled on `!disposition` — that would block save()'s
          * own "Please choose what happens to the surplus" validation (and
          * Enter-to-submit, see common/utils/enterToSubmit.ts) from ever
          * running, silently doing nothing instead of showing the warning. */}

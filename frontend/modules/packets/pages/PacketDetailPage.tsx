@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { TruncText } from "@/common/components/ui/TruncText";
+import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/common/components/ToastProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -80,6 +81,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
   const [lockers, setLockers] = useState<LockerView[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const allFullRef = useRef(false); // locker picker: every matching locker is full
   const [pickLocker, setPickLocker] = useState(false);
   // True when the picker is moving a packet already in one locker to another (vs. a first check-in).
   const [changingLocker, setChangingLocker] = useState(false);
@@ -207,7 +209,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
                     <td className="num">{it.netWeight.toFixed(1)}</td>
                     <td className="num">{it.quantity}</td>
                     <td className="num">{fmt(it.goldValue)}</td>
-                    <td>{it.remarks || "—"}</td>
+                    <td><TruncText text={it.remarks || "—"} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -235,7 +237,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
                       <td>{m.toStatus}</td>
                       <td>{lk ? lk.code : "—"}</td>
                       <td>{m.actorEmployeeId ? `EMP-${m.actorEmployeeId}` : "System"}</td>
-                      <td>{m.remarks || "—"}</td>
+                      <td><TruncText text={m.remarks || "—"} /></td>
                     </tr>
                   );
                 })}
@@ -285,11 +287,14 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
                     placeholder="Search locker code…"
                     searchHint="Searches: locker code"
                     fetchFn={(q, page) =>
-                      searchLockersPage(q, page, { activeOnly: true, branchId: p.branchId }).then((res) => ({
-                        items: res.items.filter((l) => l.occupied < l.capacity && l.id !== p.currentLockerId),
-                        hasMore: res.hasMore,
-                      }))
+                      searchLockersPage(q, page, { activeOnly: true, branchId: p.branchId }).then((res) => {
+                        const others = res.items.filter((l) => l.id !== p.currentLockerId);
+                        const items = others.filter((l) => l.occupied < l.capacity);
+                        if (page === 0) allFullRef.current = others.length > 0 && items.length === 0 && !res.hasMore;
+                        return { items, hasMore: res.hasMore };
+                      })
                     }
+                    emptyText={() => (allFullRef.current ? "All lockers full" : "No results")}
                     getId={(l) => String(l.id)}
                     getLabel={(l) => `${l.code} (${l.occupied}/${l.capacity})`}
                     onChange={(id) => setLockerId(id ? Number(id) : "")}

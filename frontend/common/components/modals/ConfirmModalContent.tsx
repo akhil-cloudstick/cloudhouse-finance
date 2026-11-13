@@ -75,9 +75,7 @@ export function ConfirmModalContent({
         {children}
         {err && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 8 }}>{err}</p>}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal} disabled={busy}>Cancel</button>
-        <button
+      <div className="ft">        <button
           className={`btn${danger ? " danger" : ""}${shaking ? " btn-shake" : ""}`}
           onClick={handleConfirmClick}
           disabled={busy}

@@ -33,6 +33,7 @@ export const TITLES: Record<string, string> = {
   "roles-permissions": "Roles & Permissions",
   billing: "Billing",
   settings: "Settings",
+  support: "Support",
   "ledger-bank": "Bank Ledger", "ledger-customer": "Customer Ledger", "ledger-branch": "Branch Ledger", "ledger-category": "Category Ledger",
   "cash-ledger": "Cash Ledger", "upi-ledger": "UPI Ledger", "bank-transfer-ledger": "Bank Transfer Ledger", "cheque-ledger": "Cheque Ledger",
 };

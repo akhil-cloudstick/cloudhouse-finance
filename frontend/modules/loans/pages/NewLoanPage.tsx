@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_ORN_PHOTOS } from "@/modules/loans/utils/ornamentPhotos";
 import { useData } from "@/common/providers/DataProvider";
@@ -12,7 +13,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { stageByPending } from "@/common/services/approvalWorkflowService";
 import { Icon } from "@/common/components/Icon";
-import { fmt, roundRupee, custOf, schemeOf, fmtDateTime } from "@/common/utils/format";
+import { fmt, roundRupee, custOf, schemeOf, fmtDateTime, schemeOptionLabel } from "@/common/utils/format";
 import { uploadFile, searchBorrowersPage, getCustomer } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
@@ -354,16 +355,29 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // branch: a locker physically lives at one branch, so listing every
   // branch's lockers here would let staff assign gold into a locker the
   // branch doesn't actually have access to.
+  // Set when the matching lockers all exist but are all full, so the empty list says so instead of "No results".
+  const lockersAllFullRef = useRef(false);
   function searchLockers(q: string, page: number): Promise<{ items: LockerView[]; hasMore: boolean }> {
-    return searchLockersPage(q, page, { activeOnly: true, branchId: branchId === "" ? undefined : branchId }).then((res) => ({
-      items: res.items.filter((k) => k.occupied < k.capacity),
-      hasMore: res.hasMore,
-    }));
+    return searchLockersPage(q, page, { activeOnly: true, branchId: branchId === "" ? undefined : branchId }).then((res) => {
+      const items = res.items.filter((k) => k.occupied < k.capacity);
+      if (page === 0) lockersAllFullRef.current = res.items.length > 0 && items.length === 0 && !res.hasMore;
+      return { items, hasMore: res.hasMore };
+    });
   }
 
   const draftNeedle = draftQ.trim().toLowerCase();
+  // Names starting with the typed text rank first, then names merely containing it, then code/scheme matches.
   const visibleDrafts = draftNeedle
-    ? drafts.filter((d) => (d.customer?.name || "").toLowerCase().includes(draftNeedle) || (d.customer?.code || "").toLowerCase().includes(draftNeedle) || (d.scheme?.name || "").toLowerCase().includes(draftNeedle))
+    ? drafts
+        .map((d, i) => {
+          const name = (d.customer?.name || "").toLowerCase();
+          const rank = name.startsWith(draftNeedle) ? 0 : name.includes(draftNeedle) ? 1
+            : ((d.customer?.code || "").toLowerCase().includes(draftNeedle) || (d.scheme?.name || "").toLowerCase().includes(draftNeedle)) ? 2 : -1;
+          return { d, i, rank };
+        })
+        .filter((x) => x.rank >= 0)
+        .sort((a, b) => a.rank - b.rank || a.i - b.i)
+        .map((x) => x.d)
     : drafts;
 
   const sch = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((s) => s.id === schemeId);
@@ -375,7 +389,10 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   const rowVals = rows.map((r) => r.netW * (rateForPurityFull(rates, r.p) ?? 0));
   const totalWeight = round3(rows.reduce((s, r) => s + r.netW, 0));
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
-  const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
+  // A scheme that is not based on gold LTV has no eligible amount and no cap: staff enter any amount, and the gold
+  // value is still stored with the loan for releases.
+  const ltvBased = !sch || sch.ltvBased;
+  const eligible = sch && ltvBased ? (totalGross * sch.ltv) / 100 : 0;
   // Clear a stale manual override whenever the eligible amount it was based
   // on changes (ornaments edited, scheme swapped, rates refreshed) — the
   // field falls back to showing the new eligible amount as a placeholder
@@ -394,7 +411,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // (see loan.Service.Create).
   // Rounded to a whole rupee exactly as the backend's RoundMoney does (5.5 -> 6), so the full
   // eligible amount can be entered and the server accepts it.
-  const maxPrincipalEntry = roundRupee(eligible);
+  const maxPrincipalEntry = ltvBased ? roundRupee(eligible) : Number.MAX_SAFE_INTEGER;
   // Staff can reduce the disbursed principal below the ceiling, but never
   // raise it above — maxPrincipalEntry (eligible amount, minus any
   // AddedToPrincipal charge) is the hard cap a manual override may not
@@ -402,7 +419,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // full roundedEligible — defaulting to that when a charge applies would
   // prefill a figure that fails submission the moment the charge is added
   // on top).
-  const principal = principalOverride.trim() ? Math.min(Math.max(0, roundRupee(+principalOverride)), maxPrincipalEntry) : maxPrincipalEntry;
+  const principal = principalOverride.trim() ? Math.min(Math.max(0, roundRupee(+principalOverride)), maxPrincipalEntry) : ltvBased ? maxPrincipalEntry : 0;
   // Set when a saved draft is being applied: that draft's own override
   // arrived together with its ornaments, so it is not stale and must survive
   // the reset this effect would otherwise perform. See applyDraft().
@@ -418,7 +435,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     // ready-to-submit figure, not a placeholder staff have to notice and
     // accept, and never one that would fail submission as soon as the
     // charge is added on top.
-    setPrincipalOverride(maxPrincipalEntry > 0 ? String(maxPrincipalEntry) : "");
+    setPrincipalOverride(ltvBased && maxPrincipalEntry > 0 ? String(maxPrincipalEntry) : "");
     setPrincipalExceedsEligible(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maxPrincipalEntry]);
@@ -893,10 +910,10 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
             <div><label className="f">Scheme</label>
               <SearchableSelect<SchemeView>
                 value={schemeLabel}
-                onChange={(id, item) => { setSchemeId(id); setSchemeObj(item); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); }}
+                onChange={(id, item) => { setSchemeId(id); setSchemeObj(item); setSchemeLabel(schemeOptionLabel(item)); }}
                 fetchFn={searchActiveSchemesPage}
                 searchHint="Searches: scheme name, scheme code"
-                getLabel={(s) => `${s.name} — ${s.ltv}% LTV @ ${s.rate}%`}
+                getLabel={schemeOptionLabel}
                 getId={(s) => s.id}
                 placeholder="Search active schemes…"
               /></div>
@@ -935,6 +952,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 value={lockerLabel}
                 onChange={(id, item) => { setLockerId(+id); setLockerLabel(lockerLabelOf(item)); }}
                 fetchFn={searchLockers}
+                emptyText={() => (lockersAllFullRef.current ? "All lockers full" : "No results")}
                 searchHint="Searches: locker code"
                 getLabel={lockerLabelOf}
                 getId={(k) => String(k.id)}
@@ -1174,13 +1192,17 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
             <div className="bd" style={{ fontSize: 13.5 }}>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Total net weight</span><b>{totalWeight.toFixed(3)} g</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Gross gold value</span><b>{fmt(totalGross)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Scheme LTV</span><b>{sch ? sch.ltv + "%" : "—"}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
-                <span>Eligible gold amount</span><b>{fmt(eligible)}</b></div>
+              {ltvBased && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Scheme LTV</span><b>{sch ? sch.ltv + "%" : "—"}</b></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
+                    <span>Eligible gold amount</span><b>{fmt(eligible)}</b></div>
+                </>
+              )}
               {/* Option 4 layout: charge rows first, then the one editable
                   Amount, then Principal / Disbursed as the headline figures. */}
               {(() => {
-                const hasCharge = !!sch;
+                const hasCharge = !!sch && sch.serviceChargeType !== "None";
                 const amount = +principalOverride || 0;
                 const charge = !sch || sch.serviceChargeType === "None" ? 0 : sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : roundRupee((amount * sch.serviceChargeValue) / 100);
                 const withheld = chargeMode === "WithheldFromPayout";
@@ -1205,7 +1227,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                         </div>
                         <div style={row}>
                           <span>Charge method</span>
-                          <div style={{ width: 170, flex: "0 0 170px", boxSizing: "border-box" }}>
+                          <div className="charge-method-select" style={{ width: 170, flex: "0 0 170px", boxSizing: "border-box" }}>
                             <Select
                               value={chargeMode}
                               onChange={(v) => setChargeMode(v as "WithheldFromPayout" | "AddedToPrincipal")}
@@ -1328,15 +1350,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               </div>
               <div style={{ padding: "10px 0 2px" }}>
                 <label className="f" htmlFor="additional-info-input">Additional Information (optional)</label>
-                <textarea
-                  id="additional-info-input"
-                  className="inp"
-                  rows={3}
-                  placeholder="Anything else worth recording on this loan…"
-                  value={additionalInfo}
-                  onChange={(e) => setAdditionalInfo(e.target.value)}
-                  style={{ resize: "vertical", width: "100%" }}
-                />
+                <NoteField id="additional-info-input" placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChange={setAdditionalInfo} />
               </div>
             </div>
           </div>

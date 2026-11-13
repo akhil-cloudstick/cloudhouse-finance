@@ -1,23 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
-// useState whose value is mirrored to sessionStorage under `key`, so a page's
-// search/filter selections survive opening a detail page and coming back, a
-// browser refresh, and visits to other pages. Cleared when the tab closes.
-// Storage can be unavailable or hold junk — every access is guarded and the
-// hook then behaves exactly like useState.
+// In-memory store (NOT sessionStorage/localStorage): filter selections live in the
+// running JS context only, so they survive in-app navigation (open a record and
+// press Back) but are gone after a browser refresh.
+const store = new Map<string, unknown>();
+
+// useState whose value is mirrored to the in-memory store under `key`, so a page's
+// search/filter selections survive opening a detail page and coming back, but NOT a
+// browser refresh.
 export function usePersistedState<T>(key: string, initial: T): [T, Dispatch<SetStateAction<T>>] {
   const storageKey = `filters:${key}`;
-  const [value, setValue] = useState<T>(() => {
-    try {
-      const raw = typeof window !== "undefined" ? window.sessionStorage.getItem(storageKey) : null;
-      if (raw !== null) return JSON.parse(raw) as T;
-    } catch { /* fall through to the default */ }
-    return initial;
-  });
+  const [value, setValue] = useState<T>(() => (store.has(storageKey) ? (store.get(storageKey) as T) : initial));
   const set: Dispatch<SetStateAction<T>> = useCallback((next) => {
     setValue((prev) => {
       const resolved = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
-      try { window.sessionStorage.setItem(storageKey, JSON.stringify(resolved)); } catch { /* ignore */ }
+      store.set(storageKey, resolved);
       return resolved;
     });
   }, [storageKey]);
@@ -59,7 +56,7 @@ const SECTION_OF: Record<string, string> = {
   banks: "banks", bankpledge: "bankpledge",
 };
 
-const SECTION_KEY = "filters-section";
+let lastSection: string | null = null;
 
 // Detail pages a ledger row links out to (its loan / personal loan / investment
 // / customer chip). Opening one from a ledger is a drill-down, not a change of
@@ -76,18 +73,32 @@ const DRILLDOWNS_FROM: Record<string, Set<string>> = {
 };
 
 // Called as the route changes (see AppShell). Entering a different section than
-// the last one clears every remembered filter; a refresh stays in its section,
-// so its filters survive.
+// the last one clears every remembered filter.
 export function syncFilterSection(route: string) {
-  try {
-    const section = SECTION_OF[route] ?? route;
-    const last = window.sessionStorage.getItem(SECTION_KEY);
-    if (last === section) return;
-    if (last && DRILLDOWNS_FROM[last]?.has(route)) return;
-    for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
-      const k = window.sessionStorage.key(i);
-      if (k && k.startsWith("filters:")) window.sessionStorage.removeItem(k);
-    }
-    window.sessionStorage.setItem(SECTION_KEY, section);
-  } catch { /* storage unavailable — nothing to keep or clear */ }
+  const section = SECTION_OF[route] ?? route;
+  const last = lastSection;
+  if (last === section) return;
+  if (last && DRILLDOWNS_FROM[last]?.has(route)) return;
+  store.clear();
+  lastSection = section;
+}
+
+// Search text is not remembered across pages: leaving a page and coming back
+// (or opening a detail and pressing Back) starts from a fresh, unsearched list.
+let lastRoute: string | null = null;
+export function resetSearchOnNavigation(route: string) {
+  if (route === lastRoute) return;
+  const had = lastRoute !== null;
+  lastRoute = route;
+  if (!had) return;
+  for (const k of Array.from(store.keys())) {
+    if (/^filters:.*[:-]q$/.test(k)) store.delete(k);
+  }
+}
+
+// Drops every remembered filter of one page (keys start with `prefix`), e.g. "requests:".
+export function clearPersistedFilters(prefix: string) {
+  for (const k of Array.from(store.keys())) {
+    if (k.startsWith(`filters:${prefix}`)) store.delete(k);
+  }
 }

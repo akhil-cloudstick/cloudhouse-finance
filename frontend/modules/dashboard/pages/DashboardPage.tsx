@@ -10,8 +10,9 @@ import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { useModal } from "@/common/components/ModalProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { stageLabel } from "@/common/services/approvalWorkflowService";
-import { fmt, fmtDate, fmtToday } from "@/common/utils/format";
+import { fmt, fmtDate, fmtToday, schemeOptionLabel } from "@/common/utils/format";
 import { Icon } from "@/common/components/Icon";
+import { AdditionalInfoModalContent } from "@/common/components/ui/AdditionalInfoView";
 import { RateModalContent } from "@/common/components/modals/RateModalContent";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModalContent";
 import { PurityPicker } from "@/common/components/PurityPicker";
@@ -187,7 +188,6 @@ export function DashboardPage() {
   const active = loans.filter((l) => l.status === "Active");
   const overdue = loans.filter((l) => l.isOverdue && !l.isDefaulted && l.status !== "Active" && l.status !== "Auction Eligible" && l.status !== "Auctioned - Balance Due");
   const dueSoon = loans.filter((l) => l.isDueSoon);
-  const pledged = loans.filter((l) => l.bankPledgeStatus === "Bank Pledged");
   const outstanding = active.reduce((s, l) => s + l.outstanding, 0);
   const expToday = expenses.filter((e) => e.d === today).reduce((s, e) => s + e.amt, 0);
   // Whole-book figures come from the server (the shell only holds open loans).
@@ -389,14 +389,14 @@ export function DashboardPage() {
             <Kpi l="Pending Approvals" v={pendingApprovalLoans.length} s="awaiting sanction" cls={pendingApprovalLoans.length ? "info" : ""} href={link(`loans/${encodeURIComponent("Pending Approval")}`)} />
             <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="pending review" cls={pendingReq.some((r) => r.type === "Extension") ? "amber" : ""} href={link("requests/pending-extension")} />
             <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" cls={pendingReq.some((r) => r.type === "Release") ? "amber" : ""} href={link("requests/pending-release")} />
-            <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} cls="info" href={link("bankpledge")} />
+            <Kpi l="Bank-Pledged Loans" v={loanStats?.bankPledgedCount ?? "—"} s={fmt(loanStats?.bankPledgedAmount ?? 0) + " re-pledged"} cls="info" href={link("bankpledge")} />
             <Kpi l="Auction Cases" v={noticeCount ?? "—"} s="notice stage" cls={noticeCount ? "warn" : ""} href={link("auctions/notice-issued")} />
             <Kpi l="Today's Expenses" v={fmt(expToday)} href={canOpen("ledger") ? routeHref("ledger", "expenses") : undefined} />
             <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={link("reports/interest-penal-collection")} />
           </div>
 
           <div className="card gtop">
-            <div className="hd"><h3>Loan Portfolio — Disbursement (last 6 months)</h3><div className="sp" />{canOpen("reports") ? <a href={routeHref("reports")} style={{ fontSize: 12.5 }}>All reports →</a> : null}</div>
+            <div className="hd"><h3>Loan Portfolio — Disbursement (Last 6 Months)</h3><div className="sp" />{canOpen("reports") ? <a href={routeHref("reports")} style={{ fontSize: 12.5 }}>All reports →</a> : null}</div>
             <div className="bd">
               <div className="bars">
                 {monthBuckets.map(([m, v], i) => (
@@ -488,7 +488,7 @@ export function DashboardPage() {
               </div>
               <div className="frow"><div><label className="f">Scheme</label>
                 <Select
-                  options={activeSchemes.map((s) => ({ value: s.id, label: `${s.name} — ${s.ltv}% LTV @ ${s.rate}%` }))}
+                  options={activeSchemes.map((s) => ({ value: s.id, label: schemeOptionLabel(s) }))}
                   value={calcS}
                   onChange={setCalcS}
                 />
@@ -548,6 +548,7 @@ export function DashboardPage() {
                     {/* Manual reminders (Follow-Up / Promise-to-Pay / Custom) can be finished or removed right here. */}
                     {e.reminderId != null && (canUpdateReminders || canDeleteReminders) && (
                       <span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {e.detail && <button className="btn sm ghost" title="View note" aria-label="View note" onClick={() => openModal(<AdditionalInfoModalContent title={e.title} text={e.detail} />)}><Icon name="eye" /></button>}
                         {canUpdateReminders && e.status !== "Done" && <button className="btn sm ghost" title="Mark done" aria-label="Mark done" onClick={() => void reminderAction(() => completeReminder(e.reminderId!), "Reminder marked done.")}><Icon name="check" /></button>}
                         {canDeleteReminders && <button className="btn sm ghost" title="Delete" aria-label="Delete" onClick={() => void reminderAction(() => deleteReminder(e.reminderId!), "Reminder deleted.")}><Icon name="x" /></button>}
                       </span>

@@ -74,7 +74,10 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
   // A loan-sourced Add Cash entry links to that loan's own ledger — served
   // by the loan's same-named repayment category.
   // (Any named source with a category row — Savings too — opens its own ledger.)
-  const loanCategoryId = m.type === "in" && m.source ? categoryIds[m.source.toLowerCase()] : undefined;
+  // Only a loan source opens its own (party) ledger; any other Credit In never
+  // links to the category's Expense ledger — it shows in the party ledger and
+  // links through its Mode cell to the payment-mode ledger.
+  const loanCategoryId = m.type === "in" && m.source && isLoanSource(m.source) ? categoryIds[m.source.toLowerCase()] : undefined;
   if (loanCategoryId) {
     return <LedgerRefLink kind="category" id={loanCategoryId} label={text || m.source!} />;
   }

@@ -650,9 +650,9 @@ export function isAuctionConcluded(stage: AuctionStage): boolean {
 export const AUCTION_OUTCOME_LABELS: Record<AuctionSettlementStatus, string> = {
   Pending: "Awaiting settlement",
   SettledByRepayment: "Settled by repayment",
-  WrittenOff: "Closed — written off",
-  SettledToCustomer: "Settled — surplus refunded",
-  SettledToLoanCo: "Settled — surplus retained",
+  WrittenOff: "Written off",
+  SettledToCustomer: "Settled to customer",
+  SettledToLoanCo: "Settled to company",
 };
 
 export const AUCTION_EVENT_LABELS: Record<string, string> = {
@@ -690,6 +690,10 @@ export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView 
     auctionExpenses: r.auctionExpenses,
     surplusShortfall: roundRupee(r.surplusShortfall),
     surplusPayableAmount: roundRupee(r.surplusPayableAmount ?? 0),
+    duePrincipal: r.duePrincipal ?? null,
+    dueInterest: r.dueInterest ?? null,
+    duePenal: r.duePenal ?? null,
+    dueTotal: r.dueTotal ?? null,
     surplusDisposition: r.surplusDisposition || "",
     surplusRemarks: r.surplusRemarks || "",
     finalSettlementStatus: r.finalSettlementStatus,

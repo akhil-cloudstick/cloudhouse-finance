@@ -54,9 +54,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
           <p className="notice"><Icon name="shield" /> Customer has no open loans.</p>
         )}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
+      <div className="ft">        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
       </div>
     </>
   );

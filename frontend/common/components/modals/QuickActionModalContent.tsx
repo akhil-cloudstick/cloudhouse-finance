@@ -167,7 +167,6 @@ export function QuickActionModalContent({ action, onChanged }: QuickActionModalC
         </div></div>
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={next} disabled={busy}><Icon name="check" /> Continue</button>
       </div>
     </>

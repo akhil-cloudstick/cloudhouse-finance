@@ -22,6 +22,8 @@ export type ReportFilters = {
   customerId?: string; schemeId?: string; loanId?: string; bankId?: string; employeeId?: string;
   investorId?: string; planId?: string; purity?: string; paymentType?: string; collectionMode?: string;
   expenseCategoryId?: string; frequency?: string; setBy?: string;
+  ornamentType?: string; lockerId?: string; settlement?: string;
+  kycStatus?: string; panStatus?: string; aadhaarStatus?: string; role?: string; channel?: string;
 };
 export type ReportResult<Row, Totals> = {
   rows: Row[];

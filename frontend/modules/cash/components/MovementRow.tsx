@@ -10,7 +10,7 @@ type MovementRowProps = { m: CashMovementView; balance: number; categoryIds: Rec
 
 export function MovementRow({ m, balance, categoryIds, onChanged }: MovementRowProps) {
   return (
-    <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount}>
+    <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount} data-ledger-ref={`m:${m.id}`}>
       <td data-label="Date">{fmtDate(m.d)}</td>
       <td className="ledger-ref" data-label="Ref No" title={refTitleFor(m)}>{refCellFor(m, categoryIds)}</td>
       <td data-label="Particulars">{particularsFor(m, categoryIds)}</td>

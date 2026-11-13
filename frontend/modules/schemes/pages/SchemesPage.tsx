@@ -199,7 +199,7 @@ export function SchemesPage() {
               <div className="kv scheme-kv" style={{ gridTemplateColumns: "1fr 1fr", gap: smallScreen ? "6px 12px" : undefined }}>
                 <div className="i"><div className="k">Interest</div><div className="v" style={{ color: "var(--gold-deep)", fontWeight: 600 }}>{s.rateTiers.length > 1 ? `${s.rateTiers[0].rate}% → ${s.rateTiers[s.rateTiers.length - 1].rate}% p.a.` : `${s.rate}% p.a.`}</div></div>
                 <div className="i"><div className="k">Duration</div><div className="v">{s.durationMonths} months</div></div>
-                <div className="i"><div className="k">LTV</div><div className="v">{s.ltv}%</div></div>
+                <div className="i"><div className="k">LTV</div><div className="v">{s.ltvBased ? `${s.ltv}%` : "Not based on LTV"}</div></div>
                 <div className="i"><div className="k">Method</div><div className="v">{s.method || "—"}</div></div>
                 <div className="i"><div className="k">Penal Charges</div><div className="v" style={{ color: "var(--red)", fontWeight: 600 }}>{s.penal}% p.a.</div></div>
                 {s.serviceChargeType !== "None" && (

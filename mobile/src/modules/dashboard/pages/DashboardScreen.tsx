@@ -239,7 +239,7 @@ function NeedsAttention() {
   // `t` re-applies a deep link that targets an already-open page; only
   // stamped when actually opening, never while rendering.
   const targetOf = (it: NeedsAttentionItem, t = ""): string | null => {
-    if (it.kind === "approval" && it.flow === "personal_loan" && it.entityId) return `/personal-loans?id=${it.entityId}&t=${t}`;
+    if (it.kind === "approval" && it.flow === "personal_loan" && it.entityId) return `/personal-loans/${it.entityId}`;
     if (it.kind === "approval" && it.flow === "expense") return `/cash?tab=expenses&t=${t}`;
     if (it.kind === "request") return `/requests?requestId=${it.requestId}${it.loanId ? `&loanId=${it.loanId}` : ""}`;
     return it.loanId ? `/loans/${it.loanId}` : null;
@@ -337,7 +337,7 @@ function ActivityFeed() {
                 sub={[a.loanNumber, a.label, dmy(a.date)].filter(Boolean).join(" · ")}
                 amount={`${type.includes("payment") ? "+" : ""}${inr(a.amount)}`}
                 amountColor={color}
-                onPress={a.loanId && canViewLoans ? () => openPage(`/loans/${a.loanId}`) : undefined}
+                onPress={a.loanId && canViewLoans ? () => openPage(a.personal ? `/personal-loans/${a.loanId}` : `/loans/${a.loanId}`) : undefined}
               />
             );
           })

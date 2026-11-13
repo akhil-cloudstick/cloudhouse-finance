@@ -37,7 +37,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { useCanOpen } from "@/common/config/routePermissions";
 import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest } from "@/modules/loans/services/loanService";
 import { isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
-import { listPackets } from "@/modules/packets/services/packetService";
+import { listPackets, movePacket } from "@/modules/packets/services/packetService";
 import { printReleaseAgreementPdf, printPartialReleaseReceiptPdf, RELEASE_AGREEMENT_LANGS, DOC_LANG_LABELS, type DocLang } from "@/modules/loans/utils/loanPrint";
 import { LoanRequest, Loan } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
@@ -124,8 +124,17 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   });
   const packetRecord = packet.data?.[0];
   const packetStatus = packetRecord?.status;
-  const bankPledged = loan.bankPledgeStatus === "Bank Pledged" || !!loan.bankPledges?.some((p) => p.status === "Active");
-  const inLocker = packetStatus === "Locker Stored";
+  // Only the ornaments of THIS request count; a pledge with no ornament list covers the whole loan.
+  const releasingIds = request.isPartial
+    ? (request.ornamentSelections ?? []).map((x) => x.ornamentId)
+    : (loan.ornaments ?? []).filter((o) => !o.releasedAt).map((o) => o.id);
+  const bankPledged = !!loan.bankPledges?.some(
+    (p) => p.status === "Active" && (!p.ornamentIds || p.ornamentIds.length === 0 || p.ornamentIds.some((id) => releasingIds.includes(id))),
+  );
+  const inLocker = !bankPledged && packetStatus === "Locker Stored";
+  // A locker packet is checked out automatically when the customer is marked as having seen the gold.
+  const canMovePackets = can("Packet_Management", "can_update_packet");
+  const packetAutoReleasable = inLocker && canMovePackets;
   const goldStillHeld = bankPledged || inLocker;
   const goldHeldReason = bankPledged ? "pledged to a bank" : "checked into a locker";
 
@@ -240,7 +249,13 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     },
   });
 
-  const sawGoldDisabled = saveVerification.isPending || !canDecide || !canVerifyChecklist || !isPending || !!request.locked || goldStillHeld;
+  const releasePacket = useMutation({
+    mutationFn: (id: number) => movePacket(id, { toStatus: "Released", employeeId: 1, remarks: `Released with release request on ${loan.loanNumber}` }),
+    onSuccess: () => { packet.refetch(); onSaved(); },
+    onError: reportError,
+  });
+
+  const sawGoldDisabled = saveVerification.isPending || releasePacket.isPending || !canDecide || !canVerifyChecklist || !isPending || !!request.locked || (goldStillHeld && !packetAutoReleasable);
 
   return (
     <View>
@@ -325,6 +340,10 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
           onPress={() => {
             if (sawGoldDisabled) return;
             const next = !sawGold;
+            if (next && packetAutoReleasable && packetRecord) {
+              releasePacket.mutate(packetRecord.id, { onSuccess: () => { setSawGold(true); saveVerification.mutate({ customerSawGold: true }); } });
+              return;
+            }
             setSawGold(next);
             saveVerification.mutate({ customerSawGold: next });
           }}
@@ -332,7 +351,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
           sub="Required before this request can be approved"
         />
       </View>
-      {goldStillHeld && isPending ? (
+      {goldStillHeld && !packetAutoReleasable && isPending ? (
         <View style={{ marginBottom: 6 }}>
           <WarningBanner>
             Release is blocked — this loan&apos;s gold is still {goldHeldReason}. {bankPledged ? "Release the bank pledge first." : "Check the packet out of the locker first."}
@@ -410,7 +429,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
 
       {!isPending ? null : !canApprove ? (
         <ReviewWarning>
-          {goldStillHeld
+          {goldStillHeld && !packetAutoReleasable
             ? `Blocked until the gold is no longer ${goldHeldReason}.`
             : !request.customerSawGold && !paymentConditionMet
               ? "Confirm the customer has seen the gold and record the payment before approving."

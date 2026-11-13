@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import { keepPreviousData, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "./use-debounced-value";
 import { useRefetchOnFocus } from "./use-refetch-on-focus";
@@ -61,6 +62,9 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   });
   const [search, setSearch] = usePersistedState<string>(persistKey ? `search:${persistKey}` : null, "");
   const q = useDebouncedValue(search.trim());
+  // Search text is not kept across pages: when the screen loses focus (navigating away) it is cleared,
+  // so coming back shows a fresh, refreshed list.
+  useFocusEffect(useCallback(() => () => setSearch(""), [setSearch]));
 
   const query = useInfiniteQuery({
     queryKey: [...key, "page", q, filters ?? {}],
